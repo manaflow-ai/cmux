@@ -285,17 +285,23 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           for (const x of [box.center, box.left, box.right]) {
             // The press belongs to empty transcript space, never to a tool disclosure or another
             // row control. Those surfaces keep their ownership in the existing control regression.
+            // A row's own gap target (VirtualTranscript.tsx `.acpmux-row__gap`, spanning the placed
+            // gap under it: a prompt's is the 32px turn gap) is that empty space too.
             expect(
               await page.evaluate(
                 ({ x, y }) => {
                   const target = document.elementFromPoint(x, y);
-                  return Boolean(
-                    target?.closest(".acpmux-thread, .acpmux-spacer, .acpmux-scroll") && !target.closest(".acpmux-row"),
+                  const empty = Boolean(
+                    target?.closest(".acpmux-thread, .acpmux-spacer, .acpmux-scroll") &&
+                      (!target.closest(".acpmux-row") || target.matches('[data-transcript-gap="row"]')),
                   );
+                  if (empty) return "empty";
+                  const row = target?.closest(".acpmux-row")?.getAttribute("data-row-id");
+                  return `${target?.tagName.toLowerCase()}.${String(target?.className).replace(/\s+/g, ".")} in ${row} at ${x},${y}`;
                 },
                 { x, y: midpoint },
               ),
-            ).toBe(true);
+            ).toBe("empty");
             await drag(page, { x, y: midpoint }, box.after);
             expect((await selected(page)).length).toBeGreaterThan(0);
             const anchor = await page.evaluate(() => {

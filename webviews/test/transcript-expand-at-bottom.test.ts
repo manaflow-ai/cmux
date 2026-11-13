@@ -187,6 +187,8 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     over: number;
     /// How long after its frame the read ran (ms).
     lag: number;
+    /// The frame's time less the click's (ms), NaN before a click.
+    since: number;
   };
   /// One frame at 60 Hz. A read that ran this long after its frame's time says that the page fell
   /// behind: on the CI runners every frame that got no read had a late read after it. Its place is
@@ -224,6 +226,8 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
         new Promise<Frame[]>((resolve) => {
           const frames: Frame[] = [];
           const start = performance.now();
+          let clicked = Number.NaN;
+          addEventListener("click", () => (clicked = performance.now()), { capture: true, once: true });
           window.cmuxAfterPaint((painted) => {
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
             const line = document.querySelector<HTMLElement>(selector)!;
@@ -242,6 +246,7 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
               fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
               over: box.bottom - (cut ? Number(cut[1]) : 0) - next.getBoundingClientRect().top,
               lag: performance.now() - painted,
+              since: painted - clicked,
             });
             if (performance.now() - start < duration) return;
             resolve(frames);
@@ -333,9 +338,25 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
             expect({ at, still: Math.abs(frame.line - before.line) <= 1 }).toEqual({ at, still: true });
           }
         const tops = [before[moving], ...frames.map((frame) => frame[moving])];
+        // A step judged is one frame's: the settle curve (cubic-bezier(0.16, 1, 0.3, 1), 180 ms)
+        // covers about half the way in its first 17 ms and 70% by 30 ms, so a first frame drawn two
+        // frames after the click on a busy runner, or a frame the runner dropped, spans more than
+        // one frame of the curve and says nothing of the glide.
+        expect(frames.every((frame) => Number.isFinite(frame.since))).toBe(true);
+        const times = [0, ...frames.map((frame) => frame.since)];
         let largest = 0;
-        for (let index = 1; index < tops.length; index++)
-          largest = Math.max(largest, Math.abs(tops[index]! - tops[index - 1]!));
+        let skipped = 0;
+        for (let index = 1; index < tops.length; index++) {
+          const step = Math.abs(tops[index]! - tops[index - 1]!);
+          const span = times[index]! - times[index - 1]!;
+          if (!(span <= (index === 1 ? 2 : 1.5) * FRAME_MS)) {
+            if (step > 0.5) skipped += 1;
+            continue;
+          }
+          largest = Math.max(largest, step);
+        }
+        if (skipped > 0)
+          console.log(`glide steps over more than one frame (${engineName} ${direction}): ${skipped}, not judged`);
         // Three new places or more strictly between where it was and where it settles: the glide,
         // not a jump. Fewer with reads that ran late is no measure: it says so and judges nothing.
         const { places, late, seen } = glide(frames, moving, before[moving], after[moving]);
