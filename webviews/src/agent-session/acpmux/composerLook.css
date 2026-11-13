@@ -21,10 +21,11 @@
 .acpmux-dock > .acpmux-asks-stack:has(~ .acpmux-composer[data-composer-grid][data-composer-look="codex"]) {
   --grid-composer-radius: calc(22px * var(--acpmux-density));
 }
-/* New Tab's box in Codex's look keeps Nightly's 22 px on its 48 px box, as a share of its height
+/* New Tab's box in Codex's look is a full pill at one line, half its one-line height at every density (Lucas
+   2026-11-14: "codex is 50% radius so we can keep that one easy throughout all"); a taller draft keeps that corner
    (newtab/screen.css --nt-box-radius). */
 .nt-composer[data-composer-look="codex"] {
-  --nt-box-round: calc(22 / 48);
+  --nt-box-round: 0.5;
 }
 :where(:root:not([data-top-strip="plain"])) .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
 .nt-composer[data-composer-look="codex"] > .nt-above {
