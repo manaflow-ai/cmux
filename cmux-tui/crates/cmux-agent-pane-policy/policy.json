@@ -112,7 +112,7 @@
     "_acpmux/typing": {"params": ["sessionId", "on"], "acpmux": []},
     "_acpmux/seen": {"params": ["sessionId", "seq"], "acpmux": []},
     "_acpmux/warm": {"params": ["sessionIds", "limit"], "acpmux": []},
-    "_acpmux/kill": {"params": ["sessionId", "purge", "cancelFork", "cancelToken"], "acpmux": []},
+    "_acpmux/kill": {"params": ["sessionId", "purge", "cancelFork", "cancelToken", "ifIdle"], "acpmux": []},
     "_acpmux/prewarm": {"params": ["harness", "cwd", "release"], "acpmux": []},
     "_acpmux/start_mode": {"params": ["harness", "cwd"], "acpmux": []},
     "_acpmux/project_new": {"params": ["name"], "acpmux": []},
