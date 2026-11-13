@@ -139,3 +139,7 @@ skip = "vendored upstream crate with cmux's patch; cmux-tui.yml runs its tests"
 [[workspace]]
 root = "scripts/cmux-next/rust-change-class"
 run = true
+
+[[workspace]]
+root = "scripts/ci/cargo-lock-new-versions"
+run = true
