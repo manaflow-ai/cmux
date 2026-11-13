@@ -45,7 +45,13 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
                 });
                 let began = Instant::now();
                 writer.apply(row).unwrap();
-                measured.push((running, began.elapsed().as_nanos().max(1)));
+                let elapsed = began.elapsed().as_nanos().max(1);
+                // Both distributions must contain changes to the same 11k
+                // hot rows. The initial pass promotes cold rows into the hot
+                // maps and is not steady-state outside-compaction work.
+                if n >= 11_000 {
+                    measured.push((running, elapsed));
+                }
             }
             writer.sync_batch().unwrap();
             writer.maybe_compact();
