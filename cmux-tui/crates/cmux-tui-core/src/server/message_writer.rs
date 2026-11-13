@@ -8,6 +8,7 @@ use super::RenderService;
 use super::VtStateMessage;
 use super::api_revision_wire;
 use super::conversation_tabs_wire;
+use super::tree_reply_text::TreeReply;
 use crate::AttachFrame;
 use crate::SurfaceId;
 use crate::mux::ResourceWaitWake;
@@ -23,6 +24,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+use std::time::Instant;
 
 #[derive(Clone)]
 pub(super) struct OutboundStream {
@@ -75,6 +77,16 @@ pub(super) trait MessageSink: Send + Sync {
         self.send_stream(text, stream)
     }
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()>;
+    /// [`Self::send_control`] for a sender that may wait until `deadline`
+    /// for room in a control queue that is full. A sink with no such queue
+    /// sends at once.
+    fn send_control_backpressured(
+        &self,
+        text: Arc<BudgetedText>,
+        _deadline: Instant,
+    ) -> std::io::Result<()> {
+        self.send_control(text)
+    }
     fn send_terminal(
         &self,
         text: Arc<BudgetedText>,
@@ -122,6 +134,9 @@ pub(super) struct MessageWriter {
     /// Whether this connection carries the person's keys: its threads then run at user-interactive QoS
     /// (server/input_qos.rs).
     pub(super) input_lane: Arc<super::input_qos::InputLane>,
+    /// What the daemon knows about the client at the other end, for the request counters
+    /// (diagnostics/command_stats.rs): a request reads it here, never in the client registry.
+    pub(super) kind: Arc<crate::diagnostics::ConnectionKind>,
 }
 
 impl MessageWriter {
@@ -144,6 +159,7 @@ impl MessageWriter {
             conversation_tabs: Arc::default(),
             api_revision: Arc::default(),
             input_lane: Arc::default(),
+            kind: Arc::default(),
         }
     }
 
@@ -258,6 +274,29 @@ impl MessageWriter {
         result
     }
 
+    /// [`MessageWriter::send_stream_backpressured`] of a snapshot viewer's
+    /// `output` event ([`RenderService::serialize_snapshot_output`]).
+    pub(super) fn send_snapshot_output_backpressured(
+        &self,
+        surface: SurfaceId,
+        output: &[u8],
+        (generation, offset): (u64, u64),
+        colors: Option<&Value>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self
+            .render_service
+            .serialize_snapshot_output(surface, output, generation, offset, colors)
+            .and_then(|text| self.sink.send_stream_backpressured(text, stream));
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
     pub(super) fn send_terminal<T: Serialize + ?Sized>(
         &self,
         value: &T,
@@ -295,12 +334,60 @@ impl MessageWriter {
     }
 
     pub(super) fn send_control<T: Serialize + ?Sized>(&self, value: &T) -> std::io::Result<()> {
+        self.send_control_with_room_by(value, None)
+    }
+
+    /// [`Self::send_control`] for a thread that may wait: a control queue
+    /// with no room for the message has until `deadline` to get it, where
+    /// `send_control` closes the connection at once. For more than one large
+    /// message to one connection at one time, off its reader thread.
+    pub(super) fn send_control_backpressured<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        deadline: Instant,
+    ) -> std::io::Result<()> {
+        self.send_control_with_room_by(value, Some(deadline))
+    }
+
+    fn send_control_with_room_by<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        deadline: Option<Instant>,
+    ) -> std::io::Result<()> {
+        self.send_rendered_control(deadline, |render| render.serialize_control(value))
+    }
+
+    /// A `list-workspaces` reply written from its build's shared tree text:
+    /// the bytes [`Self::send_control`] sends of its `Response`, through the
+    /// same projections for this connection's capabilities.
+    pub(super) fn send_tree_reply(
+        &self,
+        tree: &TreeReply,
+        id: Option<&Value>,
+    ) -> std::io::Result<()> {
+        self.send_rendered_control(None, |render| {
+            render.write_control(tree.text.reply_bytes(), |out| {
+                tree.text.write_reply(out, id, tree.lines_written_before_read)
+            })
+        })
+    }
+
+    /// Sends the control message that `render` makes, as [`Self::send_control`] does.
+    fn send_rendered_control(
+        &self,
+        deadline: Option<Instant>,
+        render: impl FnOnce(&RenderService) -> std::io::Result<Arc<BudgetedText>>,
+    ) -> std::io::Result<()> {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let result = self.render_service.serialize_control(value).and_then(|text| {
+        let result = render(&self.render_service).and_then(|text| {
             let text = self.project_api_revision(self.project_conversation_tabs(text)?)?;
-            self.sink.send_control(self.mark_reply(text))
+            let text = self.mark_reply(text);
+            match deadline {
+                Some(deadline) => self.sink.send_control_backpressured(text, deadline),
+                None => self.sink.send_control(text),
+            }
         });
         if result.is_err() {
             self.close();

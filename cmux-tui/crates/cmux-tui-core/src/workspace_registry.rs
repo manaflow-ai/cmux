@@ -145,6 +145,10 @@ pub(crate) use public_projection_store::agent_projection_extra;
 #[cfg(test)]
 pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
 #[cfg(test)]
+pub(crate) use public_projection_store::{
+    agent_hook_fence_rows_read_on_this_thread, agent_projection_rows_read_on_this_thread,
+};
+#[cfg(test)]
 pub(crate) use resource_store::AGENT_HOOK_MAX_ATTEMPTS;
 pub(crate) use resource_store::validate_registry_screen_projection;
 pub(crate) use resource_store::{
@@ -3061,6 +3065,8 @@ impl WorkspaceRegistry {
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
             repair_resources_at_open(&tx)?;
+            // After the repair: it can tombstone terminals too.
+            resource_store::prune_agent_records_of_closed_terminals_at_open(&tx)?;
             public_projection_store::prune_stale_notification_reads_at_open(&tx)?;
             terminal_keep_store::classify_legacy_terminals(&tx)?;
             // Additive: also on a registry a build before the table wrote.
@@ -4634,6 +4640,12 @@ fn normalized_workspace_resource_deltas(
         .filter(|(workspace, _)| !live_workspaces.contains(workspace))
         .map(|(workspace, _)| workspace.clone())
         .collect::<Vec<_>>();
+    workspace_commit_intent::push_focus_move_upserts(
+        &mut deltas,
+        before,
+        &live_workspaces,
+        active_workspace,
+    )?;
     let removed_workspace_ids = removed_workspaces.iter().cloned().collect::<HashSet<_>>();
     let removed_screens = before
         .screens

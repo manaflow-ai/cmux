@@ -40,10 +40,7 @@ final class LinkOpener {
     /// The app's services (they own this opener and outlive it).
     private weak var services: AppServices?
     /// A pane a link's tab gives the focus back to when its close empties its pane (``returnPane(closing:in:emptiesPane:)``).
-    private struct Return {
-        let pane: LayoutPaneID
-        weak var content: WorkspaceContentController?
-    }
+    private struct Return { let pane: LayoutPaneID; weak var content: WorkspaceContentController? }
     /// Each focused tab a click opened outside the pane it was clicked in, by surface: where it was
     /// clicked (a link here, the chat header's Changes, Preview or Files in AgentBesidePlacement).
     private var returns: [SurfaceID: Return] = [:]
@@ -125,6 +122,9 @@ final class LinkOpener {
         return LinkOpenPlacement(setting: besideChat ? .splitRight : placement()).target(source: source.layoutPaneID, takesTabs: takesTabs, right: right, column: column,
             sourceWidth: Self.width(of: source), width: width, kind: kind, holds: holds, left: besideChat || source.selectedTab?.showsPage != true ? nil : source.workspace.flatMap { PaneHandlers.neighbor(of: source.layoutPaneID, direction: .left, in: $0) })
     }
+
+    /// Whether the chat header's Terminal from `source` is one Split Right (one `split`, its stand-in pane at the press; ``AgentChatTabActions/run(_:cwd:on:)``), not a tab made in the chat's pane and moved: nothing is on its right, no open beside it is on its way, its pane has room, and its daemon shows a split at the press (`split-client-keys`).
+    func terminalSplitsAtOnce(from source: PaneController) -> Bool { if case .splitRight = target(from: source, besideChat: true, kind: .terminal), !turns.isBusy(beside: source.layoutPaneID), source.daemon.supports(DaemonCapability.splitClientKeys.rawValue), case .split = source.services.toolSplit(from: source.pane, edge: .right, byPerson: true) { true } else { false } }
 
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
     /// `mainPane` false: main pane layout does not apply (a chat, which belongs in the dock, not
@@ -220,8 +220,9 @@ final class LinkOpener {
     /// anywhere else gives the focus back to the source when its close empties its pane (``returnPane(closing:in:emptiesPane:)``).
     /// `reusesTab` (an agent chat's links and cards): a page the pane on the right already shows is
     /// selected there instead of opened again; a terminal's Cmd-click stays a new, fresh tab.
+    /// `revealing` (a terminal program's link, ``LinkRouter/openProgramLink``): a `background` tab still shows where it lands, selected in the pane on the right or made in its new split, and the keyboard stays in `source`.
     @discardableResult
-    func openWeb(_ url: URL, from source: PaneController?, background: Bool, reusesTab: Bool = false) -> Bool {
+    func openWeb(_ url: URL, from source: PaneController?, background: Bool, reusesTab: Bool = false, revealing: Bool = false) -> Bool {
         let from = source ?? services?.windows.active?.focusedPane
         // The person's intent: an agent's open in flight (AgentBesidePlacement) yields to it.
         if !background { _ = from?.workspace?.beginFocusIntent() }
@@ -240,7 +241,7 @@ final class LinkOpener {
             pane.focusContent()
             return true
         }
-        return open(from: from, background: background, kind: .browser, split: background ? nil : browserSplit(url, returningTo: from)) { [weak self, weak from] pane, placed in
+        return open(from: from, background: background, kind: .browser, split: background && !revealing ? nil : browserSplit(url, returningTo: from, keepsFocus: background)) { [weak self, weak from] pane, placed in
             let here = pane === from && placed == nil
             // A pane-local tab keeps Chrome's opener relationship. When placement moves the new
             // tab into another pane, the source pane must not claim it as a child; the placement
@@ -248,6 +249,7 @@ final class LinkOpener {
             let opener = here ? pane.selectedTab?.surface : nil
             let back = background || here ? nil : from
             var then = placed
+            if revealing, background, placed == nil, !here { then = { @MainActor [weak pane] surface in pane?.selectWhenReportedKeepingFocus(surface: surface) } }
             if back != nil {
                 then = { @MainActor [weak self, weak back] surface in
                     if let back, let content = back.workspace { self?.returnFocus(of: surface, to: back.layoutPaneID, in: content) }
@@ -258,12 +260,12 @@ final class LinkOpener {
         }
     }
 
-    /// A web page at `url` (nil: the New Tab page) made straight in a new split, never in the source first (Leo 2026-11-03); its close gives the focus back to `from`. Nil, so the open makes and moves (which refuses or opens a column), from a chat dock or a pane with no room (#23032 review); Home's dock alone needs no room.
-    func browserSplit(_ url: URL?, profile: String? = nil, returningTo from: PaneController? = nil) -> SplitMake {
+    /// A web page at `url` (nil: the New Tab page) made straight in a new split, never in the source first (Leo 2026-11-03); its close gives the focus back to `from`. Nil, so the open makes and moves (which refuses or opens a column), from a chat dock or a pane with no room (#23032 review); Home's dock alone needs no room. `keepsFocus`: the new split's tab takes no focus (a terminal program's background link).
+    func browserSplit(_ url: URL?, profile: String? = nil, returningTo from: PaneController? = nil, keepsFocus: Bool = false) -> SplitMake {
         { [weak self, weak from] (pane: PaneController, direction: SplitDirection, finished: @escaping @MainActor (SurfaceID?) -> Void) -> Bool? in
             let opener = PaneBrowserTabOpener(controller: pane), room = pane.services.splitRoom(for: pane.pane, edge: direction == .right ? .right : .bottom)
             guard direction == .right && opener.opensBesideDockInSplit || opener.opensInSplit && { if case .split = room { true } else { false } }() else { return nil }
-            return pane.newBrowserTab(url: url, profile: profile, split: BrowserTabSplitRequest(direction: direction) { [weak self, weak from] surface in
+            return pane.newBrowserTab(url: url, profile: profile, split: BrowserTabSplitRequest(direction: direction, keepsFocus: keepsFocus) { [weak self, weak from] surface in
                 if let surface, let from, let content = from.workspace { self?.returnFocus(of: surface, to: from.layoutPaneID, in: content) }; finished(surface)
             })
         }

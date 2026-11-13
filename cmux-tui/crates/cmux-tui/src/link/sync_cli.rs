@@ -66,7 +66,8 @@ mod seed_pull;
 
 /// `cmux link seed pull`'s engine ([`super::seed_cli`] is its CLI).
 pub(super) use seed_pull::{
-    SeedBase, SeedPulled, export_to, failure_code as seed_pull_failure_code, is_sha, seed_pull,
+    Exported, SeedBase, SeedPulled, export_move_to, export_to,
+    failure_code as seed_pull_failure_code, is_sha, seed_pull, still_as_recorded,
 };
 pub(crate) mod size_cap;
 pub(crate) mod skips;

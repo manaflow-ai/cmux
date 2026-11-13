@@ -22,6 +22,11 @@ mod resource_projection;
 pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
+mod command_stats;
+pub(crate) use command_stats::{
+    ClientKind, CommandStats, ConnectionKind, answered_later, line_is_named,
+};
+pub use command_stats::{CommandConnections, CommandRow, CommandStatsSnapshot};
 mod connection_leases;
 mod disk_usage;
 pub use connection_leases::{ConnectionLease, PeerClosed};
@@ -530,6 +535,9 @@ pub struct JournalWriterStats {
     terminal_queued: AtomicUsize,
     durable_queued: AtomicUsize,
     phase: Mutex<WriterPhaseState>,
+    /// Set by the first commit that passed its deadline or dropped a record, cleared by the next
+    /// committed batch: what went late and since when.
+    late_commit: Mutex<Option<(String, Instant)>>,
 }
 
 impl Default for JournalWriterStats {
@@ -547,6 +555,7 @@ impl Default for JournalWriterStats {
             terminal_queued: AtomicUsize::new(0),
             durable_queued: AtomicUsize::new(0),
             phase: Mutex::new(WriterPhaseState { code: WRITER_IDLE, since: Instant::now() }),
+            late_commit: Mutex::new(None),
         }
     }
 }
@@ -588,6 +597,8 @@ impl JournalWriterStats {
         self.terminal_events.fetch_add(terminal_events as u64, Ordering::Relaxed);
         self.durable_events.fetch_add(durable_events as u64, Ordering::Relaxed);
         self.batch_size.record((terminal_events + durable_events) as u64);
+        // A batch committed in time: the journal is not late any more.
+        self.late_commit.lock().unwrap_or_else(|e| e.into_inner()).take();
     }
 
     pub fn commit_finished(&self, lock_wait: Duration, commit: Duration) {
@@ -597,6 +608,15 @@ impl JournalWriterStats {
 
     pub fn commit_failed(&self) {
         self.commit_failures.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// A commit went late (it passed its deadline, or the writer dropped a record). The first one
+    /// since the last committed batch is kept.
+    pub fn commit_late(&self, detail: String) {
+        self.late_commit
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_or_insert_with(|| (detail, Instant::now()));
     }
 
     pub fn deadline_expired(&self) {
@@ -627,6 +647,12 @@ impl JournalWriterStats {
         let phase_for_us =
             u64::try_from(phase_state.since.elapsed().as_micros()).unwrap_or(u64::MAX);
         drop(phase_state);
+        let late_commit = self.late_commit.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(
+            |(detail, since)| LateCommitSnapshot {
+                detail: detail.clone(),
+                for_us: u64::try_from(since.elapsed().as_micros()).unwrap_or(u64::MAX),
+            },
+        );
         JournalWriterSnapshot {
             batches: self.batches.load(Ordering::Relaxed),
             terminal_events: self.terminal_events.load(Ordering::Relaxed),
@@ -641,6 +667,7 @@ impl JournalWriterStats {
             durable_queued: self.durable_queued.load(Ordering::Relaxed),
             phase,
             phase_for_us,
+            late_commit,
         }
     }
 }
@@ -670,6 +697,19 @@ pub struct JournalWriterSnapshot {
     pub durable_queued: usize,
     pub phase: WriterPhase,
     pub phase_for_us: u64,
+    /// The journal is late: a commit passed its deadline (its waiters got a timeout) or the
+    /// writer dropped a record. Absent while the last batch committed in time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub late_commit: Option<LateCommitSnapshot>,
+}
+
+/// `server-stats` `journal_writer.late_commit`.
+#[derive(Clone, Debug, Serialize)]
+pub struct LateCommitSnapshot {
+    /// The first late commit's error text.
+    pub detail: String,
+    /// Microseconds since that commit.
+    pub for_us: u64,
 }
 
 /// Connection admission on the control socket.
@@ -685,6 +725,9 @@ pub struct ConnectionStats {
     hung_up: AtomicU64,
     /// Slots taken back from hung-up clients since start.
     reclaimed: AtomicU64,
+    /// The requests by command name and client kind, and the connections by client kind
+    /// (`server-stats` section `commands`).
+    commands: std::sync::Arc<CommandStats>,
     /// The admitted connections whose client can be watched for a hang-up.
     leases: Mutex<Vec<std::sync::Weak<ConnectionLease>>>,
     /// Of `active`, the connections from processes inside this session's
@@ -704,6 +747,11 @@ pub struct ConnectionStats {
 }
 
 impl ConnectionStats {
+    /// The request counters of the session (`diagnostics/command_stats.rs`).
+    pub(crate) fn commands(&self) -> &std::sync::Arc<CommandStats> {
+        &self.commands
+    }
+
     /// Opens the session's slow request log in `directory`, once; the log, if there is one.
     pub(crate) fn open_request_log(
         &self,
@@ -881,6 +929,9 @@ pub struct ServerStatsSnapshot {
     /// session keeps its registry on disk.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disk: Option<DiskUsageSnapshot>,
+    /// Present only when the request names `commands` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commands: Option<CommandStatsSnapshot>,
     /// Present only when the request names `journal_followers` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub journal_followers: Option<crate::mux::JournalFollowersSnapshot>,

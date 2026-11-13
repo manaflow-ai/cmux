@@ -419,7 +419,9 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
   });
 
   test("a short chat that fits, sent from its latest row, morphs", async () => {
-    const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
+    // Tall enough for one turn under Codex's composer (the default since #42247): its 96 px box and
+    // the Codex turn spacing put the first turn about 100 px past a 620 px pane.
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     try {
       await openChat(page, ["first question"]);
       expect(

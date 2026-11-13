@@ -148,12 +148,12 @@ async function scrollToTop(client: AcpmuxDirectClient, snapshot: () => Snapshot)
 }
 
 test("every older page the reader asks for brings an older turn in, past a prompt queued with a big paste", async () => {
-  // Turn 4 was queued behind turn 3 with a 300 KB paste: more than one older page (256 KB) holds.
+  // Turn 4 was queued behind turn 3 with a 1200 KB paste: more than one older page (1 MiB) holds.
   const history = records([
     ...turn(1),
     ...turn(2),
     ...turn(3).slice(0, 3),
-    queued("p-4", 300),
+    queued("p-4", 1200),
     done,
     ["mux", "dequeued", { promptId: "p-4" }],
     ...turn(4),
@@ -179,13 +179,13 @@ test("every older page the reader asks for brings an older turn in, past a promp
 });
 
 test("a chat that opens mid-turn pages past a turn before it larger than an older page", async () => {
-  // Turn 2 wrote 400 KB, so the page that ends at turn 3's prompt does not reach turn 2's; turn 3
+  // Turn 2 wrote 1600 KB, so the page that ends at turn 3's prompt does not reach turn 2's; turn 3
   // outgrew the open page (128 KB), so the pane opens inside it and draws its prompt first, with
   // the start of its reply cut off.
   const history = records([
     ...turn(1),
     ...ask(2),
-    ...[1, 2, 3, 4].map((n): Step => ["in", "agent_message_chunk", say(`${n}`.repeat(100 * 1024))]),
+    ...[1, 2, 3, 4].map((n): Step => ["in", "agent_message_chunk", say(`${n}`.repeat(400 * 1024))]),
     done,
     ...ask(3),
     ...[1, 2, 3, 4, 5].map((n): Step => ["in", "agent_message_chunk", say(`${n}`.repeat(40 * 1024))]),
@@ -216,12 +216,12 @@ test("a chat that opens mid-turn pages past a turn before it larger than an olde
 });
 
 test("one ask reads past a run of rows that draw nothing to the turn before it, in a bounded number of pages", async () => {
-  // Twelve prompts queued with 300 KB pastes in a row: twelve pages that draw no row. One ask reads on past them
+  // Twelve prompts queued with 1200 KB pastes in a row: twelve pages that draw no row. One ask reads on past them
   // (direct.ts OLDER_PAGES_PER_ASK) instead of stopping after eight with nothing new to draw.
   const history = records([
     ...turn(1),
     ...ask(2),
-    ...Array.from({ length: 12 }, (_, i) => queued(`q-${i}`, 300)),
+    ...Array.from({ length: 12 }, (_, i) => queued(`q-${i}`, 1200)),
     ["in", "agent_message_chunk", say("Answer 2")],
     done,
     ...turn(3),
@@ -241,8 +241,8 @@ test("one ask reads past a run of rows that draw nothing to the turn before it, 
 });
 
 test("history whose very first record is larger than an older page loads to the top and stops", async () => {
-  // The chat's first prompt carried a 600 KB paste: the oldest page is that one record alone.
-  const big = `Question 1 ${"x".repeat(600 * 1024)}`;
+  // The chat's first prompt carried a 1800 KB paste: the oldest page is that one record alone.
+  const big = `Question 1 ${"x".repeat(1800 * 1024)}`;
   const history = records([
     ["mux", "user_message", { text: big, promptId: "p-1" }],
     ["mux", "turn_started", {}],
@@ -259,8 +259,8 @@ test("history whose very first record is larger than an older page loads to the 
 });
 
 test("an oversized record that draws no row at the very top still ends the history", async () => {
-  // A 600 KB prompt was queued and dropped before the first turn: the oldest page draws nothing.
-  const history = records([queued("q-0", 600), ["mux", "dequeued", { promptId: "q-0" }], ...turn(1), ...turn(2)]);
+  // A 1800 KB prompt was queued and dropped before the first turn: the oldest page draws nothing.
+  const history = records([queued("q-0", 1800), ["mux", "dequeued", { promptId: "q-0" }], ...turn(1), ...turn(2)]);
   const { client, snapshot } = await open(history);
   const asks = await scrollToTop(client, snapshot);
   expect(asks).toBeLessThan(40);

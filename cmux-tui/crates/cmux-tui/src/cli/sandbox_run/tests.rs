@@ -115,7 +115,7 @@ fn the_receipt_reads_reply_first_then_status_time_cost_and_cleanup() {
     let failed = json!({ "status": "failed", "timedOut": true, "timings": {}, "cost": { "vmSeconds": null, "estimateUsd": null }, "cleanup": "pending", "error": "timed out" });
     assert_eq!(
         receipt_text(&failed, messages),
-        "status: failed (timed out)\ntimed out\ntime: - total, - boot\nVM: destroy pending (the reaper finishes it)"
+        "status: failed (timed out)\ntimed out\ntime: - total, - boot\nVM: delete pending (cmux keeps trying while the app runs)"
     );
     assert_eq!(exit_code(&failed), 1);
     // A cancelled receipt (the deadline cancel's answer) exits 1 like a failed one; 4 is only
@@ -288,6 +288,21 @@ fn the_deadline_cancel_says_what_happened() {
     for code in ["run_not_found", "http_409", "rate_limited"] {
         assert_eq!(deadline_cancel_for(&failed(code)), DeadlineCancel::Refused, "{code}");
     }
+}
+
+/// #39022 review at a5563b2d, F2: a cleanup cmux gave up on is this Run's receipt, and says the
+/// machine is left for the person to delete, never that cmux keeps trying.
+#[test]
+fn an_abandoned_cleanup_says_the_machine_is_left_to_delete() {
+    let messages = &crate::localization::catalog_for_locale("en").sandbox_run;
+    let snapshot = json!({ "receipt": {
+        "schema": "cmux.run.receipt/v1", "runId": "run-1", "environment": "sandboxed",
+        "status": "succeeded", "cleanup": "abandoned",
+    } });
+    let receipt = run_receipt(&snapshot, "run-1").expect("an abandoned cleanup is still a receipt");
+    let text = receipt_text(receipt, messages);
+    assert!(text.ends_with(messages.cleanup_abandoned), "{text}");
+    assert_ne!(messages.cleanup_abandoned, messages.cleanup_pending);
 }
 
 #[test]
