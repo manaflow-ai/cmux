@@ -143,13 +143,10 @@ async fn replay_once(verbose: bool) -> (usize, usize) {
     let source = Arc::new(HubSource::new(Arc::new(hub)));
     let (client, server) = tokio::io::duplex(1024);
     let (server_reader, server_writer) = tokio::io::split(server);
-    let task = tokio::spawn(run(
-        server_reader,
-        server_writer,
-        source,
-        "v2-replay-gate",
-        &["list".to_owned()],
-    ));
+    let task = tokio::spawn(async move {
+        let features = ["list".to_owned()];
+        run(server_reader, server_writer, source, "v2-replay-gate", &features).await
+    });
     let (mut reader, mut writer_io) = tokio::io::split(client);
     hello(&mut writer_io, &mut reader).await;
     send(
@@ -188,13 +185,10 @@ async fn append_replay_sample(
     let source = Arc::new(HubSource::new(hub));
     let (client, server) = tokio::io::duplex(1024);
     let (server_reader, server_writer) = tokio::io::split(server);
-    let task = tokio::spawn(run(
-        server_reader,
-        server_writer,
-        source,
-        "v2-replay-gate",
-        &["list".to_owned()],
-    ));
+    let task = tokio::spawn(async move {
+        let features = ["list".to_owned()];
+        run(server_reader, server_writer, source, "v2-replay-gate", &features).await
+    });
     let (mut reader, mut writer_io) = tokio::io::split(client);
     hello(&mut writer_io, &mut reader).await;
     send(
