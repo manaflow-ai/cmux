@@ -216,7 +216,7 @@ fn await_presented_marker(
         if let Some(sample) = batch.samples.into_iter().rev().find(|sample| {
             sample.counter.is_some()
                 && sample.display_us.is_some()
-                && expected_nonce.map_or(true, |expected| sample.nonce == Some(expected))
+                && expected_nonce.is_none_or(|expected| sample.nonce == Some(expected))
         }) {
             return Ok(sample);
         }
