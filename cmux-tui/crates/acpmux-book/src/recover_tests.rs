@@ -403,7 +403,7 @@ fn a_source_change_cuts_the_replay_suffix_to_the_checkpoint() {
         assert_eq!(fs::metadata(segment(&book)).unwrap().len(), mark_len);
         assert_eq!(log.patch(1, 2, RawRange::NONE, b"patched after cut").unwrap(), 2);
     }
-    let (mut log, recovered) = open(&book);
+    let (log, recovered) = open(&book);
     assert_eq!(recovered.replayed, 1);
     assert_eq!(log.last_seq(), 2);
     assert_eq!(log.row(1).unwrap().rev, 2);

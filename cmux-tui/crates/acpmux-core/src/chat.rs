@@ -345,7 +345,7 @@ fn run_supervised(
             Ok(false) => continue,
             Err(ChatError::Book(BookError::CorruptRow { .. })) => {
                 drop(state);
-                let mut rebuilt = rebuild_from_raw(config.clone())?;
+                let mut rebuilt = rebuild_from_raw(config)?;
                 rebuilt.recovery = Recovery::Rebuild;
                 let receiver = receiver.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                 return run_once(&mut rebuilt, &receiver, &queued).map(|_| ());
