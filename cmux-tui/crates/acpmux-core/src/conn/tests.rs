@@ -212,7 +212,7 @@ async fn quiet_unsubscribe_releases_tasks_and_subscribers() {
 
 #[test]
 fn inflight_bytes_stay_counted_and_notice_uses_completed_cursor() {
-    let mut state = ConnectionState::new(128);
+    let mut state = ConnectionState::new(crate::wire::MAX_FRAME_BYTES + 100);
     state.subscribe("s", Cursor(7)).unwrap();
     let control = state.control("s").unwrap();
     assert_eq!(state.offer("s", frame(90), Cursor(8)), Offer::Taken);
