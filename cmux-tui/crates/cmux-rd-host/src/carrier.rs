@@ -445,4 +445,37 @@ mod wg_transport_tests {
             assert!(Instant::now() < deadline, "wrong peer did not fail closed");
         }
     }
+    #[test]
+    fn wg_transport_retry_survives_peer_worker_exit() {
+        let (mut a, mut b) = pair();
+        a.net.send_control(
+            br#"{"t":"wg_offer","version":255,"key":"00","address":"10.253.0.1","mtu":1088}"#
+                .to_vec(),
+        );
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while !a.retry_ready() && !b.retry_ready() {
+            step(&mut a, &mut b);
+            assert!(Instant::now() < deadline);
+        }
+        let mut remaining = if a.retry_ready() {
+            drop(a);
+            b
+        } else {
+            drop(b);
+            a
+        };
+        while !remaining.retry_ready() {
+            crate::fdwait::wait_readable(&remaining.fds(), Some(10_000_000)).unwrap();
+            let events = remaining.events();
+            assert!(
+                !events.iter().any(|e| matches!(
+                    e,
+                    NetEvent::Failed(_) | NetEvent::Endpoint(EndpointEvent::Link(Event::Closed))
+                )),
+                "peer worker exit erased agreed fallback: {events:?}"
+            );
+            assert!(Instant::now() < deadline);
+        }
+        assert!(remaining.take_fallback().is_some());
+    }
 }
