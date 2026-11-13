@@ -56,6 +56,57 @@ async fn one_hundred_thousand_stream_appends_do_not_mark() {
     assert_eq!(state.take(), ["chat"]);
 }
 
+#[tokio::test]
+async fn coalesced_marks_read_activity_at_the_drain_after_unmarked_chunks() {
+    let v1 = memory_hub();
+    let mut row = meta("streaming");
+    row.status = crate::store::SessionStatus::Running;
+    let session = v1.insert_test_session(row);
+    let initial = summary_from_session(&v1, &session).unwrap();
+    let index = acpmux_book::index::SummaryIndex::new().apply(1, initial);
+    let (hub, writer) = acpmux_core::hub::Hub::new(index);
+    let v2 = V2::new(hub, writer);
+    let subscription = v2.hub.subscribe(&acpmux_core::wire::Sub::new("test", "list")).unwrap();
+    let state = Arc::new(TeeState::default());
+    v1.install_v2_tee(Arc::new(TeeHandle { state: state.clone() }));
+    let at = crate::store::now_ms() + 10;
+    let (_, stored) = v1.append_at(
+        &session,
+        "mux",
+        "status",
+        serde_json::json!({"status":"running"}),
+        None,
+        Some(at),
+    );
+    assert!(stored);
+    assert_eq!(state.marks.load(Ordering::Relaxed), 1);
+    for n in 1..=100 {
+        let (_, stored) = v1.append_at(
+            &session,
+            "in",
+            "agent_message_chunk",
+            serde_json::json!({"delta":"x"}),
+            None,
+            Some(at + n),
+        );
+        assert!(stored);
+    }
+    assert_eq!(state.marks.load(Ordering::Relaxed), 1, "chunks add no marks");
+    v1.events.row_changed(&session);
+    assert_eq!(state.marks.load(Ordering::Relaxed), 2);
+    let mut expiries = Expiries::default();
+    drain_marks(&v1, &v2, &state, &mut expiries);
+    v2.hub.close();
+    v2.take_writer().unwrap().run().await.unwrap();
+    let Some(acpmux_core::hub::ListItem::Summary(event)) = subscription.receiver.try_next() else {
+        panic!("one summary for both marks");
+    };
+    assert_eq!(event.summary.last_activity, at + 100);
+    assert_eq!(event.summary.last_activity, session.meta().updated_at);
+    assert!(event.summary.same_content(&summary_from_session(&v1, &session).unwrap()));
+    assert!(subscription.receiver.try_next().is_none());
+}
+
 #[test]
 fn due_work_is_bounded_and_drains_without_new_marks() {
     let state = TeeState::default();
