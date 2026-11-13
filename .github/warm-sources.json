@@ -94,6 +94,7 @@
     "nightly-next-canary.yml:pick": {"class": "nightly-control", "warm": ["actions-cache"]},
     "nightly-next-canary.yml:verdict": {"class": "nightly-control", "warm": ["actions-cache"]},
     "nightly-next-canary.yml:canary": {"class": "nightly-release-compile", "warm": [], "exempt": "launches the feed's published DMG; selects Xcode only for stapler and spctl; compiles nothing"},
+    "nightly-next-cua-signed-host.yml:signed-host": {"class": "mac-run-product", "warm": [], "exempt": "runs the computer use helpers of the published signed NIGHTLY; compiles nothing"},
     "nightly-next-launch-smoke.yml:crashed": {"class": "nightly-control", "warm": [], "exempt": "dispatches the rollback and files the crash on the nightly slot; compiles nothing"},
     "nightly-next-launch-smoke.yml:pick": {"class": "nightly-control", "warm": ["actions-cache"]},
     "nightly-next-launch-smoke.yml:record": {"class": "nightly-control", "warm": ["actions-cache"]},
