@@ -68,6 +68,48 @@ pub const GATE_ROWS: &[GateRow] = &[
         measured: false,
     },
     GateRow {
+        pr: "3a",
+        name: "v2.pr03a.window_cold",
+        done_when: "Cold source-driven actor startup and first read are bounded against the small fixture.",
+        measured: false,
+    },
+    GateRow {
+        pr: "3a",
+        name: "v2.pr03a.fold_window",
+        done_when: "Fold-window work remains bounded against the small fixture.",
+        measured: false,
+    },
+    GateRow {
+        pr: "3a",
+        name: "v2.pr03a.resume_missed",
+        done_when: "Resuming missed source lines scales with missed input against the small fixture.",
+        measured: false,
+    },
+    GateRow {
+        pr: "3a",
+        name: "v2.pr03a.rss_subscribed",
+        done_when: "Subscribed actor memory remains bounded against the small fixture.",
+        measured: false,
+    },
+    GateRow {
+        pr: "3a",
+        name: "v2.pr03a.append_behind_page",
+        done_when: "Appending behind a cold read remains bounded against the small fixture.",
+        measured: false,
+    },
+    GateRow {
+        pr: "3a",
+        name: "v2.pr03a.replay_kill",
+        done_when: "Replay after a killed actor remains bounded and durable against the small fixture.",
+        measured: false,
+    },
+    GateRow {
+        pr: "3a",
+        name: "v2.pr03a.resume_live",
+        done_when: "Resuming a live source remains bounded against the small fixture.",
+        measured: false,
+    },
+    GateRow {
         pr: "4",
         name: "v2.pr04.byte_credit_drop_resume",
         done_when: "1 GB of events to a stopped reader: RSS stays under the connection budget; the reader resumes with no row lost or repeated.",
