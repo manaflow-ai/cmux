@@ -249,19 +249,25 @@ public final class PointerHover: NSObject {
 /// So the resign and the become of one key change are read together:
 ///
 /// - The key moved inside one window, between it and a Chromium page window of it (`home(of:)`):
-///   nothing is recomputed. A page window is the content of a pane of its window, above it before
-///   and after, so such a change covers and uncovers nothing under the pointer. A workspace switch
-///   between two browser tabs makes two such changes, 4 notices, and each notice used to ask the
-///   window server for the topmost window at the pointer once for each target under it (a
-///   synchronous round trip; 39 main-thread samples of a 10 switch recording). A panel, a sheet or
-///   a popup of the window is not inside it: it can show over the pointer as it takes the key.
+///   no notice recomputes at once. The window is recomputed one time when that pass of the run
+///   loop ends, for all such notices of the pass. A workspace switch between two browser tabs
+///   makes two such changes, 4 notices, and each notice used to ask the window server for the
+///   topmost window at the pointer once for each target under it (a synchronous round trip; 39
+///   main-thread samples of a 20 switch recording). The one recompute stays because the change
+///   is not only a key change: the page that leaves is ordered out with it, which uncovers what
+///   it covered under a still pointer, and the switch that caused it hid and showed views that
+///   do not all report it. It runs after them: in their pass, or in the pass that starts at once
+///   when the notices came from a run loop observer at the end of one (the hover is then right
+///   one frame after the switch at most). A panel, a sheet or a popup of the window is not
+///   inside it: it can show over the pointer as it takes the key.
 /// - The key moved to another window, or to or from a page window whose window is not known:
 ///   both windows are refreshed, as each notice did before.
 /// - A window resigned and no window became key by the end of that pass of the run loop (another
-///   app came to the front): that window is refreshed then, once, in that pass. A become in a
-///   later pass refreshes its window as before.
+///   app came to the front): that window is refreshed then, once, in that pass (a page of a
+///   window that is recomputed then is in that recompute). A become in a later pass refreshes
+///   its window as before.
 ///
-/// Chromium does the same job with one synthesized mouse move after a change
+/// Chromium does the same job with one synthesized mouse move after a change, coalesced
 /// (`Widget::SynthesizeMouseMoveEvent`), not one hit test for each view at each notice.
 ///
 /// The notices arrive through `MainActorObservation` on the main queue, never a selector: AppKit
@@ -281,7 +287,10 @@ final class KeyWindowObserver {
     private weak var resigned: NSWindow?
     /// `resigned`'s home when it resigned (`home(of:)`).
     private weak var resignedHome: NSWindow?
-    /// The end-of-pass read of `resigned` is queued.
+    /// The window that the key moved inside in this pass of the run loop (between it and a page
+    /// of it), not recomputed yet.
+    private weak var moved: NSWindow?
+    /// The end-of-pass read of `resigned` and `moved` is queued.
     private var settles = false
     /// The window each Chromium page window was a child of when a key change last saw it with a
     /// parent, by the page window's identifier. It keeps no window alive, a window that closes
@@ -316,11 +325,7 @@ final class KeyWindowObserver {
         if let earlier = resigned, earlier !== window { PointerHover.refresh(in: earlier) }
         resigned = window
         resignedHome = home(of: window)
-        guard !settles else { return }
-        settles = true
-        // A block of the run loop, not a timer and not a job of the main queue: it runs in the
-        // pass that the notice is in (the pass that starts now, when the notice came between two).
-        MainRunLoopBlock.perform { [weak self] in self?.settle() }
+        settleWhenThePassEnds()
     }
 
     private func become(_ window: NSWindow?) {
@@ -330,10 +335,28 @@ final class KeyWindowObserver {
         PointerHover.keyChanged(in: window)
         let newHome = home(of: window)
         if let old {
-            if let oldHome, oldHome === newHome { return }
+            if let oldHome, oldHome === newHome { return movedInside(oldHome) }
             PointerHover.refresh(in: old)
         }
         PointerHover.refresh(in: window)
+    }
+
+    /// The key moved between `home` and a page of it: `home` is recomputed one time when this
+    /// pass ends, after what came with the change (the page ordered out or in, the views that a
+    /// switch hid and showed), for every such move of the pass.
+    private func movedInside(_ home: NSWindow) {
+        // A second window's change in one pass: the first is recomputed now.
+        if let earlier = moved, earlier !== home { PointerHover.refresh(in: earlier) }
+        moved = home
+        settleWhenThePassEnds()
+    }
+
+    private func settleWhenThePassEnds() {
+        guard !settles else { return }
+        settles = true
+        // A block of the run loop, not a timer and not a job of the main queue: it runs in the
+        // pass that the notice is in (the pass that starts now, when the notice came between two).
+        MainRunLoopBlock.perform { [weak self] in self?.settle() }
     }
 
     /// The window `window` is a part of, for the pointer: itself, or for a Chromium page window
@@ -372,18 +395,24 @@ final class KeyWindowObserver {
         return window
     }
 
-    /// `window` closes: as a page it leaves `homes`, and so do the pages that were its.
+    /// `window` closes: as a page it leaves `homes`, and so do the pages that were its. A closed
+    /// window has no hover left to recompute for a key change inside it.
     private func closed(_ window: NSWindow) {
         homes[ObjectIdentifier(window)] = nil
         homes = homes.filter { $0.value.window !== window }
+        if moved === window { moved = nil }
     }
 
-    /// The pass that had a resign ends: with no become since, the key left the app's windows.
+    /// The pass that had a key notice ends. A window that the key moved inside is recomputed one
+    /// time. A resign with no become since: the key left the app's windows, and that window is
+    /// recomputed, unless it is the window recomputed just now or a page of it (a recompute reads
+    /// every target that hovers and the window's targets under the pointer).
     private func settle() {
         settles = false
-        guard let window = resigned else { return }
-        (resigned, resignedHome) = (nil, nil)
-        PointerHover.refresh(in: window)
+        let (lone, loneHome, family) = (resigned, resignedHome, moved)
+        (resigned, resignedHome, moved) = (nil, nil, nil)
+        if let family { PointerHover.refresh(in: family) }
+        if let lone, family == nil || loneHome !== family { PointerHover.refresh(in: lone) }
     }
 }
 
