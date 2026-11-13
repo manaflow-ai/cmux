@@ -53,10 +53,11 @@ import Testing
         #expect(flipped ? lineStart > barEdge : lineStart < barEdge,
                 "the line starts at \(lineStart), inside the header bar that ends at \(barEdge)")
         line.layoutSubtreeIfNeeded()
-        // One capsule (Lawrence msg 19775): the layer's corner clip rounds both ends the same.
-        #expect(line.layer?.cornerRadius == 1 && line.layer?.maskedCorners == SidebarGroupLineShape.corners
+        // The katana on top (Leo 2026-11-08), drawn in the body; the layer's corner clip rounds the bottom cap.
+        #expect(line.layer?.cornerRadius == 1
+                && line.layer?.maskedCorners == SidebarGroupLineShape.capCorners(flipped: line.layer?.contentsAreFlipped() == true)
                 && line.layer?.masksToBounds == true && line.railShape.path != nil,
-                "the line is one clipped capsule")
+                "the line is the katana over a clipped round cap")
         #expect(line.railShape.frame.width == 2 && line.railShape.frame.height >= 4096,
                 "the cut shape preserves coverage while the parent rail shrinks")
     }

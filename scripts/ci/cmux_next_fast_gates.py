@@ -69,7 +69,11 @@ IDENTITY = ("-c", "user.name=cmux fast gates", "-c", "user.email=fast-gates@user
 # The crash ratchet reads these trees on each side (cmux-next-guards.yml, crash-ratchet).
 RATCHET_PATHS = ("Packages", "cmux-tui/crates", "scripts/cmux-next")
 FETCH_DEPTH = 50
-DEEPEN_STEPS = (200, 1000, 5000)
+# A pull request a few dozen commits from the tip needs only the first step. Each deepen brings commits and trees but
+# no blobs (--filter=blob:none; git fetches a blob a gate reads on demand): on 2026-11-13 a --deepen=200 with blobs
+# took 87 to 108 s of a 160 to 233 s job (runs 43473169308, 43474564309) for heads 9 and 32 commits from their base.
+DEEPEN_STEPS = (32, 200, 1000, 5000)
+DEEPEN_FILTER = "--filter=blob:none"
 
 
 def log(message: str) -> None:
@@ -210,9 +214,13 @@ def deepen(repo: Path, remote: str, wants: list[str], head: str, base: str) -> N
     for depth in DEEPEN_STEPS:
         if deep_enough(repo, head, base):
             return
-        git(repo, "fetch", "--no-tags", "--quiet", f"--deepen={depth}", remote, *wants)
+        started = time.monotonic()
+        git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, f"--deepen={depth}", remote, *wants)
+        log(f"fast-gates: deepened by {depth} in {time.monotonic() - started:.1f}s")
     if not deep_enough(repo, head, base):
-        git(repo, "fetch", "--no-tags", "--quiet", "--unshallow", remote, *wants)
+        started = time.monotonic()
+        git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, "--unshallow", remote, *wants)
+        log(f"fast-gates: unshallowed in {time.monotonic() - started:.1f}s")
 
 
 def fetch_for_merge(repo: Path, remote: str, pr: str, base: str) -> None:

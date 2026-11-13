@@ -1,6 +1,7 @@
 // Add account asks for no id or folder (Leo, 2026-11-05, on the old sheet's raw Account ID and Login
 // folder fields): it offers the ways to add and fills in the rest.
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -27,9 +28,10 @@ const KEYS = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

@@ -16,6 +16,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import sys
+
 import yaml
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
@@ -27,6 +29,8 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 WORKFLOW = ROOT / ".github" / "workflows" / "gallery-health.yml"
 
 
@@ -136,12 +140,12 @@ class GalleryHealthBaseReds(unittest.TestCase):
     def test_every_health_run_may_render(self) -> None:
         # health.ts refuses to render without CMUX_GALLERY_IN_VM=1 and writes no verdict; the base replay
         # first ran without it, so no base result ever existed and every red failed (review of #27100).
-        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-        job_env = workflow["jobs"]["health"].get("env") or {}
-        runs = [entry for entry in steps() if "bun health.ts" in str(entry.get("run", ""))]
+        workflow = workflow_jobs.document(WORKFLOW)
+        job = workflow["jobs"]["health"]
+        runs = [entry for entry in job["steps"] if "bun health.ts" in str(entry.get("run", ""))]
         self.assertEqual(len(runs), 2)
         for entry in runs:
-            env = {**job_env, **(entry.get("env") or {})}
+            env = workflow_jobs.effective_env(workflow, job, entry)
             self.assertEqual(str(env.get("CMUX_GALLERY_IN_VM")), "1", entry.get("name"))
 
     def test_a_base_replay_with_no_verdict_fails_loudly(self) -> None:
@@ -177,8 +181,9 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertIn("head.repo.full_name == github.repository", job["if"])
         self.assertNotIn("needs", job, "it runs beside the shards, not before them")
         self.assertNotIn("needs", workflow["jobs"]["health"])
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", job["runs-on"])
-        self.assertNotIn("blacksmith", job["runs-on"])
+        runs_on = "\n".join(workflow_jobs.runs_on_cells(job) or ["<unresolved matrix>"])
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runs_on)
+        self.assertNotIn("blacksmith", runs_on)
         # It checks out what the shards check out, and restores the base by the judge step's own command.
         self.assertEqual(job["steps"][0]["with"], step("Checkout")["with"])
         build = next(entry for entry in job["steps"] if entry.get("name") == "Build the base gallery")["run"]
@@ -190,6 +195,8 @@ class GalleryHealthBaseReds(unittest.TestCase):
         upload = next(entry for entry in job["steps"] if entry.get("name") == "Upload the base gallery")
         fetch = step("Fetch the base gallery")
         self.assertEqual(upload["with"]["name"], fetch["with"]["name"])
+        # A whole-workflow rerun uploads the same name again under the same run (review F1 of #41429).
+        self.assertIs(upload["with"].get("overwrite"), True)
         self.assertEqual(fetch["with"]["path"], "${{ runner.temp }}/base-gallery")
         self.assertIs(fetch.get("continue-on-error"), True)
         self.assertIn("steps.render.outcome == 'failure'", fetch["if"])
