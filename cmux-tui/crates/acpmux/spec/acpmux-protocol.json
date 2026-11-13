@@ -173,6 +173,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/v2",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/tailnet/login",
       "params": true,
       "result": true
@@ -294,7 +300,7 @@
         "$ref": "#/types/ViewParams"
       },
       "result": {
-        "$ref": "#/types/Done"
+        "$ref": "#/types/ViewDone"
       }
     },
     {
@@ -311,10 +317,20 @@
       "kind": "request",
       "name": "_acpmux/markUnread",
       "params": {
-        "$ref": "#/types/SessionRef"
+        "$ref": "#/types/MarkUnreadParams"
       },
       "result": {
         "$ref": "#/types/Done"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/seen",
+      "params": {
+        "$ref": "#/types/SeenParams"
+      },
+      "result": {
+        "$ref": "#/types/SeenDone"
       }
     },
     {
@@ -330,6 +346,12 @@
     {
       "kind": "request",
       "name": "_acpmux/rename",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/register",
       "params": true,
       "result": true
     },
@@ -599,6 +621,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/prompt_coach",
+      "params": {
+        "$ref": "#/types/PromptCoachParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/prompt_withdraw",
       "params": true,
       "result": true
@@ -720,6 +750,18 @@
     {
       "kind": "request",
       "name": "_acpmux/bg/stop",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/run_elsewhere/plan",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/run_elsewhere/start",
       "params": true,
       "result": true
     },
@@ -1077,6 +1119,22 @@
       "name": "_acpmux/queue_text",
       "params": true,
       "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/rows",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/rows_patch",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/rows_lagged",
+      "params": true
     },
     {
       "kind": "request",
@@ -1967,6 +2025,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/journal_restore",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/attachments_held",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/pair_ticket_new",
       "params": true,
       "result": true
@@ -2130,6 +2200,11 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/unsent",
+      "params": true
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/lagged",
       "params": true
     },
@@ -2207,6 +2282,8 @@
         "route": true,
         "senderHarness": true,
         "senderHarnessChecked": true,
+        "senderToken": true,
+        "sessionCreatedAt": true,
         "spawnToolCallId": true,
         "startLater": true,
         "steer": true,
@@ -2217,6 +2294,7 @@
         "tags": true,
         "teamMessage": true,
         "throughSeq": true,
+        "throwaway": true,
         "topic": true,
         "via": true,
         "vmBoundary": true,
@@ -2436,6 +2514,13 @@
             "null"
           ]
         },
+        "attending": {
+          "description": "False attaches showing the chat to a person who is away (`_acpmux/view` `attending`): it\nsees nothing, so a reconnect while they are away keeps the chat's unread; default true.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "beforeSeq": {
           "description": "The newest `limit` records before this one.",
           "format": "uint64",
@@ -2481,6 +2566,13 @@
         },
         "sessionId": {
           "type": "string"
+        },
+        "settled": {
+          "description": "Answer from the chat's settled view first (`settled-attach-v1`,\n`server/requests/settled_attach.rs`): a read, falling back to a plain page.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "visible": {
           "description": "False attaches without showing the chat (`hub/seen.rs`); default true.",
@@ -2529,6 +2621,15 @@
           "$ref": "#/types/PresenceNote",
           "description": "Who has the chat open now, this attachment included (`hub/presence.rs`)."
         },
+        "readThrough": {
+          "description": "The attaching person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they\nsaw while attending; null before they saw any. An older acpmux leaves it out.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "session": {
           "$ref": "#/types/SessionDetail"
         },
@@ -2550,6 +2651,7 @@
         "lastSeq",
         "pageThrough",
         "presence",
+        "readThrough",
         "session",
         "turnOpener"
       ],
@@ -3149,9 +3251,23 @@
             "null"
           ]
         },
+        "harness": {
+          "description": "With `live`: the harness the fork runs on, carrying the conversation over (a model switch).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "live": {
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "model": {
+          "description": "With `harness`: the model the fork starts on, at most 256 bytes.",
+          "type": [
+            "string",
             "null"
           ]
         },
@@ -3186,6 +3302,25 @@
           "$ref": "#/types/RequestMeta"
         }
       },
+      "type": "object"
+    },
+    "GoneRow": {
+      "description": "A row that left the list since a follow's cursor.",
+      "properties": {
+        "peer": {
+          "description": "The peer a remote session ran on.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
       "type": "object"
     },
     "HandoffDiscardParams": {
@@ -3362,6 +3497,8 @@
         },
         "cancelFork": true,
         "cancelToken": true,
+        "expectRevision": true,
+        "ifIdle": true,
         "purge": true,
         "sessionId": true
       },
@@ -3896,6 +4033,37 @@
       },
       "required": [
         "recipient"
+      ],
+      "type": "object"
+    },
+    "MarkUnreadParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/markUnread`: the person marks the chat unread; with `readThrough`, their seen cursor\nmoves back to it (never forward).",
+      "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "readThrough": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
       ],
       "type": "object"
     },
@@ -4784,6 +4952,17 @@
         }
       ]
     },
+    "PromptCoachParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "coachId": true,
+        "sessionId": true
+      },
+      "type": "object"
+    },
     "ProtocolParams": {
       "additionalProperties": false,
       "description": "`_acpmux/protocol` takes no params.",
@@ -5243,6 +5422,51 @@
       },
       "type": "object"
     },
+    "SeenDone": {
+      "description": "`_acpmux/seen`'s answer: the person's cursor after the request.",
+      "properties": {
+        "readThrough": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "readThrough"
+      ],
+      "type": "object"
+    },
+    "SeenParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/seen`: the person had the chat's rows through `seq` on screen while attending it\n(`hub/seen.rs`). Moves their seen cursor forward only.",
+      "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whose cursor: an author's, the owner's when absent."
+        },
+        "seq": {
+          "description": "The newest log seq of a row that was on screen.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "seq"
+      ],
+      "type": "object"
+    },
     "SessionAuthLogin": {
       "description": "`terminal`: run `command` in a terminal on `host` (null: this machine). `route`: edit or\nsign in again to the route `routeId`.",
       "properties": {
@@ -5443,6 +5667,12 @@
           "description": "The record kind, or `queue`, `permission_resolved` or `purged`.",
           "type": "string"
         },
+        "listSeq": {
+          "description": "The list position this change took (`hub/row_log.rs`): the client's cursor for\n`_acpmux/watch {afterSeq}` is the highest it applied.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "peer": {
           "description": "The peer a remote session runs on.",
           "type": [
@@ -5470,7 +5700,8 @@
         "session",
         "kind",
         "recordKind",
-        "seq"
+        "seq",
+        "listSeq"
       ],
       "type": "object"
     },
@@ -6856,8 +7087,41 @@
     },
     "SessionsResult": {
       "properties": {
-        "delta": {
-          "description": "A watch that sent `known` (`watch_delta.rs`): `sessions` holds only the rows new or\nchanged since, and the rest of the known rows stand.",
+        "follow": {
+          "description": "A watch that sent `afterSeq`: `sessions` holds only the rows changed since, and `gone` the\nrows that went; the client's other rows stand.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "gone": {
+          "description": "With `follow`: the rows that went since `afterSeq`.",
+          "items": {
+            "$ref": "#/types/GoneRow"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "listEpoch": {
+          "description": "With `listSeq`: this daemon run's id for list positions.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "listSeq": {
+          "description": "A watch's reply: the list position it is current to (`hub/row_log.rs`). Every change after\nit reaches the watcher as a `session_changed` with a higher `listSeq`; a row replaces the\none held only when its position is not lower.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "more": {
+          "description": "With `follow`: cut at the page's size; `listSeq` is the last position it holds, and the\nclient follows again from there.",
           "type": [
             "boolean",
             "null"
@@ -6870,13 +7134,10 @@
             "null"
           ]
         },
-        "removed": {
-          "description": "With `delta`: the known sessions no longer listed.",
-          "items": {
-            "type": "string"
-          },
+        "reset": {
+          "description": "A watch whose `afterSeq` the log could not follow (another daemon run, or older than its\noldest removal): this is the list's first page, and the client drops the rows it held.",
           "type": [
-            "array",
+            "boolean",
             "null"
           ]
         },
@@ -6886,15 +7147,6 @@
             "$ref": "#/types/SessionSummary"
           },
           "type": "array"
-        },
-        "unchanged": {
-          "description": "With `delta`: how many listed rows were left out as unchanged.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
         }
       },
       "required": [
@@ -7404,6 +7656,22 @@
       ],
       "type": "object"
     },
+    "ViewDone": {
+      "description": "`_acpmux/view`'s answer: the person's return when coming to attend put \"New since you looked\"\non the chat (`hub/seen.rs`), so the client draws it without waiting for its list.",
+      "properties": {
+        "lastReturn": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LastReturn"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
     "ViewParams": {
       "additionalProperties": false,
       "properties": {
@@ -7417,6 +7685,22 @@
             }
           ],
           "description": "An author changes only that person's presence (`hub/presence.rs`), not whether the\nchat counts as shown."
+        },
+        "attending": {
+          "description": "Its person attends the chat it shows: on screen, window key, input within the client's\nidle window. Absent: true. A shown chat nobody attends stays shown, but its turns are\nunread (`hub/seen.rs`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "seenSeq": {
+          "description": "With `attending: false`, the log seq the client had at its person's last input: where the\nchat is left off, when earlier than now.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "sessionId": {
           "type": "string"
@@ -7446,6 +7730,15 @@
     "WatchParams": {
       "additionalProperties": false,
       "properties": {
+        "afterSeq": {
+          "description": "Follow the list from this position (`hub/row_log.rs`, capability\n`session-list-follow-v1`): the highest `listSeq` the client applied. The reply holds the\nrows changed since and `gone`, not the list (`follow: true`); one the log cannot follow is\nanswered with the list's first page and `reset: true`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "cursor": {
           "type": [
             "string",
@@ -7459,21 +7752,18 @@
             "null"
           ]
         },
-        "known": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "description": "A peer daemon's link only (`watch_delta.rs`): every session it holds of this daemon's\nlist, with the digest of its row as last listed (`\"\"` when it changed since). The reply\nis then a delta: `delta: true`, the rows new or changed, and `removed`.",
-          "type": [
-            "object",
-            "null"
-          ]
-        },
         "limit": {
           "format": "uint64",
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "listEpoch": {
+          "description": "The `listEpoch` that `afterSeq` came with: a cursor of another daemon run is reset.",
+          "type": [
+            "string",
             "null"
           ]
         },

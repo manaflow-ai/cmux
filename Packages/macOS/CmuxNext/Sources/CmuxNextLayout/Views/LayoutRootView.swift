@@ -17,8 +17,9 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     /// Views in the panes whose frame notices are read, which a resize drag never holds (`FrameNoticeHold`).
     public let frameNoticeReaders = FrameNoticeReaders()
     let context: LayoutViewContext
+    /// Every screen's view, each filling the root; the active one shows and the others are hidden
+    /// (``showScreen(_:)``: a change of screen has no transition).
     var screenViews: [ScreenID: ScreenContentView] = [:]
-    var screenFrames: [ScreenID: AnimatedFrame] = [:]
     /// With a queue, a hidden screen's view, and the panes it mounts, is made the first time the screen shows or as
     /// background work on this queue once the layout is live and still (`LayoutRootView+DeferredScreens`), not with
     /// the shown one: the frame that shows a workspace pays for the screen it shows only (Leo 2026-11-04: the visible
@@ -147,6 +148,12 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     /// view drawn over them from a snapshot of their places (the modifier-hold shortcut chips) can
     /// follow. Runs on the frame's turn: keep it to a flag or a coalesced refresh.
     public var onFramePlaced: (() -> Void)?
+    /// The right-click menu of split `SplitID`'s divider (Insert New, Hide or Show Divider), asked when the
+    /// person right-clicks its grab band; nil: no menu.
+    public var dividerMenu: ((SplitID) -> NSMenu?)? {
+        get { context.dividerMenu }
+        set { context.dividerMenu = newValue }
+    }
     /// Whether a split or a pane close holds the terminals' grids now (``onTerminalGridHold``).
     public var holdsTerminalGrids: Bool { !context.gridHoldScreens.isEmpty }
 
@@ -188,6 +195,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
+        context.window = { [weak self] in self?.window }
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
         driver.onSettle = { [weak self] in _ = self?.landMotion() }
@@ -324,7 +332,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     }
 
     /// Makes the first hidden screen still waiting (``deferredScreens``): its view, hidden at its place with its
-    /// panes laid out at rest, as one made with the shown screen was. Its first show then slides it in as before.
+    /// panes laid out at rest, as one made with the shown screen was. Its first show finds it made.
     /// False when none waits.
     @discardableResult
     public func mountDeferredScreen() -> Bool {
@@ -347,6 +355,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     public func syncWithModelForNextFrame() {
         guard isLive, driver.isAttached else { return syncWithModel() }
         let held = context.holdsPresentations
+        let before = lastSnapshot
         context.holdsPresentations = true
         syncWithModel()
         context.holdsPresentations = held
@@ -355,6 +364,9 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         for view in snapped { view.applyPresentation() }
         if !snapped.isEmpty { flushOverlaySync() }
         if waiting.count > snapped.count { driver.start() }
+        // A change of screen in the held turn (a close that removes the shown screen): when no frame tick follows it,
+        // what follows the panes once per placed frame hears it here (`syncBatched` leaves it to the tick under a hold).
+        if let before, lastSnapshot?.activeScreen != before.activeScreen, !driver.isRunning, !held { onFramePlaced?() }
     }
 
     var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }
@@ -368,8 +380,8 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         if snapshot.focusRingEarned, previous?.focusRingEarned != true || previous?.focused != snapshot.focused {
             pointerTravelSinceRing = 0
         }
-        // Chrome (focus ring, dim) fades whenever motion is allowed; pane frames, the strip's
-        // reveal and the screen slide move only with `ui.paneAnimations` (motion.md rule 9).
+        // Chrome (focus ring, dim) fades whenever motion is allowed; pane frames and the strip's
+        // reveal move only with `ui.paneAnimations` (motion.md rule 9). A change of screen never animates.
         let chromeAnimated = previous != nil && canAnimate && !snapshot.gestureActive
         let animated = chromeAnimated && context.animatesPaneLayout
         var needsFrames = false
@@ -414,7 +426,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
                 isNew = true
                 view = ScreenContentView(screenID: screen.id, layout: screen.layout, context: context)
                 // A waiting screen made for its first show starts hidden, as it would have been made with the
-                // shown one: the switch below slides it in from its side, no pop-in.
+                // shown one: its first pass lands at once and the switch below shows it at rest.
                 view.isHidden = !isActive || waited.contains(screen.id)
                 // At its size and in the window before its one first pass (`update(layout:)` below): that pass takes
                 // its panes' hosts, so a pane the old screen shows moves inside the window, never out. Neither the size
@@ -426,11 +438,24 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
                     addSubview(view)
                 }
                 screenViews[screen.id] = view
-                screenFrames[screen.id] = AnimatedFrame(bounds, alpha: view.isHidden ? 0 : 1)
             }
+            // Only a screen shown before and after this sync animates. A hidden one lands at once: frames step only
+            // the screens shown (`advanceFrame`), so a spring started there (a restore, a daemon echo) froze its panes
+            // mid-motion, their content held wider than the pane and pinned to its edge (Leo 2026-10-21). The screen
+            // a switch shows (below) shows at rest, its panes, camera and chrome where this sync puts them, and the
+            // one it hides starts no motion nobody sees. A screen whose view is made in this sync (a reopened, duplicated
+            // or restored screen that comes with the change that shows it) was not shown before it either: a center or a
+            // reveal request in the same change lands at once, not on a camera spring after the screen shows.
+            let staysShown = isActive && !view.isHidden && !isNew
+            // The screen this sync shows lays out at the root's size first, when a resize while it was hidden left that
+            // for its show (`needsReconcileOnShow`): its scroll sync and a center or a reveal request below run on the
+            // geometry it shows with. Left to `viewDidUnhide`, that layout ran after them and moved the camera off
+            // the place the request put it.
+            if isActive, view.isHidden { view.reconcileIfDeferred() }
             // A waiting screen's first pass lands at once, as a screen made with the shown one did (no previous sync).
             let landsAtOnce = isNew && waited.contains(screen.id)
             let old = before[screen.id]
+            view.hiddenDividers = screen.hiddenDividers
             // A zoomed pane shows full size over its canvas (canvas-layout.md).
             let canvas = screen.zoomed ? nil : snapshot.canvases[screen.id]
             let layoutChanged = isNew || old?.layout != screen.layout || old?.zoomed != screen.zoomed || sharedChanged
@@ -440,48 +465,54 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
                 // An explicit equalize (same structure, new ratios) springs whenever motion is allowed (Lawrence
                 // 2026-10-16); the sizing after a split or close, and released drags, follow `ui.paneAnimations`.
                 let reflows = chromeAnimated && !structureChanged && !snapshot.gestureActive && model.animatesReflow
-                // A hidden screen lands at once: frames step only the screens shown (`advanceFrame`), so a
-                // spring started there (a restore, a daemon echo) froze its panes mid-motion, their
-                // content held wider than the pane and pinned to its edge (Leo 2026-10-21).
                 if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas,
-                               animated: (animated || reflows) && !view.isHidden, snapWaitsForFrame: isLive && driver.isAttached) {
+                               animated: (animated || reflows) && staysShown, snapWaitsForFrame: isLive && driver.isAttached) {
                     needsFrames = true
                 }
                 // The focus ring of a split's new pane appears with the pane; the focus flash still
                 // runs, so the pane after a close or a link's new pane shows where focus went.
                 view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
-                                  animated: chromeAnimated && !structureChanged, flashAnimated: chromeAnimated && !landsAtOnce)
+                                  animated: chromeAnimated && !structureChanged && staysShown, flashAnimated: chromeAnimated && !landsAtOnce)
             } else if chromeChanged {
                 // A focus move alone changes the chrome of two panes, the one left and the one focused: every
                 // other pane keeps its ring, dim and tab emphasis (O(2), not O(panes); speed-of-sound 3.2).
                 let focusMoveOnly = previous.map {
                     !sharedChanged && $0.dimsInactive == snapshot.dimsInactive && $0.attention == snapshot.attention
                 } ?? false
+                // The focus flash is an event, not a state: it still runs on the screen a switch shows (a focus
+                // nobody clicked shows where it went); the ring and dim of that screen are at rest when it shows.
                 view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
-                                  animated: chromeAnimated,
+                                  animated: chromeAnimated && staysShown, flashAnimated: chromeAnimated,
                                   only: focusMoveOnly ? Set([previous?.focused, snapshot.focused].compactMap { $0 }) : nil)
             }
             // A changed layout or focus reaches the scroll reducer: it anchors
             // the camera on layout changes, reveals focus, and springs back
-            // after a close.
-            if layoutChanged || scrollChanged {
+            // after a close. A focus move, a switch, a center mode or a gesture reaches only the screen shown and
+            // the one a switch hides (O(2), not O(screens): a focus move ran a scroll sync and a presentation pass of
+            // every mounted screen). A screen that stays hidden has no camera to move; it gets the focus and the mode
+            // in the sync that shows it (a switch is a `scrollChanged`), as a screen mounted at idle does.
+            if layoutChanged || (scrollChanged && (isActive || screen.id == previous?.activeScreen)) {
                 let focused = snapshot.focused.flatMap { screen.layout.contains($0) ? $0 : nil }
                 let source: ColumnFocusSource = previous?.focused != snapshot.focused ? model.lastFocusSource : .programmatic
                 // Only a snap that stands in for Reduce Motion's spring shows the
                 // scrollbar, not one at launch or while out of the window.
+                // Only the shown screen's camera asks for frames: the one a switch hides lands its camera when it
+                // hides (`showScreen`), so a spring it had in flight does not hold the switch for a frame tick.
                 if view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
-                                   animated: previous != nil && !landsAtOnce && canAnimate && context.animatesPaneLayout, reveals: !snapshot.gestureActive,
-                                   showsScrollbarOnSnap: previous != nil && !landsAtOnce && window != nil && driver.isAttached) {
+                                   animated: previous != nil && !landsAtOnce && staysShown && canAnimate && context.animatesPaneLayout,
+                                   reveals: !snapshot.gestureActive,
+                                   showsScrollbarOnSnap: previous != nil && !landsAtOnce && window != nil && driver.isAttached),
+                   isActive {
                     needsFrames = true
                 }
             }
             if let request = snapshot.centerRequest, request != previous?.centerRequest, screen.layout.contains(request.pane),
-               view.center(request.pane, animated: animated && !landsAtOnce) {
+               view.center(request.pane, animated: animated && !landsAtOnce && staysShown) {
                 needsFrames = true
             }
             if let request = snapshot.revealRequest, request != appliedReveal, screen.layout.contains(request.pane) {
                 appliedReveal = request
-                if view.center(request.pane, animated: animated && !landsAtOnce, reveal: true) { needsFrames = true }
+                if view.center(request.pane, animated: animated && !landsAtOnce && staysShown, reveal: true) { needsFrames = true }
             }
         }
 
@@ -493,18 +524,13 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             view.tearDown()
             view.removeFromSuperview()
             screenViews[id] = nil
-            screenFrames[id] = nil
         }
 
         deferredScreens = defersHiddenScreens ? snapshot.screens.compactMap { screenViews[$0.id] == nil ? $0.id : nil } : []
         if !deferredScreens.isEmpty { mountDeferredScreensWhenIdle() }
 
-        // Screen switch.
-        if previous?.activeScreen != snapshot.activeScreen {
-            if switchScreens(from: previous?.activeScreen, to: snapshot.activeScreen, order: snapshot.screens.map(\.id), animated: animated) {
-                needsFrames = true
-            }
-        }
+        // Screen switch: the new screen shows and the old one hides in this turn, at rest (no transition).
+        if previous?.activeScreen != snapshot.activeScreen { showScreen(snapshot.activeScreen) }
 
         for listener in carried {
             guard let page = listener.view else { continue }
@@ -524,10 +550,12 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         // Pane padding or corners changed: pages drawn as child windows
         // re-read their clip shape (their frames may not have moved).
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
+        let switched = previous.map { $0.activeScreen != snapshot.activeScreen } ?? false
         if needsFrames { driver.start() }
         // A divider drag moves panes in this sync with no frame tick after it: what follows the panes once per placed
         // frame (shortcut hint chips) hears it here, as from a tick; a sync in a tick's input hears it from that tick.
-        else if snapshot.gestureActive, !context.holdsPresentations { onFramePlaced?() }
+        // So does a change of screen: other panes show, at rest, and no frame runs after it.
+        else if snapshot.gestureActive || switched, !context.holdsPresentations { onFramePlaced?() }
         // A change that starts springs (a split, a close) is in motion from the frame it lands in.
         if needsFrames && driver.isRunning { setLayoutInMotion(true) }
     }
@@ -548,9 +576,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             if view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
             view.settleCanvasCamera()
         }
-        for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
         let snapWaits = input.presentWaiting(waitsForContent: waitsForContent)
-        applyScreenFrames()
         highlight.settle()
         updateVisibility()
         flushOverlaySync()
@@ -587,11 +613,6 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             if view.stepCanvasCamera(dt, policy: policy) { moving = true }
         }
         let snapWaits = input.presentWaiting()
-        let screenSpring = policy.spring(.screen)
-        for id in Array(screenFrames.keys) {
-            if screenFrames[id]?.advance(dt, parameters: screenSpring) == true { moving = true }
-        }
-        applyScreenFrames()
         if highlight.step(dt) { moving = true }
         updateVisibility()
         // A pan with the finger down is layout motion (`userMotionActive`): a frame tick during it
@@ -659,18 +680,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     override public func layout() {
         super.layout()
         Self.layoutPasses &+= 1
-        for (id, view) in screenViews {
-            if view.frame.size != bounds.size { view.setFrameSize(bounds.size) }
-            if var frame = screenFrames[id] {
-                // Only the size follows the root at once. A screen switch in flight (its x and alpha springs)
-                // goes on from where it shows: snapping x and y here ended the slide in whatever frame a layout
-                // pass came, both screens jumping to the middle (`switchScreens` sets the slide's targets).
-                frame.width.snap(to: bounds.width)
-                frame.height.snap(to: bounds.height)
-                screenFrames[id] = frame
-            }
-        }
-        applyScreenFrames()
+        fitScreensToBounds()
         updateVisibility()
         if overlayPlane.syncFrame() { overlayIsStale = true }
         flushOverlaySync()
@@ -731,10 +741,6 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
                 // No frames run while parked or away: a resize drag's pages lay out now (`ScreenContentView+ResizeGesture`).
                 view.finishResizeGesture()
             }
-            // A screen switch in flight lands too, as `landMotion` lands it: the flag below must not drop while a screen
-            // still slides, and the show must not restart a slide nobody saw.
-            for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
-            applyScreenFrames()
             // Settled: the motion ended for its observers (the window's divider catchers and page geometry, the still
             // work), as a landing frame ends it. Without this the flag stayed set through the park, nothing landed
             // after it, and the catchers never moved off the old dividers (Leo 2026-11-06: a closed split's pane
@@ -754,8 +760,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             }
             driver.attach(to: self)
             if !deferredScreens.isEmpty { mountDeferredScreensWhenIdle() }
-            if screenViews.values.contains(where: { $0.hasMotion || $0.activeDrag?.waiting == true })
-                || screenFrames.values.contains(where: { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }) { driver.start() }
+            if screenViews.values.contains(where: { $0.hasMotion || $0.activeDrag?.waiting == true }) { driver.start() }
             eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown, .mouseMoved]) { [weak self] event in
                 self?.handleMonitored(event) ?? event
             }

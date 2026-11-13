@@ -6,15 +6,23 @@ public import os
 /// start: the link, the harness login's owner check, guest and login reads, its transfer's round trips, and the
 /// chat's tab and start. Each step runs from the one before it (or this clock's start) to its own end, so the steps
 /// add up to the span. Names only, never an id, a path or a token.
+///
+/// A clock made while a ``CloudStartStepRecord`` is the task's ``CloudStartStepRecord/current`` also adds each step
+/// there, so a run that answers (`cloud start-session`'s `stages_ms`) reports the steps its nested clocks logged.
 @MainActor public final class CloudStartSteps {
     /// What every line starts with: the probe matches it.
     public nonisolated static let prefix = "cloud start step: "
     let log: (String) -> Void
     let now: () -> ContinuousClock.Instant
+    private let record: CloudStartStepRecord?
     private var last: ContinuousClock.Instant
+    /// Each step done so far and its whole milliseconds, in order: a start's answer carries them as `stages_ms`, so the
+    /// caller (`cmux cloud start-chat`) names where a long start went without reading the app's log.
+    public private(set) var recorded: [(step: String, ms: Int64)] = []
 
     public init(log: @escaping (String) -> Void, now: @escaping () -> ContinuousClock.Instant = { .now }) {
         (self.log, self.now) = (log, now)
+        record = CloudStartStepRecord.current
         last = now()
     }
 
@@ -23,14 +31,81 @@ public import os
 
     /// Logs `name`'s time since the step before it ended.
     public func done(_ name: String) {
-        let end = now()
-        log(Self.line(name, last.duration(to: end)))
+        let end = now(), elapsed = last.duration(to: end)
+        log(Self.line(name, elapsed))
+        recorded.append((name, Self.milliseconds(elapsed)))
+        record?.add(name, Int(Self.milliseconds(elapsed)))
         last = end
     }
 
     /// `cloud start step: NAME MS ms`, whole milliseconds, never negative.
     public nonisolated static func line(_ name: String, _ elapsed: Duration) -> String {
+        "\(prefix)\(name) \(milliseconds(elapsed)) ms"
+    }
+
+    /// Whole milliseconds of `elapsed`, never negative.
+    public nonisolated static func milliseconds(_ elapsed: Duration) -> Int64 {
         let (seconds, attoseconds) = elapsed.components
-        return "\(prefix)\(name) \(max(0, seconds * 1000 + attoseconds / 1_000_000_000_000_000)) ms"
+        return max(0, seconds * 1000 + attoseconds / 1_000_000_000_000_000)
+    }
+}
+
+/// The steps every ``CloudStartSteps`` clock of one run marked, in the order they ended: a dotted name (`login.machine`,
+/// `connect.link`) is a part of the undotted step that ends after it (`login`, `connect`). Names and milliseconds only.
+@MainActor public final class CloudStartStepRecord {
+    /// The record the clocks made in this task add to (none: they only log).
+    @TaskLocal public static var current: CloudStartStepRecord?
+    /// At most this many steps; a run that marks more keeps the first ones.
+    public nonisolated static let kept = 64
+    public private(set) var steps: [(name: String, ms: Int)] = []
+    /// The machine's own phases of the chat's start (`session_new`, ...), when its daemon sent them.
+    public var machine: [String: Int]?
+
+    /// The run's span, set by ``recording(_:)``.
+    public private(set) var total = 0
+
+    public init() {}
+
+    /// Runs `body` with a new record current, and answers what it returned and the record.
+    public static func recording<T>(_ body: () async throws -> T) async throws -> (T, CloudStartStepRecord) {
+        let record = CloudStartStepRecord(), began = ContinuousClock.now
+        // concurrency-allow: the async overload of withValue binds inside the calling task (always current in an async
+        // function), never in the thread's fallback storage that cx-bpcj is about (the shared-package rule exempts it too).
+        let value = try await $current.withValue(record) { try await body() }
+        record.total = Int(CloudStartSteps.milliseconds(began.duration(to: .now)))
+        return (value, record)
+    }
+
+    func add(_ name: String, _ ms: Int) {
+        if steps.count < Self.kept { steps.append((name, ms)) }
+    }
+}
+
+/// A Cloud start that fails after a machine was made for it, so the start can't go on, deletes that machine: a start
+/// never leaves one running for nothing (Leo, 2026-11-10, on a start from ~/Projects whose copy failed with its new
+/// machine left running: "did you guys not test these"). A failure whose Retry reuses the machine keeps it, and so does
+/// a cancel; a machine the start found (the person's own, the workspace's, a reserved one it bound) is never deleted.
+extension CloudMoveCLI.StartChatPlan {
+    /// Whether `error` ends a start for good: everything but a failure whose Retry reuses the machine, or a cancel.
+    public nonisolated static func strands(_ error: any Error) -> Bool {
+        if error is CancellationError { return false }
+        if let failure = error as? CloudMoveFailure { return failure.retry == nil }
+        return true
+    }
+
+    /// Whether this plan's machine was made for its start: the App made it (the plan named none) or the platform created it now.
+    public nonisolated var madeForStart: Bool { machine == nil || madeForSend }
+
+    /// `body`, the start's steps once its machine is up; when one strands the start (``strands(_:)``), the machine was made
+    /// for it (``madeForStart``) and the account is still the one it began in (`sameAccount`), `delete` deletes it. The
+    /// error goes on.
+    @MainActor public func releasing<T>(sameAccount: @MainActor () -> Bool, delete: @MainActor () async throws -> Void,
+                                        _ body: @MainActor () async throws -> T) async throws -> T {
+        do {
+            return try await body()
+        } catch {
+            if madeForStart, Self.strands(error), sameAccount() { try? await delete() }
+            throw error
+        }
     }
 }

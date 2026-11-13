@@ -209,9 +209,12 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
             // Typing time grows with the reply, as a person's would.
             await sleep(.milliseconds(min(2600, 900 + reply.count * 12)))
             let seq = headSeq + 1
+            // Markdown links and tables as the real Chief's arrive (``ChiefWire``).
+            let linked = ConversationMarkdownLinks.extract(reply)
+            let tabled = ConversationMarkdownTables.extract(linked.text, links: linked.links)
             let answer = ConversationMessage(
                 id: "msg_local_\(seq)", seq: seq, clientMessageID: "chief-\(seq)", senderID: identity.chiefID,
-                sentAt: Date(), text: reply
+                sentAt: Date(), text: tabled.text, textRuns: tabled.runs, links: tabled.links, tables: tabled.tables
             )
             store(answer)
             emit(answer)
@@ -273,6 +276,20 @@ extension ChiefMockBackend: ChiefQuestionSource {
         let allowed = answer.selections.values.contains { $0.optionIDs.contains("allow") }
         await engine.post(allowed ? "Allowed. Claude is running cargo test -p cmux-mobile-link in cmux now."
                                   : "Told Claude not to run it. It will ask before trying another way.")
+    }
+}
+
+/// The mock lists a few skills on `/`, as the Mac's Chief host does
+/// (ChiefSlashSkills.swift); layout and flow only.
+extension ChiefMockBackend: ChiefSlashSkillSource {
+    public var slashSkills: [ChiefSlashSkill] {
+        [
+            ChiefSlashSkill(name: "cmux-views", description: "Build a cmux view page from what you describe.", source: "chief"),
+            ChiefSlashSkill(name: "triage", description: "Sort the inbox and say what needs you.", source: "chief"),
+            ChiefSlashSkill(name: "emil-prototype", description: "Explore several versions behind a live picker.", source: "claude"),
+            ChiefSlashSkill(name: "verify-implementation", description: "Draft acceptance criteria, build, and verify with video.", source: "claude"),
+            ChiefSlashSkill(name: "vercel:ai-sdk", description: "Answer questions about the AI SDK.", source: "plugin:vercel"),
+        ]
     }
 }
 
@@ -350,6 +367,17 @@ struct ChiefMockScript {
         }
         if lower.contains("test") {
             return "Running the tests in cmux on Aziz's Mac Studio now. I'll post the result here."
+        }
+        if lower.contains("table") {
+            return """
+            Here are your agents:
+
+            | Agent | Task | State |
+            | --- | --- | :---: |
+            | a42 | Keyboard | building |
+            | a49 | Panes | done |
+            | a52 | Pin tab | open |
+            """
         }
         if lower.contains("stop") || lower.contains("cancel") {
             return "Stopped. Nothing else is running."

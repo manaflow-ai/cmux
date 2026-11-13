@@ -379,3 +379,45 @@ test("a Send during a slow renewal waits at most RESERVATION_SEND_WAIT_MS; the i
   await settle();
   expect(h.calls.filter(([method]) => method === "cloud.releaseReservation")).toEqual([]);
 });
+
+test("a reserve the platform refuses for the team's plan never holds the Send: it goes at once, without the reservation", async () => {
+  const h = harness(() => Promise.reject({ code: "cloud.plan.required" }));
+  h.reservation.selected();
+  await settle();
+  const key = h.reservation.handoff();
+  const answer = h.start(
+    { task: "fix it", ...(key ? { reservationKey: key } : {}) },
+    "6f1c3a52-6c5e-4c38-9b3e-6b1d2a3c4d5e",
+  );
+  await settle();
+  // No timer had to run: the refusal answered, so the start went without waiting out the bound.
+  const sent = h.calls.find(([method]) => method === "cloud.startChat");
+  expect(sent?.[1].reservationKey).toBeUndefined();
+  expect(await answer).toEqual({ ok: true });
+});
+
+test("a Send refused before its reservation was bound gives the machine back, and the next Send names none", async () => {
+  const h = harness();
+  h.reservation.selected();
+  await settle();
+  const key = h.reservation.handoff();
+  expect(key).toBe("compose-1");
+  // Another key, or before any handoff, gives nothing back.
+  h.reservation.returned("compose-9");
+  await settle();
+  expect(h.calls.filter(([method]) => method === "cloud.releaseReservation")).toEqual([]);
+  h.reservation.returned(key!);
+  h.reservation.returned(key!);
+  await settle();
+  expect(h.calls.filter(([method]) => method === "cloud.releaseReservation")).toEqual([
+    ["cloud.releaseReservation", { composeKey: "compose-1" }],
+  ]);
+  expect(h.reservation.handoff()).toBeUndefined();
+  // Picking Cloud again reserves a new machine for the next compose.
+  h.reservation.selected();
+  await settle();
+  expect(h.calls.filter(([method]) => method === "cloud.reserve").at(-1)).toEqual([
+    "cloud.reserve",
+    { composeKey: "compose-2" },
+  ]);
+});
