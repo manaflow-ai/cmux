@@ -40,15 +40,23 @@ fn unknown_name_is_refused() {
 #[test]
 fn duplicate_name_is_refused() {
     let mut file = tempfile::NamedTempFile::new().unwrap();
-    writeln!(file, "{{\"name\":\"v2.pr01.book_append_window_recovery\",\"small_p95\":10,\"god_p95\":11,\"unit\":\"ns\"}}").unwrap();
-    writeln!(file, "{{\"name\":\"v2.pr01.book_append_window_recovery\",\"small_p95\":10,\"god_p95\":11,\"unit\":\"ns\"}}").unwrap();
+    writeln!(
+        file,
+        "{{\"name\":\"v2.pr01.append_time\",\"small_p95\":10,\"god_p95\":11,\"unit\":\"ns\"}}"
+    )
+    .unwrap();
+    writeln!(
+        file,
+        "{{\"name\":\"v2.pr01.append_time\",\"small_p95\":10,\"god_p95\":11,\"unit\":\"ns\"}}"
+    )
+    .unwrap();
     let error = home::report(&[file.path().to_path_buf()]).unwrap_err();
     assert!(error.contains("duplicate v2 gate row"));
 }
 
 #[test]
 fn over_limit_measure_is_red() {
-    let file = measure_file("v2.pr01.book_append_window_recovery", 10.0, 13.0);
+    let file = measure_file("v2.pr01.append_time", 10.0, 13.0);
     let report = home::report(&[file.path().to_path_buf()]).unwrap();
     assert_eq!(report["rows"][0]["status"], "red");
     assert_eq!(report["rows"][0]["ratio"], 1.3);

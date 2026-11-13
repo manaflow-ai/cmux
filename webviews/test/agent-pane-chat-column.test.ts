@@ -631,6 +631,12 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const chat = newChat();
     thinks(chat, THOUGHT);
     const page = await open(chat, 900, 700, false, true);
+    // One more chunk, live: the thought streams now, so the line says Thinking. Without it the
+    // recorded chunks are all the line has heard, and a page that took SILENT_MS to load would
+    // rightly say "Waiting" (Thinking.tsx).
+    push(chat, "in", "agent_thought_chunk", {
+      ...update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "\n" } }),
+    });
     // Streaming: the thought draws from its first words as the line it folds to once done, closed
     // (Leo, 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the thinking
     // ... I only started seeing your thinking bit, like, seven seconds in"), its text not drawn. The

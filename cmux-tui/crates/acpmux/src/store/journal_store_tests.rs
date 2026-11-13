@@ -2167,6 +2167,11 @@ fn scan_crate(files: &[(PathBuf, String)]) -> CrateScan {
     let index: HashMap<&Path, usize> =
         files.iter().enumerate().map(|(i, (path, _))| (path.as_path(), i)).collect();
     let tokens: Vec<TokenStream> = files.iter().map(|(_, text)| lex(text)).collect();
+    let mut drops: Vec<DropNames> = tokens.iter().map(DropNames::of).collect();
+    let shadows = drops.iter().any(|d| d.items.contains("drop") || d.items.contains("mem"));
+    for d in &mut drops {
+        d.crate_shadows = shadows;
+    }
     let modules_of = |i: usize, in_test: bool| {
         let (dir, base) = module_dirs(&files[i].0);
         let mut modules = Modules::default();
@@ -2215,7 +2220,7 @@ fn scan_crate(files: &[(PathBuf, String)]) -> CrateScan {
     for (i, (relative, text)) in files.iter().enumerate() {
         let path = relative.to_string_lossy().to_string();
         let bodies = if whole[i] { vec![tokens[i].clone()] } else { modules[i].bodies.clone() };
-        let file = waits_of(&bodies);
+        let file = waits_of(&bodies, &drops[i]);
         // The self-check: a file that writes a test module's header gives the scan its code.
         if !whole[i] && declares_test_module(text) && file.ranges == 0 {
             scan.unread.push(path.clone());
@@ -2380,13 +2385,17 @@ fn arrow(tts: &[TokenTree], k: usize) -> bool {
 }
 
 /// The arguments of a call to `std::mem::drop` that starts at `k`, however the path is written:
-/// `drop`, `mem::drop` (under `use std::mem;`), `std::mem::drop`, `core::mem::drop`, with a
-/// leading `::` or a turbofish (`drop::<Sender<u8>>`) (#42023 review F1). Another module's
-/// `drop` (`other::drop(tx)`) is not it.
-fn drop_call_at(tts: &[TokenTree], k: usize) -> Option<&proc_macro2::Group> {
-    const PATHS: &[&[&str]] =
-        &[&["drop"], &["mem", "drop"], &["std", "mem", "drop"], &["core", "mem", "drop"]];
-    let mut at = if path_sep(tts, k) { k + 2 } else { k };
+/// `drop`, `mem::drop` (under `use std::mem;`), `std::mem::drop`, `core::mem::drop`, an alias,
+/// with a leading `::` or a turbofish (`drop::<Sender<u8>>`) (#42023 review F1). The path is
+/// resolved against what the source binds ([`DropNames`]), so a local `fn drop` or `mod mem`,
+/// or another module's `drop`, is not it (#42081 review F1).
+fn drop_call_at<'t>(
+    tts: &'t [TokenTree],
+    k: usize,
+    drops: &DropNames,
+) -> Option<&'t proc_macro2::Group> {
+    let leading = path_sep(tts, k);
+    let mut at = if leading { k + 2 } else { k };
     let mut segments = Vec::new();
     loop {
         let Some(TokenTree::Ident(name)) = tts.get(at) else { return None };
@@ -2397,7 +2406,7 @@ fn drop_call_at(tts: &[TokenTree], k: usize) -> Option<&proc_macro2::Group> {
         }
         at += 2;
     }
-    if !PATHS.iter().any(|path| path.iter().copied().eq(segments.iter().map(String::as_str))) {
+    if !drops.is_std_drop(leading, &segments) {
         return None;
     }
     // A turbofish: `::<` up to its matching `>`.
@@ -2423,6 +2432,135 @@ fn drop_call_at(tts: &[TokenTree], k: usize) -> Option<&proc_macro2::Group> {
     group(tts.get(at), Delimiter::Parenthesis)
 }
 
+/// What one source binds the names of a drain's drop to, so a call counts only when it is
+/// `std::mem::drop` or `core::mem::drop` (#42081 review F1): the prelude's `drop`, or an import
+/// of either (`use std::mem;`, `use core::mem::drop;`, `use std::mem::drop as release;`). A free
+/// `fn drop` or a `mod mem` the source declares shadows them, and so does a name it imports from
+/// anywhere else. Read over the whole source rather than by scope, so a shadow anywhere in it
+/// counts against every drop there: a drain it cannot place is flagged, never exempt.
+#[derive(Default)]
+struct DropNames {
+    /// Each name a `use` binds, with each path it binds it to.
+    uses: HashMap<String, Vec<Vec<String>>>,
+    /// The free functions and the modules the source declares: never an `impl`'s or a
+    /// `trait`'s methods (`impl Drop for Guard { fn drop(&mut self) {} }`).
+    items: HashSet<String>,
+    /// The source imports a module whole (`use super::*`).
+    globs: bool,
+    /// Some source of the crate declares a free `fn drop` or a `mod mem`, which a glob may
+    /// bring in over the prelude's.
+    crate_shadows: bool,
+}
+
+impl DropNames {
+    fn of(tokens: &TokenStream) -> Self {
+        let mut names = Self::default();
+        names.read(&tokens.clone().into_iter().collect::<Vec<_>>());
+        names
+    }
+
+    fn read(&mut self, tts: &[TokenTree]) {
+        let mut k = 0;
+        while k < tts.len() {
+            if word(tts.get(k), "use") {
+                let end = (k..tts.len()).find(|&e| punct(tts.get(e), ';')).unwrap_or(tts.len());
+                let item: TokenStream = tts[k..(end + 1).min(tts.len())].iter().cloned().collect();
+                if let Ok(item) = syn::parse2::<syn::ItemUse>(item) {
+                    self.use_tree(Vec::new(), &item.tree);
+                }
+                k = end + 1;
+                continue;
+            }
+            if (word(tts.get(k), "fn") || word(tts.get(k), "mod"))
+                && let Some(TokenTree::Ident(name)) = tts.get(k + 1)
+            {
+                self.items.insert(name.to_string());
+            }
+            // An `impl` or a `trait` item: the `fn`s in its body are methods.
+            if (word(tts.get(k), "impl") || word(tts.get(k), "trait"))
+                && item_start(tts, k)
+                && let Some(body) =
+                    (k + 1..tts.len()).find(|&b| group(tts.get(b), Delimiter::Brace).is_some())
+            {
+                k = body + 1;
+                continue;
+            }
+            if let TokenTree::Group(g) = &tts[k] {
+                self.read(&g.stream().into_iter().collect::<Vec<_>>());
+            }
+            k += 1;
+        }
+    }
+
+    fn use_tree(&mut self, mut prefix: Vec<String>, tree: &syn::UseTree) {
+        match tree {
+            syn::UseTree::Path(p) => {
+                prefix.push(p.ident.to_string());
+                self.use_tree(prefix, &p.tree);
+            }
+            syn::UseTree::Name(n) => {
+                if n.ident != "self" {
+                    prefix.push(n.ident.to_string());
+                }
+                if let Some(name) = prefix.last().cloned() {
+                    self.uses.entry(name).or_default().push(prefix);
+                }
+            }
+            syn::UseTree::Rename(r) => {
+                if r.ident != "self" {
+                    prefix.push(r.ident.to_string());
+                }
+                if r.rename != "_" {
+                    self.uses.entry(r.rename.to_string()).or_default().push(prefix);
+                }
+            }
+            syn::UseTree::Glob(_) => self.globs = true,
+            syn::UseTree::Group(g) => {
+                for item in &g.items {
+                    self.use_tree(prefix.clone(), item);
+                }
+            }
+        }
+    }
+
+    /// Whether the path `segments` (after a leading `::` when `leading`) names
+    /// `std::mem::drop` or `core::mem::drop` here.
+    fn is_std_drop(&self, leading: bool, segments: &[String]) -> bool {
+        let std_mem =
+            |p: &[String]| p.len() == 2 && matches!(p[0].as_str(), "std" | "core") && p[1] == "mem";
+        let std_drop = |p: &[String]| p.len() == 3 && std_mem(&p[..2]) && p[2] == "drop";
+        // What the source binds `name` to: `None` when it neither declares nor imports it.
+        let bound = |name: &str, is: &dyn Fn(&[String]) -> bool| -> Option<bool> {
+            if self.items.contains(name) {
+                return Some(false);
+            }
+            self.uses.get(name).map(|paths| paths.iter().all(|p| is(p.as_slice())))
+        };
+        if leading {
+            return std_drop(segments);
+        }
+        match segments {
+            [first, _, _] => std_drop(segments) && bound(first.as_str(), &|_| false).is_none(),
+            [module, last] => last == "drop" && bound(module.as_str(), &std_mem) == Some(true),
+            [name] => bound(name.as_str(), &std_drop)
+                .unwrap_or(name == "drop" && !(self.globs && self.crate_shadows)),
+            _ => false,
+        }
+    }
+}
+
+/// Whether the keyword at `k` starts an item: the first token of a block, or after a `;`, a
+/// block, an attribute or a qualifier (`pub`, `pub(crate)`, `unsafe`).
+fn item_start(tts: &[TokenTree], k: usize) -> bool {
+    let Some(prev) = k.checked_sub(1) else { return true };
+    punct(tts.get(prev), ';')
+        || group(tts.get(prev), Delimiter::Brace).is_some()
+        || group(tts.get(prev), Delimiter::Bracket).is_some()
+        || ["pub", "unsafe", "auto", "default"].iter().any(|w| word(tts.get(prev), w))
+        || (group(tts.get(prev), Delimiter::Parenthesis).is_some()
+            && word(prev.checked_sub(1).and_then(|p| tts.get(p)), "pub"))
+}
+
 /// The scan of one source, read as Rust tokens: strings, comments and macro bodies are what
 /// the compiler sees them as. The test code is all of `text` for a test-only file, else each
 /// `#[cfg(test)] mod name { ... }` body. A blocking `.recv()` or `.blocking_recv()` there is
@@ -2436,20 +2574,21 @@ fn drop_call_at(tts: &[TokenTree], k: usize) -> Option<&proc_macro2::Group> {
 ///   and drops `tx` or closes `rx`, so the loop ends.
 fn scan_test_waits(text: &str, whole: bool) -> TestScan {
     let tokens = lex(text);
+    let drops = DropNames::of(&tokens);
     if whole {
-        return waits_of(&[tokens]);
+        return waits_of(&[tokens], &drops);
     }
     let mut modules = Modules::default();
     modules_in(tokens, Path::new(""), Path::new(""), false, &mut modules);
-    waits_of(&modules.bodies)
+    waits_of(&modules.bodies, &drops)
 }
 
 /// The unbounded waits in `bodies`, the test code of one source.
-fn waits_of(bodies: &[TokenStream]) -> TestScan {
+fn waits_of(bodies: &[TokenStream], drops: &DropNames) -> TestScan {
     let mut waits = Vec::new();
     for body in bodies {
         let tts: Vec<TokenTree> = body.clone().into_iter().collect();
-        waits_in(&tts, None, &[], &mut waits);
+        waits_in(&tts, None, &[], drops, &mut waits);
     }
     waits.sort_by_key(|wait| wait.line);
     TestScan { ranges: bodies.len(), waits }
@@ -2458,7 +2597,13 @@ fn waits_of(bodies: &[TokenStream]) -> TestScan {
 /// The unbounded waits at one level of tokens and below. `callee` names the call or macro whose
 /// arguments this level is (`timeout`, `assert_eq!`); `before` holds, for each enclosing level
 /// of the innermost function, the tokens that run before this level is reached.
-fn waits_in(tts: &[TokenTree], callee: Option<&str>, before: &[&[TokenTree]], out: &mut Vec<Wait>) {
+fn waits_in(
+    tts: &[TokenTree],
+    callee: Option<&str>,
+    before: &[&[TokenTree]],
+    drops: &DropNames,
+    out: &mut Vec<Wait>,
+) {
     const BOUNDS: &[&str] = &["timeout", "timeout_at", "join", "try_join", "join!", "try_join!"];
     const PARKS: &[&str] = &["release", "release_rx", "gate", "go_rx"];
     for (j, tt) in tts.iter().enumerate() {
@@ -2477,7 +2622,7 @@ fn waits_in(tts: &[TokenTree], callee: Option<&str>, before: &[&[TokenTree]], ou
         if !fn_body {
             path.push(&tts[..j]);
         }
-        waits_in(&inner, called.as_deref(), &path, out);
+        waits_in(&inner, called.as_deref(), &path, drops, out);
     }
     for i in 0..tts.len() {
         let (Some(TokenTree::Ident(wait)), Some(args)) =
@@ -2501,7 +2646,7 @@ fn waits_in(tts: &[TokenTree], callee: Option<&str>, before: &[&[TokenTree]], ou
         let drained = while_let_at(tts, head).is_some_and(|at| {
             let mut path = before.to_vec();
             path.push(&tts[..at]);
-            ended_before(&path, &root)
+            ended_before(&path, &root, drops)
         });
         if PARKS.contains(&root.as_str()) || drained {
             continue;
@@ -2591,9 +2736,10 @@ fn is_fn_body(tts: &[TokenTree], j: usize) -> bool {
 /// `path` is what runs first, in order: for each enclosing block of the loop's function, its
 /// tokens before the block the loop is in, then the loop's own block up to the loop. On that
 /// path the pair `let (sender, receiver)` is made, and then a statement drops the sender
-/// (`drop(tx)`, `std::mem::drop(tx)`: [`drop_call_at`]) or closes the receiver. A drop in the loop, after it, in a block beside it or in a closure ends
-/// nothing the loop can count on (#41961 review F1).
-fn ended_before(path: &[&[TokenTree]], receiver: &str) -> bool {
+/// (`drop(tx)`, `std::mem::drop(tx)`: [`drop_call_at`]) or closes the receiver. A drop in the
+/// loop, after it, in a block beside it or in a closure ends nothing the loop can count on
+/// (#41961 review F1).
+fn ended_before(path: &[&[TokenTree]], receiver: &str, drops: &DropNames) -> bool {
     let names = |pair: &proc_macro2::Group| -> Vec<String> {
         let tts: Vec<TokenTree> = pair.stream().into_iter().collect();
         tts.split(|tt| punct(Some(tt), ','))
@@ -2630,7 +2776,8 @@ fn ended_before(path: &[&[TokenTree]], receiver: &str) -> bool {
             if !statement(level, k) {
                 continue;
             }
-            let dropped = drop_call_at(level, k).is_some_and(|args| names(args) == [tx.clone()]);
+            let dropped =
+                drop_call_at(level, k, drops).is_some_and(|args| names(args) == [tx.clone()]);
             let closed = word(level.get(k), receiver)
                 && punct(level.get(k + 1), '.')
                 && word(level.get(k + 2), "close");
@@ -2680,6 +2827,34 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
             "let (tx, rx) = channel::<()>();\n\
              let later = move || std::mem::drop(tx);\n\
              while let Ok(_) = rx.RECV {}\n",
+        ),
+        (
+            "#42081 F1: a local `mod mem` whose drop forgets the sender",
+            "mod mem {\n    pub fn drop<T>(t: T) {\n        std::mem::forget(t)\n    }\n}\n\
+             let (tx, rx) = channel::<u8>();\n\
+             mem::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42081 F1: a local `fn drop` that forgets the sender",
+            "fn drop<T>(t: T) {\n    std::mem::forget(t)\n}\n\
+             let (tx, rx) = channel::<u8>();\n\
+             drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42081 F1: a `drop` imported from another module",
+            "use other::drop;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42081 F1: a `mem` imported from another crate",
+            "use other::mem;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             mem::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
         ),
         (
             "#42023 F1: a drain whose sender another function's drop drops",
@@ -2793,6 +2968,34 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
             "use std::mem;\n\
              let (tx, rx) = channel::<u8>();\n\
              mem::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42081 F1: std's drop imported under another name",
+            "use std::mem::drop as release_tx;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             release_tx(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42081 F1: std's mem imported under another name",
+            "use std::mem as m;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             m::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42081 F1: core's drop imported by name",
+            "use core::mem::drop;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42081 F1: a `Drop` impl's `fn drop` is a method, not a shadow of the prelude's",
+            "impl Drop for Guard {\n    fn drop(&mut self) {}\n}\n\
+             let (tx, rx) = channel::<u8>();\n\
+             drop(tx);\n\
              while let Ok(n) = rx.RECV {}\n",
         ),
         (

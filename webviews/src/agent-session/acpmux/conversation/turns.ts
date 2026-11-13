@@ -54,7 +54,8 @@ import { turnCopyParts } from "./turnCopy";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { hidesEveryCall } from "./mcpPresentation";
-import { isQuietThought, isThought, thoughtDuration } from "./thoughts";
+import { isQuietThought, isThought } from "./thoughts";
+import { SILENT_MS } from "./thinkingModel";
 import {
   BACKGROUND_TURN,
   backgroundTurnRowId,
@@ -2558,7 +2559,17 @@ function shapeLiveTurn(
   const rows = codexRuns(drawn, named?.tool.id, lineOnly, carried);
   // The status ticks on this computer's clock, from the live turn's start moved onto it. A resumed
   // turn can still open with an older prompt, so the prompt's time (`user.at`) is only the fallback.
-  const start = turnStartedAtMs ?? user.at;
+  // A notice that set the agent going again after it had replied (a background task's end, another
+  // agent's message) starts a new stretch: the turn's clock counts from it, never from the person's
+  // prompt it already answered (Leo, 2026-11-12, on "turn 19m 44s" for a coordinator whose turn
+  // stayed open while notices kept arriving: "I feel like this is way too long for a turn").
+  // A notice that opens the rows drawn here starts its stretch too, when the harness's turn began
+  // before it.
+  const opened = turnStartedAtMs ?? user.at;
+  const start = continuationStart(
+    drawn,
+    !sentByPerson(user) && hasTimestamp(user.at) && user.at > opened ? user.at : opened,
+  );
   const at = start + clockOffset;
   const shaped = codexLiveTurn(user, drawn, rows, last, named, at, clockOffset, sessionStatus, trayAgents, start);
   // The line is the turn's last row, made fresh here.
@@ -2582,6 +2593,21 @@ function shapeLiveTurn(
 
 /// The running turn's "Working for" line over its work (`shapeLiveTurn`), keyed by the turn's prompt.
 export const workingHeaderId = (promptId: string) => `${WORKING}-${promptId}`;
+
+/// When the live turn's current stretch began: `start`, or the latest notice (a prompt the person did
+/// not send) that came after the agent had replied since then, which set it going again.
+export function continuationStart(rows: readonly AcpmuxRow[], start: number): number {
+  let from = start;
+  let replied = false;
+  for (const row of rows) {
+    if (row.kind === "assistant" && !isVisiblyEmptyMessage(row)) replied = true;
+    else if (row.kind === "user" && !sentByPerson(row) && replied && hasTimestamp(row.at) && row.at > from) {
+      from = row.at;
+      replied = false;
+    }
+  }
+  return from;
+}
 
 /// A turn's footer that holds only its buttons (copy, fork, pin, read aloud, its time): no failure,
 /// no stop, nothing to resume or continue.
@@ -2682,10 +2708,19 @@ function codexLiveTurn(
   // we just immediately switch to the thinking? I feel like this hangs on for a bit too much").
   // Takes back the held step of 2026-11-01 ("this should be replacing the thinking area and its
   // shimmer across things"); the finished call stays in its run.
-  // Still "Thinking" after the first step: the time beside it is only the turn's thinking, the
-  // summed spans its thoughts streamed, never the calls, waits and queue time between them (Leo's
-  // "Thinking 7m 34s · ↓ 4.5K out", 2026-11-03). The turn's whole time is the total after it.
-  if (line.doing === undefined && line.liveState === undefined) line.thoughtMs = thoughtTime(drawn);
+  // Still "Thinking" after the first step: the time beside it is this stretch of thinking, ticking
+  // from when it began (`phaseAt`), never a frozen sum of the thoughts' spans (Leo, 2026-11-12, on
+  // "Thinking 683ms · turn 15m 15s": "the whatever ms gets stuck and becomes false really
+  // quickly"). When the turn last heard anything (`heardAt`, `heardKey`) lets the line say
+  // "Waiting" once SILENT_MS pass with nothing, never a stale "Thinking" (Thinking.tsx). The calls,
+  // waits and queue time before it are not thinking (Leo's "Thinking 7m 34s · ↓ 4.5K out",
+  // 2026-11-03); the turn's whole time is the total after it.
+  // A reply that paused ("writing") gets the silence clock too: past WRITING_MS it reads "Thinking",
+  // and past SILENT_MS with nothing more it reads "Waiting", never a "Thinking" that stays forever.
+  if (line.doing === undefined && (line.liveState === undefined || line.liveState === "writing"))
+    Object.assign(line, liveClock(drawn, start, clockOffset), {
+      heardKey: `${drawn.length}:${last.id}:${last.version}`,
+    });
   if (!plan) return [...rows, line];
   const work = rows.filter((row) => row !== plan);
   // The answer streams over the list, the line under both; a compaction keeps its line there too.
@@ -2726,17 +2761,58 @@ function liveCompaction(drawn: readonly AcpmuxRow[]): AcpmuxRow | undefined {
 const sentByPerson = (row: AcpmuxRow) =>
   row.kind === "user" && !row.incoming && !row.received && !row.untyped && row.from === undefined;
 
-/// The time a live turn's thoughts streamed, each from its first chunk to its latest, summed;
-/// undefined when none is dated or the dated ones each came as one chunk, which measured nothing.
-function thoughtTime(rows: readonly AcpmuxRow[]): number | undefined {
-  let total: number | undefined;
-  for (const row of rows)
-    if (row.kind === "activity")
-      for (const item of row.items ?? []) {
-        const ms = isThought(item) ? thoughtDuration(item) : undefined;
-        if (ms !== undefined) total = (total ?? 0) + ms;
+/// When a live turn's current stretch of thinking began and when the turn last heard anything, on
+/// this computer's clock. Every dated moment of the turn's rows is a sign of life: a row's start, a
+/// thought's first and latest chunk, a call's start and end. The stretch begins at the latest sign
+/// that is no thought (a call that ended, a reply, the prompt), or later at the first thought after
+/// a silence of SILENT_MS, which the line drew as "Waiting" (Thinking.tsx), so the time beside
+/// "Thinking" never counts a wait as thought.
+export function liveClock(
+  rows: readonly AcpmuxRow[],
+  start: number,
+  clockOffset = 0,
+): { phaseAt: number; heardAt: number } {
+  let step = start;
+  let heard = start;
+  // Each thought is one span, its first chunk to its latest: a thought that streams on is never
+  // silent inside, however long it runs, so only a gap between spans can start a new stretch.
+  const thoughts: { from: number; to: number }[] = [];
+  const dated = (at: number | undefined): at is number => at !== undefined && hasTimestamp(at);
+  const note = (at: number | undefined) => {
+    if (!dated(at)) return;
+    if (at > heard) heard = at;
+    if (at > step) step = at;
+  };
+  const think = (from: number | undefined, to: number | undefined) => {
+    const first = dated(from) ? from : dated(to) ? to : undefined;
+    if (first === undefined) return;
+    const last = dated(to) && to > first ? to : first;
+    if (last > heard) heard = last;
+    thoughts.push({ from: first, to: last });
+  };
+  for (const row of rows) {
+    const items = row.kind === "activity" ? (row.items ?? []) : [];
+    // An activity row's start is its first item's; one of only thoughts is no step.
+    if (items.length > 0 && items.every(isThought)) think(row.at, row.at);
+    else note(row.at);
+    for (const item of items) {
+      if (isThought(item)) think(item.startedAt, item.endedAt);
+      else {
+        note(item.startedAt);
+        note(item.endedAt);
       }
-  return total || undefined;
+      note(item.tool?.startedAt);
+      note(item.tool?.endedAt);
+    }
+  }
+  let phase = step;
+  let last = step;
+  for (const span of thoughts.filter((span) => span.to > step).sort((a, b) => a.from - b.from)) {
+    const from = Math.max(span.from, step);
+    if (from - last >= SILENT_MS) phase = from;
+    if (span.to > last) last = span.to;
+  }
+  return { phaseAt: phase + clockOffset, heardAt: heard + clockOffset };
 }
 
 /// Foreground subagents still running in a live turn's rows (its subagent groups): the ones the

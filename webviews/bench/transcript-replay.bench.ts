@@ -145,7 +145,7 @@ const changed = (p: Play) =>
 
 // ---------- the page side ----------
 /** Init script: the replay clock, layout-shift and long-task buffers. Self-contained (Playwright serializes it). */
-function instrument(start: number) {
+export function instrument(start: number) {
   const w = window as unknown as {
     __replayAt?: (at: number) => void;
     __shifts: { at: number; value: number; input: boolean; sources: string[] }[];
@@ -198,12 +198,12 @@ function instrument(start: number) {
   }
 }
 
-const paint = (page: Page, frames: number) =>
+export const paint = (page: Page, frames: number) =>
   page.evaluate(async (count) => {
     for (let frame = 0; frame < count; frame++) await window.cmuxPaintFrame();
   }, frames);
 /// Resolves once the transcript's offset and height have held, with nothing animating, for 12 painted frames.
-const rest = (page: Page) =>
+export const rest = (page: Page) =>
   page.evaluate(async () => {
     const scroller = () => document.querySelector<HTMLElement>(".acpmux-scroll");
     const moving = () =>
