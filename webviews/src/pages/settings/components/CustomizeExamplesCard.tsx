@@ -7,7 +7,7 @@ import { t } from "../strings";
 type Example = { id: string; file: string; manifest: string };
 // Pin installs and source links to the reviewed tree. A moving branch would let
 // the Settings card silently install code that was never reviewed with the app.
-const SHOWCASE_REF = "9c066b3251ac60991d8cf442f352c990635a59a7";
+const SHOWCASE_REF = "69da562de66ba80604f7f2c8559ae7abe8d98446";
 const RAW_BASE = `https://raw.githubusercontent.com/manaflow-ai/cmux/${SHOWCASE_REF}/`;
 const SOURCE_BASE = `https://github.com/manaflow-ai/cmux/blob/${SHOWCASE_REF}/`;
 const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
