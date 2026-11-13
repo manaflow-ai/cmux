@@ -22,7 +22,9 @@
 //! renames and macro invocations come from the tree. A macro's statics are judged unless the
 //! macro is `thread_local!` or `task_local!`, whose whole invocation (its span, not its lines) is
 //! per thread; another macro's body is judged when it parses as items, statements or expressions
-//! (`dbg!({ static .. })`: [`crate::source::visit_macro_body`]). A static's type is judged
+//! (`dbg!({ static .. })`: [`crate::source::visit_macro_body`]). A name a block defines (an alias,
+//! a struct or a `use` in a fn body or in a wrapper macro's `{ .. }`) is that block's alone: a static
+//! in the block reads it, one outside reads what the outer scope defines. A static's type is judged
 //! after the file's own names in it are resolved: aliases (transitive and generic, arguments by
 //! position, then defaults in order, then the body, a parameter going before every other name),
 //! structs and enums by their fields, and `use ... as` renames. A name the file does not show (one
@@ -59,8 +61,8 @@ use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
 use syn::{
-    Attribute, GenericArgument, GenericParam, Generics, Item, PathArguments, ReturnType, Type,
-    TypeParamBound, UseTree,
+    Attribute, Block, GenericArgument, GenericParam, Generics, Item, PathArguments, ReturnType,
+    Type, TypeParamBound, UseTree,
 };
 
 /// Where a finding's path starts, from the repository root.
@@ -271,12 +273,13 @@ fn judge_parsed(
         krate: krate.map(|(krate, _, _)| krate),
         file: file_module.clone(),
         module: file_module,
+        at: Vec::new(),
         memo: krate.map_or(&one_file, |(_, _, memo)| memo),
     };
     let serializers: HashSet<&str> = sites
         .out
         .iter()
-        .filter(|s| resolver.is_serializer(&s.ty, 0))
+        .filter(|s| resolver.within(&s.scope).is_serializer(&s.ty, 0))
         .map(|s| s.name.as_str())
         .collect();
     let mut found = Vec::new();
@@ -408,7 +411,7 @@ struct Param {
 struct Def {
     params: Vec<Param>,
     body: Body,
-    /// The inline modules (`mod m { ... }`) it is in, from the file's top.
+    /// The inline modules (`mod m { ... }`) and blocks it is in, from the file's top.
     scope: Vec<String>,
 }
 
@@ -430,6 +433,34 @@ fn field_types(fields: &syn::Fields) -> impl Iterator<Item = Type> + '_ {
     fields.iter().map(|f| f.ty.clone())
 }
 
+/// A block's step in a scope (`{LINE:COLUMN}` of its opening brace), beside the inline modules'
+/// names. Collect and Sites read the same tree (a macro's body parsed from the same tokens), so
+/// both name a block alike.
+fn block_step(block: &Block) -> String {
+    let at = block.brace_token.span.open().start();
+    format!("{{{}:{}}}", at.line, at.column)
+}
+
+fn is_block_step(step: &str) -> bool {
+    step.starts_with('{')
+}
+
+/// The key of the innermost block in `scope` (`scope` up to that block's step), or None outside
+/// every block.
+fn block_key(scope: &[String]) -> Option<String> {
+    let last = scope.iter().rposition(|s| is_block_step(s))?;
+    Some(scope.get(..=last).unwrap_or_default().join("::"))
+}
+
+/// The names one block defines (review of cmux#41581 F1): what a static in it reads before the
+/// file's, and what no static outside it reads.
+#[derive(Default)]
+struct Layer {
+    defs: HashMap<String, Def>,
+    /// Every `use` of each name in the block, with the scope it is in.
+    uses: HashMap<String, Vec<(String, Vec<String>)>>,
+}
+
 /// What the names in a file's static types stand for, as far as the file shows: its aliases,
 /// structs, enums, unions and consts, its `use` names, and its modules.
 #[derive(Default)]
@@ -445,6 +476,8 @@ struct Names {
     candidates: HashMap<String, Vec<(String, Vec<String>)>>,
     /// The modules this file declares as files (`mod m;`), `scope::m` from the file's top.
     file_mods: HashSet<String>,
+    /// The names each block defines, by [`block_key`]; none of them is in the maps above.
+    blocks: HashMap<String, Layer>,
 }
 
 impl Names {
@@ -490,12 +523,18 @@ impl Names {
     }
 
     fn add_use(&mut self, local: String, path: String, scope: &[String]) {
+        if let Some(key) = block_key(scope) {
+            let layer = self.blocks.entry(key).or_default();
+            layer.uses.entry(local).or_default().push((path, scope.to_vec()));
+            return;
+        }
         self.candidates.entry(local.clone()).or_default().push((path.clone(), scope.to_vec()));
         self.uses.insert(local, path);
     }
 }
 
-/// Fills a file's Names from every item, in any module, function or macro body.
+/// Fills a file's Names from every item, in any module, function or macro body: a block's into
+/// its [`Layer`].
 struct Collect<'n> {
     names: &'n mut Names,
     /// The inline modules the visit is in.
@@ -506,6 +545,10 @@ impl Collect<'_> {
     fn define(&mut self, name: &syn::Ident, generics: &Generics, body: Body) {
         let params = params_of(generics);
         let def = Def { params, body, scope: self.scope.clone() };
+        if let Some(key) = block_key(&self.scope) {
+            self.names.blocks.entry(key).or_default().defs.insert(name.to_string(), def);
+            return;
+        }
         if self.scope.is_empty() {
             self.names.top.insert(name.to_string(), def.clone());
         }
@@ -549,6 +592,11 @@ impl<'ast> Visit<'ast> for Collect<'_> {
     fn visit_item_use(&mut self, i: &'ast syn::ItemUse) {
         self.names.use_tree("", &i.tree, &self.scope);
     }
+    fn visit_block(&mut self, b: &'ast Block) {
+        self.scope.push(block_step(b));
+        visit::visit_block(self, b);
+        self.scope.pop();
+    }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
         if process_wide(mac) {
             visit_macro_body(self, mac);
@@ -561,7 +609,7 @@ struct Site {
     line: usize,
     ty: Type,
     gated: bool,
-    /// The inline modules it is in, from the file's top.
+    /// The inline modules and blocks it is in, from the file's top.
     scope: Vec<String>,
 }
 
@@ -650,6 +698,11 @@ impl<'ast> Visit<'ast> for Sites {
     fn visit_foreign_item_static(&mut self, i: &'ast syn::ForeignItemStatic) {
         self.push(&i.ident, &i.ty, &i.attrs);
     }
+    fn visit_block(&mut self, b: &'ast Block) {
+        self.scope.push(block_step(b));
+        visit::visit_block(self, b);
+        self.scope.pop();
+    }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
         if process_wide(mac) {
             visit_macro_body(self, mac);
@@ -696,7 +749,17 @@ struct Resolver<'a> {
     /// written in (the file's, or an inline module of it).
     file: Vec<String>,
     module: Vec<String>,
+    /// The inline modules and blocks of this file the names being read are written in: a block's
+    /// own names ([`Layer`]) go before the file's.
+    at: Vec<String>,
     memo: &'a Memo,
+}
+
+/// What a one-segment name stands for where it is read: a definition, or a `use` (its path, and
+/// every `use` of the name there).
+enum Named<'n> {
+    Def(&'n Def),
+    Use(&'n str, &'n [(String, Vec<String>)]),
 }
 
 /// What each generic-free definition of the crate holds, read once for the whole tree: its facts
@@ -709,16 +772,82 @@ struct Memo {
 }
 
 impl<'a> Resolver<'a> {
-    /// This resolver, reading names written in the inline modules `scope` of its file.
+    /// This resolver, reading names written in the inline modules and blocks `scope` of its file.
+    /// A block is no module: `self::` and `super::` in it are its module's.
     fn within(&self, scope: &[String]) -> Resolver<'a> {
         Resolver {
             names: self.names,
             lines: self.lines,
             krate: self.krate,
             file: self.file.clone(),
-            module: self.file.iter().chain(scope).cloned().collect(),
+            module: self
+                .file
+                .iter()
+                .chain(scope.iter().filter(|s| !is_block_step(s)))
+                .cloned()
+                .collect(),
+            at: scope.to_vec(),
             memo: self.memo,
         }
+    }
+
+    /// The blocks this resolver reads names in, innermost first.
+    fn layers(&self) -> Vec<&'a Layer> {
+        let names = self.names;
+        (0..self.at.len())
+            .rev()
+            .filter(|&i| self.at.get(i).is_some_and(|s| is_block_step(s)))
+            .filter_map(|i| names.blocks.get(&self.at.get(..=i).unwrap_or_default().join("::")))
+            .collect()
+    }
+
+    /// What `name` stands for here: the innermost block's that defines or `use`s it, else the
+    /// file's definition, else the file's `use`.
+    fn named(&self, name: &str) -> Option<Named<'a>> {
+        for layer in self.layers() {
+            if let Some(def) = layer.defs.get(name) {
+                return Some(Named::Def(def));
+            }
+            if let Some(uses) = layer.uses.get(name)
+                && let Some((full, _)) = uses.last()
+            {
+                return Some(Named::Use(full, uses));
+            }
+        }
+        let names = self.names;
+        if let Some(def) = names.defs.get(name) {
+            return Some(Named::Def(def));
+        }
+        let full = names.uses.get(name)?;
+        Some(Named::Use(full, names.candidates.get(name).map_or(&[][..], Vec::as_slice)))
+    }
+
+    /// Every `use` of `name` here: the innermost block's that defines or `use`s it (none when it
+    /// defines it), else the file's.
+    fn uses_of(&self, name: &str) -> Option<&'a [(String, Vec<String>)]> {
+        for layer in self.layers() {
+            if layer.defs.contains_key(name) {
+                return None;
+            }
+            if let Some(uses) = layer.uses.get(name) {
+                return Some(uses);
+            }
+        }
+        self.names.candidates.get(name).map(Vec::as_slice)
+    }
+
+    /// [`Names::local`], a block's `use` of the path's first name going first.
+    fn is_local(&self, path: &str) -> bool {
+        let root = path.split("::").next().unwrap_or("");
+        if path.contains("::")
+            && !matches!(root, "crate" | "super" | "self")
+            && !self.names.mods.contains(root)
+            && let Some((full, _)) =
+                self.layers().into_iter().find_map(|l| l.uses.get(root)).and_then(|u| u.last())
+        {
+            return self.names.local(full, &mut vec![root.to_string()]);
+        }
+        self.names.local(path, &mut Vec::new())
     }
 
     /// The stack key of a definition of this file.
@@ -752,7 +881,7 @@ impl<'a> Resolver<'a> {
             }
             m if self.file_mod(m) => self.module.iter().cloned().chain([m.to_string()]).collect(),
             u => {
-                let [(full, scope)] = self.names.candidates.get(u)?.as_slice() else {
+                let [(full, scope)] = self.uses_of(u)? else {
                     return None;
                 };
                 self.within(scope).absolute(full, depth + 1)?
@@ -800,6 +929,7 @@ impl<'a> Resolver<'a> {
             krate: Some(krate),
             file: module.to_vec(),
             module: module.to_vec(),
+            at: Vec::new(),
             memo: self.memo,
         };
         if let Some(def) = file.names.top.get(name) {
@@ -841,13 +971,16 @@ impl<'a> Resolver<'a> {
     fn follow_use(
         &self,
         name: &str,
+        candidates: &[(String, Vec<String>)],
         args: &PathArguments,
         env: &Env,
         stack: &mut Vec<String>,
         facts: &mut Facts,
     ) -> Option<bool> {
         self.krate?;
-        let candidates = self.names.candidates.get(name)?;
+        if candidates.is_empty() {
+            return None;
+        }
         let key = self.key(&format!("use {name}"));
         if stack.contains(&key) {
             self.memo.cuts.set(self.memo.cuts.get().wrapping_add(1));
@@ -857,7 +990,7 @@ impl<'a> Resolver<'a> {
         let mut option = Some(false);
         for (full, scope) in candidates {
             let at = self.within(scope);
-            let one = if self.names.local(full, &mut Vec::new()) {
+            let one = if at.is_local(full) {
                 at.absolute(full, 0)
                     .and_then(|segs| self.follow(self, &segs, args, env, stack, facts))
             } else {
@@ -1143,7 +1276,7 @@ impl<'a> Resolver<'a> {
                 self.args(&last.arguments, env, stack, facts);
                 return false;
             }
-            if self.names.local(&idents.join("::"), &mut Vec::new()) {
+            if self.is_local(&idents.join("::")) {
                 if let Some(option) = self
                     .absolute(&idents.join("::"), 0)
                     .and_then(|segs| self.follow(self, &segs, &last.arguments, env, stack, facts))
@@ -1198,25 +1331,45 @@ impl<'a> Resolver<'a> {
         if PRELUDE.contains(&name) {
             return self.foreign(name, args, env, stack, facts);
         }
-        if let Some(def) = self.names.defs.get(name) {
-            return self.def(self, name, def, args, env, stack, facts);
-        }
-        if let Some(full) = self.names.uses.get(name) {
-            if self.names.local(full, &mut Vec::new()) {
-                if let Some(option) = self.follow_use(name, args, env, stack, facts) {
-                    return option;
-                }
-                facts.unresolved.insert(name.to_string());
-                self.args(args, env, stack, facts);
-                return false;
+        match self.named(name) {
+            Some(Named::Def(def)) => return self.def(self, name, def, args, env, stack, facts),
+            Some(Named::Use(full, candidates)) => {
+                return self.use_name(name, full, candidates, args, env, stack, facts);
             }
-            let last = full.rsplit("::").next().unwrap_or(full);
-            return self.foreign(last, args, env, stack, facts);
+            None => {}
         }
         if !is_cell(name) && !WELL_KNOWN.contains(&name) {
             facts.unresolved.insert(name.to_string());
         }
         self.foreign(name, args, env, stack, facts)
+    }
+
+    /// A one-segment name a `use` names (`full`, one of `candidates`): followed into the crate,
+    /// or taken at its last name's word.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the resolver's walk state, as every step here takes it"
+    )]
+    fn use_name(
+        &self,
+        name: &str,
+        full: &str,
+        candidates: &[(String, Vec<String>)],
+        args: &PathArguments,
+        env: &Env,
+        stack: &mut Vec<String>,
+        facts: &mut Facts,
+    ) -> bool {
+        if self.is_local(full) {
+            if let Some(option) = self.follow_use(name, candidates, args, env, stack, facts) {
+                return option;
+            }
+            facts.unresolved.insert(name.to_string());
+            self.args(args, env, stack, facts);
+            return false;
+        }
+        let last = full.rsplit("::").next().unwrap_or(full);
+        self.foreign(last, args, env, stack, facts)
     }
 
     /// The parameters of definition `name` bound in one ordered pass: the arguments given (read
@@ -1287,16 +1440,22 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    /// `idents` with its first segment replaced by the path the file's `use` gives it, again and
-    /// again (`use std::sync as s; use s::Mutex as Lock;`), until no `use` names its head.
+    /// `idents` with its first segment replaced by the path a `use` gives it, again and again
+    /// (`use std::sync as s; use s::Mutex as Lock;`), until no `use` names its head. Each head is
+    /// read where the path is: a block's `use` before the file's ([`Resolver::named`]), and a
+    /// definition there stops it; the next head is read where that `use` is written.
     fn used_path(&self, idents: &[String]) -> Vec<String> {
         let mut path = idents.to_vec();
-        let mut seen: Vec<String> = Vec::new();
+        let mut at = self.at.clone();
+        let mut seen: Vec<(String, Vec<String>)> = Vec::new();
         while let Some(head) = path.first().cloned()
-            && !seen.contains(&head)
-            && let Some(full) = self.names.uses.get(&head)
+            && !seen.iter().any(|(h, s)| *h == head && *s == at)
+            && let Some(Named::Use(full, uses)) = self.within(&at).named(&head)
         {
-            seen.push(head);
+            seen.push((head, at.clone()));
+            if let Some((_, scope)) = uses.last() {
+                at.clone_from(scope);
+            }
             let mut next: Vec<String> = full.split("::").map(str::to_string).collect();
             next.extend(path.drain(1..));
             path = next;
@@ -1315,19 +1474,19 @@ impl<'a> Resolver<'a> {
         }
         let idents: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
         if let [name] = idents.as_slice()
-            && let Some(def) = self.names.defs.get(name)
+            && let Some(Named::Def(def)) = self.named(name)
         {
             return match def {
-                Def { params, body: Body::Alias(inner), .. } if params.is_empty() => {
-                    self.is_serializer(inner, depth + 1)
+                Def { params, body: Body::Alias(inner), scope } if params.is_empty() => {
+                    self.within(scope).is_serializer(inner, depth + 1)
                 }
                 _ => false,
             };
         }
         let shape = match self.used_path(&idents).iter().map(String::as_str).collect::<Vec<_>>()[..]
         {
-            // A bare `Mutex` the file does not import is taken as std's (the prelude has none,
-            // so it is an import from another file or a glob).
+            // A bare `Mutex` no `use` here names is taken as std's (the prelude has none, so it
+            // is an import from another file or a glob).
             ["Mutex"] => true,
             ["std" | "tokio", "sync", "Mutex"] => true,
             _ => false,

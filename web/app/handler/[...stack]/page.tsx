@@ -6,7 +6,7 @@ import { Suspense } from "react";
 import { stackServerApp } from "../../lib/stack";
 import { CliAuthConfirmation, type CliAuthIdentityMessages } from "../cli-auth-confirmation";
 import { CmuxOAuthCallback, CmuxSignIn, type CmuxSignInMessages } from "../cmux-sign-in";
-import { chatGPTSignInEnabled } from "../chatgpt/chatgpt-routes";
+import { chatGPTSignInEnabled } from "../chatgpt/chatgpt-enabled";
 import { EndSavedSessions } from "../end-saved-sessions";
 import { SignInSpinner } from "../sign-in-spinner";
 import { hostedAuthErrorRedirect } from "../sign-in-entry";
