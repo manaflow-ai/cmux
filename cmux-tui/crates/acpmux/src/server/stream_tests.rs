@@ -375,3 +375,12 @@ async fn trigger_admission_cannot_be_followed_by_an_upgrade() {
     assert_eq!(rx.recv().await.as_deref(), Some(trigger.trim_end()));
     assert_eq!(rx.recv().await.as_deref(), Some(upgrade.trim_end()));
 }
+
+#[test]
+fn upgrade_canonicalizes_repeated_surfaces() {
+    let (hub, writer) = acpmux_core::hub::Hub::new(acpmux_book::index::SummaryIndex::new());
+    let v2 = V2::with_surfaces(hub, writer, ["list".into(), "chat".into()].into_iter().collect());
+    let (_, surfaces) =
+        v2_upgrade(&upgrade_line(json!(["chat", "list", "chat", "list"])), &v2).unwrap();
+    assert_eq!(surfaces, ["list", "chat"]);
+}

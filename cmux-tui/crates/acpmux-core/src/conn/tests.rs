@@ -235,8 +235,10 @@ fn credit_resumes_from_last_taken_not_last_written_and_does_not_repeat() {
     let mut state = ConnectionState::default();
     state.subscribe("s", Cursor(0)).unwrap();
     assert_eq!(state.offer("s", frame(CREDIT_WINDOW_BYTES as usize - 10), Cursor(1)), Offer::Taken);
-    assert_eq!(state.offer("s", frame(10), Cursor(2)), Offer::NotFed);
-    assert_eq!(state.credit(Credit { sid: "s".into(), consumed: 100 }).unwrap(), Some(Cursor(1)));
+    // A fed subscription may take the frame that crosses the window.
+    assert_eq!(state.offer("s", frame(10), Cursor(2)), Offer::Taken);
+    assert_eq!(state.offer("s", frame(10), Cursor(3)), Offer::NotFed);
+    assert_eq!(state.credit(Credit { sid: "s".into(), consumed: 100 }).unwrap(), Some(Cursor(2)));
     assert_eq!(state.credit(Credit { sid: "s".into(), consumed: 100 }).unwrap(), None);
 }
 

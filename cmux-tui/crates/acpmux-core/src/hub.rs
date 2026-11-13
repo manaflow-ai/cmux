@@ -437,17 +437,18 @@ impl HubWriter {
     }
 
     fn publish(&self, event: SummaryEvent) {
-        let Ok(mut subscribers) = self.subscribers.lock() else { return };
-        subscribers.retain(|subscriber| {
-            let Ok(state) = subscriber.state.lock() else { return true };
+        let Ok(subscribers) = self.subscribers.lock() else { return };
+        // Only ListReceiver::drop removes registrations. A lagged receiver may
+        // still be repositioned to a fresh window by its source.
+        for subscriber in subscribers.iter() {
+            let Ok(state) = subscriber.state.lock() else { continue };
             if event.seq <= state.cursor || state.ended {
-                return !state.ended;
+                continue;
             }
             // The history is the subscriber's resume source. Do not enqueue the frame here:
             // an unread subscriber must retain only its cursor.
             subscriber.notify.notify_one();
-            true
-        });
+        }
     }
 
     pub fn remove(&mut self, chat_id: &str) -> Result<bool, HubError> {
@@ -474,24 +475,35 @@ impl HubWriter {
     }
 
     fn publish_gone(&self, seq: u64, _chat_id: String) {
-        let Ok(mut subscribers) = self.subscribers.lock() else { return };
-        subscribers.retain(|subscriber| {
-            let Ok(state) = subscriber.state.lock() else { return true };
+        let Ok(subscribers) = self.subscribers.lock() else { return };
+        // Only ListReceiver::drop removes registrations. A lagged receiver may
+        // still be repositioned to a fresh window by its source.
+        for subscriber in subscribers.iter() {
+            let Ok(state) = subscriber.state.lock() else { continue };
             if seq <= state.cursor || state.ended {
-                return !state.ended;
+                continue;
             }
             // See `publish`: the subscriber wakes and reads from history on demand.
             subscriber.notify.notify_one();
-            true
-        });
+        }
     }
 
     fn record_history(&self, item: ListItem) {
         // Compute record size outside the lock used by a reader. The shared
         // retention has its own byte bound; a stopped subscriber owns only a cursor.
         let bytes = match &item {
-            ListItem::Summary(event) => event.summary.encoded_len().saturating_add(32),
-            ListItem::Gone { chat_id, .. } => chat_id.len().saturating_add(32),
+            ListItem::Summary(event) => serde_json::to_vec(&crate::wire::DeltaOp::Summary {
+                seq: event.seq,
+                summary: event.summary.as_ref(),
+            })
+            .map_or(usize::MAX, |record| record.len()),
+            ListItem::Gone { seq, chat_id } => {
+                serde_json::to_vec(&crate::wire::DeltaOp::<Summary>::Gone {
+                    seq: *seq,
+                    chat_id: chat_id.clone(),
+                })
+                .map_or(usize::MAX, |record| record.len())
+            }
             ListItem::Lagged { .. } => 0,
         };
         if let Ok(mut history) = self.history.lock() {
@@ -638,6 +650,36 @@ mod tests {
             rounds.push(samples);
         }
         rounds
+    }
+
+    #[tokio::test]
+    async fn lagged_receiver_keeps_registration_until_it_is_dropped() {
+        let (hub, mut writer) = Hub::new(SummaryIndex::new());
+        let subscription = hub.subscribe(&Sub::new("s", "list")).unwrap();
+        for seq in 0..17000 {
+            writer.apply(summary("a", seq)).unwrap();
+        }
+        assert!(matches!(subscription.receiver.try_next(), Some(ListItem::Lagged { .. })));
+        writer.apply(summary("a", 17000)).unwrap();
+        assert_eq!(hub.subscriber_count(), 1);
+        // A fresh window can revive this receiver after an intervening publish.
+        subscription.receiver.reposition(hub.snapshot().seq());
+        assert!(subscription.receiver.try_next().is_none());
+        {
+            let receiving = subscription.receiver.recv();
+            tokio::pin!(receiving);
+            tokio::select! {
+                biased;
+                _ = &mut receiving => panic!("no new record yet"),
+                _ = std::future::ready(()) => {}
+            }
+            let next = writer.apply(summary("a", 17001)).unwrap();
+            let item =
+                tokio::time::timeout(std::time::Duration::from_secs(1), receiving).await.unwrap();
+            assert!(matches!(item, Some(ListItem::Summary(event)) if event.seq == next.seq));
+        }
+        drop(subscription);
+        assert_eq!(hub.subscriber_count(), 0);
     }
 
     #[test]

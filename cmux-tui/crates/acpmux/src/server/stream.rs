@@ -118,7 +118,14 @@ fn v2_upgrade(line: &str, v2: &acpmux_core::life::V2) -> Option<(Value, Vec<Stri
     {
         return None;
     }
-    Some((id, requested.into_iter().map(str::to_owned).collect()))
+    Some((
+        id,
+        ["list", "chat"]
+            .into_iter()
+            .filter(|surface| requested.contains(surface))
+            .map(str::to_owned)
+            .collect(),
+    ))
 }
 
 /// Hands each line `rd` reads to `in_tx`, holding at most `limits.line` bytes of one (and the

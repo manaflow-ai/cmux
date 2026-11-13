@@ -87,9 +87,11 @@ impl Source for HubSource {
             .lock()
             .map_err(|_| ConnError::InvalidRequest("list source poisoned".into()))?;
         let held = Arc::new(Held::default());
+        let mut resumed = sub.clone();
+        resumed.anchor = None;
         let join = self.scope.spawn(pump(
             self.hub.clone(),
-            sub.clone(),
+            resumed,
             sink,
             delivery.receiver,
             delivery.mode,
