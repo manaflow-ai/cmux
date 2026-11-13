@@ -24,7 +24,7 @@ pub struct Cursor {
     pub await_fresh: bool,
 }
 impl Cursor {
-    fn text(&mut self, text: &str, pattern: Option<&str>) {
+    pub(super) fn text(&mut self, text: &str, pattern: Option<&str>) {
         if let Some(pattern) = pattern {
             let joined = format!("{}{text}", self.tail);
             self.matched |= joined.contains(pattern);

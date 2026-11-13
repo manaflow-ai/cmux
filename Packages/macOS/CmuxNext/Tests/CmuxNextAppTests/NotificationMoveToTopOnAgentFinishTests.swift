@@ -37,6 +37,8 @@ struct NotificationMoveToTopOnAgentFinishTests {
     /// The user, 2026-11-09: "we should move workspaces that have notifications to top like imessage
     /// (if it is off, we need to make it on by default)". Every notification moves its workspace by
     /// default; `moveToTop: false` keeps the order the user made, and the finished-turn opt-in still works.
+    /// Leo 2026-11-10: "the ones that are blue that are done, I think we can probably turn that on. Likewise
+    /// with the yellow": a finished turn (blue) and a question (yellow) are the notifications checked here.
     @Test func everyNotificationMovesItsWorkspaceByDefaultAndTheSettingTurnsItOff() throws {
         let finished = try Self.notification(source: "agent", level: "info")
         let bell = try Self.notification(source: "terminal", level: "info")

@@ -26497,6 +26497,137 @@
         }
       }
     },
+    "settingsPage.moreOptions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More Options"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "その他のオプション"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مزيد من الخيارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Više opcija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flere indstillinger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Weitere Optionen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Más opciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plus d’options"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altre opzioni"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជម្រើសបន្ថែម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "추가 옵션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flere valg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Więcej opcji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mais opções"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дополнительные параметры"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวเลือกเพิ่มเติม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diğer Seçenekler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Додаткові параметри"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tùy chọn khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更多选项"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更多選項"
+          }
+        }
+      }
+    },
     "settingsPage.useThemeColor": {
       "extractionState": "manual",
       "localizations": {
@@ -29655,127 +29786,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يستطيع acpmux هذا تغيير الوكلاء من الإعدادات. شغّل هذا في طرفية:"
+            "value": "لا يستطيع cmux هذا تغيير الوكلاء من الإعدادات. شغّل هذا في طرفية:"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovaj acpmux ne može mijenjati agente iz Postavki. Pokreni ovo u terminalu:"
+            "value": "Ovaj cmux ne može mijenjati agente iz Postavki. Pokreni ovo u terminalu:"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne acpmux kan ikke ændre agenter fra Indstillinger. Kør dette i en terminal:"
+            "value": "Denne cmux kan ikke ændre agenter fra Indstillinger. Kør dette i en terminal:"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dieses acpmux kann Agenten nicht in den Einstellungen ändern. Führe dies im Terminal aus:"
+            "value": "Dieses cmux kann Agenten nicht in den Einstellungen ändern. Führe dies im Terminal aus:"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This acpmux cannot change agents from Settings. Run this in a terminal:"
+            "value": "This cmux cannot change agents from Settings. Run this in a terminal:"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este acpmux no puede cambiar agentes desde Ajustes. Ejecuta esto en una terminal:"
+            "value": "Este cmux no puede cambiar agentes desde Ajustes. Ejecuta esto en una terminal:"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cet acpmux ne peut pas modifier les agents depuis les Réglages. Lancez ceci dans un terminal :"
+            "value": "Cet cmux ne peut pas modifier les agents depuis les Réglages. Lancez ceci dans un terminal :"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questo acpmux non può modificare gli agenti dalle Impostazioni. Esegui questo in un terminale:"
+            "value": "Questo cmux non può modificare gli agenti dalle Impostazioni. Esegui questo in un terminale:"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このacpmuxは設定からエージェントを変更できません。ターミナルで次を実行してください:"
+            "value": "このcmuxは設定からエージェントを変更できません。ターミナルで次を実行してください:"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux នេះមិនអាចប្ដូរភ្នាក់ងារពីការកំណត់បានទេ។ ដំណើរការវានៅក្នុងស្ថានីយ៖"
+            "value": "cmux នេះមិនអាចប្ដូរភ្នាក់ងារពីការកំណត់បានទេ។ ដំណើរការវានៅក្នុងស្ថានីយ៖"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 acpmux는 설정에서 에이전트를 변경할 수 없습니다. 터미널에서 다음을 실행하세요:"
+            "value": "이 cmux는 설정에서 에이전트를 변경할 수 없습니다. 터미널에서 다음을 실행하세요:"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne acpmux kan ikke endre agenter fra Innstillinger. Kjør dette i en terminal:"
+            "value": "Denne cmux kan ikke endre agenter fra Innstillinger. Kjør dette i en terminal:"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ten acpmux nie może zmieniać agentów w Ustawieniach. Uruchom to w terminalu:"
+            "value": "Ten cmux nie może zmieniać agentów w Ustawieniach. Uruchom to w terminalu:"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este acpmux não pode alterar agentes pelos Ajustes. Execute isto em um terminal:"
+            "value": "Este cmux não pode alterar agentes pelos Ajustes. Execute isto em um terminal:"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Этот acpmux не может менять агентов в настройках. Выполните в терминале:"
+            "value": "Этот cmux не может менять агентов в настройках. Выполните в терминале:"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux นี้เปลี่ยนเอเจนต์จากการตั้งค่าไม่ได้ เรียกใช้คำสั่งนี้ในเทอร์มินัล:"
+            "value": "cmux นี้เปลี่ยนเอเจนต์จากการตั้งค่าไม่ได้ เรียกใช้คำสั่งนี้ในเทอร์มินัล:"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu acpmux aracıları Ayarlar'dan değiştiremez. Bunu bir terminalde çalıştırın:"
+            "value": "Bu cmux aracıları Ayarlar'dan değiştiremez. Bunu bir terminalde çalıştırın:"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Цей acpmux не може змінювати агентів у налаштуваннях. Виконайте в терміналі:"
+            "value": "Цей cmux не може змінювати агентів у налаштуваннях. Виконайте в терміналі:"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux này không thể thay đổi tác tử từ Cài đặt. Chạy lệnh này trong terminal:"
+            "value": "cmux này không thể thay đổi tác tử từ Cài đặt. Chạy lệnh này trong terminal:"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此 acpmux 无法在设置中更改智能体。请在终端中运行："
+            "value": "此 cmux 无法在设置中更改智能体。请在终端中运行："
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此 acpmux 無法在設定中變更代理。請在終端機中執行："
+            "value": "此 cmux 無法在設定中變更代理。請在終端機中執行："
           }
         }
       }
@@ -36100,399 +36231,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "%@，第 %@ 行"
-          }
-        }
-      }
-    },
-    "settingsPage.changedOnly": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Only Changed"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إظهار المُغيَّر فقط"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikaži samo promijenjeno"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis kun ændrede"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nur Geänderte zeigen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar solo cambios"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Afficher seulement les modifiés"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostra solo modificate"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "変更済みのみ表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្ហាញតែការផ្លាស់ប្ដូរ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "변경된 항목만 보기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis bare endrede"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokaż tylko zmienione"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar Só Alterados"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Только изменённые"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แสดงเฉพาะที่เปลี่ยน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yalnızca Değişenleri Göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Лише змінені"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chỉ hiện mục đã đổi"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "仅显示已更改"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "僅顯示已更改"
-          }
-        }
-      }
-    },
-    "settingsPage.changedTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Changed Settings"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الإعدادات المُغيَّرة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Promijenjene postavke"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ændrede indstillinger"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Geänderte Einstellungen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ajustes modificados"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Réglages modifiés"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impostazioni modificate"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "変更した設定"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការកំណត់ដែលបានផ្លាស់ប្ដូរ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "변경된 설정"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Endrede innstillinger"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zmienione ustawienia"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ajustes Alterados"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Изменённые настройки"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การตั้งค่าที่เปลี่ยน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Değişen Ayarlar"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Змінені налаштування"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cài đặt đã thay đổi"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已更改的设置"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已更改的設定"
-          }
-        }
-      }
-    },
-    "settingsPage.noChanged": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No settings are changed."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لم يتغيّر أي إعداد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nijedna postavka nije promijenjena."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingen indstillinger er ændret."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Keine Einstellung ist geändert."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No hay ajustes modificados."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aucun réglage n’est modifié."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nessuna impostazione è modificata."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "変更した設定はありません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនមានការកំណត់ណាត្រូវបានផ្លាស់ប្ដូរទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "변경된 설정이 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingen innstillinger er endret."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Żadne ustawienie nie jest zmienione."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nenhum ajuste foi alterado."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Нет изменённых настроек."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีการตั้งค่าที่เปลี่ยน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Değişen ayar yok."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Немає змінених налаштувань."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không có cài đặt nào đã thay đổi."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "没有已更改的设置。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "沒有已更改的設定。"
           }
         }
       }
@@ -43446,127 +43184,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux configuration"
+            "value": "cmux configuration"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إعدادات acpmux"
+            "value": "إعدادات cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux konfiguracija"
+            "value": "cmux konfiguracija"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux-konfiguration"
+            "value": "cmux-konfiguration"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux-Konfiguration"
+            "value": "cmux-Konfiguration"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Configuración de acpmux"
+            "value": "Configuración de cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Configuration d'acpmux"
+            "value": "Configuration d'cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Configurazione di acpmux"
+            "value": "Configurazione di cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux の設定"
+            "value": "cmux の設定"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការកំណត់ acpmux"
+            "value": "ការកំណត់ cmux"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 구성"
+            "value": "cmux 구성"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux-konfigurasjon"
+            "value": "cmux-konfigurasjon"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Konfiguracja acpmux"
+            "value": "Konfiguracja cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Configuração do acpmux"
+            "value": "Configuração do cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Конфигурация acpmux"
+            "value": "Конфигурация cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การกำหนดค่า acpmux"
+            "value": "การกำหนดค่า cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux yapılandırması"
+            "value": "cmux yapılandırması"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Конфігурація acpmux"
+            "value": "Конфігурація cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cấu hình acpmux"
+            "value": "Cấu hình cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 配置"
+            "value": "cmux 配置"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 設定"
+            "value": "cmux 設定"
           }
         }
       }
@@ -44232,127 +43970,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This build has no acpmux, so it cannot list harnesses."
+            "value": "This build can't list harnesses."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يحتوي هذا الإصدار على acpmux، لذا لا يمكنه سرد الأدوات."
+            "value": "لا يمكن لهذا الإصدار عرض الأدوات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ova verzija nema acpmux, pa ne može prikazati okruženja."
+            "value": "Ova verzija ne može prikazati harnesse."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne version har ingen acpmux og kan ikke vise agentmiljøer."
+            "value": "Denne build kan ikke vise harnesses."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dieser Build enthält kein acpmux und kann keine Harnesses anzeigen."
+            "value": "Dieser Build kann keine Harnesses auflisten."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta versión no tiene acpmux, así que no puede mostrar entornos."
+            "value": "Esta compilación no puede listar harnesses."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cette version n'a pas acpmux et ne peut pas lister les environnements."
+            "value": "Cette version ne peut pas lister les harnesses."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questa build non ha acpmux, quindi non può elencare gli ambienti."
+            "value": "Questa build non può elencare gli harness."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このビルドには acpmux がないため、ハーネスを表示できません。"
+            "value": "このビルドではハーネスを一覧表示できません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កំណែនេះគ្មាន acpmux ទេ ដូច្នេះមិនអាចបង្ហាញបានទេ។"
+            "value": "build នេះមិនអាចបង្ហាញ harness បានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 빌드에는 acpmux가 없어 하네스를 표시할 수 없습니다."
+            "value": "이 빌드는 하네스 목록을 표시할 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne versjonen har ikke acpmux og kan ikke vise agentmiljøer."
+            "value": "Denne versjonen kan ikke vise harnesser."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ta wersja nie ma acpmux, więc nie może wyświetlić środowisk."
+            "value": "Ta wersja nie może wyświetlić harnessów."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta versão não tem acpmux, então não pode listar ambientes."
+            "value": "Esta versão não consegue listar harnesses."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "В этой сборке нет acpmux, поэтому список недоступен."
+            "value": "Эта сборка не может показать список harness."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "บิลด์นี้ไม่มี acpmux จึงแสดงรายการไม่ได้"
+            "value": "บิลด์นี้แสดงรายการ harness ไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu sürümde acpmux yok, bu yüzden ortamlar listelenemiyor."
+            "value": "Bu derleme harness'ları listeleyemez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "У цій збірці немає acpmux, тому список недоступний."
+            "value": "Ця збірка не може показати список harness."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bản dựng này không có acpmux nên không thể liệt kê."
+            "value": "Bản dựng này không thể liệt kê harness."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此版本没有 acpmux，无法列出代理环境。"
+            "value": "此版本无法列出 harness。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此版本沒有 acpmux，無法列出代理環境。"
+            "value": "此版本無法列出 harness。"
           }
         }
       }
@@ -44363,127 +44101,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux did not answer. Open an agent chat to start it, then click Refresh."
+            "value": "cmux did not answer. Open an agent chat to start it, then click Refresh."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم يستجب acpmux. افتح محادثة وكيل لتشغيله، ثم انقر تحديث."
+            "value": "لم يستجب cmux. افتح محادثة وكيل لتشغيله، ثم انقر تحديث."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux nije odgovorio. Otvorite razgovor s agentom da ga pokrenete, pa kliknite Osvježi."
+            "value": "cmux nije odgovorio. Otvorite razgovor s agentom da ga pokrenete, pa kliknite Osvježi."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux svarede ikke. Åbn en agentchat for at starte den, og klik så Opdater."
+            "value": "cmux svarede ikke. Åbn en agentchat for at starte den, og klik så Opdater."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux hat nicht geantwortet. Öffnen Sie einen Agenten-Chat, um es zu starten, und klicken Sie dann auf Aktualisieren."
+            "value": "cmux hat nicht geantwortet. Öffnen Sie einen Agenten-Chat, um es zu starten, und klicken Sie dann auf Aktualisieren."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux no respondió. Abre un chat de agente para iniciarlo y luego haz clic en Actualizar."
+            "value": "cmux no respondió. Abre un chat de agente para iniciarlo y luego haz clic en Actualizar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux n'a pas répondu. Ouvrez une discussion d'agent pour le lancer, puis cliquez sur Actualiser."
+            "value": "cmux n'a pas répondu. Ouvrez une discussion d'agent pour le lancer, puis cliquez sur Actualiser."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux non ha risposto. Apri una chat con un agente per avviarlo, poi fai clic su Aggiorna."
+            "value": "cmux non ha risposto. Apri una chat con un agente per avviarlo, poi fai clic su Aggiorna."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux が応答しませんでした。エージェントチャットを開いて起動してから、「更新」をクリックしてください。"
+            "value": "cmux が応答しませんでした。エージェントチャットを開いて起動してから、「更新」をクリックしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux មិនបានឆ្លើយទេ។ បើកការជជែកភ្នាក់ងារដើម្បីចាប់ផ្ដើម បន្ទាប់មកចុច ផ្ទុកឡើងវិញ។"
+            "value": "cmux មិនបានឆ្លើយទេ។ បើកការជជែកភ្នាក់ងារដើម្បីចាប់ផ្ដើម បន្ទាប់មកចុច ផ្ទុកឡើងវិញ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux가 응답하지 않았습니다. 에이전트 채팅을 열어 시작한 다음 새로 고침을 클릭하세요."
+            "value": "cmux가 응답하지 않았습니다. 에이전트 채팅을 열어 시작한 다음 새로 고침을 클릭하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux svarte ikke. Åpne en agentchat for å starte den, og klikk deretter Oppdater."
+            "value": "cmux svarte ikke. Åpne en agentchat for å starte den, og klikk deretter Oppdater."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux nie odpowiedział. Otwórz czat z agentem, aby go uruchomić, a potem kliknij Odśwież."
+            "value": "cmux nie odpowiedział. Otwórz czat z agentem, aby go uruchomić, a potem kliknij Odśwież."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O acpmux não respondeu. Abra um chat de agente para iniciá-lo e clique em Atualizar."
+            "value": "O cmux não respondeu. Abra um chat de agente para iniciá-lo e clique em Atualizar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux не ответил. Откройте чат с агентом, чтобы запустить его, затем нажмите «Обновить»."
+            "value": "cmux не ответил. Откройте чат с агентом, чтобы запустить его, затем нажмите «Обновить»."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux ไม่ตอบสนอง เปิดแชตเอเจนต์เพื่อเริ่ม แล้วคลิกรีเฟรช"
+            "value": "cmux ไม่ตอบสนอง เปิดแชตเอเจนต์เพื่อเริ่ม แล้วคลิกรีเฟรช"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux yanıt vermedi. Başlatmak için bir ajan sohbeti açın, sonra Yenile'ye tıklayın."
+            "value": "cmux yanıt vermedi. Başlatmak için bir ajan sohbeti açın, sonra Yenile'ye tıklayın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux не відповів. Відкрийте чат з агентом, щоб запустити його, потім натисніть «Оновити»."
+            "value": "cmux не відповів. Відкрийте чат з агентом, щоб запустити його, потім натисніть «Оновити»."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux không phản hồi. Mở một cuộc trò chuyện với tác nhân để khởi động, rồi bấm Làm mới."
+            "value": "cmux không phản hồi. Mở một cuộc trò chuyện với tác nhân để khởi động, rồi bấm Làm mới."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 没有响应。打开一个代理聊天来启动它，然后点击“刷新”。"
+            "value": "cmux 没有响应。打开一个代理聊天来启动它，然后点击“刷新”。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 沒有回應。開啟一個代理聊天來啟動它，然後點按「重新整理」。"
+            "value": "cmux 沒有回應。開啟一個代理聊天來啟動它，然後點按「重新整理」。"
           }
         }
       }
@@ -85928,6 +85666,530 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "你的金鑰已儲存在鑰匙圈中。留空即可繼續使用。"
+          }
+        }
+      }
+    },
+    "tuningPanel.copyValues": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Values"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نسخ القيم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiraj vrijednosti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiér værdier"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Werte kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar valores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copier les valeurs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copia valori"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "値をコピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចម្លងតម្លៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "값 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopier verdier"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiuj wartości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar valores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копировать значения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คัดลอกค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Değerleri kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копіювати значення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sao chép giá trị"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拷贝值"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拷貝值"
+          }
+        }
+      }
+    },
+    "tuningPanel.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes apply live and stay for this build. Copy Values puts every value on the clipboard as Swift constants."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تُطبَّق التغييرات مباشرةً وتبقى لهذا الإصدار. ينسخ «نسخ القيم» كل قيمة إلى الحافظة كثوابت Swift."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Promjene se primjenjuju odmah i ostaju za ovu verziju. Kopiraj vrijednosti stavlja svaku vrijednost u međuspremnik kao Swift konstante."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ændringer gælder med det samme og bliver i denne version. Kopiér værdier lægger alle værdier på udklipsholderen som Swift-konstanter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Änderungen wirken sofort und bleiben für diesen Build. „Werte kopieren“ legt alle Werte als Swift-Konstanten in die Zwischenablage."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los cambios se aplican al momento y se conservan en esta versión. Copiar valores pone cada valor en el portapapeles como constantes de Swift."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les modifications s’appliquent en direct et restent pour cette version. Copier les valeurs place chaque valeur dans le presse-papiers sous forme de constantes Swift."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le modifiche si applicano subito e restano per questa build. Copia valori mette ogni valore negli appunti come costanti Swift."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "変更はすぐに反映され、このビルドで保持されます。「値をコピー」ですべての値を Swift の定数としてクリップボードに入れます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការផ្លាស់ប្ដូរអនុវត្តភ្លាមៗ ហើយនៅសម្រាប់កំណែនេះ។ ចម្លងតម្លៃ ដាក់តម្លៃនីមួយៗទៅក្ដារតម្បៀតខ្ទាស់ជាថេរ Swift។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "변경 사항은 바로 적용되고 이 빌드에 유지됩니다. 값 복사는 모든 값을 Swift 상수로 클립보드에 넣습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endringer gjelder med en gang og blir værende for denne versjonen. Kopier verdier legger alle verdier på utklippstavlen som Swift-konstanter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zmiany działają od razu i zostają w tej wersji. Kopiuj wartości umieszcza każdą wartość w schowku jako stałe Swift."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As mudanças se aplicam na hora e ficam nesta versão. Copiar valores coloca cada valor na área de transferência como constantes Swift."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Изменения применяются сразу и сохраняются для этой сборки. «Копировать значения» кладёт все значения в буфер обмена как константы Swift."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเปลี่ยนแปลงมีผลทันทีและคงอยู่สำหรับบิลด์นี้ คัดลอกค่าจะใส่ทุกค่าลงในคลิปบอร์ดเป็นค่าคงที่ Swift"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Değişiklikler hemen uygulanır ve bu sürümde kalır. Değerleri kopyala, her değeri Swift sabitleri olarak panoya koyar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зміни застосовуються одразу й зберігаються для цієї збірки. «Копіювати значення» кладе всі значення в буфер обміну як константи Swift."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thay đổi áp dụng ngay và giữ cho bản dựng này. Sao chép giá trị đặt mọi giá trị vào bảng nhớ tạm dưới dạng hằng Swift."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更改即时生效，并保留在此版本中。“拷贝值”会把每个值作为 Swift 常量放到剪贴板。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "變更會即時套用，並保留在此版本中。「拷貝值」會把每個值作為 Swift 常數放到剪貼板。"
+          }
+        }
+      }
+    },
+    "tuningPanel.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied %lld values as Swift constants."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم نسخ %lld قيمة كثوابت Swift."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopirano %lld vrijednosti kao Swift konstante."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopierede %lld værdier som Swift-konstanter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld Werte als Swift-Konstanten kopiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se copiaron %lld valores como constantes de Swift."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld valeurs copiées sous forme de constantes Swift."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiati %lld valori come costanti Swift."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld 個の値を Swift の定数としてコピーしました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានចម្លងតម្លៃ %lld ជាថេរ Swift។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "값 %lld개를 Swift 상수로 복사했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopierte %lld verdier som Swift-konstanter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skopiowano wartości (%lld) jako stałe Swift."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld valores copiados como constantes Swift."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скопировано значений: %lld (как константы Swift)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คัดลอก %lld ค่าเป็นค่าคงที่ Swift แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld değer Swift sabitleri olarak kopyalandı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скопійовано значень: %lld (як константи Swift)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã sao chép %lld giá trị dưới dạng hằng Swift."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已将 %lld 个值拷贝为 Swift 常量。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已將 %lld 個值拷貝為 Swift 常數。"
+          }
+        }
+      }
+    },
+    "tuningPanel.sidebarRows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar Row Tuner"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ضبط صفوف الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podešavanje redova bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Justering af sidepanelets rækker"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seitenleisten-Zeilen feinjustieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajuste de filas de la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réglage des lignes de la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regolazione delle righe della barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドバー行の調整"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកែតម្រូវជួររបារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바 행 조정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Justering av sidefeltrader"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strojenie wierszy paska bocznego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajuste das linhas da barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настройка строк боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปรับแต่งแถวของแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenar çubuğu satırlarını ayarla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштування рядків бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tinh chỉnh hàng thanh bên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "边栏行调节器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "側邊欄列調節器"
           }
         }
       }

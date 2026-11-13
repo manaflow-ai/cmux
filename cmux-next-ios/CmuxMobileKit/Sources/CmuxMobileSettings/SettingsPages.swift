@@ -105,7 +105,12 @@ struct AccountPage: View {
         }
         .settingsPage("Account")
         .task(id: auth.user?.id) { await loadMethods() }
-        .confirmationDialog("Delete your cmux account?", isPresented: $confirmsDeletion, titleVisibility: .visible) {
+        // An alert, not a confirmation dialog: on iOS 26 a confirmation
+        // dialog opens as a popover with no Cancel button, closed only by a
+        // tap outside it. Account deletion (Guideline 5.1.1(v)) shows Cancel
+        // beside Delete Account on every iPhone and iPad.
+        .alert("Delete your cmux account?", isPresented: $confirmsDeletion) {
+            Button("Cancel", role: .cancel) {}
             Button("Delete Account", role: .destructive) { Task { await delete() } }
         } message: {
             Text("Your cmux account is used by every cmux app (Mac, iPhone and web). Deleting it signs you out everywhere, removes your Macs and phones from the cmux service and permanently deletes your account. This can't be undone.")
