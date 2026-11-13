@@ -3,6 +3,7 @@
 use super::{ListItem, SummaryEvent};
 use acpmux_book::index::Summary;
 use serde::{Deserialize, Serialize};
+use std::hash::{DefaultHasher, Hasher};
 use std::io::{self, Write};
 use std::sync::Arc;
 
@@ -14,7 +15,7 @@ const MIN_OP_BYTES: usize = 32;
 struct Entry {
     start: usize,
     len: usize,
-    crc: u32,
+    checksum: u64,
 }
 
 pub(super) struct History {
@@ -116,18 +117,19 @@ impl History {
             self.pop().map_err(serde_json::Error::io)?;
         }
         let start = self.tail;
-        let mut writer = Append { history: self, written: 0, crc: crc32fast::Hasher::new() };
+        let mut writer = Append { history: self, written: 0, checksum: DefaultHasher::new() };
         if let Err(error) = serde_json::to_writer(&mut writer, &op) {
             writer.history.clear();
             return Err(error);
         }
         let len = writer.written;
+        let checksum = writer.checksum.finish();
         let slot = (self.head + self.len) % self.entries.len();
         let Some(entry) = self.entries.get_mut(slot) else {
             self.clear();
             return Err(serde_json::Error::io(invalid_entry()));
         };
-        *entry = Entry { start, len, crc: writer.crc.finalize() };
+        *entry = Entry { start, len, checksum };
         if self.len == 0 {
             self.first = seq;
         }
@@ -211,10 +213,10 @@ impl History {
         let Some(second) = self.bytes.get(..entry.len.saturating_sub(first_len)) else {
             return false;
         };
-        let mut crc = crc32fast::Hasher::new();
-        crc.update(first);
-        crc.update(second);
-        if crc.finalize() != entry.crc {
+        let mut checksum = DefaultHasher::new();
+        checksum.write(first);
+        checksum.write(second);
+        if checksum.finish() != entry.checksum {
             return false;
         }
         out.extend_from_slice(second);
@@ -225,7 +227,7 @@ impl History {
 struct Append<'a> {
     history: &'a mut History,
     written: usize,
-    crc: crc32fast::Hasher,
+    checksum: DefaultHasher,
 }
 
 fn invalid_entry() -> io::Error {
@@ -235,7 +237,7 @@ fn invalid_entry() -> io::Error {
 impl Write for Append<'_> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         let history = &mut self.history;
-        self.crc.update(bytes);
+        self.checksum.write(bytes);
         if bytes.len() > history.bytes.len().saturating_sub(self.written) {
             return Err(io::Error::other("list op exceeds history byte capacity"));
         }

@@ -109,9 +109,7 @@ impl Hub {
             )
         };
         // Every row, closed ones too, reads the new usage warning thresholds.
-        self.events
-            .mark_all_tee(self.session_handles().into_iter().map(|session| session.id.clone()));
-        self.events.changed();
+        self.events.changed(None);
         // A new `stalledTurnEndMs` moves the stalled turns' deadlines (`stalled_turn.rs`).
         self.idle_wake.notify_one();
         // Pooled sessions started under the old catalog are never served.

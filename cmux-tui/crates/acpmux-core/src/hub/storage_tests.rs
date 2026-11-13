@@ -132,7 +132,7 @@ fn open_recovers_when_initial_log_was_renamed_before_the_next_generation_exists(
 
 #[test]
 fn open_cleans_a_complete_staged_snapshot_and_replays_old_snapshot_tail() {
-    use acpmux_book::index::{HOT_WINDOW_MS, SortedSnapshot};
+    use acpmux_book::index::SortedSnapshot;
     let dir = tempfile::tempdir().unwrap();
     let log_path = dir.path().join("index.log");
     let snapshot_path = dir.path().join("index.snap");

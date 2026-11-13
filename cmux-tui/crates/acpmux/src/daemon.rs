@@ -585,9 +585,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
     let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
     if let Some(v2) = v2.as_ref() {
-        let (tee, task) = crate::hub::list_guard::start_v2_tee(hub.clone(), v2.clone());
+        let (tee, task) = crate::hub::list_tee::start_v2_tee(hub.clone(), v2.clone());
         hub.install_v2_tee(tee);
-        v2.hub.set_page_provider(std::sync::Arc::new(crate::hub::list_guard::V1PageProvider::new(
+        v2.hub.set_page_provider(std::sync::Arc::new(crate::hub::list_tee::V1PageProvider::new(
             hub.clone(),
         )));
         v2_tasks.spawn(task);
