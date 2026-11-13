@@ -553,7 +553,8 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     /// The Mac terminal's foreground program (`process-info`
-    /// `foreground_executable`, the foreground job leader's name), nil while
+    /// `foreground_program`, the foreground job's program: its leader, or the
+    /// script a leading shell runs, as `man` on macOS), nil while
     /// not attached, on a refusal or after ``processInfoDeadline``. One bounded
     /// read, asked when the screen enters the alternate screen and when a drag
     /// begins there (``TerminalPanRoute``).
@@ -566,7 +567,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 log.notice("surface \(surface, privacy: .public): process-info refused: \(error, privacy: .public)")
                 return nil
             }
-            return TerminalProcessInfo(reply: (try JSONSerialization.jsonObject(with: reply) as? [String: Any]) ?? [:]).foregroundExecutable
+            return TerminalAlternateScroll.program(processInfo: (try JSONSerialization.jsonObject(with: reply) as? [String: Any]) ?? [:])
         } catch {
             log.notice("surface \(surface, privacy: .public): process-info failed: \(String(describing: error), privacy: .public)")
             return nil
