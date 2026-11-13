@@ -339,9 +339,15 @@ final class EmbeddedConversation: UIViewController, ConversationComposeEmbeddabl
 
     var composeHeaderHeight: CGFloat { conversation.composeHeaderHeight }
     var composeDraftText: String { conversation.composeDraftText }
+    func composeEmbed(topInset: CGFloat) -> UIScrollView? { conversation.composeEmbed(topInset: topInset) }
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // A child screen gets no system margins of its own: the bubbles take the sheet's, as on
+        // Home's Chief screen (they sat on the edges).
+        let margin = max(16, parent?.systemMinimumLayoutMargins.leading ?? 16)
+        conversation.viewRespectsSystemMinimumLayoutMargins = false
+        conversation.view.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: margin, bottom: 0, trailing: margin)
         addChild(conversation)
         conversation.view.frame = view.bounds
         conversation.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]

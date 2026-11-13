@@ -455,21 +455,27 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             await Task.yield()
             HomeNewMessage.prewarm()
         }
-        .alert("New Chief", isPresented: $namingChief) {
-            TextField("Name", text: $newChiefName)
-                // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .accessibilityIdentifier("home.chief.newName")
-            Button("Cancel", role: .cancel) {}
-            Button("Create") {
-                let name = newChiefName
-                Task { await sources.createChief(named: name) }
-            }
-            .accessibilityIdentifier("home.chief.newCreate")
-                .keyboardShortcut(.defaultAction)
-        } message: {
-            Text("A new Cloud Chief with its own conversation and memory.")
+        // The system's own alert look (blue Create, white text): Home's neutral tint made the
+        // prominent button's text dark.
+        .background {
+            Color.clear
+                .alert("New Chief", isPresented: $namingChief) {
+                    TextField("Name", text: $newChiefName)
+                        // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .accessibilityIdentifier("home.chief.newName")
+                    Button("Cancel", role: .cancel) {}
+                    Button("Create") {
+                        let name = newChiefName
+                        Task { await sources.createChief(named: name) }
+                    }
+                    .accessibilityIdentifier("home.chief.newCreate")
+                    .keyboardShortcut(.defaultAction)
+                } message: {
+                    Text("A new Cloud Chief with its own conversation and memory.")
+                }
+                .tint(nil)
         }
         // The memo's revision moves only when the shown list does (no comparison of every row per pass).
         .animation(theme.motion.smooth.animation.unlessReduceMotion, value: listMemo.revision)

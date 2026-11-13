@@ -121,8 +121,9 @@ public struct ChiefConversationScreen: View {
 /// Messages' "iMessage / Encrypted".
 extension ConversationPresentationOptions {
     /// A conversation with people (New Message's DM or group): the Messages placeholder, no Chief header menu.
+    /// The start line names the service, not the person again (the header shows their name).
     public static func people(_ title: String) -> ConversationPresentationOptions {
-        ConversationPresentationOptions(placeholder: String(localized: "Message"), serviceTitle: title, serviceSubtitle: "")
+        ConversationPresentationOptions(placeholder: String(localized: "Message"), serviceTitle: "cmux", serviceSubtitle: "")
     }
 
     public static var chief: ConversationPresentationOptions {

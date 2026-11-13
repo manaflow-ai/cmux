@@ -223,7 +223,9 @@ public final class ConversationComposeViewController: UIViewController {
             suggestionsTable.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             suggestionsTable.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 
-            existingContainer.topAnchor.constraint(equalTo: recipientField.bottomAnchor, constant: ComposeMetrics.existingGap),
+            // From the sheet's top: the transcript scrolls under To: and the title, behind the
+            // system's scroll edge effect (the conversation starts below the field).
+            existingContainer.topAnchor.constraint(equalTo: view.topAnchor),
             existingContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             existingContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             existingContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -335,10 +337,12 @@ public final class ConversationComposeViewController: UIViewController {
             existingContainer.embedded = next
             existingContainer.addSubview(next.view)
             next.didMove(toParent: self)
+            attachEdgeEffect(to: next)
             // The conversation's composer takes what was typed (the host gave it `carrying`).
             if !carrying.isEmpty { composer.clearAfterSend() }
         } else {
             existingContainer.embedded = nil
+            detachEdgeEffect()
             if !returning.isEmpty, composer.text.isEmpty { composer.text = returning }
         }
         existingContainer.isHidden = next == nil
@@ -354,6 +358,33 @@ public final class ConversationComposeViewController: UIViewController {
         composerContainer.isHidden = hidden
         listAboveComposer?.isActive = !hidden
         listAboveKeyboard?.isActive = hidden
+    }
+
+    private var edgeInteraction: UIInteraction?
+
+    /// The To: field and the navigation bar sit over the embedded transcript's top edge: the
+    /// native scroll edge effect runs under both (`UIScrollEdgeElementContainerInteraction`,
+    /// `setContentScrollView`), and the transcript starts under the field.
+    private func attachEdgeEffect(to controller: UIViewController) {
+        guard let embeddable = controller as? any ConversationComposeEmbeddable else { return }
+        view.layoutIfNeeded()
+        let scroll = embeddable.composeEmbed(topInset: recipientField.frame.maxY + ComposeMetrics.existingGap)
+        detachEdgeEffect()
+        guard let scroll else { return }
+        setContentScrollView(scroll, for: .top)
+        if #available(iOS 26.0, *) {
+            let interaction = UIScrollEdgeElementContainerInteraction()
+            interaction.scrollView = scroll
+            interaction.edge = .top
+            recipientField.addInteraction(interaction)
+            edgeInteraction = interaction
+        }
+    }
+
+    private func detachEdgeEffect() {
+        if let edgeInteraction { recipientField.removeInteraction(edgeInteraction) }
+        edgeInteraction = nil
+        setContentScrollView(nil, for: .top)
     }
 
     /// Asks the host again for the conversation of the chosen people (its data arrived after the
@@ -532,6 +563,10 @@ extension ConversationComposeViewController: ComposeRecipientFieldDelegate {
     func recipientFieldDidChangeHeight(_ field: ComposeRecipientField) {
         recipientHeight.constant = field.preferredHeight
         UIView.animate(withDuration: 0.2) { self.view.layoutIfNeeded() }
+        // The transcript under To: starts below the field's new bottom.
+        if let embeddable = existingController as? any ConversationComposeEmbeddable {
+            _ = embeddable.composeEmbed(topInset: recipientField.frame.maxY + ComposeMetrics.existingGap)
+        }
     }
 }
 
@@ -761,7 +796,12 @@ final class ComposeSuggestionCell: UITableViewCell {
         avatar.frame = leading
         symbolCircle.frame = leading
         symbolCircle.layer.cornerRadius = size / 2
-        symbol.frame = symbolCircle.bounds
+        // The symbol keeps clear of the circle: a wide one ("person.2.badge.plus") scales down
+        // into the inner box; a small one ("plus") stays at its own size, centered.
+        let box = symbolCircle.bounds.insetBy(dx: size * 0.24, dy: size * 0.24)
+        let natural = symbol.image?.size ?? .zero
+        symbol.contentMode = natural.width > box.width || natural.height > box.height ? .scaleAspectFit : .center
+        symbol.frame = box
         let x = Self.textLeading
         let hasDetail = !(detail.text ?? "").isEmpty
         let s = suggestion ? s : 1
@@ -839,13 +879,20 @@ final class ComposeExistingContainer: UIView {
 @MainActor
 public protocol ConversationComposeEmbeddable: AnyObject {
     var composeHeaderHeight: CGFloat { get }
+    /// Starts the transcript at `topInset` (under the sheet's To: field) and returns its scroll
+    /// view for the top edge effect.
+    func composeEmbed(topInset: CGFloat) -> UIScrollView?
     /// What its own message box holds: it comes back to the sheet's when the conversation leaves
     /// (the recipients changed), as the Mac's New Message keeps the typed text.
     var composeDraftText: String { get }
 }
 
 extension ConversationViewController: ConversationComposeEmbeddable {
-    public var composeHeaderHeight: CGFloat { headerMaxY }
+    public var composeHeaderHeight: CGFloat { showsHeader ? headerMaxY : 0 }
+    public func composeEmbed(topInset: CGFloat) -> UIScrollView? {
+        embeddedTopInset = topInset
+        return transcriptScrollView
+    }
     public var composeDraftText: String { composer.text }
 }
 

@@ -441,7 +441,24 @@ public final class ConversationViewController: UIViewController {
         guard isViewLoaded else { return }
         header.isHidden = !showsHeader
         topEdgeFade.isHidden = !showsHeader
+        if #available(iOS 26.0, *), !showsHeader {
+            // Shown under another screen's field (New Message's To:): the system's soft edge
+            // effect at the top, as under a navigation bar, instead of the header's own fade.
+            collectionView.topEdgeEffect.isHidden = false
+            collectionView.topEdgeEffect.style = .soft
+        }
+        updateInsets()
     }
+
+    /// Where the transcript starts while the header is hidden (``showsHeader``): the bottom of the
+    /// host's own top element (New Message's To: field), in this view's coordinates.
+    public var embeddedTopInset: CGFloat = 0 {
+        didSet { if isViewLoaded, !showsHeader { updateInsets() } }
+    }
+
+    /// The transcript's scroll view, for a host that hangs its own element over the top edge
+    /// (`UIScrollEdgeElementContainerInteraction`, `setContentScrollView`).
+    public var transcriptScrollView: UIScrollView { collectionView }
 
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
@@ -590,8 +607,9 @@ public final class ConversationViewController: UIViewController {
         // Landscape (compact bar): the transcript starts at the bar's bottom
         // (Messages 27, iPhone 17 Pro Max: content inset 78 = 24 + 54).
         let spacing = options.header.transcriptTopSpacing ?? (header.isCompact ? 0 : 10.0 / 3.0)
-        let top = headerAccessoryRoom > 0 ? headerMaxY + headerAccessoryRoom : header.frame.maxY + max(0, spacing)
-        collectionView.edgeTopInset = options.header.scrollEdge == .system ? top : 0
+        let top = !showsHeader ? embeddedTopInset + max(0, spacing)
+            : headerAccessoryRoom > 0 ? headerMaxY + headerAccessoryRoom : header.frame.maxY + max(0, spacing)
+        collectionView.edgeTopInset = options.header.scrollEdge == .system || !showsHeader ? top : 0
         // The last body rests 16.71 pt above the field (ChatKit's send
         // lands it there on iOS 26 and 27): the field sits 4 pt into the
         // container and the content ends 6 pt below the last row.
