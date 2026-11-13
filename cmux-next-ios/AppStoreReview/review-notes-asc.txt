@@ -28,7 +28,7 @@ Review path (no Mac needed):
 ## REVIEW DEMO STEPS: END
 
 Other screens:
-- Home: swipe a conversation left for "Read" and "Pin"; touch and hold it for "Mark as Read" and "Delete Conversation from List". "New Message to Chief" (top right) opens Chief with the keyboard up.
+- Home: swipe a conversation left for "Read" and "Pin"; touch and hold it for "Mark as Read" and "Delete Conversation from List". "New Message" (top right) opens a new message: pick a Chief or a teammate under "To:", type, and send.
 - The Workspaces and Feed tabs show the workspaces and alerts of a Mac signed in to the same account. With no Mac they offer "Connect your Mac".
 - Account deletion: Settings, tap the account row at the top to open "Account", then "Delete Account". After the confirmation "Delete your cmux account?" the account and its data are deleted permanently and the app signs out. Please try it last, since it deletes the demo account.
 
