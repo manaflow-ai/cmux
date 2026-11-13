@@ -234,11 +234,16 @@ impl HubWriter {
         let Some(work) = self.maintenance.as_mut() else { return };
         let current = self.published.load_full();
         let mut next = current.as_ref().clone();
+        let mut folder_events = Vec::new();
         for _ in 0..256 {
+            let before = next.clone();
             if let Some(row) = work.missing_hot.pop_front() {
+                let key = row.key();
                 next.hydrate_compacted(row);
+                folders::projection_change(&before, &mut next, &key, &mut folder_events);
             } else if let Some(key) = work.cold_keys.pop_front() {
                 work.evicted_rows += usize::from(next.evict_compacted(&key));
+                folders::projection_change(&before, &mut next, &key, &mut folder_events);
             } else {
                 break;
             }
@@ -267,6 +272,7 @@ impl HubWriter {
                     drop((cold_keys, missing_hot));
                     retire_shadow(shadow, evicted);
                 }));
+                self.publish_folder_events(folder_events);
                 return;
             }
             self.compaction_counters.duration_ns.store(
@@ -283,6 +289,7 @@ impl HubWriter {
             self.compaction_counters.completed.fetch_add(1, Ordering::Relaxed);
             self.maintenance = None;
         }
+        self.publish_folder_events(folder_events);
     }
 }
 

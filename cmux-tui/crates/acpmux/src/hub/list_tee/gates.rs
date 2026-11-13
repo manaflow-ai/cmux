@@ -393,7 +393,7 @@ fn keyed_page_samples(count: usize) -> Vec<Vec<u128>> {
     // Use the protocol's default reply budget, as an ordinary client does.
     let mut request = Page::new("gate", "list", PageSide::After, 0);
     request.after = None;
-    request.keys = Some(ids);
+    request.keys = Some(ids.into_iter().map(Into::into).collect());
     let mut samples = Vec::with_capacity(5);
     for _ in 0..5 {
         let mut round = Vec::with_capacity(200);

@@ -6,14 +6,16 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
 use wire::{
-    Anchor, Cursor, DeltaOp, Frame, FrameError, FrameKind, Hello, Limits, Page, PageResult,
-    Request, Sub, Window,
+    Anchor, Cursor, DeltaOp, FolderPageResult, FolderWindow, Frame, FrameError, FrameKind, Hello,
+    Limits, ListView, Page, PageResult, Request, Sub, Window,
 };
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Change<T> {
     Window(Window<T>),
+    FolderWindow(FolderWindow),
     Page(PageResult<T>),
+    FolderPage(FolderPageResult),
     Summary {
         sid: String,
         seq: u64,
@@ -38,6 +40,19 @@ pub enum Change<T> {
         sid: String,
         seq: u64,
         bytes: u64,
+        replay: bool,
+    },
+    Folder {
+        sid: String,
+        seq: u64,
+        row: wire::FolderRow,
+        replay: bool,
+    },
+    FolderGone {
+        sid: String,
+        seq: u64,
+        origin: String,
+        folder: String,
         replay: bool,
     },
     ResumeEnd {
@@ -77,6 +92,7 @@ struct SubState {
 struct PageState {
     request: Option<Page>,
     changed_keys: std::collections::HashSet<(String, String)>,
+    changed_folders: std::collections::HashSet<(String, String)>,
     removed_origins: std::collections::HashSet<String>,
 }
 
@@ -432,6 +448,45 @@ where
                 self.queue_subscriptions();
             }
             FrameKind::Window => {
+                let sid_hint = frame
+                    .decode_json::<Value>()
+                    .ok()
+                    .and_then(|value| value.get("sid").and_then(Value::as_str).map(str::to_owned));
+                let is_folders = sid_hint.as_deref().is_some_and(|sid| {
+                    self.subscriptions
+                        .get(sid)
+                        .is_some_and(|sub| sub.request.view == Some(ListView::Folders))
+                });
+                if is_folders {
+                    let Ok(window) = frame.decode_json::<FolderWindow>() else {
+                        self.protocol_error("malformed folders window");
+                        return;
+                    };
+                    let sid = window.sid.clone();
+                    if !self.subscriptions.contains_key(&sid) {
+                        self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
+                        self.charge_frame_now(None, frame_bytes);
+                        return;
+                    }
+                    let replaying =
+                        self.subscriptions.get(&sid).map(|sub| sub.replaying).unwrap_or(false);
+                    if let Some(sub) = self.subscriptions.get_mut(&sid) {
+                        sub.cursor = Cursor(window.cursor);
+                        sub.edition = window.edition;
+                        sub.replaying = false;
+                        sub.window_taken = true;
+                    }
+                    self.push_change(
+                        Change::FolderWindow(window),
+                        Some(sid.clone()),
+                        frame_bytes,
+                        true,
+                    );
+                    if replaying {
+                        self.push_change(Change::Unconfirmed { sid }, None, 0, false);
+                    }
+                    return;
+                }
                 let Ok(window) = frame.decode_json::<Window<T>>() else {
                     self.protocol_error("malformed window");
                     return;
@@ -456,6 +511,37 @@ where
                 }
             }
             FrameKind::Page => {
+                let sid_hint = frame
+                    .decode_json::<Value>()
+                    .ok()
+                    .and_then(|value| value.get("sid").and_then(Value::as_str).map(str::to_owned));
+                let is_folders = sid_hint.as_deref().is_some_and(|sid| {
+                    self.pages
+                        .get(sid)
+                        .and_then(|page| page.request.as_ref())
+                        .is_some_and(|page| page.view == Some(ListView::Folders))
+                });
+                if is_folders {
+                    let Ok(mut page) = frame.decode_json::<FolderPageResult>() else {
+                        self.protocol_error("malformed folders page");
+                        return;
+                    };
+                    let sid = page.sid.clone();
+                    if !self.subscriptions.contains_key(&sid) {
+                        self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
+                        self.charge_frame_now(None, frame_bytes);
+                        return;
+                    }
+                    let state = self.pages.remove(&sid).unwrap_or_default();
+                    page.rows.retain(|row| {
+                        !state
+                            .changed_folders
+                            .contains(&(row.origin.to_string(), row.folder.to_string()))
+                            && !state.removed_origins.contains(row.origin.as_ref())
+                    });
+                    self.push_change(Change::FolderPage(page), Some(sid), frame_bytes, true);
+                    return;
+                }
                 let Ok(mut page) = frame.decode_json::<PageResult<T>>() else {
                     self.protocol_error("malformed page");
                     return;
@@ -665,9 +751,49 @@ where
                         charge,
                     );
                 }
-                Ok(DeltaOp::Folder { seq, .. }) | Ok(DeltaOp::FolderGone { seq, .. }) => {
-                    self.skips.unknown_op = self.skips.unknown_op.saturating_add(1);
+                Ok(DeltaOp::Folder { seq, row }) => {
                     self.advance(&sid, seq);
+                    if !self
+                        .subscriptions
+                        .get(&sid)
+                        .is_some_and(|sub| sub.request.view == Some(ListView::Folders))
+                    {
+                        self.skips.unknown_op = self.skips.unknown_op.saturating_add(1);
+                        continue;
+                    }
+                    let charge = !charged;
+                    charged = true;
+                    emitted = true;
+                    self.note_page_folder(&sid, &row);
+                    self.push_change(
+                        Change::Folder { sid: sid.clone(), seq, row, replay },
+                        Some(sid.clone()),
+                        frame_bytes,
+                        charge,
+                    );
+                }
+                Ok(DeltaOp::FolderGone { seq, origin, folder }) => {
+                    self.advance(&sid, seq);
+                    if !self
+                        .subscriptions
+                        .get(&sid)
+                        .is_some_and(|sub| sub.request.view == Some(ListView::Folders))
+                    {
+                        self.skips.unknown_op = self.skips.unknown_op.saturating_add(1);
+                        continue;
+                    }
+                    let charge = !charged;
+                    charged = true;
+                    emitted = true;
+                    if let Some(page) = self.pages.get_mut(&sid) {
+                        page.changed_folders.insert((origin.clone(), folder.clone()));
+                    }
+                    self.push_change(
+                        Change::FolderGone { sid: sid.clone(), seq, origin, folder, replay },
+                        Some(sid.clone()),
+                        frame_bytes,
+                        charge,
+                    );
                 }
                 Err(_) => {
                     self.skips.unknown_op = self.skips.unknown_op.saturating_add(1);
@@ -680,6 +806,9 @@ where
                     }
                 }
             }
+        }
+        if let Some(cursor) = value.get("cursor").and_then(Value::as_u64) {
+            self.advance(&sid, cursor);
         }
         if !emitted {
             self.charge_frame_now(Some(&sid), frame_bytes);
@@ -757,6 +886,12 @@ where
         {
             let origin = value.get("origin").and_then(Value::as_str).unwrap_or("local");
             page.changed_keys.insert((origin.to_owned(), key.to_owned()));
+        }
+    }
+
+    fn note_page_folder(&mut self, sid: &str, row: &wire::FolderRow) {
+        if let Some(page) = self.pages.get_mut(sid) {
+            page.changed_folders.insert((row.origin.to_string(), row.folder.to_string()));
         }
     }
 }
@@ -1206,6 +1341,55 @@ tail"#;
         .encode();
         client.received(&origin);
         assert!(matches!(client.next_change(), Some(Change::Origin { .. })));
+    }
+
+    #[test]
+    fn folder_delta_is_applied_without_unknown_op_skip_or_page_stale_row() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        client.subscribe(Sub { view: Some(ListView::Folders), ..Sub::new("s", "list") }).unwrap();
+        while client.take_send().is_some() {}
+        let page_request = Page {
+            sid: "s".into(),
+            stream: "list".into(),
+            before: None,
+            after: None,
+            keys: None,
+            view: Some(ListView::Folders),
+            max_bytes: wire::MAX_PAGE_BYTES as u32,
+            filter: None,
+        };
+        client.page(page_request).unwrap();
+        let folder = serde_json::json!({
+            "origin":"local", "folder":"/work", "newest":{"origin":"local","chatId":"chat"}, "at": 3, "count": 1
+        });
+        let delta = Frame::json(
+            FrameKind::Delta,
+            &serde_json::json!({"sid":"s","ops":[{"op":"folder","seq":2,"row":folder.clone()}]}),
+        )
+        .unwrap()
+        .encode();
+        let before = client.skip_counters();
+        client.received(&delta);
+        assert_eq!(client.skip_counters().unknown_op, before.unknown_op);
+        assert!(matches!(client.next_change(), Some(Change::Folder { seq: 2, .. })));
+        let page = Frame::json(
+            FrameKind::Page,
+            &serde_json::json!({"sid":"s","rows":[folder],"hasBefore":false,"hasAfter":false}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&page);
+        let Change::FolderPage(page) = client.next_change().unwrap() else {
+            panic!("expected folder page")
+        };
+        assert!(page.rows.is_empty());
     }
 
     #[cfg(feature = "tokio")]

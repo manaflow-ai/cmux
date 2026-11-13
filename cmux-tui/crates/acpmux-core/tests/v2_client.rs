@@ -384,3 +384,57 @@ async fn client_and_daemon_credit_a_slow_taker_past_one_window() {
         Err(error) => panic!("unexpected connection error: {error}"),
     }
 }
+
+#[tokio::test]
+async fn folder_move_replays_both_rows_after_disconnect() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    let mut row = Summary::new("chat");
+    row.folder = Some("/old".into());
+    writer.apply(row.clone()).unwrap();
+    let hub = Arc::new(hub);
+    let mut client = Client::<Summary>::connected_v2();
+    let (mut stream, task) = pair(hub.clone());
+    hello(&mut client, &mut stream).await;
+    let mut sub = Sub::new("folders", "list");
+    sub.view = Some(wire::ListView::Folders);
+    client.subscribe(sub).unwrap();
+    send_bytes(&mut stream, client.take_send().unwrap()).await;
+    client.received(&read_frame(&mut stream).await.encode());
+    let Some(Change::FolderWindow(window)) = client.next_change() else { panic!("folder window") };
+    let mut held: std::collections::BTreeMap<_, _> =
+        window.rows.into_iter().map(|row| (row.key(), row)).collect();
+    drop(stream);
+    task.await.unwrap().unwrap();
+    // The client has not taken either half of this move.
+    row.folder = Some("/new".into());
+    row.last_activity = 2;
+    writer.apply(row).unwrap();
+    client.disconnected();
+    let (mut stream, task) = pair(hub.clone());
+    hello(&mut client, &mut stream).await;
+    send_bytes(&mut stream, client.take_send().unwrap()).await;
+    let frame = read_frame(&mut stream).await;
+    let value: Value = frame.decode_json().unwrap();
+    let ops = value.get("ops").and_then(Value::as_array).unwrap();
+    assert_eq!(ops.len(), 2);
+    assert!(ops.iter().all(|op| op.get("seq").and_then(Value::as_u64) == Some(2)));
+    client.received(&frame.encode());
+    while let Some(change) = client.next_change() {
+        match change {
+            Change::Folder { row, .. } => {
+                held.insert(row.key(), row);
+            }
+            Change::FolderGone { origin, folder, .. } => {
+                held.remove(&acpmux_book::index::folders::FolderKey::new(origin, folder));
+            }
+            Change::ResumeEnd { cursor, .. } => assert_eq!(cursor.0, 2),
+            other => panic!("unexpected change {other:?}"),
+        }
+    }
+    let rebuilt: std::collections::BTreeMap<_, _> =
+        hub.snapshot().folders().iter().map(|row| (row.key(), row.as_ref().clone())).collect();
+    assert_eq!(held, rebuilt);
+    assert_eq!(client.skip_counters().unknown_op, 0);
+    drop(stream);
+    task.await.unwrap().unwrap();
+}

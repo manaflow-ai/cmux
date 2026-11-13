@@ -435,6 +435,7 @@ pub struct SummaryIndex {
     leaving: OrdSet<Arc<str>>,
     removed_snapshot_seq: OrdMap<Arc<str>, u64>,
     kin: KinTables,
+    folders: folders::Folders,
 }
 
 impl Default for SummaryIndex {
@@ -457,6 +458,7 @@ impl SummaryIndex {
             leaving: OrdSet::new(),
             removed_snapshot_seq: OrdMap::new(),
             kin: KinTables::new(),
+            folders: folders::Folders::new(),
         }
     }
 
@@ -553,6 +555,8 @@ impl SummaryIndex {
             self.ordered.remove(&SortKey::of(&row));
             self.live_ordered.remove(&SortKey::of(&row));
             self.kin.remove(&row);
+            self.folders =
+                Self::refresh_folders(&self.folders, &self.kin, &self.by_id, Some(&row), None);
             return true;
         }
         false
@@ -575,6 +579,8 @@ impl SummaryIndex {
             }
             if let Some(row) = self.by_id.get(&key) {
                 self.kin.insert(row);
+                self.folders =
+                    Self::refresh_folders(&self.folders, &self.kin, &self.by_id, None, Some(row));
             }
         }
     }
@@ -700,6 +706,8 @@ impl SummaryIndex {
             if let Some(old) = next.by_id.remove(key) {
                 next.ordered.remove(&SortKey::of(&old));
                 next.kin.remove(&old);
+                next.folders =
+                    Self::refresh_folders(&next.folders, &next.kin, &next.by_id, Some(&old), None);
             }
             next.shadowed.insert(key.clone());
         }
@@ -721,6 +729,8 @@ impl SummaryIndex {
         if let Some(old) = next.by_id.remove(key) {
             next.ordered.remove(&SortKey::of(&old));
             next.kin.remove(&old);
+            next.folders =
+                Self::refresh_folders(&next.folders, &next.kin, &next.by_id, Some(&old), None);
         }
         next
     }
@@ -728,6 +738,86 @@ impl SummaryIndex {
     /// The kin/folder tables contain only rows present in the hot overlay.
     pub fn kin(&self) -> &KinTables {
         &self.kin
+    }
+
+    /// The persistent folder projection published with the hot index.
+    pub fn folders(&self) -> &folders::Folders {
+        &self.folders
+    }
+
+    /// Returns the folder operations caused by one hot-row replacement. The
+    /// caller supplies the previous published index and the row pair that was
+    /// replaced, so this examines at most the old and new folder paths.
+    pub fn folder_changes(
+        &self,
+        previous: &Self,
+        old: Option<&Summary>,
+        new: Option<&Summary>,
+    ) -> Vec<folders::FolderOp> {
+        let old_folder = old.and_then(FolderKey::of);
+        let new_folder = new.and_then(FolderKey::of);
+        let mut changes = Vec::with_capacity(2);
+        let mut check = |folder: &FolderKey| {
+            let key = folders::FolderKey::new(folder.origin.clone(), folder.folder.clone());
+            let before = previous.folders.get(&key);
+            let after = self.folders.get(&key);
+            if before == after {
+                return;
+            }
+            match after {
+                Some(row) => changes.push(folders::FolderOp::Folder(row)),
+                None if before.is_some() => changes.push(folders::FolderOp::Gone(key)),
+                None => {}
+            }
+        };
+        if let Some(folder) = old_folder.as_ref() {
+            check(folder);
+        }
+        if let Some(folder) =
+            new_folder.as_ref().filter(|folder| old_folder.as_ref() != Some(*folder))
+        {
+            check(folder);
+        }
+        changes
+    }
+
+    fn refresh_folders(
+        base: &folders::Folders,
+        kin: &KinTables,
+        rows: &OrdMap<RowKey, Arc<Summary>>,
+        old: Option<&Summary>,
+        new: Option<&Summary>,
+    ) -> folders::Folders {
+        let old_folder = old.and_then(FolderKey::of);
+        let new_folder = new.and_then(FolderKey::of);
+        let mut next = base.clone();
+        let mut refresh = |folder: &FolderKey| {
+            let key = folders::FolderKey::new(folder.origin.clone(), folder.folder.clone());
+            let entry = kin
+                .folder_entry(folder, rows)
+                .map(|entry| {
+                    folders::FolderEntry::new(
+                        key.origin.clone(),
+                        key.folder.clone(),
+                        entry.newest,
+                        entry.at,
+                        entry.count,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    folders::FolderEntry::new(key.origin.clone(), key.folder.clone(), None, 0, 0)
+                });
+            next = next.apply_validated(entry).0;
+        };
+        if let Some(folder) = old_folder.as_ref() {
+            refresh(folder);
+        }
+        if let Some(folder) =
+            new_folder.as_ref().filter(|folder| old_folder.as_ref() != Some(*folder))
+        {
+            refresh(folder);
+        }
+        next
     }
 
     pub fn hydrate(&self, row: Arc<Summary>, now: u64) -> Self {
@@ -752,6 +842,13 @@ impl SummaryIndex {
             next.live_ordered.insert(SortKey::of(&row), row.clone());
         }
         next.kin = next.kin.replace(old.as_deref(), Some(&row));
+        next.folders = Self::refresh_folders(
+            &next.folders,
+            &next.kin,
+            &next.by_id,
+            old.as_deref(),
+            Some(&row),
+        );
         next
     }
 
@@ -812,6 +909,13 @@ impl SummaryIndex {
         let mut next =
             Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
         next.kin = self.kin.replace(old.as_deref(), Some(&summary));
+        next.folders = Self::refresh_folders(
+            &self.folders,
+            &next.kin,
+            &next.by_id,
+            old.as_deref(),
+            Some(&summary),
+        );
         next
     }
 
@@ -954,6 +1058,13 @@ impl SummaryIndex {
         let mut next =
             Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
         next.kin = self.kin.replace(old.map(Arc::as_ref), None);
+        next.folders = Self::refresh_folders(
+            &self.folders,
+            &next.kin,
+            &next.by_id,
+            old.map(Arc::as_ref),
+            None,
+        );
         Some(next)
     }
 }
@@ -1390,5 +1501,57 @@ mod tests {
         reopened.sync().unwrap();
         let restored = SortedSnapshot::read(&snap_path).unwrap().unwrap();
         assert_eq!(replay_log_from(reopened.path(), 0, restored).unwrap().seq(), 2);
+    }
+
+    #[test]
+    fn folder_projection_matches_rebuild_after_ten_thousand_hot_updates() {
+        use std::collections::BTreeMap;
+
+        let mut index = SummaryIndex::new();
+        let mut seed = 0x5f_u64;
+        for seq in 1..=10_000 {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let id = format!("chat-{}", (seed >> 32) % 64);
+            let mut row = Summary::new(id);
+            row.origin = if seed & 1 == 0 { "local" } else { "peer" }.into();
+            row.state = if seed & 7 == 0 { "closed" } else { "running" }.into();
+            row.last_activity = seed;
+            row.folder = (seed & 3 != 0).then(|| format!("/folder-{}", (seed >> 8) % 17));
+            index = index.apply_summary(seq, row);
+
+            let mut model = BTreeMap::<folders::FolderKey, (SortKey, RowKey, u32)>::new();
+            for hot in index.iter() {
+                let Some(folder) = FolderKey::of(hot) else { continue };
+                let key = folders::FolderKey::new(folder.origin.clone(), folder.folder.clone());
+                let sort = SortKey::of(hot);
+                let entry = model.entry(key).or_insert_with(|| (sort.clone(), hot.key(), 0));
+                if sort < entry.0 {
+                    entry.0 = sort.clone();
+                    entry.1 = hot.key();
+                }
+                entry.2 += 1;
+            }
+            let rebuilt = model
+                .into_iter()
+                .try_fold(folders::Folders::new(), |view, (key, (sort, newest, count))| {
+                    view.apply(folders::FolderEntry::new(
+                        key.origin,
+                        key.folder,
+                        Some(newest),
+                        sort.last_activity,
+                        count,
+                    ))
+                    .map(|(view, _)| view)
+                })
+                .unwrap();
+            let actual = index
+                .folders()
+                .iter()
+                .map(|row| (row.key(), row.as_ref().clone()))
+                .collect::<Vec<_>>();
+            let expected =
+                rebuilt.iter().map(|row| (row.key(), row.as_ref().clone())).collect::<Vec<_>>();
+            assert_eq!(actual, expected, "folder projection mismatch at update {seq}");
+        }
     }
 }

@@ -218,25 +218,29 @@ impl Folders {
     /// values arriving from a text chunk or status-only update.
     pub fn apply(&self, entry: FolderEntry) -> io::Result<(Self, Option<FolderOp>)> {
         entry.validate()?;
+        Ok(self.apply_validated(entry))
+    }
+
+    pub(crate) fn apply_validated(&self, entry: FolderEntry) -> (Self, Option<FolderOp>) {
         let mut next = self.clone();
         let old = self.by_key.get(&entry.key).cloned();
         let Some(row) = FolderRow::from_entry(&entry).map(Arc::new) else {
             if let Some(old) = old {
                 next.by_key.remove(&entry.key);
                 next.ordered.remove(&FolderSortKey { at: old.at, key: entry.key.clone() });
-                return Ok((next, Some(FolderOp::Gone(entry.key))));
+                return (next, Some(FolderOp::Gone(entry.key)));
             }
-            return Ok((self.clone(), None));
+            return (self.clone(), None);
         };
         if old.as_ref().is_some_and(|old| old.as_ref() == row.as_ref()) {
-            return Ok((self.clone(), None));
+            return (self.clone(), None);
         }
         if let Some(old) = old {
             next.ordered.remove(&FolderSortKey { at: old.at, key: entry.key.clone() });
         }
         next.ordered.insert(FolderSortKey { at: row.at, key: entry.key.clone() }, row.clone());
         next.by_key.insert(entry.key, row.clone());
-        Ok((next, Some(FolderOp::Folder(row))))
+        (next, Some(FolderOp::Folder(row)))
     }
 
     pub fn window(&self, limit: usize, max_bytes: usize) -> io::Result<FolderPage> {
@@ -261,6 +265,17 @@ impl Folders {
         self.read_page(Some(cursor), FolderReadSide::Before, false, limit, max_bytes, None)
     }
 
+    pub fn validate_page_bound(limit: usize, max_bytes: usize) -> io::Result<()> {
+        if limit == 0
+            || limit > MAX_FOLDER_ROWS
+            || max_bytes == 0
+            || max_bytes > MAX_FOLDER_PAGE_BYTES
+        {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid folders page bound"));
+        }
+        Ok(())
+    }
+
     /// Reads a bounded keyset page. `bytes_read` counts encoded row bytes, the
     /// same cost unit used by the list page gates.
     pub fn read_page(
@@ -272,13 +287,23 @@ impl Folders {
         max_bytes: usize,
         filter: Option<&ListFilter>,
     ) -> io::Result<FolderPage> {
-        if limit == 0
-            || limit > MAX_FOLDER_ROWS
-            || max_bytes == 0
-            || max_bytes > MAX_FOLDER_PAGE_BYTES
-        {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid folders page bound"));
-        }
+        self.read_page_visible(cursor, side, inclusive, limit, max_bytes, filter, |_| true)
+    }
+
+    /// Reads a page while applying an additional visibility predicate to each
+    /// candidate. Hidden rows consume the candidate bound and continuation but
+    /// no response bytes, matching the list's origin-removal rule.
+    pub fn read_page_visible(
+        &self,
+        cursor: Option<&FolderCursor>,
+        side: FolderReadSide,
+        inclusive: bool,
+        limit: usize,
+        max_bytes: usize,
+        filter: Option<&ListFilter>,
+        visible: impl Fn(&FolderRow) -> bool,
+    ) -> io::Result<FolderPage> {
+        Self::validate_page_bound(limit, max_bytes)?;
         let anchor = cursor.map(FolderCursor::sort_key);
         let (start, end) = match (anchor.as_ref(), side) {
             (Some(anchor), FolderReadSide::After) => {
@@ -289,39 +314,30 @@ impl Folders {
             }
             (None, _) => (Unbounded, Unbounded),
         };
-        let mut candidates = Vec::with_capacity(limit.saturating_add(1));
-        let matches = |row: &FolderRow| {
-            filter.is_none_or(|filter| {
-                filter.origin.as_ref().is_none_or(|origin| row.origin.as_ref() == origin)
-            })
-        };
-        match side {
+        // The list contract bounds the number of candidates visited, including
+        // rows hidden by a filter. A continuation is answered by one seek past
+        // the last candidate, rather than consuming an extra row just for the
+        // flag (which could falsely claim work remains).
+        let candidates: Box<dyn Iterator<Item = &Arc<FolderRow>> + '_> = match side {
             FolderReadSide::After => {
-                for (_, row) in self
-                    .ordered
-                    .range::<_, FolderSortKey>((start, end))
-                    .take(limit.saturating_add(1))
-                {
-                    candidates.push(row.clone());
-                }
+                Box::new(self.ordered.range::<_, FolderSortKey>((start, end)).map(|(_, row)| row))
             }
-            FolderReadSide::Before => {
-                for (_, row) in self
-                    .ordered
-                    .range::<_, FolderSortKey>((start, end))
-                    .rev()
-                    .take(limit.saturating_add(1))
-                {
-                    candidates.push(row.clone());
-                }
-            }
-        }
-        let candidate_count = candidates.len();
-        let mut visited = Vec::with_capacity(candidate_count.min(limit));
+            FolderReadSide::Before => Box::new(
+                self.ordered.range::<_, FolderSortKey>((start, end)).rev().map(|(_, row)| row),
+            ),
+        };
+        let matches = |row: &FolderRow| {
+            visible(row)
+                && filter.is_none_or(|filter| {
+                    filter.origin.as_ref().is_none_or(|origin| row.origin.as_ref() == origin)
+                })
+        };
+        let mut visited = Vec::with_capacity(limit);
         let mut rows = Vec::new();
         let mut bytes_read = 0usize;
         let mut byte_limited = false;
-        for row in &candidates {
+        for row in candidates.take(limit) {
+            let row = row.as_ref();
             if rows.len() == limit {
                 break;
             }
@@ -331,7 +347,7 @@ impl Folders {
             }
             let row_bytes = row.encoded_len().saturating_add(1);
             if bytes_read.saturating_add(row_bytes) > max_bytes {
-                if rows.is_empty() {
+                if visited.is_empty() {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
                         "folders page byte budget cannot fit the next row",
@@ -358,7 +374,14 @@ impl Folders {
         let before_key = candidate_first.map(|row| FolderCursor::new(row.at, row.key()));
         let after_key = candidate_last.map(|row| FolderCursor::new(row.at, row.key()));
         let has_before = match side {
-            FolderReadSide::Before => candidate_count > limit || byte_limited,
+            FolderReadSide::Before => {
+                before_key.as_ref().is_some_and(|key| {
+                    self.ordered
+                        .range::<_, FolderSortKey>((Unbounded, Excluded(&key.sort_key())))
+                        .next()
+                        .is_some()
+                }) || byte_limited
+            }
             FolderReadSide::After => before_key.as_ref().is_some_and(|key| {
                 self.ordered
                     .range::<_, FolderSortKey>((Unbounded, Excluded(&key.sort_key())))
@@ -367,7 +390,14 @@ impl Folders {
             }),
         };
         let has_after = match side {
-            FolderReadSide::After => candidate_count > limit || byte_limited,
+            FolderReadSide::After => {
+                after_key.as_ref().is_some_and(|key| {
+                    self.ordered
+                        .range::<_, FolderSortKey>((Excluded(&key.sort_key()), Unbounded))
+                        .next()
+                        .is_some()
+                }) || byte_limited
+            }
             FolderReadSide::Before => after_key.as_ref().is_some_and(|key| {
                 self.ordered
                     .range::<_, FolderSortKey>((Excluded(&key.sort_key()), Unbounded))

@@ -22,6 +22,7 @@ impl Held {
     }
 }
 struct Task {
+    view: Option<crate::wire::ListView>,
     held: Arc<Held>,
     resume: watch::Sender<Cursor>,
     join: tokio::task::JoinHandle<()>,
@@ -99,11 +100,18 @@ impl Source for HubSource {
             rx,
             held.clone(),
         ));
-        tasks.insert(sub.sid.clone(), Task { resume, join, held });
+        tasks.insert(sub.sid.clone(), Task { view: sub.view, resume, join, held });
         Ok(())
     }
     fn page(&self, page: &Page, _person: Option<&[u8]>) -> Result<Frame, ConnError> {
-        Ok(self.hub.page(page)?)
+        let held_view = self
+            .tasks
+            .lock()
+            .map_err(|_| ConnError::InvalidRequest("list source poisoned".into()))?
+            .get(&page.sid)
+            .map(|task| task.view)
+            .ok_or_else(|| ConnError::UnknownSubscription(page.sid.clone()))?;
+        Ok(self.hub.page_for_view(page, held_view)?)
     }
 
     fn resume(&self, sid: &str, cursor: Cursor) {
@@ -144,13 +152,13 @@ struct Delivery {
 fn open(hub: &Hub, sub: &Sub) -> Result<Delivery, ConnError> {
     if sub.edition.is_none_or(|edition| edition == 0 || edition == hub.snapshot().edition())
         && let Some(cursor) = sub.cursor
-        && let Some(target) = hub.resume_target(cursor.0)?
+        && let Some(target) = hub.resume_view_target(cursor.0, sub.view)?
     {
         let receiver = hub.subscribe_replay(sub, cursor.0)?;
         if target == cursor.0 {
             return Ok(Delivery {
                 receiver,
-                first: raw_frame(&sub.sid, Some(ReplayMark::End), &[])?
+                first: raw_frame(&sub.sid, Some(ReplayMark::End), &[], cursor.0)?
                     .map_err(ConnError::InvalidRequest)?,
                 cursor,
                 mode: Mode::Live,
@@ -161,8 +169,8 @@ fn open(hub: &Hub, sub: &Sub) -> Result<Delivery, ConnError> {
             let final_frame = span.last_seq >= target;
             let mode = if final_frame { Mode::Live } else { Mode::Replay(target) };
             let mark = final_frame.then_some(ReplayMark::End).or(Some(ReplayMark::Replay));
-            let frame =
-                raw_frame(&sub.sid, mark, &span.bytes)?.map_err(ConnError::InvalidRequest)?;
+            let frame = raw_frame(&sub.sid, mark, &span.bytes, span.last_seq)?
+                .map_err(ConnError::InvalidRequest)?;
             return Ok(Delivery { receiver, first: frame, cursor: Cursor(span.last_seq), mode });
         }
     }
@@ -177,7 +185,11 @@ fn open(hub: &Hub, sub: &Sub) -> Result<Delivery, ConnError> {
     })
 }
 
-fn raw_parts(sid: &str, replay: Option<ReplayMark>) -> Result<(Vec<u8>, Vec<u8>), ConnError> {
+fn raw_parts(
+    sid: &str,
+    replay: Option<ReplayMark>,
+    cursor: u64,
+) -> Result<(Vec<u8>, Vec<u8>), ConnError> {
     let encoded_sid = serde_json::to_vec(sid)
         .map_err(|error| ConnError::InvalidRequest(format!("invalid list sid: {error}")))?;
     let mut prefix = br#"{"sid":"#.to_vec();
@@ -188,12 +200,13 @@ fn raw_parts(sid: &str, replay: Option<ReplayMark>) -> Result<(Vec<u8>, Vec<u8>)
         prefix.extend_from_slice(br#","replay":"#);
         prefix.extend_from_slice(&encoded_replay);
     }
+    prefix.extend_from_slice(format!(",\"cursor\":{cursor}").as_bytes());
     prefix.extend_from_slice(br#","ops":["#);
     Ok((prefix, b"]}".to_vec()))
 }
 
 fn raw_budget(sid: &str, replay: Option<ReplayMark>) -> Result<usize, ConnError> {
-    let (prefix, suffix) = raw_parts(sid, replay)?;
+    let (prefix, suffix) = raw_parts(sid, replay, u64::MAX)?;
     Ok(crate::wire::MAX_REPLAY_FRAME_BYTES
         .saturating_sub(5)
         .saturating_sub(prefix.len())
@@ -204,9 +217,10 @@ fn raw_frame(
     sid: &str,
     replay: Option<ReplayMark>,
     ops: &[u8],
+    cursor: u64,
 ) -> Result<Result<Frame, String>, ConnError> {
     let replay_present = replay.is_some();
-    let (prefix, suffix) = raw_parts(sid, replay)?;
+    let (prefix, suffix) = raw_parts(sid, replay, cursor)?;
     let mut payload = Vec::with_capacity(prefix.len() + ops.len() + suffix.len());
     payload.extend_from_slice(&prefix);
     payload.extend_from_slice(ops);
@@ -310,6 +324,9 @@ async fn pump(
                 }
             }
             RawRead::Span(span) => {
+                if span.bytes.is_empty() && matches!(mode, Mode::Live) {
+                    continue;
+                }
                 let final_frame = matches!(mode, Mode::Replay(target) if span.last_seq >= target);
                 let replay = match mode {
                     Mode::Replay(_) => {
@@ -318,7 +335,7 @@ async fn pump(
                     _ => None,
                 };
                 let next = if final_frame { Mode::Live } else { mode };
-                raw_frame(&sub.sid, replay, &span.bytes)
+                raw_frame(&sub.sid, replay, &span.bytes, span.last_seq)
                     .and_then(|frame| frame.map_err(ConnError::InvalidRequest))
                     .map(|frame| (frame, Cursor(span.last_seq), next))
             }
