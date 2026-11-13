@@ -79,6 +79,10 @@ pub(crate) struct RemoteSidebarDoc {
     /// Wakes the app loop when the stream falls back to timed reads: its
     /// idle wait then ends at the next read (`sidebar_doc_fallback_at`).
     idle_waker: Mutex<Option<IdleWaker>>,
+    /// Runs once in `protocol2_request` right before its answer slot is
+    /// inserted (the window a shutdown may land in).
+    #[cfg(test)]
+    before_pending_insert: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 type IdleWaker = Box<dyn Fn() + Send + Sync>;
@@ -430,10 +434,25 @@ impl RemoteSession {
         }
         let message = serde_json::to_string(&request)?;
         let (tx, rx) = channel();
+        #[cfg(test)]
+        if let Some(hook) = lock(&self.sidebar_doc.before_pending_insert).take() {
+            hook();
+        }
         self.sidebar_doc.pending().insert(id.clone(), tx);
         let forget = || {
             self.sidebar_doc.pending().remove(&id);
         };
+        // A shutdown sets the flag before it wakes every waiting request
+        // (`begin_shutdown`): one that came after the check above and before
+        // this insert missed this request, which would wait for an answer
+        // that never comes. Nothing was sent yet.
+        if self.shutdown.load(Ordering::Acquire) {
+            forget();
+            return Err(self
+                .request_shutdown_error()
+                .unwrap_or(RemoteRequestError::Shutdown)
+                .into());
+        }
         let sequence = match self.interactive_writer.enqueue(message, false) {
             Ok(sequence) => sequence,
             Err(error) => {
@@ -555,3 +574,7 @@ impl RemoteSession {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "sidebar_doc_tests.rs"]
+mod tests;

@@ -42,12 +42,27 @@ export function isHostRefusal(error: unknown): boolean {
 const DAEMON_REASON_TEXT: Record<string, StringKey> = {
   "trust.pending": "error.trustPending",
   "trust.untrusted": "error.trustUntrusted",
+  // A Stop from a link that is not the chat's owner (remote_guard/cancel_owner.rs).
+  "remote.session_cancel_ownership": "error.stopOwnerOnly",
+  // A sub-session start (a plan build's worktree) refused at the chat's open sub-session limit
+  // (hub/subsessions.rs): acpmux's message is written for the agent, the person reads this.
+  "subsessions.width_limit": "error.subsessionsFull",
+  // A remote link's folder outside the machine's webRoots and known projects
+  // (server/remote_guard.rs `outside_roots`): a save that can never pass reads as one.
+  "remote.cwd_outside_roots": "error.cwdOutsideRoots",
 };
 
 /// The text to show for `error`: a transport refusal's own text (a code without one reads as the
 /// generic refusal, never the host's English message), acpmux's worded reasons, else the error's
 /// message.
 export function errorMessage(error: unknown): string {
+  return knownRefusalText(error) ?? (error instanceof Error ? error.message : typeof error === "string" ? error : "");
+}
+
+/// The pane's own words for a refusal it knows (a transport code, an acpmux reason it words), else
+/// undefined: the text a notice may say after "Couldn't …". Any other failure's message is the
+/// daemon's, the bridge's or the browser's ("Failed to fetch"), for the log or Details, never the line.
+export function knownRefusalText(error: unknown): string | undefined {
   const reason = typeof error === "object" && error !== null ? (error as { reason?: unknown }).reason : undefined;
   const reasonKey = typeof reason === "string" ? DAEMON_REASON_TEXT[reason] : undefined;
   if (reasonKey) return translate(reasonKey);
@@ -61,8 +76,22 @@ export function errorMessage(error: unknown): string {
     if (code === "transport.intent_invalid") console.error("agent pane: the host refused a request", error);
     return translate(key);
   }
-  if (error instanceof Error) return error.message;
-  return typeof error === "string" ? error : "";
+  return undefined;
+}
+
+/// "Couldn't switch to {mode}." (or model) for a pick the agent or acpmux refused, with the pane's
+/// own reason when it knows one. The agent's own words go to the log: a transcript line has no
+/// Details to keep them behind, and a bare "?" once stood where they were missing.
+export function switchFailedText(kind: "mode" | "model", name: string, error: unknown): string {
+  const reason = knownRefusalText(error);
+  if (!reason) console.warn(`agent pane: switching to ${name} was refused`, error);
+  if (kind === "mode")
+    return reason
+      ? translate("switch.modeFailed", { mode: name, reason })
+      : translate("switch.modeFailedPlain", { mode: name });
+  return reason
+    ? translate("switch.modelFailed", { model: name, reason })
+    : translate("switch.modelFailedPlain", { model: name });
 }
 
 /// A New Tab start that ended because it was cancelled, not because it failed: Not now on the

@@ -7,13 +7,21 @@ bare repository. So the test runs the script's real steps: the bundle, the hook,
 
   python3 scripts/cmux-next/tests/test_push_from_host.py
 """
+import importlib.util
 import os
 import subprocess
 import tempfile
 import time
 import unittest
-import uuid
 from pathlib import Path
+
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_env = importlib.util.spec_from_file_location(
+    "git_fixture_env",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_fixture_env.py"),
+)
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
+_git_fixture_env.loader.exec_module(git_fixture_env)
 
 SCRIPT = Path(__file__).resolve().parents[1] / "push-from-host.sh"
 TOKEN = "test-token-never-printed"
@@ -26,6 +34,18 @@ exec bash -c "$*"
 FAKE_DF = """#!/bin/bash
 echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
 echo "/dev/fake 999999999 1 $(cat "$FAKE_FREE_KB_FILE") 1% /"
+"""
+# leo-workspace's tools/fleet_reservations.py stand-in: exit 1 and say who holds it for a host in FAKE_RESERVED,
+# 2 for one in FAKE_UNREADABLE, else 0 (free).
+FAKE_RESERVATIONS = """import os, sys
+host = sys.argv[1]
+if host in os.environ.get("FAKE_RESERVED", "").split():
+    print(f"{host} is reserved for perf-lead until 2026-11-13 (fixture)")
+    sys.exit(1)
+if host in os.environ.get("FAKE_UNREADABLE", "").split():
+    print("fleet-reservations: fixture registry is malformed", file=sys.stderr)
+    sys.exit(2)
+print(f"{host}: free")
 """
 HOOK = """#!/bin/bash
 cat > /dev/null
@@ -49,11 +69,19 @@ class PushFromHostTests(unittest.TestCase):
             (bin_dir / name).chmod(0o755)
         self.bin_dir = bin_dir
         config = self.root / "gitconfig"
-        config.write_text("[user]\n\tname = Fixture\n\temail = fixture@example.invalid\n[init]\n\tdefaultBranch = feat-cmux-next\n")
-        self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        # The fixture's own global config, with the helper's maintenance opt-out (it replaces the helper's file).
+        config.write_text("[user]\n\tname = Fixture\n\temail = fixture@example.invalid\n[init]\n\tdefaultBranch = feat-cmux-next\n"
+                          + git_fixture_env.CONFIG_FILE_OPT_OUT)
+        # No GIT_* from the caller (a pre-push hook's GIT_DIR would aim every git here at the caller's repository),
+        # then the helper's GIT_CONFIG_COUNT opt-out back on top.
+        self.env = git_fixture_env.fixture_env(
+            {key: value for key, value in os.environ.items() if not key.startswith("GIT_")})
+        reservations = self.root / "fleet_reservations.py"
+        reservations.write_text(FAKE_RESERVATIONS)
         self.env.update(PATH=f"{bin_dir}:{self.env.get('PATH', '')}", GIT_CONFIG_GLOBAL=str(config),
-                        GIT_CONFIG_NOSYSTEM="1", FAKE_HOST_HOME=str(self.host_home))
-        self.run_ok("git", "init", "--quiet", "--bare", str(self.origin))
+                        GIT_CONFIG_NOSYSTEM="1", FAKE_HOST_HOME=str(self.host_home),
+                        CMUX_FLEET_RESERVATIONS=str(reservations))
+        git_fixture_env.init_repo(self.origin, "--bare", env=self.env)
         self.run_ok("git", "clone", "--quiet", str(self.origin), str(self.work))
         self.commit(self.work, "base.txt", "base\n", "base")
         self.git(self.work, "push", "--quiet", "origin", "HEAD:refs/heads/feat-cmux-next")
@@ -83,8 +111,9 @@ class PushFromHostTests(unittest.TestCase):
                               env=self.env, text=True, capture_output=True)
         return done.stdout.strip()
 
-    def push(self, *args):
-        done = subprocess.run(["bash", str(SCRIPT), "--host", "fake-host", *args], cwd=self.work, env=self.env,
+    def push(self, *args, hosts=("fake-host",)):
+        flags = [part for host in hosts for part in ("--host", host)]
+        done = subprocess.run(["bash", str(SCRIPT), *flags, *args], cwd=self.work, env=self.env,
                               text=True, capture_output=True)
         self.assertNotIn(TOKEN, done.stdout + done.stderr, "the token must never be printed")
         return done
@@ -147,11 +176,15 @@ class PushFromHostTests(unittest.TestCase):
 
     # 2026-11-10: the push host went offline at 99% full. A killed run leaves its 2 GB checkout in /tmp.
     def test_a_push_removes_the_leftovers_of_old_runs_and_keeps_new_ones(self):
-        tag = uuid.uuid4().hex[:12]
-        old_tree = Path(f"/tmp/push-from-host-{tag}-1.tree")
-        old_bundle = Path(f"/tmp/push-from-host-{tag}-1.bundle")
-        fresh = Path(f"/tmp/push-from-host-{tag}-2.bundle")
-        old_tree.mkdir()
+        # The script sweeps /tmp/push-from-host-* on the host, so the leftovers live there; mkdtemp/mkstemp make
+        # each one fresh and exclusive, so no name is one another user could create first.
+        old_tree = Path(tempfile.mkdtemp(prefix="push-from-host-", suffix="-1.tree", dir="/tmp"))
+        handle, name = tempfile.mkstemp(prefix="push-from-host-", suffix="-1.bundle", dir="/tmp")
+        os.close(handle)
+        old_bundle = Path(name)
+        handle, name = tempfile.mkstemp(prefix="push-from-host-", suffix="-2.bundle", dir="/tmp")
+        os.close(handle)
+        fresh = Path(name)
         (old_tree / "file").write_text("x")
         old_bundle.write_text("x")
         fresh.write_text("x")
@@ -188,7 +221,7 @@ class PushFromHostTests(unittest.TestCase):
 
     def test_a_host_with_no_room_for_the_checkout_pushes_nothing_and_says_why(self):
         self.with_free_kb(1 * 1048576)
-        self.commit(self.work, "a.txt", "a\n", "a change")
+        sha = self.commit(self.work, "a.txt", "a\n", "a change")
 
         done = self.push("topic")
 
@@ -196,6 +229,9 @@ class PushFromHostTests(unittest.TestCase):
         self.assertEqual(self.remote_head("topic"), "")
         self.assertIn("1 GB of disk free", done.stderr)
         self.assertFalse((self.host_home / "hook.log").exists())
+        # The refusal exits before the push; it still removes the bundle and script it was sent (they leaked, and the
+        # next test's commit, the same sha within a second, found them).
+        self.assertEqual(self.leftovers(sha), [])
 
     def test_a_host_with_room_says_nothing_about_disk(self):
         self.with_free_kb(200 * 1048576)
@@ -205,6 +241,49 @@ class PushFromHostTests(unittest.TestCase):
 
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertNotIn("disk free", done.stderr)
+
+    # 2026-11-12: a helper pushed through a perf lead's reserved mini, the second of DEFAULT_HOSTS.
+    def test_a_reserved_host_is_skipped_for_the_next_free_one(self):
+        self.env["FAKE_RESERVED"] = "perf-mini"
+        sha = self.commit(self.work, "a.txt", "a\n", "a change")
+
+        done = self.push("topic", hosts=("perf-mini:fun/cmux", "fake-host"))
+
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.remote_head("topic"), sha)
+        self.assertIn("skipping perf-mini: perf-mini is reserved for perf-lead", done.stderr)
+        self.assertIn(f"{sha} -> topic through fake-host", done.stderr)
+
+    def test_every_host_reserved_sends_nothing_and_says_so(self):
+        self.env["FAKE_RESERVED"] = "perf-mini other-mini"
+        sha = self.commit(self.work, "a.txt", "a\n", "a change")
+
+        done = self.push("topic", hosts=("perf-mini", "user@other-mini"))
+
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("every host is reserved", done.stderr)
+        self.assertIn("perf-mini user@other-mini", done.stderr)
+        self.assertEqual(self.remote_head("topic"), "")
+        self.assertFalse((self.host_home / "hook.log").exists())
+        self.assertEqual(self.leftovers(sha), [])
+
+    def test_a_host_whose_reservation_cant_be_read_is_skipped(self):
+        self.env["FAKE_UNREADABLE"] = "fake-host"
+
+        done = self.push("--which-host", "topic")
+
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("skipping fake-host: its reservation can't be read (exit 2)", done.stderr)
+        self.assertIn("every host is reserved", done.stderr)
+
+    def test_a_mac_without_the_reader_warns_and_pushes(self):
+        self.env["CMUX_FLEET_RESERVATIONS"] = str(self.root / "missing" / "fleet_reservations.py")
+
+        done = self.push("--which-host", "topic")
+
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.strip(), "fake-host fun/cmux")
+        self.assertIn("no fleet reservation reader", done.stderr)
 
 
 if __name__ == "__main__":

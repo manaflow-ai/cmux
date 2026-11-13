@@ -250,6 +250,7 @@ extension AppActions {
                 // A person's close animates its row out even when the row leaves after their answer to the question
                 // (or after the terminals' answer), past the press's window for motion (calm-sidebar-movement).
                 if invocation.origin == .user { controller?.sidebar.model.noteUserIntent() }
+                services.keyRouter.creationInputCoordinator.drop(closing: workspace.screens.flatMap(\.panes)) // before the window shows the next workspace: its terminal's focus takes what is held
                 let hidden = !InstantClose.begin([id], in: owner, windows: services.windows).isEmpty
                 selected.afterPress = controller?.state.workspaceID
                 return hidden
@@ -282,9 +283,10 @@ extension AppActions {
                     if failure == nil, let personalGroup {
                         PersonalGroupLife(machines: services.machines).deleteIfEmpty(personalGroup, failed: { _ in controller?.sidebar.resync() })
                     }
-                    // A person's close of a Cloud workspace keeps its machine (Leo, 2026-11-08): say so, and until when.
-                    if failure == nil, invocation.origin == .user, let machine = services.machines.session(daemon.machineID)?.machine, let shown = controller?.window ?? services.windows.active?.window {
-                        CmuxToastCenter.shared.show(CmuxToast(id: "cloud-close-keeps-machine", message: CloudStrings.closeKeepsMachine(until: machine.evictAt), duration: .seconds(8)), in: shown)
+                    // A person's close of a Cloud workspace keeps its machine (Leo, 2026-11-08): say so, and until when, once per machine.
+                    if failure == nil, invocation.origin == .user, let session = services.machines.session(daemon.machineID), !session.toldKeptOnClose, let shown = controller?.window ?? services.windows.active?.window {
+                        session.toldKeptOnClose = true
+                        CmuxToastCenter.shared.show(CmuxToast(id: "cloud-close-keeps-machine", message: CloudStrings.closeKeepsMachine(until: session.machine.evictAt), duration: .seconds(8)), in: shown)
                     }
                     if hidden, failure == nil { ClosingWorkspaces.shared.end(id, refused: false, in: nil) } // refused: the effect's `takeBack`
                     return failure
@@ -297,7 +299,7 @@ extension AppActions {
                 guard hidden else { return }
                 ClosingWorkspaces.shared.end(id, refused: false, in: nil)
                 if shownAtPress, services.workspace(id: id) != nil, let controller, controller.state.workspaceID == selected.afterPress {
-                    services.windows.show(workspaceID: id, in: controller.state)
+                    services.windows.registry.closeSelection.repairing { services.windows.show(workspaceID: id, in: controller.state) } // the close's selection, no gesture
                 }
             })
         return flow.effect(id, asks: invocation.asksIfRunning) { ClosingWorkspaces.shared.end(id, refused: true, reason: WorkspaceClose.shownReason($0), in: controller?.window) }

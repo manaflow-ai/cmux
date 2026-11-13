@@ -21,6 +21,7 @@ use crate::codex_auth_file::{self, AccessFile};
 use cmux_json::JsonSet as _;
 
 mod background;
+mod message_phases;
 pub use background::TERMINATE;
 mod usage_limits;
 #[cfg(test)]
@@ -32,6 +33,7 @@ pub use usage_limits::{is_plan_snapshot, read_usage_limits, usage_limits};
 pub struct Translator {
     inner: cmux_codex_acp::Translator,
     background: Mutex<background::Background>,
+    message_phases: Mutex<message_phases::MessagePhases>,
     #[cfg(unix)]
     auth: Mutex<AuthGate>,
 }
@@ -348,12 +350,12 @@ impl Translator {
                     return released;
                 }
                 auth.held.extend(self.background().observe(raw));
-                auth.held.extend(self.inner.from_server(raw));
+                auth.held.extend(self.translate_server(raw));
                 return Vec::new();
             }
 
             if auth.enabled() && auth.initialize_id.as_ref() == raw.get("id") {
-                let out = self.inner.from_server(raw);
+                let out = self.translate_server(raw);
                 if raw.get("error").is_some() {
                     return out;
                 }
@@ -383,7 +385,7 @@ impl Translator {
                 match codex_auth_file::read() {
                     Ok(Some(file)) if auth.account_allowed(&file, None) => {
                         auth.held.extend(self.background().observe(raw));
-                        auth.held.extend(self.inner.from_server(raw));
+                        auth.held.extend(self.translate_server(raw));
                         return vec![auth.login_request(file)];
                     }
                     Ok(None) | Err(_) => {
@@ -400,7 +402,13 @@ impl Translator {
             }
         }
         let mut out = self.background().observe(raw);
-        out.extend(self.inner.from_server(raw));
+        out.extend(self.translate_server(raw));
+        out
+    }
+
+    fn translate_server(&self, raw: &Value) -> Vec<Out> {
+        let mut out = self.inner.from_server(raw);
+        self.message_phases.lock().unwrap_or_else(|e| e.into_inner()).enrich(raw, &mut out);
         out
     }
 
@@ -479,6 +487,7 @@ fn translator_with(prompt_suggestions: bool) -> Arc<Translator> {
             ..Options::default()
         }),
         background: Mutex::default(),
+        message_phases: Mutex::default(),
         #[cfg(unix)]
         auth: Mutex::new(AuthGate::new()),
     })

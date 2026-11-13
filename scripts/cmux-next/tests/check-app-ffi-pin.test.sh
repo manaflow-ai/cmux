@@ -12,12 +12,14 @@
 #    verdict of a PR that leaves the check's files alone, and a new file is not
 #    one of them.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 
 script="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/check-app-ffi-pin.sh"
 # The script reads the pin only through scripts/ci/app_ffi_pin.py, so the scratch tree carries it too.
 pin_reader="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../ci" && pwd)/app_ffi_pin.py"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+git_fixture_trap_exit 'rm -rf "$tmp"'
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -44,13 +46,15 @@ git -C "$repo" init -q
 git -C "$repo" add -A
 git -C "$repo" commit -qm sources
 pinned="$(git -C "$repo" rev-parse HEAD)"
-cat > "$repo/Packages/macOS/CmuxNext/Package.swift" <<EOF
-let appFFI: Target = .binaryTarget(
-    name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-$pinned/CCmuxAppFFI.xcframework.zip",
-    checksum: "$(printf '0%.0s' {1..64})"
-)
-EOF
+python3 - "$pin_reader" "$repo/Packages/macOS/CmuxNext" "$pinned" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("app_ffi_pin", sys.argv[1])
+pin = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(pin)
+package, sha = sys.argv[2], sys.argv[3]
+open(f"{package}/Package.swift", "w").write("import Foundation\nimport PackageDescription\n\n" + pin.loader("0" * 64))
+open(f"{package}/app-ffi-pin.json", "w").write(pin.render(sha, "0" * 64))
+PY
 git -C "$repo" add -A
 git -C "$repo" commit -qm pin
 
@@ -133,13 +137,35 @@ fi
   || fail "the stale report does not give the step A / step B rule: $out"
 [[ "$out" == *"docs/ci/app-ffi-release.md"* ]] || fail "the stale report does not point to the doc: $out"
 
-# A pin outside the canonical block fails closed, naming the reader's reason.
+# A pin file off its one format, or a manifest with a pin of its own, fails
+# closed, naming the reader's reason.
 git -C "$repo" checkout -q HEAD~1
-sed -i.bak 's/^let appFFI: Target = //' "$repo/Packages/macOS/CmuxNext/Package.swift"
+pin_json="$repo/Packages/macOS/CmuxNext/app-ffi-pin.json"
+sed -i.bak 's/", "checksum"/",  "checksum"/' "$pin_json"
 if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
-  fail "a non-canonical pin passed: $out"
+  fail "a pin file off its format passed: $out"
 fi
-[[ "$out" == *"no canonical cmux-app-ffi pin"* ]] || fail "the non-canonical report does not say so: $out"
+[[ "$out" == *"no canonical cmux-app-ffi pin"* ]] || fail "the pin file report does not say so: $out"
+mv "$pin_json.bak" "$pin_json"
+manifest="$repo/Packages/macOS/CmuxNext/Package.swift"
+# A pin file whose checksum Package.swift's checksum line does not repeat: a
+# re-pin that left the manifest text (SwiftPM's manifest cache key) alone.
+cp "$manifest" "$manifest.bak"
+sed -i.tmp "s/^\/\/ app-ffi-pin-checksum: 0\{64\}$/\/\/ app-ffi-pin-checksum: $(printf '1%.0s' {1..64})/" "$manifest"
+rm -f "$manifest.tmp"
+grep -q "^// app-ffi-pin-checksum: 1\{64\}$" "$manifest" || fail "the test did not move the checksum line"
+if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+  fail "a checksum line off the pin file's checksum passed: $out"
+fi
+[[ "$out" == *"is not Packages/macOS/CmuxNext/app-ffi-pin.json's checksum"* ]] \
+  || fail "the checksum line report does not say so: $out"
+mv "$manifest.bak" "$manifest"
+echo '// url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-x"' \
+  >> "$repo/Packages/macOS/CmuxNext/Package.swift"
+if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+  fail "a manifest with a pin of its own passed: $out"
+fi
+[[ "$out" == *"does not read the pin through its one loader block"* ]] || fail "the manifest report does not say so: $out"
 
 # A json.py beside the pin reader does not change the verdict. Without -I it
 # is imported first: this one prints a pin naming HEAD, so the stale sources
@@ -156,13 +182,13 @@ fi
 [[ "$out" == *"cmux-remote-browser"* ]] || fail "a scripts/ci/json.py changed the stale report: $out"
 rm -f "$repo/scripts/ci/json.py"
 
-# The --base read (the base's Package.swift through the pin reader) is isolated
+# The --base read (the base's app-ffi-pin.json through the pin reader) is isolated
 # too. The base pins the current sources ($rb) and the change moves the pin
 # back to the stale $pinned: its own red. A json.py that reads every pin as
 # $pinned would make it base drift, which passes.
-pin_to() { # pin_to SHA MESSAGE
-  sed -i.bak -E "s/cmux-app-ffi-[0-9a-f]{40}/cmux-app-ffi-$1/" "$repo/Packages/macOS/CmuxNext/Package.swift"
-  rm -f "$repo/Packages/macOS/CmuxNext/Package.swift.bak"
+pin_to() { # pin_to SHA MESSAGE: the pin file's release only (the checksum, so the loader's line, stays)
+  sed -i.bak -E "s/cmux-app-ffi-[0-9a-f]{40}/cmux-app-ffi-$1/" "$repo/Packages/macOS/CmuxNext/app-ffi-pin.json"
+  rm -f "$repo/Packages/macOS/CmuxNext/app-ffi-pin.json.bak"
   git -C "$repo" commit -qam "$2"
 }
 pin_to "$rb" base
@@ -179,7 +205,7 @@ fi
 rm -f "$repo/scripts/ci/json.py"
 
 # --tree DIR: a copy of the check outside the repository judges the tree at DIR
-# (its Package.swift, its FFI inputs, its history) and reads the pin only with
+# (its pin file and Package.swift, its FFI inputs, its history) and reads the pin only with
 # its own reader, never the tree's. cmux-next.yml runs the base's copy so on a
 # pull request's tree.
 code="$tmp/code"
@@ -206,9 +232,8 @@ fi
 git -C "$repo" checkout -q -f "$rb"
 
 # The JSON pin (cmux#37645): app-ffi-pin.json beside a Package.swift that holds
-# only its loader block, read through app_ffi_pin.py's read_pin_file and
-# check_loader. The base's copy of the check judges a pull request that moves
-# the pin to that form, so the check reads both forms, at HEAD and at --base.
+# only its loader block, read through app_ffi_pin.py's read and check_manifest,
+# at HEAD and at --base, also when the rest of Package.swift changes.
 json_pin() { # json_pin MESSAGE: rewrite the tree's pin into the JSON form for $pinned, and commit
   python3 -I - "$pin_reader" "$pinned" "$zeros" "$repo/Packages/macOS/CmuxNext" <<'PY'
 import importlib.util
@@ -218,7 +243,7 @@ spec = importlib.util.spec_from_file_location("app_ffi_pin", sys.argv[1])
 pin = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pin)
 folder = Path(sys.argv[4])
-(folder / "app-ffi-pin.json").write_text(pin.render_pin_file(sys.argv[2], sys.argv[3]))
+(folder / "app-ffi-pin.json").write_text(pin.render(sys.argv[2], sys.argv[3]))
 (folder / "Package.swift").write_text("import Foundation\n\n" + pin.loader(sys.argv[3]) + "\nlet package = 0\n")
 PY
   git -C "$repo" add -A
@@ -243,5 +268,43 @@ if out="$(check_tree)"; then
   fail "a stale JSON pin passed: $out"
 fi
 [[ "$out" == *"changed since the pinned source $pinned"* ]] || fail "no stale report for the JSON pin: $out"
+
+# --stale-grace (the push run of feat-cmux-next): a pin behind the sources passes with a note while the first
+# commit that left it behind is younger than the grace, and fails once it is older. Before, every FFI commit left
+# the tip red until its release was pinned (cmux-next runs 42952459700, 42958342526, 42960857925, 42973010316).
+check_at() { # check_at NOW [check option...]: the check in $repo with the clock at NOW
+  local now="$1"; shift
+  (cd "$repo" && CMUX_APP_FFI_PIN_NOW="$now" bash scripts/cmux-next/check-app-ffi-pin.sh "$@" 2>&1)
+}
+behind_at="$(git -C "$repo" show -s --format=%ct "$rb")"
+out="$(check_at "$((behind_at + 600))" --stale-grace 3600)" || fail "a pin behind for 10 minutes failed inside its grace: $out"
+[[ "$out" == *"note: the pin is behind: the app FFI sources changed 10 min ago"* ]] || fail "no behind note: $out"
+[[ "$out" == *"cmux-remote-browser"* ]] || fail "the behind note does not name what changed: $out"
+if out="$(check_at "$((behind_at + 7200))" --stale-grace 3600)"; then
+  fail "a pin behind for two hours passed a one hour grace: $out"
+fi
+[[ "$out" == *"error: the pin has been behind for 120 min"* ]] || fail "no overdue line: $out"
+[[ "$out" == *"changed since the pinned source $pinned"* ]] || fail "the overdue report lost the stale report: $out"
+# Without the flag (a pull request, the pre-push gate) the same tree still fails.
+if out="$(check_at "$((behind_at + 600))")"; then fail "a stale pin passed without --stale-grace: $out"; fi
+# The grace counts from the first commit that left the pin behind: a later FFI commit does not start it again.
+echo "// later" >> "$repo/cmux-tui/crates/cmux-rd-core/src/lib.rs"
+GIT_COMMITTER_DATE="@$((behind_at + 3000)) +0000" git -C "$repo" commit -qam "rd-core, later"
+if out="$(check_at "$((behind_at + 4000))" --stale-grace 3600)"; then
+  fail "a later FFI commit started the grace again: $out"
+fi
+[[ "$out" == *"error: the pin has been behind for 66 min"* ]] || fail "the age is not counted from the first commit: $out"
+# A shallow checkout (actions/checkout) holds no commit between the pin and HEAD: the check deepens it to date
+# the first one. Without that, HEAD's own commit read as the first, and a pin never grew overdue.
+shallow="$tmp/shallow"
+git clone -q --depth=1 "file://$repo" "$shallow"
+[[ "$(git -C "$shallow" rev-list --count HEAD)" == 1 ]] || fail "the clone is not shallow"
+out="$(cd "$shallow" && CMUX_APP_FFI_PIN_NOW="$((behind_at + 600))" bash scripts/cmux-next/check-app-ffi-pin.sh --stale-grace 3600 2>&1)" \
+  || fail "a shallow checkout failed inside the grace: $out"
+[[ "$out" == *"note: the pin is behind: the app FFI sources changed 10 min ago"* ]] || fail "a shallow checkout dated the pin wrong: $out"
+if out="$(cd "$shallow" && CMUX_APP_FFI_PIN_NOW="$((behind_at + 4000))" bash scripts/cmux-next/check-app-ffi-pin.sh --stale-grace 3600 2>&1)"; then
+  fail "a shallow checkout passed an overdue pin: $out"
+fi
+[[ "$out" == *"error: the pin has been behind for 66 min"* ]] || fail "a shallow checkout lost the first commit: $out"
 
 echo "check-app-ffi-pin.test.sh: ok"

@@ -8,6 +8,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "localStorage"] as const;
@@ -23,10 +24,7 @@ afterAll(async () => {
   window.localStorage.clear();
   const store = await import("../src/agent-session/acpmux/newtab/chatStore");
   store.reloadChatStoreForTests();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 beforeEach(async () => {

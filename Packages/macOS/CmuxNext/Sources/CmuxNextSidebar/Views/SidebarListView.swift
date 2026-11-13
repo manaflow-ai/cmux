@@ -21,6 +21,8 @@ final class SidebarListView: NSView {
     /// The model revision and options `displayed` is the full layout of (a plain reload): a one-row insert splices onto
     /// it (`spliceInsertion`). Nil after any other apply.
     var spliceBase: (revision: UInt64, options: SidebarLayoutOptions)?
+    /// The spaces the person left, each as the list drew it: a space shown again lays out no row (`SidebarSpacePage`).
+    var spacePages = SidebarSpacePages()
     /// The row the apply running now splices in (`spliceInsertion`): its only new row, nothing else added or removed.
     var splicedRow: SidebarRowKey?
     /// The row the apply running now takes out, or moves (`spliceRemoval`): its only change, no row new to the list.
@@ -131,8 +133,8 @@ final class SidebarListView: NSView {
     var pointerIsOverList: @MainActor (SidebarListView) -> Bool = { $0.pointerIsOverVisibleRows }
     /// A model change held while the pointer was over the list; it shows when the pointer leaves (`releaseHeldModelChange`).
     var holdsModelChange = false
-    /// Row patches held while a drag, its settle or its card's landing runs (`SidebarRowHold`).
-    var rowHold = SidebarRowHold()
+    /// The sections the list lays out. The drag's hit geometry and the shown rows use the same ones.
+    var listSections: [SidebarSection] { model.sections }
     /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
     var leaving: Set<WorkspaceID> = []
     /// The "Done (N)" rows the person opened (`SidebarLayout+DoneFold`): kept on the model, which numbers what they show.
@@ -150,7 +152,10 @@ final class SidebarListView: NSView {
     /// The project header stuck at the top of the visible rows (`SidebarListView+StickyHeader`), nil when none is.
     var stuckHeader: SidebarStuckHeader?
     /// Whether an open group's header sticks at the top while its rows scroll under it (a bench compares off and on).
-    var sticksHeaders = true {
+    /// Off: a header scrolls away with its rows, as before #40401 (Leo, 2026-11-12, on the stuck header: "it's showing me
+    /// the topmost project im in... well that's nice but it doesn't look congruent with the regular look. so we can prob
+    /// just have it back?").
+    var sticksHeaders = false {
         didSet { if sticksHeaders != oldValue { followStuckHeader() } }
     }
     /// Points at the clip's top the rows never show in while scrolled (the traffic lights' clip,
@@ -334,7 +339,6 @@ final class SidebarListView: NSView {
         super.viewWillMove(toWindow: newWindow)
         // Off screen a card's landing never completes: it ends now (its held rows show, the reloads stop adopting).
         if newWindow == nil, let landing { finishLand(landing, then: landing.landingThen) }
-        releaseRowHold() // a settle still running keeps the rows held until it ends (`reload`)
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()

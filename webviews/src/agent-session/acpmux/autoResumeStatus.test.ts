@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "./model";
 import { autoResumeAttempt } from "./autoResumeStatus";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -9,7 +10,8 @@ const saved = (["window", "document"] as const).map((key) => [key, key in scope,
 beforeAll(() => {
   Object.assign(scope, { window: dom.window, document: dom.window.document });
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved)
     if (had) scope[key] = value;
     else delete scope[key];

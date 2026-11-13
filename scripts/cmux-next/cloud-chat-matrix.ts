@@ -24,7 +24,8 @@
  * when no cell failed.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -152,7 +153,9 @@ export function main(argv: string[]): number {
     return 2;
   }
   const cells = want ? CELLS.filter((c) => want.includes(c.id)) : CELLS;
-  const out = path.resolve(argValue("--out", argv) ?? `/tmp/cloud-chat-matrix-${Date.now().toString(36)}`);
+  // The default is a folder mkdtemp makes, never a guessable /tmp name another account could make first.
+  const given = argValue("--out", argv);
+  const out = given ? path.resolve(given) : mkdtempSync(path.join(os.tmpdir(), "cloud-chat-matrix-"));
   mkdirSync(out, { recursive: true });
   // Everything but this script's own flags goes to every journey (--backend, --credentials, --team, --cmux).
   const own = new Set(["--cells", "--out"]);

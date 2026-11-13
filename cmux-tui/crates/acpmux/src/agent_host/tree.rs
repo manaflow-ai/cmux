@@ -85,6 +85,11 @@ pub fn marked(name: &str, value: &str) -> Vec<Started> {
 
 /// SIGKILL each of `procs` that still runs as the same process.
 pub fn kill_still_running(procs: &[Started]) {
+    signal_still_running(procs, libc::SIGKILL);
+}
+
+/// Send `signal` to each of `procs` that still runs as the same process (pid and start time).
+pub fn signal_still_running(procs: &[Started], signal: libc::c_int) {
     if procs.is_empty() {
         return;
     }
@@ -94,8 +99,8 @@ pub fn kill_still_running(procs: &[Started]) {
             continue;
         }
         let Ok(pid) = i32::try_from(p.pid) else { continue };
-        // SAFETY: the pid runs with the start time it had under the host.
-        unsafe { libc::kill(pid, libc::SIGKILL) };
+        // SAFETY: the pid runs with the start time it had when `procs` was read.
+        unsafe { libc::kill(pid, signal) };
     }
 }
 
@@ -457,19 +462,36 @@ mod census_tests {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn exe_still_names_a_program_whose_file_was_replaced() {
-        let dir = std::env::temp_dir().join(format!("acpmux-exe-replaced-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let program = dir.join("server");
-        std::fs::copy("/bin/sleep", &program).unwrap();
-        let mut child = std::process::Command::new(&program).arg("30").spawn().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("server");
+        // Copied by `cp`, never by this process: a test on another thread that starts a process
+        // copies every open descriptor into the child until its exec, and a write descriptor
+        // for `program` held then made its exec here fail with ETXTBSY ("Text file busy").
+        let copied = std::process::Command::new("cp").arg("/bin/cat").arg(&program).status();
+        assert!(copied.unwrap().success(), "cp /bin/cat {}", program.display());
+        let mut child = std::process::Command::new(&program)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        // `spawn` can return while the child is still mid-exec: Linux wakes a vfork parent before
+        // it moves the child to the new image, so `/proc/<pid>/exe` still named this test binary
+        // (7 of 60 runs). A line echoed back by `cat` is proof the child runs the copy.
+        {
+            use std::io::{BufRead, Write};
+            child.stdin.as_mut().unwrap().write_all(b"ready\n").unwrap();
+            let mut line = String::new();
+            let mut out = std::io::BufReader::new(child.stdout.as_mut().unwrap());
+            out.read_line(&mut line).unwrap();
+            assert_eq!(line, "ready\n", "the copied program never ran");
+        }
         let canonical = std::fs::canonicalize(&program).unwrap();
         // The update: the old file goes, a new one takes its path.
         std::fs::remove_file(&program).unwrap();
-        std::fs::copy("/bin/sleep", &program).unwrap();
+        std::fs::copy("/bin/cat", &program).unwrap();
         let seen = super::exe(child.id());
         let _ = child.kill();
         let _ = child.wait();
-        let _ = std::fs::remove_dir_all(&dir);
         let seen = seen.expect("a replaced program still has an executable");
         assert!(
             seen == program || seen == canonical,

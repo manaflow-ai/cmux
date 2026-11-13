@@ -23,6 +23,18 @@ you turn it off, and the `DisableTelemetry` managed policy turns it off for ever
 
 Hang reports go to cmux.com only after you agree to send them, and the app never asks while telemetry is off.
 
+## Usage patterns (local only)
+
+Usage patterns are off until you turn on Record Usage Patterns (`diagnostics.usagePatterns`, Settings > Privacy and
+Security). They are never sent anywhere: each daemon on the machine (`cmux-tui`, acpmux) keeps one small file of
+counters under the state directory's `usage-patterns` folder (`cmux-tui/crates/cmux-usage-patterns`). A counter
+names a code-defined family and an identifier the program defines: a command or operation name, a split direction,
+a transport, a client kind, a harness, a token kind, or a 12-digit opaque stand-in for a paired machine's id. The
+key filter (`clean_key`) refuses anything with a space, quote, `@`, `?`, `=`, `~`, a backslash, `:/` or more than one
+`/`, so no prompt, terminal text, URL, file path or title becomes a key. Each family keeps at most 200 keys and the
+per-day rollup 90 days. `cmux usage-patterns` and the Agent Stats page show them; `cmux usage-patterns reset`
+deletes them.
+
 ## Hosts
 
 Each row is a host, its kind and what the app sends there. Kinds:
@@ -64,6 +76,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `html.duckduckgo.com` | connects | web search for an agent's search tool, when an agent searches |
 | `github.com` | connects | git, the GitHub CLI and the GitHub API for repos, PRs and Cloud machines; release media |
 | `api.github.com` | connects | the GitHub API, through the GitHub CLI or the app, for repos and PRs you open |
+| `api.githubcopilot.com` | connects | GitHub's hosted MCP server, for the GitHub tools an agent on a Cloud machine calls |
 | `uploads.github.com` | connects | GitHub uploads, through the GitHub CLI |
 | `avatars.githubusercontent.com` | connects | images in GitHub pages and agent replies |
 | `camo.githubusercontent.com` | connects | images in GitHub pages and agent replies |
@@ -83,8 +96,8 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `fonts.gstatic.com` | connects | fonts an agent's rendered page may load |
 | `www.linkedin.com` | connects | the LinkedIn integration, only when an agent uses it in your signed-in browser |
 | `app.notion.com` | connects | the Notion integration, only when an agent uses it in your signed-in browser |
-| `api.open-meteo.com` | connects | weather on the new tab page, when shown |
-| `geocoding-api.open-meteo.com` | connects | weather on the new tab page, when shown |
+| `api.open-meteo.com` | connects | the clock and weather widget's forecast, only when you install it (a customize template) |
+| `geocoding-api.open-meteo.com` | connects | the clock and weather widget's city search, only when you install it (a customize template) |
 | `api.openai.com` | connects | the OpenAI API: voice calls on iPhone, and when you use an OpenAI key |
 | `app.slack.com` | connects | the Slack integration, only when an agent uses it in your signed-in browser |
 | `api.stack-auth.com` | connects | the sign-in service |
@@ -141,6 +154,8 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `console.mistral.ai` | opens | a page to get an API key, opened from Settings |
 | `openrouter.ai` | opens | a page to get an API key, opened from Settings |
 | `console.x.ai` | opens | a page to get an API key, opened from Settings |
+| `accounts.x.ai` | opens | a provider's sign-in page, opened when you sign that agent in |
+| `auth.x.ai` | opens | a provider's sign-in page, opened when you sign that agent in |
 | `airbnb.com` | opens | a site the address bar suggests before it is in your history |
 | `amazon.com` | opens | a site the address bar suggests before it is in your history |
 | `console.aws.amazon.com` | opens | a page to get an API key, opened from Settings |
@@ -158,6 +173,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `search.brave.com` | opens | a search engine, when you search with it |
 | `claude.com` | opens | Anthropic sign-in pages, opened when you sign an agent in |
 | `platform.claude.com` | opens | Anthropic sign-in pages, opened when you sign an agent in |
+| `cursor.com` | opens | a provider's sign-in page, opened when you sign that agent in |
 | `cnn.com` | opens | a site the address bar suggests before it is in your history |
 | `platform.deepseek.com` | opens | a page to get an API key, opened from Settings |
 | `discord.com` | opens | a site the address bar suggests before it is in your history |
@@ -219,6 +235,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | Host | Kind | What for |
 |---|---|---|
 | `x.ai` | identifier | an xAI tool method name, not a host |
+| `customize.io` | identifier | the error code `cmux customize` prints when a file read or write fails, not a host |
 | `netlify.app` | identifier | a shared hosting domain, so sites under it are told apart |
 | `ngrok-free.app` | identifier | a shared hosting domain, so sites under it are told apart |
 | `vercel.app` | identifier | a shared hosting domain, so sites under it are told apart |
@@ -292,6 +309,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 |---|---|---|
 | `task.ai` | not-a-host | a symbol or icon name |
 | `argument.app` | not-a-host | a localized string key |
+| `toast.detail.io` | not-a-host | a localized string key |
 | `cmux.app` | not-a-host | a file name |
 | `cmux-ios-com.cmux.app` | not-a-host | a URL scheme or bundle id |
 | `debug.crash.app` | not-a-host | a method, area or resource kind name |
