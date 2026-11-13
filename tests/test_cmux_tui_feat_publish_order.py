@@ -208,7 +208,7 @@ def machine_channel_follows_an_adopted_manifest(all_jobs):
            "its payload comes from this commit's manifest, onto the fat cmux-tui/<sha>/ names (no --machine-path)")
     # The signed Linux release file signs only this run's own build artifacts: a run that built
     # nothing has none, so it signs nothing (and logs no warning for it).
-    _check('VERIFY_PUBLISH == success' in script.replace('"', "").replace("$", ""),
+    _check('[[ VERIFY_PUBLISH != success ]]' in script.replace('"', "").replace("$", ""),
            "the Linux release file is signed only by a run that built and published")
     _check(env.get("VERIFY_PUBLISH") == "${{ needs.verify-publish.result }}",
            "the step reads verify-publish's result")
