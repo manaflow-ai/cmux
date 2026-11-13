@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43363467145",
+  "recorded_at": "2026-11-13T04:17:24Z",
+  "reason": "cmux-tui 32387d368432 changes the image's cmux-tui (pinned a7c2e958f145)",
+  "dry_run": false,
+  "cmux_tui": "32387d368432627f59212ffff7828276f81e949b",
+  "fixes": [
+    {
+      "sha": "5fad3681b586712096338af9967af923af90ebee",
+      "mergedAt": "2026-11-12T19:42:09-08:00",
+      "subject": "cmux-host updater: accept the commit's machine/ copy of a binary (#42308)"
+    },
+    {
+      "sha": "8cb14996254757a617c63e2b87780e601616a704",
+      "mergedAt": "2026-11-12T19:41:43-08:00",
+      "subject": "acpmux: a prompt reads three fields of each chat, not a copy of every chat meta (#42167)"
+    },
+    {
+      "sha": "74658690e0f9292e526dbfde37357db4c63e8188",
+      "mergedAt": "2026-11-12T19:40:17-08:00",
+      "subject": "feat: add GUI palette target policy for Cloud and other subjects (#42266)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T04:17:24Z",
+    "snapshot_id": "sh-99061b12ccea4104827600185ebfca1f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43363467145): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f1173ce86dce5fef21d1f71fce3ca0802cbd15aa",
+    "image": "cloud-native-auto-32387d36-43363467145-1",
+    "revision": "ci-43363467145-1",
+    "at": "2026-11-13T04:17:24Z"
+  },
+  "rolled_back": false
+}
