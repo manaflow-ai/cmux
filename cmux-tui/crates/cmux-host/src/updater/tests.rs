@@ -295,6 +295,23 @@ fn gc_keeps_the_baked_current_and_newest_profiles() {
     assert!(paths.at(store::STORE_DIR).join(&ours[2]).exists());
 }
 
+/// The lead (2026-11-13): "machine id and updater outcome (seen, held with reason, busy with
+/// reason, swapped) in sawBuild, so the slow mode gets read instead of inferred." Each check
+/// saves its outcome as codes beside its log line, for the Cloud status report (`look.rs`).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_check_saves_its_outcome_as_codes_for_the_cloud_report() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    fs::create_dir_all(paths.at("/etc/cmux")).unwrap();
+    fs::write(paths.at(OFF_FILE), "").unwrap();
+    let (outcome, _) = role::check(&paths, gate::Honor::All);
+    assert!(matches!(outcome, role::Outcome::Off(_)), "{outcome:?}");
+    let look = load_state(&paths).look.expect("the check saved its look");
+    assert_eq!(look.outcome, "off");
+    assert!(look.at > 0);
+}
+
 #[test]
 fn off_when_marked_or_when_the_app_replaced_the_link() {
     let dir = tempfile::tempdir().unwrap();
