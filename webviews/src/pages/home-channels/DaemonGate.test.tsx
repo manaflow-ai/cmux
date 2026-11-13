@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 import { createStrings } from "../shared/i18n";
 import { LASTING_MS } from "../../ui/lasting";
 import { DaemonGate, type DaemonSource } from "./DaemonGate";
+import { settleReact } from "../../../test/support/domTeardown";
 
 // Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD". While this build's Chief or the local
 // daemon starts or restarts the Channels tab shows nothing; a connect that lasts past the grace is
@@ -44,6 +45,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   jest.useRealTimers();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

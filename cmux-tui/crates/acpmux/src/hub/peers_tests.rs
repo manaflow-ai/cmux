@@ -212,7 +212,11 @@ fn streamed_remote_rows_release_the_lock_and_keep_the_captured_versions() {
     let peer = crate::peer::Peer::new("builder", "ws://127.0.0.1:9", None, None, tx);
     hub.peers.lock().unwrap().insert("builder".into(), peer.clone());
     let rows = (0..3).map(|i| json!({"sessionId": format!("r{i}"), "status": "closed", "updatedAt": i, "tools": [{"id": "kept"}]})).collect();
-    hub.apply_peer_notice("builder", peer.generation, crate::peer::PeerNotice::Sessions(rows));
+    hub.apply_peer_notice(
+        "builder",
+        peer.generation,
+        crate::peer::PeerNotice::sessions_from_values(rows),
+    );
     let expected = hub.all_session_summaries();
     let mut actual = Vec::new();
     hub.visit_session_summaries(true, |row| {
@@ -256,7 +260,11 @@ fn summaries_of_some_ids_are_the_rows_the_full_list_puts_first() {
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
         let p = crate::peer::Peer::new(peer, "ws://127.0.0.1:9", None, None, tx);
         hub.peers.lock().unwrap().insert(peer.to_owned(), p.clone());
-        hub.apply_peer_notice(peer, p.generation, crate::peer::PeerNotice::Sessions(rows));
+        hub.apply_peer_notice(
+            peer,
+            p.generation,
+            crate::peer::PeerNotice::sessions_from_values(rows),
+        );
     }
     let ids: Vec<String> = ["x", "y", "solo", "none", "x"].map(str::to_owned).to_vec();
     let all = hub.all_session_summaries();
@@ -292,7 +300,7 @@ fn a_purge_between_session_projection_and_swap_stays_gone() {
     hub.apply_peer_notice(
         "builder",
         peer.generation,
-        crate::peer::PeerNotice::Sessions(vec![row("idle")]),
+        crate::peer::PeerNotice::sessions_from_values(vec![row("idle")]),
     );
 
     let hook = PeerNoticeProjectionHook::new();
@@ -304,7 +312,7 @@ fn a_purge_between_session_projection_and_swap_stays_gone() {
             hub.apply_peer_notice(
                 "builder",
                 generation,
-                crate::peer::PeerNotice::Sessions(vec![row("running")]),
+                crate::peer::PeerNotice::sessions_from_values(vec![row("running")]),
             );
         })
     };
@@ -329,7 +337,7 @@ fn a_peer_purge_fences_rows_from_an_inflight_full_list_retry() {
     hub.apply_peer_notice(
         "builder",
         peer.generation,
-        crate::peer::PeerNotice::Sessions(vec![row.clone()]),
+        crate::peer::PeerNotice::sessions_from_values(vec![row.clone()]),
     );
 
     let hook = PeerNoticeProjectionHook::new();
@@ -341,7 +349,7 @@ fn a_peer_purge_fences_rows_from_an_inflight_full_list_retry() {
             hub.apply_peer_notice(
                 "builder",
                 generation,
-                crate::peer::PeerNotice::Sessions(vec![row]),
+                crate::peer::PeerNotice::sessions_from_values(vec![row]),
             );
         })
     };
@@ -364,7 +372,7 @@ async fn an_old_grace_timer_cannot_mark_replacement_rows_unreachable() {
     hub.apply_peer_notice(
         "builder",
         old.generation,
-        crate::peer::PeerNotice::Sessions(vec![json!({
+        crate::peer::PeerNotice::sessions_from_values(vec![json!({
             "sessionId": "x", "name": "lane-x", "status": "idle", "createdAt": 1,
             "updatedAt": 2
         })]),
@@ -410,7 +418,7 @@ async fn a_removed_peer_cannot_be_reinserted_by_a_paused_notice() {
     hub.apply_peer_notice(
         "builder",
         peer.generation,
-        crate::peer::PeerNotice::Sessions(vec![row("idle")]),
+        crate::peer::PeerNotice::sessions_from_values(vec![row("idle")]),
     );
     let hook = PeerNoticeProjectionHook::new();
     *hub.peer_notice_projection_hook.lock().unwrap() = Some(hook.clone());
@@ -422,7 +430,7 @@ async fn a_removed_peer_cannot_be_reinserted_by_a_paused_notice() {
             hub.apply_peer_notice(
                 "builder",
                 generation,
-                crate::peer::PeerNotice::Sessions(vec![listed]),
+                crate::peer::PeerNotice::sessions_from_values(vec![listed]),
             );
         })
     };
@@ -437,7 +445,7 @@ async fn a_removed_peer_cannot_be_reinserted_by_a_paused_notice() {
     hub.apply_peer_notice(
         "builder",
         peer.generation,
-        crate::peer::PeerNotice::Sessions(vec![row("idle")]),
+        crate::peer::PeerNotice::sessions_from_values(vec![row("idle")]),
     );
     let hook = PeerNoticeProjectionHook::new();
     *hub.peer_notice_projection_hook.lock().unwrap() = Some(hook.clone());
@@ -473,7 +481,7 @@ async fn a_removed_peer_cannot_be_reinserted_by_a_paused_notice() {
     hub.apply_peer_notice(
         "builder",
         peer.generation,
-        crate::peer::PeerNotice::Sessions(vec![row("idle")]),
+        crate::peer::PeerNotice::sessions_from_values(vec![row("idle")]),
     );
     let hook = PeerNoticeProjectionHook::new();
     *hub.peer_notice_projection_hook.lock().unwrap() = Some(hook.clone());
@@ -516,7 +524,7 @@ fn a_forget_remote_and_full_list_notice_complete_without_lock_order_deadlock() {
     hub.apply_peer_notice(
         "builder",
         peer.generation,
-        crate::peer::PeerNotice::Sessions(vec![row.clone()]),
+        crate::peer::PeerNotice::sessions_from_values(vec![row.clone()]),
     );
     let hook = PeerNoticeProjectionHook::new();
     *hub.peer_notice_projection_hook.lock().unwrap() = Some(hook.clone());
@@ -527,7 +535,7 @@ fn a_forget_remote_and_full_list_notice_complete_without_lock_order_deadlock() {
             hub.apply_peer_notice(
                 "builder",
                 generation,
-                crate::peer::PeerNotice::Sessions(vec![row]),
+                crate::peer::PeerNotice::sessions_from_values(vec![row]),
             );
         })
     };
@@ -554,7 +562,11 @@ fn a_chat_attached_again_without_history_tells_only_its_clients_they_lagged() {
     let peer = crate::peer::Peer::new("vm", "ws://127.0.0.1:9", None, None, tx);
     hub.peers.lock().unwrap().insert("vm".into(), peer.clone());
     let rows = ["r1", "r2"].map(|id| json!({"sessionId": id, "status": "idle", "updatedAt": 1}));
-    hub.apply_peer_notice("vm", peer.generation, crate::peer::PeerNotice::Sessions(rows.into()));
+    hub.apply_peer_notice(
+        "vm",
+        peer.generation,
+        crate::peer::PeerNotice::sessions_from_values(rows.into()),
+    );
     let mut events = hub.subscribe();
     hub.apply_peer_notice(
         "vm",
@@ -604,7 +616,7 @@ fn a_peers_reattach_leaves_every_local_closed_row_cached() {
         let peer = crate::peer::Peer::new("vm", "ws://127.0.0.1:9", None, None, tx);
         hub.peers.lock().unwrap().insert("vm".into(), peer.clone());
         let rows = [json!({"sessionId": "r1", "status": "idle", "updatedAt": 1})];
-        let sessions = crate::peer::PeerNotice::Sessions(rows.into());
+        let sessions = crate::peer::PeerNotice::sessions_from_values(rows.into());
         hub.apply_peer_notice("vm", peer.generation, sessions);
         hub.visit_session_summaries(false, |_| {});
         use std::sync::atomic::Ordering::SeqCst;

@@ -119,6 +119,7 @@ extension WindowManager {
     /// A create into a window failed or a close cancelled it: its row goes, and its claim unless it listed (#31502).
     func createFailed(_ id: String, _ error: any Error) -> any Error {
         PendingWorkspaceRows.shared.remove(id)
+        services.machines.local.store.personal.forgetExpectedPin(key: id)
         if claims.release(failed: id, listed: services.machines.workspace(id: id) != nil) { repairSelections(previous: membersByWindow) }
         for controller in controllers where controller.state.workspaceID == id { controller.showWorkspace(requested: id) }  // it waited (awaits)
         return error

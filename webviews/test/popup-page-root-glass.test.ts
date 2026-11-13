@@ -15,11 +15,9 @@ const REPO = join(import.meta.dir, "../..");
 // The Swift file that floats a page over the window -> every stylesheet that page's entry imports
 // (paths under webviews/src). A new transparent overlay host fails the next test until it is here.
 const POPUP_PAGES: Record<string, string[]> = {
-  // The browser chrome's Page Info pages (BrowserChromeWebHost): one document per page, all on native glass.
+  // The browser chrome's pages (BrowserChromeWebHost): one document per page.
   "Packages/macOS/CmuxNext/Sources/CmuxNextPages/BrowserChromeWebHost.swift": [
-    "pages/page-info/styles.css",
-    "browser-chrome/page-info/pageInfo.css",
-    // Its windows (Site settings, On-device site data, the certificate viewer) on the window's backdrop.
+    // Page Info's windows (Site settings, On-device site data, the certificate viewer) on the window's backdrop.
     "pages/site-settings/styles.css",
     "pages/site-data/styles.css",
     "pages/certificate/styles.css",

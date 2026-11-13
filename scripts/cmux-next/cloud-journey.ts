@@ -155,7 +155,28 @@ export function readEnvFile(text: string): Record<string, string> {
 }
 
 export type Status = "pass" | "fail" | "skip";
-export type Step = { step: string; status: Status; ms: number; detail: string };
+export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number };
+export type Step = { step: string; status: Status; ms: number; detail: string; fields?: FirstTextFields };
+
+/** One runner monotonic clock, from the create call. Reused machines have no create measurement. */
+export class FirstTextTiming {
+  private start: number | undefined;
+  private marks: Record<string, number> = {};
+  constructor(private readonly clock = () => performance.now()) {}
+  mark(phase: string): void {
+    if (phase === "create" && this.start === undefined) {
+      this.start = this.clock();
+      this.marks.create = 0;
+      return;
+    }
+    if (this.start === undefined || phase in this.marks) return;
+    this.marks[phase] = Math.round(this.clock() - this.start);
+  }
+  fields(): FirstTextFields {
+    if (this.start === undefined) return {};
+    return { create_marks_ms: { ...this.marks }, ...(this.marks.first_text !== undefined ? { create_to_first_text_ms: this.marks.first_text } : {}) };
+  }
+}
 
 /** Words that may never reach the log, the JSON or a PR comment, whatever an answer holds. */
 // No word boundaries: a token glued to other characters (`prefix_<key>` in a path) is still a token.
@@ -187,6 +208,7 @@ export function summaryMarkdown(backend: Backend, steps: Step[], meta: Record<st
 class Journey {
   readonly steps: Step[] = [];
   readonly secrets: string[] = [];
+  readonly firstText = new FirstTextTiming();
   constructor(readonly backend: Backend, private readonly outDir: string | null, readonly meta: Record<string, string>) {}
   async step<T>(name: string, fn: () => Promise<{ value: T; detail: string }>): Promise<T> {
     const t0 = Date.now();
@@ -203,6 +225,8 @@ class Journey {
     this.record({ step: name, status: "skip", ms: 0, detail: why });
   }
   record(s: Step): void {
+    const fields = this.firstText.fields();
+    if (fields.create_marks_ms) s.fields = { ...fields, ...s.fields };
     s.detail = scrub(s.detail, this.secrets);
     this.steps.push(s);
     console.log(`${s.status.toUpperCase().padEnd(4)} ${s.step} ${s.ms} ms :: ${s.detail}`);
@@ -332,6 +356,106 @@ async function sign(key: CryptoKey, message: string): Promise<string> {
 
 type ExecResult = { code: number; stdout: string; stderr: string };
 type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
+
+/** Follow a fresh session's ACP stream on the guest and return on text, not turn end. The exec response carries
+ * only a marker, never the model's text. --since 0 closes the subscribe/send race on this run's unique session.
+ * The process is bounded and reaped by its own parent; no daemon or unrelated process is signalled. */
+export function firstTextCommand(session: string, budgetMs: number): string {
+  return `python3 - "$c" ${shq(session)} ${Math.min(270_000, budgetMs) / 1000} <<'CMUX_FIRST_TEXT'
+import json, os, selectors, signal, subprocess, sys, time
+p = subprocess.Popen([sys.argv[1], 'acp', 'tail', sys.argv[2], '--since', '0', '--follow'],
+                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+sel = selectors.DefaultSelector()
+sel.register(p.stdout, selectors.EVENT_READ)
+end = time.monotonic() + float(sys.argv[3])
+buf = b''
+discarding = False
+started = False
+try:
+    while time.monotonic() < end:
+        if not sel.select(max(0, end - time.monotonic())):
+            break
+        data = os.read(p.stdout.fileno(), 65536)
+        if not data:
+            break
+        if discarding:
+            if b'\\n' not in data:
+                continue
+            data = data.split(b'\\n', 1)[1]
+            discarding = False
+        buf += data
+        while b'\\n' in buf:
+            line, buf = buf.split(b'\\n', 1)
+            if len(line) > 1048576:
+                continue
+            try:
+                event = json.loads(line)
+            except (ValueError, UnicodeError):
+                continue
+            if not isinstance(event, dict):
+                continue
+            if event.get('kind') == 'turn_started':
+                started = True
+            if event.get('kind') in ('turn_result', 'turn_error'):
+                sys.exit('first turn ended without assistant text')
+            if not started or event.get('kind') not in (None, 'agent_message_chunk'):
+                continue
+            msg = event.get('msg', event)
+            params = msg.get('params', {}) if isinstance(msg, dict) else {}
+            meta = params.get('_meta', {}) if isinstance(params, dict) else {}
+            acpmux = meta.get('acpmux', {}) if isinstance(meta, dict) else {}
+            if isinstance(acpmux, dict) and acpmux.get('subagent'):
+                continue
+            update = params.get('update', {}) if isinstance(params, dict) else {}
+            if not isinstance(update, dict) or update.get('sessionUpdate') != 'agent_message_chunk':
+                continue
+            content = update.get('content', {})
+            if isinstance(content, dict) and content.get('type') == 'text' and isinstance(content.get('text'), str) and content['text']:
+                print('@@first-text', flush=True)
+                sys.exit(0)
+        if len(buf) > 1048576:
+            buf = b''
+            discarding = True
+    sys.exit('first-text stream ended or timed out without assistant text')
+finally:
+    sel.close()
+    if p.poll() is None:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    p.wait()
+CMUX_FIRST_TEXT`;
+}
+
+/** Start before send and record as soon as the observer answers. Never reject an unawaited background promise. */
+export async function observeFirstText(exec: Exec, session: string, budgetMs: number, timing: FirstTextTiming, record: (step: Step) => void): Promise<void> {
+  try {
+    const r = await exec(`${GUEST}${firstTextCommand(session, budgetMs)}`, Math.min(270_000, budgetMs) + 5000);
+    if (r.code !== 0 || r.stdout.trim() !== "@@first-text") throw new Error(`first-text observer: exit ${r.code}; ${r.stderr.slice(-300) || "no text marker"}`);
+    timing.mark("first_text");
+    record({ step: "first text", status: "pass", ms: 0, detail: "streamed assistant text observed (parallel to send/reply; includes exec return)", fields: timing.fields() });
+  } catch (error) {
+    record({ step: "first text", status: "pass", ms: 0, detail: `measurement unavailable: ${String((error as Error)?.message ?? error)}`, fields: timing.fields() });
+  }
+}
+
+/** All callers, including a signal during delete, wait for the same cleanup to finish. */
+export function sharedCleanup(action: () => Promise<void>): () => Promise<void> {
+  let completion: Promise<void> | undefined;
+  return () => completion ??= Promise.resolve().then(action);
+}
+
+/** Keep cancellation cleanup installed throughout the observer wait, and delete before waiting. */
+export async function finishJourney(cleanup: () => Promise<void>, observer: Promise<void> | undefined, onSignal: (signal: string) => void): Promise<void> {
+  try {
+    await cleanup();
+    await observer;
+  } finally {
+    process.off("SIGTERM", onSignal);
+    process.off("SIGINT", onSignal);
+  }
+}
 
 /** The CLI's exec (cloud_client_session.rs): mint a client session, then the provider's exec-await. */
 export function directExec(api: Api, machine: string, journey: Journey): Exec {
@@ -865,13 +989,15 @@ async function cleanupTagMode(tag: string, backend: Backend, email: string | und
 
 /**
  * The run as one synthetic-probe result row (cmuxterm-hq tools/fleet-reconcilers/probes.py): ok only when a reply
- * was read back, with ms from the send to the first reply; otherwise fail with the first failed step.
+ * was read back, with the existing ms from send to completed reply; otherwise fail with the first failed step.
+ * Real-model runs separately carry create-to-streamed-first-text and cumulative phase marks.
  */
-export function probeRow(probe: string, steps: Step[], run?: string, at = new Date()): Record<string, unknown> {
+export function probeRow(probe: string, steps: Step[], run?: string, at = new Date(), context?: { backend: string; model: "real" | "stub"; run_attempt?: number }): Record<string, unknown> {
   const send = steps.find((s) => s.step === "send chat");
   const reply = steps.find((s) => s.step === "reply");
   const failed = steps.find((s) => s.status === "fail");
-  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}) };
+  const fields = context?.model === "real" ? [...steps].reverse().find((s) => s.fields)?.fields : undefined;
+  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...context, ...fields };
   if (reply?.status === "pass" && send) return { ...base, outcome: "ok", ms: send.ms + reply.ms };
   return { ...base, outcome: "fail", error: failed ? `${failed.step}: ${failed.detail}`.slice(0, 300) : "no reply step ran" };
 }
@@ -930,6 +1056,8 @@ export function keyProbeDetail(p: KeyProbe): string {
 /** The model stub --model stub runs on the machine. */
 /** The shared model stub (tests/fixtures/model-stub, #35332): Anthropic Messages and OpenAI Responses, scripted. */
 export const MODEL_STUB_PY = fileURLToPath(new URL("../../tests/fixtures/model-stub/model_stub.py", import.meta.url));
+/** GitHub on a Cloud machine through the team connection, run on the guest (the journey's GitHub steps). */
+export const GITHUB_E2E_SH = fileURLToPath(new URL("./cloud-github-e2e.sh", import.meta.url));
 /**
  * The gateway route's time by hop, from each timed call's Server-Timing (a `hop-s` line after its `hop-t` line; the
  * warm-up is dropped), as p50 ms: the Worker's `auth` and `worker-do`, the team object's `do-wait` and `do-gateway`,
@@ -1743,7 +1871,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     console.log(reds.length ? `${reds.length} step(s) red after the deploy that were green before it` : "no new reds");
     return reds.length ? 3 : 0;
   }
-  const backend = resolveBackend(argValue("--backend", argv) ?? (argValue("--api", argv) ? "custom" : "staging"), argValue("--api", argv), argValue("--stack", argv), Number(argValue("--local-port", argv) ?? 8787));
+  const backendArg = argValue("--backend", argv) ?? (argValue("--api", argv) ? "custom" : "staging");
+  const backendName = backendArg === "production" ? "prod" : backendArg === "development" ? "dev" : backendArg;
+  // Publish a failure envelope before credential/config reads or network work. A hard timeout or
+  // early exception still leaves an attributable real/stub row, replaced after a completed journey.
+  const probeOut = argValue("--probe-out", argv);
+  const probeName = argValue("--probe", argv) ?? `cloud-chat-replies-${backendName === "prod" ? "production" : backendName}`;
+  const probeModel: "stub" | "real" = argValue("--model", argv) === "stub" ||
+    (Boolean(argValue("--gateway", argv)) && (argValue("--gateway-upstream", argv) ?? "stub") === "stub") ? "stub" : "real";
+  const probeContext = { backend: backendName, model: probeModel, run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT ?? 1) };
+  const probeRun = process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined;
+  if (probeOut) {
+    mkdirSync(path.dirname(probeOut), { recursive: true });
+    writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, [], probeRun, new Date(), probeContext))}\n`);
+  }
+  const backend = resolveBackend(backendArg, argValue("--api", argv), argValue("--stack", argv), Number(argValue("--local-port", argv) ?? 8787));
   const outArg = argValue("--out", argv);
   const outDir = outArg ? path.resolve(outArg) : null;
   if (outDir) mkdirSync(outDir, { recursive: true });
@@ -1803,8 +1945,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const askedModel = agent.includes("/") ? agent.slice(agent.indexOf("/") + 1) : "";
   const login = provider === "codex" ? codexLogin : provider === "claude" ? claudeLogin : "";
   const loginStep = provider === "codex" ? "pass Codex login" : "pass Claude login";
-  const probeOut = argValue("--probe-out", argv);
-  const probeName = argValue("--probe", argv) ?? `cloud-chat-replies-${backend.name === "prod" ? "production" : backend.name}`;
   const tag = `jr-${Date.now().toString(36)}`;
   // A run that deletes its machine at the end names it "cloud journey auto jr-...": only those names are the sweep's
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
@@ -1838,10 +1978,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   let localGateway: ReturnType<typeof spawn> | null = null;
   let localGatewayDir: string | null = null;
   let deleted = false;
-  let cleaned = false;
+  let firstTextObserver: Promise<void> | undefined;
   // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
   // null, so the run's own machine is also found by its name (`cloud journey <tag>`).
-  const cleanup = async () => {
+  const cleanup = sharedCleanup(async () => {
     if (localGateway?.pid) {
       // Only the process this run started, by its own pid.
       try { process.kill(localGateway.pid, "SIGTERM"); } catch {}
@@ -1864,8 +2004,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: before };
       }).catch(() => undefined);
     }
-    if (cleaned || keep || !api.bearer) return;
-    cleaned = true;
+    if (keep || !api.bearer) return;
     if (gatewayMachine) {
       const g: string = gatewayMachine;
       await J.step("delete gateway machine (cleanup)", async () => {
@@ -1886,10 +2025,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await api.deleteMachine(target, `${tag}-cleanup-delete`);
       return { value: null, detail: target };
     }).catch(() => undefined);
-  };
+  });
   // The cmuxterm-hq probes.py row: ok with send-to-reply ms, or fail naming the first failed step (or none reached).
   const writeProbe = () => {
-    if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined))}\n`);
+    if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, probeRun, new Date(), probeContext))}\n`);
   };
   // A job cancel or timeout sends SIGTERM, which skips `finally`: clean up, write results, exit.
   const onSignal = (signal: string) => {
@@ -1988,14 +2127,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           return { value: m, detail: `${reuse} status ${m.status}${m.status === "paused" ? " (started)" : ""}, kept` };
         })
       : await J.step("create machine", async () => {
+          J.firstText.mark("create");
           createSentAt = Date.now();
           const v = await api.op("cloud.machine.create", { name: machineName, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create`);
           machine = v.machine.id as string;
           createAnsweredAt = Date.now();
+          J.firstText.mark("created");
           return { value: v.machine, detail: `${machine} status ${v.machine.status}` };
         });
     const bound = await J.step("running (status)", async () => {
       const m = await waitMachine(api, created.id, (x) => x.status === "running" && Boolean(x.host), 300_000);
+      J.firstText.mark("running");
       return { value: m, detail: `host ${m.host}, daemon ${m.image?.daemon_version ?? "?"}` };
     });
     await J.step("listed", async () => {
@@ -2036,6 +2178,36 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       J.record({ step: "machine facts", status: "pass", ms: Date.now() - factsAt, detail: `image ${imageFacts}; ${facts}`.slice(0, 600) });
     } catch (e) {
       J.record({ step: "machine facts", status: "skip", ms: Date.now() - factsAt, detail: `read failed: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
+    }
+
+    // GitHub through the team's connection with no setup on the machine (HQ docs/design/remote-integrations.md):
+    // scripts/cmux-next/cloud-github-e2e.sh on the guest. The stub run (a stand-in minter and GitHub MCP server) checks
+    // the wiring on every image whose acpmux has `github-mcp`; CMUX_JOURNEY_GITHUB_REPO=OWNER/REPO adds the live run
+    // (gh auth status, git push of a test branch, a GitHub MCP call, nothing at rest), which needs the team's GitHub
+    // connection. `--skip github` leaves both out.
+    if (!only.has("github")) {
+      const file = "/home/cmux/.cmux/cloud-github-e2e.sh";
+      const wrote = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: file, dataBase64: readFileSync(GITHUB_E2E_SH).toString("base64"), mode: 0o755 });
+      const has = wrote.status >= 200 && wrote.status < 300 && wrote.body?.ok !== false
+        ? await exec(`${GUEST}a="$c acp"; command -v acpmux >/dev/null && a=acpmux; : | timeout 20 $a github-mcp >/dev/null 2>&1; echo "@@has $?"`)
+        : null;
+      if (!has || !/@@has 0/.test(has.stdout)) {
+        J.skip("GitHub on the machine (stub)", has ? "this image's acpmux has no github-mcp yet (it predates the change)" : `fs/write: HTTP ${wrote.status}`);
+      } else {
+        await J.step("GitHub on the machine (stub)", async () => {
+          const r = await exec(`${GUEST}sh ${shq(file)} --stub 2>&1`, 180_000);
+          if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stdout.slice(-400)}`);
+          return { value: null, detail: r.stdout.trim().split("\n").filter((l) => l.startsWith("e2e:")).join("; ") };
+        });
+        const repo = process.env.CMUX_JOURNEY_GITHUB_REPO?.trim();
+        if (!repo) J.skip("GitHub on the machine (live)", "CMUX_JOURNEY_GITHUB_REPO is not set");
+        else await J.step("GitHub on the machine (live)", async () => {
+          if (!/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repo)) throw new Error("CMUX_JOURNEY_GITHUB_REPO must be OWNER/REPO");
+          const r = await exec(`${GUEST}sh ${shq(file)} ${shq(repo)} 2>&1`, 300_000);
+          if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stdout.slice(-600)}`);
+          return { value: null, detail: r.stdout.trim().split("\n").filter((l) => l.startsWith("e2e:")).join("; ") };
+        });
+      }
     }
 
     if (desktopLink) {
@@ -2198,6 +2370,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
+    J.firstText.mark("login");
     if (gatewayAny) {
       J.skip(loginStep, "--gateway: the chat machine gets no login; its model calls go to the team's gateway");
     } else if (!provider || only.has("chat") || only.has("login")) {
@@ -2232,6 +2405,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
+    J.firstText.mark("login_ready");
     if (gatewayStub && provider === "codex" && !only.has("chat")) {
       // The stub lists no models, and with the image's default model slug Codex sends it no tools (codex-cli 0.164
       // against the stub: tools=0 with the default, 9 with "stub-model"), so the turn gets the stub's side reply
@@ -2347,13 +2521,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
     } else {
+      J.firstText.mark("session_start");
       await J.step(`start agent (${agent})`, async () => {
         const r = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`, 120_000);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
+        J.firstText.mark("session_ready");
         return { value: null, detail: `session ${session}` };
       });
+      firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
       await J.step("send chat", async () => {
+        J.firstText.mark("send");
         await send(prompt);
+        J.firstText.mark("sent");
         return { value: null, detail: prompt.slice(0, 80) };
       });
       await J.step("reply", async () => {
@@ -2398,6 +2577,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         return { value: last, detail: last.slice(0, 280) };
       });
+      await firstTextObserver;
       // `--agent claude/MODEL`: the session must run the model asked for. Read from what ran: the `model` of every
       // assistant message in the session's Claude transcript, never the reply's own words (a model gets them wrong
       // about itself) and never `acp session info`, whose record names the model asked for and lists every model
@@ -2641,9 +2821,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   } catch {
     // The failed step is recorded; cleanup below.
   } finally {
-    process.off("SIGTERM", onSignal);
-    process.off("SIGINT", onSignal);
-    await cleanup();
+    await finishJourney(cleanup, firstTextObserver, onSignal);
   }
   const failed = J.steps.filter((s) => s.status === "fail");
   writeProbe();

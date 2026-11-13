@@ -546,6 +546,16 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   message (a JSON value) is one write in each direction. A message above
   256 KiB arrives as several data frames, and the receiver joins frames until
   they parse as one JSON value (at most 32 MiB from the phone).
+  A phone that opens it with `{"compression":"deflate"}` (CMUX-563) gets each
+  message of 16 KiB or more from the Mac as one envelope instead of text:
+  `0x00`, the text length (u32 big-endian), the deflate length (u32 big-endian),
+  then the raw deflate (RFC 1951) of the JSON text; smaller messages stay text.
+  JSON never starts with `0x00`, and the lengths say where the envelope ends
+  among the frames and bound its inflate (hostd `link_deflate.rs`, phone
+  `DeflatedMessage.swift`). An older Mac ignores the argument and sends text.
+  The phone watches its chats in pages: `_acpmux/watch {limit: 100}` is the
+  newest page, and the phone is ready with it; the rest comes from
+  `_acpmux/sessions {limit, cursor}` after (`AcpmuxHub+SessionPages.swift`).
 - `cloud-directory` (link protocol 2): no arguments; one JSON data frame
   `{"paid","desktops","machines":[{"machine_id","team_id","name","status","ran","linked"}]}`
   followed by `eof`. `paid` says the account pays for cmux Cloud; `desktops` is the
@@ -1007,9 +1017,28 @@ Mechanisms, phone first, then the Mac:
   attach channel after a 1 s debounce (`TerminalSizeClaimDebounce`), so a
   quick switch away and back sends nothing and never resizes the Mac twice.
   The app entering the background (or the lock screen) releases at once,
-  with no debounce, before iOS suspends it. Coming back claims at once:
+  with no debounce, before iOS suspends it (2026-11-12, Leo: "if I do
+  completely switch away, I want to be gone. I want to leave it. And if I
+  come back, I don't want to see the stretched out version"), so the Mac's
+  pane gets its own size back. Coming back (`willEnterForeground`) claims
+  at once, and the page as it was when the app left stays on screen until
+  the reclaim's mirror reset is replayed, so the Mac's wider grid is never
+  painted. The claim:
   `resize-surface` with the last measured grid. While released, layout passes
   are remembered and not sent, and a reattach attaches without a size.
+- **Reclaim hold (phone, `TerminalReclaimHold`).** Any release (a page left
+  for another tab, the grid or a sheet, or the app going to the background)
+  makes the Mac replay its own grid to the hidden page, and the claim makes it
+  replay the phone's again. The page draws neither round trip: while it is released, a
+  grid other than its claimed one, and every byte after it, is held. When the
+  claim brings the phone's grid back, the held events are dropped (the replay
+  after a grid change is whole) and the screen gets a reset and the replay's
+  alternate screen state. When the Mac is already at the phone's grid, the
+  stream ends, more than 8 MB is held, or the claim is not answered with the
+  phone's grid within 1.5 s of being attached (the Mac's policy keeps its own
+  grid), the held events show in order. The page keeps its last frame at its
+  own grid meanwhile (Leo, 2026-11-12: "i swipe up into another app and it
+  resize back... then i go to it again and it resize again").
 - **Stop (phone).** A session that stops (its tab cooled out of the warm set
   of 4, closed, another account) sends `release-surface-size` and waits for the
   answer (at most 2 s) before it closes its channel. The daemon would read a
@@ -1049,7 +1078,7 @@ release and the daemon's size lease.
 | Page menu open longer than 1 s | page not interactive → release; claimed again on close | 1 s + RTT |
 | Files and Links, photo picker or file importer over the page | covered → release | 1 s + RTT |
 | A sheet the page does not own (Connected Devices) | still claims (the terminal shows behind it) | n/a |
-| App to the background, screen locked | `didEnterBackground` → release at once, inside a short background task | one round trip |
+| App to the background, screen locked | `didEnterBackground` → release at once, inside a short background task; coming back holds the page from before until the reclaim's replay | one round trip |
 | Force quit, killed by iOS while foreground | no release; lease ends (or keepalive + hold, capped by the lease) | 45 s |
 | Killed by iOS in the background | already released on entering it | one round trip |
 | Link drop: network loss, roaming | keepalive closes the socket; hold capped by the lease | 45 s (a reattach inside it keeps the phone's grid) |

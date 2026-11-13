@@ -146,7 +146,8 @@ export async function traceUpwardAnchors({
     footer: gridPx("--grid-gap-footer"),
     block: gridPx("--grid-gap-block"),
     turn: gridPx("--grid-gap-turn"),
-    run: gridPx("--grid-gap-run"),
+    // transcriptGrid.TRANSCRIPT_RUN_GAP uses the inner token; other surfaces keep gap-run16.
+    run: gridPx("--grid-gap-inner"),
   };
   const read = () => {
     const view = scroller.getBoundingClientRect();
