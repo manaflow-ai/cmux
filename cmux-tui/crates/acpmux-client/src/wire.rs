@@ -407,7 +407,7 @@ impl Page {
 }
 
 /// A generic bounded window shared by list and chat streams.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Window<T> {
     pub sid: String,
@@ -425,14 +425,16 @@ pub struct Window<T> {
     pub after_key: Option<ListKey>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PageResult<T> {
     pub sid: String,
     pub rows: Vec<T>,
     pub has_before: bool,
     pub has_after: bool,
+    #[serde(default)]
     pub before_key: Option<ListKey>,
+    #[serde(default)]
     pub after_key: Option<ListKey>,
 }
 
@@ -699,6 +701,7 @@ pub enum FrameError {
     TrailingBytes,
     Encode(serde_json::Error),
     Decode(serde_json::Error),
+    RequestInFlight,
 }
 
 impl fmt::Display for FrameError {
@@ -713,6 +716,7 @@ impl fmt::Display for FrameError {
             Self::TrailingBytes => f.write_str("more than one frame in input"),
             Self::Encode(error) => write!(f, "frame payload encode failed: {error}"),
             Self::Decode(error) => write!(f, "frame payload decode failed: {error}"),
+            Self::RequestInFlight => f.write_str("a page request is already in flight"),
         }
     }
 }
