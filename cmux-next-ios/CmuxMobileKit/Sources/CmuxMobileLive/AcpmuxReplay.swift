@@ -24,6 +24,25 @@ struct AcpmuxReplay<Event> {
         events.insert(contentsOf: batch, at: 0)
     }
 
+    /// Inserts a bounded batch at a replay marker (used by reconnect gap repair).
+    mutating func insert(contentsOf batch: [Event], at index: Int) {
+        guard !requiresResync else { return }
+        guard batch.count <= limit - events.count, index >= 0, index <= events.count else {
+            invalidate()
+            return
+        }
+        events.insert(contentsOf: batch, at: index)
+    }
+
+    mutating func remove(at index: Int) {
+        guard !requiresResync, events.indices.contains(index) else { return }
+        events.remove(at: index)
+    }
+
+    func lastIndex(where predicate: (Event) throws -> Bool) rethrows -> Int? {
+        try events.lastIndex(where: predicate)
+    }
+
     mutating func invalidate() {
         events = []
         requiresResync = true

@@ -1,7 +1,17 @@
 // Prompts sent while a new chat starts leave the composer at once as queued rows and go out in
 // order once the chat takes the one before (startingSends.ts).
 import { expect, test } from "bun:test";
-import { StartingSends } from "./startingSends";
+import { inlineToken, type ComposerAttachment } from "./attachments";
+import { LIVE_THINKING, turnView } from "./conversation/turns";
+import { inlinePrompt } from "./inlinePrompt";
+import { emptySnapshot } from "./snapshotCache";
+import {
+  queuedStartingSends,
+  StartingSends,
+  startingQueueEntry,
+  withStartingPrompt,
+  type StartingSend,
+} from "./startingSends";
 
 /** A send acpmux takes or refuses when the test says. */
 function gate() {
@@ -139,4 +149,126 @@ test("a queued send goes with the gesture its Enter bound, and one without goes 
   await h.settle();
   expect(h.sent).toEqual(["first", "with the screenshot"]);
   expect(carried).toEqual([undefined, "held-1"]);
+});
+
+// Leo, 2026-11-09: "there's the gap between when you send off a message versus otherwise, like it's
+// like there's a one-two discontinuity". A new chat's first prompt is the chat's first row from the
+// send, with its Thinking line under it, while the chat still starts: never a queued row first that
+// jumps into the transcript once the agent is up. The chat's own row for it has the same id.
+test("a new chat's first prompt draws as its first row with the Thinking line, and later ones stay queued", () => {
+  const sends = [
+    { id: "p1", text: "first", attachments: [], at: 1 },
+    { id: "p2", text: "second", attachments: [], at: 2 },
+  ] satisfies StartingSend[];
+  const drawn = withStartingPrompt(emptySnapshot(), sends);
+  expect(drawn.rows.map((row) => [row.id, row.kind, row.text, row.pending])).toEqual([
+    ["local-p1", "user", "first", true],
+  ]);
+  // The transcript draws the start-look Thinking line under it at once (conversation/turns.ts `waiting`).
+  const shaped = turnView(drawn.rows, new Set(), { now: 10 });
+  expect(shaped.map((row) => row.id)).toEqual(["local-p1", LIVE_THINKING]);
+  // The composer's queue draws only the prompts after it.
+  expect(queuedStartingSends(sends, drawn.rows).map((send) => send.id)).toEqual(["p2"]);
+  // Once the chat's client draws the prompt (the same id), its row is the client's and nothing is added.
+  const started = {
+    ...emptySnapshot(),
+    rows: [{ id: "local-p1", version: 1, at: 3, kind: "user", text: "first", pending: true }],
+  };
+  expect(withStartingPrompt(started, sends)).toBe(started);
+  expect(queuedStartingSends(sends, started.rows).map((send) => send.id)).toEqual(["p2"]);
+  // A chat with prompts of its own draws none.
+  const going = { ...emptySnapshot(), rows: [{ id: "u1", version: 1, at: 0, kind: "user", text: "older" }] };
+  expect(withStartingPrompt(going, sends)).toBe(going);
+  expect(withStartingPrompt(emptySnapshot(), [])).toEqual(emptySnapshot());
+});
+
+test("a starting prompt keeps the id its send goes with", () => {
+  const shown: string[][] = [];
+  const sends = new StartingSends(
+    (rows) => shown.push(rows.map((row) => row.id)),
+    () => undefined,
+  );
+  sends.add("first", [], () => new Promise(() => undefined), undefined, "prompt-1");
+  sends.add("second", [], () => new Promise(() => undefined));
+  expect(shown.at(-1)![0]).toBe("prompt-1");
+  expect(shown.at(-1)![1]).toStartWith("starting-");
+});
+
+// #41016: a queued row drew the draft as it was, each attachment as U+FFFC, its id, U+FFFC.
+const image = {
+  id: "0ffcff4e-5219-4332-9ceb-9d0acc03a47a",
+  kind: "image",
+  name: "image.png",
+  preview: "data:image/png;base64,AA==",
+  data: "AA==",
+  mimeType: "image/png",
+} as unknown as ComposerAttachment;
+const pasted = {
+  id: "37e67889-51d8-415a-beed-6d890ed57505",
+  kind: "pasted",
+  name: "Pasted text",
+  text: "HELLO",
+} as unknown as ComposerAttachment;
+
+test("a waiting row shows its words and its pictures, never an attachment's id", () => {
+  const row = {
+    id: "starting-1",
+    text: `look ${inlineToken(image.id)} at ${inlineToken(pasted.id)} this`,
+    attachments: [image, pasted],
+  };
+  const entry = startingQueueEntry(row);
+  expect(entry.prompt).toBe("look  at HELLO this");
+  expect(entry.prompt).not.toContain("\uFFFC");
+  expect(entry.images?.length).toBe(1);
+});
+
+test("an edited waiting row keeps its picture in place and sends a pasted chip's text once", async () => {
+  const h = harness();
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  h.sends.add("first", [], h.go);
+  h.sends.add(
+    `hi ${inlineToken(image.id)} ${inlineToken(pasted.id)} end`,
+    [image, pasted],
+    async (text, attachments) => {
+      sent.push({ text, attachments });
+    },
+  );
+  const waiting = h.sends.rows[1]!;
+  const shown = startingQueueEntry(waiting).prompt;
+  expect(shown).toBe("hi  HELLO end");
+  expect(h.sends.edit(waiting.id, `${shown}!`)).toBe(true);
+  await h.settle();
+  h.gates.get("first")!.take();
+  await h.settle();
+  expect(sent).toHaveLength(1);
+  const { text, attachments } = sent[0]!;
+  expect(text).toBe(`hi ${inlineToken(image.id)} HELLO end!`);
+  expect(attachments.map((attachment) => attachment.id)).toEqual([image.id]);
+  // The prompt as it goes: HELLO once, the picture in its place.
+  const parts = inlinePrompt(text, attachments);
+  expect(JSON.stringify(parts).split("HELLO").length - 1).toBe(1);
+});
+
+test("an edited waiting row keeps a text file left in the strip apart from its words", async () => {
+  const notes = {
+    id: "5191ce85-b54c-4acd-9a1e-1f2e3d4c5b6a",
+    kind: "text",
+    name: "notes.txt",
+    text: "BODY",
+  } as unknown as ComposerAttachment;
+  const h = harness();
+  const sent: string[] = [];
+  h.sends.add("first", [], h.go);
+  h.sends.add("look", [notes], async (text) => void sent.push(text));
+  await h.settle();
+  const waiting = h.sends.rows[1]!;
+  const shown = startingQueueEntry(waiting).prompt;
+  expect(shown.startsWith("look\n\n")).toBe(true);
+  expect(h.sends.edit(waiting.id, `${shown}!`)).toBe(true);
+  await h.settle();
+  h.gates.get("first")!.take();
+  await h.settle();
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.startsWith("look\n\n")).toBe(true);
+  expect(sent[0]!.split("BODY").length - 1).toBe(1);
 });

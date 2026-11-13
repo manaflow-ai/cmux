@@ -516,7 +516,7 @@ pub(super) fn cloud_yes(args: &[String]) -> Option<Vec<String>> {
     if respelled == after {
         return None;
     }
-    let mut rewritten = args[..=at].to_vec();
+    let mut rewritten = args.get(..=at)?.to_vec();
     rewritten.extend(respelled);
     Some(rewritten)
 }

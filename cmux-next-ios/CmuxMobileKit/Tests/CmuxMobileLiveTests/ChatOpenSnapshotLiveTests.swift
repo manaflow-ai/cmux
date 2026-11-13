@@ -9,7 +9,7 @@ import Testing
 /// records after the reply arrive one by one (live), and a reattach catches up
 /// from the last seq as one batch, never sending what was shown again.
 @MainActor
-@Suite struct ChatOpenSnapshotLiveTests {
+@Suite(.timeLimit(.minutes(2))) struct ChatOpenSnapshotLiveTests {
     /// Every attach, in order, with its `afterSeq` (0: none).
     final class Attaches: @unchecked Sendable {
         private let lock = NSLock()
@@ -89,14 +89,16 @@ import Testing
         events.flatMap { event -> [AgentSessionEvent] in if case .batch(let inner) = event { inner } else { [event] } }
     }
 
-    /// Waits on the clock until `done`, for at most 10 s, with the main actor free. A count of
-    /// `Task.yield()`s is no deadline: in a full kit run the hub actor, the mock link and each
-    /// reader's own task may not have run when the yields run out (a reattach test saw the
-    /// store draw the catch-up while its collecting reader had not yet: `batches.count` 0).
+    /// Waits on the clock until `done`, with the main actor free. A count of `Task.yield()`s is
+    /// no deadline: in a full kit run the hub actor, the mock link and each reader's own task
+    /// may not have run when the yields run out (a reattach test saw the store draw the
+    /// catch-up while its collecting reader had not yet: `batches.count` 0). Nor is 10 s of the
+    /// wall clock: a full run gives the main actor to a hundred tests at once, and a reattach
+    /// test read the chat before its catch-up landed (cmux#40598). The suite's time limit
+    /// bounds a hang.
     static func waitUntil(_ done: () -> Bool) async {
-        let deadline = ContinuousClock.now + .seconds(10)
-        while !done(), ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(5)) // test: polls the condition until a deadline
+        while !done(), !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(5)) // test: polls the condition; the suite's time limit bounds it
         }
     }
 

@@ -265,8 +265,11 @@ extension LiveCoordinator {
         // The Mac app's own Feed requests, for as long as this link lives (#33818).
         let needsYou = session.needsYou
         Task { await needsYou.read(on: link, macID: macID) }
+        // The Mac's theme and wallpaper, for as long as this link lives (ask-87d30da8e5).
+        let appearance = self.appearance
+        Task { await appearance.read(on: link, macID: macID) }
         do {
-            let channel = try await link.openChannel(service: "acpmux", args: [:])
+            let channel = try await link.openChannel(service: "acpmux", args: AcpmuxConnection.channelArgs)
             // The link closed while the channel opened: nothing more on it.
             guard session.currentLink === link else {
                 await channel.close(code: "eof", reason: "link replaced")
@@ -849,10 +852,16 @@ extension LiveCoordinator {
         // started later, or a tab shown from the list before the tree came)
         // was built unbound and cached; rebuild it on the bound session.
         for (key, used) in sourcedSessions where (used.macID == macID || used.macID.isEmpty)
-            && tree.agentTabs[used.tabID]?.session != used.session {
+            && (tree.agentTabs[used.tabID]?.session != used.session || used.provisional) {
             // A store built without its Mac (macID empty) is rebuilt when any Mac's tab changes.
             if used.macID.isEmpty, tree.agentTabs[used.tabID] == nil { continue }
             sourcedSessions[key] = nil
+            // A provisional chat on the session the tree names stays: its source is the one the
+            // rebuilt store gets (`AcpmuxHub.source` keeps one per session), so nothing redraws.
+            if used.provisional, let bound = used.session, tree.agentTabs[used.tabID]?.session == bound {
+                sourcedSessions[key] = (tabID: used.tabID, macID: used.macID, session: bound, provisional: false)
+                continue
+            }
             AgentSessionDirectory.shared.invalidate(id: used.tabID, macID: used.macID)
         }
         store.replaceWorkspaces(macID: macID, with: tree.workspaces)
