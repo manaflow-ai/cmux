@@ -1112,6 +1112,70 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual((self.defaults_dir / f"{BUNDLE}.plist").read_bytes(), b"account defaults")
         self.assert_cleaned_up(report)
 
+    def test_a_fault_of_the_seeded_arm_itself_is_never_a_crash_on_both_attempts_too(self):
+        # The post-publish smoke takes a build back from the feed when it crashed on both attempts. A fault of this
+        # tool in the seeded arm (the seed cannot be made, its folder cannot be written, the app cannot be started,
+        # the watch breaks) is not a crash of the app: each attempt passes on its first arm, says that the seeded
+        # arm could not run, and two such attempts are a pass, so nothing is rolled back.
+        wrap = "make = smoke.seed_cookie_sync_home\ndef seed(home, *a, **k):\n{body}\nsmoke.seed_cookie_sync_home = seed"
+        faults = {
+            "the seed tool refuses": (
+                "def refuse(*_a, **_k):\n    raise RuntimeError('no seed today')\nsmoke.seed_cookie_sync_home = refuse",
+                r"^RuntimeError: no seed today$", False),
+            "a file is where the seed's folder must be": (
+                wrap.format(body="    (home / '.config').write_text('not a folder')\n    return make(home, *a, **k)"),
+                r"^(NotADirectoryError|FileExistsError): .*\.config", False),
+            "the app cannot be started": (
+                "import subprocess\nreal, launches = subprocess.Popen, []\n"
+                "def popen(*a, **k):\n"
+                "    argv = a[0] if a else k.get('args')\n"
+                "    if isinstance(argv, list) and '/Contents/MacOS/' in str(argv[0]):\n"
+                "        launches.append(argv)\n"
+                "        if len(launches) == 2:\n"
+                "            raise OSError(8, 'Exec format error')\n"
+                "    return real(*a, **k)\n"
+                "subprocess.Popen = popen",
+                r"^OSError: \[Errno 8\] Exec format error$", False),
+            "the watch of the seeded launch breaks": (
+                "real = smoke.watch\n"
+                "def watch(*a, **k):\n"
+                "    if k.get('seed') is not None:\n"
+                "        raise RuntimeError('the watch broke')\n"
+                "    return real(*a, **k)\n"
+                "smoke.watch = watch",
+                r"^RuntimeError: the watch broke$", True),
+        }
+        if os.geteuid() != 0:  # root writes a folder of any mode
+            faults["the seeded home is not writable"] = (
+                wrap.format(body="    os.chmod(home, 0o500)\n    try:\n        return make(home, *a, **k)\n"
+                                 "    finally:\n        os.chmod(home, 0o700)").replace("make =", "import os\nmake =", 1),
+                r"^PermissionError: \[Errno 13\] .*\.config", False)
+        verdicts = gate_verdicts()
+        (self.defaults_dir / f"{BUNDLE}.plist").write_bytes(b"account defaults")
+        for name, (setup, reason, started) in faults.items():
+            with self.subTest(fault=name):
+                attempts = []
+                for _attempt in (1, 2):
+                    status, output, report = self.run_smoke("healthy", "--seconds", "1", "--startup-timeout", "10",
+                                                            "--arms", "empty,seeded", "--seeded-seconds", "1",
+                                                            setup=setup)
+                    self.assertEqual(status, smoke.PASS, output)
+                    self.assertEqual((report["verdict"], report["arm"]), ("pass", "empty"), output)
+                    arm = report["arms"]["seeded"]
+                    self.assertEqual(arm["verdict"], "cannot-run", output)
+                    self.assertRegex(arm["reason"], reason)
+                    self.assertIn("==> seeded-home arm CANNOT RUN: ", output)
+                    self.assertNotIn("FAIL", output)
+                    # The seeded app, when the fault came after its start, is stopped as the first arm's is.
+                    self.assertEqual("pid" in arm, started, arm)
+                    if started:
+                        self.assertFalse(smoke.alive(arm["pid"]), "the seeded app outlived the run")
+                    self.assertEqual((self.defaults_dir / f"{BUNDLE}.plist").read_bytes(), b"account defaults")
+                    self.assert_cleaned_up(report)
+                    self.assertEqual(verdicts.attempt_result(status, report), verdicts.PASS)
+                    attempts.append((status, report))
+                self.assertEqual(verdicts.verdict(attempts), verdicts.PASS)
+
     def test_a_seeded_crash_stays_a_crash_when_its_evidence_cannot_be_kept(self):
         refuse = "def refuse(*_a, **_k):\n    raise RuntimeError('no evidence today')\nsmoke.explain = refuse"
         status, output, report = self.run_smoke("sync-crash", "--seconds", "2", "--startup-timeout", "10",

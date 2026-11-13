@@ -1,4 +1,5 @@
 import CmuxMobileChief
+import Darwin
 import Foundation
 import Testing
 
@@ -78,6 +79,31 @@ extension InstantPerfTests {
             try await Task.sleep(for: .milliseconds(50)) // test: lets the background load start before timing
             let runs = try await window(size)
             return (runs, await load.stop())
+        }
+
+        /// Bytes the process's malloc zones hold allocated right now, in MB: live objects only,
+        /// unlike the footprint, which keeps pages malloc has not given back yet.
+        static func liveMB() -> Double {
+            var stats = malloc_statistics_t()
+            malloc_zone_statistics(nil, &stats)
+            return Double(stats.size_in_use) / 1_048_576
+        }
+
+        /// Whole-list reads in a row on one task, as a loader (or a feed that reads again before
+        /// its task ends) does, leave nothing alive behind: what a read leaves autoreleased goes
+        /// when it returns. Without the pools, each 5,000-row read kept its rows' autoreleased
+        /// objects until the task ended: the loaders' footprint climbed by hundreds of MB, and
+        /// freeing it all at once when they stopped slowed the next first screens to 2x for a
+        /// second (base: home_list_first_screen read god 5.41 ms vs small 2.82 ms right after
+        /// this suite's loads).
+        @Test("a whole-list read leaves no autoreleased rows behind")
+        func wholeListLeavesNothing() throws {
+            let wire = HomeInboxFixture.wire(.god)
+            _ = try MacHomeReply(line: wire)
+            let before = Self.liveMB()
+            for _ in 0..<5 { _ = try MacHomeReply(line: wire) }
+            let grown = Self.liveMB() - before
+            #expect(grown < 10, "five whole-list reads on one task left \(String(format: "%.1f", grown)) MB allocated")
         }
 
         @Test("home_list_first_screen_under_load")

@@ -25,6 +25,7 @@ import {
 /** The Hexclave user's server metadata key holding the linked ChatGPT identity. */
 const METADATA_KEY = "cmuxChatGPT";
 const SESSION_EXPIRES_IN_MS = 365 * 24 * 60 * 60 * 1000;
+const TOKEN_TIMEOUT_MS = 10_000;
 
 const keys = createRemoteJWKSet(new URL(CHATGPT_JWKS_URI));
 let sealKey: Promise<Uint8Array> | null = null;
@@ -40,7 +41,8 @@ async function settings(): Promise<ChatGPTSignInSettings | null> {
     keys,
     sealKey: await sealKey,
     now: () => Date.now(),
-    fetch: (input, init) => fetch(input, init),
+    // The token exchange waits at most 10 s, so a stalled OpenAI never holds the callback open.
+    fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS) }),
   };
 }
 
