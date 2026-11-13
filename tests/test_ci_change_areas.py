@@ -26,7 +26,11 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
-import workflow_jobs
+# tests/workflow_jobs.py, loaded by path as well (`python3 -I`).
+_workflow_jobs_spec = _git_fixture_importlib.spec_from_file_location(
+    "workflow_jobs", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "workflow_jobs.py"))
+workflow_jobs = _git_fixture_importlib.module_from_spec(_workflow_jobs_spec)
+_workflow_jobs_spec.loader.exec_module(workflow_jobs)
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
