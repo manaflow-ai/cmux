@@ -13,6 +13,38 @@ spec.loader.exec_module(report)
 
 
 class ReportTests(unittest.TestCase):
+    def test_buckets_crossing_phase_or_guard_are_discarded(self):
+        phases = {"idle": {"start_unix_ms": 2000, "end_unix_ms": 6000}}
+        rows = [
+            {"unix_ms": 4000, "duration_ms": 2500, "sampled_changes": 100},
+            {"unix_ms": 4500, "duration_ms": 2000, "sampled_changes": 100},
+            {"unix_ms": 6000, "duration_ms": 1000, "sampled_changes": 4},
+            {"unix_ms": 6500, "duration_ms": 1000, "sampled_changes": 100},
+        ]
+        self.assertEqual(report.phase_numbers(rows, phases)[2]["idle"], 4.0)
+        self.assertIsNone(report.phase_numbers(rows[:2], phases)[2]["idle"])
+
+    def test_transport_counts_use_elapsed_time_and_accept_exact_boundary(self):
+        phases = {"scroll": {"start_unix_ms": 0, "end_unix_ms": 5000}}
+        rows = [
+            {"unix_ms": 3000, "duration_ms": 2000, "bytes": 2000, "frames": 100},
+            {"unix_ms": 4000, "bytes": 1000, "frames": 50},
+        ]
+        kbps, fps, _, _, _ = report.phase_numbers(rows, phases)
+        self.assertEqual(kbps["scroll"], 8.0)
+        self.assertEqual(fps["scroll"], 50.0)
+
+    def test_invalid_bucket_duration_cannot_produce_a_rate(self):
+        phases = {"idle": {"start_unix_ms": 0, "end_unix_ms": 6000}}
+        for duration in (0, -1, None, True, "1000", float("nan"), float("inf")):
+            with self.subTest(duration=duration):
+                rows = [{"unix_ms": 4000, "duration_ms": duration, "sampled_changes": 6,
+                         "bytes": 1000, "frames": 60}]
+                kbps, fps, sampled, _, _ = report.phase_numbers(rows, phases)
+                self.assertIsNone(kbps["idle"])
+                self.assertIsNone(fps["idle"])
+                self.assertIsNone(sampled["idle"])
+
     def test_sampled_changes_use_each_buckets_duration(self):
         phases = {p: {"start_unix_ms": 0, "end_unix_ms": 6000} for p in report.WINDOW_PHASES}
         rows = [
