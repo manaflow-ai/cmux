@@ -25,8 +25,9 @@ PR whose other rows are written, fails CI in the PR that adds it.
 A gate that lives in `acpmux`'s own tests is run with the `gate` cargo profile
 (`cmux-tui/Cargo.toml`), from `cmux-tui/`:
 `cargo test --profile gate -p acpmux --lib NAME -- --ignored --nocapture` (the gates are
-ignored tests, and the measured line is printed before the bound is checked). It is the release profile with link-time optimization off and 16 codegen units. A plain
-`--release` test build of `acpmux` does not end on the CI runner, so no lane starts one. The
-gates of the other three v2 crates (`acpmux-book`, `acpmux-client`, `acpmux-core`) build in
-`--release` as before. A row stays `measured: false` until its run with one of these two
-commands is in the PR that sets it.
+ignored tests, and the measured line is printed before the bound is checked). It is the
+release profile with link-time optimization off and 16 codegen units. A plain `--release`
+test build of `acpmux` does not end on the CI runner, so no lane starts one. The gates of the
+other three v2 crates (`acpmux-book`, `acpmux-client`, `acpmux-core`) build in `--release` as
+before. A row stays `measured: false` until its run with one of these two commands is in the
+PR that sets it.
