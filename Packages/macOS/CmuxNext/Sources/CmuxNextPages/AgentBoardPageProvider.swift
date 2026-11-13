@@ -120,10 +120,14 @@ public final class AgentBoardPageProvider: PageProvider {
             return .object(["enabled": .bool(on)])
         case "cmux.agentBoard.evidence":
             guard let path = params["path"]?.stringValue, !path.isEmpty else { throw PageError.invalidParams("path is required") }
+            // Not an image: refused before any ledger is read.
+            guard Self.imageType(path) != nil else {
+                throw PageError(code: "cmux.agentBoard.notImage", message: Self.notImage)
+            }
             let folder = self.folder
-            let known = Self.names(path, in: lastText)
+            let lastText = self.lastText
             return try await Task.detached(priority: .userInitiated) {
-                guard known || Self.ledgersName(path, in: folder) else { throw Self.notInLedger }
+                guard Self.names(path, in: lastText) || Self.ledgersName(path, in: folder) else { throw Self.notInLedger }
                 return try Self.readImage(path)
             }.value
         case "cmux.agentBoard.open":
@@ -135,13 +139,14 @@ public final class AgentBoardPageProvider: PageProvider {
             let folder = self.folder
             let link = URL(string: target).flatMap { $0.scheme == "https" ? $0 : nil }
             let file = URL(fileURLWithPath: (target as NSString).expandingTildeInPath)
-            let known = Self.names(target, in: lastText)
+            let lastText = self.lastText
             let (named, exists) = await Task.detached(priority: .userInitiated) {
-                (known || Self.ledgersName(target, in: folder), link != nil || FileManager.checked.fileExists(atPath: file.path))
+                (Self.names(target, in: lastText) || Self.ledgersName(target, in: folder),
+                 link != nil || FileManager.checked.fileExists(atPath: file.path))
             }.value
             guard named else { throw Self.notInLedger }
             if let link { return .object(["opened": .bool(openLink(link))]) }
-            guard link == nil, !target.contains("://") else { throw Self.notInLedger }
+            guard !target.contains("://") else { throw Self.notInLedger }
             guard exists else { throw PageError(code: "cmux.agentBoard.missing", message: Self.missing) }
             if Self.openableTypes.contains(file.pathExtension.lowercased()) {
                 openFile(file)
@@ -231,13 +236,17 @@ public final class AgentBoardPageProvider: PageProvider {
         return texts.contains { $0.contains(plain) || $0.contains(quoted) }
     }
 
+    /// The image media type of `path` by its extension, or nil when it is not an image.
+    nonisolated static func imageType(_ path: String) -> String? {
+        imageTypes[URL(fileURLWithPath: path).pathExtension.lowercased()]
+    }
+
     /// An image file as a data URL: the link resolved, a regular file only (never a FIFO or device),
     /// read up to ``imageByteLimit`` + 1 bytes so a large or growing file cannot be read whole.
     nonisolated static func readImage(_ path: String) throws -> JSONValue {
         let file = URL(fileURLWithPath: (path as NSString).expandingTildeInPath).resolvingSymlinksInPath()
-        guard let type = imageTypes[file.pathExtension.lowercased()] ?? imageTypes[URL(fileURLWithPath: path).pathExtension.lowercased()] else {
-            throw PageError(code: "cmux.agentBoard.notImage", message: notImage)
-        }
+        // The type of the path the ledger names; the link it may be is resolved to read the bytes.
+        guard let type = imageType(path) else { throw PageError(code: "cmux.agentBoard.notImage", message: notImage) }
         let values = try? file.blockingResourceValues(forKeys: [.isRegularFileKey])
         guard values?.isRegularFile == true, let handle = try? FileHandle(forReadingFrom: file) else {
             throw PageError(code: "cmux.agentBoard.missing", message: missing)
