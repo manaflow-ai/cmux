@@ -11,7 +11,10 @@
 //! the work is not started and its request gets an error; the connection
 //! stays open.
 //!
-//! A connection from outside the terminals passes with no change.
+//! A connection from outside the terminals passes with no change. One that
+//! came before its terminal had its seat is such a connection until the seat
+//! is taken; the lease keeps that it started long work
+//! (`ConnectionLease::join_terminal`).
 
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -34,8 +37,10 @@ const LONG_CONNECTION_CAPACITY: &str = "long_connection_capacity";
 /// The most of the terminals' connections that may hold a stream, a wait or
 /// a follow at one time. They are outside `MAX_SERVER_CONNECTIONS` and
 /// `MAX_TERMINAL_CONNECTIONS`; each one holds its threads and its socket
-/// until it ends, so the number is the bound of both. It is the server's
-/// bound of resource streams (`RESOURCE_STREAMS_SERVER_CAPACITY`).
+/// until it ends, so the number is the bound of both, but for the
+/// connections that came before their terminal's seat: they join with no
+/// limit (`diagnostics/long_connections.rs`). It is the server's bound of
+/// resource streams (`RESOURCE_STREAMS_SERVER_CAPACITY`).
 pub(in crate::server) const MAX_LONG_TERMINAL_CONNECTIONS: u64 = 256;
 
 impl ConnectionPermit {

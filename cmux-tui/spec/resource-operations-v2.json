@@ -8063,6 +8063,81 @@
       },
       "extra": false
     },
+    "SettingsEdit": {
+      "kind": "object",
+      "fields": {
+        "op": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "set",
+              "set_unset",
+              "reset",
+              "reset_unchanged"
+            ]
+          },
+          "description": "set and reset are settings.set and settings.reset; set_unset sets only while the file has no value at the path (JSON null is a value); reset_unchanged resets only while the file still holds value there (1 and 1.0 are one value)."
+        },
+        "key": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The dotted key (appearance.density; everything after shortcuts.bindings. is one action id)."
+        },
+        "path": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The key path, for keys that contain dots."
+        },
+        "value": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "The value to set (set, set_unset) or the value expected (reset_unchanged); reset takes none."
+        }
+      },
+      "extra": false
+    },
+    "SettingsEditChange": {
+      "kind": "object",
+      "fields": {
+        "keys": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Dotted keys whose effective or file value changed; the MutationResult revision is the settings revision."
+        },
+        "applied": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "description": "Indexes of the edits that applied, in order; a conditional edit whose condition did not hold is left out."
+        }
+      },
+      "extra": false
+    },
     "KeybindingEntry": {
       "kind": "object",
       "fields": {
@@ -34116,6 +34191,88 @@
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "settings.edit": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "edits": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "SettingsEdit"
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "The edits, applied in order to the file text and published once."
+          },
+          "if_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The settings revision the caller saw; a mismatch is revision.conflict and writes nothing."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. Origin mcp may change only agent-settable schema keys (settings.agent_refused)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Applies every edit in order to the settings file text and publishes it once, with one revision and one settings-changed event (Swift CmuxConfigFile.apply). Each edit passes the checks of settings.set or settings.reset (schema kind, managed keys, agent policy, removed keys, the object-overlap rule); a refused edit refuses the whole op and writes nothing. A set_unset or reset_unchanged edit reads the file as the edits before it left it; when its condition does not hold it writes nothing and is not checked. A file that does not parse is never rewritten. Apps never get settings.edit."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SettingsEditChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "settings.agent_refused",
+        "settings.invalid",
+        "settings.managed",
+        "settings.removed",
         "validation.invalid"
       ]
     },
