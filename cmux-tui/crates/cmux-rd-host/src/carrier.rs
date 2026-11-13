@@ -520,11 +520,18 @@ mod wg_transport_tests {
         );
         let deadline = Instant::now() + Duration::from_secs(8);
         while !a.retry_ready() && !b.retry_ready() {
-            let (ae, be) = step(&mut a, &mut b);
-            assert!(
-                !ae.iter().chain(&be).any(|event| matches!(event, NetEvent::Failed(_))),
-                "{ae:?} {be:?}"
-            );
+            let mut fds = a.fds();
+            fds.extend(b.fds());
+            crate::fdwait::wait_readable(&fds, Some(10_000_000)).unwrap();
+            let ae = a.events();
+            assert!(!ae.iter().any(|event| matches!(event, NetEvent::Failed(_))), "{ae:?}");
+            // Stop the first retrying process before the other app drains its
+            // events, matching the Swift fallback owner's immediate stop.
+            if a.retry_ready() {
+                break;
+            }
+            let be = b.events();
+            assert!(!be.iter().any(|event| matches!(event, NetEvent::Failed(_))), "{be:?}");
             assert!(!a.media_ready() && !b.media_ready());
             assert!(Instant::now() < deadline, "neither peer reached retry");
         }
