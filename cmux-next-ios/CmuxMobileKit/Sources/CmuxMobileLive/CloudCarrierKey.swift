@@ -1,6 +1,5 @@
 import CmuxMobileTransport
 import Foundation
-import os
 import Security
 
 /// This phone's Noise key for its Cloud carriers: made once per account, kept in the Keychain
@@ -11,11 +10,17 @@ struct CloudCarrierKey {
     /// One read-or-create at a time: two first dials (two machines at launch) never make two keys.
     /// It also holds each account's sign-in epoch: sign-out bumps it, so a dial that began
     /// before the sign-out (its dialer captured the old epoch) can never write a key back.
-    private static let lock = OSAllocatedUnfairLock<[String: Int]>(initialState: [:])
+    private static let state = State()
+
+    /// The lock and what it guards: each account's sign-in epoch.
+    private final class State: @unchecked Sendable { // crash-allow: `epochs` is touched only under `lock`
+        let lock = NSLock()
+        var epochs: [String: Int] = [:]
+    }
 
     /// The account's current sign-in epoch, captured by a dialer when the session starts.
     static func epoch(userID: String) -> Int {
-        lock.withLock { $0[userID, default: 0] }
+        state.lock.withLock { state.epochs[userID, default: 0] }
     }
 
     /// The account's key, made and stored the first time. A Keychain that is locked (before the
@@ -28,8 +33,8 @@ struct CloudCarrierKey {
                      service: String = DeviceIdentity.defaultService,
                      newKey: () throws -> Data) throws -> Data {
         let account = account(userID)
-        return try lock.withLock { epochs in
-            guard epochs[userID, default: 0] == epoch else {
+        return try state.lock.withLock {
+            guard state.epochs[userID, default: 0] == epoch else {
                 throw LinkError(code: LinkError.unauthorized, message: "signed out")
             }
             do {
@@ -59,8 +64,8 @@ struct CloudCarrierKey {
     /// Sign-out: the key goes; the next sign-in makes a new one.
     static func forget(userID: String, store: any DeviceSecretStore = KeychainSecretStore(),
                        service: String = DeviceIdentity.defaultService) {
-        lock.withLock { epochs in
-            epochs[userID, default: 0] += 1
+        state.lock.withLock {
+            state.epochs[userID, default: 0] += 1
             store.delete(service: service, account: account(userID))
         }
     }

@@ -209,7 +209,7 @@ extension CloudRefusal {
         switch code {
         case "cloud.machine.paused", "cloud.machine.not_found": machine.cloud?.status != .running
         case CloudCarrierDialer.noDaemonKey:
-            machine.cloud?.status != listed.cloud?.status || machine.isOnline != listed.isOnline
+            machine.cloud?.status != listed?.cloud?.status || machine.isOnline != listed?.isOnline
                 || now - at >= Self.noDaemonKeyHold
         default: false
         }
