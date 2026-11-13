@@ -14,10 +14,11 @@ public import CmuxNextDesignTokens
 /// then curves away and no concave foot that ends in a point. The sidebar's `+`, the window
 /// buttons and the tabs share one center line.
 ///
-/// The default is `flush-goo` (Leo, 2026-11-10: in light mode the selected tab should be white,
-/// the content's own color, not a gray highlight that reads as backgrounded; "morph it in as like,
-/// you know how folder tabs look"), over the stock chrome (``defaultFits``). Compact density keeps
-/// the pill under every value. `off` keeps the older pill look.
+/// The default is `flush`, no goo, over the stock chrome (``defaultFits``): the selected tab runs into
+/// the card with no fillets (Leo, 2026-11-13: "lawrence wanted no goo by default"). `flush-goo`, the
+/// folder tab with fillets (Leo, 2026-11-10: "morph it in as like, you know how folder tabs look"),
+/// stays one Debug Settings choice away. Compact density keeps the pill under every value. `off`
+/// keeps the older pill look.
 public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoice {
     /// The older corner: the selected tab is a gray pill on the frame.
     case off
@@ -40,8 +41,8 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
 
     public static let tunable = Tunable<CornerFlush>.choice(
         "chrome.cornerFlush", .sidebar, "Corner flush",
-        help: "Thunderdome r2 A: the sidebar, the titlebar and the tab strips are one frame around a rounded content card; the selected tab is the card's color and runs into it, and each strip's first tab starts on its pane's edge, so the sidebar's edge rises straight into the first tab. Compact density keeps the pill. The default is goo, a folder tab, over the stock chrome. Off: the gray pill.",
-        default: .goo, code: "CornerFlush.tunable")
+        help: "Thunderdome r2 A: the sidebar, the titlebar and the tab strips are one frame around a rounded content card; the selected tab is the card's color and runs into it, and each strip's first tab starts on its pane's edge, so the sidebar's edge rises straight into the first tab. Compact density keeps the pill. The default is flush, no goo, over the stock chrome; goo adds the folder tab's fillets. Off: the gray pill.",
+        default: .flush, code: "CornerFlush.tunable")
 
     /// The value in effect: `off` at compact density, which keeps the pill; else a Debug Settings
     /// value, else the default where the default chrome fits it (``defaultFits``), else `off`.
