@@ -10,20 +10,20 @@ extension AgentPaneCloudMachines {
     /// The App's answers to `cloudMachine.*`: the signed-in account's machines (``CloudService``, never another user's or team's
     /// list), Open, Resume, Pause, Kill Machine and typing prewarm on one, run as the person's own; and each switch of team.
     func wire(_ services: AppServices) {
-        let inventory: @MainActor (Duration) async -> Inventory = { [weak services] age in
+        let inventory: @MainActor (Duration) async -> Inventory = { [weak self, weak services] age in
             guard let services, services.cloud.isSignedIn else { return Inventory(signedIn: false, loaded: false, machines: []) }
-            // Complete only when this read's own refresh landed (the recovery list), or the store
-            // holds a server answer within `age` (the picker): a superseded or failed refresh leaves
-            // the earlier registry in place, and a machine absent from it may still exist.
+            self?.readTeamsIfOld { [weak services] in await services?.cloud.auth.activeTeam.refresh() }
+            // Complete only when this read's own refresh landed (the recovery list), or the store holds a server answer
+            // within `age` (the picker): a superseded or failed refresh leaves the earlier registry, so a machine absent may exist.
             let complete = age == .zero ? await services.cloud.refresh() : await services.cloud.refresh(ifOlderThan: age)
             guard services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines,
                   age != .zero || (services.cloud.lastError == nil && services.cloud.unavailableReason == nil) else {
-                return Inventory(signedIn: services.cloud.isSignedIn, loaded: false, machines: [], team: TeamRowText.paneTeam(services.cloud.auth))
+                return Inventory(signedIn: services.cloud.isSignedIn, loaded: false, machines: [], team: TeamRowText.paneTeam(services.cloud.auth), teams: TeamRowText.paneTeams(services.cloud.auth))
             }
             let machines = services.machines.cloud.compactMap { session in
                 session.effectiveStatus == .destroyed ? nil : Machine(id: session.machineID, name: session.machine.title, stage: session.stage.name, evictAt: session.machine.evictAt)
             }
-            return Inventory(signedIn: true, loaded: true, machines: machines, account: services.cloud.account, complete: complete, team: TeamRowText.paneTeam(services.cloud.auth))
+            return Inventory(signedIn: true, loaded: true, machines: machines, account: services.cloud.account, complete: complete, team: TeamRowText.paneTeam(services.cloud.auth), teams: TeamRowText.paneTeams(services.cloud.auth))
         }
         teamWatch = TeamRowText.follow(services.cloud.auth) { [weak self] in self?.publishTeamChange() }
         list = { await inventory(Self.listAge) }

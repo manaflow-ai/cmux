@@ -15,7 +15,7 @@ import {
   unreadPending,
   unreadRead,
 } from "./conversation/unreadState";
-import { jumpUpShown, jumpUpTarget, newerMark, placeOffScreen, pressJumpUp, type ManualMark } from "./jumpUp";
+import { jumpUpShown, jumpUpTarget, placeOffScreen, placeOffView, pressJumpUp, type ManualMark } from "./jumpUp";
 import { TRANSCRIPT_OVERLAYS, ZONE_KIND, topZoneOffset } from "./overlayLayout";
 
 beforeEach(() => resetUnreadForTest());
@@ -62,18 +62,13 @@ test("hiding the banner keeps the line; Jump and the latest message end it (#400
   expect(unreadPending("s:41", readUnread())).toBe(false);
 });
 
-const mark = (rowId: string, at: number, why: ManualMark["why"]): ManualMark => ({
-  place: { rowId, offset: 0 },
-  at,
-  why,
-});
+const mark = (rowId: string, at: number): ManualMark => ({ place: { rowId, offset: 0 }, at, why: "idle" });
 
-test("Jump up goes to the unread line first, else the newer of the last prompt and the last stop", () => {
-  expect(jumpUpTarget("sinceDivider", mark("p", 5, "sent"), mark("r", 9, "stopped"))?.rowId).toBe("sinceDivider");
-  expect(jumpUpTarget(undefined, mark("p", 5, "sent"), mark("r", 9, "stopped"))?.rowId).toBe("r");
-  expect(jumpUpTarget(undefined, mark("p", 12, "sent"), mark("r", 9, "stopped"))?.rowId).toBe("p");
-  expect(jumpUpTarget(undefined, undefined, undefined)).toBeUndefined();
-  expect(newerMark(undefined, mark("r", 1, "stopped"))?.place.rowId).toBe("r");
+test("Jump up goes to the unread line first, else where the reader's idle stretch pinned its mark", () => {
+  expect(jumpUpTarget("sinceDivider", mark("r", 9))?.rowId).toBe("sinceDivider");
+  expect(jumpUpTarget("sinceDivider", undefined)?.rowId).toBe("sinceDivider");
+  expect(jumpUpTarget(undefined, mark("r", 9))?.rowId).toBe("r");
+  expect(jumpUpTarget(undefined, undefined)).toBeUndefined();
 });
 
 test("Jump up shows only while its place is off screen, and while it holds a way back", () => {
@@ -83,9 +78,22 @@ test("Jump up shows only while its place is off screen, and while it holds a way
   // The header covers the view's top: a place under it is off screen.
   expect(placeOffScreen(210, 200, 400, 24)).toBe(true);
   expect(placeOffScreen(undefined, 0, 400)).toBe(false);
-  expect(jumpUpShown(false, undefined)).toBe(false);
-  expect(jumpUpShown(true, undefined)).toBe(true);
-  expect(jumpUpShown(false, { top: 900, atLatest: true })).toBe(true);
+  expect(jumpUpShown(false, false)).toBe(false);
+  expect(jumpUpShown(true, false)).toBe(true);
+  expect(jumpUpShown(false, true)).toBe(true);
+});
+
+test("Jump up reads a place where its row draws: a prompt in sight at the chat's top is on screen", () => {
+  // gallery agent-pane.transcript#codex-turn-raw-commands: the first prompt's layout top is 0, the view
+  // 10 px down; the row draws 16 px lower (THREAD_TOP), its bubble whole under the header.
+  const view = { shownTop: 10, height: 532, threadTop: 16, topInset: 0, dockSpace: 96 };
+  expect(placeOffView(0, view)).toBe(false);
+  // Scrolled past it, it is off screen.
+  expect(placeOffView(0, { ...view, shownTop: 40 })).toBe(true);
+  // Under the dock it is out of sight too.
+  expect(placeOffView(420, view)).toBe(false);
+  expect(placeOffView(440, view)).toBe(true);
+  expect(placeOffView(undefined, view)).toBe(false);
 });
 
 test("a second press goes back to where the view was", () => {

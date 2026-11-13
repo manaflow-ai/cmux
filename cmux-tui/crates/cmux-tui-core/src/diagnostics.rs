@@ -10,8 +10,8 @@
 
 use std::collections::HashMap;
 use std::panic::Location;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -22,8 +22,16 @@ mod resource_projection;
 pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
+mod command_stats;
+pub(crate) use command_stats::{
+    ClientKind, CommandStats, ConnectionKind, answered_later, line_is_named,
+};
+pub use command_stats::{CommandConnections, CommandRow, CommandStatsSnapshot};
 mod connection_leases;
 mod disk_usage;
+mod long_connections;
+mod terminal_lane;
+mod terminal_seats;
 pub use connection_leases::{ConnectionLease, PeerClosed};
 #[cfg(test)]
 pub(crate) use disk_usage::journal_bytes_by_kind;
@@ -31,7 +39,10 @@ pub use disk_usage::{
     DEFAULT_JOURNAL_KIND_BUDGET, DiskUsageCache, DiskUsageSnapshot, JOURNAL_KIND_BUDGETS,
     REGISTRY_BYTES_PER_SESSION_PER_DAY, bytes_per_day, journal_kind_budget, read_disk_usage,
 };
+pub use long_connections::LongConnectionsFull;
+pub use terminal_seats::TerminalSeat;
 mod hook_queue;
+pub(crate) mod request_log;
 mod write_path;
 pub use hook_queue::{
     HOOK_SPOOL_DIR, HOOK_SPOOL_DROPPED_EVENTS, HOOK_SPOOL_UNDELIVERABLE_EVENTS, HookQueueSnapshot,
@@ -246,11 +257,24 @@ pub struct LockStats {
     holder: Mutex<Option<Holder>>,
     last_stall: Mutex<Option<Stall>>,
     sites: Mutex<HashMap<LockSite, SiteStats>>,
+    /// The lock's name and the session's slow request log, which gets a line for
+    /// each hold of [`LOCK_STALL_THRESHOLD`] or more (`report_long_holds`).
+    long_holds: std::sync::OnceLock<(&'static str, std::sync::Arc<request_log::RequestLog>)>,
 }
 
 impl LockStats {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// From now on, a hold of this lock (`name`) of [`LOCK_STALL_THRESHOLD`] or more gets a
+    /// line in `log` with the holder's site.
+    pub(crate) fn report_long_holds(
+        &self,
+        name: &'static str,
+        log: std::sync::Arc<request_log::RequestLog>,
+    ) {
+        let _ = self.long_holds.set((name, log));
     }
 
     /// Call before blocking. Returns the site holding the lock at that moment
@@ -261,6 +285,9 @@ impl LockStats {
 
     pub fn acquired(&self, site: LockSite, waited: Duration, blocker: Option<LockSite>) {
         self.wait.record_duration(waited);
+        if waited >= LOCK_CONTENDED_THRESHOLD {
+            request_log::add_lock_wait(waited);
+        }
         if waited >= Duration::from_micros(500) {
             crate::debug_spans::mark_with(|| {
                 format!("lock.wait {}:{} {}us", site.file(), site.line(), waited.as_micros()).into()
@@ -305,6 +332,12 @@ impl LockStats {
         entry.hold_max_us = entry.hold_max_us.max(held_us);
         entry.hold.record(held_us);
         entry.wait.record(waited_us);
+        drop(sites);
+        if held >= LOCK_STALL_THRESHOLD
+            && let Some((name, log)) = self.long_holds.get()
+        {
+            log.long_hold(name, site, held, waited);
+        }
     }
 
     fn holder_snapshot(&self) -> Option<LockHolderSnapshot> {
@@ -507,6 +540,9 @@ pub struct JournalWriterStats {
     terminal_queued: AtomicUsize,
     durable_queued: AtomicUsize,
     phase: Mutex<WriterPhaseState>,
+    /// Set by the first commit that passed its deadline or dropped a record, cleared by the next
+    /// committed batch: what went late and since when.
+    late_commit: Mutex<Option<(String, Instant)>>,
 }
 
 impl Default for JournalWriterStats {
@@ -524,6 +560,7 @@ impl Default for JournalWriterStats {
             terminal_queued: AtomicUsize::new(0),
             durable_queued: AtomicUsize::new(0),
             phase: Mutex::new(WriterPhaseState { code: WRITER_IDLE, since: Instant::now() }),
+            late_commit: Mutex::new(None),
         }
     }
 }
@@ -565,6 +602,8 @@ impl JournalWriterStats {
         self.terminal_events.fetch_add(terminal_events as u64, Ordering::Relaxed);
         self.durable_events.fetch_add(durable_events as u64, Ordering::Relaxed);
         self.batch_size.record((terminal_events + durable_events) as u64);
+        // A batch committed in time: the journal is not late any more.
+        self.late_commit.lock().unwrap_or_else(|e| e.into_inner()).take();
     }
 
     pub fn commit_finished(&self, lock_wait: Duration, commit: Duration) {
@@ -574,6 +613,15 @@ impl JournalWriterStats {
 
     pub fn commit_failed(&self) {
         self.commit_failures.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// A commit went late (it passed its deadline, or the writer dropped a record). The first one
+    /// since the last committed batch is kept.
+    pub fn commit_late(&self, detail: String) {
+        self.late_commit
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_or_insert_with(|| (detail, Instant::now()));
     }
 
     pub fn deadline_expired(&self) {
@@ -604,6 +652,12 @@ impl JournalWriterStats {
         let phase_for_us =
             u64::try_from(phase_state.since.elapsed().as_micros()).unwrap_or(u64::MAX);
         drop(phase_state);
+        let late_commit = self.late_commit.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(
+            |(detail, since)| LateCommitSnapshot {
+                detail: detail.clone(),
+                for_us: u64::try_from(since.elapsed().as_micros()).unwrap_or(u64::MAX),
+            },
+        );
         JournalWriterSnapshot {
             batches: self.batches.load(Ordering::Relaxed),
             terminal_events: self.terminal_events.load(Ordering::Relaxed),
@@ -618,6 +672,7 @@ impl JournalWriterStats {
             durable_queued: self.durable_queued.load(Ordering::Relaxed),
             phase,
             phase_for_us,
+            late_commit,
         }
     }
 }
@@ -647,6 +702,19 @@ pub struct JournalWriterSnapshot {
     pub durable_queued: usize,
     pub phase: WriterPhase,
     pub phase_for_us: u64,
+    /// The journal is late: a commit passed its deadline (its waiters got a timeout) or the
+    /// writer dropped a record. Absent while the last batch committed in time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub late_commit: Option<LateCommitSnapshot>,
+}
+
+/// `server-stats` `journal_writer.late_commit`.
+#[derive(Clone, Debug, Serialize)]
+pub struct LateCommitSnapshot {
+    /// The first late commit's error text.
+    pub detail: String,
+    /// Microseconds since that commit.
+    pub for_us: u64,
 }
 
 /// Connection admission on the control socket.
@@ -662,23 +730,54 @@ pub struct ConnectionStats {
     hung_up: AtomicU64,
     /// Slots taken back from hung-up clients since start.
     reclaimed: AtomicU64,
-    /// The admitted connections whose client can be watched for a hang-up.
+    /// The requests by command name and client kind, and the connections by client kind
+    /// (`server-stats` section `commands`).
+    commands: std::sync::Arc<CommandStats>,
+    /// The admitted connections that are open (`open_leases`).
     leases: Mutex<Vec<std::sync::Weak<ConnectionLease>>>,
+    /// The process sessions of the session's terminals (`terminal_seats`).
+    terminal_seats: terminal_seats::TerminalSeats,
     /// Of `active`, the connections from processes inside this session's
-    /// terminals (agents, their hooks, `cmux` run in a pane). A hung-up
-    /// terminal connection gives this slot back with its main one
+    /// terminals (agents, their hooks, `cmux` run in a pane), with each
+    /// terminal's fair share (`try_claim_terminal`). A hung-up terminal
+    /// connection gives this slot back with its main one
     /// (`connection_leases`).
-    terminal_active: AtomicU64,
-    /// Of `terminal_active`, the connections each terminal holds (by its
-    /// process session), for the terminal lane's fair share
-    /// (`try_claim_terminal`). A terminal with none is not listed.
-    terminal_clients: Mutex<HashMap<u32, u64>>,
+    terminal_lane: terminal_lane::TerminalLane,
+    /// The terminals' connections that hold a stream, a wait or a follow.
+    /// They are in neither `active` nor `terminal_lane`
+    /// (`long_connections`).
+    long: long_connections::LongConnections,
     /// The socket these connections come in on, once a server attached the
     /// session to it.
     socket: std::sync::OnceLock<std::path::PathBuf>,
+    /// The session's slow request log (`request_log`), once the session's folder is known.
+    request_log: std::sync::OnceLock<std::sync::Arc<request_log::RequestLog>>,
 }
 
 impl ConnectionStats {
+    /// The request counters of the session (`diagnostics/command_stats.rs`).
+    pub(crate) fn commands(&self) -> &std::sync::Arc<CommandStats> {
+        &self.commands
+    }
+
+    /// Opens the session's slow request log in `directory`, once; the log, if there is one.
+    pub(crate) fn open_request_log(
+        &self,
+        directory: &std::path::Path,
+    ) -> Option<&std::sync::Arc<request_log::RequestLog>> {
+        if self.request_log.get().is_none()
+            && let Some(log) = request_log::RequestLog::open(directory)
+        {
+            let _ = self.request_log.set(log);
+        }
+        self.request_log.get()
+    }
+
+    /// The session's slow request log, when it is open.
+    pub(crate) fn request_log(&self) -> Option<&std::sync::Arc<request_log::RequestLog>> {
+        self.request_log.get()
+    }
+
     /// Counts one connection that already holds a slot as terminal-bound, if
     /// fewer than `limit` terminal-bound connections are active. A refusal
     /// moves the connection from `accepted` to `refused`; the caller gives
@@ -686,17 +785,12 @@ impl ConnectionStats {
     /// At `limit` it first takes back the slots of clients that hung up
     /// (`reclaim_hung_up`, pool bounded by `pool_limit`), as `try_claim` does.
     ///
-    /// `client`: the terminal the connection comes from (its process session).
-    /// A terminal's first connection gets in whenever the lane has room; a
-    /// further one only while that terminal then holds no more than the lane
-    /// has left free. One terminal (an agent's hooks in a loop, a script
-    /// running `cmux`) stops at half the lane, so a second terminal still finds
-    /// room; several terminals in a loop together can still fill the lane. A
-    /// connection whose terminal is unknown is bounded by the lane alone.
+    /// `client`: the terminal the connection comes from (its process session),
+    /// for its fair share of the lane (`TerminalLane::claim`).
     pub fn try_claim_terminal(&self, limit: u64, pool_limit: u64, client: Option<u32>) -> bool {
-        let mut claimed = self.claim_terminal_slot(limit, client);
+        let mut claimed = self.terminal_lane.claim(limit, client);
         if !claimed && self.reclaim_hung_up(pool_limit) > 0 {
-            claimed = self.claim_terminal_slot(limit, client);
+            claimed = self.terminal_lane.claim(limit, client);
         }
         if !claimed {
             self.accepted.fetch_sub(1, Ordering::Relaxed);
@@ -705,39 +799,8 @@ impl ConnectionStats {
         claimed
     }
 
-    /// One terminal slot under `limit`, within `client`'s fair share. The
-    /// share and the count change together under `terminal_clients`, so two
-    /// claims never both take the last place a share allows.
-    fn claim_terminal_slot(&self, limit: u64, client: Option<u32>) -> bool {
-        let mut clients = self.terminal_clients.lock().unwrap_or_else(PoisonError::into_inner);
-        let active = self.terminal_active.load(Ordering::Acquire);
-        if active >= limit {
-            return false;
-        }
-        if let Some(client) = client {
-            let held = clients.get(&client).copied().unwrap_or(0);
-            let free_after = limit.saturating_sub(active.saturating_add(1));
-            if held > 0 && held.saturating_add(1) > free_after {
-                return false;
-            }
-            let held = clients.entry(client).or_insert(0);
-            *held = held.saturating_add(1);
-        }
-        self.terminal_active.fetch_add(1, Ordering::AcqRel);
-        true
-    }
-
     pub fn release_terminal(&self, client: Option<u32>) {
-        if let Some(client) = client {
-            let mut clients = self.terminal_clients.lock().unwrap_or_else(PoisonError::into_inner);
-            if let Some(held) = clients.get_mut(&client) {
-                *held = held.saturating_sub(1);
-                if *held == 0 {
-                    clients.remove(&client);
-                }
-            }
-        }
-        self.terminal_active.fetch_sub(1, Ordering::AcqRel);
+        self.terminal_lane.release(client);
     }
 
     /// Claims a slot if fewer than `limit` connections are active.
@@ -838,6 +901,12 @@ pub struct ServerStatsSnapshot {
     /// session keeps its registry on disk.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disk: Option<DiskUsageSnapshot>,
+    /// Present only when the request names `commands` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commands: Option<CommandStatsSnapshot>,
+    /// Present only when the request names `journal_followers` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub journal_followers: Option<crate::mux::JournalFollowersSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

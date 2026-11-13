@@ -1,4 +1,4 @@
-import { PrefixFilter, PrefixFlatCache } from "../conversation/prefixFlatMap";
+import { keptPrefix, PrefixFilter, PrefixFlatCache } from "../conversation/prefixFlatMap";
 import { turnCopyParts } from "../conversation/turnCopy";
 import type { Folds } from "../conversation/viewFolds";
 import { turnWork } from "../conversation/waterfallSpans";
@@ -15,6 +15,8 @@ export const SUBAGENT_EMPTY = "subagentEmpty";
 /// A subagent's one line where it ended, while running ones sit in the tray (SubagentDoneLine.tsx,
 /// runningTray.ts).
 export const SUBAGENT_DONE = "subagentDone";
+/// The agents a recorded group started, kept in sight beside the turn's work fold.
+export const SUBAGENT_STARTED = "subagentStarted";
 /// A Claude workflow's card where it started (Labs `workflowLabs`, summary/WorkflowCard.tsx;
 /// runningTray.ts `withSubagentLines`): a row per workflow a group started, in the group's place.
 export const WORKFLOW_CARD = "workflowCard";
@@ -149,8 +151,7 @@ export type SubagentRows = { source: readonly AcpmuxRow[]; grouped: boolean; row
 export function subagentRowsFrom(rows: readonly AcpmuxRow[], expanded: Folds, previous?: SubagentRows): SubagentRows {
   if (previous && !previous.grouped) {
     const shared = previous.source;
-    let from = 0;
-    while (from < rows.length && from < shared.length && rows[from] === shared[from]) from += 1;
+    const from = keptPrefix(shared, rows);
     let grouped = false;
     for (let index = from; index < rows.length && !grouped; index += 1) grouped = isSubagentGroup(rows[index]!);
     if (!grouped) return { source: rows, grouped, rows: rows as AcpmuxRow[] };

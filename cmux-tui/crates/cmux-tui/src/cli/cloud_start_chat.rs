@@ -75,10 +75,12 @@ const TAKES_VALUE: &[&str] = &[
     "--prompt",
     "-p",
     "--agent",
+    "--model",
     "--cwd",
     "--from-folder",
     "--login",
     "--environment",
+    "--account",
     "--name",
     "--target",
     "--timeout",
@@ -104,6 +106,10 @@ pub(super) struct Request {
     /// `None`: start the chat and send nothing (`ready_ms` and `follow_up.send` in the answer).
     pub prompt: Option<String>,
     pub agent: String,
+    /// `--model MODEL` (or `--agent HARNESS/MODEL`): the model the machine's agent starts on, as
+    /// `cloud start-session --model` takes it (acpmux's `session/new` model); `None` leaves the
+    /// harness's default there.
+    pub model: Option<String>,
     pub cwd: Option<String>,
     /// `--from-folder`: a folder on this Mac, canonical; the chat starts in its copy on the machine.
     pub from_folder: Option<String>,
@@ -113,6 +119,10 @@ pub(super) struct Request {
     /// `--environment ID|NAME`: the Cloud environment (`env_…`, or its name) a new machine boots in
     /// (`cloud new-machine --environment`).
     pub environment: Option<String>,
+    /// `--account user:ID|team:ID` (or `user:ID|personal`, `cmux_cloud_api::sandbox::account_scope`):
+    /// nothing starts unless the app is signed in to that account, and the prompt goes only to a
+    /// machine that account's list shows. The daemon's sandboxed Runs pass the Run's own.
+    pub account: Option<String>,
     pub machine: Machine,
     pub wait: bool,
     pub timeout: Duration,
@@ -123,10 +133,13 @@ pub(super) struct Request {
     pub allow_large: bool,
 }
 
+// One `Parsed` is made per command line and taken apart at once, so the size gap between `Help`
+// and `Run` costs nothing; boxing `Run` would only add `*` at its two dozen match sites.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Parsed {
     Help,
-    Run(Request),
+    Run(Box<Request>),
 }
 
 /// `Some(exit code)` when `args` is `cloud start-chat …`.
@@ -150,7 +163,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             print!("{}", super::cloud_help::START_CHAT_USAGE);
             return Some(0);
         }
-        Ok(Parsed::Run(request)) => request,
+        Ok(Parsed::Run(request)) => *request,
         // A folder refused for what it is: its reason and what to do, not the whole help.
         Err(error) => {
             if let Some(code) = folder_refused(&error, global.output) {
@@ -192,7 +205,9 @@ pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
         && let Err(large) = crate::link::sync_cli::size_cap::check_plain(std::path::Path::new(dir))
     {
         let hint = crate::link::sync_cli::size_cap::OVERRIDE_HINT;
-        let message = format!("cmux: {large}{hint}");
+        // A parent of repositories (~/Projects): each one inside is a folder the chat can start in.
+        let repos = crate::link::sync_cli::size_cap::repos_hint(std::path::Path::new(dir));
+        let message = format!("cmux: {large}{repos}{hint}");
         return super::app::failure(
             crate::link::sync_cli::size_cap::CODE,
             &message,
@@ -218,10 +233,12 @@ pub(super) fn send_existing(
     let request = Request {
         prompt: Some(prompt),
         agent: String::new(),
+        model: None,
         cwd: None,
         from_folder: None,
         login: None,
         environment: None,
+        account: None,
         machine: Machine::Target(machine_id.to_owned()),
         wait,
         timeout: timeout.unwrap_or(DEFAULT_TIMEOUT).min(MAX_TIMEOUT),
@@ -350,10 +367,12 @@ pub(super) fn parse(
 ) -> Result<Parsed, UsageError> {
     let mut prompt = None;
     let mut agent = None;
+    let mut model = None;
     let mut cwd = None;
     let mut from_folder = None;
     let mut login = None;
     let mut environment = None;
+    let mut account = None;
     let mut name = None;
     let mut target = None;
     let mut wait = false;
@@ -383,10 +402,12 @@ pub(super) fn parse(
             "-h" | "--help" => return Ok(Parsed::Help),
             "--prompt" | "-p" => prompt = Some(value()?),
             "--agent" => agent = Some(value()?),
+            "--model" => model = Some(value()?),
             "--cwd" => cwd = Some(value()?),
             "--from-folder" => from_folder = Some(value()?),
             "--login" => login = Some(value()?),
             "--environment" => environment = Some(value()?),
+            "--account" => account = Some(value()?),
             "--name" => name = Some(value()?),
             "--target" => target = Some(value()?),
             "--timeout" => {
@@ -420,6 +441,17 @@ pub(super) fn parse(
         return Err(UsageError::new("--prompt is empty"));
     }
     let agent = agent.unwrap_or_else(|| "claude".to_owned());
+    // `--agent claude/claude-haiku-5-5` is the claude harness on that model, as `acp ensure -m` reads it.
+    let (agent, model) = match agent.split_once('/') {
+        Some(_) if model.is_some() => {
+            return Err(UsageError::new(format!(
+                "--agent {agent:?} names a model, and so does --model: give one"
+            )));
+        }
+        Some((harness, named)) => (harness.to_owned(), Some(named.to_owned())),
+        None => (agent, model),
+    };
+    let model = model.map(|word| model_word(&word)).transpose()?;
     if agent.is_empty()
         || !agent
             .chars()
@@ -445,6 +477,9 @@ pub(super) fn parse(
         Some(word) if word.is_empty() => return Err(UsageError::new("--environment is empty")),
         environment => environment,
     };
+    if account.as_deref().is_some_and(|scope| !scope.starts_with("user:")) {
+        return Err(UsageError::new("--account user:ID|team:ID or user:ID|personal"));
+    }
     if environment.is_some() && target.is_some() {
         return Err(UsageError::new(
             "--environment makes a new machine; not with --target, whose environment is set",
@@ -465,19 +500,39 @@ pub(super) fn parse(
         }
         (None, None) => Machine::New,
     };
-    Ok(Parsed::Run(Request {
+    Ok(Parsed::Run(Box::new(Request {
         prompt,
         agent,
+        model,
         cwd,
         from_folder,
         login,
         environment,
+        account,
         machine,
         wait,
         timeout,
         make_room,
         allow_large,
-    }))
+    })))
+}
+
+/// `--model`'s word, checked as the machine's daemon checks `agent-session-start`'s `model`
+/// (cmux-tui-core agent_session_start.rs): 1 to 200 bytes, not starting with `-`, no space,
+/// control character, quote, backslash, `$` or brace.
+pub(super) fn model_word(word: &str) -> Result<String, UsageError> {
+    let model = word.trim();
+    let ok = (1..=200).contains(&model.len())
+        && !model.starts_with('-')
+        && !model.chars().any(|c| c.is_whitespace() || c.is_control())
+        // 0x22 and 0x27 are the double and single quote (as bytes: a quote character literal
+        // reads as an open string to check-resource-api-boundary.py's CLI literal scan).
+        && !model.bytes().any(|b| matches!(b, b'{' | b'}' | b'$' | b'\\' | 0x22 | 0x27));
+    if ok {
+        Ok(model.to_owned())
+    } else {
+        Err(UsageError::new(format!("--model {word:?}: a model id such as claude-haiku-5-5")))
+    }
 }
 
 /// One run of this binary: its exit code and what it printed.
@@ -639,6 +694,9 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     }
     if request.agent != "claude" {
         words.push(format!("--agent {}", request.agent));
+    }
+    if let Some(model) = &request.model {
+        words.push(format!("--model {}", shell_quote(model)));
     }
     if let Some(cwd) = &request.cwd {
         words.push(format!("--cwd {}", shell_quote(cwd)));
@@ -1193,6 +1251,9 @@ fn steps(
             1,
         );
     }
+    if let Err(outcome) = on_account(request, &listed, None) {
+        return outcome;
+    }
     // 2. The chat's machine: one made in --environment first, else the one asked for.
     // A `--cwd` on a machine that already exists may be a repository its bootstrap is still cloning
     // (`cloud new-machine --repo`): wait for the clone rather than fail "cwd is not a directory" (clone_wait.rs).
@@ -1282,6 +1343,9 @@ fn steps(
         Machine::New => {}
     }
     start.extend(["--agent".to_owned(), request.agent.clone()]);
+    if let Some(model) = &request.model {
+        start.extend(["--model".to_owned(), model.clone()]);
+    }
     if let Some(cwd) = &request.cwd {
         start.extend(["--cwd".to_owned(), cwd.clone()]);
     }
@@ -1384,8 +1448,17 @@ fn steps(
     if let Some(cwd) = &request.cwd {
         answer.set("cwd", json!(cwd));
     }
+    if let Some(model) = &request.model {
+        answer.set("model", json!(model));
+    }
     progress.machine = Some(Machine::Target(machine_id.to_owned()));
     progress.chat = Some((machine_id.to_owned(), session.to_owned(), answer.clone()));
+    // With `--account`: the machine is that account's before anything is sent to it. A refusal names
+    // the account the app is on (`app_account`); start-chat deletes nothing, since it cannot prove it
+    // made the machine: the caller (a Run's cleanup) deletes its own machine by its own name there.
+    if let Err(outcome) = machine_on_account(runner, request, machine_id, deadline) {
+        return outcome;
+    }
 
     let Some(prompt) = request.prompt.as_deref() else {
         // No prompt: the chat is ready once start-session returned; `--wait` has no turn to wait on.
@@ -1410,6 +1483,67 @@ fn steps(
     }
     let tab = internal::chat_tab(&started);
     send_prompt(runner, request, machine_id, session, (prompt, answer, tab), deadline, progress)
+}
+
+/// `--account`'s check of one `cloud list-machines` answer: the app is signed in to that account
+/// and, with `machine`, its list shows that machine. `Err` is the refusal; a list without the
+/// machine is `Ok(false)`, to read again.
+fn on_account(request: &Request, listed: &Value, machine: Option<&str>) -> Result<bool, Outcome> {
+    let Some(want) = request.account.as_deref() else { return Ok(true) };
+    let now = cmux_cloud_api::sandbox::account_scope(listed);
+    if now.as_deref() != Some(want) {
+        return Err(failed(
+            "cloud.account_changed",
+            format!(
+                "the cmux app is signed in to {}, not {want}: nothing is sent",
+                now.as_deref().unwrap_or("no Cloud account")
+            ),
+            json!({"account": want, "app_account": now, "machine_id": machine}),
+            1,
+        ));
+    }
+    let Some(machine) = machine else { return Ok(true) };
+    let rows = listed.get("machines").and_then(Value::as_array).into_iter().flatten();
+    Ok(rows.into_iter().any(|row| at(row, "machine_id").as_str() == Some(machine)))
+}
+
+/// How many times [`machine_on_account`] reads the list for a machine it does not show yet.
+const ACCOUNT_READS: u32 = 5;
+
+/// With `--account`, after the start and before the send: the app is still on that account and its
+/// list shows `machine_id`, so the prompt reaches only that account's machine. A list that does
+/// not show it yet is read again, at most [`ACCOUNT_READS`] times, a second apart, before `deadline`.
+fn machine_on_account(
+    runner: &mut dyn Runner,
+    request: &Request,
+    machine_id: &str,
+    deadline: Deadline,
+) -> Result<(), Outcome> {
+    if request.account.is_none() {
+        return Ok(());
+    }
+    for read in 0..ACCOUNT_READS {
+        if read > 0 {
+            if deadline.passed(runner) {
+                break;
+            }
+            runner.pause(Duration::from_secs(1));
+        }
+        let listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))
+        {
+            Ok(listed) => listed,
+            Err(error) => return Err(app_failure(error)),
+        };
+        if on_account(request, &listed, Some(machine_id))? {
+            return Ok(());
+        }
+    }
+    Err(failed(
+        "cloud.account_changed",
+        format!("the account's machine list does not show {machine_id}: nothing is sent"),
+        json!({"account": request.account, "machine_id": machine_id}),
+        1,
+    ))
 }
 
 /// Step 4, the prompt to `session` on `machine_id`: inside the command when it fits there, else from
