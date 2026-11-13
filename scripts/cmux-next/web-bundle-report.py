@@ -142,7 +142,10 @@ def load_bundle(
         try:
             if source is not None and source.is_file():
                 source_size = source.stat().st_size
-                row["sourceBytes"] = max(row["sourceBytes"], source_size)
+                # Captured builder sizes belong to the measured revision. A source
+                # checkout used for inspection may since have changed.
+                if not row["sourceBytes"]:
+                    row["sourceBytes"] = source_size
                 if source_size <= 2_000_000:
                     text = source.read_text(encoding="utf-8", errors="ignore")
         except OSError:
@@ -219,6 +222,7 @@ def load_bundle(
     return {
         "name": name,
         "metafile": str(metafile),
+        "sourceRoot": str(source_root) if source_root else None,
         "bundleDir": str(bundle_dir) if bundle_dir else None,
         "shippedBytes": shipped,
         "attributionMetric": attribution_metric,
