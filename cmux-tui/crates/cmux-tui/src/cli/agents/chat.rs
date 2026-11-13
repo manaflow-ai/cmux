@@ -60,8 +60,8 @@ pub(in crate::cli) enum ChatCommand {
         after: u64,
         limit: usize,
     },
-    /// Start a GUI agent chat (chat_control.rs).
-    New(super::chat_control::NewChat),
+    /// Start a GUI agent chat (chat_control.rs); boxed, as the largest variant by far.
+    New(Box<super::chat_control::NewChat>),
     /// What a chat is doing.
     State {
         target: String,
@@ -77,7 +77,9 @@ pub(in crate::cli) enum ChatCommand {
 /// <chat>` and `chat continue <chat> [[--] <text>]` (the words after `chat`).
 pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
     match words {
-        ["new", rest @ ..] => super::chat_control::parse_new(rest).map(ChatCommand::New),
+        ["new", rest @ ..] => {
+            super::chat_control::parse_new(rest).map(|chat| ChatCommand::New(Box::new(chat)))
+        }
         ["state", target] => Ok(ChatCommand::State { target: chat_word(target)? }),
         ["interrupt", target] => Ok(ChatCommand::Interrupt { target: chat_word(target)? }),
         // A nudge: a send whose text defaults to "Continue.".
