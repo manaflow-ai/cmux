@@ -112,7 +112,29 @@ pub struct Begun {
 pub struct Service {
     oauth: oauth::Client,
     attempts: Mutex<HashMap<String, Arc<Attempt>>>,
-    refreshing: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    refreshing: Locks,
+}
+
+/// One async lock per account: a refresh, a remove and a sign-in's save of the same account
+/// never interleave (a refresh that read the old record cannot write over a reauth's new one).
+#[derive(Default)]
+pub(crate) struct Locks(Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>);
+
+impl Locks {
+    pub(crate) fn for_id(&self, id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut map = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        map.entry(id.to_owned()).or_default().clone()
+    }
+}
+
+/// Runs blocking store I/O off the runtime's threads.
+async fn off_runtime<T: Send + 'static>(
+    work: impl FnOnce() -> std::io::Result<T> + Send + 'static,
+) -> Result<T, Failure> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|e| Failure::new("internal", e.to_string()))?
+        .map_err(io("storage"))
 }
 
 impl Default for Service {
@@ -137,13 +159,12 @@ impl Service {
         Self {
             oauth: oauth::Client::new(endpoints),
             attempts: Mutex::new(HashMap::new()),
-            refreshing: Mutex::new(HashMap::new()),
+            refreshing: Locks::default(),
         }
     }
 
     fn lock_for(&self, id: &str) -> Arc<tokio::sync::Mutex<()>> {
-        let mut map = self.refreshing.lock().unwrap_or_else(|p| p.into_inner());
-        map.entry(id.to_owned()).or_default().clone()
+        self.refreshing.for_id(id)
     }
 
     /// Starts a sign-in (`reauth`: the route id of an account to sign in again). The callback
@@ -155,13 +176,11 @@ impl Service {
         on_finish: impl FnOnce(&Status) + Send + 'static,
     ) -> Result<Begun, Failure> {
         let home = places.home.clone();
-        let host = tokio::task::spawn_blocking(move || store::host(&home))
-            .await
-            .map_err(|e| Failure::new("internal", e.to_string()))?
-            .map_err(io("storage"))?;
+        let host = off_runtime(move || store::host(&home)).await?;
         let prior = match &reauth {
             Some(id) => {
-                Some(store::read(&places.home, id).map_err(io("storage"))?.ok_or_else(|| {
+                let (h, i) = (places.home.clone(), id.clone());
+                Some(off_runtime(move || store::read(&h, &i)).await?.ok_or_else(|| {
                     Failure::new("not_found", format!("no ChatGPT sign-in {id:?}"))
                 })?)
             }
@@ -185,7 +204,7 @@ impl Service {
         let task = tokio::spawn(async move {
             let outcome = tokio::time::timeout(
                 ATTEMPT_TTL,
-                service.oauth.serve_callback(listener, &pending, &places),
+                service.oauth.serve_callback(listener, &pending, &places, &service.refreshing),
             )
             .await;
             let status = match outcome {
@@ -269,8 +288,9 @@ impl Service {
     ) -> Result<(String, i64), Failure> {
         let lock = self.lock_for(id);
         let _one = lock.lock().await;
-        let mut record = store::read(home, id)
-            .map_err(io("storage"))?
+        let (h, i) = (home.to_path_buf(), id.to_owned());
+        let mut record = off_runtime(move || store::read(&h, &i))
+            .await?
             .ok_or_else(|| Failure::new("not_found", format!("no ChatGPT sign-in {id:?}")))?;
         if !record.signed_in() {
             return Err(Failure::new("signed_out", "sign in with ChatGPT again"));
@@ -281,14 +301,16 @@ impl Service {
         match self.oauth.refresh(&record).await {
             Ok(fresh) => {
                 fresh.apply(&mut record, now_unix());
-                store::write(home, id, &record).map_err(io("storage"))?;
+                let (h, i, r) = (home.to_path_buf(), id.to_owned(), record.clone());
+                off_runtime(move || store::write(&h, &i, &r)).await?;
                 Ok((record.access_token, record.expires_at))
             }
             Err(failure) => {
                 if failure.code == "reauth_required" {
                     // The refresh token is dead: the account shows signed out until a reauth.
                     record.clear_tokens();
-                    store::write(home, id, &record).map_err(io("storage"))?;
+                    let (h, i) = (home.to_path_buf(), id.to_owned());
+                    off_runtime(move || store::write(&h, &i, &record)).await?;
                 }
                 Err(failure)
             }
@@ -301,7 +323,8 @@ impl Service {
     pub async fn remove(&self, home: &Path, id: &str) -> Result<bool, Failure> {
         let lock = self.lock_for(id);
         let _one = lock.lock().await;
-        let Some(record) = store::read(home, id).map_err(io("storage"))? else {
+        let (h, i) = (home.to_path_buf(), id.to_owned());
+        let Some(record) = off_runtime(move || store::read(&h, &i)).await? else {
             return Ok(false);
         };
         let revoked = if record.signed_in() {
@@ -315,7 +338,8 @@ impl Service {
         } else {
             false
         };
-        store::delete(home, id).map_err(io("storage"))?;
+        let (h, i) = (home.to_path_buf(), id.to_owned());
+        off_runtime(move || store::delete(&h, &i)).await?;
         Ok(revoked)
     }
 }

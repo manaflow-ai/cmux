@@ -318,6 +318,7 @@ impl Client {
         listener: tokio::net::TcpListener,
         pending: &Pending,
         places: &Places,
+        locks: &super::Locks,
     ) -> Result<String, Failure> {
         loop {
             let (mut stream, _) =
@@ -337,7 +338,7 @@ impl Client {
                 continue;
             }
             let query: HashMap<String, String> = url.query_pairs().into_owned().collect();
-            let result = self.complete(pending, &query, places).await;
+            let result = self.complete(pending, &query, places, locks).await;
             let page = match &result {
                 Ok(_) => "Signed in to cmux with ChatGPT. You can close this tab.".to_owned(),
                 Err(f) => format!("ChatGPT sign-in did not finish ({}). Return to cmux.", f.code),
@@ -353,6 +354,7 @@ impl Client {
         pending: &Pending,
         query: &HashMap<String, String>,
         places: &Places,
+        locks: &super::Locks,
     ) -> Result<String, Failure> {
         if query.get("state").map(String::as_str) != Some(pending.state.as_str()) {
             return Err(Failure::new(
@@ -417,9 +419,14 @@ impl Client {
             .filter(|t| !t.is_empty())
             .ok_or_else(|| Failure::new("invalid_id_token", "no ID token"))?;
         let claims = self.verify_id_token(&id_token, &client_id, &pending.nonce).await?;
+        // The granted scopes: the token answer's, else the callback's `scope`; neither names
+        // them: not granted (never assumed from what was asked).
         let scopes = answer
             .scopes()
-            .unwrap_or_else(|| SCOPES.split_whitespace().map(str::to_owned).collect());
+            .or_else(|| {
+                query.get("scope").map(|s| s.split_whitespace().map(str::to_owned).collect())
+            })
+            .unwrap_or_default();
         let refresh = answer.refresh_token.clone().filter(|r| !r.is_empty());
         if !scopes.iter().any(|s| s == PLAN_SCOPE) {
             if let Some(refresh) = refresh {
@@ -435,12 +442,21 @@ impl Client {
         if refresh.is_none() {
             return Err(Failure::new("token_exchange_failed", "no refresh token"));
         }
-        let places = places.clone();
-        let reauth = pending.reauth.clone();
-        let now = super::now_unix();
-        tokio::task::spawn_blocking(move || save(&places, reauth, &client_id, claims, answer, now))
+        let joined = |e: tokio::task::JoinError| Failure::new("internal", e.to_string());
+        let (p, reauth, c, sub) =
+            (places.clone(), pending.reauth.clone(), client_id.clone(), claims.sub.clone());
+        let id = tokio::task::spawn_blocking(move || choose_id(&p, reauth, &c, &sub))
             .await
-            .map_err(|e| Failure::new("internal", e.to_string()))?
+            .map_err(joined)?;
+        // The account's lock: a refresh in flight for it finishes first, and cannot then write
+        // its record over this new sign-in's.
+        let lock = locks.for_id(&id);
+        let _one = lock.lock().await;
+        let places = places.clone();
+        let now = super::now_unix();
+        tokio::task::spawn_blocking(move || save(&places, &id, &client_id, claims, answer, now))
+            .await
+            .map_err(joined)?
     }
 
     /// A refresh of `record`'s tokens.
@@ -502,26 +518,19 @@ fn valid_client_id(id: &str) -> bool {
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
 }
 
-/// Writes the account's record and its `chatgpt-plan` route; the route id.
-fn save(
-    places: &Places,
-    reauth: Option<String>,
-    client_id: &str,
-    claims: jwt::Claims,
-    answer: TokenAnswer,
-    now: i64,
-) -> Result<String, Failure> {
-    let storage = |e: std::io::Error| Failure::new("storage", e.to_string());
+/// The route id a sign-in of (`client_id`, `sub`) saves to: its existing record's, a reauth's
+/// own (the same person under a new client id), else the next free `chatgpt[-N]`.
+fn choose_id(places: &Places, reauth: Option<String>, client_id: &str, sub: &str) -> String {
     let dir = places.routes.as_deref();
     let records = store::all(&places.home);
-    let same = |r: &Record| r.client_id == client_id && r.sub == claims.sub;
-    let id = records
+    let same = |r: &Record| r.client_id == client_id && r.sub == sub;
+    records
         .iter()
         .find(|(_, r)| same(r))
         .map(|(id, _)| id.clone())
         .or_else(|| {
             // A reauth of the same person whose client id changed keeps its connection.
-            reauth.filter(|id| records.iter().any(|(rid, r)| rid == id && r.sub == claims.sub))
+            reauth.filter(|id| records.iter().any(|(rid, r)| rid == id && r.sub == sub))
         })
         .unwrap_or_else(|| {
             let taken = |id: &str| {
@@ -531,7 +540,20 @@ fn save(
                 .chain((2..).map(|n| format!("chatgpt-{n}")))
                 .find(|id| !taken(id))
                 .unwrap_or_else(|| "chatgpt".to_owned())
-        });
+        })
+}
+
+/// Writes the account's record and its `chatgpt-plan` route under `id`; the route id.
+fn save(
+    places: &Places,
+    id: &str,
+    client_id: &str,
+    claims: jwt::Claims,
+    answer: TokenAnswer,
+    now: i64,
+) -> Result<String, Failure> {
+    let storage = |e: std::io::Error| Failure::new("storage", e.to_string());
+    let dir = places.routes.as_deref();
     let mut record = Record {
         client_id: client_id.to_owned(),
         sub: claims.sub,
@@ -540,8 +562,8 @@ fn save(
         ..Record::default()
     };
     answer.apply(&mut record, now);
-    store::write(&places.home, &id, &record).map_err(storage)?;
-    let disabled = routes::find(dir, &id)
+    store::write(&places.home, id, &record).map_err(storage)?;
+    let disabled = routes::find(dir, id)
         .ok()
         .filter(|r| r.file.kind == RouteKind::ChatgptPlan)
         .is_some_and(|r| r.file.disabled);
@@ -566,8 +588,8 @@ fn save(
         disabled,
         provider: Some("openai".into()),
     };
-    routes::add(dir, &id, &file, true).map_err(|e| Failure::new("storage", e.to_string()))?;
-    Ok(id)
+    routes::add(dir, id, &file, true).map_err(|e| Failure::new("storage", e.to_string()))?;
+    Ok(id.to_owned())
 }
 
 /// The request target of an HTTP request line (`GET /auth/callback?... HTTP/1.1`).
