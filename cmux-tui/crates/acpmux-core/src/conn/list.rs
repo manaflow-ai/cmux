@@ -184,7 +184,7 @@ fn raw_parts(sid: &str, replay: Option<ReplayMark>) -> Result<(Vec<u8>, Vec<u8>)
         prefix.extend_from_slice(br#","replay":"#);
         prefix.extend_from_slice(&encoded_replay);
     }
-    prefix.extend_from_slice(b",\"ops\":[");
+    prefix.extend_from_slice(br#","ops":["#);
     Ok((prefix, b"]}".to_vec()))
 }
 
