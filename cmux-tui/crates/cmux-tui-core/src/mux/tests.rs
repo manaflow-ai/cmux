@@ -47,6 +47,7 @@ mod journal_lane_full;
 mod journal_retention_base;
 mod journal_retention_bound;
 mod journal_retention_holds;
+mod journal_retention_read_ahead;
 mod journal_retention_readers;
 mod journal_retention_wal_room;
 mod journal_roster;
