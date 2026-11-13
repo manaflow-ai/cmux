@@ -33,7 +33,7 @@ const PROD_COPY: Inputs = { mode: "prod-copy", clones: "2", keep_snapshot: false
 /** Evaluates the expression forms this workflow uses in env values. */
 function evaluate(value: string, ctx: { inputs: Inputs; out: string; snapshot: string; key: string; plan: Record<string, string>; missing?: string }): string {
   return value.replace(/\$\{\{\s*(.+?)\s*\}\}/g, (_, expr: string) => {
-    if (expr === "(inputs.agent_tools || inputs.team_vm || inputs.dev_tree || inputs.probes) && 'set' || ''") return ctx.inputs.agent_tools || ctx.inputs.team_vm || ctx.inputs.dev_tree || ctx.inputs.probes ? "set" : "";
+    if (expr === "(inputs.team_vm || inputs.dev_tree || inputs.probes) && 'set' || ''") return ctx.inputs.team_vm || ctx.inputs.dev_tree || ctx.inputs.probes ? "set" : "";
     if (expr === "secrets.FREESTYLE_API_KEY != '' && 'yes' || ''") return ctx.key ? "yes" : "";
     const presence = expr.match(/^secrets\.(CMUX_UITEST_STACK_EMAIL|CMUX_UITEST_STACK_PASSWORD) != '' && 'yes' \|\| ''$/);
     if (presence) return ctx.missing === presence[1] ? "" : "yes";
