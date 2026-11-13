@@ -7,15 +7,14 @@ name: cmux-next terminal suites
 #   corpus suites, with ghostty-vt-sys, cmux-pty, cmux-terminal-sizing,
 #   cmux-terminal-client and cmux-encode (the crates of
 #   scripts/ci/cmux-tui-rust-check.sh terminal, which a fleet step runs by hand).
-# - the shared Swift terminal packages (CmuxTerminalSizing, CmuxTerminalStream,
-#   CmuxTerminalClient), which ci-macos.yml tests on pull requests only.
+# - the shared Swift terminal packages (CmuxTerminalSizing, CmuxTerminalStream),
+#   which ci-macos.yml tests on pull requests only.
 # The Linux jobs run on Blacksmith 32 vCPU: the crates except cmux-pty (OS-specific
-# code) and one test whose golden digests were recorded on macOS, and the three
-# pure-Swift packages' tests. The two Mac jobs keep what Linux cannot stand in for:
-# cmux-pty, that corpus test, and the
-# CmuxTerminalClientKit FFI target, which needs the xcframework. They run on the
-# owned Mac minis (CI_SIDE_LANE_RUNNER, as cmux-tui.yml's macOS job); without that
-# variable they skip.
+# code) and one test whose golden digests were recorded on macOS, and the two
+# pure-Swift packages' tests. The Mac job keeps what Linux cannot stand in for:
+# cmux-pty and that corpus test. It runs on the owned Mac minis
+# (CI_SIDE_LANE_RUNNER, as cmux-tui.yml's macOS job); without that variable it
+# skips.
 
 on:
   push:
@@ -32,7 +31,6 @@ on:
       - schemas/terminal-corpus/**
       - Packages/Shared/CmuxTerminalSizing/**
       - Packages/Shared/CmuxTerminalStream/**
-      - Packages/Shared/CmuxTerminalClient/**
       - .github/workflows/cmux-next-terminal.yml
   workflow_dispatch:
 
@@ -87,9 +85,6 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 30
     container: swift:6.2-noble
-    env:
-      # CmuxTerminalClient without the FFI xcframework: its pure Swift model target.
-      CMUX_TERMINAL_CLIENT_MODEL_ONLY: "1"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -98,7 +93,7 @@ jobs:
       - name: swift test (terminal packages)
         run: |
           status=0
-          for package in CmuxTerminalSizing CmuxTerminalStream CmuxTerminalClient; do
+          for package in CmuxTerminalSizing CmuxTerminalStream; do
             echo "::group::$package"
             swift test --package-path "Packages/Shared/$package" || { echo "::error::$package failed"; status=1; }
             echo "::endgroup::"
@@ -152,25 +147,3 @@ jobs:
           "$ZIG" version
           cargo test --locked --no-fail-fast -p cmux-pty
           cargo test --locked -p ghostty-vt --test terminal_corpus
-
-  swift-terminal:
-    name: Swift terminal packages (CmuxTerminalClient FFI, macOS)
-    if: github.repository_owner == 'manaflow-ai' && vars.CI_SIDE_LANE_RUNNER != ''
-    # The bot's third attempt leaves the minis, as in ci-macos.yml, so a refused run cannot loop there.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26 }}
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Drop stale submodule checkouts (self-hosted reused workspace)
-        run: scripts/ci/reset-stale-submodules.sh
-
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
-      # The Linux job runs Sizing, Stream and the Client model target; the Client package's
-      # FFI target (CmuxTerminalClientKit, over the xcframework) only builds here.
-      - name: swift test (CmuxTerminalClient with the FFI target)
-        run: swift test --package-path Packages/Shared/CmuxTerminalClient

@@ -117,6 +117,18 @@ test("a browser layout shift that is the step's own expansion does not count; an
       toggle,
     ),
   ).toBe(true);
+  // A row after it pushed out past the view's bottom: the browser clips its new rect to nothing, so
+  // where its box is now says it went straight down (the live line under a digest opening whole).
+  const below = $(".below") as unknown as { getBoundingClientRect: () => DOMRect };
+  const out = { node: $(".below"), previousRect: rect(560), currentRect: { x: 0, y: 0, width: 0, height: 0 } };
+  below.getBoundingClientRect = () => rect(774) as DOMRect;
+  expect(isExpansionShift([out], toggle)).toBe(true);
+  // Gone out of view any other way (up, or sideways) is still a shift, and a row before it is too.
+  below.getBoundingClientRect = () => rect(-60) as DOMRect;
+  expect(isExpansionShift([out], toggle)).toBe(false);
+  below.getBoundingClientRect = () => rect(774, 40, 6) as DOMRect;
+  expect(isExpansionShift([out], toggle)).toBe(false);
+  expect(isExpansionShift([{ ...out, node: $(".above") }], toggle)).toBe(false);
   // A row after it pushed up or sideways, or a row before it moving, is still a shift.
   expect(isExpansionShift([moved(".below", 200, 180)], toggle)).toBe(false);
   expect(isExpansionShift([moved(".below", 200, 252, 6)], toggle)).toBe(false);

@@ -22,6 +22,29 @@ use crate::context_inventory::{ContextPart, estimated_tokens};
 /// The part's `source`; `append_snapshot` delivers it.
 pub const SOURCE: &str = "cmux-folder";
 
+/// The instruction file a harness `family` reads first, the one a new file is made as.
+pub(crate) fn own_file(family: &str) -> &'static str {
+    native(family).first().copied().unwrap_or("AGENTS.md")
+}
+
+/// The file a fact learned in a chat of `family` in `cwd` goes to (`memory_inbox.rs`): the
+/// harness's own file when the folder has one, else the file this fallback carries to it, else
+/// a new file of the harness's own (`AGENTS.md` for a harness with none).
+pub(crate) fn learned_target(family: &str, cwd: &Path) -> &'static str {
+    let own = native(family);
+    // A personal file (`CLAUDE.local.md`, `AGENTS.override.md`) is not the shared one.
+    let shared = |name: &&&str| !name.contains(".local.") && !name.contains(".override.");
+    if let Some(name) = own.iter().filter(shared).find(|name| open_beneath(cwd, name).is_some()) {
+        return name;
+    }
+    CANDIDATES
+        .iter()
+        .filter(|name| !own.contains(name) && name.ends_with(".md"))
+        .find(|name| readable(cwd, name).is_some())
+        .copied()
+        .unwrap_or_else(|| own_file(family))
+}
+
 /// The most of a file that goes to the agent; the rest is cut with a note.
 const MAX_BYTES: usize = 32 * 1024;
 
@@ -48,7 +71,32 @@ fn native(family: &str) -> &'static [&'static str] {
 /// at any step: each folder is opened with `O_NOFOLLOW` from the one before it, so a
 /// linked `.github` or a swapped component never leads out of the session folder.
 #[cfg(unix)]
-fn open_beneath(root: &Path, rel: &str) -> Option<std::fs::File> {
+pub(crate) fn open_beneath(root: &Path, rel: &str) -> Option<std::fs::File> {
+    use std::os::fd::{AsRawFd as _, FromRawFd as _};
+
+    let (dir, name) = folder_beneath(root, rel)?;
+    // SAFETY: `dir` is an open descriptor and `name` is NUL-terminated; O_NONBLOCK keeps a fifo
+    // from blocking the open.
+    let fd = unsafe {
+        libc::openat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return None;
+    }
+    // SAFETY: `fd` was just opened and nothing else owns it.
+    let file = unsafe { std::fs::File::from_raw_fd(fd) };
+    // A regular file only: never a fifo or a device.
+    file.metadata().ok()?.is_file().then_some(file)
+}
+
+/// The folder `rel`'s last name is in, opened beneath `root` without following a link at any
+/// step, and that last name.
+#[cfg(unix)]
+fn folder_beneath(root: &Path, rel: &str) -> Option<(std::os::fd::OwnedFd, std::ffi::CString)> {
     use std::ffi::CString;
     use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
 
@@ -86,8 +134,76 @@ fn open_beneath(root: &Path, rel: &str) -> Option<std::fs::File> {
         // SAFETY: `fd` was just opened and nothing else owns it.
         dir = unsafe { OwnedFd::from_raw_fd(fd) };
     }
-    let name = CString::new(last).ok()?;
-    // SAFETY: as above; O_NONBLOCK keeps a fifo from blocking the open.
+    Some((dir, CString::new(last).ok()?))
+}
+
+/// The temporary copy's mode until it takes the file's own.
+#[cfg(unix)]
+const OWNER_ONLY: libc::c_uint = 0o600;
+
+/// What a file was when it was read: [`replace_beneath`] replaces it only while it still is.
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Stamp {
+    meta: Meta,
+    /// The bytes read, hashed. An edit of the same size saved in place within one tick of the
+    /// file system's clock leaves every field of [`Meta`] as it was (Linux dates a write from a
+    /// coarse clock, a few milliseconds a tick), so only the bytes show it.
+    sha256: [u8; 32],
+}
+
+#[cfg(unix)]
+impl Stamp {
+    fn of(st: &libc::stat, bytes: &[u8]) -> Self {
+        use sha2::Digest as _;
+        Self { meta: Meta::of(st), sha256: sha2::Sha256::digest(bytes).into() }
+    }
+}
+
+/// A file's identity, size and modification time.
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Meta {
+    dev: libc::dev_t,
+    ino: libc::ino_t,
+    size: libc::off_t,
+    mtime: libc::time_t,
+    mtime_nsec: libc::c_long,
+}
+
+#[cfg(unix)]
+impl Meta {
+    fn of(st: &libc::stat) -> Self {
+        Self {
+            dev: st.st_dev,
+            ino: st.st_ino,
+            size: st.st_size,
+            mtime: st.st_mtime,
+            mtime_nsec: st.st_mtime_nsec,
+        }
+    }
+}
+
+/// Elsewhere nothing is read for an edit, so nothing is stamped.
+#[cfg(not(unix))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Stamp;
+
+/// The whole of `rel` beneath `root` and its [`Stamp`], for an edit: `None` only when there is
+/// no such file. Any other failure (no permission, a read error, a non-file, more than `max`
+/// bytes, a size that changed while it was read) is an error, so an edit never takes a file it
+/// could not read for an empty one.
+#[cfg(unix)]
+pub(crate) fn read_whole_beneath(
+    root: &Path,
+    rel: &str,
+    max: u64,
+) -> Result<Option<(Vec<u8>, Stamp)>, String> {
+    use std::os::fd::{AsRawFd as _, FromRawFd as _};
+
+    let (dir, name) = folder_beneath(root, rel)
+        .ok_or_else(|| format!("{rel}'s folder could not be opened in {}", root.display()))?;
+    // SAFETY: `dir` is open and `name` is NUL-terminated; O_NONBLOCK keeps a fifo from blocking.
     let fd = unsafe {
         libc::openat(
             dir.as_raw_fd(),
@@ -96,18 +212,355 @@ fn open_beneath(root: &Path, rel: &str) -> Option<std::fs::File> {
         )
     };
     if fd < 0 {
-        return None;
+        let e = std::io::Error::last_os_error();
+        return match e.raw_os_error() {
+            Some(libc::ENOENT) => Ok(None),
+            _ => Err(format!("{rel} could not be read: {e}")),
+        };
     }
     // SAFETY: `fd` was just opened and nothing else owns it.
     let file = unsafe { std::fs::File::from_raw_fd(fd) };
-    // A regular file only: never a fifo or a device.
-    file.metadata().ok()?.is_file().then_some(file)
+    // SAFETY: a zeroed `stat` is a valid out-parameter.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: `file` is open and `st` is writable.
+    if unsafe { libc::fstat(file.as_raw_fd(), &mut st) } != 0 {
+        return Err(format!("{rel}: {}", std::io::Error::last_os_error()));
+    }
+    if st.st_mode & libc::S_IFMT != libc::S_IFREG {
+        return Err(format!("{rel} is not a regular file; edit it by hand"));
+    }
+    let size = u64::try_from(st.st_size).unwrap_or(u64::MAX);
+    if size > max {
+        return Err(format!("{rel} is over {} KB; edit it by hand", max / 1024));
+    }
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut std::io::Read::take(&file, max.saturating_add(1)), &mut bytes)
+        .map_err(|e| format!("{rel} could not be read: {e}"))?;
+    if u64::try_from(bytes.len()).ok() != Some(size) {
+        return Err(format!("{rel} changed while it was read; try again"));
+    }
+    let stamp = Stamp::of(&st, &bytes);
+    Ok(Some((bytes, stamp)))
+}
+
+/// Replaces `rel` beneath `root` with `bytes` all at once (`memory_inbox.rs`): written to a new
+/// file beside it, synced, then renamed over it, so a crash or a full disk leaves the old file
+/// whole. It keeps the old file's mode (`0644` for a new one); a link, a folder or any other
+/// non-file at `rel`, or a linked folder on the way, is refused, never replaced. `read` is
+/// the [`Stamp`] it was read at, None when there was no file: a file that changed or appeared
+/// since is left as it is.
+#[cfg(unix)]
+pub(crate) fn replace_beneath(
+    root: &Path,
+    rel: &str,
+    bytes: &[u8],
+    read: Option<Stamp>,
+) -> Result<(), String> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd as _, FromRawFd as _};
+
+    let (dir, name) = folder_beneath(root, rel)
+        .ok_or_else(|| format!("{rel}'s folder could not be opened in {}", root.display()))?;
+    // SAFETY: a zeroed `stat` is a valid out-parameter.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: `dir` is open, `name` is NUL-terminated and `st` is writable.
+    let found = unsafe {
+        libc::fstatat(dir.as_raw_fd(), name.as_ptr(), &mut st, libc::AT_SYMLINK_NOFOLLOW)
+    } == 0;
+    let now = found.then(|| Meta::of(&st));
+    if now != read.map(|read| read.meta) {
+        return Err(format!("{rel} changed while it was being edited; try again"));
+    }
+    let mode = if found {
+        if st.st_mode & libc::S_IFMT != libc::S_IFREG {
+            return Err(format!("{rel} is not a regular file; edit it by hand"));
+        }
+        st.st_mode & 0o7777
+    } else {
+        0o644
+    };
+    let tmp =
+        CString::new(format!(".{}.cmux-{}.tmp", name.to_string_lossy(), uuid::Uuid::now_v7()))
+            .map_err(|e| e.to_string())?;
+    // SAFETY: as above; O_EXCL makes a new file, never an existing one or a link's target.
+    let fd = unsafe {
+        libc::openat(
+            dir.as_raw_fd(),
+            tmp.as_ptr(),
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            OWNER_ONLY,
+        )
+    };
+    if fd < 0 {
+        return Err(format!("{rel}: {}", std::io::Error::last_os_error()));
+    }
+    // SAFETY: `fd` was just opened and nothing else owns it.
+    let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+    let written = std::io::Write::write_all(&mut file, bytes)
+        .and_then(|()| {
+            // SAFETY: `file` is open; `mode` is a permission mask.
+            if unsafe { libc::fchmod(file.as_raw_fd(), mode) } == 0 {
+                Ok(())
+            } else {
+                Err(std::io::Error::last_os_error())
+            }
+        })
+        .and_then(|()| file.sync_all());
+    let dirfd = dir.as_raw_fd();
+    // SAFETY: as above; only ever called while the temporary name holds our own copy.
+    let drop_tmp = || unsafe { libc::unlinkat(dirfd, tmp.as_ptr(), 0) };
+    if let Err(e) = written {
+        drop_tmp();
+        return Err(format!("{rel}: {e}"));
+    }
+    // Our copy as written: after a swap back, the temporary name is removed only while it
+    // still holds exactly this.
+    // SAFETY: `file` is open and `st` is writable.
+    if unsafe { libc::fstat(file.as_raw_fd(), &mut st) } != 0 {
+        let e = std::io::Error::last_os_error();
+        drop_tmp();
+        return Err(format!("{rel}: {e}"));
+    }
+    let ours = Meta::of(&st);
+    #[cfg(test)]
+    swap_hook(&name, "before");
+    let changed = || format!("{rel} changed while it was being edited; try again");
+    // A version someone saved meanwhile, left under the temporary name rather than removed.
+    let kept = || {
+        format!(
+            "{rel} changed while it was being edited; the other version is kept as {}",
+            tmp.to_string_lossy()
+        )
+    };
+    let at_tmp = |st: &mut libc::stat| {
+        // SAFETY: as above.
+        (unsafe { libc::fstatat(dirfd, tmp.as_ptr(), st, libc::AT_SYMLINK_NOFOLLOW) } == 0)
+            .then(|| Meta::of(st))
+    };
+    match read {
+        // No file was read: made only while there is still none.
+        None => match rename(dirfd, &tmp, &name, Rename::NoReplace) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                drop_tmp();
+                Err(if e.raw_os_error() == Some(libc::EEXIST) {
+                    changed()
+                } else {
+                    format!("{rel}: {e}")
+                })
+            }
+        },
+        // The two swap at once; when the one swapped out is not the file read (an editor saved
+        // or appended meanwhile), they swap back. Nothing but our own copy is ever removed: a
+        // version saved over ours between the two swaps stays under the temporary name.
+        Some(read) => match rename(dirfd, &tmp, &name, Rename::Exchange) {
+            Ok(()) => {
+                if swapped_out_is(dirfd, &tmp, &read) {
+                    drop_tmp();
+                    return Ok(());
+                }
+                #[cfg(test)]
+                swap_hook(&name, "after");
+                if rename(dirfd, &tmp, &name, Rename::Exchange).is_err() {
+                    return Err(kept());
+                }
+                if at_tmp(&mut st) == Some(ours) {
+                    drop_tmp();
+                    return Err(changed());
+                }
+                Err(kept())
+            }
+            Err(e) => {
+                drop_tmp();
+                Err(format!("{rel}: {e}"))
+            }
+        },
+    }
+}
+
+/// Whether the file at `tmp` in `dir` (the one a replace swapped out) is still the file as `read`:
+/// the same file, size and time, and the same bytes. Anything it cannot read is not.
+#[cfg(unix)]
+fn swapped_out_is(dir: std::os::fd::RawFd, tmp: &std::ffi::CStr, read: &Stamp) -> bool {
+    use std::os::fd::{AsRawFd as _, FromRawFd as _};
+    // SAFETY: `dir` is open and `tmp` is NUL-terminated; O_NONBLOCK keeps a fifo from blocking.
+    let fd = unsafe {
+        libc::openat(
+            dir,
+            tmp.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return false;
+    }
+    // SAFETY: `fd` was just opened and nothing else owns it.
+    let file = unsafe { std::fs::File::from_raw_fd(fd) };
+    // SAFETY: a zeroed `stat` is a valid out-parameter.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: `file` is open and `st` is writable.
+    if unsafe { libc::fstat(file.as_raw_fd(), &mut st) } != 0 || Meta::of(&st) != read.meta {
+        return false;
+    }
+    let size = u64::try_from(st.st_size).unwrap_or(u64::MAX);
+    let mut bytes = Vec::new();
+    if std::io::Read::read_to_end(
+        &mut std::io::Read::take(&file, size.saturating_add(1)),
+        &mut bytes,
+    )
+    .is_err()
+    {
+        return false;
+    }
+    Stamp::of(&st, &bytes) == *read
+}
+
+/// How [`rename`] treats a file already at the new name.
+#[cfg(unix)]
+#[derive(Clone, Copy)]
+enum Rename {
+    /// Refused when there is one.
+    NoReplace,
+    /// Swapped with it, both in one step.
+    Exchange,
+}
+
+/// `from` renamed to `to`, both in `dir`, in one step that either refuses an existing `to`
+/// or swaps with it. A system with neither refuses (`ENOSYS`): a plain rename could lose an
+/// edit made meanwhile.
+#[cfg(unix)]
+fn rename(
+    dir: std::os::fd::RawFd,
+    from: &std::ffi::CStr,
+    to: &std::ffi::CStr,
+    how: Rename,
+) -> std::io::Result<()> {
+    #[cfg(target_os = "linux")]
+    let done = {
+        let flags = match how {
+            Rename::NoReplace => libc::RENAME_NOREPLACE,
+            Rename::Exchange => libc::RENAME_EXCHANGE,
+        };
+        // SAFETY: both names are NUL-terminated and beneath the open folder `dir`; the raw call
+        // is used because not every C library wraps renameat2.
+        let r = unsafe {
+            libc::syscall(libc::SYS_renameat2, dir, from.as_ptr(), dir, to.as_ptr(), flags)
+        };
+        r == 0
+    };
+    #[cfg(target_vendor = "apple")]
+    let done = {
+        let flags = match how {
+            Rename::NoReplace => libc::RENAME_EXCL,
+            Rename::Exchange => libc::RENAME_SWAP,
+        };
+        // SAFETY: as above.
+        let r = unsafe { libc::renameatx_np(dir, from.as_ptr(), dir, to.as_ptr(), flags) };
+        r == 0
+    };
+    #[cfg(not(any(target_os = "linux", target_vendor = "apple")))]
+    let done = {
+        let _ = how;
+        return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
+    };
+    if done { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+}
+
+/// A test's hook: given the file's name and the window.
+#[cfg(test)]
+type SwapFn = Box<dyn FnMut(&str, &str)>;
+/// Each `(name, window)` a hook was reached in.
+#[cfg(test)]
+type Reached = std::rc::Rc<std::cell::RefCell<Vec<(String, String)>>>;
+
+#[cfg(test)]
+thread_local! {
+    /// A test's write into the windows of a replace: `before` the swap, and `after` a swap that
+    /// found a change, before the swap back. Given the file's name and the window.
+    ///
+    /// One per test thread, not per process: the harness runs tests on parallel threads, and a
+    /// process-wide hook let one test's hook replace or clear another's before its replace ran,
+    /// so the race it forced never happened. A replace on another thread never sees it, which a
+    /// test catches through [`SwapHook::reached`].
+    static SWAP_HOOK: std::cell::RefCell<Option<(SwapFn, Reached)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The hook [`on_swap`] put on this thread; dropping it takes it off.
+#[cfg(test)]
+pub(crate) struct SwapHook {
+    reached: Reached,
+}
+
+#[cfg(test)]
+impl SwapHook {
+    /// Each `(name, window)` the hook was reached in, in order.
+    pub(crate) fn reached(&self) -> Vec<(String, String)> {
+        self.reached.borrow().clone()
+    }
+}
+
+#[cfg(test)]
+impl Drop for SwapHook {
+    fn drop(&mut self) {
+        SWAP_HOOK.with(|slot| slot.borrow_mut().take());
+    }
+}
+
+/// Runs `hook` in the windows of every replace on this thread until the returned guard drops.
+#[cfg(test)]
+pub(crate) fn on_swap(hook: impl FnMut(&str, &str) + 'static) -> SwapHook {
+    let reached = Reached::default();
+    SWAP_HOOK.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        assert!(slot.is_none(), "a swap hook is already on this thread");
+        *slot = Some((Box::new(hook), std::rc::Rc::clone(&reached)));
+    });
+    SwapHook { reached }
+}
+
+#[cfg(test)]
+fn swap_hook(name: &std::ffi::CStr, window: &str) {
+    // Out of the slot while it runs, so the hook may itself replace a file.
+    let Some((mut hook, reached)) = SWAP_HOOK.with(|slot| slot.borrow_mut().take()) else {
+        return;
+    };
+    let name = name.to_string_lossy();
+    reached.borrow_mut().push((name.to_string(), window.to_owned()));
+    hook(&name, window);
+    SWAP_HOOK.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot.is_none() {
+            *slot = Some((hook, reached));
+        }
+    });
 }
 
 /// Elsewhere there is no link-safe open of each step, so no folder file is read.
 #[cfg(not(unix))]
-fn open_beneath(_root: &Path, _rel: &str) -> Option<std::fs::File> {
+pub(crate) fn open_beneath(_root: &Path, _rel: &str) -> Option<std::fs::File> {
     None
+}
+
+/// Elsewhere no folder file is written either.
+#[cfg(not(unix))]
+pub(crate) fn replace_beneath(
+    _root: &Path,
+    rel: &str,
+    _bytes: &[u8],
+    _read: Option<Stamp>,
+) -> Result<(), String> {
+    Err(format!("{rel} can only be written on macOS and Linux"))
+}
+
+/// Elsewhere no folder file is read for an edit either.
+#[cfg(not(unix))]
+pub(crate) fn read_whole_beneath(
+    _root: &Path,
+    rel: &str,
+    _max: u64,
+) -> Result<Option<(Vec<u8>, Stamp)>, String> {
+    Err(format!("{rel} can only be edited on macOS and Linux"))
 }
 
 /// The start of `rel` beneath `cwd` (at most the cap and a few bytes) and its full size;

@@ -5,7 +5,7 @@
 //! direct.ts (the typed protocol client, #20576, #20894), `SIDE_SESSION_METHOD`
 //! (needsYou/asks.ts), `HANDOFF_OPS` (handoff/protocol.ts),
 //! `PERMISSION_GROUP_OPS` (permissions/protocol.ts), `FORK_OP`
-//! (operations.ts), `PREWARM_METHOD` and `MCP_RECONNECT_METHOD` (direct.ts), `this.send("...")` in
+//! (operations.ts), `PREWARM_METHOD`, `MCP_RECONNECT_METHOD` and `PROJECT_NEW_METHOD` (direct.ts), `this.send("...")` in
 //! multiplayer/presenceClient.ts, `RETRY_METHOD` (subagents/retryState.ts), and the raw
 //! `session/cancel` notification. `file.search` (and the git reads, sent by a
 //! variable) go to the socket only in mock mode and stay off the list. Folder
@@ -93,6 +93,7 @@ fn the_allowlist_is_what_the_page_sends() {
     sent.insert(constant(&read(&dir, "operations.ts"), "FORK_OP"));
     sent.insert(constant(&direct, "PREWARM_METHOD"));
     sent.insert(constant(&direct, "MCP_RECONNECT_METHOD"));
+    sent.insert(constant(&direct, "PROJECT_NEW_METHOD"));
     // A chat's typing (multiplayer/presenceClient.ts) and a failed subagent's, sub-session's or
     // turn's Retry (subagents/retryState.ts `RETRY_METHOD`, sent through direct.ts `retry`).
     sent.extend(quoted_after(&read(&dir, "multiplayer/presenceClient.ts"), "this.send("));
@@ -195,6 +196,14 @@ fn literal_keys(dir: &Path, direct: &str, body: &str) -> BTreeSet<String> {
 /// The keys of the object type `function name(): { ... }` returns, found in
 /// direct.ts or in the file direct.ts imports `name` from.
 fn returned_keys(dir: &Path, direct: &str, name: &str) -> BTreeSet<String> {
+    // An arrow constant (`const gestureMeta = (ticket?: string) => (ticket ? { _meta: ... } : {})`):
+    // the keys of the first object literal it returns.
+    let arrow = format!("\nconst {name} = (");
+    if let Some(start) = direct.find(&arrow) {
+        let body = start + direct[start..].find("=> ").expect("an arrow body") + 3;
+        let open = body + direct[body..].find('{').expect("an object literal");
+        return literal_keys(dir, direct, braced(direct, open));
+    }
     let signature = format!("function {name}(");
     let source = if direct.contains(&signature) {
         direct.to_owned()
@@ -255,6 +264,69 @@ fn the_page_sends_only_allowed_acpmux_meta() {
         new.extend(literal_keys(&dir, &direct, braced(body, at + "acpmux: ".len())));
     }
     assert_eq!(new, policy().known_params["session/new"].acpmux, "session/new _meta.acpmux keys");
+}
+
+/// The top-level params of every `this.request("method", { ... })` and
+/// `this.typed("method", { ... })` in direct.ts and sessionPages.ts whose
+/// params are an object literal are ones the hosts let through
+/// (`known_params`). #41760 had the cold open's attach send `settled`, which
+/// no host list named: every chat open was refused as
+/// `transport.intent_invalid` and the pane said "Something went wrong, so
+/// that didn't go through. Try again." (#42185; Leo, 2026-11-12: "try what?
+/// no, it should just automatically do stuff").
+#[test]
+fn the_page_sends_only_known_params() {
+    let dir = pane();
+    let direct = read(&dir, "direct.ts");
+    let known = &policy().known_params;
+    let mut refused = Vec::new();
+    let mut checked = 0;
+    for file in ["direct.ts", "sessionPages.ts"] {
+        let text = read(&dir, file);
+        for call in ["this.request(", "this.typed("] {
+            for (at, _) in text.match_indices(call) {
+                // The formatter puts a long call's method on its own line.
+                let rest = text[at + call.len()..].trim_start();
+                // A literal method, or a constant direct.ts names (`PREWARM_METHOD`, `FORK_OP`, ...).
+                let (method, args) = if let Some(body) = rest.strip_prefix('"') {
+                    let method = body.split('"').next().unwrap_or_default().to_owned();
+                    let args = &body[method.len() + 1..];
+                    (method, args)
+                } else {
+                    let name: String = rest
+                        .chars()
+                        .take_while(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == '_')
+                        .collect();
+                    let Some(method) = (!name.is_empty())
+                        .then(|| {
+                            quoted_after(&direct, &format!("const {name} =")).into_iter().next()
+                        })
+                        .flatten()
+                    else {
+                        continue;
+                    };
+                    (method, &rest[name.len()..])
+                };
+                let method = method.as_str();
+                let Some(args) = args.trim_start().strip_prefix(',') else { continue };
+                // `file.search` goes to the socket only in mock mode (the allowlist test above).
+                if method == "file.search" || !args.trim_start().starts_with('{') {
+                    continue;
+                }
+                let open = text.len() - args.trim_start().len();
+                let keys = literal_keys(&dir, &direct, braced(&text, open));
+                checked += 1;
+                let allowed = known.get(method).map(|k| &k.params);
+                for key in keys {
+                    if allowed.is_none_or(|allowed| !allowed.contains(&key)) {
+                        refused.push(format!("{file}: {method} {key}"));
+                    }
+                }
+            }
+        }
+    }
+    assert!(checked > 50, "only {checked} literal requests found: has the request call changed?");
+    assert!(refused.is_empty(), "params the page sends that the hosts refuse: {refused:#?}");
 }
 
 #[test]

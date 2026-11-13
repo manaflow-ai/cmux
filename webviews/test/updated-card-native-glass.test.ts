@@ -74,7 +74,7 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
      (window as any).mount = (glass: boolean | undefined, data: unknown, previewOpen?: boolean) => {
        const strings = createStrings(table);
        const root = createRoot(document.getElementById("root")!);
-       const props: any = { data, strings, actions: { openChangelog() {}, dismiss() {} }, closeButton: false };
+       const props: any = { data, strings, actions: { openChangelog() {}, dismiss() {} }, closeButton: false, previewMode: "above" };
        if (glass !== undefined) props.glass = glass;
        if (previewOpen !== undefined) props.previewOpen = previewOpen;
        flushSync(() => root.render(createElement(UpdatedCard, props)));
@@ -161,7 +161,8 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
           expect(alpha(got.card)).toBeGreaterThan(0.3);
           expect(alpha(got.card)).toBeLessThan(0.9);
           expect(got.shadow).not.toBe("none");
-          expect(await page.locator(".wn-card").innerText()).toContain("What's New");
+          // The shipped title line is "Updated to …" alone; What's New leads the open preview (8d5626228).
+          expect(await page.locator(".wn-card").innerText()).toContain("Updated to");
           await page.close();
         });
       }

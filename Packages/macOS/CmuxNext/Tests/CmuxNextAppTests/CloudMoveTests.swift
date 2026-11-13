@@ -8,8 +8,10 @@ import CmuxNextCloudUI
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLayout
 @testable import CmuxNextSettings
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -26,7 +28,7 @@ import Testing
 struct CloudMoveTests {
     /// The live chat moves: its folder is synced under the machine's work root, the chat is moved
     /// from this Mac's tab to that folder, and the machine shows it in a Cloud workspace whose
-    /// terminal runs in the synced folder. The chat's tab there is bound to the moved session
+    /// only tab is the chat: no terminal is made beside it. The chat's tab there is bound to the moved session
     /// through the machine's store (so it attaches through that machine and carries its badge),
     /// and this Mac's tab, whose chat closed, is gone.
     @Test func aCLIMoveOfALiveChatEndsWithTheTabAttachedToTheMachineChat() async throws {
@@ -49,7 +51,7 @@ struct CloudMoveTests {
             #expect(tab.agentSession?.harness == "claude")
             #expect(moved.attachesThroughMachine, "the moved chat does not attach through the machine")
             #expect(moved.badge == "Move VM", "the moved chat's tab carries no Cloud badge")
-            #expect(moved.terminalFolders == [synced], "the machine workspace's terminal is not in the synced folder")
+            #expect(moved.terminalFolders.isEmpty, "the machine workspace has a terminal beside the chat: \(moved.terminalFolders)")
             // This Mac's tab is gone (its chat closed with the move), with nothing left to retry.
             #expect(!moved.macStillHasTab)
             #expect(move.services.cloud.moveRetries[move.key] == nil)
@@ -86,15 +88,120 @@ struct CloudMoveTests {
             let moved = try await move.read()
             let tab = try #require(moved.machineTab, "no chat tab on the machine")
             let cloud = try #require(move.machine.daemon.store.workspaces.first { $0.screens.flatMap(\.panes).contains { $0.tabs.contains { $0.id == tab.id } } }).id
-            try await Self.waitUntil { rows().contains(cloud) && PendingWorkspaceRows.shared.rows(in: controller.state.id).isEmpty }
+            // Placed once its pending placement resolved (it may wait for the selected row: `anchorWaitLimit`), not when its row first lists.
+            try await Self.waitUntil {
+                rows().contains(cloud) && PendingWorkspaceRows.shared.rows(in: controller.state.id).isEmpty && services.windows.pendingPlacements[cloud] == nil
+            }
             let shown = rows()
             #expect(shown.firstIndex(of: cloud) == shown.firstIndex(of: selected).map { $0 + 1 },
                     "the Cloud workspace is not right below the selected one: \(shown), selected \(selected), cloud \(cloud)")
         }
     }
 
+    /// A CLI move with no `--focus` of the chat a window shows keeps it on screen (the cloud-ergo-handoff capture at
+    /// fde02dbe1ae0: the window fell back to Home, the chat sat in a machine workspace called "Home", and an untargeted
+    /// `cmux cloud bring-back` found only the Chief): the window shows the chat's Cloud workspace with the chat selected
+    /// and focused, the workspace is never called Home, and Bring Back Local with no target acts on the moved chat.
+    @Test func aCLIMoveOfTheChatAWindowShowsKeepsItOnScreenForBringBack() async throws {
+        try await Self.withMove("moves") { move in
+            let services = move.services
+            let (controller, _, _, local) = try await Self.putOnScreen(move.tabID, machine: services.machines.local, services: services)
+
+            if let error = await move.run() { Issue.record("cmux cloud move: \(error.code) \(error.message)") }
+            let moved = try await move.read()
+            let tab = try #require(moved.machineTab, "no chat tab on the machine")
+            let store = move.machine.daemon.store
+            let cloud = try #require(store.workspaces.first { $0.screens.flatMap(\.panes).contains { $0.tabs.contains { $0.id == tab.id } } })
+            let machinePane = try #require(cloud.screens.flatMap(\.panes).first { $0.tabs.contains { $0.id == tab.id } })
+            try await Self.waitUntil { controller.state.workspaceID == cloud.id && controller.focusedPane?.stripModel.selectedID?.rawValue == tab.id }
+            #expect(controller.state.workspaceID == cloud.id, "the window no longer shows the moved chat: \(controller.state.workspaceID ?? "nil")")
+            #expect(controller.state.selection.selection(in: machinePane.id) == tab.id, "the moved chat is not the selected tab")
+            #expect(controller.focusedPane?.stripModel.selectedID?.rawValue == tab.id, "the focused tab is not the moved chat")
+            #expect(cloud.name == CloudMove.movedName(local, folder: move.project.path))
+            #expect(cloud.name != "Home" || local.kind != SidebarMapping.homeKind, "the moved chat's workspace took Home's name")
+
+            // `cmux cloud bring-back` with no target, as the capture ran it: it acts on the moved chat (its pull runs).
+            let back = await move.cli("cloud bring-back", targeted: false)
+            #expect(back?.message.contains(CloudBringBackStrings.notFromMove) != true, "bring back found no moved chat: \(back?.message ?? "")")
+            try await Self.waitUntil { move.calls().contains { $0.prefix(3) == ["link", "seed", "pull"] } }
+            #expect(move.calls().contains { $0.prefix(3) == ["link", "seed", "pull"] }, "bring back did not act on the moved chat: \(move.calls())")
+        }
+    }
+
+    /// Ways the window remembers the chat as its pane's selected tab while it draws something else. A CLI move with no
+    /// `--focus` then changes nothing on screen: the window keeps its workspace, its screen and its top page (the review of
+    /// #39834: History dismissed, then an inactive screen replaced).
+    enum Hidden: String, CaseIterable, Sendable { case topPage, inactiveScreen, otherWorkspace }
+
+    @Test(arguments: Hidden.allCases)
+    func aCLIMoveOfAChatTheWindowRemembersButHidesChangesNothingOnScreen(_ hidden: Hidden) async throws {
+        try await Self.withMove("moves") { move in
+            let services = move.services
+            let (controller, chat, pane, local) = try await Self.putOnScreen(move.tabID, machine: services.machines.local, services: services)
+            let screen = try await Self.hide(chat, in: pane, of: local, hidden, controller: controller, daemon: services.daemon)
+            #expect(controller.state.selection.selection(in: pane.id) == chat.id, "the window no longer remembers the chat")
+            let (workspace, page) = (controller.state.workspaceID, controller.state.page)
+
+            if let error = await move.run() { Issue.record("cmux cloud move: \(error.code) \(error.message)") }
+            let moved = try await move.read()
+            #expect(moved.machineTab != nil, "no chat tab on the machine")
+            #expect(controller.state.workspaceID == workspace, "the move changed the window's workspace")
+            #expect(controller.state.page == page, "the move changed the window's top page")
+            if let screen { #expect(controller.content?.layoutModel.activeScreenID == screen, "the move changed the window's screen") }
+        }
+    }
+
+    /// Shows `tabID` (a chat tab of `machine`) in the active window: its workspace, the tab selected, the pane laid out on
+    /// screen (``WindowController/showsOnScreen(_:in:)``).
+    static func putOnScreen(_ tabID: String, machine daemon: DaemonService, services: AppServices) async throws
+        -> (WindowController, TabModel, PaneModel, WorkspaceModel) {
+        let controller = try #require(services.windows.active)
+        let (chat, pane) = try #require(services.locateTab(tabID, onMachine: daemon.machineID))
+        let workspace = try #require(daemon.store.workspace(containing: pane.handle))
+        _ = services.windows.reveal(workspaceID: workspace.id)
+        // The person's pick of the tab in its strip (a remembered selection alone leaves the strip on the tab it shows).
+        try await waitUntil {
+            if let strip = services.paneController(for: pane), strip.stripModel.selectedID?.rawValue != chat.id { strip.select(StripTabID(chat.id)) }
+            controller.content?.contentView.layoutSubtreeIfNeeded()
+            return controller.showsOnScreen(chat.id, in: pane)
+        }
+        try #require(controller.showsOnScreen(chat.id, in: pane), "the window does not draw the chat")
+        return (controller, chat, pane, workspace)
+    }
+
+    /// Hides `chat` from `controller` as `hidden` says, leaving it remembered as its pane's selection; the screen the
+    /// window shows after it (inactiveScreen), else nil.
+    static func hide(_ chat: TabModel, in pane: PaneModel, of workspace: WorkspaceModel, _ hidden: Hidden, controller: WindowController,
+                     daemon: DaemonService) async throws -> LayoutScreenID? {
+        let services = controller.services
+        switch hidden {
+        case .topPage:
+            try #require(TopPages.show(.page(.history), services: services, in: controller.state) != nil, "History did not open as a top page")
+        case .inactiveScreen:
+            let content = try #require(controller.content)
+            _ = try await #require(daemon.connection).newScreen(in: workspace.handle)
+            try await waitUntil { content.layoutModel.screens.count >= 2 }
+            let other = try #require(content.layoutModel.screens.first { !$0.layout.contains(LayoutPaneID(pane.id)) }, "no second screen")
+            ScreenCommands.select(other.id, in: content)
+            try await waitUntil {
+                content.contentView.layoutSubtreeIfNeeded()
+                return !content.layoutModel.visiblePanes.contains(LayoutPaneID(pane.id))
+            }
+            #expect(!controller.showsOnScreen(chat.id, in: pane), "a chat on an inactive screen counts as drawn")
+            return other.id
+        case .otherWorkspace:
+            let key = WorkspaceKey.generate()
+            try await #require(daemon.connection).createWorkspace(name: "Elsewhere", key: key)
+            try await waitUntil { daemon.store.workspaces.contains { $0.key == key } }
+            _ = services.windows.reveal(workspaceID: try #require(daemon.store.workspaces.first { $0.key == key }).id)
+        }
+        try await waitUntil { !controller.showsOnScreen(chat.id, in: pane) }
+        #expect(!controller.showsOnScreen(chat.id, in: pane), "a hidden chat (\(hidden)) counts as drawn")
+        return nil
+    }
+
     /// Waits up to 30 seconds for `condition`.
-    private static func waitUntil(_ condition: () -> Bool) async throws {
+    static func waitUntil(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(30)
         while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
     }
@@ -144,13 +251,13 @@ struct CloudMoveTests {
                 }
                 let synced = try #require(calls.first?.last)
                 #expect(shown.session == "chat-on-vm" && shown.machineID == "vm-move" && shown.folder == synced && shown.key == "tr-1")
-                // Retry, once the folder is there: only the tab opens.
-                try FileManager.default.createDirectory(atPath: synced, withIntermediateDirectories: true)
+                // Retry, once the machine's daemon knows the chat landed: only the tab opens.
+                try await move.land()
                 if let again = await move.run() { Issue.record("Retry failed: \(again.code) \(again.message)") }
                 let moved = try await move.read()
                 #expect(moved.calls.count == 2, "Retry synced or moved the chat again: \(moved.calls)")
                 #expect(moved.machineTab?.agentSession?.session == "chat-on-vm", "Retry did not open the moved chat's tab")
-                #expect(moved.terminalFolders == [synced])
+                #expect(moved.terminalFolders.isEmpty, "the reopened chat's workspace has a terminal beside it: \(moved.terminalFolders)")
                 #expect(!moved.macStillHasTab)
                 #expect(move.services.cloud.moveRetries[move.key] == nil)
             }
@@ -205,7 +312,7 @@ struct CloudMoveTests {
                 return
             }
             #expect(shown.session == "chat-on-vm" && shown.machineID == "vm-move" && shown.folder == synced)
-            try FileManager.default.createDirectory(atPath: synced, withIntermediateDirectories: true)
+            try await move.land()
             if let again = await move.run() { Issue.record("Retry after the relaunch failed: \(again.code) \(again.message)") }
             let moved = try await move.read()
             #expect(moved.calls.count == 2, "Retry after the relaunch synced or moved the chat again: \(moved.calls)")
@@ -476,6 +583,26 @@ struct CloudMoveTests {
         let log: URL
         let vmSocket: String
         var tabID = ""
+
+        /// The machine's daemon, which ``land()`` restarts.
+        var machineLauncher: DaemonLauncher?
+
+        /// Leaves the landed chat's record a `tabFailed` move left out (``standInCLI(in:log:mode:vmState:)``), then
+        /// restarts the machine's daemon, which reads its landed chats once, and relaunches the app on it: the
+        /// machine's daemon then takes a `registry:` tab naming the chat.
+        func land() async throws {
+            let state = log.deletingLastPathComponent().appendingPathComponent("vm-state")
+            let files = FileManager.default.enumerator(at: state, includingPropertiesForKeys: nil)?.compactMap { $0 as? URL } ?? []
+            let registry = try #require(files.first { $0.lastPathComponent == "workspace-registry.sqlite3" }, "the machine's daemon has no registry")
+            let landed: [[String: Any]] = [["session": "chat-on-vm", "landed_at_ms": Int(Date().timeIntervalSince1970 * 1000)]]
+            try JSONSerialization.data(withJSONObject: landed).write(to: registry.deletingLastPathComponent().appendingPathComponent("agent-transfer-landed.json"))
+            let launcher = try #require(machineLauncher)
+            await CloudMoveTests.end(machine.daemon)
+            let gone = ContinuousClock.now + .seconds(5)
+            while FileManager.default.fileExists(atPath: vmSocket), ContinuousClock.now < gone { try? await Task.sleep(for: .milliseconds(100)) }
+            _ = try await launcher.endpointProvider()
+            try await relaunch()
+        }
         /// The chat tab's id on this Mac, as the app keys it.
         var key = ""
         /// The chat tab's surface on this Mac.
@@ -527,9 +654,12 @@ struct CloudMoveTests {
         }
 
         /// `cmux <action>` on the chat tab, as the CLI sends it; its error when it stopped.
-        func cli(_ action: String, args: [String: CmuxNextSettings.JSONValue] = [:]) async -> ControlError? {
-            await send(["action": .string(action), "cli": .bool(true), "origin": .string("cli"), "wait": .bool(true),
-                        "target": .string("tab:" + tabID), "args": .object(args)])
+        /// With `targeted` false it names no target, as `cmux cloud bring-back` run bare does: it acts on the focused tab.
+        func cli(_ action: String, args: [String: CmuxNextSettings.JSONValue] = [:], targeted: Bool = true) async -> ControlError? {
+            var params: [String: CmuxNextSettings.JSONValue] = ["action": .string(action), "cli": .bool(true), "origin": .string("cli"),
+                                                                 "wait": .bool(true), "args": .object(args)]
+            if targeted { params["target"] = .string("tab:" + tabID) }
+            return await send(params)
         }
 
         /// `action` as the chat's own agent runs it from its shell: the CLI names the agent's session
@@ -604,7 +734,7 @@ struct CloudMoveTests {
                 moved.badge = services.machines.machineBadge(daemon.machineID)
                 if let key = machine.daemon.store.workspace(containing: pane.handle)?.key,
                    let listed = try await machine.daemon.connection?.listWorkspaces().workspaces.first(where: { $0.key == key }) {
-                    moved.terminalFolders = listed.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .pty }.compactMap(\.cwd)
+                    moved.terminalFolders = listed.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .pty }.map { $0.cwd ?? "" }
                 }
             }
             moved.macStillHasTab = services.locateTab(tabID, onMachine: services.machines.local.machineID) != nil
@@ -658,7 +788,7 @@ struct CloudMoveTests {
         _ = NSApplication.shared
         // The app's own defaults, as the app keeps them, for this run only.
         let suite = "cn-move-\(UUID().uuidString.prefix(8).lowercased())"
-        let ledger = try #require(UserDefaults(suiteName: suite))
+        let ledger = try #require(UserDefaults(testSuiteName: suite))
         defer { ledger.removePersistentDomain(forName: suite) }
         let vmSocket = try await vm.endpointProvider().socketPath
         func app() async throws -> (AppServices, CloudMachineSession) {
@@ -679,6 +809,7 @@ struct CloudMoveTests {
 
         let move = Move(services: services, machine: machine, project: project, workRoot: workRoot, log: log, vmSocket: vmSocket)
         move.relaunched = app
+        move.machineLauncher = vm
         let result: Result<Void, any Error>
         do {
             try await openChat(move)
@@ -714,12 +845,12 @@ struct CloudMoveTests {
     }
 
     /// A stand-in `cmux`: records each call's arguments (unit-separated). Like the real sync,
-    /// `link seed push` creates the synced folder (not in `tabFailed`, so the machine's terminal
-    /// can't start there; in `syncTimeout` it outlives the CLI timeout); `link agent move`
-    /// answers as `mode` says. A move that answers ok also leaves what the machine daemon's own
-    /// `agent-transfer-finish` would: the landed chat's record (`agent-transfer-landed.json` next
-    /// to that daemon's registry in `vmState`), without which the daemon refuses a `registry:` tab
-    /// naming the chat (cx-k21v).
+    /// `link seed push` creates the synced folder (in `syncTimeout` it outlives the CLI timeout);
+    /// `link agent move` answers as `mode` says. A move that answers ok also leaves what the machine
+    /// daemon's own `agent-transfer-finish` would: the landed chat's record (`agent-transfer-landed.json`
+    /// next to that daemon's registry in `vmState`), without which the daemon refuses a `registry:` tab
+    /// naming the chat (cx-k21v). `tabFailed` leaves it out, so the machine's chat tab can't open
+    /// until ``Move/land()``.
     private static func standInCLI(in root: URL, log: URL, mode: String, vmState: URL) throws -> URL {
         let url = root.appendingPathComponent("cmux")
         let script = """
@@ -735,7 +866,7 @@ struct CloudMoveTests {
                     exit 1
                 fi
                 for target in "$@"; do :; done
-                [ '\(mode)' = tabFailed ] || mkdir -p "$target"
+                mkdir -p "$target"
                 echo '{"ok":true,"written":1,"unchanged":0,"deleted":0,"skipped":0,"bytes":4}' ;;
             "link machine update")
                 case '\(mode)' in
@@ -763,7 +894,7 @@ struct CloudMoveTests {
                 *)
                     registry=$(find '\(vmState.path)' -name workspace-registry.sqlite3 -print | head -n 1)
                     [ -n "$registry" ] || exit 70
-                    printf '[{"session":"chat-on-vm","landed_at_ms":%s000}]' "$(date +%s)" > "$(dirname "$registry")/agent-transfer-landed.json"
+                    [ '\(mode)' = tabFailed ] || printf '[{"session":"chat-on-vm","landed_at_ms":%s000}]' "$(date +%s)" > "$(dirname "$registry")/agent-transfer-landed.json"
                     echo '{"ok":true,"session_id":"chat-on-vm","transfer_id":"tr-1","bytes":42,"resolved":false}' ;;
                 esac ;;
             *) exit 64 ;;

@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebar
 
@@ -61,33 +62,25 @@ enum SidebarHiddenSections {
             try write(showHiddenPaths.map { ($0, true) }, invocation, context)
         }
         bindBand(into: registry, context: context)
-        bindNoFade(into: registry, context: context)
-        bindControlsOnHover(into: registry, context: context)
+        bindFlags(into: registry, context: context)
     }
 
-    /// `sidebar.controlsOnHover` (Show Sidebar Controls Only on Hover): Only on Hover while the controls always show, Always
-    /// while they show on hover. Each writes the setting, so cmux.json and Settings show one switch.
-    private static func bindControlsOnHover(into registry: ActionRegistry, context: AppActionContext) {
-        let onHover = { @MainActor @Sendable in context.services.settings?.snapshot.sidebarSections.controlsOnHover ?? false }
-        for (id, value) in [("sidebar.controlsOnHover.on", true), ("sidebar.controlsOnHover.off", false)] as [(ActionID, Bool)] {
-            registry.bindEffect(id) { invocation in writeFlag(SidebarSectionsSetting.controlsOnHoverPath, value, invocation, context) }
-            ActionTargetVisibility.hide(id, in: registry) { _ in onHover() == value }
+    /// On/off pairs that each write one `sidebar.*` flag (cmux.json and Settings show one switch); the one that applies
+    /// shows: `sidebar.noFade`, `sidebar.controlsOnHover` (Only on Hover / Always), `sidebar.floatOnHover` (Float / Never).
+    private static func bindFlags(into registry: ActionRegistry, context: AppActionContext) {
+        let settings = { @MainActor @Sendable in context.services.settings?.snapshot.sidebarSections ?? .defaults }
+        let flags: [(String, [String], @MainActor @Sendable (SidebarSectionsPreferences) -> Bool)] = [
+            ("sidebar.noFade", SidebarSectionsSetting.noFadePath, { $0.noFade }),
+            ("sidebar.controlsOnHover", SidebarSectionsSetting.controlsOnHoverPath, { $0.controlsOnHover }),
+            ("sidebar.floatOnHover", SidebarSectionsSetting.floatOnHoverPath, { $0.floatOnHover }),
+        ]
+        for (prefix, path, read) in flags {
+            for value in [true, false] {
+                let id = ActionID(rawValue: "\(prefix).\(value ? "on" : "off")")
+                registry.bindEffect(id) { invocation in writeFlag(path, value, invocation, context) }
+                ActionTargetVisibility.hide(id, in: registry) { _ in read(settings()) == value }
+            }
         }
-    }
-
-    /// `sidebar.noFade`: Show Whole Sidebar (No Fade) while the edges fade, Restore Sidebar Fade
-    /// while they do not. Each writes the setting, so cmux.json and Settings show the same switch.
-    private static func bindNoFade(into registry: ActionRegistry, context: AppActionContext) {
-        let noFade = { @MainActor @Sendable in context.services.settings?.snapshot.sidebarSections.noFade ?? false }
-        registry.bindEffect("sidebar.noFade.on") { invocation in writeNoFade(true, invocation, context) }
-        registry.bindEffect("sidebar.noFade.off") { invocation in writeNoFade(false, invocation, context) }
-        ActionTargetVisibility.hide("sidebar.noFade.on", in: registry) { _ in noFade() }
-        ActionTargetVisibility.hide("sidebar.noFade.off", in: registry) { _ in !noFade() }
-    }
-
-    /// Writes `sidebar.noFade` on the input's turn; a refused write (a managed key) reports why.
-    private static func writeNoFade(_ on: Bool, _ invocation: ActionInvocation, _ context: AppActionContext) -> ActionEffect {
-        writeFlag(SidebarSectionsSetting.noFadePath, on, invocation, context)
     }
 
     /// Writes one `sidebar.*` flag on the input's turn; a refused write (a managed key) reports why.

@@ -3,9 +3,9 @@
 
 use crate::json::JsonField;
 use std::collections::HashMap;
-use std::time::Instant;
 
 use cmux_server::cloud_http::RequestDeadline;
+
 use cmux_server_core::install_key::{InstallKey, SystemRandom};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -20,26 +20,13 @@ use super::wire::{
 pub trait Http {
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String>;
     /// A POST with no body (the carrier ticket route refuses any body).
-    /// Transports opt in; the default refuses, like [`Http::request_until`].
+    /// Transports opt in; the default refuses.
     fn post_empty(&self, _url: &str, _bearer: Option<&str>) -> Result<(u16, Value), String> {
         Err("empty-body Cloud transport unavailable".into())
     }
 
-    /// Raw, bounded, no-redirect GET (`body=None`) or JSON POST. All calls
-    /// in a receiving-policy read share this absolute deadline. Older
-    /// transports cannot silently opt into this security-sensitive path.
-    fn request_until(
-        &self,
-        _url: &str,
-        _body: Option<&Value>,
-        _bearer: Option<&str>,
-        _deadline: Instant,
-    ) -> Result<(u16, Vec<u8>), String> {
-        Err("bounded Cloud transport unavailable".into())
-    }
-
-    /// Explicit continuous budget. Legacy transports must opt in rather than
-    /// silently inheriting an active-clock timeout for original VM authority.
+    /// A raw GET (`body=None`) or JSON POST bounded by one continuous budget, no redirects.
+    /// Transports opt in; the default refuses.
     fn request_with_deadline(
         &self,
         _url: &str,
@@ -72,6 +59,16 @@ pub trait Http {
     /// Drops any pooled connection, so the next request dials a fresh one (after a pause, a pooled connection is
     /// dead and nothing says so). A transport with no pool does nothing.
     fn reset(&self) {}
+
+    /// A transport like this one with a pool of its own, so a request on it
+    /// never waits for one in flight here (a request from before a pause).
+    /// `None` when the transport cannot make one.
+    fn fresh(&self) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        None
+    }
 }
 
 #[derive(Deserialize)]
@@ -234,6 +231,38 @@ impl BindResult {
 /// section. That section is kept as `carrier.json` (0600,
 /// `carrier_entry.rs`) before `bound.json`; a bind without one leaves any
 /// existing `carrier.json` as it is.
+/// The bind as the Cloud role makes it: the updater's connect hold first, so
+/// the machine's first link is never cut by an update's restart, then the
+/// request. A person's machine from this bind on, and the supervisor's
+/// `Bound` (an instance id change) does not cover a bind of the same machine.
+/// The hold is the state dir's restart gate (`updater/gate.rs`), which every
+/// flip and restart goes through in whichever process runs it: either the
+/// flip sees this hold, or a restart was queued first and this answers None
+/// with `bind.json` left for the restarted service.
+#[allow(clippy::too_many_arguments)]
+pub fn hold_then_bind(
+    paths: &crate::config::Paths,
+    store: &mut dyn Store,
+    http: &dyn Http,
+    key: &InstallKey,
+    wg_public_key: &str,
+    daemon: &DaemonInfo,
+    daemon_noise_key: Option<&str>,
+    now_wall_ms: u64,
+) -> Option<BindResult> {
+    #[cfg(unix)]
+    if !crate::updater::gate::hold_connects(
+        paths,
+        now_wall_ms,
+        crate::updater::gate::HoldKind::Connect,
+    ) {
+        return None;
+    }
+    #[cfg(not(unix))]
+    let _ = paths;
+    Some(bind_machine(store, http, key, wg_public_key, daemon, daemon_noise_key, now_wall_ms))
+}
+
 pub fn bind_machine(
     store: &mut dyn Store,
     http: &dyn Http,
@@ -415,6 +444,17 @@ impl<H: Http> CloudClient<H> {
         self.http.reset();
     }
 
+    /// A client for the same machine, key and bearer on a transport of its
+    /// own ([`Http::fresh`]), for a request that must not wait for one in
+    /// flight on this client.
+    pub fn fresh(&self) -> Option<CloudClient<H>> {
+        let http = self.http.fresh()?;
+        let key = InstallKey::from_pkcs8(self.key.pkcs8(), &self.rng).ok()?;
+        let mut client = CloudClient::new(http, self.bound.clone(), key);
+        client.cached = self.cached.clone();
+        Some(client)
+    }
+
     pub(super) fn url(&self, path: &str) -> String {
         format!("{}{path}", self.bound.api_origin)
     }
@@ -422,17 +462,6 @@ impl<H: Http> CloudClient<H> {
     /// A bearer token, cached until one minute before it expires.
     /// `now_wall_ms` is wall-clock time (the server's `expires_at` is).
     pub fn token(&mut self, now_wall_ms: u64) -> Result<String, String> {
-        self.token_until(now_wall_ms, None)
-    }
-
-    pub(super) fn token_until(
-        &mut self,
-        now_wall_ms: u64,
-        deadline: Option<&RequestDeadline>,
-    ) -> Result<String, String> {
-        if deadline.is_some_and(|budget| budget.remaining().is_none()) {
-            return Err("bounded Cloud authentication unavailable".into());
-        }
         if self.bound.api_origin != self.bound.env.api_origin() {
             self.cached = None;
             return Err("Cloud origin differs from the original environment".into());
@@ -443,8 +472,7 @@ impl<H: Http> CloudClient<H> {
             return Ok(token.clone());
         }
         let ids = json!({ "user": self.bound.user, "install": self.bound.install });
-        let (status, challenge): (_, Challenge) =
-            self.auth_post("/v1/auth/challenge", &ids, deadline)?;
+        let (status, challenge): (_, Challenge) = self.auth_post("/v1/auth/challenge", &ids)?;
         let expected = format!(
             "cmux-auth-v1\n{}\n{}\n",
             self.bound.env.auth_environment(),
@@ -470,16 +498,10 @@ impl<H: Http> CloudClient<H> {
             "nonce": nonce,
             "signature": signature,
         });
-        let (status, token): (_, Token) = self.auth_post("/v1/auth/token", &body, deadline)?;
+        let (status, token): (_, Token) = self.auth_post("/v1/auth/token", &body)?;
         // A team SSH binding (team_ssh::sync::client_bound) records no grant,
-        // so it pins user, install and team only. The bounded path that reads
-        // original VM authority (receiver policy, lifecycle) always pins the
-        // grant, and refuses a binding without one.
-        let grant_ok = if self.bound.grant.is_empty() {
-            deadline.is_none()
-        } else {
-            token.grant == self.bound.grant
-        };
+        // so it pins user, install and team only.
+        let grant_ok = self.bound.grant.is_empty() || token.grant == self.bound.grant;
         if status != 200
             || token.token_type != "Bearer"
             || token.user != self.bound.user
@@ -504,41 +526,15 @@ impl<H: Http> CloudClient<H> {
         &self,
         path: &str,
         body: &Value,
-        deadline: Option<&RequestDeadline>,
     ) -> Result<(u16, T), String> {
         let malformed = || "Cloud authentication unavailable".to_owned();
-        if let Some(deadline) = deadline {
-            let (status, bytes) = self.request_until(path, Some(body), None, deadline)?;
-            Ok((status, serde_json::from_slice(&bytes).map_err(|_| malformed())?))
-        } else {
-            let (status, value) =
-                self.http.post(&self.url(path), body, None).map_err(|_| malformed())?;
-            Ok((status, serde_json::from_value(value).map_err(|_| malformed())?))
-        }
+        let (status, value) =
+            self.http.post(&self.url(path), body, None).map_err(|_| malformed())?;
+        Ok((status, serde_json::from_value(value).map_err(|_| malformed())?))
     }
 
-    pub(super) fn request_until(
-        &self,
-        path: &str,
-        body: Option<&Value>,
-        bearer: Option<&str>,
-        deadline: &RequestDeadline,
-    ) -> Result<(u16, Vec<u8>), String> {
-        if self.bound.api_origin != self.bound.env.api_origin() || deadline.remaining().is_none() {
-            return Err("bounded Cloud request unavailable".into());
-        }
-        let result = self
-            .http
-            .request_with_deadline(&self.url(path), body, bearer, deadline)
-            .map_err(|_| "bounded Cloud request unavailable".to_owned())?;
-        if result.1.len() > 1024 * 1024 || deadline.remaining().is_none() {
-            return Err("bounded Cloud response unavailable".into());
-        }
-        Ok(result)
-    }
-
-    /// [`Self::request_until`] with the response's `Retry-After`: the same
-    /// origin check and size bound.
+    /// A bounded GET with the response's `Retry-After` (the carrier keyset fetch): only to the
+    /// bound environment's own API origin, and at most 1 MiB.
     pub(super) fn request_with_headers(
         &self,
         path: &str,
@@ -555,14 +551,6 @@ impl<H: Http> CloudClient<H> {
             return Err("bounded Cloud response unavailable".into());
         }
         Ok(response)
-    }
-
-    pub(super) fn install_public_jwk(&self) -> Value {
-        self.key.public_jwk()
-    }
-
-    pub(super) fn clear_token(&mut self) {
-        self.cached = None;
     }
 
     /// One read on `/v1/read` (`{op, params}`), with the same token

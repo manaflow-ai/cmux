@@ -1,6 +1,10 @@
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -24,6 +28,7 @@ extension WindowManager {
             if ActionRunScope.viewChangeAllowed(), let controller = controller(for: owner) { bringToFront(controller) }
             return
         }
+        defer { if let shown = controller(for: state.id) { shown.sidebar.sameTurn.showing(space: state.profileID.rawValue) { shown.showWorkspace(requested: state.workspaceID) } } } // content and sidebar rows in this turn, not on observation hops
         let machines = services.machines
         let members = registry.members(of: state.id)
         var visible = WindowProfiles.visible(members, profile: profile, machines: machines)
@@ -126,7 +131,7 @@ extension WindowManager {
             preferred[state.id] = lastShown(in: profile, recency: value.recency, here: state).filter(candidates.contains)
             state.enterProfile(profile)
         }
-        transition(select: preferred) { $0.move(moving, to: state.id) }
+        transition(select: preferred, gesture: true) { $0.move(moving, to: state.id) }
         recordSaver.stateDidChange(state)
     }
 
@@ -181,5 +186,60 @@ extension WindowManager {
         let showing = others.filter { $0.profileID == profile && registry.value.window($0.id)?.isOpen == true }.compactMap(\.workspaceID)
         let remembered = ([state] + others).compactMap { $0.profileWorkspaces[profile] }
         return showing + remembered
+    }
+}
+
+// The switcher's window marks (design/spaces.md "The switcher (PR 3)"): a window's spaces strip reads every other
+// window's space through these, and its Go to Window / Move Here run here (`SpaceWindowMarks.install`).
+extension WindowManager: SpaceWindowSource {
+    func spaceWindowsShowing() -> [SpaceWindowShowing] {
+        let value = registry.value
+        let order = Dictionary(value.recency.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        return value.openWindows.sorted { order[$0.id, default: .max] < order[$1.id, default: .max] }.compactMap { window in
+            states[window.id].map {
+                SpaceWindowShowing(windowID: window.id, space: SidebarProfileKey($0.profileID.rawValue),
+                                   incognito: value.isIncognito(window.id) || incognitoSpaces[window.id] != nil)
+            }
+        }
+    }
+
+    func spaceWindowIsIncognito(_ windowID: String) -> Bool { isIncognito(window: windowID) }
+
+    func spaceWindowBringToFront(_ windowID: String) {
+        if let controller = controller(for: windowID) { bringToFront(controller) }
+    }
+
+    func spaceWindowBringHere(_ space: SidebarProfileKey, window windowID: String) {
+        var invocation = ActionInvocation(target: ActionTargetRef(kind: .profile, id: space.rawValue), origin: .user)
+        invocation.arguments["window"] = .target(ActionTargetRef(kind: .window, id: windowID))
+        services.registry.perform("space.bringHere", invocation: invocation)
+    }
+
+    func spaceWindowNewIncognitoSpace() { services.registry.perform("space.newIncognito", invocation: ActionInvocation()) }
+}
+// Leo 2026-11-11: "we wanted the different windows to be accessible through spaces". A window for moved content (Move … to New
+// Window, agent fork, tear-off) takes a new space as New Window does (spaces-overhaul rule 3); Open Space in New Window shares (rule 4).
+enum WindowOwnSpace {
+    /// Window `id` (normal, no Home, spaces on the home daemon) shows a space another open window shows.
+    static func shares(_ id: String, in windows: WindowManager) -> Bool {
+        let value = windows.registry.value, local = windows.services.machines.local, members = windows.registry.members(of: id)
+        guard let state = windows.states[id], value.window(id)?.isOpen == true, !value.isIncognito(id), windows.incognitoSpaces[id] == nil,
+              local.supports(DaemonCapability.profiles.rawValue), local.store.personal.isLoaded, !members.isEmpty,
+              !members.contains(where: { windows.services.workspace(id: $0)?.isAnyHome == true }) else { return false }
+        return value.openWindows.contains { $0.id != id && windows.states[$0.id]?.profileID == state.profileID }
+    }
+    /// When it shares one, window `id` gets a new space (as New Space) with its workspaces pinned there once reported.
+    static func give(_ id: String, in windows: WindowManager) {
+        guard shares(id, in: windows), let state = windows.states[id], let connection = windows.services.machines.local.connection else { return }
+        let machines = windows.services.machines, store = machines.local.store, logger = windows.services.daemon.logger, connected = store.connectionState
+        let ids = WindowProfiles.visible(windows.registry.members(of: id), profile: state.profileID, machines: machines)
+        let space = ProfileID.generate(), name = RoomStrings.defaultName(store.profileIDs.count + 1), browser = store.profile(state.profileID)?.browserProfileID, color = GroupColor.automatic(after: store.profiles.compactMap(\.color))
+        Task { do {
+                _ = try await connection.createProfile(name: name, id: space, color: color.rawValue, browserProfileID: browser)
+                let reported = { ids.compactMap { WindowProfiles.qualified($0, machines: machines) } } // one made for the move may not be yet
+                let waiting = Task { await store.mirrored(profile: space); for await done in ObservationStream({ reported().count == ids.count || store.connectionState != connected }) where done { break } }
+                let bound = DemandTimer(owner: "WindowOwnSpace.give"); bound.schedule(after: .seconds(10)) { waiting.cancel() }; await waiting.value; bound.cancel() // a reconnect or 10 s
+                for workspace in reported() { try await connection.pinWorkspace(session: workspace.session, key: WorkspaceKey(rawValue: workspace.key), to: space) }
+            } catch { logger.error("own space for a new window failed: \(String(describing: error), privacy: .public)") } }
     }
 }

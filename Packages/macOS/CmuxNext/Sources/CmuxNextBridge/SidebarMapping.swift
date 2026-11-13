@@ -1,6 +1,7 @@
 public import CmuxNextDaemon
 public import CmuxNextSidebar
 public import CmuxNextDesign
+public import CmuxNextIcons
 import Foundation
 
 /// Maps the daemon store's sidebar flattening into sidebar rows: one machine
@@ -68,11 +69,15 @@ public struct SidebarMapping {
         /// The page's sound (a browser tab playing sound or muted); the row
         /// merges its tabs' (`SidebarWorkspaceAudio.merge`).
         public var audio: SidebarWorkspaceAudio?
+        /// A cmux page's own icon (`cmux://remote-view` of a Cloud machine: the Cloud icon), in place of a favicon:
+        /// a cmux page is no site, so its row never wears the no-favicon globe.
+        public var icon: IconName?
 
-        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil) {
+        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil, icon: IconName? = nil) {
             self.title = title
             self.favicon = favicon
             self.audio = audio
+            self.icon = icon
         }
     }
 
@@ -107,6 +112,7 @@ public struct SidebarMapping {
                                 muted: Set<String> = [],
                                 statusLine: @escaping (String) -> String? = { _ in nil },
                                 selectedTab: @escaping (PaneModel) -> String? = { _ in nil },
+                                focusedPane: @escaping (WorkspaceModel) -> String? = { _ in nil },
                                 newTabPages: Set<String> = [], isNewTabPage: ((WorkspaceModel, TabModel) -> Bool)? = nil, newTabTitle: String = "",
                                 pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> PageFace? = { _, _, _ in nil },
                                 tabTitle: ((WorkspaceModel, TabModel) -> String)? = nil, notificationText: @escaping (TabModel) -> String? = { _ in nil },
@@ -120,7 +126,8 @@ public struct SidebarMapping {
         // A personal group's icon lives on the home daemon, whichever machine's section shows it.
         func groupImage(_ icon: String) -> SidebarFavicon? { groupIconAsset.map { $0(icon) } ?? iconAsset(icon) }
         let batch = FaceRowBatch(mapping: self, options: FaceOptions(
-            machine: machine.id, showsUnread: showsUnread, selectedTab: selectedTab, newTabTitle: newTabTitle, pageFace: pageFace,
+            machine: machine.id, showsUnread: showsUnread, selectedTab: selectedTab, focusedPane: focusedPane,
+            newTabTitle: newTabTitle, pageFace: pageFace,
             tabTitle: tabTitle, notificationText: notificationText, iconAsset: iconAsset, harnessIcons: harnessIcons,
             homeShellTitle: machine.kind == .cloud ? terminalTitle : nil, faces: faces))
         // The home workspace (`kind` "home") and a window's own Home (cmux#27880) are what
@@ -177,7 +184,8 @@ public struct SidebarMapping {
 
     /// `showsUnread: false` hides the unread badge (`notifications.attention.showOnSidebar`).
     /// `selectedTab` is the window's tab selection in a pane (a `TabModel.id`), nil for the
-    /// daemon's default tab. `newTabPages` are the ids of tabs still on the New Tab page,
+    /// daemon's default tab. `focusedPane` is the pane id the window last focused in the workspace,
+    /// nil for the daemon's most recently focused one. `newTabPages` are the ids of tabs still on the New Tab page,
     /// listed as `newTabTitle` when it is not empty.
     /// `muted`: the workspace is in `notifications.mutedWorkspaces`. `notificationText` is the
     /// text of a tab's unread notification (`DaemonStore.notificationText(for:)`).
@@ -186,12 +194,14 @@ public struct SidebarMapping {
     /// `foldersLabel`: a caller whose `pageFace` gives no title (a pinned tile, `SidebarWorkspaceItems`) has its shell's
     /// folder read as the label `homeShellTitle` checks; the list's rows read the label their `pageFace` gives.
     public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true,
-                    muted: Bool = false, selectedTab: @escaping (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
+                    muted: Bool = false, selectedTab: @escaping (PaneModel) -> String? = { _ in nil },
+                    focusedPane: @escaping (WorkspaceModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
                     newTabTitle: String = "", pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> PageFace? = { _, _, _ in nil },
                     tabTitle: ((WorkspaceModel, TabModel) -> String)? = nil, notificationText: @escaping (TabModel) -> String? = { _ in nil },
                     iconAsset: @escaping (String) -> SidebarFavicon? = { _ in nil },
                     harnessIcons: HarnessIconLookup = .none, homeShellTitle: String? = nil, foldersLabel: Bool = false) -> SidebarWorkspace {
-        let options = FaceOptions(machine: machine, showsUnread: showsUnread, selectedTab: selectedTab, newTabTitle: newTabTitle,
+        let options = FaceOptions(machine: machine, showsUnread: showsUnread, selectedTab: selectedTab, focusedPane: focusedPane,
+                                  newTabTitle: newTabTitle,
                                   pageFace: pageFace, tabTitle: tabTitle, notificationText: notificationText, iconAsset: iconAsset,
                                   harnessIcons: { harnessIcons }, homeShellTitle: homeShellTitle, foldersLabel: foldersLabel)
         let request = FaceRowRequest(workspace: workspace, status: status, muted: muted, newTabPages: newTabPages)
@@ -220,11 +230,15 @@ public struct SidebarMapping {
         return rows
     }
 
-    /// The band items (pinned tiles, top rows) of `workspaces`, in order: each row as `rows` maps it with the page
-    /// face's favicon only (an item keeps its own title rule), no unread state and its shell's folder as the label.
-    public func tileInfos(_ workspaces: [(workspace: WorkspaceModel, machine: MachineID)], favicon: @escaping (WorkspaceModel, TabModel) -> SidebarFavicon?,
+    /// The band items (pinned tiles, top rows) of `workspaces`, in order: each row as `rows` maps it with `pageFace`,
+    /// the face the list's rows read (`AppServices.sidebarPageFace`), no unread state and its shell's folder as the label.
+    /// Pinning moves a row and never renames it: an item shows the title its list row shows, the workspace's own name
+    /// or the auto name the face gives one nobody named (Lawrence 2026-11-07: "i pinned a workspace and it's name
+    /// disappeared and went back to workspace-936"; the favicon-only face it read fell back to the daemon's name).
+    public func tileInfos(_ workspaces: [(workspace: WorkspaceModel, machine: MachineID)],
+                          pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> PageFace,
                           homeShellTitle: (MachineID) -> String?, faces: SidebarFaceBatch? = nil) -> [SidebarItemInfo] {
-        let mapped = self.rows(workspaces, showsUnread: false, pageFace: { workspace, tab, _ in PageFace(favicon: favicon(workspace, tab)) },
+        let mapped = self.rows(workspaces, showsUnread: false, pageFace: pageFace,
                                homeShellTitle: homeShellTitle, foldersLabel: true, faces: faces)
         return zip(workspaces, mapped).map { item, row in
             var info = SidebarItemInfo(workspaceRow: row, color: color(item.workspace.color))
@@ -264,15 +278,6 @@ public struct SidebarMapping {
         name?.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init)
     }
 
-    /// Nobody named `workspace` and nothing names it: no title, the daemon's default name, and
-    /// no name from its front tab (`label`, the auto name) beyond the home folder (Leo 2026-10-20:
-    /// "~", "workspace-11" and "workspace-29" rows clutter the sidebar).
-    public static func isUnnamed(_ workspace: WorkspaceModel, label: String?) -> Bool {
-        guard workspace.isUnnamed else { return false }
-        guard let label, !label.isEmpty else { return true }
-        return label == "~"
-    }
-
     /// A daemon checklist item as the sidebar draws it.
     static func checklistItem(_ item: WorkspaceChecklistItem) -> SidebarChecklistItem {
         let state: SidebarChecklistItem.State = switch item.state {
@@ -292,7 +297,7 @@ public struct SidebarMapping {
 
     /// The agent chat a workspace's row shows (Copy Agent Identifier on the row copies its id).
     public func rowChat(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
-        chatTab(faceTabs(workspace, selectedTab: selectedTab).front, workspace.screens.flatMap(\.panes).flatMap(\.tabs))
+        chatTab(frontTab(workspace, selectedTab: selectedTab), workspace.screens.flatMap(\.panes).flatMap(\.tabs))
     }
 
     static func tabKind(_ kind: TabKind) -> SidebarTabKind {

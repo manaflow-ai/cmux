@@ -222,6 +222,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.backgroundColor = .cmuxMobileBackground
         scrollView.topEdgeEffect.style = .soft
         list.scrollDelegate = self
+        // Safari's bottom bar: a tap on the page while the field is being edited ends the
+        // editing and lowers the keyboard (CMUX-34). The draft stays in the composer, and the
+        // tap still reaches the row under it (a disclosure, a link).
+        transcriptTap.addTarget(self, action: #selector(transcriptTapped(_:)))
+        transcriptTap.cancelsTouchesInView = false
+        transcriptTap.delegate = TranscriptTapDelegate.shared
+        scrollView.addGestureRecognizer(transcriptTap)
         view.addSubview(scrollView)
         setContentScrollView(scrollView, for: .top)
 
@@ -711,6 +718,24 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         UIView.performWithoutAnimation { view.layoutIfNeeded() }
     }
 
+    /// The tap on the transcript that ends editing (`transcriptTapped`).
+    let transcriptTap = UITapGestureRecognizer()
+
+    @objc private func transcriptTapped(_ tap: UITapGestureRecognizer) {
+        guard tap.state == .ended else { return }
+        endEditingFromTranscriptTap()
+    }
+
+    /// A tap on the transcript while the composer is focused: the composer lets go of focus
+    /// and the keyboard goes down, as Safari's address bar does on a tap on the page. Only
+    /// the composer's focus changes (its binding resigns the field), never a text field in
+    /// a row (the question card's "Other..." answer). Nothing happens when the composer is
+    /// not focused, so a tap while reading moves nothing.
+    func endEditingFromTranscriptTap() {
+        guard surface.composerFocused else { return }
+        surface.composerFocused = false
+    }
+
     @objc private func dockPanned(_ pan: UIPanGestureRecognizer) {
         guard pan.state == .changed else { return }
         let t = pan.translation(in: view)
@@ -730,7 +755,27 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         followDraggedKeyboard(true)
     }
 
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { followDraggedKeyboard(false) }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        followDraggedKeyboard(false)
+        #if DEBUG
+        if decelerate, Self.jumpsMidFling { jumpMidFling() }
+        #endif
+    }
+
+    #if DEBUG
+    /// `-cmux-mobile-jump-mid-fling` (AgentJumpDuringMomentumUITests): a fling's release taps Jump to
+    /// bottom 120 ms later, while the transcript still glides. A UI test's own tap waits for the app
+    /// to go idle, so it only lands once the fling has stopped and never sees the momentum.
+    static let jumpsMidFling = ProcessInfo.processInfo.arguments.contains("-cmux-mobile-jump-mid-fling")
+
+    private func jumpMidFling() {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard let self, self.scrollView.isDecelerating else { return }
+            self.surface.scrollToBottom()
+        }
+    }
+    #endif
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         let y = scrollView.contentOffset.y
@@ -762,11 +807,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                                           maxOffsetY: bottomOffset.y, keyboardDragging: keyboardDragging)
         }
         guard surface.showJump != shown else { return }
-        withAnimation(.cmuxMobileSnap) { surface.showJump = shown }
+        withAnimation(.cmuxMobileSnap.unlessReduceMotion) { surface.showJump = shown }
         jumpHost?.view.isUserInteractionEnabled = shown
     }
 
     func scrollTranscript(toTop: Bool, animated: Bool) {
+        // A jump ends the reader's own drag and fling first, before its layout pass.
+        scrollView.haltScrollMomentum()
         endFoldHold(force: true)
         surface.following = !toTop
         view.layoutIfNeeded()
@@ -777,6 +824,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     static let findBarClearance: CGFloat = 64
 
     func scrollTranscript(toContentY y: CGFloat, animated: Bool) {
+        // A jump ends the reader's own drag and fling first, before its layout pass.
+        scrollView.haltScrollMomentum()
         endFoldHold(force: true)
         surface.following = false
         view.layoutIfNeeded()
@@ -824,6 +873,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
 
     func revealFindBlock(_ findBlock: String, position: Double, animated: Bool) {
+        // A jump ends the reader's own drag and fling first, before its layout pass.
+        scrollView.haltScrollMomentum()
         let id = ChatTranscriptList.rowID(findBlock: findBlock)
         list.layOutNow(id)
         view.layoutIfNeeded()
@@ -843,6 +894,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     var isHoldingFold: Bool { foldHolding }
 
     private func scroll(to target: CGPoint, animated: Bool) {
+        // A flick's momentum kept moving the page under the animation, so Jump to Bottom
+        // stopped short (Leo, 2026-11-12). Stop it first; the move starts from where it is now.
+        scrollView.haltScrollMomentum()
         if animated, !reducesMotion() {
             // A long jump animated the offset across pages SwiftUI had not drawn yet (a
             // blank band and stale fragments for ~300 ms). Cut to one screen short of the
@@ -956,6 +1010,21 @@ private final class DragLinkTarget: NSObject {
     weak var owner: ChatTranscriptController?
     init(_ owner: ChatTranscriptController) { self.owner = owner }
     @objc func tick() { owner?.draggedKeyboardFrame() }
+}
+
+/// The transcript's end-editing tap runs beside the rows' own taps, and never takes a touch
+/// on a text input in a row (tapping into it must keep the focus it gets).
+private final class TranscriptTapDelegate: NSObject, UIGestureRecognizerDelegate {
+    @MainActor static let shared = TranscriptTapDelegate()
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var view = touch.view
+        while let current = view {
+            if current is UITextInput { return false }
+            view = current.superview
+        }
+        return true
+    }
 }
 
 /// Lets the composer's swipe-down recognizer run beside the text view's own.

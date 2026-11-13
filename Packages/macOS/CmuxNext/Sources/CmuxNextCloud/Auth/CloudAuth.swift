@@ -27,6 +27,11 @@ public final class CloudAuth {
     public var isSignedIn: Bool { coordinator.isAuthenticated }
     public var isRestoring: Bool { coordinator.isRestoringSession }
     public var user: CMUXAuthUser? { coordinator.currentUser }
+    /// The signed-in account's platform user id (`user_…`, the API's `userIdFor`): the id a cmux-next
+    /// machine record names its `creator` by, never the Stack id in ``user``.
+    public var platformUserID: String? {
+        user.map { CloudAccessToken.backendUserID(stackProjectID: configuration.stackProjectID, stackUserID: $0.id) }
+    }
     /// The team cmux works in; every team-scoped feature reads it (``ActiveTeam``).
     @ObservationIgnored public let activeTeam: ActiveTeam
     /// The device's managed team (``ActiveTeam/managedTeamID``).
@@ -41,6 +46,8 @@ public final class CloudAuth {
     /// Who is signed in and in which team, nil signed out: a change means the account's data (its
     /// machines, its team's lists) belongs to someone else now. Observable (both halves are).
     public var accountKey: String? { isSignedIn ? "\(user?.id ?? "")|\(teamID ?? "")" : nil }
+    /// The account and team a sandboxed Run is sent under now (``CloudAPIClient/runningAs(_:)``), nil signed out.
+    public var runAccount: CloudAPIClient.RunAccount? { isSignedIn ? user.map { .init(user: $0.id, team: teamID) } : nil }
 
     /// How a launch signs in from the credentials it was given (Rust's `LaunchSignIn`, cmux-cloud-config `auth`).
     struct LaunchSignIn: Equatable, Codable {

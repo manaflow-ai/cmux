@@ -1,0 +1,5 @@
+{"prompt":"no problem, thanks! now add a README section on install"}
+{"update":{"sessionUpdate":"tool_call","toolCallId":"t1","kind":"execute","title":"ls","status":"completed","rawOutput":{"exit_code":0}}}
+{"update":{"sessionUpdate":"tool_call","toolCallId":"t2","kind":"execute","title":"grep -r foo","status":"completed","rawOutput":{"exit_code":1}}}
+{"update":{"sessionUpdate":"tool_call","toolCallId":"w1","title":"mcp__acpmux__wrap_up","rawInput":{"recap":"Added the section.","learned":["The README is in English."]},"status":"completed"}}
+{"turn_end":true,"expect_taught":false,"expect_learned":["The README is in English."]}

@@ -67,6 +67,8 @@ function Preview({ store, detail, strings }: Pick<SectionProps, "store" | "detai
           className="cloud-input cloud-file-editor cloud-mono"
           aria-label={preview.path}
           value={draft}
+          // Unsaved text: app health never reloads the page away from it (pageHealth.ts).
+          data-cmux-unsaved-edits={draft === preview.text ? undefined : ""}
           onChange={(event) => updateDraft(event.target.value)}
         />
       );

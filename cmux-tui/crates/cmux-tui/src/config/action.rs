@@ -82,6 +82,14 @@ pub enum Action {
     ResizeShrink,
     ScrollUp,
     ScrollDown,
+    ScrollPageUp,
+    ScrollPageDown,
+    ScrollHalfPageUp,
+    ScrollHalfPageDown,
+    /// Keyboard copy mode over the active terminal's scrollback.
+    CopyMode,
+    /// Copy mode opened straight into a backward scrollback search.
+    SearchScrollback,
     ClearHistory,
     BrowserBack,
     BrowserForward,

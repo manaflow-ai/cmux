@@ -2,6 +2,7 @@
 // read the whole chat (the folder-trust ask's prompt count, the ended edit turn). Kept across
 // snapshots: only the rows after the first that differs from the previous snapshot's (by object)
 // are read again, so a long chat's stream reads its last rows alone.
+import { keptPrefix } from "./conversation/prefixFlatMap";
 import { endsTurn } from "./diff";
 import type { AcpmuxRow } from "./model";
 
@@ -15,9 +16,7 @@ export type RowMarks = {
 const MARKED = ["user", "turnSummary", "editedFiles"] as const;
 
 export function markRows(rows: readonly AcpmuxRow[], previous?: RowMarks): RowMarks {
-  let from = 0;
-  if (previous)
-    while (from < rows.length && from < previous.rows.length && rows[from] === previous.rows[from]) from += 1;
+  const from = previous ? keptPrefix(previous.rows, rows) : 0;
   const before = (indexes: number[] | undefined) => {
     if (!indexes) return [];
     let keep = indexes.length;

@@ -22,6 +22,51 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(&["ACPMUX
 #[path = "support/machine_consent_home.rs"]
 mod machine_consent_home;
 
+/// For a test that runs on any account (not only a disposable one) and reads `host join
+/// --status` on a joined home: that read keeps the home's consent requirement in the OS account
+/// (`retain_own_requirement` enrolls `<passwd home>/.acpmux/machine-consent`). Left there, it
+/// outlives the test, and later test binaries run on a machine that requires consent
+/// (`tool_inventory` lost cmux-cua, 2026-11-08). On drop it removes only what was absent at
+/// entry, so the account's own policy stays exactly as it was.
+struct AccountConsentRestored {
+    absent: Vec<std::path::PathBuf>,
+    _serial: std::sync::MutexGuard<'static, ()>,
+}
+
+impl AccountConsentRestored {
+    fn new() -> Self {
+        let serial = machine_consent_home::SERIAL.lock().unwrap_or_else(|error| error.into_inner());
+        let root = machine_consent_home::account_root();
+        // Files first, then the directories, deepest first.
+        let mut paths: Vec<_> = ["enrolled.json", "refusal.json", "consent.json", "write.lock"]
+            .iter()
+            .map(|name| root.join(name))
+            .collect();
+        let parent = root.parent().map(Path::to_owned);
+        paths.push(root);
+        paths.extend(parent);
+        // As the authority itself reads them (`symlink_metadata`): a dangling link is present.
+        let absent = paths.into_iter().filter(|path| path.symlink_metadata().is_err()).collect();
+        Self { absent, _serial: serial }
+    }
+}
+
+impl Drop for AccountConsentRestored {
+    fn drop(&mut self) {
+        for path in &self.absent {
+            // A directory that holds anything else is not this test's: it stays.
+            let removed =
+                if path.is_dir() { std::fs::remove_dir(path) } else { std::fs::remove_file(path) };
+            if let Err(error) = removed
+                && error.kind() != std::io::ErrorKind::NotFound
+                && !path.is_dir()
+            {
+                eprintln!("could not restore the account consent at {}: {error}", path.display());
+            }
+        }
+    }
+}
+
 const TOKEN: &str = "cmj_test_secret_never_print";
 const FRESH_TOKEN: &str = "cmj_fresh_test_secret_never_print";
 const CREDENTIAL: &str = "cmm_test_secret_never_print";
@@ -681,6 +726,7 @@ fn cloned_record(home: &Path, origin: &str, marked: bool) -> Vec<u8> {
 
 #[tokio::test]
 async fn status_on_a_copied_home_says_cloned_and_never_sends_the_originals_credential() {
+    let _account = AccountConsentRestored::new();
     let home = tempfile::tempdir().unwrap();
     // Any request here would be the original box's credential leaving the copy.
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -787,6 +833,7 @@ async fn a_pending_join_copied_from_another_box_is_set_aside_unsent() {
 
 #[tokio::test]
 async fn status_records_the_person_and_grants_its_own_machines_on_an_older_join() {
+    let _account = AccountConsentRestored::new();
     let home = tempfile::tempdir().unwrap();
     let (origin, server) = response_server(1, |_, request, bearer, _| {
         assert!(request.starts_with("GET /v1/machines/credentials/self "));

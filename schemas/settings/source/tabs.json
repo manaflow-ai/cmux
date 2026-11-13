@@ -810,29 +810,6 @@
           ]
         },
         {
-          "key": "tabs.cmdWClosesPinnedTabs",
-          "note": "Whether the user's Cmd-W closes a pinned tab.",
-          "title": {
-            "key": "settings.tabs.cmdWClosesPinnedTabs",
-            "text": "Cmd-W Closes Pinned Tabs"
-          },
-          "help": {
-            "key": "settings.tabs.cmdWClosesPinnedTabs.help",
-            "text": "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu."
-          },
-          "kind": "toggle",
-          "swift_owner": "CmdWClosesPinnedTabsSetting",
-          "default": true,
-          "keywords": [
-            "pin",
-            "pinned",
-            "close",
-            "cmd-w",
-            "tab",
-            "keep"
-          ]
-        },
-        {
           "key": "tabs.verticalTabs",
           "note": "Tabs as a vertical list in every workspace; a workspace's own choice, from the tab list's menu, wins.",
           "title": {

@@ -5,7 +5,7 @@ import CmuxNextDesign
 final class AppSceneDividerNSView: AppSceneNodeNSView {
     override func contentHeight(width: CGFloat) -> CGFloat { 1 / max(1, window?.backingScaleFactor ?? 2) }
 
-    override func updateLayer() {
+    override func paint() {
         performWithTheme { layer?.backgroundColor = Palette.separator.cgColor }
     }
 }

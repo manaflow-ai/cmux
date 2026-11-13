@@ -75,17 +75,6 @@ impl Deadline {
     pub fn after(&self, delay: Duration) -> Option<Self> {
         self.source.restart()?.deadline_at(delay)
     }
-
-    pub(crate) fn bounded_by(mut self, other: Self) -> Option<Self> {
-        if self.source.started != other.source.started
-            || !Arc::ptr_eq(&self.source.state, &other.source.state)
-        {
-            return None;
-        }
-        self.at = self.at.min(other.at);
-        self.remaining()?;
-        Some(self)
-    }
 }
 
 impl Elapsed {

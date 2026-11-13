@@ -541,6 +541,7 @@ export function fileName(path: string): string {
 /// more than one entry, so one card never leaves the whole run spread out as a list
 /// (Leo 2026-10-21: "it can consolidate a ton of these tool calls"). A run that is not folded
 /// (`foldRun`, the Codex-style runs) is one stretch that folds nothing.
+/// An aside between runs (`isAside`) splits them the same way a card does.
 export type RunStretch = { from: number; groups: ToolGroup[]; items: AcpmuxActivity[]; fold: boolean };
 
 export function runStretches(row: Pick<AcpmuxRow, "foldRun">, groups: readonly ToolGroup[]): RunStretch[] {
@@ -552,7 +553,7 @@ export function runStretches(row: Pick<AcpmuxRow, "foldRun">, groups: readonly T
   };
   groups.forEach((group, at) => {
     const items = "items" in group ? group.items : [group.item];
-    if (row.foldRun === true && staysInSight(group)) {
+    if (row.foldRun === true && (staysInSight(group) || isAside(group))) {
       close();
       stretches.push({ from: at, groups: [group], items, fold: false });
       return;
@@ -564,6 +565,16 @@ export function runStretches(row: Pick<AcpmuxRow, "foldRun">, groups: readonly T
   close();
   if (row.foldRun !== true) for (const stretch of stretches) stretch.fold = false;
   return stretches;
+}
+
+/// The agent's short aside between two runs of calls (turns.ts mergeShortNotes): it ends the
+/// stretch before it and starts another, so each run of calls between asides folds under its own
+/// line and counts only its own calls, and a later run never joins an earlier one's line across the
+/// aside (Leo, 2026-11-07: "this is counting the total amount of tool calls across both these things,
+/// and, like, including your little chatter in between"). The whole turn's count is the "Worked for"
+/// line's (turns.ts `workedCalls`).
+export function isAside(group: ToolGroup): boolean {
+  return group.type === "item" && group.item.kind === "note" && !group.item.tool;
 }
 
 /// How a run's stretch starts, one answer for ToolRows (TurnRows.tsx) to draw and for model.ts to

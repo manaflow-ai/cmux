@@ -165,6 +165,30 @@ export type Connection = typeof Connection.Type
 
 const Scopes = Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(80))).check(Schema.isMaxLength(30))
 
+/** The longest return link a connect carries through its signed state. */
+export const CONNECT_RETURN_TO_MAX = 512
+const RETURN_HEX = "[0-9a-f]{32}"
+const RETURN_SESSION = "[A-Za-z0-9._-]{1,200}"
+const RETURN_HINT = "(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}"
+/**
+ * Where a connect started from a chat sends the person back after GitHub: a cmux object link to that chat, the
+ * grammar of `plans/cmux-next/links.json` (`<scheme>://workspace|pane|tab/<prefix><32 hex>[?machine=]`,
+ * `session/<id>[?machine=][#turn-<id>]`, `agent/<harness>/<session>[?host=&name=&message=]`). Schemes: `cmux`,
+ * `cmux-nightly`, `cmux-rc`, and `cmux-dev[-<tag>]` (development builds; dropped on production). Nothing else:
+ * no web origin, no other scheme, no other query key.
+ */
+export const CONNECT_RETURN_TO = new RegExp(
+  `^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?)://(?:` +
+    `(?:workspace/ws_|pane/pane_|tab/tab_)${RETURN_HEX}(?:\\?machine=machine_${RETURN_HEX})?` +
+    `|session/${RETURN_SESSION}(?:\\?machine=machine_${RETURN_HEX})?(?:#turn-${RETURN_SESSION})?` +
+    `|agent/[a-z0-9-]{1,64}/[A-Za-z0-9._:-]{1,256}(?:\\?${RETURN_HINT}(?:&${RETURN_HINT}){0,2})?` +
+    `)$`
+)
+/** Is `s` a return link a connect may carry (the dashboard checks it again before it redirects)? */
+export const isConnectReturnTo = (s: unknown): s is string => typeof s === "string" && s.length <= CONNECT_RETURN_TO_MAX && CONNECT_RETURN_TO.test(s)
+/** A development build's link (`cmux-dev`, `cmux-dev-<tag>`): never followed on production. */
+export const isDevReturnTo = (s: string): boolean => s.startsWith("cmux-dev")
+
 export const IntegrationConnect = def({
   name: "integration.connect",
   owner: "cloud:ConnectionDO",
@@ -175,11 +199,21 @@ export const IntegrationConnect = def({
   params: Schema.Struct({
     provider: IntegrationProvider,
     scopes: Schema.optionalKey(Scopes),
-    sharing: Schema.optionalKey(Schema.Literals(["private", "team"]))
+    sharing: Schema.optionalKey(Schema.Literals(["private", "team"])),
+    /** GitHub: the repository the person needs (OWNER/REPO). A connection that already covers it is reused. */
+    repo: Schema.optionalKey(Schema.String.check(isPattern(/^(?!\.{1,2}\/)[A-Za-z0-9_.-]{1,100}\/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/))),
+    /** A cmux deep link to the chat that asked; the callback page opens it after linking (`CONNECT_RETURN_TO`). */
+    return_to: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(CONNECT_RETURN_TO_MAX), isPattern(CONNECT_RETURN_TO)))
   }),
-  result: Schema.Struct({ connection: Connection, authorize_url: Schema.String }),
+  /**
+   * `connected: true` (no `authorize_url`): a connection this person may use already covers `repo`; nothing to open.
+   * Otherwise `authorize_url` is the one page to open: GitHub's authorize page when the App is installed on the
+   * repository's owner (the completion answers `configure_url` if the person's link leaves `repo` out), else the
+   * install page, preselecting the owner when known.
+   */
+  result: Schema.Struct({ connection: Connection, authorize_url: Schema.optionalKey(Schema.String), connected: Schema.optionalKey(Schema.Literal(true)) }),
   errors: [...mutationErrors, "integration.not_configured", "integration.limit", "policy.denied"],
-  docs: "Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it.",
+  docs: "Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it, or connected when a connection already covers the GitHub repository asked for.",
   cli: { path: "integration connect", visible: true },
   mcp: { expose: "never", group: "integration" }
 })
@@ -197,7 +231,11 @@ export const IntegrationComplete = def({
     installation_id: Schema.optionalKey(Schema.String.check(isPattern(/^[0-9]{1,20}$/))),
     setup_action: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(40)))
   }),
-  result: Connection,
+  /**
+   * From the verified state, never the redirect's query: `return_to`, the connect's return link; `configure_url`,
+   * the installation's GitHub settings page when the person's link left the asked repository out (open it first).
+   */
+  result: Schema.Struct({ ...Connection.fields, return_to: Schema.optionalKey(Schema.String), configure_url: Schema.optionalKey(Schema.String) }),
   errors: [...mutationErrors, "integration.not_configured", "integration.state_invalid", "mutation.indeterminate"],
   docs: "Finish a connection from the provider's redirect (the signed-in user must be the one who started it).",
   cli: { path: "", visible: false },
@@ -357,6 +395,8 @@ export const GitHubTokenRequest = Schema.Struct({
   team: Schema.optionalKey(TeamId),
   repo: GitHubRepoName,
   permissions: GitHubTokenPermissions,
+  /** When selected in the repository picker, require this exact authorized connection. */
+  connection: Schema.optionalKey(ConnectionId),
   label: Schema.optionalKey(Label),
 })
 /** POST /v1/integrations/github/machine-token: the machine-only connector path may set a short TTL. */
@@ -364,6 +404,7 @@ export const GitHubMachineTokenRequest = Schema.Struct({
   team: Schema.optionalKey(TeamId),
   repo: GitHubRepoName,
   permissions: GitHubTokenPermissions,
+  connection: Schema.optionalKey(ConnectionId),
   label: Schema.optionalKey(Label),
   ttlSec: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(60), Schema.isLessThanOrEqualTo(3600))),
 })

@@ -34,7 +34,7 @@ export default componentEntry<WithOpenInAppProps>({
   keywords: ["multiplayer", "share", "guest", "open in app", "banner", "join"],
   covers: ["agent-session/guest/OpenInApp.tsx", "agent-session/guest/guest.css"],
   height: 420,
-  widths: { narrow: 390 },
+  widths: { narrow: 320, normal: 390 },
   pane: true,
   load: () => import("./OpenInApp").then((module) => module.WithOpenInApp),
   variants: {

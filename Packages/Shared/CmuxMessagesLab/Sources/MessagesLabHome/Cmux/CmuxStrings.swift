@@ -83,6 +83,24 @@ enum CmuxStrings {
     static var replyingToSelection: String {
         String(localized: "home.replyQuote.replyingToSelection", defaultValue: "Replying to Selection", table: "CmuxHome", bundle: .module)
     }
+    // MARK: The Chief composer's `/` menu (SlashSkillMenuView)
+
+    static var slashSkillsTitle: String {
+        String(localized: "home.slashSkills.title", defaultValue: "Skills", table: "CmuxHome", bundle: .module)
+    }
+    /// The menu's only row when no skill matches the command typed.
+    static func slashSkillsNoMatch(_ query: String) -> String {
+        String(format: String(localized: "home.slashSkills.noMatch", defaultValue: "No skills match “%@”", table: "CmuxHome", bundle: .module), query)
+    }
+    /// The source tag of a Chief skill.
+    static var slashSkillsSourceChief: String {
+        String(localized: "home.slashSkills.source.chief", defaultValue: "Chief", table: "CmuxHome", bundle: .module)
+    }
+    /// The source tag of the person's own Claude Code skill.
+    static var slashSkillsSourceClaude: String {
+        String(localized: "home.slashSkills.source.claude", defaultValue: "Claude", table: "CmuxHome", bundle: .module)
+    }
+
     static var replyQuoteRemove: String {
         String(localized: "home.replyQuote.remove", defaultValue: "Remove Quote", table: "CmuxHome", bundle: .module)
     }

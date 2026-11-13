@@ -342,12 +342,12 @@ cmux machine new
 Use an ID from the machine list to select the machine explicitly:
 
 ```sh
-cmux cloud machine-status --target machine:MACHINE_ID
-cmux cloud ssh --target machine:MACHINE_ID
-cmux cloud setup-github --target machine:MACHINE_ID
-cmux cloud pause-machine --target machine:MACHINE_ID
-cmux cloud resume-machine --target machine:MACHINE_ID
-cmux cloud exec --target machine:MACHINE_ID --command 'uname -a'
+cmux vm status NAME
+cmux vm ssh NAME
+cmux vm setup-github --target vm:VM_ID
+cmux vm pause NAME
+cmux vm resume NAME
+cmux vm exec NAME -- uname -a
 ```
 
 `cloud ssh` opens a terminal in the app. It does not attach the invoking CLI's
@@ -359,7 +359,7 @@ require network and provider connections to be established again.
 The catalog also exposes file access, for example:
 
 ```sh
-cmux cloud file-read --target machine:MACHINE_ID --path /workspace/README.md
+cmux vm file-read --target vm:VM_ID --path /workspace/README.md
 ```
 
 `cloud exec` runs one command through the Cloud API and returns `exit_code`,
