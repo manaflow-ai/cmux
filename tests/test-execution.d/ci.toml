@@ -403,6 +403,10 @@ path = "tests/test_ci_portable_job_placement.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_post_merge_checks.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pr_media_privacy.py"
 lane = "linux-guard"
 
@@ -436,10 +440,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_prune_pr_media.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_post_merge_checks.py"
 lane = "linux-guard"
 
 [[test]]
