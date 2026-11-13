@@ -30,6 +30,8 @@ pub(super) struct History {
     used: usize,
     #[cfg(test)]
     encoded_ops: AtomicUsize,
+    #[cfg(test)]
+    raw_copies: AtomicUsize,
 }
 
 /// A comma-separated span of the already encoded operations in the ring.
@@ -47,7 +49,9 @@ impl RawSpan {
     }
 
     /// Check the copied bytes after releasing the ring lock. Entry offsets
-    /// address this span, so later ring writes cannot affect validation.
+    /// address this span, so later ring writes cannot affect validation. The
+    /// checksum catches a damaged read before decode; its append-time hashing
+    /// is part of the replay-append timing gate.
     pub(super) fn is_valid(&self) -> bool {
         self.entries.iter().all(|entry| {
             let Some(bytes) = self.bytes.get(entry.start..entry.start + entry.len) else {
@@ -98,6 +102,8 @@ impl History {
             used: 0,
             #[cfg(test)]
             encoded_ops: AtomicUsize::new(0),
+            #[cfg(test)]
+            raw_copies: AtomicUsize::new(0),
         }
     }
 
@@ -109,6 +115,16 @@ impl History {
     #[cfg(test)]
     pub(super) fn encoded_ops(&self) -> usize {
         self.encoded_ops.load(Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    pub(super) fn reset_raw_copies(&self) {
+        self.raw_copies.store(0, Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    pub(super) fn raw_copies(&self) -> usize {
+        self.raw_copies.load(Ordering::Acquire)
     }
 
     #[cfg(test)]
@@ -266,6 +282,8 @@ impl History {
     }
 
     fn copy_entry_into(&self, entry: Entry, out: &mut Vec<u8>) -> bool {
+        #[cfg(test)]
+        self.raw_copies.fetch_add(1, Ordering::Release);
         let capacity = self.bytes.len();
         let first_len = entry.len.min(capacity.saturating_sub(entry.start));
         let Some(first) = self.bytes.get(entry.start..entry.start + first_len) else {

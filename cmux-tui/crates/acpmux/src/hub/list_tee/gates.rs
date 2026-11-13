@@ -2,7 +2,7 @@
 //! actual 20/11k workloads used by the v2 registry, rather than unit-test fixtures or estimates.
 
 use super::*;
-use acpmux_book::index::SummaryIndex;
+use acpmux_book::index::{SortedSnapshot, SummaryIndex};
 use acpmux_client::wire::{ListKey, ListView, Page, PageResult, PageSide, Sub, Window};
 use acpmux_core::hub::Hub as CoreHub;
 use serde_json::json;
@@ -91,6 +91,33 @@ fn fixture(count: usize) -> Arc<Hub> {
         hub.insert_test_session(meta);
     }
     hub
+}
+
+/// A release-only walk fixture whose metadata is read from the real LocalStore
+/// before reconciliation starts. The directory is retained by the caller for
+/// the duration of the child process.
+async fn disk_fixture(count: usize) -> (Arc<Hub>, u128, tempfile::TempDir) {
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Local;
+    let root = tempfile::tempdir().expect("walk store tempdir");
+    let store = crate::store::open(&config.store, root.path()).expect("walk local store");
+    for n in 0..count {
+        let id = crate::god_fixture::chat_id(n);
+        let value = crate::god_fixture::session_meta(
+            &id,
+            &format!("chat-{n}"),
+            "/tmp",
+            &crate::god_fixture::agent_session_id(n),
+            400,
+            1_791_540_000_000 + n as u64,
+        );
+        let meta: crate::store::SessionMeta = serde_json::from_value(value).unwrap();
+        store.save(&meta).expect("write walk session metadata");
+    }
+    let hub = Hub::new_loading(config, store, crate::mailbox::Mailbox::memory());
+    let started = Instant::now();
+    hub.load_store_async().await;
+    (hub, started.elapsed().as_nanos(), root)
 }
 
 async fn eventually(mut predicate: impl FnMut() -> bool) {
@@ -208,19 +235,28 @@ fn rss_bytes() -> u128 {
 }
 
 async fn walk_rss_child(count: usize) -> (u128, u128, u128, u128, usize) {
-    let v1 = fixture(count);
-    let (hub, writer) = CoreHub::new(SummaryIndex::new());
+    let (v1, disk_load_ns, _store_root) = disk_fixture(count).await;
+    // Keep a populated stale index so reconciliation reads real page-sized
+    // slices. An empty index would exercise only the unseen-id pass and report
+    // zero page bytes.
+    let index_root = tempfile::tempdir().expect("walk index tempdir");
+    let stale = index_for(&v1, 0);
+    SortedSnapshot::write(index_root.path().join("index.snap"), &stale)
+        .expect("write walk index snapshot");
+    let (hub, writer) = CoreHub::open(index_root.path(), 1, || 7).expect("open walk index");
     let v2 = Arc::new(V2::new(hub, writer));
     let (handle, task) = start_v2_tee(v1.clone(), v2.clone());
+    let metrics = handle.clone();
     v1.install_v2_tee(handle);
     let before = rss_bytes();
     let scope = cmux_scope::Scope::new("list-tee-gate");
     let writer_task = scope.spawn(v2.take_writer().unwrap().run());
     let tee_task = scope.spawn(task);
+    metrics.mark_all();
     let mut peak = before;
     let mut observed = 0;
     let deadline = Instant::now() + Duration::from_secs(30);
-    while v2.hub.snapshot().len() < count {
+    while !metrics.state.walk_finished() {
         assert!(Instant::now() < deadline, "startup walk did not publish every fixture row");
         let len = v2.hub.snapshot().len();
         if len != observed {
@@ -238,8 +274,23 @@ async fn walk_rss_child(count: usize) -> (u128, u128, u128, u128, usize) {
     peak = peak.max(rss_bytes());
     let after = rss_bytes();
     let retained = v2.hub.snapshot().iter().map(|row| serde_json::to_vec(row).unwrap().len()).sum();
+    let (walk_page_bytes, walk_cold_bytes, walk_page_total_bytes, walk_id_bytes) =
+        metrics.state.walk_peak_memory();
+    let (store_load_ns, mark_all_ns) = metrics.state.load_and_mark_all_ns();
     tee_task.abort();
     let _ = tee_task.await;
+    eprintln!(
+        "WALK_MEMORY_CHILD label={:?} page_slots_bytes={} cold_row_bytes={} id_bytes={} additive={}",
+        if count == 20 { "small" } else { "god" },
+        walk_page_bytes,
+        walk_cold_bytes,
+        walk_id_bytes,
+        walk_page_total_bytes.saturating_add(walk_id_bytes),
+    );
+    eprintln!(
+        "WALK_TIMING_CHILD store_load_ns={} tee_wait_store_ns={} mark_all_ns={}",
+        disk_load_ns, store_load_ns, mark_all_ns
+    );
     (before, peak, peak.saturating_sub(before), after, retained)
 }
 
@@ -294,6 +345,15 @@ async fn walk_rss_gate() {
     let small_measure =
         parse(&small.stderr).expect("small RSS child omitted a complete diagnostic");
     let god_measure = parse(&god.stderr).expect("god RSS child omitted a complete diagnostic");
+    for output in [&small.stderr, &god.stderr] {
+        for prefix in ["WALK_MEMORY_CHILD ", "WALK_TIMING_CHILD "] {
+            if let Some(line) =
+                String::from_utf8_lossy(output).lines().find(|line| line.starts_with(prefix))
+            {
+                eprintln!("{line}");
+            }
+        }
+    }
     eprintln!(
         "row=v2.pr05c.walk_rss walk RSS additive diagnostic: small baseline={} peak={} increment={} after={} retained={}, god baseline={} peak={} increment={} after={} retained={}",
         small_measure.0,
