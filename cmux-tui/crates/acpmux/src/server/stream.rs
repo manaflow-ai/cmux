@@ -63,6 +63,7 @@ pub(super) async fn serve_stream(
         None,
         None,
         None,
+        None,
     )
     .await;
 }

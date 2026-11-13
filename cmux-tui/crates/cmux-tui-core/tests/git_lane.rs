@@ -306,6 +306,19 @@ impl Connection {
         writeln!(self.writer, "{request}").unwrap();
     }
 
+    /// One line of the daemon, with a wait of `left` at most: `Ok(0)` when
+    /// the daemon closed, an error when no line came in time.
+    ///
+    /// macOS refuses a read timeout on a socket whose peer closed its whole
+    /// end (`EINVAL`). `read_timeout_or_ended` takes that refusal as the end
+    /// only when the socket can receive no more: the read then gives the
+    /// lines that are left, then the close, with no wait. A refusal on a
+    /// connection that is open is a fault of the test, and a panic here.
+    fn read_line_in(&mut self, left: Duration, line: &mut String) -> std::io::Result<usize> {
+        cmux_tui_platform::read_timeout_or_ended(self.reader.get_ref(), left).unwrap();
+        self.reader.read_line(line)
+    }
+
     /// The reply with `id` among the lines the connection sends in `wait`;
     /// `None` when it did not come by then.
     fn reply_in(&mut self, id: &Value, wait: Duration) -> Option<Value> {
@@ -316,9 +329,8 @@ impl Connection {
         loop {
             let left = deadline.checked_duration_since(Instant::now())?;
             let left = left.max(Duration::from_millis(1));
-            self.reader.get_ref().set_read_timeout(Some(left)).unwrap();
             let mut line = String::new();
-            match self.reader.read_line(&mut line) {
+            match self.read_line_in(left, &mut line) {
                 Ok(0) => panic!("the connection closed before the reply {id}"),
                 Ok(_) => {}
                 Err(_) => return None,
@@ -345,9 +357,8 @@ impl Connection {
         while replies.len() < count {
             let Some(left) = deadline.checked_duration_since(Instant::now()) else { break };
             let left = left.max(Duration::from_millis(1));
-            self.reader.get_ref().set_read_timeout(Some(left)).unwrap();
             let mut line = String::new();
-            match self.reader.read_line(&mut line) {
+            match self.read_line_in(left, &mut line) {
                 Ok(0) => return (replies, true),
                 Ok(_) => {}
                 Err(_) => break,
@@ -371,15 +382,54 @@ impl Connection {
         loop {
             let Some(left) = deadline.checked_duration_since(Instant::now()) else { return false };
             let left = left.max(Duration::from_millis(1));
-            self.reader.get_ref().set_read_timeout(Some(left)).unwrap();
             let mut line = String::new();
-            match self.reader.read_line(&mut line) {
+            match self.read_line_in(left, &mut line) {
                 Ok(0) => return true,
                 Ok(_) => {}
                 Err(_) => return false,
             }
         }
     }
+
+    /// A connection whose far end wrote `lines` and then closed its whole
+    /// end, before any look of this client. A daemon that ends a connection
+    /// does that: it closes each descriptor of its socket at once.
+    fn closed_after(lines: &str) -> Self {
+        let (near, mut far) = UnixStream::pair().unwrap();
+        far.write_all(lines.as_bytes()).unwrap();
+        drop(far);
+        let writer = near.try_clone().unwrap();
+        Self { writer, reader: BufReader::new(near), seen: Vec::new() }
+    }
+}
+
+/// 2 reply lines, as a daemon writes them.
+const TWO_REPLIES: &str = "{\"id\":\"a\",\"ok\":true}\n{\"id\":\"b\",\"ok\":true}\n";
+
+/// The 3 looks of the test client itself, each on a connection that closed
+/// before the look. macOS refuses a read timeout on such a socket; a look
+/// that takes that for a fault of the test makes its test fail by chance,
+/// when the daemon's close comes before the look.
+#[test]
+fn git_lane_the_test_client_sees_a_close_that_came_before_its_look() {
+    let closed = Connection::closed_after("").closed_in(Duration::from_secs(1));
+    assert!(closed, "the look for a close did not see a connection that closed before it");
+}
+
+#[test]
+fn git_lane_the_test_client_reads_the_replies_that_a_closed_connection_left() {
+    let mut connection = Connection::closed_after(TWO_REPLIES);
+    let (replies, closed) = connection.replies(3, Duration::from_secs(1));
+    let ids: Vec<Value> = replies.iter().map(|reply| reply["id"].clone()).collect();
+    assert_eq!((ids, closed), (vec![json!("a"), json!("b")], true), "the 2 lines, then closed");
+}
+
+#[test]
+fn git_lane_the_test_client_finds_the_reply_that_a_closed_connection_left() {
+    let mut connection = Connection::closed_after(TWO_REPLIES);
+    let reply = connection.reply_in(&json!("b"), Duration::from_secs(1));
+    assert_eq!(reply.map(|reply| reply["ok"].clone()), Some(json!(true)), "the reply b");
+    assert!(connection.answered("a"), "the reply a is kept for a later look");
 }
 
 /// The person's case: the warm `git.diff` of a hidden chat runs for seconds,

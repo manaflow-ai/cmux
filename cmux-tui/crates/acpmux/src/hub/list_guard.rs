@@ -62,6 +62,11 @@ pub(crate) struct Events {
     /// (`Session::summary_gen`, [`Events::send_row`], [`Events::row_changed`]), so a change of one
     /// chat rebuilds its own row only (`Hub::cached_closed_summary`).
     pub(super) summary_generation: Arc<AtomicU64>,
+    /// The list's row log (`row_log.rs`): a row change is stamped and sent under its lock, so
+    /// list positions go out in their order.
+    rows: std::sync::Mutex<super::row_log::RowLog>,
+    /// This run's id for list positions: a cursor of another run is no cursor here.
+    epoch: String,
 }
 
 impl Events {
@@ -70,7 +75,45 @@ impl Events {
             tx: broadcast::channel(capacity).0,
             changes: AtomicU64::new(0),
             summary_generation: Arc::new(AtomicU64::new(0)),
+            rows: Default::default(),
+            epoch: super::row_log::new_epoch(),
         }
+    }
+
+    /// Sends `event`, stamped with the list position of the row it changes, if any.
+    fn stamped(&self, mut event: HubEvent) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        let Some((key, gone)) = super::row_log::row_change(&event) else {
+            return self.tx.send(event);
+        };
+        let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        event.list_seq = rows.stamp(key, gone);
+        let rec = &event.record;
+        if event.remote.is_none()
+            && rec.kind != "created"
+            && reaches_other_rows(&rec.dir, &rec.kind)
+        {
+            rows.floor_all();
+        }
+        self.tx.send(event)
+    }
+
+    /// Stamps `session`'s row, which changed with no notice a watcher hears (a streamed chunk's
+    /// preview, an attach): a follow after it sends the row as it is now.
+    fn stamp_own(&self, session: &str) {
+        let key = super::row_log::RowKey::Own(session.to_owned());
+        self.rows.lock().unwrap_or_else(|e| e.into_inner()).stamp(key, false);
+    }
+
+    pub(super) fn list_head(&self) -> u64 {
+        self.rows.lock().unwrap_or_else(|e| e.into_inner()).head()
+    }
+
+    pub(super) fn list_epoch(&self) -> &str {
+        &self.epoch
+    }
+
+    pub(super) fn list_since(&self, after: u64) -> Option<super::row_log::Since> {
+        self.rows.lock().unwrap_or_else(|e| e.into_inner()).since(after)
     }
 
     /// Counts the change, then sends it. A peer's event goes through [`Events::send_remote`]:
@@ -81,7 +124,7 @@ impl Events {
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         debug_assert!(event.remote.is_none(), "a peer's event goes through Events::send_remote");
         self.changed();
-        self.tx.send(event)
+        self.stamped(event)
     }
 
     pub(super) fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
@@ -98,6 +141,7 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         self.changes.fetch_add(1, Ordering::SeqCst);
+        self.stamp_own(&event.session_id);
         self.tx.send(event)
     }
 
@@ -109,7 +153,7 @@ impl Events {
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         debug_assert!(event.remote.is_some(), "a local event goes through Events::send");
         self.changes.fetch_add(1, Ordering::SeqCst);
-        self.tx.send(event)
+        self.stamped(event)
     }
 
     /// Sends a change of `session`'s own row, which no other row reads (`Hub::append`): the
@@ -120,13 +164,14 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         self.row_changed(session);
-        self.tx.send(event)
+        self.stamped(event)
     }
 
     /// A change of `session`'s own row no event carries (an attach, a start under way): the next
     /// list is built anew, with only `session`'s cached closed row stale.
     pub(super) fn row_changed(&self, session: &Session) {
         self.changes.fetch_add(1, Ordering::SeqCst);
+        self.stamp_own(&session.id);
         session.summary_gen.fetch_add(1, Ordering::SeqCst);
     }
 
@@ -896,8 +941,8 @@ impl ListGuard {
         let state = Arc::downgrade(&self.state);
         tokio::spawn(async move {
             let mut until = Instant::now() + window;
-            let retry_cap = window.min(Duration::from_secs(1)).max(Duration::from_millis(1));
-            let mut retry = Duration::from_millis(1).min(retry_cap);
+            let retry_cap = Duration::from_secs(1);
+            let mut retry = window.max(Duration::from_millis(1)).min(retry_cap);
             loop {
                 tokio::time::sleep_until(until).await;
                 let Some(state) = state.upgrade() else { return };
@@ -1742,18 +1787,20 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn expiry_retries_back_off_while_a_snapshot_is_held() {
         const HELD_MS: usize = 2_000;
+        const WINDOW: Duration = Duration::from_millis(1);
         let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
         let guard = &hub.list_guard;
-        let held = hold(&hub, Duration::from_secs(1)).await;
-        guard.expire(held.serial, Duration::from_secs(1));
+        let held = hold(&hub, WINDOW).await;
+        guard.expire(held.serial, WINDOW);
 
-        // Before backoff, a 1 ms retry woke 2,000 times over this 2 s hold. Exponential backoff
-        // reaches its 1 s cap, so after it there are at most 12 wakes over the same interval.
+        // Before backoff, the 1 ms retry cap woke 2,000 times over this 2 s hold. Exponential
+        // backoff reaches an independent 1 s cap, so after it there are at most 12 wakes.
         for _ in 0..HELD_MS {
             tokio::time::advance(Duration::from_millis(1)).await;
             tokio::task::yield_now().await;
         }
         let wakes = guard.state.lock().await.expiry_wakes;
+        println!("F1 expiry retry wake count: before={HELD_MS} after={wakes}");
         assert!(wakes <= 12, "before backoff: {HELD_MS} wakes; after backoff: {wakes} wakes");
     }
 

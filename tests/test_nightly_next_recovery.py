@@ -493,6 +493,7 @@ class FailureIssueTests(unittest.TestCase):
         push = {name: outcome[name] for name in self.PUSH_JOBS}
         # The run that signs and publishes (a sign run, or a run that signs in-run) dispatches no sign run.
         push["dispatch-nightly-next-sign"] = "skipped"
+        push["nightly-next-one"] = "skipped"  # NIGHTLY_NEXT_ONE_JOB unset
         push.update(dict.fromkeys(self.TAIL_JOBS, "skipped"))
         if decide.get("should_publish") == "true" and push["publish-nightly"] == "success":
             push["published-build"] = outcome["published-build"]
@@ -510,7 +511,7 @@ class FailureIssueTests(unittest.TestCase):
             record = dict(decide, cross_run="true", run_tail="true", publish_result=push["publish-nightly"],
                           push_clean="false" if any(push[n] in ("failure", "cancelled") for n in dispatch_needs) else "true",
                           **publish_outputs)
-            tail = dict.fromkeys((*self.PUSH_JOBS, "dispatch-nightly-next-sign"), "skipped")
+            tail = dict.fromkeys((*self.PUSH_JOBS, "dispatch-nightly-next-sign", "nightly-next-one"), "skipped")
             tail.update({name: outcome[name] for name in self.TAIL_JOBS})
             reports |= job_runs("report-nightly-failure", tail, {"published-build": record})
             closes |= job_runs("close-nightly-failure-issue", tail, {"published-build": record})
