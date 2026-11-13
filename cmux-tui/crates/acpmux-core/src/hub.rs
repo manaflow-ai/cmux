@@ -354,7 +354,6 @@ pub struct Hub {
 /// Supplies rows that are outside the hot summary index for a bounded keyed page.
 pub trait PageProvider: Send + Sync {
     fn row(&self, key: &RowKey) -> std::io::Result<Option<Arc<Summary>>>;
-    sources: Arc<ArcSwap<HashMap<String, Source>>>,
 }
 
 /// Explicit name for the published summary hub used by later actors.
