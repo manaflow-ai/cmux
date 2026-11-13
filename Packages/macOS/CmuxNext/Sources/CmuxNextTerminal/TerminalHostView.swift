@@ -22,7 +22,10 @@ public final class TerminalHostView: NSView {
     /// a label shows: a new terminal's "connected" or quick "Restoring…" builds and shows nothing.
     lazy var statusLabel = TerminalStatusLabel(clock: statusClock, install: { [weak self] banner in
         self?.addChrome(banner, .statusLabel)
-    }, didReveal: { [weak self] in self?.needsLayout = true })
+    }, didReveal: { [weak self] in
+        self?.syncRetryButton()
+        self?.needsLayout = true
+    })
     private let statusClock: any Clock<Duration>
     /// The scroller: thin, shown only while scrolling (SCROLLBARS-THIN). Overlay and hidden at rest,
     /// so it is built the first time the viewport moves through the scrollback, not with the
@@ -146,29 +149,21 @@ public final class TerminalHostView: NSView {
         }
     }
 
-    /// Pins the session's find bar to the top-trailing corner, above the
-    /// surface and the status banner.
+    /// Shows the session's find bar in the top-trailing corner, above the
+    /// surface and the status banner, and lets it take the keyboard now.
     /// The find bar is built the first time find opens, not with the
     /// terminal: its glass panel, stack and buttons cost about 5 ms of main
     /// thread per new terminal (R81 trace), most of a 120 Hz frame.
-    func attachFind(_ find: TerminalFindController) {
-        if find.isPresented { return installFindBar(find) }
-        withObservationTracking {
-            _ = find.isPresented
-        } onChange: { [weak self, weak find] in
-            Task { @MainActor in
-                guard let self, let find else { return }
-                self.attachFind(find)
-            }
+    func showFindBar(_ find: TerminalFindController) {
+        if let bar = subviews.lazy.compactMap({ $0 as? TerminalFindBarView }).first {
+            return bar.update()
         }
-    }
-
-    private func installFindBar(_ find: TerminalFindController) {
-        guard !subviews.contains(where: { $0 is TerminalFindBarView }) else { return }
         let bar = TerminalFindBarView(find: find)
         bar.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
+        // In the window before it renders shown: focus needs a window.
         addChrome(bar, .overlay)
         needsLayout = true
+        bar.update()
     }
 
     /// The link status label over the terminal, nil while none shows (connected, or a transient
@@ -221,13 +216,19 @@ public final class TerminalHostView: NSView {
             retryButton = button
             addChrome(button, .overlay)
         }
-        if let retryButton {
-            let hidden = retryButton.isHidden
-            retryButton.show(status)
-            changed = changed || hidden != retryButton.isHidden
-        }
+        changed = syncRetryButton() || changed
         // A new terminal's "connected" (or a label still waiting) changes nothing on screen: no layout.
         if changed { needsLayout = true }
+    }
+
+    /// Shows Retry for the shown status with the label it sits over: not while that label still waits
+    /// out its reveal delay (a drop that heals within it shows neither). Returns whether it changed.
+    @discardableResult
+    private func syncRetryButton() -> Bool {
+        guard let retryButton else { return false }
+        let hidden = retryButton.isHidden
+        retryButton.show(shownStatus, waiting: statusLabel.isWaiting)
+        return hidden != retryButton.isHidden
     }
 
     /// Builds the restart button once the shell has ended, or cmux lost its
