@@ -233,7 +233,11 @@ impl FamilyWalk<'_> {
     fn next(&mut self, reads: &mut usize, lookups: &mut usize) -> io::Result<Option<Arc<Summary>>> {
         if !self.started {
             self.started = true;
-            return match Self::next_child(&self.frames[0].children, self.root, None) {
+            let key = self
+                .frames
+                .first()
+                .and_then(|frame| Self::next_child(&frame.children, self.root, None));
+            return match key {
                 Some(key) => self.load(key, reads, lookups),
                 None => Ok(None),
             };
