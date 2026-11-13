@@ -1,4 +1,4 @@
-# The one step table (cmuxterm-hq docs/design/ci-v2.md, "One step table").
+# The one step table (the CI v2 design, "One step table").
 #
 # Leo, 2026-11-13: "Few jobs on warm trees; the PR runs what base runs on the tree that lands. 267 jobs
 # per PR become one step table and at most 8 jobs; a landing train tests the merge result (3.81 base
@@ -23,7 +23,7 @@ target_pr_jobs = 8
 
 # The PR pipeline's jobs (the design's table). A step names one of these; there is no ninth.
 [jobs]
-linux = "one warm Linux VM: route, guards, lints, Rust and web unit tests, the Linux Swift compile check"
+linux = "one warm Linux VM: route, guards, lints, Rust and web unit tests, the compile check"
 web-browser = "the Playwright and gallery suites, sharded, only when routed"
 mac = "a Mac holding the app tree: incremental compile and the changed targets' Swift tests"
 ios = "a mini with simulators, only when routed"
