@@ -90,11 +90,33 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
       return page.__composerBars ?? [];
     });
 
+  /// Waits for every finite animation on the page (the prompt's growth to fit a paste, the Send
+  /// button's and the thread's moves) to finish, then two painted frames, so the probe measures the
+  /// box and captures its lane at the same settled place. Mid-growth the prompt's top moves between
+  /// the measure and the capture, so the capture's top rows miss the track (Chromium, run
+  /// 43363927828). Looping animations (a spinner) never end and never move the prompt.
+  const settled = (page: Page) =>
+    page.evaluate(async () => {
+      const finite = () =>
+        document.getAnimations().filter((animation) => {
+          const end = animation.effect?.getComputedTiming().endTime;
+          return animation.playState === "running" && typeof end === "number" && Number.isFinite(end);
+        });
+      const deadline = performance.now() + 10_000;
+      for (let running = finite(); running.length > 0; running = finite()) {
+        if (performance.now() > deadline)
+          throw new Error(`composer still moving after 10 s: ${running.map((animation) => animation.id || animation.constructor.name).join(", ")}`);
+        await Promise.all(running.map((animation) => animation.finished.catch(() => undefined)));
+      }
+      for (let left = 2; left > 0; left--) await window.cmuxPaintFrame();
+    });
+
   /// Whether the prompt's scrollbar lane shows a thumb as the page draws it: some rows of the lane
   /// differ from the field's padding beside it (a thumb), and some do not (no track). Since #24498
   /// the prompt runs to the box's right edge, so only the lane's rows below the box's rounded top
   /// corner (its rim) and above the mic and Send (where the track stops) can show a thumb.
   async function thumb(page: Page) {
+    await settled(page);
     const box = await page.evaluate((selector) => {
       const field = document.querySelector<HTMLElement>(selector)!;
       const rect = field.getBoundingClientRect();
@@ -146,6 +168,15 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
         }
       }
     }
+    const rows: string[] = [];
+    for (let y = 0; y < png.height; y++) {
+      const beside = at(1, y);
+      let hit = false;
+      for (let x = 4; x < end; x++) { const pixel = at(x, y); if (Math.abs(pixel[0]! - beside[0]!) + Math.abs(pixel[1]! - beside[1]!) + Math.abs(pixel[2]! - beside[2]!) > 24) { hit = true; break; } }
+      rows.push(hit ? "#" : ".");
+    }
+    const st = await page.evaluate((selector) => { const f = document.querySelector<HTMLElement>(selector)!; return { attr: f.hasAttribute("data-test-opaque-track"), tag: f.tagName, cls: f.className, n: document.querySelectorAll(selector).length, tbg: getComputedStyle(f, "::-webkit-scrollbar-track").backgroundColor, mid: [0,4,6,8,10,11].map((x) => 0) }; }, FIELD);
+    console.log("DBG", JSON.stringify({ ...box, st, png: [png.width, png.height], px: [0,2,4,6,8,10,11].map((x) => at(x, Math.floor(png.height / 2)).join("/")), drawn, rows: rows.join("") }));
     return { bar: box.bar, thumb: drawn >= 8, track: drawn > png.height - 8 };
   }
 
@@ -186,10 +217,15 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
             await paste(page, 20);
             const normal = await thumb(page);
             expect(normal).toEqual({ bar: normal.bar, thumb: true, track: false });
+            // Keyed on an attribute of the prompt itself: WebKit restyles a custom scrollbar only when
+            // its element's own style changes, so a new sheet alone leaves the old, clear track
+            // painted (webkit failed this every run on Linux). Setting the attribute is how the
+            // product changes the lane too (scrollers.ts SETTLING_SCROLLER_ATTRIBUTE).
             await page.addStyleTag({
               content:
-                ":root .acpmux-composer-prompt::-webkit-scrollbar-track { background: rgb(255, 0, 255) !important; }",
+                ":root .acpmux-composer-prompt[data-test-opaque-track]::-webkit-scrollbar-track { background: rgb(255, 0, 255) !important; }",
             });
+            await page.evaluate((selector) => document.querySelector(selector)!.setAttribute("data-test-opaque-track", ""), FIELD);
             await painted(page, 3);
             const opaque = await thumb(page);
             expect(opaque).toEqual({ bar: opaque.bar, thumb: true, track: true });
