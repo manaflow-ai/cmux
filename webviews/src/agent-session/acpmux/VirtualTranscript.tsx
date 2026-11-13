@@ -845,10 +845,10 @@ const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 
 /// Viewports of just-passed rows kept mounted behind a moving scroll (scrollLeadRanges `trail`), so a
 /// quick reversal finds them drawn.
-const SCROLL_TRAIL_VIEWPORTS = 1;
+const SCROLL_TRAIL_VIEWPORTS = 2;
 
 /// Viewports of rows kept mounted either side of the reader, built between frames.
-const WARM_VIEWPORTS = 1;
+const WARM_VIEWPORTS = 2;
 
 /// Viewports of history mounted above the reader, in the commit that draws the view: a chat opens
 /// with rows to scroll up into already drawn, and the warm rows keep that much above while the reader
