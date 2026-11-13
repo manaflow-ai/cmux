@@ -886,6 +886,11 @@ pub(super) async fn handle_request(
         .await
         .map_err(|_| crate::turn_attestation::refused("turn_attestation.unavailable"))?;
     }
+    // The owner's Cloud credential for one of this daemon's own sessions, by its exact id: handled
+    // here, before any name routing or peer forward can send it elsewhere (`agent_credentials.rs`).
+    if m == crate::agent_credentials::UPDATE_METHOD {
+        return agent_credentials_update(hub, conn, &params).await;
+    }
     // A bare name or prefix on this machine's socket names the one live session here or on a
     // peer; every check below reads the route it found (`hub/key_route.rs`).
     if conn.origin == Origin::Local {
@@ -1447,6 +1452,13 @@ async fn dispatch_request_with_identity(
                 mux_meta(&params).and_then(|m| m.get("peer")).and_then(Value::as_str)
                 && !peer_name.is_empty()
             {
+                // A credential is for an agent on this machine only: never sent on to a peer.
+                if mux_meta(&params).and_then(|m| m.get(crate::agent_credentials::FIELD)).is_some()
+                {
+                    return Err(RpcError::invalid_params(
+                        "credentials start an agent on this machine only, never on a peer",
+                    ));
+                }
                 let peer = hub
                     .peer_by_name(peer_name)
                     .ok_or_else(|| RpcError::not_found(format!("no peer {peer_name:?}")))?;
@@ -1567,6 +1579,11 @@ async fn dispatch_request_with_identity(
             {
                 return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
             }
+            // The owner's Cloud credential (`agent_credentials.rs`): this socket's, never an agent's.
+            let credential = crate::agent_credentials::requested(meta)?;
+            if credential.is_some() {
+                crate::agent_credentials::admit(conn.origin == Origin::Local, conn.caller())?;
+            }
             let disallowed_tools = disallowed_tools(meta)?;
             let additional_directories = crate::hub::additional_dirs::requested(&params).await?;
             // Its parent is the session this connection proved it runs in (`hub/lineage.rs`):
@@ -1639,6 +1656,7 @@ async fn dispatch_request_with_identity(
                 person: person_asks(conn),
                 wait_start: asks_to_wait_on_its_harness(conn, &params),
                 require_asking: crate::hub::require_asking::asked(meta),
+                credential,
             };
             let s = match &admitted {
                 Some(admitted) => {
@@ -3704,4 +3722,25 @@ pub(super) fn note_initialize(conn: &Conn, params: &Value) {
         && conn.auth.peer_daemon()
         && params.pointer("/_meta/acpmux/githubBroker").and_then(Value::as_bool) == Some(true);
     conn.client_requests.lends_github.store(lends, Ordering::SeqCst);
+}
+
+/// `agent/credentials.update {sessionId, env}` (`hub/credentials.rs`): this socket's, never an
+/// agent's own connection; the session by its exact id on this daemon.
+async fn agent_credentials_update(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    crate::agent_credentials::admit(conn.origin == Origin::Local, conn.caller())?;
+    let id = params
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
+    if params.as_object().is_some_and(|o| o.keys().any(|k| k != "sessionId" && k != "env")) {
+        return Err(RpcError::invalid_params("agent/credentials.update takes sessionId and env"));
+    }
+    let env = params.get("env").cloned().unwrap_or(Value::Null);
+    let credential = crate::agent_credentials::AgentCredential::parse(&json!({"env": env}))?;
+    hub.update_credential(id, credential).await
 }

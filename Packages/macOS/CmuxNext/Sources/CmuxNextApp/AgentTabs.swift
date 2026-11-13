@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextChiefPetWiring
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -221,6 +222,8 @@ final class AgentTabStore {
     var onTabSession: @MainActor () -> Void = {}
     /// The daemon created a remote chat, including its effective seed folder and harness.
     var onRemoteChatStarted: (@MainActor (String, String, String?, String?) -> Void)?
+    /// The owner's model credentials: a Cloud chat's start sends the one its Cloud start chose (``CloudAgentCredentials``).
+    var cloudCredentials: CloudAgentCredentials?
     /// A new chat's seed on another machine (its folder and harness start it there, its draft and
     /// prompt reach the page), by tab (``startRemoteChat(_:machine:endpoint:)``).
     var remoteSeeds: AgentTabMap<AgentPaneSeedSource> = .init()

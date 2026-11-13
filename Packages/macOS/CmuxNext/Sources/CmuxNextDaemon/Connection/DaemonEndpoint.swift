@@ -368,6 +368,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case agentSessionStartVMKind = "agent-session-start-vm-kind-v1"
     case agentSessionStartModel = "agent-session-start-model-v1"
     case agentSessionStartPermissionMode = "agent-session-start-permission-mode-v1"
+    /// `credentials: {env}` on `agent-session-start` and the `agent-session-credentials` refresh: the
+    /// owner's model credential for a Cloud chat's agent, taken only on the owner's own Cloud VM
+    /// (cmux-tui `agent_session_start.rs`, model-connections.md Revision 2).
+    case agentSessionStartCredentials = "agent-session-start-credentials-v1"
     case agentSessionTrustVMKind = "agent-session-trust-vm-kind-v1"
     /// `agent-session-folders`: that machine's work folder (`$HOME/work`) and its folders, so a
     /// chat there with no folder starts in the work folder and Choose folder lists that machine's.
