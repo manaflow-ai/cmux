@@ -64,9 +64,9 @@ struct OlderPageToolOutputTests {
         #expect(big.text.hasPrefix(cut.outputText))
 
         // The person opens it: the whole log, in place of the cut one.
-        store.loadFullOutput(of: cut)
-        let whole = await InstantPerfTests.waitUntil(.seconds(30)) { Self.call(store, id: String(id))?.outputCut == nil }
-        #expect(whole, "the whole output never loaded")
+        let loaded = await store.loadFullOutput(of: cut)
+        #expect(loaded, "the whole output's read failed")
+        #expect(Self.call(store, id: String(id))?.outputCut == nil, "the whole output never went in place")
         let opened = try #require(Self.call(store, id: String(id)))
         #expect(opened.outputText == big.text)
         #expect(opened.status == cut.status)

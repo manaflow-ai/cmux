@@ -25,18 +25,19 @@ extension Array where Element == TurnItem {
 /// Reads a cut tool output whole (the transcript's store); a view outside a store's transcript
 /// shows the cut output.
 public struct LoadFullToolOutputAction: Sendable {
-    let handler: @MainActor @Sendable (ACPToolCall) -> Void
+    let handler: @MainActor @Sendable (ACPToolCall) async -> Bool
 
-    public init(_ handler: @escaping @MainActor @Sendable (ACPToolCall) -> Void) {
+    public init(_ handler: @escaping @MainActor @Sendable (ACPToolCall) async -> Bool) {
         self.handler = handler
     }
 
-    @MainActor public func callAsFunction(_ call: ACPToolCall) {
-        handler(call)
+    /// False when the whole output could not be read.
+    @MainActor public func callAsFunction(_ call: ACPToolCall) async -> Bool {
+        await handler(call)
     }
 }
 
 extension EnvironmentValues {
-    @Entry public var loadFullToolOutput = LoadFullToolOutputAction { _ in }
+    @Entry public var loadFullToolOutput = LoadFullToolOutputAction { _ in false }
 }
 #endif

@@ -229,8 +229,13 @@ public struct ACPToolCall: Hashable, Sendable, Codable, Identifiable {
         if let locations = update.locations { self.locations = locations }
         if let rawInput = update.rawInput { self.rawInput = rawInput }
         if let rawOutput = update.rawOutput { self.rawOutput = rawOutput }
-        // The output it carries, whole or cut, is now the call's.
-        if update.content != nil || update.rawOutput != nil { outputCut = update.outputCut }
+        // A cut update's marker is the call's; content that replaces the shown output whole
+        // ends it. A rawOutput-only update leaves a cut content marked.
+        if let cut = update.outputCut {
+            outputCut = cut
+        } else if update.content != nil {
+            outputCut = nil
+        }
     }
 
     /// The shell command for execute calls: `rawInput.command` as a string or argv (`sh -lc script` shows the script).

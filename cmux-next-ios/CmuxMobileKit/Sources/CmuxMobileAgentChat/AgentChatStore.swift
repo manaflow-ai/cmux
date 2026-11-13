@@ -661,23 +661,27 @@ public final class AgentChatStore {
 
     /// The person opened a tool output the Mac sent cut (``ACPToolCall/outputCut``): its whole
     /// record is read and put in place of the cut one, unless a newer update replaced the output
-    /// meanwhile. One read per record at a time; a failed read leaves the cut output shown, and
-    /// the next open asks again.
-    public func loadFullOutput(of call: ACPToolCall) {
-        guard let cut = call.outputCut, !fullOutputReads.contains(cut.seq) else { return }
-        fullOutputReads.insert(cut.seq)
-        let source = source
-        let id = call.id
-        Task { @MainActor [weak self] in
-            let full = await source.fullToolOutput(cut)
-            guard let self else { return }
-            self.fullOutputReads.remove(cut.seq)
-            guard let full, full.toolCallId == id else { return }
-            self.placeFullOutput(full, cut: cut)
+    /// meanwhile. One read per record at a time (a second ask waits for it). False when the read
+    /// failed: the cut output stays shown, and the person can ask again.
+    @discardableResult
+    public func loadFullOutput(of call: ACPToolCall) async -> Bool {
+        guard let cut = call.outputCut else { return true }
+        let read: Task<ACPToolCallUpdate?, Never>
+        if let reading = fullOutputReads[cut.seq] {
+            read = reading
+        } else {
+            let source = source
+            read = Task { @MainActor in await source.fullToolOutput(cut) }
+            fullOutputReads[cut.seq] = read
         }
+        let full = await read.value
+        fullOutputReads[cut.seq] = nil
+        guard let full, full.toolCallId == call.id else { return false }
+        placeFullOutput(full, cut: cut)
+        return true
     }
 
-    @ObservationIgnored private var fullOutputReads: Set<Int> = []
+    @ObservationIgnored private var fullOutputReads: [Int: Task<ACPToolCallUpdate?, Never>] = [:]
 
     private func placeFullOutput(_ full: ACPToolCallUpdate, cut: ACPToolOutputCut) {
         var placed = false

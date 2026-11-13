@@ -116,19 +116,31 @@ struct ToolRowView: View {
 struct ToolOutputView: View {
     let call: ACPToolCall
     @Environment(\.loadFullToolOutput) private var loadFull
+    /// The whole output's read failed (link down, an older source): a tap asks again.
+    @State private var loadFailed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             card
             if call.outputCut != nil {
-                Text("Loading the full output…")
+                if loadFailed {
+                    Button("Couldn't load the full output. Try Again") {
+                        loadFailed = false
+                        Task { loadFailed = !(await loadFull(call)) }
+                    }
                     .font(.footnote)
-                    .foregroundStyle(.tertiary)
                     .padding(.leading, 26)
+                } else {
+                    Text("Loading the full output…")
+                        .font(.footnote)
+                        .foregroundStyle(.tertiary)
+                        .padding(.leading, 26)
+                }
             }
         }
         .task(id: call.outputCut) {
-            if call.outputCut != nil { loadFull(call) }
+            guard call.outputCut != nil else { return }
+            loadFailed = !(await loadFull(call))
         }
     }
 
