@@ -131,7 +131,8 @@ export type MergeState =
   | { phase: "confirm" }
   | { phase: "merging" }
   | { phase: "merged"; queued: boolean }
-  | { phase: "failed"; message: string };
+  /** `refused`: GitHub would not merge it (a check, a review, a conflict): the page says so. */
+  | { phase: "failed"; message: string; refused?: boolean };
 
 /** The host's answer to `pr.inspect`. */
 export interface PullRequestReply {

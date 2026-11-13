@@ -16,6 +16,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import sys
+
 import yaml
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
@@ -27,6 +29,8 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 WORKFLOW = ROOT / ".github" / "workflows" / "gallery-health.yml"
 
 
@@ -101,8 +105,9 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertIn("steps.render.outcome == 'failure'", judge["if"])
         self.assertIn("!cancelled()", judge["if"])
         names = [entry.get("name") for entry in steps()]
-        self.assertEqual(names.index("Judge the red states against the base"),
-                         names.index("Render the gallery and judge it") + 1)
+        # Only the base gallery's download sits between them, and it runs only when the render failed too.
+        self.assertEqual(names[names.index("Render the gallery and judge it") + 1:names.index("Judge the red states against the base")],
+                         ["Fetch the base gallery"])
         self.assertLess(names.index("Judge the red states against the base"), names.index("Upload the health run"))
 
     def test_the_base_is_the_merges_first_parent_rendered_by_the_same_checker(self) -> None:
@@ -135,12 +140,12 @@ class GalleryHealthBaseReds(unittest.TestCase):
     def test_every_health_run_may_render(self) -> None:
         # health.ts refuses to render without CMUX_GALLERY_IN_VM=1 and writes no verdict; the base replay
         # first ran without it, so no base result ever existed and every red failed (review of #27100).
-        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-        job_env = workflow["jobs"]["health"].get("env") or {}
-        runs = [entry for entry in steps() if "bun health.ts" in str(entry.get("run", ""))]
+        workflow = workflow_jobs.document(WORKFLOW)
+        job = workflow["jobs"]["health"]
+        runs = [entry for entry in job["steps"] if "bun health.ts" in str(entry.get("run", ""))]
         self.assertEqual(len(runs), 2)
         for entry in runs:
-            env = {**job_env, **(entry.get("env") or {})}
+            env = workflow_jobs.effective_env(workflow, job, entry)
             self.assertEqual(str(env.get("CMUX_GALLERY_IN_VM")), "1", entry.get("name"))
 
     def test_a_base_replay_with_no_verdict_fails_loudly(self) -> None:
@@ -156,6 +161,78 @@ class GalleryHealthBaseReds(unittest.TestCase):
         run = step("Judge the red states against the base")["run"]
         self.assertIn("for pass in 1 2", run)
         self.assertIn("--retries 0", run)
+
+    def test_the_base_builds_only_the_red_entries(self) -> None:
+        # The whole gallery (3,224 modules) took ~80 s of every judged shard to replay a handful of states
+        # (2026-11-11); galleryEntrySubset builds only CMUX_GALLERY_ENTRIES.
+        run = step("Judge the red states against the base")["run"]
+        build = next(line for line in run.splitlines() if "bun run gallery:build" in line)
+        self.assertIn('CMUX_GALLERY_ENTRIES="$entries"', build)
+        self.assertLess(run.index("entries=$(python3"), run.index(build))
+        config = (ROOT / "webviews/vite.config.gallery.ts").read_text(encoding="utf-8")
+        self.assertIn("galleryEntrySubset()", config)
+
+    def test_the_base_gallery_is_built_once_a_run_for_the_shards_to_fetch(self) -> None:
+        # Each judged shard built the whole base gallery itself (~55-85 s, 2026-11-11), and 54 of 72 pull request
+        # runs judged all 16 shards. One job builds it while the shards render the head.
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        job = workflow["jobs"]["base-gallery"]
+        self.assertIn("github.event_name == 'pull_request'", job["if"])
+        self.assertIn("head.repo.full_name == github.repository", job["if"])
+        self.assertNotIn("needs", job, "it runs beside the shards, not before them")
+        self.assertNotIn("needs", workflow["jobs"]["health"])
+        runs_on = "\n".join(workflow_jobs.runs_on_cells(job) or ["<unresolved matrix>"])
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runs_on)
+        self.assertNotIn("blacksmith", runs_on)
+        # It checks out what the shards check out, and restores the base by the judge step's own command.
+        self.assertEqual(job["steps"][0]["with"], step("Checkout")["with"])
+        build = next(entry for entry in job["steps"] if entry.get("name") == "Build the base gallery")["run"]
+        restore = next(line.strip() for line in build.splitlines() if line.strip().startswith("git restore"))
+        judge = step("Judge the red states against the base")["run"]
+        self.assertIn(restore.replace('"$base"', '"$BASE_SHA"'), judge)
+        self.assertIn("base=$(git rev-parse HEAD^1)", build)
+        self.assertIn('> "$RUNNER_TEMP/base-gallery/base-sha.txt"', build)
+        upload = next(entry for entry in job["steps"] if entry.get("name") == "Upload the base gallery")
+        fetch = step("Fetch the base gallery")
+        self.assertEqual(upload["with"]["name"], fetch["with"]["name"])
+        # A whole-workflow rerun uploads the same name again under the same run (review F1 of #41429).
+        self.assertIs(upload["with"].get("overwrite"), True)
+        self.assertEqual(fetch["with"]["path"], "${{ runner.temp }}/base-gallery")
+        self.assertIs(fetch.get("continue-on-error"), True)
+        self.assertIn("steps.render.outcome == 'failure'", fetch["if"])
+        names = [entry.get("name") for entry in steps()]
+        self.assertEqual(names.index("Fetch the base gallery") + 1, names.index("Judge the red states against the base"))
+
+    def test_a_shard_uses_the_fetched_gallery_only_for_its_own_base(self) -> None:
+        judge = step("Judge the red states against the base")["run"]
+        check = judge.index('"$(cat "$RUNNER_TEMP/base-gallery/base-sha.txt" 2>/dev/null)" = "$BASE_SHA"')
+        build = judge.index("bun run gallery:build")
+        self.assertLess(check, build)
+        self.assertLess(check, judge.index('rm -rf "$RUNNER_TEMP/base-gallery"'))
+        # Run the branch: a gallery for another base (a moved merge ref) is not used.
+        with tempfile.TemporaryDirectory(prefix="gallery-base-") as tmp:
+            block = judge[judge.index('if [ "$(cat'):judge.index("\nfi\n", check) + len("\nfi\n")]
+            gallery = Path(tmp) / "base-gallery"
+            for stamped, built in (("a" * 40, False), ("b" * 40, True)):
+                gallery.mkdir(exist_ok=True)
+                (gallery / "base-sha.txt").write_text(stamped + "\n")
+                env = {**os.environ, "RUNNER_TEMP": tmp, "BASE_SHA": "a" * 40, "entries": "x",
+                       "PATH": f"{tmp}/bin:{os.environ['PATH']}"}
+                (Path(tmp) / "bin").mkdir(exist_ok=True)
+                (Path(tmp) / "bin/bun").write_text("#!/bin/sh\necho BUILT\n")
+                (Path(tmp) / "bin/bun").chmod(0o755)
+                out = subprocess.run(["bash", "-euc", block], env=env, capture_output=True, text=True, check=True).stdout
+                self.assertEqual("BUILT" in out, built, out)
+
+    def test_the_two_base_renders_run_side_by_side_each_one_case_at_a_time(self) -> None:
+        # One after the other they were ~55 s each for ten red cases, most of it waiting out a play's timeout.
+        run = step("Judge the red states against the base")["run"]
+        replay = run[run.index("for pass in 1 2"):]
+        self.assertIn("--concurrency 1", replay)
+        self.assertIn(") &", replay)
+        self.assertLess(replay.index(") &"), replay.index("\nwait\n"))
+        # Both verdicts are read only after both renders ended.
+        self.assertLess(replay.index("\nwait\n"), replay.index('[ ! -s "$RUNNER_TEMP/health/base/$pass/health.json" ]'))
 
     def test_one_classifier_judges_it_and_fails_closed(self) -> None:
         run = step("Judge the red states against the base")["run"]

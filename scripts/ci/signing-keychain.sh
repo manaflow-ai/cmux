@@ -118,7 +118,7 @@ restore_search_list() {
     done
   fi
   if [ "${#list[@]}" -gt 0 ]; then
-    "$SECURITY_TOOL" list-keychains -d user -s "${list[@]}" || true
+    "$SECURITY_TOOL" list-keychains -d user -s ${list[@]+"${list[@]}"} || true
   fi
   rm -f "$file" "$file.tmp" "$file.failed"
 }

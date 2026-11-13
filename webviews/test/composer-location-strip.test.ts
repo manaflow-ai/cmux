@@ -101,6 +101,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     height = 560,
   ): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width, height } });
+    // Claude's look, whose strip is text over the card: Codex's (the default since #42247) tucks it
+    // as a tray under the card's top edge (composerLook.css).
+    await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "claude"));
     if (init) await page.addInitScript(init);
     await page.goto(stageURL(entry, variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
