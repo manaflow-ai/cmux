@@ -245,11 +245,14 @@ enum Op {
 /// Told, after a copy's write, the records of prompts' lives that came since its last write and
 /// the write put on disk (never one a bound cut before it): the copy's key, its generation, the
 /// newest link those records came on (never the link the peer is on when the write runs) and
-/// the records (`open_delivery.rs`: their deliveries keep them as proof). It answers whether
-/// the proofs are on disk: until then the copy counts them as not told (review of #37284 at
-/// a088585e, F3).
+/// the records (`open_delivery.rs`: their deliveries keep them as proof), and the seq from which
+/// the copy saw every record (`since`). It answers whether the proofs are on disk: until then
+/// the copy counts them as not told (review of #37284 at a088585e, F3). It is told again, with
+/// no records, each time `since` moves past what it last told, and before the copy goes: the
+/// proofs keep it, so one known to miss a record stays so once the copy is gone (review of
+/// #37284 at 918d2403, F1).
 pub(crate) type Written =
-    Arc<dyn Fn(&(String, String), u64, Link, Vec<Value>) -> bool + Send + Sync>;
+    Arc<dyn Fn(&(String, String), u64, Link, Vec<Value>, u64) -> bool + Send + Sync>;
 
 /// The peers whose ops did not fit the queue (with whether a removal of the peer was among
 /// them), and the flushes sent: each is sent once until the thread takes it, so they are bounded
@@ -594,6 +597,8 @@ struct Kept {
     fresh: BTreeSet<u64>,
     /// The newest link `fresh`'s records came on.
     fresh_link: Option<Link>,
+    /// The `since` the hook last took ([`Written`]); this run's only.
+    told_since: u64,
 }
 
 impl Kept {
@@ -615,6 +620,7 @@ impl Kept {
             used,
             fresh,
             fresh_link: None,
+            told_since: 0,
         }
     }
 }
@@ -1134,6 +1140,8 @@ impl Store {
                 let mut copy = Kept::new(head, 0);
                 copy.records = Some(BTreeMap::new());
                 self.insert(key.clone(), copy);
+                // Past a gap: a proof of before it may miss what the gap held.
+                self.tell_since(key);
             }
         }
         let Some(c) = self.copies.get_mut(key) else { return };
@@ -1248,6 +1256,13 @@ impl Store {
     /// came, so however many one large record pushes out, the work is paid for by their adding:
     /// O(log n) per record, never a walk of the copy per record.
     fn bound(&mut self, key: &Key) -> bool {
+        let cut = self.cut_to_bound(key);
+        // A record a write did not tell went: its proofs keep where the copy sees from now.
+        self.tell_since(key);
+        cut
+    }
+
+    fn cut_to_bound(&mut self, key: &Key) -> bool {
         let events = session_events();
         let Store { copies, memory, .. } = self;
         let Some(c) = copies.get_mut(key) else { return false };
@@ -1488,6 +1503,7 @@ impl Store {
 
     /// Removes `key`'s copy and its file.
     fn discard(&mut self, key: &Key) {
+        self.tell_since(key);
         let Some(c) = self.copies.remove(key) else { return };
         self.memory -= c.memory;
         self.own -= c.own;
@@ -1666,14 +1682,19 @@ impl Store {
             .map(|held| c.fresh.iter().filter_map(|s| held.get(s)).cloned().collect())
             .unwrap_or_default();
         let link = c.fresh_link.unwrap_or_default();
+        let since = c.head.since;
         let Some(generation) = c.head.generation.filter(|_| !records.is_empty()) else {
             c.fresh.clear();
             c.fresh_link = None;
+            self.tell_since(key);
             return true;
         };
         let hook = self.written.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let saved = hook.is_none_or(|hook| hook(key, generation, link, records));
+        let saved = hook.is_none_or(|hook| hook(key, generation, link, records, since));
         let Some(c) = self.copies.get_mut(key) else { return saved };
+        if saved {
+            c.told_since = c.told_since.max(since);
+        }
         if saved || crate::hub::journal_restore::rules_of_a088() {
             c.fresh.clear();
             c.fresh_link = None;
@@ -1681,6 +1702,25 @@ impl Store {
             c.head.since = c.head.since.max(last.saturating_add(1));
         }
         saved
+    }
+
+    /// Tells the hook ([`Written`]), with no records, the seq from which `key`'s copy saw every
+    /// record, when it moved past what the hook last took: the proofs pinned to the copy keep
+    /// it, and one it says missed a record is never whole, once the copy goes too
+    /// (`open_delivery.rs` `cut`; review of #37284 at 918d2403, F1). One not saved is told
+    /// again at the copy's next write, or before it goes.
+    fn tell_since(&mut self, key: &Key) {
+        if crate::hub::journal_restore::rules_of_918d() {
+            return;
+        }
+        let Some(c) = self.copies.get(key) else { return };
+        let (since, link) = (c.head.since, c.fresh_link.unwrap_or_default());
+        let Some(generation) = c.head.generation.filter(|_| since > c.told_since) else { return };
+        let hook = self.written.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let saved = hook.is_none_or(|hook| hook(key, generation, link, Vec::new(), since));
+        if saved && let Some(c) = self.copies.get_mut(key) {
+            c.told_since = since;
+        }
     }
 
     fn failed(&mut self, key: &Key, e: &anyhow::Error) {

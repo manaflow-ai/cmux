@@ -479,7 +479,15 @@ fn pr05b_startup_pages_and_hot_index_gate() {
         }
     }
 
-    let filter = ListFilter { workspace: None, origin: None, state: Some("running".to_owned()) };
+    let filter = ListFilter {
+        workspace: None,
+        origin: None,
+        state: Some("running".to_owned()),
+        family: None,
+        folder: None,
+        forks: None,
+        cold: false,
+    };
     let mut small_filter: [Vec<u128>; 3] =
         std::array::from_fn(|_| Vec::with_capacity(ROUNDS * SAMPLES));
     let mut god_filter: [Vec<u128>; 3] =
