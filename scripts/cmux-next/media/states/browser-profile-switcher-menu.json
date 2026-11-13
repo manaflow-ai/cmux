@@ -74,14 +74,17 @@
    "shot": false
   },
   {
-   "title": "Show the browser tab",
-   "cmux": [
-    "tab",
-    "name:Example",
-    "show"
-   ],
+   "title": "Click the Example tab in the strip",
    "wait": 1.5,
-   "shot": false
+   "shot": false,
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "action": "click",
+     "x": 490,
+     "y": 21
+    }
+   }
   },
   {
    "title": "A browser tab in the default profile; the omnibar shows its avatar",
