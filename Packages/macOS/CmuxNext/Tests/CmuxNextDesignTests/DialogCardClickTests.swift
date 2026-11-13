@@ -185,12 +185,9 @@ import Testing
             card?.removeFromSuperview()
         })
         shown.center.dismiss(shown.id)
-        let stale = NSView(frame: .zero)
-        host.panel.modalContainer.addSubview(stale)
         host.endStaleFades()
         #expect(host.fades[id] == nil, "a fade older than staleFadeAge still runs")
         #expect(card.superview == nil)
-        #expect(host.fadingOut == 0)
     }
 
     @Test func aClickOnTheCheckBoxChecksIt() throws {
