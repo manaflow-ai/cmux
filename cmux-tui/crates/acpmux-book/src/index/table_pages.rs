@@ -89,6 +89,41 @@ impl SummaryIndex {
         keys
     }
 
+    fn hot_folder_rows(
+        &self,
+        folder: &super::FolderKey,
+        anchor: Option<&SortKey>,
+        side: ReadSide,
+        inclusive: bool,
+        limit: usize,
+    ) -> Vec<(SortKey, std::sync::Arc<super::Summary>)> {
+        let Some(table) = self.kin().folder_rows(folder) else { return Vec::new() };
+        let bound =
+            anchor.map_or(Unbounded, |key| if inclusive { Included(key) } else { Excluded(key) });
+        let mut rows = match side {
+            ReadSide::Before => table
+                .range::<_, SortKey>((Unbounded, bound))
+                .rev()
+                .take(limit)
+                .map(|(key, row)| (key.clone(), row.clone()))
+                .collect::<Vec<_>>(),
+            ReadSide::After => table
+                .range::<_, SortKey>((bound, Unbounded))
+                .take(limit)
+                .map(|(key, row)| (key.clone(), row.clone()))
+                .collect::<Vec<_>>(),
+            ReadSide::Around => {
+                let mut rows = self.hot_folder_rows(folder, anchor, ReadSide::Before, false, limit);
+                rows.extend(self.hot_folder_rows(folder, anchor, ReadSide::After, true, limit));
+                rows
+            }
+        };
+        if side == ReadSide::Before {
+            rows.reverse();
+        }
+        rows
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn read_hot_table_page(
         &self,
@@ -101,22 +136,21 @@ impl SummaryIndex {
     ) -> io::Result<IndexPage> {
         let side = if anchor.is_none() { ReadSide::After } else { side };
         let inclusive = inclusive || side == ReadSide::Around;
-        let keys = self.hot_table_keys(filter, anchor, side, inclusive, limit + 1);
-        let rows_read = keys.len();
-        let mut candidates = Vec::with_capacity(keys.len());
-        let folder_rows = filter.folder.as_ref().and_then(|folder| self.kin().folder_rows(folder));
-        for key in keys {
-            let row = if let Some(rows) = folder_rows {
-                rows.get(&key).cloned().ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::InvalidData, "folder table names a missing row")
-                })?
-            } else {
-                self.get_row(&key.row).ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::InvalidData, "table names a missing hot row")
-                })?
-            };
-            candidates.push((SortKey::of(&row), row));
-        }
+        let folder_rows = filter.folder.as_ref();
+        let candidates = if let Some(folder) = folder_rows {
+            self.hot_folder_rows(folder, anchor, side, inclusive, limit + 1)
+        } else {
+            self.hot_table_keys(filter, anchor, side, inclusive, limit + 1)
+                .into_iter()
+                .map(|key| {
+                    let row = self.get_row(&key.row).ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidData, "table names a missing hot row")
+                    })?;
+                    Ok((SortKey::of(&row), row))
+                })
+                .collect::<io::Result<Vec<_>>>()?
+        };
+        let rows_read = candidates.len();
         let pivot = match side {
             ReadSide::Before => candidates.len(),
             ReadSide::After => 0,
@@ -194,7 +228,7 @@ impl SummaryIndex {
             cold_unread: !has_after && self.disk().is_some_and(|disk| !disk.is_empty()),
             rows_read,
             parent_steps: 0,
-            lookups: usize::from(folder_rows.is_some()),
+            lookups: if folder_rows.is_some() { 1 } else { rows_read },
             deeper: Vec::new(),
         })
     }
