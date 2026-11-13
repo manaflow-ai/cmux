@@ -15,17 +15,23 @@ extension DensityTokens {
 
     /// The side every browser toolbar glyph draws at: back, forward, reload, the bookmark star, the
     /// Extensions puzzle and the pinned buttons. Their ink box (``toolbarGlyphInkRatio`` of the side,
-    /// centered, one box for every glyph: Leo 2026-11-07) is a tab icon's side, 14 pt at Standard and
-    /// 16 at Comfortable, so the arrows read at the tabs' size (Lawrence 2026-11-09).
+    /// centered, one box for every glyph: Leo 2026-11-07) is ``toolbarGlyphInk``, one point under the small icon
+    /// size: 13 pt at Default, Helium's ink for Back, Forward and Reload (Lawrence 2026-11-13: the omnibar's
+    /// arrows were bigger than Helium's).
     public var toolbarGlyphSize: CGFloat {
-        resolveGlyph(compact: 14, comfortable: 16, token: "iconSize") / Self.toolbarGlyphInkRatio
+        Self.toolbarGlyphInk(smallIcon: resolveGlyph(compact: 12, comfortable: 14, token: "smallIconSize")) / Self.toolbarGlyphInkRatio
     }
+
+    /// The toolbar glyphs' ink box for a small icon size: one point under it.
+    public static func toolbarGlyphInk(smallIcon: CGFloat) -> CGFloat { max(1, smallIcon - 1) }
 }
 
 extension Metrics {
-    /// ``DensityTokens/toolbarGlyphSize`` as chrome draws it: the side whose ink box is the tab icon's
-    /// live ``iconSize`` (Interface Size and a set `iconSize` included).
-    public static var toolbarGlyphSize: CGFloat { iconSize / DensityTokens.toolbarGlyphInkRatio }
+    /// ``DensityTokens/toolbarGlyphSize`` as chrome draws it: the side whose ink box is one point under the live
+    /// ``smallIconSize`` (Interface Size and a set `smallIconSize` included).
+    public static var toolbarGlyphSize: CGFloat {
+        DensityTokens.toolbarGlyphInk(smallIcon: smallIconSize) / DensityTokens.toolbarGlyphInkRatio
+    }
 
     /// The point size of the SF Symbols on the window's top controls: the toolbar band (sidebar
     /// toggle, Back, Forward), the pane tab bar's buttons and the sidebar's + menu. One size per

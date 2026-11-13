@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-13 (density targets): a workspace row's leading glyph is the tab's icon box at every density
+  (`SidebarStyle.rowGlyphOpticalSide` = `Metrics.iconSize`: 14 Compact, 16 Default, 20 Comfortable). Lucas, verbatim:
+  "we proabably also want to change things such as icon size? on the sidebar?", then with Helium's tab as the
+  reference: "i thik icons need to be a bit bigger..heres an example of font to icon size proportion" (Helium: a
+  16 pt favicon beside 12 pt text). Rows are 20 pt at Compact and 30 at Default with 14 pt text (the ChatGPT app's).
+  The Settings page's nav rows take the sidebar's title size and `space1` row gap with the height, corner and inset
+  (`SidebarRowTokens.rowCSSVariables`).
 - 2026-11-11: Home, the pinned rows and the "Workspaces" heading keep one row pitch at every density. Lawrence
   (8:04 PM screenshot of Home, six pins and the heading), verbatim: "spacing here is not consistent anymore either".
   A list block's rows stacked edge to edge while the list keeps its `space1` row gap, so pins stepped 2 pt tighter than
