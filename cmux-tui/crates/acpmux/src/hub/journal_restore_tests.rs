@@ -1241,9 +1241,10 @@ async fn a_cut_across_segments_then_crashed(rules: u8) -> (bool, bool) {
     let end = session.seq.load(Ordering::SeqCst);
     assert!(end > cut + 1, "the restart's recovery wrote fewer than two records");
     let text = std::fs::read_to_string(&first).unwrap();
-    let last_in_first = text.lines().filter_map(|l| serde_json::from_str::<EventRecord>(l).ok());
+    let mut last_in_first =
+        text.lines().filter_map(|l| serde_json::from_str::<EventRecord>(l).ok());
     assert_eq!(
-        last_in_first.last().map(|r| r.seq),
+        last_in_first.next_back().map(|r| r.seq),
         Some(cut + 1),
         "the recovery does not begin at the end of the first segment"
     );
