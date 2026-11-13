@@ -109,7 +109,9 @@ public final class MainPaneChromeShadeView: NSView {
         var line: CGPath = CGPath(rect: CGRect(x: divider.minX, y: divider.minY, width: divider.width, height: weight), transform: nil)
         for folder in folders { line = line.subtracting(folder) }
         dividerLayer.path = line
-        let ink = Palette.chromeDivider
+        // In the window's theme scope, as the split lines and the tab separators read it: a workspace-specific theme's
+        // divider, not the app theme's (#41989 F1).
+        let ink = performWithTheme { Palette.chromeDivider }
         dividerLayer.fillColor = ink.withAlphaComponent(ink.alphaComponent * strength).cgColor
     }
 

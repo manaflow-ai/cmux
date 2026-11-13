@@ -316,6 +316,10 @@ path = "tests/test_nightly_signing_on_cmux15.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_speed.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_spm_artifact_preflight.py"
 lane = "linux-guard"
 

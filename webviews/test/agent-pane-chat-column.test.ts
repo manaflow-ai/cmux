@@ -558,6 +558,9 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
         right: Math.round(row.right - box.right),
         height: box.height,
         oneLine: text.bottom - text.top < 1.5 * parseFloat(getComputedStyle(node).lineHeight),
+        lineHeight: parseFloat(getComputedStyle(node).lineHeight),
+        paddingTop: parseFloat(getComputedStyle(node).paddingTop),
+        paddingBottom: parseFloat(getComputedStyle(node).paddingBottom),
       };
     });
     // Tinted glass (Leo 2026-10-20): the window shows through, but the tint is there.
@@ -567,13 +570,10 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     // 16 at the sides, as ChatGPT and Claude (design/transcript-spacing.md "Prompt bubble").
     expect(bubble.left).toBeGreaterThanOrEqual(BUBBLE.paddingInline - 2);
     expect(bubble.left).toBeLessThanOrEqual(BUBBLE.paddingInline);
-    // The text sits centred in the bubble's height: one line is 44 tall, its block padding what the line
-    // leaves (design/transcript-spacing.md "Prompt bubble", BUBBLE.oneLine). The glyph box's top and
-    // bottom gaps are equal; how they compare with the 16 at the sides depends on the face's ascent
-    // (DejaVu's put them within 2 of it, Inter's taller ascent 3 off), which the spec
-    // does not fix.
-    expect(Math.abs(bubble.top - bubble.bottom)).toBeLessThanOrEqual(1);
-    if (bubble.oneLine) expect(Math.abs(bubble.height - BUBBLE.oneLine)).toBeLessThanOrEqual(0.5);
+    // The fixed bubble padding is symmetric; glyph ascent varies with the selected reading font.
+    expect(bubble.paddingTop).toBe(10);
+    expect(bubble.paddingBottom).toBe(10);
+    if (bubble.oneLine) expect(Math.abs(bubble.height - (bubble.lineHeight + 20))).toBeLessThanOrEqual(0.5);
     expect(bubble.right).toBe(0);
     await page.close();
   });
