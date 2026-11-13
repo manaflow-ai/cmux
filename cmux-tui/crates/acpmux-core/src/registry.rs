@@ -26,21 +26,38 @@ impl Registry {
     /// Returns the existing mailbox or starts one actor for this chat.
     pub fn hydrate(&self, config: ChatConfig) -> ChatHandle {
         let id = config.id.clone();
-        let mut entries = self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(entry) = entries.get(&id) {
-            return entry.actor.handle.clone();
+        let dead = {
+            let mut entries = self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(entry) = entries.get(&id)
+                && !entry.actor.is_finished()
+            {
+                return entry.actor.handle.clone();
+            }
+            entries.remove(&id)
+        };
+        if let Some(entry) = dead {
+            entry.actor.join();
         }
         let actor = ChatActor::spawn(config);
         let handle = actor.handle.clone();
-        entries.insert(id, Entry { actor });
+        self.entries
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(id, Entry { actor });
         handle
     }
 
     pub fn get(&self, id: &str) -> Option<ChatHandle> {
-        self.entries
-            .lock()
-            .ok()
-            .and_then(|entries| entries.get(id).map(|entry| entry.actor.handle.clone()))
+        let mut entries = self.entries.lock().ok()?;
+        if entries.get(id).is_some_and(|entry| entry.actor.is_finished()) {
+            let dead = entries.remove(id);
+            drop(entries);
+            if let Some(entry) = dead {
+                entry.actor.join();
+            }
+            return None;
+        }
+        entries.get(id).map(|entry| entry.actor.handle.clone())
     }
 
     /// Closes one hydrated chat and forgets it. The next lookup hydrates it again

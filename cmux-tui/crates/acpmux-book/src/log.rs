@@ -752,6 +752,32 @@ impl Log {
         // Repair the explicitly checkpointed open rows plus the new-id tail. Mapping growth
         // contributes at most one fixed 64-KB slab, independent of the book's history.
         if recovered.checkpoint {
+            let undo_rows = undo_entries
+                .iter()
+                .map(|entry| entry.row_id)
+                .collect::<std::collections::BTreeSet<_>>();
+            let open_rows = checkpoint_open_rows
+                .chunks_exact(8)
+                .filter_map(|id| record::le_u64(id, 0))
+                .collect::<std::collections::BTreeSet<_>>();
+            // A post-mark index entry for an already-settled row must have a durable
+            // pre-mark undo entry. Clearing it would silently lose a row whose source
+            // place is before the replay cursor; that is a rebuild condition.
+            let mut row_id = mark.min_row;
+            while row_id <= mark.max_row {
+                if !found_rows.contains(&row_id)
+                    && rows.get(row_id).is_some_and(|entry| {
+                        entry.seg > checkpoint_mark.seg
+                            || (entry.seg == checkpoint_mark.seg
+                                && u64::from(entry.off) >= checkpoint_mark.off)
+                    })
+                    && !undo_rows.contains(&row_id)
+                    && !open_rows.contains(&row_id)
+                {
+                    return Err(Error::Rebuild("a cut row has no undo entry"));
+                }
+                row_id = row_id.saturating_add(1);
+            }
             for undo in &undo_entries {
                 if !found_rows.contains(&undo.row_id)
                     && rows.get(undo.row_id).is_some_and(|entry| {
@@ -891,7 +917,17 @@ impl Log {
     pub fn raw_range(&mut self, row: &RowRef) -> Result<RawRange, Error> {
         let offset = u64::from(row.off).saturating_sub(record::HEADER_LEN_U64);
         let mut head = [0u8; HEADER_LEN];
-        if self.read_segment(row.seg, offset, &mut head)? != HEADER_LEN {
+        let read = match self.read_segment(row.seg, offset, &mut head) {
+            Ok(read) => read,
+            Err(Error::Io(_)) => {
+                return Err(Error::CorruptRow {
+                    row_id: row.row_id,
+                    reason: "a row points to a missing segment",
+                });
+            }
+            Err(error) => return Err(error),
+        };
+        if read != HEADER_LEN {
             return Err(Error::CorruptRow {
                 row_id: row.row_id,
                 reason: "a row points past its segment",
@@ -988,7 +1024,16 @@ impl Log {
             return Ok(None);
         };
         let mut head = [0u8; HEADER_LEN];
-        let read = self.read_segment(entry.seg, u64::from(entry.off), &mut head)?;
+        let read = match self.read_segment(entry.seg, u64::from(entry.off), &mut head) {
+            Ok(read) => read,
+            Err(Error::Io(_)) => {
+                return Err(Error::CorruptRow {
+                    row_id,
+                    reason: "a row points to a missing segment",
+                });
+            }
+            Err(error) => return Err(error),
+        };
         let same = read == HEADER_LEN
             && record::Header::parse(&head).is_some_and(|header| {
                 header.row_id == row_id && header.rev == entry.rev && header.len == entry.len

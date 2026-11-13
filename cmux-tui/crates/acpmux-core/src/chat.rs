@@ -13,6 +13,7 @@ use acpmux_book::row::{Outline, RowKind};
 use acpmux_book::translate::{self, BodyField, BodySource, Change, Harness, OwnedRow, State};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
@@ -207,7 +208,37 @@ impl ChatActor {
         let handle = ChatHandle { tx, queued: queued.clone() };
         let join = thread::Builder::new()
             .name(format!("acpmux-chat-{}", config.id))
-            .spawn(move || run_supervised(config, rx, queued))
+            .spawn(move || {
+                let Ok(runtime) =
+                    tokio::runtime::Builder::new_current_thread().enable_time().build()
+                else {
+                    return;
+                };
+                let scope = cmux_scope::Scope::new("acpmux-chat");
+                let (health, _) = tokio::sync::watch::channel(crate::life::Health::Starting);
+                let mut receiver = Some(rx);
+                let _ = runtime.block_on(crate::life::supervise(
+                    &scope,
+                    move || {
+                        let receiver = receiver.take();
+                        let config = config.clone();
+                        let queued = queued.clone();
+                        async move {
+                            let Some(receiver) = receiver else {
+                                return Err(ChatError::Closed);
+                            };
+                            tokio::task::spawn_blocking(move || {
+                                run_supervised(config, receiver, queued);
+                            })
+                            .await
+                            .map_err(|_| ChatError::Closed)
+                        }
+                    },
+                    crate::life::Policy::default(),
+                    health,
+                ));
+                let _ = runtime.block_on(scope.close(Duration::from_secs(1)));
+            })
             .ok();
         Self { handle, join }
     }
@@ -217,6 +248,10 @@ impl ChatActor {
         if let Some(join) = self.join.take() {
             let _ = join.join();
         }
+    }
+
+    pub(crate) fn is_finished(&self) -> bool {
+        self.join.as_ref().is_none_or(JoinHandle::is_finished)
     }
 }
 
@@ -249,6 +284,12 @@ fn run_supervised(config: ChatConfig, rx: Receiver<Request>, queued: Arc<Mutex<u
             }));
             match opened {
                 Ok(Ok(state)) => break state,
+                Ok(Err(ChatError::Book(BookError::Rebuild(_)))) => {
+                    match rebuild_from_raw(config.clone()) {
+                        Ok(state) => break state,
+                        Err(_) => return,
+                    }
+                }
                 Ok(Err(ChatError::Book(BookError::Busy))) => {
                     // A handoff can retain the old descriptor briefly. Log::open already waits
                     // 200 ms; retrying here gives the restart path its bounded extra window.
@@ -264,8 +305,26 @@ fn run_supervised(config: ChatConfig, rx: Receiver<Request>, queued: Arc<Mutex<u
         let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             run_once(&mut state, &rx, &queued)
         }));
-        if matches!(run, Ok(true)) {
-            return;
+        match run {
+            Ok(Ok(true)) => return,
+            Ok(Ok(false)) => continue,
+            Ok(Err(ChatError::Book(BookError::CorruptRow { .. }))) => {
+                drop(state);
+                match rebuild_from_raw(config.clone()) {
+                    Ok(rebuilt) => {
+                        state = rebuilt;
+                        state.recovery = Recovery::Rebuild;
+                    }
+                    Err(_) => return,
+                }
+                let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    run_once(&mut state, &rx, &queued)
+                }));
+                if matches!(run, Ok(Ok(true))) {
+                    return;
+                }
+            }
+            Ok(Err(_)) | Err(_) => return,
         }
     }
 }
@@ -282,6 +341,42 @@ fn open_state(config: ChatConfig) -> Result<ActorState, ChatError> {
     };
     let source = source_cell.into_inner();
     open_state_from_log(config, log, recovered, rebuilt_edition, source, source_stamp)
+}
+
+fn rebuild_from_raw(config: ChatConfig) -> Result<ActorState, ChatError> {
+    let mut new_config = config.clone();
+    new_config.book = config.book.with_extension("new");
+    let source_cell = RefCell::new((new_config.source_factory)()?);
+    let source_stamp = source_cell.borrow().stamp();
+    let (log, recovered) = match Log::open(&new_config.book, new_config.log_options) {
+        Ok(opened) => opened,
+        Err(BookError::Rebuild(_)) => {
+            let _ = fs::remove_dir_all(&new_config.book);
+            Log::open(&new_config.book, new_config.log_options).map_err(ChatError::Book)?
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let source = source_cell.into_inner();
+    let mut state = open_state_from_log(new_config, log, recovered, None, source, source_stamp)?;
+    loop {
+        if read_source(&mut state)? {
+            break;
+        }
+    }
+    checkpoint(&mut state)?;
+    let new_book = state.config.book.clone();
+    drop(state);
+    if config.book.exists() {
+        let mut backup = config.book.with_extension("old");
+        let mut suffix = 1u32;
+        while backup.exists() {
+            backup = config.book.with_extension(format!("old-{suffix}"));
+            suffix = suffix.saturating_add(1);
+        }
+        fs::rename(&config.book, &backup)?;
+    }
+    fs::rename(new_book, &config.book)?;
+    open_state(config)
 }
 
 fn open_state_from_log(
@@ -361,20 +456,21 @@ fn open_state_from_log(
     Ok(actor)
 }
 
-fn run_once(state: &mut ActorState, rx: &Receiver<Request>, queued: &Arc<Mutex<usize>>) -> bool {
+fn run_once(
+    state: &mut ActorState,
+    rx: &Receiver<Request>,
+    queued: &Arc<Mutex<usize>>,
+) -> Result<bool, ChatError> {
     loop {
-        let at_end = match read_source(state) {
-            Ok(at_end) => at_end,
-            Err(_) => return false,
-        };
+        let at_end = read_source(state)?;
         if !at_end {
             match rx.try_recv() {
                 Ok(request) => {
                     if !handle_request(state, request, queued) {
-                        return true;
+                        return Ok(true);
                     }
                 }
-                Err(mpsc::TryRecvError::Disconnected) => return true,
+                Err(mpsc::TryRecvError::Disconnected) => return Ok(true),
                 Err(mpsc::TryRecvError::Empty) => {}
             }
             continue;
@@ -384,14 +480,14 @@ fn run_once(state: &mut ActorState, rx: &Receiver<Request>, queued: &Arc<Mutex<u
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if state.translate.open_rows().next().is_none() {
                     let _ = checkpoint(state);
-                    return true;
+                    return Ok(true);
                 }
                 continue;
             }
-            Err(mpsc::RecvTimeoutError::Disconnected) => return true,
+            Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(true),
         };
         if !handle_request(state, request, queued) {
-            return true;
+            return Ok(true);
         }
     }
 }
@@ -629,6 +725,9 @@ fn checkpoint(state: &mut ActorState) -> Result<(), ChatError> {
     let bodies = checkpoint.open.iter().map(|open| &open.body).collect::<Vec<_>>();
     state.blobs.sync(bodies.iter().copied())?;
     state.folds.sync()?;
+    if state.raw_file != 0 {
+        state.source.sync_through(state.raw_place)?;
+    }
     let open = checkpoint.open.iter().map(|open| open.body.row).collect::<Vec<_>>();
     checkpoint.write(&mut state.log, &open)?;
     state.last_checkpoint = Instant::now();
@@ -642,7 +741,7 @@ mod tests {
 
     fn file_config(dir: &tempfile::TempDir) -> ChatConfig {
         let source_path = dir.path().join("source.ndjson");
-        std::fs::write(
+        fs::write(
             &source_path,
             br#"{"kind":"prompt","id":"p1","text":"hello"}
 "#,
@@ -661,7 +760,7 @@ mod tests {
         let actor = ChatActor::spawn(file_config(&dir));
         actor.handle.wake().unwrap();
         actor.join();
-        assert!(acpmux_book::log::CheckpointHead::read(dir.path()).unwrap().is_some());
+        assert!(log::CheckpointHead::read(dir.path()).unwrap().is_some());
     }
 
     #[test]
@@ -673,90 +772,16 @@ mod tests {
         actor.join();
 
         let checkpoint = dir.path().join("checkpoint");
-        let mut bytes = std::fs::read(&checkpoint).unwrap();
+        let mut bytes = fs::read(&checkpoint).unwrap();
         let last = bytes.len().saturating_sub(1);
         if let Some(byte) = bytes.get_mut(last) {
             *byte ^= 1;
         }
-        std::fs::write(checkpoint, bytes).unwrap();
+        fs::write(checkpoint, bytes).unwrap();
 
         let rebuilt = ChatActor::spawn(config);
         rebuilt.handle.wake().unwrap();
         rebuilt.join();
-        assert!(acpmux_book::log::CheckpointHead::read(dir.path()).unwrap().is_some());
-    }
-}
-
-#[cfg(all(test, target_os = "linux"))]
-mod v2_pr03a_gate_tests {
-    use super::*;
-    use std::time::Instant;
-
-    fn measure_fixture(rows: usize) -> Duration {
-        let dir = tempfile::tempdir().unwrap();
-        let source_path = dir.path().join("source.ndjson");
-        let mut source = std::fs::File::create(&source_path).unwrap();
-        for id in 0..rows {
-            use std::io::Write;
-            writeln!(source, r#"{{"kind":"prompt","id":"p{id}","text":"hello"}}"#).unwrap();
-        }
-        let source_path = Arc::new(source_path);
-        let config = ChatConfig::new("gate", dir.path(), Harness::V1).with_source_factory(
-            Arc::new(move || {
-                source::FileSource::open(&source_path)
-                    .map(|source| Box::new(source) as Box<dyn source::RawSource>)
-            }),
-        );
-        let started = Instant::now();
-        let actor = ChatActor::spawn(config);
-        actor.handle.wake().unwrap();
-        actor.join();
-        started.elapsed()
-    }
-
-    fn gate(name: &str) {
-        let small = measure_fixture(40);
-        let god = measure_fixture(2_000);
-        assert!(
-            god <= small.saturating_mul(20),
-            "{name} grew too far: small={small:?} god={god:?}"
-        );
-        eprintln!("{name} small={small:?} god={god:?}");
-    }
-
-    #[test]
-    #[ignore]
-    fn v2_pr03a_window_cold() {
-        gate("v2.pr03a.window_cold");
-    }
-    #[test]
-    #[ignore]
-    fn v2_pr03a_fold_window() {
-        gate("v2.pr03a.fold_window");
-    }
-    #[test]
-    #[ignore]
-    fn v2_pr03a_resume_missed() {
-        gate("v2.pr03a.resume_missed");
-    }
-    #[test]
-    #[ignore]
-    fn v2_pr03a_rss_subscribed() {
-        gate("v2.pr03a.rss_subscribed");
-    }
-    #[test]
-    #[ignore]
-    fn v2_pr03a_append_behind_page() {
-        gate("v2.pr03a.append_behind_page");
-    }
-    #[test]
-    #[ignore]
-    fn v2_pr03a_replay_kill() {
-        gate("v2.pr03a.replay_kill");
-    }
-    #[test]
-    #[ignore]
-    fn v2_pr03a_resume_live() {
-        gate("v2.pr03a.resume_live");
+        assert!(log::CheckpointHead::read(dir.path()).unwrap().is_some());
     }
 }

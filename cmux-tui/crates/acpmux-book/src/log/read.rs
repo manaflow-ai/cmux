@@ -411,7 +411,16 @@ impl Log {
             let len = usize::try_from(span.hi.saturating_sub(span.lo)).unwrap_or(usize::MAX);
             buf.resize(base.saturating_add(len), 0);
             let read = match buf.get_mut(base..) {
-                Some(space) => self.read_segment(span.seg, span.lo, space)?,
+                Some(space) => match self.read_segment(span.seg, span.lo, space) {
+                    Ok(read) => read,
+                    Err(Error::Io(_)) => {
+                        return Err(Error::CorruptRow {
+                            row_id: first.row_id,
+                            reason: "a row points to a missing segment",
+                        });
+                    }
+                    Err(error) => return Err(error),
+                },
                 None => 0,
             };
             reads = reads.saturating_add(1);
