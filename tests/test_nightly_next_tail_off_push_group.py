@@ -108,11 +108,17 @@ for name, steps in CROSS_RUN.items():
         failures.append(f"{name} reads another run's artifacts: it needs actions: read")
     by_name = {str(step.get("name", "")): step for step in spec.get("steps", [])}
     for step_name in steps:
-        step = next((s for n, s in by_name.items() if n.startswith(step_name)), None)
-        with_ = (step or {}).get("with") or {}
-        if "published-build.outputs.source_run" not in str(with_.get("run-id", "")) \
-                or "github.token" not in str(with_.get("github-token", "")):
+        # The ranged download (download-run-artifact.py, its run in env) and its download-artifact fallback
+        # (run-id in with) both read the published build's run.
+        found = [s for n, s in by_name.items() if n.startswith(step_name)]
+        if not found:
             failures.append(f"{name}: {step_name!r} must download from the published build's run")
+        for step in found:
+            with_, env = step.get("with") or {}, step.get("env") or {}
+            run_from, token = (str(with_.get("run-id", "")), str(with_.get("github-token", ""))) if "uses" in step \
+                else (str(env.get("SOURCE_RUN", "")), str(env.get("GH_TOKEN", "")))
+            if "published-build.outputs.source_run" not in run_from or "github.token" not in token:
+                failures.append(f"{name}: {step.get('name')!r} must download from the published build's run")
 
 # run_tail: false only in a loop run (a push, or the loop's retry) that published itself.
 run_tail = str(((source or {}).get("outputs") or {}).get("run_tail", ""))
