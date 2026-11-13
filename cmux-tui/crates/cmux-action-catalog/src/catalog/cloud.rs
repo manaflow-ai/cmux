@@ -660,6 +660,23 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "cloudSetupDesktop",
+        group: GROUP,
+        title: t("ActionCatalog", "action.cloudSetupDesktop", "Start Desktop…"),
+        description: Some("Starts the desktop service on the selected Cloud machine and opens its desktop when ready."),
+        keywords: &["vm", "desktop", "display", "screen", "setup"],
+        category: "cloud",
+        symbol: "display",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 198).folder("connection")], ..SurfacePlan::DEFAULT },
+        targets: &["machine"],
+        palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
+        cli_name: "cloud setup-desktop",
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "cloudRenameMachine",
         group: GROUP,
         title: t("ActionCatalog", "action.cloudRenameMachine", "Rename Machine…"),

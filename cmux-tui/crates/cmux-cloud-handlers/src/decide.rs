@@ -222,7 +222,7 @@ pub struct PaletteMachine {
     pub id: String,
     pub title: String,
     pub status: String,
-    /// Whether the image exposes the desktop service.
+    /// Whether the machine advertises the desktop service.
     pub desktop: bool,
 }
 
@@ -243,6 +243,7 @@ pub enum PaletteTargetState {
 #[serde(rename_all = "camelCase")]
 pub enum PaletteTargetIntent {
     Choose,
+    StartDesktop,
     CreateDesktop,
 }
 
@@ -275,7 +276,7 @@ fn palette_status(
         }
         "running" | "ready" | "connected" | "active" => {
             if wants_desktop && !desktop {
-                (PaletteTargetState::DesktopUnavailable, Some(PaletteTargetIntent::CreateDesktop))
+                (PaletteTargetState::DesktopUnavailable, Some(PaletteTargetIntent::StartDesktop))
             } else {
                 (PaletteTargetState::Ready, Some(PaletteTargetIntent::Choose))
             }
@@ -293,7 +294,7 @@ fn palette_status(
 
 /// Build stable, GUI-ready rows for a machine target picker.
 ///
-/// Desktop-capable machines always precede images without the desktop service. Within each
+/// Machines advertising a desktop always precede machines without that capability. Within each
 /// capability group rows are ordered by actionability (ready, resume, starting, unavailable)
 /// while preserving the inventory order for ties. The empty desktop case offers the create path.
 pub fn palette_targets(wants_desktop: bool, machines: &[PaletteMachine]) -> Vec<PaletteTargetRow> {

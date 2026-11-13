@@ -223,10 +223,27 @@ fn palette_desktop_targets_prioritize_capable_machines_and_inline_fixes() {
                 id: "no-desktop".into(),
                 title: "Shell".into(),
                 state: PaletteTargetState::DesktopUnavailable,
-                intent: Some(PaletteTargetIntent::CreateDesktop)
+                intent: Some(PaletteTargetIntent::StartDesktop)
             },
         ]
     );
+}
+
+#[test]
+fn palette_desktop_setup_preserves_each_running_machine_target() {
+    for status in ["running", "ready", "connected", "active", " Running "] {
+        let machines = vec![PaletteMachine {
+            id: "existing-machine".into(),
+            title: "My machine".into(),
+            status: status.into(),
+            desktop: false,
+        }];
+        let rows = serde_json::to_value(palette_targets(true, &machines)).unwrap();
+        assert_eq!(rows[0]["id"], "existing-machine", "{status}");
+        assert_eq!(rows[0]["intent"], "startDesktop", "{status}");
+        assert_eq!(rows[0]["state"], "desktopUnavailable", "{status}");
+        assert_eq!(palette_targets(false, &machines)[0].intent, Some(PaletteTargetIntent::Choose));
+    }
 }
 
 #[test]

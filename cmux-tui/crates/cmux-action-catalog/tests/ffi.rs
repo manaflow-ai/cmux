@@ -65,6 +65,10 @@ fn palette_target_metadata_marks_cloud_machine_actions_and_preserves_exemptions(
     let row = |id: &str| actions.iter().find(|a| a["id"] == id).expect("action");
     assert_eq!(row("cloudOpenDesktop")["paletteTarget"], "machine");
     assert_eq!(row("cloudOpenDesktop")["paletteTargetSource"], "cloud");
+    assert_eq!(row("cloudSetupDesktop")["paletteTarget"], "machine");
+    assert_eq!(row("cloudSetupDesktop")["paletteTargetSource"], "cloud");
+    assert_eq!(row("cloudSetupDesktop")["targets"], serde_json::json!(["machine"]));
+    assert_eq!(row("cloudSetupDesktop")["waitsForResult"], true);
     assert_eq!(row("cloudExec")["paletteTarget"], "machine");
     for id in [
         "cloudNewTerminal",
