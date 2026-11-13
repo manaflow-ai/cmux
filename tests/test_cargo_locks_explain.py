@@ -92,7 +92,10 @@ def clean_env(**extra: str) -> dict[str, str]:
 # times as many repeats, in a child process (this test file loads no script module itself). The line is a str that counts the characters
 # each of its own calls reads: a find reads from its start to the end of what it found (to the end of its range on
 # a miss), a startswith or endswith reads the words it compares, a slice reads what it returns. The same line
-# gives the same count on every host. The child prints, for each size, the line's length and the count.
+# gives the same count on every host. Every other str call that reads the line raises, so work the count cannot
+# see fails the child and never passes as cheap. A regex is the one reader the line cannot see or refuse: a scan
+# by regex alone reads nothing here and fails the test's "half a pass" floor, and a regex beside the counted calls
+# is not seen. The child prints, for each size, the line's length and the count.
 COUNT_CHILD = r"""
 import importlib, json, pathlib, sys
 sys.path.insert(0, sys.argv[1])
@@ -121,6 +124,10 @@ class Counted(str):
         part = str.__getitem__(self, key)
         read[0] += len(part)
         return part
+    def _uncounted(self, *args, **kwargs):
+        raise AssertionError("the scan read the line through a str call this test does not count; count it here")
+    __contains__ = __iter__ = count = index = rindex = split = rsplit = splitlines = _uncounted
+    partition = rpartition = replace = strip = lstrip = rstrip = __str__ = __add__ = encode = _uncounted
 counts = []
 for units in (chars // len(unit), 4 * (chars // len(unit))):
     line = Counted(unit * units + "--locked was passed\n")
@@ -129,14 +136,15 @@ for units in (chars // len(unit), 4 * (chars // len(unit))):
     counts.append({"chars": len(line), "read": read[0]})
 print(json.dumps(counts))
 """
-# What one hostile line repeats (cmux#42375 review F2): a lock named again and again before cargo's last words, and
-# cargo's last words again and again, each after a lock that is named.
-COUNT_UNITS = ("the lock file ", "the lock file x is fine, --locked was passed ")
+# What one hostile line repeats (cmux#42375 review F2): a lock named again and again before cargo's last words,
+# cargo's last words again and again, each after a lock that is named, and cargo's last words with no lock named.
+COUNT_UNITS = ("the lock file ", "the lock file x is fine, --locked was passed ", "--locked was passed ")
 # A line's length at the small size: 70 times cargo-locks.py's REFUSAL_WINDOW, so a scan that reads the window
 # again for each match reads far more than COUNT_LIMIT times the line.
 COUNT_CHARS = 300_000
-# The most characters the scan may read for each character of the line. It reads about 3 today: one pass for
-# cargo's last words, one for the lock's name, and the words around each match.
+# The most characters the scan may read for each character of the line. It reads about 3 today (one pass for
+# cargo's last words, about two for the lock's name: each find starts one character after the last hit), and a
+# scan that reads its window again for each match reads 94.
 COUNT_LIMIT = 8
 
 
@@ -248,9 +256,10 @@ class ExplainTests(Scratch):
 
     def test_the_scan_reads_a_line_a_fixed_number_of_times(self) -> None:
         """cmux#42375 review F2, as a count (a bound of 2 s was here: on a loaded runner that measures the runner).
-        "One long line costs its length, not its length times a window": the characters the scan reads are at most
-        COUNT_LIMIT for each character of the line, at a length and at 4 times that length, and 4 times the line
-        is at most 4 times the reads."""
+        "One long line costs its length, not its length times a window": the characters the scan reads through
+        the str calls COUNT_CHILD counts (every other str call fails the child) are at most COUNT_LIMIT for each
+        character of the line, at a length and at 4 times that length, and 4 times the line is at most 4 times
+        the reads, with 1% for a linear scan's constant part."""
         for unit in COUNT_UNITS:
             with self.subTest(unit=unit):
                 result = subprocess.run(
@@ -262,11 +271,11 @@ class ExplainTests(Scratch):
                                  4 * (small["chars"] - len("--locked was passed\n")))
                 for line in (small, large):
                     self.assertGreaterEqual(
-                        line["read"], line["chars"],
-                        "the counting line saw less than one pass: the scan no longer reads the line through the "
-                        "str calls COUNT_CHILD counts, so this count proves nothing; count the calls it makes now")
+                        2 * line["read"], line["chars"],
+                        "the counting line saw less than half a pass: the scan no longer reads the line through "
+                        "the str calls COUNT_CHILD counts, so this count proves nothing; count what it reads now")
                     self.assertLessEqual(line["read"], COUNT_LIMIT * line["chars"], (small, large))
-                self.assertLessEqual(large["read"], 4 * small["read"], (small, large))
+                self.assertLessEqual(100 * large["read"], 404 * small["read"], (small, large))
 
 
 class PythonAndShellSiteTests(Scratch):
