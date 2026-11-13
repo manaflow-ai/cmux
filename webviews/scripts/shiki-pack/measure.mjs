@@ -40,7 +40,7 @@ async function files(root, prefix = "") {
 }
 
 execFileSync("bun", ["scripts/pages/gen-strings.mjs"], { cwd: webviews, stdio: "inherit", timeout: 120_000 });
-for (const variant of ["baseline", "gzip"]) {
+for (const variant of ["baseline", "control", "gzip"]) {
   const root = path.join(out, variant);
   const command = variant === "baseline" ? "bash" : "bun";
   const args =
@@ -54,7 +54,7 @@ for (const variant of ["baseline", "gzip"]) {
     timeout: 600_000,
     maxBuffer: 32 * 1024 * 1024,
   });
-  if (variant === "gzip") {
+  if (variant !== "baseline") {
     // The builder's host wrapper does not depend on bundling. Copy its exact bytes from this
     // same-head baseline, then apply the builder's whitespace normalization to both JS/HTML.
     await writeFile(
@@ -73,6 +73,10 @@ for (const variant of ["baseline", "gzip"]) {
     inventory.push({ file, bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") });
   }
   receipt.variants[variant] = { bytes: inventory.reduce((sum, item) => sum + item.bytes, 0), inventory };
+  if (variant === "control") {
+    assert.deepEqual(inventory, receipt.variants.baseline.inventory, "config wrapper changes production output");
+    continue;
+  }
   const oracle = path.join(out, `oracle-${variant}`);
   await build({
     entryPoints: [path.join(webviews, "scripts/shiki-pack/oracle.mjs")],
@@ -87,6 +91,16 @@ for (const variant of ["baseline", "gzip"]) {
   });
   await writeFile(path.join(oracle, "index.html"), '<!doctype html><script type="module" src="./oracle.js"></script>');
 }
+const originalFiles = new Map(receipt.variants.baseline.inventory.map((item) => [item.file, item]));
+for (const item of receipt.variants.gzip.inventory) {
+  if (item.file === "chunks/shiki-pack-inflate.mjs" || /\/shiki-lang-.*\.mjs$/.test(item.file)) continue;
+  assert.deepEqual(item, originalFiles.get(item.file), `non-grammar production file changed: ${item.file}`);
+}
+assert.deepEqual(
+  receipt.variants.gzip.inventory.map(({ file }) => file).filter((file) => file !== "chunks/shiki-pack-inflate.mjs"),
+  receipt.variants.baseline.inventory.map(({ file }) => file),
+  "grammar packing changes the production chunk graph",
+);
 
 // A real package barrel probe: compare the same public export with shaking enabled and disabled.
 const core = {};
@@ -122,35 +136,43 @@ receipt.codecs = codecs;
 
 const csp =
   "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; worker-src 'self'; connect-src 'none'";
-const server = createServer(async (request, response) => {
-  const url = new URL(request.url, "http://127.0.0.1");
-  const file = path.resolve(out, `.${decodeURIComponent(url.pathname)}`);
-  if (!file.startsWith(`${out}/`)) {
-    response.writeHead(403).end();
-    return;
-  }
-  try {
-    const body = await readFile(file);
-    response
-      .writeHead(200, {
-        "Content-Type":
-          {
-            ".html": "text/html",
-            ".mjs": "text/javascript",
-            ".js": "text/javascript",
-            ".css": "text/css",
-            ".woff2": "font/woff2",
-          }[path.extname(file)] ?? "application/octet-stream",
-        "Content-Security-Policy": csp,
-        "Cache-Control": "max-age=3600",
-      })
-      .end(body);
-  } catch {
-    response.writeHead(404).end();
-  }
-});
-await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-const base = `http://127.0.0.1:${server.address().port}`;
+async function serve(root) {
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url, "http://127.0.0.1");
+    const file = path.resolve(root, `.${decodeURIComponent(url.pathname)}`);
+    if (!file.startsWith(`${root}/`)) {
+      response.writeHead(403).end();
+      return;
+    }
+    try {
+      const body = await readFile(file);
+      response
+        .writeHead(200, {
+          "Content-Type":
+            {
+              ".html": "text/html",
+              ".mjs": "text/javascript",
+              ".js": "text/javascript",
+              ".css": "text/css",
+              ".woff2": "font/woff2",
+            }[path.extname(file)] ?? "application/octet-stream",
+          "Content-Security-Policy": csp,
+          "Cache-Control": "max-age=3600",
+        })
+        .end(body);
+    } catch {
+      response.writeHead(404).end();
+    }
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return { server, origin: `http://127.0.0.1:${server.address().port}` };
+}
+const shared = await serve(out);
+const base = shared.origin;
+// Vite's dynamic CSS preloads use /assets URLs. Each real production page must be
+// served at its own origin root, just as the native surface serves its bundle root.
+const production = {};
+for (const variant of ["baseline", "gzip"]) production[variant] = await serve(path.join(out, variant));
 configureSystemChrome(chromium);
 try {
   for (const [engine, browserType] of [
@@ -164,7 +186,7 @@ try {
       // must decode to byte-for-byte equivalent JSON. No source-map or renderedLength estimates.
       const context = await browser.newContext();
       const page = await context.newPage();
-      await page.goto(`${base}/baseline/markdown-page.html`);
+      await page.goto(`${base}/oracle-baseline/index.html`);
       const baselineLangs = receipt.variants.baseline.inventory.filter(({ file }) =>
         /\/shiki-lang-.*\.mjs$/.test(file),
       );
@@ -232,7 +254,10 @@ try {
       await context.close();
 
       const samples = {
+        plain: null,
         typescript: "const answer: number = 42;\nexport function hello(name: string) { return `Hello ${name}`; }",
+        "emacs-lisp": '(defun hello (name)\n  (message "Hello %s" name))\n',
+        cpp: "#include <vector>\ntemplate<typename T> T square(T value) { return value * value; }\n",
         astro: "---\nconst answer: number = 42;\n---\n<style>h1 { color: red }</style>\n<h1>{answer}</h1>",
         cobol:
           '       IDENTIFICATION DIVISION.\n       PROGRAM-ID. HELLO.\n       PROCEDURE DIVISION.\n           DISPLAY "HELLO WORLD".\n           STOP RUN.',
@@ -262,7 +287,10 @@ try {
                               ? {
                                   path: "/pack-bench.md",
                                   hash: "fixture",
-                                  text: `# Grammar benchmark\n\n\`\`\`${language}\n${code}\n\`\`\`\n`,
+                                  text:
+                                    language === "plain"
+                                      ? "# Grammar benchmark\n\nAn ordinary markdown page.\n"
+                                      : `# Grammar benchmark\n\n\`\`\`${language}\n${code}\n\`\`\`\n`,
                                 }
                               : message.op === "cmux.markdown.resolveLinks"
                                 ? { links: {} }
@@ -286,12 +314,26 @@ try {
               { language, code },
             );
             for (const temperature of ["cold", "warm"]) {
-              await page.goto(`${base}/${variant}/markdown-page.html`);
-              await page.waitForFunction(() => window.__shikiTiming.highlighted, null, { timeout: 30_000 });
+              await page.goto(`${production[variant].origin}/markdown-page.html`);
+              await page
+                .waitForFunction(
+                  (language) =>
+                    window.__shikiTiming.ready && (language === "plain" || window.__shikiTiming.highlighted),
+                  language,
+                  { timeout: 30_000 },
+                )
+                .catch(async (error) => {
+                  throw new Error(
+                    `${variant}/${language}/${temperature}: ${error}; page errors: ${JSON.stringify(errors)}; body: ${(await page.locator("body").innerText()).slice(0, 1000)}`,
+                  );
+                });
               const timing = await page.evaluate(() => window.__shikiTiming);
-              assert(Number.isFinite(timing.ready) && Number.isFinite(timing.highlighted), "missing readiness timing");
+              assert(
+                Number.isFinite(timing.ready) && (language === "plain" || Number.isFinite(timing.highlighted)),
+                "missing readiness timing",
+              );
               assert.deepEqual(errors, [], `${variant}/${language}/${temperature}`);
-              const colors = await page.locator(".md-code code").innerHTML();
+              const colors = await page.locator(language === "plain" ? ".ProseMirror h1" : ".md-code code").innerHTML();
               receipt.timings.push({
                 variant,
                 engine,
@@ -322,10 +364,14 @@ try {
     }
   }
 } finally {
-  await new Promise((resolve) => server.close(resolve));
+  for (const { server } of [shared, ...Object.values(production)])
+    await new Promise((resolve) => server.close(resolve));
   await writeFile(path.join(out, "receipt.json"), JSON.stringify(receipt, null, 2));
 }
-const quantile = (values, q) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * q) - 1];
+const quantile = (values, q) => {
+  const finite = values.filter(Number.isFinite).sort((a, b) => a - b);
+  return finite.length ? finite[Math.ceil(finite.length * q) - 1] : null;
+};
 const summary = {
   head: receipt.head,
   browsers: receipt.browsers,
