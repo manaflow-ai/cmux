@@ -337,9 +337,14 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
         );
         const message = row?.querySelector<HTMLElement>(".cv-md");
         const composer = document.querySelector<HTMLElement>(".acpmux-dock");
+        const view = scroller.getBoundingClientRect();
+        const rowBox = row?.getBoundingClientRect();
         w.__frames.push({
           t: Math.round(frame),
-          marker: row?.getBoundingClientRect().top,
+          // Virtualized rows keep their estimated geometry while they are outside the viewport. Do
+          // not treat that offscreen bookkeeping as a painted movement; only compare the marker while
+          // it is actually visible in the transcript. A visible downward move remains a real failure.
+          marker: rowBox && rowBox.bottom > view.top && rowBox.top < view.bottom ? rowBox.top : undefined,
           messageBottom: message?.getBoundingClientRect().bottom,
           composerTop: composer?.getBoundingClientRect().top,
           settled: Boolean(document.querySelector(".acpmux-row--last-footer")),
