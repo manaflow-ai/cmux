@@ -261,12 +261,18 @@ pub(in crate::cli) fn parse_options(words: &[&str], command: &str) -> Result<Opt
     Ok(options)
 }
 
-/// What the process gives a start: the caller's terminal (only when the
-/// command routes to the caller's own session), folder, shell and default
-/// launcher.
+/// What the process gives a start: the caller's place (only when the
+/// command routes to the caller's own session on this machine), folder,
+/// shell and default launcher.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::cli) struct Env {
     pub caller_terminal: Option<String>,
+    /// Where the agent chat (or Chief turn) that runs the command is, from
+    /// the app that owns the session: a chat has no terminal of its own.
+    pub chat: Option<placement::ChatPlace>,
+    /// The workspace key an agent chat's environment names
+    /// (`CMUX_WORKSPACE_ID`), for a chat no app places.
+    pub workspace_key: Option<String>,
     pub cwd: Option<String>,
     pub shell: String,
     pub default_launcher: Option<String>,
@@ -275,9 +281,23 @@ pub(in crate::cli) struct Env {
 impl Env {
     fn of_process(global: &GlobalArgs) -> Self {
         let var = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
+        let caller = super::beside::Caller::of_process();
+        let this_machine = global.machine.as_deref().is_none_or(|machine| machine == "current");
+        let own_session = wire::routes_to_caller_session(global) && this_machine;
+        let chat = (own_session && caller.is_chat())
+            .then(|| {
+                let (socket, derived) = wire::resolve_socket_with_origin(global).ok()?;
+                let route = super::resolve::SocketRoute::new(&socket, derived, global);
+                route.identity().and_then(placement::ChatPlace::from_identity)
+            })
+            .flatten();
         Self {
-            caller_terminal: var("CMUX_TUI_TERMINAL_ID")
-                .filter(|_| wire::routes_to_caller_session(global)),
+            caller_terminal: caller.terminal.clone().filter(|_| own_session),
+            chat,
+            workspace_key: caller
+                .fallback_workspace_key()
+                .filter(|_| own_session)
+                .map(str::to_owned),
             cwd: std::env::current_dir().ok().map(|dir| dir.display().to_string()),
             shell: launch::shell_from(var("SHELL").as_deref()),
             default_launcher: var(launch::DEFAULT_LAUNCHER_ENV),
@@ -530,14 +550,7 @@ pub(in crate::cli) fn start<D: Daemon + ?Sized>(
     };
     let (pane, placement) = match &fresh {
         Some((pane, _)) => (pane.clone(), Placement::Tab),
-        None => (
-            placement::target_pane(
-                &snapshot,
-                options.pane.as_deref(),
-                env.caller_terminal.as_deref(),
-            )?,
-            options.placement(),
-        ),
+        None => placement::target(&snapshot, options, env)?,
     };
     let created =
         placement::open(daemon, &pane, &placement, Some(name), cwd.as_deref(), &launch.argv())?;
@@ -756,14 +769,7 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
         .or_else(|| env.cwd.clone());
     let (pane, placement) = match (&exited.pane, &options.pane, &options.split) {
         (Some(pane), None, None) => (pane.clone(), Placement::Tab),
-        _ => (
-            placement::target_pane(
-                &snapshot,
-                options.pane.as_deref(),
-                env.caller_terminal.as_deref(),
-            )?,
-            options.placement(),
-        ),
+        _ => placement::target(&snapshot, options, env)?,
     };
     let name = exited.name.as_deref();
     let created = placement::open(daemon, &pane, &placement, name, cwd.as_deref(), &launch.argv())?;

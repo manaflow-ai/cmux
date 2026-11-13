@@ -299,6 +299,8 @@ fn created(pane: &str, tab: &str, terminal: &str) -> Value {
 fn env() -> Env {
     Env {
         caller_terminal: Some(CALLER.into()),
+        chat: None,
+        workspace_key: None,
         cwd: Some("/home".into()),
         shell: "/bin/zsh".into(),
         default_launcher: None,

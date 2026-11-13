@@ -1,8 +1,12 @@
 //! Where `agent start` and `resume` open the agent's tab, and opening it.
 //!
-//! - No `--pane` and no `--split`: split the caller's pane (or, outside a
-//!   cmux-tui terminal, the focused pane) to the right. `resume` without
-//!   either reopens the agent in the pane of its exited tab instead.
+//! - No `--pane` and no `--split`: split the caller's pane to the right. An
+//!   agent chat or a Chief turn has no terminal: its new agent goes beside
+//!   its chat, where the owning app's `beside` answer says (cli/beside.rs),
+//!   and a chat no app places uses the workspace its environment names
+//!   (`CMUX_WORKSPACE_ID`). Only a shell outside cmux gets the focused pane.
+//!   `resume` without either reopens the agent in the pane of its exited
+//!   tab instead.
 //! - `--pane SEL`: a new tab in that pane.
 //! - `--pane SEL --split DIR`, or `--split DIR` alone: split that pane.
 //! - A session with no pane yet (a daemon no client opened): a new workspace
@@ -26,24 +30,98 @@
 use serde_json::{Value, json};
 
 use super::super::agent_names::{self, Found};
+use super::super::beside;
 use super::super::terminal_talk::send::{self, Daemon};
-use super::{Failure, plan};
+use super::{Env, Failure, Options, plan};
 
 /// A new tab in a pane, or a new pane next to it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::cli) enum Placement {
     /// A split in this direction (`right`, `down`, `left`, `up`).
     Split(String),
+    /// A new column right of a chat that has none: a split right that
+    /// shares the window with the chat (`--fit`), never one wider than it.
+    Column,
     Tab,
 }
 
 impl Placement {
     pub(in crate::cli) fn as_str(&self) -> &'static str {
         match self {
-            Self::Split(_) => "split",
+            Self::Split(_) | Self::Column => "split",
             Self::Tab => "tab",
         }
     }
+}
+
+/// Where the chat that runs a start is: an agent chat or a Chief turn has no
+/// terminal of its own, so the app that owns the session says where its chat
+/// is and where a terminal it opens goes (`system.identify`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::cli) struct ChatPlace {
+    /// The chat's own pane.
+    pub pane: Option<String>,
+    /// The pane a new agent with no `--pane` and no `--split` opens in, and
+    /// how: a tab in the column right of the chat, else a split that makes
+    /// that column (or a pane below its lone pane of another kind).
+    pub beside: (String, Placement),
+}
+
+impl ChatPlace {
+    /// `None` when the app does not place the caller.
+    pub(in crate::cli) fn from_identity(identity: &Value) -> Option<Self> {
+        let beside = match beside::placement(identity)? {
+            beside::Placement::Pane { pane, .. } => (pane, Placement::Tab),
+            beside::Placement::NewColumn { chat_pane, .. } => (chat_pane, Placement::Column),
+            beside::Placement::SplitBelow { pane, .. } => (pane, Placement::Split("down".into())),
+        };
+        let pane = identity.pointer("/caller/pane").and_then(Value::as_str).map(str::to_owned);
+        Some(Self { pane, beside })
+    }
+}
+
+/// The pane a start (or a resume told `--pane` or `--split`) opens in, and
+/// how. The caller's own pane, for no `--pane`, `current` and `caller`, is
+/// its terminal's pane; a chat's is where the app places it (with neither
+/// flag, beside the chat); a chat no app places uses the workspace its
+/// environment names. Only then the focused pane ([`target_pane`]).
+pub(in crate::cli) fn target(
+    snapshot: &Value,
+    options: &Options,
+    env: &Env,
+) -> Result<(String, Placement), Failure> {
+    let selector = options.pane.as_deref();
+    let fallback = || {
+        Ok((target_pane(snapshot, selector, env.caller_terminal.as_deref())?, options.placement()))
+    };
+    if !matches!(selector, None | Some("current" | "caller")) {
+        return fallback();
+    }
+    // The same order as a `current` selector (resolve.rs `caller_path`):
+    // the chat the app places, the caller's terminal, the workspace the
+    // chat's environment names.
+    if let Some(chat) = &env.chat {
+        if selector.is_none() && options.split.is_none() {
+            return Ok(chat.beside.clone());
+        }
+        if let Some(pane) = &chat.pane {
+            return Ok((pane.clone(), options.placement()));
+        }
+    }
+    let in_terminal = env
+        .caller_terminal
+        .as_deref()
+        .is_some_and(|terminal| pane_of_terminal(snapshot, terminal).is_some());
+    if !in_terminal
+        && let Some(pane) = env
+            .workspace_key
+            .as_deref()
+            .and_then(|key| beside::workspace_of_key(&snapshot["workspaces"], key))
+            .and_then(|workspace| pane_of_workspace(snapshot, &workspace))
+    {
+        return Ok((pane, options.placement()));
+    }
+    fallback()
 }
 
 /// The ids of the agent's new tab.
@@ -314,7 +392,8 @@ pub(in crate::cli) fn target_pane(
     }
 }
 
-/// Opens the agent's tab: splits `pane` first for [`Placement::Split`],
+/// Opens the agent's tab: splits `pane` first for [`Placement::Split`] and
+/// [`Placement::Column`],
 /// runs `argv` there as a named tab that keeps its terminal after exit,
 /// and ends the split's shell ([`end_placeholder`]).
 pub(in crate::cli) fn open<D: Daemon + ?Sized>(
@@ -326,9 +405,16 @@ pub(in crate::cli) fn open<D: Daemon + ?Sized>(
     argv: &[String],
 ) -> Result<Created, Failure> {
     let (target, shell_tab) = match placement {
-        Placement::Split(direction) => {
+        Placement::Split(_) | Placement::Column => {
+            let (direction, column) = match placement {
+                Placement::Split(direction) => (direction.as_str(), false),
+                _ => ("right", true),
+            };
             let flag = format!("--{direction}");
             let mut words = vec!["pane", pane, "split", flag.as_str()];
+            if column {
+                words.push("--fit");
+            }
             if let Some(cwd) = cwd {
                 words.extend(["--cwd", cwd]);
             }
