@@ -125,6 +125,18 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Qwen Node-hosted capture keeps runtime + entrypoint and trailing options")
+    func qwenNodeHostedCaptureKeepsEntrypoint() {
+        let script = "/opt/qwen/node_modules/@qwen-code/qwen-code/dist/cli.js"
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["node", script, "--model", "qwen3-coder-plus", "--yolo"],
+                launcher: "qwen",
+                fallbackKind: "qwen"
+            ) == ["node", script, "--model", "qwen3-coder-plus", "--yolo"]
+        )
+    }
+
     @Test("Qwen resume renders the captured executable with --resume and preserved flags")
     func qwenResumeCommandPreservesFlags() {
         #expect(
