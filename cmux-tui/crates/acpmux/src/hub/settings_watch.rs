@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::Instant;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 use notify::Watcher as _;
 
 use super::harness_watch::{MAX_BURST, QUIET};
@@ -48,7 +48,11 @@ impl Drop for SettingsWatchState {
 
 /// Keeps the watcher alive; dropping it stops the events and its thread.
 pub(crate) struct SettingsWatcher {
-    #[cfg(not(target_os = "macos"))]
+    /// Linux: inotify for changes only (`quiet_dirs`): notify asks for every open, and while
+    /// `~/.config/cmux` does not exist the folder watched is `$HOME`.
+    #[cfg(target_os = "linux")]
+    watcher: StdMutex<crate::quiet_dirs::QuietDirs>,
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     watcher: StdMutex<notify::RecommendedWatcher>,
     #[cfg(not(target_os = "macos"))]
     watched: StdMutex<Vec<PathBuf>>,
@@ -83,7 +87,21 @@ impl Hub {
             };
             Arc::new(SettingsWatcher { _watch: named })
         };
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
+        let watch = {
+            let watcher = match crate::quiet_dirs::QuietDirs::start(tx, "acpmux-settings-inotify") {
+                Ok(watcher) => watcher,
+                Err(e) => {
+                    tracing::warn!("settings watch cannot start: {e}");
+                    return;
+                }
+            };
+            Arc::new(SettingsWatcher {
+                watcher: StdMutex::new(watcher),
+                watched: StdMutex::new(Vec::new()),
+            })
+        };
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         let watch = {
             let watcher = match notify::recommended_watcher(move |event| {
                 let _ = tx.send(event);
@@ -187,20 +205,24 @@ impl SettingsWatcher {
             let folders = files.iter().flat_map(|f| {
                 [f.parent().map(Path::to_path_buf), real(f).parent().map(Path::to_path_buf)]
             });
+            let mut own: Vec<PathBuf> = Vec::new();
             for folder in folders.flatten() {
                 if let Some(existing) = folder.ancestors().find(|a| a.is_dir()) {
                     wanted.push(existing.to_path_buf());
                 }
+                own.push(folder);
             }
-            #[cfg(test)]
+            #[cfg(all(test, target_os = "linux"))]
             if let Some(mut hook) = tests::AFTER_LOOK.with(|hook| hook.borrow_mut().take()) {
                 hook();
             }
             let mut added = false;
             for dir in wanted {
+                // An ancestor standing in for a missing folder: its entries only.
+                let entries_only = !own.contains(&dir);
                 if dir.is_dir()
                     && !watched.contains(&dir)
-                    && watcher.watch(&dir, notify::RecursiveMode::NonRecursive).is_ok()
+                    && arm_dir(&mut watcher, &dir, entries_only)
                 {
                     watched.push(dir);
                     added = true;
@@ -211,6 +233,19 @@ impl SettingsWatcher {
             }
         }
     }
+}
+
+/// Watches `dir`, for its entries only or every change in it; false when it cannot be watched.
+#[cfg(target_os = "linux")]
+fn arm_dir(watcher: &mut crate::quiet_dirs::QuietDirs, dir: &Path, entries_only: bool) -> bool {
+    use crate::quiet_dirs::Kind;
+    watcher.watch(dir, if entries_only { Kind::Entries } else { Kind::Changes })
+}
+
+/// Watches `dir` (notify has no entries-only watch: every change).
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn arm_dir(watcher: &mut notify::RecommendedWatcher, dir: &Path, _entries_only: bool) -> bool {
+    watcher.watch(dir, notify::RecursiveMode::NonRecursive).is_ok()
 }
 
 /// `path` resolved through its nearest existing folder (FSEvents reports
@@ -284,7 +319,7 @@ fn run(
     }
 }
 
-#[cfg(all(test, not(target_os = "macos")))]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
     use std::cell::RefCell;
@@ -308,8 +343,11 @@ mod tests {
         AFTER_LOOK.with(|hook| {
             *hook.borrow_mut() = Some(Box::new(move || std::fs::create_dir_all(&made).unwrap()));
         });
+        let (tx, _rx) = std::sync::mpsc::channel();
         let watch = SettingsWatcher {
-            watcher: StdMutex::new(notify::recommended_watcher(|_| {}).unwrap()),
+            watcher: StdMutex::new(
+                crate::quiet_dirs::QuietDirs::start(tx, "settings-test").unwrap(),
+            ),
             watched: StdMutex::new(Vec::new()),
         };
         watch.refresh(&[file]);

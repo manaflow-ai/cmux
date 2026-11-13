@@ -27,9 +27,18 @@ export type AgentNotice = {
   severity: NoticeSeverity;
   title: string;
   links: readonly NoticeLink[];
-  /// cmux's own notice (a background command's end): its sender is an internal component, named
-  /// `cmux` on the line, and no chat of the list stands behind it.
+  /// cmux's own notice (a background command's end): its sender is an internal component, never
+  /// named on the line, and no chat of the list stands behind it. Its `sender` is what the chip
+  /// says: a background task's own description, else empty (Leo, 2026-11-12, on such a notice's
+  /// chip: "should this really be labelled as \"cmux\"?").
   system?: true;
+  /// A background task's end: with no description of its own, its chip reads "Background task"
+  /// (IncomingMessageCard.tsx `SenderChip`); any other system notice has no chip.
+  task?: true;
+  /// A background task's end whose subagent ended first, so it came to the lead (acpmux
+  /// hub/bg_notify.rs `orphan_display`): `none` draws nothing (it went well and wrote nothing),
+  /// `line` is one quiet line with its output behind it and no Details. The agent reads it whole.
+  orphan?: "none" | "line";
   /// How many more notices went in with this one (a digest of notices, incomingMessage.ts): the
   /// line names this one, the most severe, and counts the rest.
   more?: number;
@@ -45,8 +54,9 @@ const SYSTEM_SENDERS = new Set(["acpmux", "optchat", "cmux-tui", "cmuxd"]);
 /// Whether a sender's name is one of cmux's own parts.
 export const isSystemSender = (name: string) => SYSTEM_SENDERS.has(name.trim().toLowerCase());
 
-/// The name a sender reads as: cmux's own parts read `cmux`, any other its own name.
-export const shownSender = (name: string) => (isSystemSender(name) ? "cmux" : name);
+/// The name a sender reads as: cmux's own parts read as nothing (the chip names what a notice is,
+/// never the app), any other its own name.
+export const shownSender = (name: string) => (isSystemSender(name) ? "" : name);
 
 /// A system notice's body as the reader sees it: without the `Task bg-…: COMMAND` line (the title
 /// already names the command; the id is the model's handle) and the `(bg_output reads all of it.)`
@@ -54,14 +64,77 @@ export const shownSender = (name: string) => (isSystemSender(name) ? "cmux" : na
 export function shownNoticeBody(notice: AgentNotice, body: string): string {
   if (!notice.system) return body;
   const lines = body.split("\n");
-  if (lines[0] && /^Task \S+: /.test(lines[0])) lines.shift();
-  if (lines.length && /^\(bg_output reads all of it\.\)$/.test(lines.at(-1)!.trim())) lines.pop();
-  return lines.join("\n").trim();
+  if (lines[0] && TASK_LINE.test(lines[0])) lines.shift();
+  // "Last 20 lines of its output:" says what the lines below it already show.
+  const lead = lines.findIndex((text) => OUTPUT_LEAD.test(text.trim()));
+  if (lead >= 0) lines.splice(lead, 1);
+  // The lines acpmux writes for the model, wherever they fall: the hint, and an orphan end's
+  // "This task end is for your …" (it comes after the hint, so the hint is not always last).
+  const forModel = (text: string) => BG_HINT.test(text) || ORPHAN_LINE.test(text);
+  while (lines.length && forModel(lines.at(-1)!.trim())) lines.pop();
+  return withoutRestatements(lines).join("\n").trim();
 }
 
-/// A notice signed by `sender`: cmux's own parts are marked and named `cmux`.
-function signed(sender: string): Pick<AgentNotice, "sender" | "system"> {
-  return isSystemSender(sender) ? { sender: "cmux", system: true } : { sender };
+/// The lines without one that only says again an item listed above it: a tool that prints a list
+/// and then each item as its own machine-read line (router-review's `Follow-ups:` list, then a
+/// `router-review: follow-up: ITEM` line each) shows each item once.
+function withoutRestatements(lines: readonly string[]): string[] {
+  const items: string[] = [];
+  return lines.filter((text) => {
+    const item = LIST_ITEM.exec(text)?.[1];
+    if (item) {
+      items.push(plainItem(item));
+      return true;
+    }
+    const said = TOOL_LINE.exec(text)?.[1];
+    if (!said) return true;
+    const plain = plainItem(said);
+    return !(plain.length >= 8 && items.some((listed) => listed.startsWith(plain) || plain.startsWith(listed)));
+  });
+}
+
+/// An item's words without Markdown's emphasis and its spacing.
+const plainItem = (text: string) => text.replace(/[*_`]/g, "").replace(/\s+/g, " ").trim();
+
+const TASK_LINE = /^Task \S+: /;
+const OUTPUT_LEAD = /^Last \d+ lines? of its output:$/;
+/// A bulleted or numbered line, and its text.
+const LIST_ITEM = /^\s*(?:[-*•]|\d+[.)])\s+(\S.*)$/;
+/// A tool's labelled line, `NAME: KIND: TEXT`, and its text.
+const TOOL_LINE = /^[\w.-]+: [\w-]+: (\S.*)$/;
+
+const BG_HINT = /^\(bg_output reads all of it\.\)$/;
+const ORPHAN_LINE = /^This task end is for your .+, which started the task and has ended, so it comes to you\.$/;
+const NO_OUTPUT = /^It wrote no output\.$/;
+
+/// How an orphan task end draws (`AgentNotice.orphan`): acpmux's own word (`display`), else, for
+/// a record from before it said, read from the notice and the text: one for a subagent that went
+/// well and wrote nothing draws nothing.
+function orphanDisplay(
+  provenance: Record<string, unknown>,
+  severity: string,
+  text: string | undefined,
+): AgentNotice["orphan"] {
+  if (provenance.display === "none" || provenance.display === "line") return provenance.display;
+  if (!provenance.forSubagent || typeof provenance.forSubagent !== "object") return undefined;
+  const quiet = severity === "info" && text !== undefined && text.split("\n").some((l) => NO_OUTPUT.test(l.trim()));
+  return quiet ? "none" : "line";
+}
+
+/// A notice signed by `sender`: cmux's own parts are marked and named by what the notice is, a
+/// background task by its description (`task`), anything else by nothing.
+function signed(sender: string, task?: { description?: string }): Pick<AgentNotice, "sender" | "system" | "task"> {
+  if (!isSystemSender(sender)) return { sender };
+  return { sender: task?.description ?? "", system: true, ...(task && { task: true }) };
+}
+
+/// A system notice's text is a background task's end: acpmux names its task (`bgTaskId`), or, in a
+/// record from before it did, its body starts `Task ID: COMMAND` (hub/bg_notify.rs `notice_body`).
+function taskOf(provenance: Record<string, unknown> | undefined, body: string): { description?: string } | undefined {
+  const description = line(provenance?.bgTaskDescription, 64);
+  if (typeof provenance?.bgTaskId === "string" || TASK_LINE.test(body.trimStart()))
+    return description ? { description } : {};
+  return undefined;
 }
 /// A host name as acpmux accepts one: letters, digits, `.`, `-` or `_`, 1 to 64.
 const HOST = /^[A-Za-z0-9._-]{1,64}$/;
@@ -92,7 +165,7 @@ export function titleParts(title: string): { lead: string; end?: string } {
 
 /// The notice a `notice` provenance carries, or undefined when it names no sender, severity or
 /// title (an older or broken record: the prompt then reads as its sender's message).
-export function provenanceNotice(provenance: Record<string, unknown>): AgentNotice | undefined {
+export function provenanceNotice(provenance: Record<string, unknown>, text?: string): AgentNotice | undefined {
   const raw = provenance.notice;
   if (!raw || typeof raw !== "object") return undefined;
   const notice = raw as Record<string, unknown>;
@@ -109,12 +182,14 @@ export function provenanceNotice(provenance: Record<string, unknown>): AgentNoti
         return [{ url, ...(label && { label }) }];
       })
     : [];
+  const orphan = isSystemSender(sender) ? orphanDisplay(provenance, severity, text) : undefined;
   return {
-    ...signed(sender),
+    ...signed(sender, taskOf(provenance, noticeBody(text ?? ""))),
     ...(host && { host }),
     severity: severity as NoticeSeverity,
     title,
     links: links.slice(0, 16),
+    ...(orphan && { orphan }),
   };
 }
 
@@ -158,7 +233,7 @@ export function renderedNotice(text: string): { notice: AgentNotice; body: strin
     : [];
   return {
     notice: {
-      ...signed(sender),
+      ...signed(sender, taskOf(undefined, noticeBody(text))),
       ...(host && { host }),
       severity: tag === "FIRE" ? "fire" : tag === "WARN" ? "warn" : "info",
       title: title.trim(),

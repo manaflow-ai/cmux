@@ -134,6 +134,7 @@ version = "1.0.0"
 dependencies = [
  "acpmux-book",
  "arc-swap",
+ "cmux-scope",
  "serde",
  "serde_json",
  "tempfile",
@@ -1220,6 +1221,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+ "unicode-segmentation",
  "uuid",
  "zeroize",
 ]
