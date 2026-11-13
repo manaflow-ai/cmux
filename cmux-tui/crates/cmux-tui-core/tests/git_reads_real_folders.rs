@@ -174,6 +174,13 @@ impl Client {
 
     /// The result of one read `operation` of `directory`, with each parameter of `more`.
     fn read_with(&mut self, operation: &str, directory: &Path, more: &[(&str, &str)]) -> Value {
+        let reply = self.reply_with(operation, directory, more);
+        assert_eq!(reply["ok"], true, "{operation} failed: {reply}");
+        reply["result"].clone()
+    }
+
+    /// The whole reply to one read `operation` of `directory`, also when the daemon refuses it.
+    fn reply_with(&mut self, operation: &str, directory: &Path, more: &[(&str, &str)]) -> Value {
         self.next += 1;
         let id = format!("r{}", self.next);
         let mut params = json!({"path": directory, "machine": "current", "session": "current"});
@@ -193,8 +200,7 @@ impl Client {
             assert_ne!(self.stream.read_line(&mut line).unwrap(), 0, "closed before {id}");
             let reply: Value = serde_json::from_str(&line).unwrap();
             if reply["id"] == id {
-                assert_eq!(reply["ok"], true, "{operation} failed: {reply}");
-                return reply["result"].clone();
+                return reply;
             }
         }
     }
@@ -989,4 +995,44 @@ fn git_files_search_gives_the_names_of_a_work_tree_whose_top_folder_name_ends_wi
         roots.iter().all(|root| root.ends_with("/x\n")),
         "the root is the work tree: {roots:?}"
     );
+}
+
+/// What the daemon says of a work tree that it does not open because of its top folder's name.
+#[cfg(target_os = "linux")]
+const NOT_UTF8_PROBLEM: &str = "the work tree's top folder has a name that is not UTF-8";
+
+/// The work tree's TOP folder has a name that is not UTF-8. The daemon names a top folder as
+/// text, and such a name has no text: the search and the list are refused with an error, with
+/// and without a folder beside the work tree that has the name with other characters. A
+/// system that is not Linux refuses to make such a name, or changes it.
+#[cfg(target_os = "linux")]
+#[test]
+fn git_files_search_refuses_a_work_tree_whose_top_folder_name_is_not_utf8() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let mut client = Client::of_a_new_daemon();
+    for beside in [false, true] {
+        let host = fixture().dir.join(unique("h"));
+        let repo = host.join(std::ffi::OsStr::from_bytes(b"caf\xe9"));
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "--quiet", "--initial-branch=main"]);
+        std::fs::write(repo.join("guess.txt"), "inside\n").unwrap();
+        git(&repo, &["add", "guess.txt"]);
+        git(&repo, &["commit", "--quiet", "-m", "guess"]);
+        if beside {
+            let outside = outside_folder("guess.txt", b"outside\n");
+            std::os::unix::fs::symlink(&outside, host.join("caf\u{FFFD}")).unwrap();
+        }
+        // A request names its folder as text: a link with a plain name names the work tree.
+        let alias = host.join("alias");
+        std::os::unix::fs::symlink(&repo, &alias).unwrap();
+
+        let search = client.reply_with("git.files.search", &alias, &[("query", "guess")]);
+        let list = client.reply_with("git.files.list", &alias, &[]);
+        for reply in [search, list] {
+            assert_eq!(reply["ok"], false, "a folder beside it: {beside}: {reply}");
+            let details = &reply["error"]["details"];
+            assert_eq!(details["extra"]["code"], "git_failed", "{reply}");
+            assert_eq!(details["reason"], NOT_UTF8_PROBLEM, "{reply}");
+        }
+    }
 }
