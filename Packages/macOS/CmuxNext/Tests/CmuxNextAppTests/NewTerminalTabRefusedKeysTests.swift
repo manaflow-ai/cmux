@@ -271,11 +271,13 @@ struct NewTerminalTabRefusedKeysTests {
 
     /// What the person sees when the daemon made the terminal and its tab does not come by the hold's limit (2 s after
     /// the reply), in the order that settles the create at the reply. The stand-in tab left the pane at the reply and no
-    /// new tab is there. At the limit the keys typed before the move (the 33 keys of the line's start) show in no
-    /// terminal: not in the terminal of the press and not in the terminal the person moved to. They are lost. The person
-    /// gets no sign of it in the app; the one sign is the log line of the hold's end, which counts each of them
-    /// (`CreationHoldLog.lostKeys`). The hold ends by its limit: the test reads the end's reason and the count, not a time.
-    @Test func whenTheMadeTabDoesNotComeByTheHoldsLimitTheKeysTypedBeforeTheMoveShowInNoTerminalAndOnlyTheLogCountsThem() async throws {
+    /// new tab is there: the hold has no view and no listed tab to give the keys to. The create's reply named the made
+    /// terminal, so at the limit the hold sends the keys typed before the move (the 33 keys of the line's start) to
+    /// that terminal by its id. They show in no other terminal, and the hold counts none as lost
+    /// (`CreationHoldLog.lostKeys`). When the tab comes, the person types the rest of the line in the made terminal and
+    /// its shell runs the whole line, in the typed order. (Before this the 33 keys went into no terminal and only the
+    /// log counted them.) The hold ends by its limit: the test reads the end's reason and the count, not a time.
+    @Test func whenTheMadeTabDoesNotComeByTheHoldsLimitTheKeysTypedBeforeTheMoveReachTheMadeTerminalByItsId() async throws {
         try await Self.run(.current, .madeAndTheTabDoesNotCome, events: .afterTheStoreAppliedEachLine)
     }
 
@@ -506,29 +508,6 @@ struct NewTerminalTabRefusedKeysTests {
                     let result = await ran(in: terminal.surface, within: 3_000)
                     #expect(!result.ran, "\(daemon.rawValue) daemon: the line typed for the new terminal tab ran in \(name) (\(how)); its screen: \(result.screen.debugDescription)")
                 }
-            case .madeAfterAMove:
-                // The person goes to the made terminal and types the rest of the line there.
-                try await PinnedPageTests.until({ madeTerminal() != nil }, within: .seconds(15), report: { "waiting for the made terminal's tab in the pane: \(panes()), proxy log \(files.logged)" })
-                let made = try #require(madeTerminal())
-                let madeTab = try #require(pressed.pane.pane.tabs.first { $0.surface == made }?.id)
-                let listedAt = ContinuousClock.now
-                if pressed.pane.currentTabKey != madeTab { pressed.pane.select(TabID(madeTab)) }
-                try await focus((pressed.pane, madeTab, made))
-                let laterKeyAfter = ContinuousClock.now - listedAt
-                try typeLine(laterPart, held: false)
-                let timing = "events \(events.rawValue); the hold waited for the tab: \(heldForTheTab); the first later key \(laterKeyAfter) after the made tab was listed; proxy log \(files.logged)"
-                print("NewTerminalTabRefusedKeysTests madeAfterAMove \(events.rawValue): \(timing)")
-                // The shell printed the sum only if it got each key of both parts, the held ones first and in the typed order.
-                let result = await ran(in: made, within: 15_000)
-                #expect(result.ran, "the made terminal did not get the line as typed: a held key was lost or came out of order (\(timing); \(how)); its screen: \(result.screen.debugDescription)")
-                // Its screen shows the keys in the order they came: the whole typed line (a narrow pane wraps it).
-                let typed = String((heldPart + laterPart).dropLast())
-                #expect(result.screen.filter { !$0.isWhitespace }.contains(typed.filter { !$0.isWhitespace }),
-                        "the made terminal's screen does not show the typed line \(typed.debugDescription) (\(timing)); its screen: \(result.screen.debugDescription)")
-                for (name, terminal) in [(pressTerminal, pressed), ("the other terminal", other)] {
-                    let screen = (try? await connection.request(ReadScreenRequest(surface: terminal.surface), timeout: .seconds(5)))?.text ?? "unreadable"
-                    #expect(!screen.contains("nt\(nonce)"), "a key typed for the new terminal reached \(name) (\(timing); \(how)); its screen: \(screen.debugDescription)")
-                }
             case .madeAndTheTabDoesNotCome:
                 // The hold ended with the daemon's events still kept: the store listed no made tab while the hold waited.
                 try #require(madeTerminal() == nil && !files.logged.contains("events released"),
@@ -540,19 +519,39 @@ struct NewTerminalTabRefusedKeysTests {
                     + "\(pressed.pane.pane.tabs.filter { $0.kind == .pty }.count) terminal tab(s), \(terminalTabs) before the press; before the reply: \(atTheReply); proxy log \(files.logged)"
                 print("NewTerminalTabRefusedKeysTests madeAndTheTabDoesNotCome: \(sees)")
                 #expect(end == "limitReached", "the hold did not end by its limit (\(sees))")
-                #expect(lost == heldPart.count, "the hold's count of lost keys is not the \(heldPart.count) keys typed before the move (\(sees))")
+                #expect(lost == 0, "the hold counts \(counted) keys as lost: the \(heldPart.count) keys typed before the move did not go to the made terminal by its id (\(sees))")
                 #expect(replays.keys.isEmpty, "a held key ran again as typed in what had the keyboard (\(sees))")
                 for (name, terminal) in [(pressTerminal, pressed), ("the terminal the person moved to", other)] {
                     let screen = (try? await connection.request(ReadScreenRequest(surface: terminal.surface), timeout: .seconds(5)))?.text ?? "unreadable"
                     #expect(!screen.contains("nt\(nonce)"), "a key typed for the new terminal reached \(name) (\(sees)); its screen: \(screen.debugDescription)")
                 }
-                // The daemon's events go now, and the made terminal's tab comes. What its screen shows then is printed, not
-                // required: the lost keys were sent to no terminal.
+                // The daemon's events go now, and the made terminal's tab comes. The hold sent the held keys to that terminal
+                // by its id at its limit: the person goes there and types the rest of the line, and its shell must run the
+                // whole line (the checks of the case below).
                 try FileManager.default.removeItem(at: files.late)
+                fallthrough
+            case .madeAfterAMove:
+                // The person goes to the made terminal and types the rest of the line there.
                 try await PinnedPageTests.until({ madeTerminal() != nil }, within: .seconds(15), report: { "waiting for the made terminal's tab in the pane: \(panes()), proxy log \(files.logged)" })
-                if let made = madeTerminal() {
-                    let screen = (try? await connection.request(ReadScreenRequest(surface: made), timeout: .seconds(5)))?.text ?? "unreadable"
-                    print("NewTerminalTabRefusedKeysTests madeAndTheTabDoesNotCome: the made terminal's screen after its tab came: \(screen.debugDescription)")
+                let made = try #require(madeTerminal())
+                let madeTab = try #require(pressed.pane.pane.tabs.first { $0.surface == made }?.id)
+                let listedAt = ContinuousClock.now
+                if pressed.pane.currentTabKey != madeTab { pressed.pane.select(TabID(madeTab)) }
+                try await focus((pressed.pane, madeTab, made))
+                let laterKeyAfter = ContinuousClock.now - listedAt
+                try typeLine(laterPart, held: false)
+                let timing = "events \(events.rawValue); the hold waited for the tab: \(heldForTheTab); the first later key \(laterKeyAfter) after the made tab was listed; proxy log \(files.logged)"
+                print("NewTerminalTabRefusedKeysTests \(ending) \(events.rawValue): \(timing)")
+                // The shell printed the sum only if it got each key of both parts, the held ones first and in the typed order.
+                let result = await ran(in: made, within: 15_000)
+                #expect(result.ran, "the made terminal did not get the line as typed: a held key was lost or came out of order (\(timing); \(how)); its screen: \(result.screen.debugDescription)")
+                // Its screen shows the keys in the order they came: the whole typed line (a narrow pane wraps it).
+                let typed = String((heldPart + laterPart).dropLast())
+                #expect(result.screen.filter { !$0.isWhitespace }.contains(typed.filter { !$0.isWhitespace }),
+                        "the made terminal's screen does not show the typed line \(typed.debugDescription) (\(timing)); its screen: \(result.screen.debugDescription)")
+                for (name, terminal) in [(pressTerminal, pressed), ("the other terminal", other)] {
+                    let screen = (try? await connection.request(ReadScreenRequest(surface: terminal.surface), timeout: .seconds(5)))?.text ?? "unreadable"
+                    #expect(!screen.contains("nt\(nonce)"), "a key typed for the new terminal reached \(name) (\(timing); \(how)); its screen: \(screen.debugDescription)")
                 }
             case .movedThenRefused:
                 // The line is the terminal's that the person moved to: it ran there, and not in the terminal of the press.
