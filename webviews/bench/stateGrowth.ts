@@ -480,8 +480,7 @@ export type ScenarioOptions = {
   every?: number;
   warm?: number;
   bands?: Partial<Bands>;
-  /// Vehicle only: each sample as it is taken, with the heap's bytes that are not cells (bun:jsc's extraMemorySize:
-  /// string buffers, compiled code).
+  /// Vehicle only: each sample as it is taken, with bun:jsc's extraMemorySize at that sample.
   onSample?: (sample: Sample, extraBytes: number) => void;
 };
 

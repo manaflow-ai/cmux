@@ -2,15 +2,14 @@
 // Vehicle only (never merges): the sample series behind chatReopen's heap slope (test/state-growth.test.ts fails
 // on it at about one first try in two on the base: 4.1 to 5.1 KB per operation against a band of 4096, with the
 // same 2.3 objects per operation in each try, red or green). Three runs in ONE process, in this order:
-//   1. chatReopen as the test runs it (144 operations), the code cold;
-//   2. the same again: the code is as warm as run 1 left it;
+//   1. chatReopen as the test runs it (144 operations);
+//   2. the same again, in the same process;
 //   3. 1,152 operations.
-// Growth that the pane keeps for each reopen has the same slope in the 3 runs. Growth that comes from code the
-// engine still compiles is smaller in run 2 and goes flat in run 3. Each sample prints the heap's bytes, the bytes
-// that are not cells (string buffers and compiled code), the object count and the counts of the two cell types
-// that grow. sessionChurn runs first, as in the test, so that the process is in the same state when run 1 starts.
-// It judges nothing: the lines are the result. The round copies of this file differ in nothing: each is one more
-// process, to see the low and the high slope side by side.
+// Growth that the pane keeps for each reopen has the same slope in the 3 runs; a cost that is paid one time does
+// not. Each sample prints the heap's bytes, bun:jsc's extraMemorySize, the object count and the counts of the two
+// cell types that the red tries name. sessionChurn runs first, as in the test, so that the process is in the same
+// state when run 1 starts. It judges nothing: the lines are the result. The round copies of this file differ in
+// nothing: each is one more process, to see a low and a high slope side by side.
 import { expect, test } from "bun:test";
 import { chatReopen, sessionChurn } from "../bench/stateGrowth";
 
@@ -23,7 +22,7 @@ test("sessionChurn first, as in the test", async () => {
 });
 
 const RUNS: [string, number | undefined][] = [
-  ["run 1, as the test, cold", undefined],
+  ["run 1, as the test", undefined],
   ["run 2, as the test, again", undefined],
   ["run 3, 1152 operations", 1152],
 ];
