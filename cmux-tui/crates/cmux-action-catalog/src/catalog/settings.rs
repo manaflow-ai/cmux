@@ -383,6 +383,17 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "billing.openPortal",
+        group: GROUP,
+        title: t("ActionCatalog", "action.billing.openPortal", "Manage Billing"),
+        keywords: &["billing", "subscription", "invoice", "receipt", "payment", "card", "plan", "pro", "stripe", "portal"],
+        category: "settings",
+        symbol: "creditcard",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action billing-open-portal",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "sendFeedback",
         group: GROUP,
         title: t("ActionCatalog", "action.sendFeedback", "Send Feedback"),
@@ -889,6 +900,19 @@ pub static ACTIONS: &[Action] = &[
         is_debug_only: true,
         ..Action::DEFAULT
     },
+    // Debug Settings > Toasts beside live sample toasts (Lawrence 2026-11-12: "so we can refine the toasts").
+    Action {
+        id: "debug.toastTuning",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.toastTuning", "Toast Tuning"),
+        keywords: &["toast", "toasts", "notice", "duration", "glass", "padding", "motion", "tuning", "playground", "debug"],
+        category: "settings",
+        symbol: "text.bubble",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-toast-tuning",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "debug.tabBarPlayground",
         group: GROUP,
@@ -922,6 +946,18 @@ pub static ACTIONS: &[Action] = &[
         symbol: "sidebar.left",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-sidebar-states-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "debug.sidebarRowTuner",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.sidebarRowTuner", "Sidebar Row Tuner"),
+        keywords: &["sidebar", "rows", "tune", "tuner", "sizes", "spacing", "padding", "gap", "font", "sliders", "values", "debug"],
+        category: "settings",
+        symbol: "slider.horizontal.3",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-sidebar-row-tuner",
         is_debug_only: true,
         ..Action::DEFAULT
     },
