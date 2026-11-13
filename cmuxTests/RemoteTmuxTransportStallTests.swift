@@ -39,6 +39,7 @@ import Testing
         let root: URL
         var stdinLog: URL { root.appendingPathComponent("stdin") }
         var pidLog: URL { root.appendingPathComponent("pids") }
+        var probeReplied: URL { root.appendingPathComponent("probe-replied") }
 
         func firstPID() throws -> pid_t {
             let text = try String(contentsOf: pidLog, encoding: .utf8)
@@ -48,6 +49,17 @@ import Testing
         func stdinLines() -> [String] {
             ((try? String(contentsOf: stdinLog, encoding: .utf8)) ?? "")
                 .split(separator: "\n").map(String.init)
+        }
+
+        /// Blocks the main actor, so nothing can ingest stdout, until the transport has written
+        /// its reply to the probe.
+        func waitForProbeReplyHoldingTheMainActor() -> Bool {
+            let deadline = Date().addingTimeInterval(10)
+            while Date() < deadline {
+                if FileManager.default.fileExists(atPath: probeReplied.path) { return true }
+                usleep(1_000)
+            }
+            return false
         }
 
         /// Stdout the transport wrote, stamped with the manual clock.
@@ -64,8 +76,10 @@ import Testing
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let stdinLog = root.appendingPathComponent("stdin").path
         let pidLog = root.appendingPathComponent("pids").path
+        let probeReplied = root.appendingPathComponent("probe-replied").path
         let reply = answering
-            ? "n=$((n+1)); printf '%%begin 1 %s 1\\n%%end 1 %s 1\\n' \"$n\" \"$n\""
+            ? "n=$((n+1)); printf '%%begin 1 %s 1\\n%%end 1 %s 1\\n' \"$n\" \"$n\"; "
+                + "[ \"$line\" = \"\(RemoteTmuxTransportLiveness.probeCommand)\" ] && : > '\(probeReplied)'"
             : ":"
         let script = root.appendingPathComponent("client")
         try """
@@ -165,6 +179,22 @@ import Testing
 
         harness.clock.advance(.seconds(31))
         #expect(!isStall(connection.checkTransportLiveness(now: harness.clock.now)))
+        #expect(connection.connectionState == .connected)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aProbeReplyNotYetIngestedAtTheDeadlineStillCounts() async throws {
+        let harness = try await connect(answering: true)
+        defer { finish(harness) }
+        let connection = harness.connection
+
+        harness.clock.advance(.seconds(31))
+        #expect(connection.checkTransportLiveness(now: harness.clock.now) == .probe)
+        #expect(harness.waitForProbeReplyHoldingTheMainActor(), "the transport must answer the probe")
+
+        harness.clock.advance(.seconds(31))
+        #expect(!isStall(connection.checkTransportLiveness(now: harness.clock.now)),
+                "a reply already written to the pipe answers the probe, even before stdout is ingested")
         #expect(connection.connectionState == .connected)
     }
 
