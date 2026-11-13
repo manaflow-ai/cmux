@@ -615,6 +615,17 @@ def deleted_package_swift(repo: Path, base: str, head: str) -> list[str]:
 
 # ---------------------------------------------------------------- pinned tools
 
+def side_workers(environ=os.environ, cpus: int | None = None) -> int:
+    """How many scanners the gate runs at once: a core each, at most 16, and no more than the cores a CI mini's runner
+    hook granted the job (CMUX_CI_CPU_BUDGET). The checks job runs the gate's own suite beside its other checks, each
+    gate spawning one scanner per core of the whole mini on a grant of 5 (job 131984422217)."""
+    workers = min(16, cpus or os.cpu_count() or 4)
+    budget = environ.get("CMUX_CI_CPU_BUDGET", "")
+    if budget.isdigit() and int(budget) > 0:
+        workers = min(workers, int(budget))
+    return workers
+
+
 def platform_key() -> str:
     system = {"Darwin": "darwin", "Linux": "linux"}.get(platform.system(), platform.system().lower())
     machine = {"aarch64": "arm64", "amd64": "x86_64"}.get(platform.machine(), platform.machine())
@@ -2788,7 +2799,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
 
         crates = [p for p in changed if p.startswith(RUST_CRATES) and p.endswith(".rs")]
         crash_layer = bool(crates) and (highlights_layer if only is None else "crash-ratchet" in only)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, (os.cpu_count() or 4))) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=side_workers()) as pool:
             futures = {(name, i): pool.submit(side, job, tree)
                        for name, job in jobs.items()
                        for i, tree in enumerate(trees_for.get(name, (base_tree, head_tree)))}
