@@ -8,8 +8,8 @@ import Testing
 /// animation, check all pane types, all must have smooth transition"). In a key resize of the Home each frame gave the
 /// panel a new width, and each time it measured every part again (the hero's text, the starters, the Switching card,
 /// the stack's fitting size): 22 % of the motion step in a sample of the empty Home, and 14 % in a Home with 500 rows,
-/// where the panel is hidden. Its column keeps its width above 388 pt (`maxWidth` + 48 pt), so a wider pane only moves
-/// the column; a hidden panel shows nothing.
+/// where the panel is hidden. Its column keeps its width above 388 pt (`maxWidth` + 48 pt, at scale 1), so a wider pane
+/// only moves the column; a hidden panel shows nothing.
 @MainActor @Suite struct HomeFirstRunWidthChangeTests {
     private static let keys = HomeSwitchKeys(tabByNumber: "⌃1…9", workspaceByNumber: "⌘1…9", nextPreviousTab: "⇧⌘[ ⇧⌘]",
                                              nextPreviousWorkspace: nil, focusBackForward: "⌥⌘, ⌥⌘.")
@@ -76,6 +76,18 @@ import Testing
         fresh.setMemoryOffer("Bring your memory from Claude Code")
         fresh.layoutSubtreeIfNeeded()
         #expect(places(panel) == places(fresh), "and each part is where a first layout at 320 pt puts it")
+    }
+
+    /// The host sends the shortcuts again when only a row's key changes (`HomeHostView`), and the card's `apply` shows a
+    /// card with keys each time: the fit pass must run again, or a card that does not fit shows in a short pane.
+    @Test func newShortcutsWithTheSameSwitchingKeysKeepACardThatDoesNotFitHidden() {
+        let panel = makePanel(width: 600, height: 120)
+        #expect(panel.switchCard.isHidden && !panel.switchCard.lineViews.isEmpty && !panel.terminal.isHiddenOrHasHiddenAncestor,
+                "SETUP: at 120 pt the action rows fit and the card, with its keys, does not")
+        panel.setShortcuts(terminal: "⌃T", agent: "⇧⌘N", switching: Self.keys)
+        panel.layoutSubtreeIfNeeded()
+        #expect(panel.switchCard.isHidden, "a rebind of a row's key does not show a card that does not fit")
+        #expect(places(panel) == places(makePanel(width: 600, height: 120)), "each part is where a first layout puts it")
     }
 
     @Test func aChangeOfWhatThePanelShowsIsMeasuredAtTheSameWidth() {
