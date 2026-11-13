@@ -125,12 +125,24 @@ async fn wait_roundtrip(v1: &Hub, v2: &V2) {
         );
         for session in sessions {
             if let Some(expected) = indexed_v1_row(&snapshot, &session.id) {
-                eprintln!(
-                    "{} actual={} expected={}",
-                    session.id,
-                    v1.session_list_summary(&session),
-                    expected
-                );
+                let actual = v1.session_list_summary(&session);
+                let mut actual_map = actual.as_object().cloned().unwrap_or_default();
+                if let Some(updated) = actual_map.remove("updatedAt") {
+                    actual_map.insert("updatedMs".into(), updated);
+                }
+                if let Some(expected_map) = expected.as_object() {
+                    for (key, value) in expected_map {
+                        if actual_map.get(key) != Some(value) {
+                            eprintln!(
+                                "row mismatch {} key={} actual={:?} expected={}",
+                                session.id,
+                                key,
+                                actual_map.get(key),
+                                value
+                            );
+                        }
+                    }
+                }
             }
         }
         panic!("v1 and the v2 tee did not converge");
