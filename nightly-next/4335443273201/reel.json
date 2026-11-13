@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "build": "4335443273201",
+  "notes": "notes/4335443273201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 42333,
+      "title": "ci: a ratchet on checks that first run after the merge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42003,
+      "title": "acpmux: the store lint resolves self::/super:: and limits a std::fs glob to its items (#41970 follow-ups)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42226,
+      "title": "perf(acpmux): faster daemon start and stop with many chats",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42305,
+      "title": "Home: a debug seed fills a real transcript with 50 / 500 / 5000 rows (film tool, bench builds only)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42313,
+      "title": "nightly-speed: read a rerun again, keep both jobs of one name, store the history compressed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42329,
+      "title": "test(nightly): follow prepared output in universal guard",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41865,
+      "title": "acpmux: the session list is a row log with a cursor; watches and peer links follow from afterSeq (W4)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42300,
+      "title": "bundle size: fat LTO for cmux-mobile-host and cmux-agent-screen-detection",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42275,
+      "title": "cmux-next iOS: no Chief connection bar, one-symbol offline capsule, neutral primary buttons",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42267,
+      "title": "ci(nightly-next): one job on the signing Mac builds, signs, notarizes and publishes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42317,
+      "title": "fix(next-ios): align Feed filter chips with the rows' left edge",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41567,
+      "title": "acpmux: cmux-source-scan's smoke rows run in the lib tests; the timing check's known miss is ratcheted",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42290,
+      "title": "cmux-tui-core: the Rust panic ratchet is green again (no string index in the conversation-kind pre-check, no JSON index in window_record.put)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42220,
+      "title": "fix: fail closed on quoted assignment-looking shell words",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42240,
+      "title": "prepush-gate: lexical shadowing and checker verdict follow-ups",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41933,
+      "title": "single-host fallbacks: a runs-on part the resolver cannot settle fails closed; read constant fromJSON",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42146,
+      "title": "Agent pane: Harness updates available lists every outdated agent CLI",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41989,
+      "title": "cmux NEXT: every corner of the flush tab row holds in One Color and Subtle Tone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42248,
+      "title": "cmux-next nightly: promote no commit the direct-push quarantine holds (no CI added)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42177,
+      "title": "base red: acpmux socket-ready startup is independent of durable setup",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42193,
+      "title": "rd: resize Cloud frames in flight from path RTT",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42316,
+      "title": "test(cmux-tui): the publish workflow guards run their last 2 tests",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42139,
+      "title": "acpmux tests: a cfg-gated item hides no production check from the held-home lint (#41970 review)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42288,
+      "title": "fix(dictation): remove automatic microphone detection",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    }
+  ]
+}
