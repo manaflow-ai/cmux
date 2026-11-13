@@ -2179,6 +2179,13 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   Gallery: `AARestartToUpdateGalleryTests` (each layout, ready and installing, dark and light). 09f49ddeb6f keeps
   `height(for:)` a one-argument function for its callers: no visual change. Sidebar-Look: Leo 2026-11-10, "the
   nightly automatically downloads and installs/unpacks and you simply click and it restarts with the new version".
+- 2026-11-11 (fix/space-color-swatches, for a590): the space dot's menu opens with the space's name field and one row of
+  real color swatches (`MenuIdentityHeader`, as the group menu), in place of Rename Space… and the Color submenu whose
+  nine rows all drew as the same template dot. Set Space Theme and Reset Space Theme leave that submenu for rows of
+  their own. A colored space's dot draws its swatch color at full strength, no longer mixed toward the strip or dimmed
+  to 70% when not current (the current one has its chip). Gallery: `AASpaceColorMenuGalleryTests` (three header
+  variants, dots before/after dark and light).
+  Sidebar-Look: Leo 2026-11-11, "this colour selection for spaces is wack".
 - 2026-11-11 (a1074, Lawrence 8:04 PM "spacing here is not consistent anymore either"): Home to the first pin and pin
   to pin step at the workspace rows' pitch at every density. Sidebar-Look: Home, pinned rows and the Workspaces heading keep one row pitch.
 - 2026-11-12 (carries #41640 for the two-tone polish): the sidebar's full-height edge line and its hover and drag glow

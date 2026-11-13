@@ -701,6 +701,7 @@ impl Hub {
             seen_seq: None,
             unread_turns: 0,
             last_return: None,
+            away_recap: None,
             read_through: Default::default(),
             claude_unstored: false,
             // Never the parent's: only its creator asks (`SessionMeta::wait_start`).

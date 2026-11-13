@@ -116,6 +116,8 @@ struct CloudListMachinesTests {
         #expect(fields["machines"] == .array([]))
         #expect(fields["count"] == .int(0))
         #expect(Self.members(fields["account"])?["signed_in"] == .bool(false))
+        // No list read for this account: none says when it was read, so a sandboxed Run's cleanup never takes it for one.
+        #expect(fields["listed_at_ms"] == .null)
     }
 
     /// A create the server has not answered yet is listed under `creating` with the name it
