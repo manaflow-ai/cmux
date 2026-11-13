@@ -17,6 +17,7 @@ public final class LineChannel: Sendable {
     /// blocking call, so ``close()`` and ``shutdown()`` never wait on a writer stuck in a full
     /// socket; and nothing touches a descriptor number once it may be closed.
     private let descriptors = OSAllocatedUnfairLock(initialState: Descriptors())
+    private let afterShutdown: (@Sendable () -> Void)?
 
     private struct Descriptors: Sendable {
         var closing = false
@@ -34,7 +35,14 @@ public final class LineChannel: Sendable {
         self.init(read: descriptor, write: descriptor)
     }
 
-    public init(read: Int32, write: Int32) {
+    public convenience init(read: Int32, write: Int32) {
+        self.init(read: read, write: write, afterShutdown: nil)
+    }
+
+    /// `afterShutdown` runs inside ``close()`` between its shutdown and its close (tests race a
+    /// ``closeWrite()`` there).
+    package init(read: Int32, write: Int32, afterShutdown: (@Sendable () -> Void)?) {
+        self.afterShutdown = afterShutdown
         readDescriptor = read
         writeDescriptor = write
         var on: Int32 = 1
@@ -140,10 +148,16 @@ public final class LineChannel: Sendable {
             return separate
         }
         guard let shutDownWrite else { return }
+        afterShutdown?()
         // No write is in flight once this returns (the shutdown woke a stuck one), and none follows.
-        writeLock.withLock { $0 = false }
+        // Whether the write side was still open is read here, under the write lock: a closeWrite()
+        // that ran since the shutdown closed it already, and it must not be closed twice.
+        let writeWasOpen = writeLock.withLock { open in
+            defer { open = false }
+            return open
+        }
         Darwin.close(readDescriptor)
-        if shutDownWrite { Darwin.close(writeDescriptor) }
+        if shutDownWrite, writeWasOpen { Darwin.close(writeDescriptor) }
     }
 
     /// Ends both directions without closing the descriptors: a blocked `readLine` returns nil and

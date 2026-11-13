@@ -85,11 +85,13 @@ public final class ComputerUsePreviewOverlay: NSView {
         if wasExpanded, presentation != .expanded { fadeOutExpanded() }
         switch presentation {
         case .card:
-            thumbnail.isHidden = false
+            // From the expanded view: the card shows, with the picture, once its fade ends.
+            thumbnail.isHidden = wasExpanded
         case .expanded:
             // The large view takes the picture; the card under the scrim is hidden, not doubled.
             thumbnail.isHidden = true
             expanded.frame = bounds
+            expanded.isClosing = false
             if expanded.superview !== self { addSubview(expanded) }
             expanded.alphaValue = 0 // every expand fades in
             Motion.overlays.animate(.fadeIn, in: expanded, { self.expanded.animator().alphaValue = 1 })
@@ -97,8 +99,11 @@ public final class ComputerUsePreviewOverlay: NSView {
             thumbnail.isHidden = true
             addSubview(chip)
         }
-        if let video { place(video: video) }
-        placeStill()
+        // While the expanded view fades out it keeps the picture; it moves when the fade ends.
+        if !(wasExpanded && presentation != .expanded) {
+            if let video { place(video: video) }
+            placeStill()
+        }
         needsLayout = true
     }
 
@@ -121,12 +126,31 @@ public final class ComputerUsePreviewOverlay: NSView {
     }
 
     /// Collapsing: the expanded view fades out, then leaves (unless the person expanded again).
+    /// It takes no click while it fades (the surface under it does), keeps the picture until the
+    /// fade ends, and then hands the picture to the card.
     private func fadeOutExpanded() {
+        expanded.isClosing = true
         Motion.overlays.animate(.fadeOut, in: expanded, { self.expanded.animator().alphaValue = 0 }, completion: { [weak self] in
             guard let self, self.presentation != .expanded else { return }
             self.expanded.removeFromSuperview()
+            self.expanded.isClosing = false
+            self.finishCollapse()
         })
     }
+
+    /// The collapse ended: the picture moves to the card, which shows unless hidden meanwhile.
+    private func finishCollapse() {
+        if let video { place(video: video) }
+        placeStill()
+        if presentation == .card { thumbnail.isHidden = false }
+        collapseFinished?()
+    }
+
+    /// Runs when a collapse's fade ended and the picture moved (tests wait on it).
+    var collapseFinished: (() -> Void)?
+
+    /// The expanded view is fading out and takes no clicks (tests).
+    var expandedIsClosing: Bool { expanded.isClosing }
 
     /// The surface is an agent's terminal: Hide names the agent, not the chat.
     public var surfaceIsTerminal: Bool {

@@ -180,7 +180,7 @@ import VideoToolbox
 
     /// A still shows in whichever view holds the picture: the card, or the expanded view while
     /// expanded (round-4 review: the expanded view was an empty box on the stills path).
-    @Test func aStillShowsInTheViewThatHoldsThePicture() throws {
+    @Test func aStillShowsInTheViewThatHoldsThePicture() async throws {
         let overlay = ComputerUsePreviewOverlay(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         overlay.present(.card)
         let source = try #require(CGImageSourceCreateWithData(try jpeg(width: 40, height: 20) as CFData, nil))
@@ -190,9 +190,17 @@ import VideoToolbox
         overlay.present(.expanded)
         #expect(overlay.showsStill == (thumbnail: false, expanded: true))
         #expect(overlay.thumbnail.isHidden, "the card is hidden while the expanded view shows the picture")
-        overlay.present(.card)
+        // Collapsing: the expanded view keeps the picture and takes no click while it fades out,
+        // then hands the picture to the card.
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            overlay.collapseFinished = { done.resume() }
+            overlay.present(.card)
+            #expect(overlay.showsStill == (thumbnail: false, expanded: true), "the picture stays in the fading view")
+            #expect(overlay.expandedIsClosing && overlay.thumbnail.isHidden)
+        }
+        overlay.collapseFinished = nil
         #expect(overlay.showsStill == (thumbnail: true, expanded: false))
-        #expect(!overlay.thumbnail.isHidden)
+        #expect(!overlay.thumbnail.isHidden && !overlay.expandedIsClosing)
         overlay.show(still: nil)
         #expect(overlay.showsStill == (thumbnail: false, expanded: false))
     }

@@ -267,7 +267,10 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             defer { supervisors = [channel] }
             return supervisors
         }
-        for old in replaced { old.close() }
+        // Shut down, not closed: the old daemon's reader may be mid-read on its descriptor; it
+        // ends, then closes its own channel after its last read (below), so no read or write
+        // ever reaches a descriptor number a new connection reuses.
+        for old in replaced { old.shutdown() }
         Task { @MainActor in self.host?.daemonArrived() }
         var reply: [String: Any] = ["type": "hello", "protocol": version]
         for (key, value) in status() { reply[key] = value }

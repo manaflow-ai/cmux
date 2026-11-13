@@ -37,6 +37,8 @@ public final class ComputerUsePreviewChip: NSButton {
 public final class ComputerUsePreviewExpanded: NSView {
     public var onClose: () -> Void = {}
     public var aspect: CGFloat = 16.0 / 10.0 { didSet { needsLayout = true } }
+    /// It is fading out after a collapse: clicks go to the surface under it.
+    public var isClosing = false
     private let scrim = NSView()
     private let picture = ComputerUsePreviewPictureView(cornerRadius: 8)
 
@@ -59,6 +61,8 @@ public final class ComputerUsePreviewExpanded: NSView {
 
     public override var acceptsFirstResponder: Bool { false }
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    public override func hitTest(_ point: NSPoint) -> NSView? { isClosing ? nil : super.hitTest(point) }
 
     public func attach(video layer: AVSampleBufferDisplayLayer?) { picture.attach(video: layer) }
 

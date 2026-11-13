@@ -124,6 +124,51 @@ import VideoToolbox
         channel.close()
     }
 
+    /// A channel with its own write descriptor (a pipe pair): a closeWrite() that lands while
+    /// close() is between its shutdown and its close closes the write side, and close() must not
+    /// close that number again once another descriptor reuses it (review of f4956b5).
+    @Test func closeRacingCloseWriteNeverClosesTheWriteNumberTwice() throws {
+        var inbound: [Int32] = [-1, -1], outbound: [Int32] = [-1, -1]
+        #expect(pipe(&inbound) == 0 && pipe(&outbound) == 0)
+        defer { Darwin.close(inbound[1]); Darwin.close(outbound[0]) }
+        let writeNumber = outbound[1]
+        let reused = OSAllocatedUnfairLock<Int32>(initialState: -1)
+        let box = OSAllocatedUnfairLock<LineChannel?>(uncheckedState: nil)
+        let channel = LineChannel(read: inbound[0], write: outbound[1], afterShutdown: {
+            // The race: closeWrite() runs now, and the freed write number is taken at once.
+            box.withLockUnchecked { $0 }?.closeWrite()
+            reused.withLock { $0 = open("/dev/null", O_RDONLY) }
+        })
+        box.withLockUnchecked { $0 = channel }
+        channel.close()
+        let number = reused.withLock { $0 }
+        defer { Darwin.close(number) }
+        try #require(number == writeNumber, "the write number was not reused; the test cannot show a second close")
+        #expect(fcntl(number, F_GETFD) != -1, "close() closed the reused write number a second time")
+        #expect(!channel.write(Data("late\n".utf8)))
+    }
+
+    /// The daemon handoff shuts the old daemon's channel down instead of closing it: its reader,
+    /// blocked in a read, wakes and ends while its descriptor stays open, and only the reader's own
+    /// close (after its last read) frees the number (review of f4956b5, RemoteHost's handoff).
+    @Test func shutdownWakesAReaderAndLeavesTheDescriptorForItsOwnClose() throws {
+        var fds: [Int32] = [-1, -1]
+        #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0)
+        defer { Darwin.close(fds[1]) }
+        let channel = LineChannel(socket: fds[0])
+        let ended = DispatchSemaphore(value: 0)
+        Thread {
+            while channel.readLine() != nil {}
+            ended.signal()
+        }.start()
+        #expect(ended.wait(timeout: .now() + 0.2) == .timedOut, "the reader is blocked")
+        channel.shutdown()
+        #expect(ended.wait(timeout: .now() + 5) == .success, "shutdown() wakes the reader")
+        #expect(fcntl(fds[0], F_GETFD) != -1, "and leaves the descriptor open")
+        channel.close()
+        #expect(fcntl(fds[0], F_GETFD) == -1, "the owner's close frees it")
+    }
+
     /// ScreenCaptureKit slow on the stills path: the session never starts a second still while one
     /// is being captured, however many looks pass, and closing the channel does not wait for it
     /// (round-3 review of a245191: queued captures held `writes`, and the close waited on all of them).
