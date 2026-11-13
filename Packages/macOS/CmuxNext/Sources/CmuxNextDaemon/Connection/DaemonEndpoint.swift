@@ -153,9 +153,18 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `new-frontend-browser-tab {pane, split}`: a browser tab in a new split, in one daemon
     /// commit and one `pane-added` delta (a link opened to the right never shows in its pane first).
     case frontendBrowserTabSplit = "frontend-browser-tab-split-v1"
+    /// `create-workspace {first_tab}`: a workspace and its first browser tab in one request (a new
+    /// browser workspace never holds a terminal first).
+    case workspaceFirstTab = "workspace-first-tab-v1"
+    /// `new-frontend-browser-tab {workspace}`: a browser tab sent to a workspace itself, not to a pane.
+    case frontendBrowserTabWorkspace = "frontend-browser-tab-workspace-v1"
     /// `send {terminal_id}` to a terminal still being created: the daemon queues the input and
     /// writes it after the commit (cx-wb5.78, ``SendTerminalInputRequest``).
     case terminalInputWhileCreating = "terminal-input-while-creating-v1"
+    /// `cancel-creating-input {terminal_id}`: the connection that asked for a terminal drops the input
+    /// the daemon queued for it and has it refuse the rest, while the creation goes on (the person
+    /// closed its pane before it started, ``CancelCreatingInputRequest``).
+    case creatingInputCancel = "creating-input-cancel-v1"
     /// The owner ends a terminal with no tab after a grace period unless it
     /// is kept: `keep` on creation, `set-terminal-keep`, and
     /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).
@@ -278,6 +287,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case tabPark = "tab-park-v1"
     /// `create-terminal {detached: true}`: a kept terminal with no tab.
     case detachedTerminals = "detached-terminals-v1"
+    /// `create-terminal {create_workspace}`: a workspace and its first terminal in one request.
+    case createTerminalWorkspace = "create-terminal-workspace-v1"
     /// Personal state kept only on the home (local) session
     /// (plans/cmux-next/data-model.md): a remote daemon never needs these.
     /// Per-terminal themes in personal state (`set-personal-terminal`).
@@ -368,6 +379,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case agentSessionStartVMKind = "agent-session-start-vm-kind-v1"
     case agentSessionStartModel = "agent-session-start-model-v1"
     case agentSessionStartPermissionMode = "agent-session-start-permission-mode-v1"
+    /// `mode` on `agent-session-start`: the person's mode pick, applied on their own Cloud VM only.
+    case agentSessionStartMode = "agent-session-start-mode-v1"
     case agentSessionTrustVMKind = "agent-session-trust-vm-kind-v1"
     /// `agent-session-folders`: that machine's work folder (`$HOME/work`) and its folders, so a
     /// chat there with no folder starts in the work folder and Choose folder lists that machine's.
@@ -592,19 +605,19 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .tabWorkspaceName, .notificationAck, .feedLocalOwner, .feedClient, .tabGroups, .savedTabGroups, .workspacePin,
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .tabAttention, .tabAttentionRequestID, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
-             .splitClientKeys, .splitClientSplitID, .splitAround, .splitDividerVisibility, .splitBefore, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit,
-             .terminalInputWhileCreating, .terminalReap, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
+             .splitClientKeys, .splitClientSplitID, .splitAround, .splitDividerVisibility, .splitBefore, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit, .workspaceFirstTab, .frontendBrowserTabWorkspace,
+             .terminalInputWhileCreating, .creatingInputCancel, .terminalReap, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
              .browserHostProvider, .remoteHost, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
-             .tabColumnRespawn, .tabColumnClientPane, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
+             .tabColumnRespawn, .tabColumnClientPane, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .createTerminalWorkspace, .personalTerminals,
              .browserProfiles, .bookmarks, .bookmarkIcon, .history, .historyClearUntil, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .treeSelectionDeltas,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
-             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartPermissionMode, .agentSessionTrustVMKind, .agentSessionFolders,
+             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartPermissionMode, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders,
              .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionContext, .agentSessionBtw, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,

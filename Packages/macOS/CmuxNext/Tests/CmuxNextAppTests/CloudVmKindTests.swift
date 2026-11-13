@@ -53,6 +53,19 @@ struct CloudVmKindTests {
         #expect(params("fullAccess", false, true) == nil, "a teammate's or another host's start keeps asking")
         #expect(params("fullAccess", true, false) == nil, "an older daemon refuses an unknown param")
         #expect(DaemonCapability.agentSessionStartPermissionMode.rawValue == "agent-session-start-permission-mode-v1")
+    /// The person's mode pick goes only with the owner word, and only to a daemon that takes it: a
+    /// teammate's or a team machine's start never names a mode (the daemon would ignore it anyway).
+    @Test func aStartSendsTheModePickOnlyWithTheOwnerWord() {
+        let params = { (owns: Bool, servesKind: Bool, servesMode: Bool) in
+            AgentSessionAttachClient.startParams(cwd: "/w", harness: "claude", homeConfirmed: false, personKey: nil,
+                                                 servesKeyedReason: false, callerOwnsVM: owns, servesVMKind: servesKind,
+                                                 startMode: "bypassPermissions", servesStartMode: servesMode)
+        }
+        #expect(params(true, true, true)["mode"] as? String == "bypassPermissions")
+        #expect(params(true, true, false)["mode"] == nil)
+        #expect(params(true, false, true)["mode"] == nil)
+        #expect(params(false, true, true)["mode"] == nil)
+        #expect(DaemonCapability.agentSessionStartMode.rawValue == "agent-session-start-mode-v1")
     }
 
     @Test func aNoFolderStartOmitsCwdOnlyAsAnAbsentParameter() {

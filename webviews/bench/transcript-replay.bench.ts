@@ -70,6 +70,9 @@ const TURNS = Number(flag("--turns") ?? 600);
 const ONLY = (flag("--only") ?? "long,recorded,mock").split(",");
 const STRICT = argv.includes("--strict");
 const PROFILE = process.env.PROFILE === "1";
+/// `HEAP_SNAPSHOT=FILE` writes a heap snapshot (DevTools' .heapsnapshot) of the burst log's page once its replay
+/// has settled, right after the heap row is read: what holds the heap that row reports.
+const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
 /// The long log's checkpoint turns (`--checkpoints 11,110,1105`: about 50, 500 and 5,000 rows), else
 /// its default fifths.
 const CHECKPOINTS = flag("--checkpoints")?.split(",").map(Number);
@@ -267,6 +270,18 @@ async function heapMb(cdp: CDPSession): Promise<number> {
   await cdp.send("HeapProfiler.collectGarbage");
   const { usedSize } = (await cdp.send("Runtime.getHeapUsage")) as { usedSize: number };
   return usedSize / 2 ** 20;
+}
+
+async function writeHeapSnapshot(cdp: CDPSession, file: string): Promise<void> {
+  const out = fs.openSync(file, "w");
+  const onChunk = ({ chunk }: { chunk: string }) => fs.writeSync(out, chunk);
+  cdp.on("HeapProfiler.addHeapSnapshotChunk", onChunk);
+  try {
+    await cdp.send("HeapProfiler.takeHeapSnapshot", { reportProgress: false });
+  } finally {
+    cdp.off("HeapProfiler.addHeapSnapshotChunk", onChunk);
+    fs.closeSync(out);
+  }
 }
 
 type Ctx = { browser: Browser; url: (log: ReplayLog) => string };
@@ -468,6 +483,7 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
       await idleCdp!.detach();
     }
     const heapAfter = await heapMb(cdp);
+    if (HEAP_SNAPSHOT && measureIdle) await writeHeapSnapshot(cdp, HEAP_SNAPSHOT);
     const { shifts, long } = await page.evaluate((since) => {
       const w = window as unknown as { __shifts: Shift[]; __long: { at: number; ms: number }[] };
       return { shifts: w.__shifts.filter((shift) => !shift.input && shift.at >= since), long: w.__long };
@@ -744,10 +760,13 @@ if (import.meta.main) {
           console.log(`  ${kind}: self ms per record that grew from ${first.rows} rows to ${last.rows} rows`);
           for (const [fn, before, after] of grew(first.selfMs!, last.selfMs!))
             console.log(`    ${before.toFixed(3)} -> ${after.toFixed(3)}  ${fn}`);
-          // And where a record's time goes at the largest checkpoint, growing or not.
-          console.log(`  ${kind}: most self ms per record at ${last.rows} rows`);
-          for (const [fn, ms] of [...last.selfMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15))
-            console.log(`    ${ms.toFixed(3)}  ${fn}`);
+          // And where a record's time goes at the smallest and the largest checkpoint, growing or
+          // not: the smallest is the cost every chat pays, however short.
+          for (const at of [first, last]) {
+            console.log(`  ${kind}: most self ms per record at ${at.rows} rows`);
+            for (const [fn, ms] of [...at.selfMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15))
+              console.log(`    ${ms.toFixed(3)}  ${fn}`);
+          }
         }
       } catch (error) {
         failed += 1;

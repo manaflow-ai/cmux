@@ -9,6 +9,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
 import type { CloudMachine } from "../src/agent-session/acpmux/cloudMachines";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -73,12 +74,8 @@ afterEach(async () => {
   (await import("../src/agent-session/acpmux/cloudMachines")).setCloudMachinesForTest([]);
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 /// The account's machines: `gpu-box` is also an acpmux peer, so acpmux's row stays the only one.

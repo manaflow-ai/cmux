@@ -48,35 +48,6 @@ export const LOCALES = [
   "zh-Hant",
 ];
 
-/** The agent pane's keys the channels Home's rows read (tool calls, shell blocks, diffs, Markdown). */
-const channelsPaneKey = (key) =>
-  /^(tools|shell|code|image|media|markdown|duration|chip|message\.channel|multiplayer)\./.test(key) ||
-  [
-    "changes.noLineChanges",
-    "link.openPath",
-    "turn.copy",
-    "turn.copied",
-    "message.label",
-    "message.less",
-    "message.more",
-    "message.noText",
-    "message.self",
-    "message.unknown",
-    // A sent message's line and status (MessageCard.tsx), which Channels draws too.
-    "message.sentTo",
-    "message.sendingTo",
-    "message.sending",
-    "message.sent",
-    "message.delivered",
-    "message.deliveredShort",
-    "message.queued",
-    "message.notDelivered",
-    "message.notDeliveredStopped",
-    "message.notDeliveredNoAgent",
-    // The recipient chip's tooltip, the full id behind its name (MessageCard.tsx).
-    "message.recipientId",
-  ].includes(key);
-
 const readJSON = (file) => JSON.parse(fs.readFileSync(path.join(repo, file), "utf8"));
 
 /** Every key a settings schema export names (titles, help, summaries, groups, default labels, choices, page layout). */
@@ -124,7 +95,13 @@ export const PAGES = {
           all.filter(
             (key) =>
               key.startsWith("git.") ||
-              ["changes.stageFile", "changes.unstageFile", "changes.stageFailed"].includes(key),
+              [
+                "changes.stageFile",
+                "changes.unstageFile",
+                "changes.stageFailed",
+                "changes.createPullRequest",
+                "changes.pullRequestFailed",
+              ].includes(key),
           ),
       },
     ],
@@ -247,16 +224,6 @@ export const PAGES = {
     out: "webviews/src/pages/bookmarks/generated/strings.json",
     catalogs: [{ file: `${sources}/CmuxNextBookmarks/Resources/Localizable.xcstrings` }],
   },
-  // The bookmarks bar (cmux-page://cmux.bookmarks-bar/): the bar's words from the same catalog.
-  "bookmarks-bar": {
-    out: "webviews/src/pages/bookmarks-bar/generated/strings.json",
-    catalogs: [
-      {
-        file: `${sources}/CmuxNextBookmarks/Resources/Localizable.xcstrings`,
-        keys: () => ["root.bar", "root.other", "bar.more", "bar.emptyHint", "folder.empty", "verb.openAll"],
-      },
-    ],
-  },
   // The sidebar's chat history blocks (CmuxNextSidebar SidebarChatHistoryHost): the sidebar's own keys.
   "sidebar-chats": {
     out: "webviews/src/pages/sidebar-chats/generated/strings.json",
@@ -340,11 +307,6 @@ export const PAGES = {
     out: "webviews/src/pages/artifacts/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/artifacts/Localizable.xcstrings" }],
   },
-  // The overlay page's toast stack (cmux-page://cmux.overlay/, route /toasts); its table lives next to it.
-  "overlay-toasts": {
-    out: "webviews/src/pages/overlay/toasts/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/overlay/toasts/Localizable.xcstrings" }],
-  },
   // The Stats page (cmux-page://cmux.stats/, hq#1920); its table lives next to it.
   stats: {
     out: "webviews/src/pages/stats/generated/strings.json",
@@ -373,8 +335,8 @@ export const PAGES = {
     out: "webviews/src/pages/tasks/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/tasks/Localizable.xcstrings" }],
   },
-  // The browser's Page Info bubble (cmux-page://cmux.page-info/); its table lives next to its
-  // component in webviews/src/browser-chrome/page-info.
+  // The browser's Page Info windows (site settings, site data, the certificate viewer); their table
+  // lives next to their components in webviews/src/browser-chrome/page-info.
   "browser-chrome-page-info": {
     out: "webviews/src/browser-chrome/page-info/generated/strings.json",
     catalogs: [{ file: "webviews/src/browser-chrome/page-info/Localizable.xcstrings" }],
@@ -431,31 +393,34 @@ export const PAGES = {
     catalogs: [
       {
         file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
-        keys: (all) => all.filter(channelsPaneKey),
-      },
-    ],
-  },
-  // The Messages page installs the Channels rows' keys plus what its own parts read from the pane's
-  // table: the composer's mic (dictation) and the link chips' hover card (chips/LinkHoverCard.tsx,
-  // PullRequestCard.tsx, OpenInMenu.tsx).
-  "home-messages-pane": {
-    out: "webviews/src/pages/home-messages/generated/pane-strings.json",
-    catalogs: [
-      {
-        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
         keys: (all) =>
           all.filter(
             (key) =>
-              channelsPaneKey(key) ||
-              /^(dictation|prCard|header\.prBadge|header\.prReview)\./.test(key) ||
+              /^(tools|shell|code|image|media|markdown|duration|chip|message\.channel|multiplayer)\./.test(key) ||
               [
-                "browser.openIn",
-                "header.prConflicts",
-                "header.prNoChecks",
-                "sessionInfo.changes.failingOnBase",
-                "message.fileElsewhere",
-                "message.fileOnHost",
-                "message.foreignFile",
+                "changes.noLineChanges",
+                "link.openPath",
+                "turn.copy",
+                "turn.copied",
+                "message.label",
+                "message.less",
+                "message.more",
+                "message.noText",
+                "message.self",
+                "message.unknown",
+                // A sent message's line and status (MessageCard.tsx), which Channels draws too.
+                "message.sentTo",
+                "message.sendingTo",
+                "message.sending",
+                "message.sent",
+                "message.delivered",
+                "message.deliveredShort",
+                "message.queued",
+                "message.notDelivered",
+                "message.notDeliveredStopped",
+                "message.notDeliveredNoAgent",
+                // The recipient chip's tooltip, the full id behind its name (MessageCard.tsx).
+                "message.recipientId",
               ].includes(key),
           ),
       },
@@ -489,12 +454,6 @@ export const PAGES = {
   "icon-picker": {
     out: "webviews/src/pages/icon-picker/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/icon-picker/Localizable.xcstrings" }],
-  },
-  // Chat Colors (cmux-page://cmux.home-chat-colors/): the `home.chatColors.*` keys moved here from
-  // CmuxNextHome's catalog with the AppKit panel; its table lives next to it.
-  "home-chat-colors": {
-    out: "webviews/src/pages/home-chat-colors/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/home-chat-colors/Localizable.xcstrings" }],
   },
   // The markdown editor (cmux-page://cmux.markdown/) has no Swift page; its table lives next to it.
   markdown: {

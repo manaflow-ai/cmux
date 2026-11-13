@@ -36,21 +36,26 @@ public nonisolated struct AgentPageOps {
     /// Op suffix to the old bridge method that ``AgentPaneRequest`` parses.
     static let methods: [String: String] = {
         var methods = Dictionary(uniqueKeysWithValues: [
-            "pane.checkpointAvailability", "pane.commandAvailability", "pane.framePacing", "pane.painted", "pane.clientReady", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend", "pane.setDisplay", "pane.setAttachmentView", "pane.setComposerRing", "pane.setDictationSource", "pane.setRemoteControl", "pane.noticeAction", "tips.state",
+            "pane.checkpointAvailability", "pane.commandAvailability", "pane.framePacing", "pane.painted", "pane.clientReady", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.finishSound", "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend", "pane.setDisplay", "pane.setAttachmentView", "pane.setComposerRing", "pane.setDictationSource", "pane.setRemoteControl", "pane.noticeAction", "tips.state",
             "pane.edit", "pane.setQuickActions", "tab.open", "run.attach", "tab.typeAhead", "tab.jump", "cloud.preview.open",
-            "newTab.remember", "newTab.setTemplate", "newTab.editWidgets", "nowPlaying.command", "readAloud.speak", "readAloud.stop", "chat.attention.open", "newTab.inputReady", "newTab.touched", "newTab.context", "newTab.warm", "shortcut.edit", "action.run", "file.open", "browser.open",
+            "newTab.remember", "newTab.setTemplate", "nowPlaying.command", "readAloud.speak", "readAloud.stop", "chat.attention.open", "newTab.inputReady", "newTab.touched", "newTab.context", "newTab.warm", "shortcut.edit", "action.run", "file.open", "browser.open",
             "project.list", "project.icon", "agent.avatar", "agent.avatar.set", "agent.avatar.remove", "agent.mini", "agent.mini.show", "chief.face", "harness.symbol", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "machine.share.self", "share.op", "chat.attach.choose", "chat.attach.dropped", "chat.attach.source", "attachment.sourceIcon", "app.action", "chats.open", "chats.resume", "chats.openInTerminal", "chats.watch", "chats.page",
             "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.moveToMachine", "pane.tabState", "pane.tabRowTools", "pane.sessionInfo", "pane.sessionInfo.overlays", "pane.glass", "pane.toastAvoidance", "pane.copyText", "pane.tabRowTools.set", "pane.tabRowTools.openMenu", "chat.toolCard.respond", "chat.computerUsePreview", "chat.upload", "chat.btw.inline", "chat.sideChat", "chat.subagentPane", "chat.subagentShown", "chat.processTerminal", "chat.openTab", "chat.tryAnotherApproach", "chat.offer.open", "chat.asks.open", "chat.asks.answer", "chat.newHere", "chat.unsentDraft", "chat.leftover", "chat.leftoverTaken", "chat.scrollAnchor", "chat.scrollAnchor.get", "chat.tail", "chat.tail.get", "chat.snapshot.put", "chat.snapshot.get", "chat.draftAttachments", "chat.draftAttachments.get", "chat.asks.pending",
             "shell.run", "shell.read", "shell.stop", "harness.update", "harness.restart",
             "git.diff", "git.status", "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.worktree.setup", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "git.pullRequest", "project.instructions", "project.addFiles", "composer.capture",
             "externalAccess.openSettings",
-            "dictation.toggle", "dictation.handoff", "dictation.sources", "dictation.watchMicrophone", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio", "dictation.recording.upload", "dictation.recording.cancel",
+            "dictation.toggle", "dictation.handoff", "dictation.sources", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio", "dictation.recording.upload", "dictation.recording.cancel",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
             "chat.missing", "uiPointer.report", "acpmux.restart", "acpmux.restartStuck", "sandbox.run", "sandbox.state", "cloud.signIn", "cloud.signInCancel", "cloud.startChat", "cloud.repickChat", "cloud.answerStart", "cloud.handoffTurn",
             // The composer streams every upload (cloudUploads.ts); without these the page fell back to one frame, which refuses a file over 24 MiB (#28647).
             "chat.upload.begin", "chat.upload.chunk", "chat.upload.finish", "chat.upload.cancel",
             // The model menu's Add account (App.tsx); the old bridge took it, the page host refused it unknown_op.
             "account.add",
+            // The page's flicker detector (``AgentPageFlickerLog``): answered by ``onFlicker`` before
+            // the model, never logged. Without it the page host's pages wrote no line of their own.
+            AgentPageFlickerLog.method,
+            // A chat's unsent prompts (``AgentPaneUnsentPrompts``): answered before the model, never logged.
+            "chat.unsentPrompt.put", "chat.unsentPrompt.remove", "chat.unsentPrompts.get",
         ].map { ($0, $0) })
         for action in AgentPaneIMessageAction.allCases { methods["imessage.\(action.rawValue)"] = "imessage.\(action.rawValue)" }
         for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods).union(AgentPaneCloudMachineRequest.methods).union(AgentPaneCloudRepositoryRequest.methods)
@@ -142,6 +147,9 @@ public final class AgentPageProvider: PageProvider {
     /// The debug UI pointer report from an app-owned page. The native picker
     /// owns the crop and composer delivery; the page only supplies metadata.
     public var onUiPointerReport: @MainActor (JSONValue) -> Void = { _ in }
+    /// The page's flicker events (`diag.flicker`, `{events}`), for the pane's ring file
+    /// (``AgentPageFlickerLog/recordPage(_:page:pid:)``). ``AgentPaneView`` sets it; until then they are dropped.
+    public var onFlicker: @MainActor (JSONValue) -> Void = { _ in }
 
     public init(prepare: @escaping Prepare) {
         self.prepare = prepare
@@ -376,6 +384,12 @@ public final class AgentPageProvider: PageProvider {
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let method = AgentPageOps.method(for: op) else { throw PageError.unknownOp(op) }
+        // Short words and numbers for the flicker ring file: written off the main thread, answered
+        // at once, and never parsed as a pane request nor logged (it comes once a second while the page draws).
+        if method == AgentPageFlickerLog.method {
+            onFlicker(params)
+            return .null
+        }
         if method == "pane.edit" { return try edit(params, op: op, context: context) }
         if method == "pane.setScrollToBottomOnSend" || method == "pane.setRemoteControl", !context.userGesture {
             throw PageError(code: PageNativeOp.userOnlyCode, message: "This setting can only be changed by a person")
@@ -398,6 +412,12 @@ public final class AgentPageProvider: PageProvider {
             return .object(["ok": .bool(true)])
         }
         if method.hasPrefix("chat.draftAttachments") { return try await Self.draftAttachments(method, params: params, op: op) }
+        if AgentPaneUnsentPrompts.handles(method: method) {
+            switch await AgentPaneUnsentPrompts.reply(to: method, params: params) {
+            case .success(let value): return value
+            case .failure(let error): throw PageError(code: error.code, message: error.message)
+            }
+        }
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }

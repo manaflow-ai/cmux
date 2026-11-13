@@ -51,9 +51,9 @@ extension AppControl {
             disabledFeatures: { services.registry.disabledFeatures }, isSignedIn: { services.cloud.isSignedIn },
             mint: { asked in
                 do {
-                    let token = try await identity.accessToken(team: try await auth.accessTokenTeam(requested: asked))
+                    let token = try await auth.accessToken(requested: asked, identity: identity)
                     return AuthTokenGrant(accessToken: token.accessToken, team: token.team, user: token.user, expiresAt: token.expiresAt, apiOrigin: origin)
-                } catch let failure as CloudAccessToken.Failure { throw AuthTokenRefusal(code: failure.code, detail: failure.detail) }
+                } catch let refused as CloudAccessToken.Refusal { throw AuthTokenRefusal(code: refused.failure.code, detail: refused.failure.detail, team: refused.team) }
             }),
         ])
         // Tagged DEV builds only (debug.* methods; a release build registers

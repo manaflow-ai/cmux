@@ -152,20 +152,20 @@
     "source": "AppKit NSColor.placeholderTextColor resolved to sRGB (macOS 27, standard contrast); used by the Chief composer placeholder"
    },
    "hoverFill": {
-    "value": "alpha(fg, dark ? 0.06 : 0.05)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:148 (ThemeTokens.derive)"
+    "value": "alpha(fg, dark ? 0.05 : 0.04)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:151 (ThemeTokens.derive)"
    },
    "selectionFill": {
-    "value": "alpha(fg, dark ? 0.10 : 0.08); with appearance.accent: alpha(accent, dark ? 0.26 : 0.16)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:150 (ThemeTokens.derive)"
+    "value": "alpha(fg, dark ? 0.08 : 0.06); with appearance.accent: alpha(accent, dark ? 0.26 : 0.16)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:153 (ThemeTokens.derive)"
    },
    "secondarySelectionFill": {
-    "value": "alpha(fg, dark ? 0.07 : 0.055); with appearance.accent: alpha(accent, dark ? 0.18 : 0.11)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:196 (ThemeTokens.derive)"
+    "value": "alpha(fg, dark ? 0.056 : 0.042); with appearance.accent: alpha(accent, dark ? 0.18 : 0.11)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:156 (ThemeTokens.derive)"
    },
    "pressedFill": {
-    "value": "alpha(fg, dark ? 0.14 : 0.11)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:151 (ThemeTokens.derive)"
+    "value": "alpha(fg, dark ? 0.12 : 0.10)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:157 (ThemeTokens.derive)"
    },
    "badgeFill": {
     "value": "alpha(fg, dark ? 0.14 : 0.10)",
@@ -336,11 +336,11 @@
     "stripStep": "#00000038",
     "textPrimary": "#FFFFFF",
     "textSecondary": "#AAAAAA",
-    "textTertiary": "#888888",
-    "hoverFill": "#FFFFFF0F",
-    "selectionFill": "#FFFFFF1A",
-    "secondarySelectionFill": "#FFFFFF12",
-    "pressedFill": "#FFFFFF24",
+    "textTertiary": "#838383",
+    "hoverFill": "#FFFFFF0D",
+    "selectionFill": "#FFFFFF14",
+    "secondarySelectionFill": "#FFFFFF0E",
+    "pressedFill": "#FFFFFF1F",
     "badgeFill": "#FFFFFF24",
     "separator": "#FFFFFF14",
     "paneBorder": "#FFFFFF12",
@@ -360,10 +360,10 @@
    "composited": {
     "sidebarStep": "#272727",
     "stripStep": "#171717",
-    "hoverFill": "#2C2C2C",
-    "selectionFill": "#353535",
-    "secondarySelectionFill": "#2E2E2E",
-    "pressedFill": "#3E3E3E",
+    "hoverFill": "#292929",
+    "selectionFill": "#303030",
+    "secondarySelectionFill": "#2B2B2B",
+    "pressedFill": "#393939",
     "badgeFill": "#3E3E3E",
     "separator": "#303030",
     "paneBorder": "#2E2E2E",
@@ -379,23 +379,23 @@
     "fade": {
      "textPrimary": "#B0B0B0",
      "textSecondary": "#797979",
-     "textTertiary": "#636363",
-     "selectionFill": "#FFFFFF11",
-     "hoverFill": "#FFFFFF0A"
+     "textTertiary": "#606060",
+     "selectionFill": "#FFFFFF0D",
+     "hoverFill": "#FFFFFF08"
     },
     "tonal": {
      "textPrimary": "#AAAAAA",
-     "textSecondary": "#888888",
-     "textTertiary": "#757575",
-     "selectionFill": "#FFFFFF0D",
-     "hoverFill": "#FFFFFF0F"
+     "textSecondary": "#838383",
+     "textTertiary": "#727272",
+     "selectionFill": "#FFFFFF0B",
+     "hoverFill": "#FFFFFF0D"
     },
     "quiet": {
      "textPrimary": "#AAAAAA",
-     "textSecondary": "#757575",
-     "textTertiary": "#757575",
+     "textSecondary": "#727272",
+     "textTertiary": "#727272",
      "selectionFill": "#FFFFFF00",
-     "hoverFill": "#FFFFFF0F"
+     "hoverFill": "#FFFFFF0D"
     }
    }
   },
@@ -437,11 +437,11 @@
     "stripStep": "#0000000D",
     "textPrimary": "#000000",
     "textSecondary": "#616161",
-    "textTertiary": "#7F8080",
-    "hoverFill": "#0000000D",
-    "selectionFill": "#00000014",
-    "secondarySelectionFill": "#0000000E",
-    "pressedFill": "#0000001C",
+    "textTertiary": "#828282",
+    "hoverFill": "#0000000A",
+    "selectionFill": "#0000000F",
+    "secondarySelectionFill": "#0000000B",
+    "pressedFill": "#0000001A",
     "badgeFill": "#0000001A",
     "separator": "#00000012",
     "paneBorder": "#00000017",
@@ -461,10 +461,10 @@
    "composited": {
     "sidebarStep": "#F4F5F5",
     "stripStep": "#F1F2F2",
-    "hoverFill": "#F1F2F2",
-    "selectionFill": "#EAEBEB",
-    "secondarySelectionFill": "#F0F1F1",
-    "pressedFill": "#E2E3E3",
+    "hoverFill": "#F4F5F5",
+    "selectionFill": "#EFF0F0",
+    "secondarySelectionFill": "#F3F4F4",
+    "pressedFill": "#E5E6E6",
     "badgeFill": "#E5E6E6",
     "separator": "#ECEDED",
     "paneBorder": "#E7E8E8",
@@ -480,23 +480,23 @@
     "fade": {
      "textPrimary": "#595959",
      "textSecondary": "#989898",
-     "textTertiary": "#ABACAC",
-     "selectionFill": "#0000000D",
-     "hoverFill": "#00000008"
+     "textTertiary": "#ADAEAE",
+     "selectionFill": "#0000000A",
+     "hoverFill": "#00000007"
     },
     "tonal": {
      "textPrimary": "#616161",
-     "textSecondary": "#7F8080",
-     "textTertiary": "#959696",
-     "selectionFill": "#0000000B",
-     "hoverFill": "#0000000D"
+     "textSecondary": "#828282",
+     "textTertiary": "#979898",
+     "selectionFill": "#00000008",
+     "hoverFill": "#0000000A"
     },
     "quiet": {
      "textPrimary": "#616161",
-     "textSecondary": "#959696",
-     "textTertiary": "#959696",
+     "textSecondary": "#979898",
+     "textTertiary": "#979898",
      "selectionFill": "#00000000",
-     "hoverFill": "#0000000D"
+     "hoverFill": "#0000000A"
     }
    }
   },
@@ -536,12 +536,12 @@
     "sidebarStep": "#FFFFFF0A",
     "stripStep": "#00000038",
     "textPrimary": "#FFFFFF",
-    "textSecondary": "#B8B9BC",
-    "textTertiary": "#93969A",
-    "hoverFill": "#FFFFFF0F",
-    "selectionFill": "#FFFFFF1A",
-    "secondarySelectionFill": "#FFFFFF12",
-    "pressedFill": "#FFFFFF24",
+    "textSecondary": "#B2B3B6",
+    "textTertiary": "#8F9195",
+    "hoverFill": "#FFFFFF0D",
+    "selectionFill": "#FFFFFF14",
+    "secondarySelectionFill": "#FFFFFF0E",
+    "pressedFill": "#FFFFFF1F",
     "badgeFill": "#FFFFFF24",
     "separator": "#FFFFFF14",
     "paneBorder": "#FFFFFF12",
@@ -561,10 +561,10 @@
    "composited": {
     "sidebarStep": "#31343C",
     "stripStep": "#1F2229",
-    "hoverFill": "#353940",
-    "selectionFill": "#3E4148",
-    "secondarySelectionFill": "#373B42",
-    "pressedFill": "#464A50",
+    "hoverFill": "#33373E",
+    "selectionFill": "#393D44",
+    "secondarySelectionFill": "#34383F",
+    "pressedFill": "#42454C",
     "badgeFill": "#464A50",
     "separator": "#393D44",
     "paneBorder": "#373B42",
@@ -579,24 +579,24 @@
    "inactiveTabs": {
     "fade": {
      "textPrimary": "#B4B5B8",
-     "textSecondary": "#86888C",
-     "textTertiary": "#6E7176",
-     "selectionFill": "#FFFFFF11",
-     "hoverFill": "#FFFFFF0A"
+     "textSecondary": "#818488",
+     "textTertiary": "#6B6E73",
+     "selectionFill": "#FFFFFF0D",
+     "hoverFill": "#FFFFFF08"
     },
     "tonal": {
-     "textPrimary": "#B8B9BC",
-     "textSecondary": "#93969A",
-     "textTertiary": "#818388",
-     "selectionFill": "#FFFFFF0D",
-     "hoverFill": "#FFFFFF0F"
+     "textPrimary": "#B2B3B6",
+     "textSecondary": "#8F9195",
+     "textTertiary": "#7D8084",
+     "selectionFill": "#FFFFFF0B",
+     "hoverFill": "#FFFFFF0D"
     },
     "quiet": {
-     "textPrimary": "#B8B9BC",
-     "textSecondary": "#818388",
-     "textTertiary": "#818388",
+     "textPrimary": "#B2B3B6",
+     "textSecondary": "#7D8084",
+     "textTertiary": "#7D8084",
      "selectionFill": "#FFFFFF00",
-     "hoverFill": "#FFFFFF0F"
+     "hoverFill": "#FFFFFF0D"
     }
    }
   },
@@ -636,12 +636,12 @@
     "sidebarStep": "#FDFFF10A",
     "stripStep": "#00000038",
     "textPrimary": "#FDFFF1",
-    "textSecondary": "#B2B4A9",
-    "textTertiary": "#92938A",
-    "hoverFill": "#FDFFF10F",
-    "selectionFill": "#FDFFF11A",
-    "secondarySelectionFill": "#FDFFF112",
-    "pressedFill": "#FDFFF124",
+    "textSecondary": "#ACADA2",
+    "textTertiary": "#8C8D83",
+    "hoverFill": "#FDFFF10D",
+    "selectionFill": "#FDFFF114",
+    "secondarySelectionFill": "#FDFFF10E",
+    "pressedFill": "#FDFFF11F",
     "badgeFill": "#FDFFF124",
     "separator": "#FDFFF114",
     "paneBorder": "#FDFFF112",
@@ -661,10 +661,10 @@
    "composited": {
     "sidebarStep": "#30312A",
     "stripStep": "#1E1F1B",
-    "hoverFill": "#34352E",
-    "selectionFill": "#3C3E37",
-    "secondarySelectionFill": "#363730",
-    "pressedFill": "#45463F",
+    "hoverFill": "#32332C",
+    "selectionFill": "#383933",
+    "secondarySelectionFill": "#33342E",
+    "pressedFill": "#41423B",
     "badgeFill": "#45463F",
     "separator": "#383933",
     "paneBorder": "#363730",
@@ -679,24 +679,24 @@
    "inactiveTabs": {
     "fade": {
      "textPrimary": "#B2B4A9",
-     "textSecondary": "#818379",
-     "textTertiary": "#6D6E65",
-     "selectionFill": "#FDFFF111",
-     "hoverFill": "#FDFFF10A"
+     "textSecondary": "#7D7F75",
+     "textTertiary": "#686A61",
+     "selectionFill": "#FDFFF10D",
+     "hoverFill": "#FDFFF108"
     },
     "tonal": {
-     "textPrimary": "#B2B4A9",
-     "textSecondary": "#92938A",
-     "textTertiary": "#7F8177",
-     "selectionFill": "#FDFFF10D",
-     "hoverFill": "#FDFFF10F"
+     "textPrimary": "#ACADA2",
+     "textSecondary": "#8C8D83",
+     "textTertiary": "#7A7B72",
+     "selectionFill": "#FDFFF10B",
+     "hoverFill": "#FDFFF10D"
     },
     "quiet": {
-     "textPrimary": "#B2B4A9",
-     "textSecondary": "#7F8177",
-     "textTertiary": "#7F8177",
+     "textPrimary": "#ACADA2",
+     "textSecondary": "#7A7B72",
+     "textTertiary": "#7A7B72",
      "selectionFill": "#FDFFF100",
-     "hoverFill": "#FDFFF10F"
+     "hoverFill": "#FDFFF10D"
     }
    }
   },
@@ -736,12 +736,12 @@
     "sidebarStep": "#1F23280A",
     "stripStep": "#0000000D",
     "textPrimary": "#1F2328",
-    "textSecondary": "#64676B",
-    "textTertiary": "#828487",
-    "hoverFill": "#1F23280D",
-    "selectionFill": "#1F232814",
-    "secondarySelectionFill": "#1F23280E",
-    "pressedFill": "#1F23281C",
+    "textSecondary": "#67696D",
+    "textTertiary": "#848689",
+    "hoverFill": "#1F23280A",
+    "selectionFill": "#1F23280F",
+    "secondarySelectionFill": "#1F23280B",
+    "pressedFill": "#1F23281A",
     "badgeFill": "#1F23281A",
     "separator": "#1F232812",
     "paneBorder": "#1F232817",
@@ -761,10 +761,10 @@
    "composited": {
     "sidebarStep": "#F6F6F6",
     "stripStep": "#F2F2F2",
-    "hoverFill": "#F4F4F4",
-    "selectionFill": "#EDEDEE",
-    "secondarySelectionFill": "#F3F3F3",
-    "pressedFill": "#E6E7E7",
+    "hoverFill": "#F6F6F6",
+    "selectionFill": "#F2F2F2",
+    "secondarySelectionFill": "#F6F6F6",
+    "pressedFill": "#E9E9EA",
     "badgeFill": "#E9E9EA",
     "separator": "#EFF0F0",
     "paneBorder": "#EBEBEC",
@@ -779,24 +779,24 @@
    "inactiveTabs": {
     "fade": {
      "textPrimary": "#6D7073",
-     "textSecondary": "#9B9C9F",
-     "textTertiary": "#ADAFB1",
-     "selectionFill": "#1F23280D",
-     "hoverFill": "#1F232808"
+     "textSecondary": "#9C9EA0",
+     "textTertiary": "#AFB0B2",
+     "selectionFill": "#1F23280A",
+     "hoverFill": "#1F232807"
     },
     "tonal": {
-     "textPrimary": "#64676B",
-     "textSecondary": "#828487",
-     "textTertiary": "#98999C",
-     "selectionFill": "#1F23280B",
-     "hoverFill": "#1F23280D"
+     "textPrimary": "#67696D",
+     "textSecondary": "#848689",
+     "textTertiary": "#999B9D",
+     "selectionFill": "#1F232808",
+     "hoverFill": "#1F23280A"
     },
     "quiet": {
-     "textPrimary": "#64676B",
-     "textSecondary": "#98999C",
-     "textTertiary": "#98999C",
+     "textPrimary": "#67696D",
+     "textSecondary": "#999B9D",
+     "textTertiary": "#999B9D",
      "selectionFill": "#1F232800",
-     "hoverFill": "#1F23280D"
+     "hoverFill": "#1F23280A"
     }
    }
   },
@@ -839,11 +839,11 @@
     "stripStep": "#00000038",
     "textPrimary": "#FFFFFF",
     "textSecondary": "#AAAAAA",
-    "textTertiary": "#888888",
-    "hoverFill": "#FFFFFF0F",
+    "textTertiary": "#838383",
+    "hoverFill": "#FFFFFF0D",
     "selectionFill": "#FF453A42",
     "secondarySelectionFill": "#FF453A2E",
-    "pressedFill": "#FFFFFF24",
+    "pressedFill": "#FFFFFF1F",
     "badgeFill": "#FFFFFF24",
     "separator": "#FFFFFF14",
     "paneBorder": "#FFFFFF12",
@@ -863,10 +863,10 @@
    "composited": {
     "sidebarStep": "#272727",
     "stripStep": "#171717",
-    "hoverFill": "#2C2C2C",
+    "hoverFill": "#292929",
     "selectionFill": "#592825",
     "secondarySelectionFill": "#472523",
-    "pressedFill": "#3E3E3E",
+    "pressedFill": "#393939",
     "badgeFill": "#3E3E3E",
     "separator": "#303030",
     "paneBorder": "#2E2E2E",
@@ -881,23 +881,23 @@
     "fade": {
      "textPrimary": "#B0B0B0",
      "textSecondary": "#797979",
-     "textTertiary": "#636363",
+     "textTertiary": "#606060",
      "selectionFill": "#FF453A2B",
-     "hoverFill": "#FFFFFF0A"
+     "hoverFill": "#FFFFFF08"
     },
     "tonal": {
      "textPrimary": "#AAAAAA",
-     "textSecondary": "#888888",
-     "textTertiary": "#757575",
-     "selectionFill": "#FFFFFF0D",
-     "hoverFill": "#FFFFFF0F"
+     "textSecondary": "#838383",
+     "textTertiary": "#727272",
+     "selectionFill": "#FFFFFF0B",
+     "hoverFill": "#FFFFFF0D"
     },
     "quiet": {
      "textPrimary": "#AAAAAA",
-     "textSecondary": "#757575",
-     "textTertiary": "#757575",
+     "textSecondary": "#727272",
+     "textTertiary": "#727272",
      "selectionFill": "#FF453A00",
-     "hoverFill": "#FFFFFF0F"
+     "hoverFill": "#FFFFFF0D"
     }
    }
   },
@@ -941,10 +941,10 @@
     "textPrimary": "#FFFFFF",
     "textSecondary": "#B3B3B3",
     "textTertiary": "#919191",
-    "hoverFill": "#FFFFFF0F",
+    "hoverFill": "#FFFFFF0D",
     "selectionFill": "#32D74B42",
     "secondarySelectionFill": "#32D74B2E",
-    "pressedFill": "#FFFFFF24",
+    "pressedFill": "#FFFFFF1F",
     "badgeFill": "#FFFFFF24",
     "separator": "#FFFFFF14",
     "paneBorder": "#FFFFFF12",
@@ -964,10 +964,10 @@
    "composited": {
     "sidebarStep": "#272727",
     "stripStep": "#171717",
-    "hoverFill": "#2C2C2C",
+    "hoverFill": "#292929",
     "selectionFill": "#234E2A",
     "secondarySelectionFill": "#223F26",
-    "pressedFill": "#3E3E3E",
+    "pressedFill": "#393939",
     "badgeFill": "#3E3E3E",
     "separator": "#303030",
     "paneBorder": "#2E2E2E",
@@ -984,21 +984,21 @@
      "textSecondary": "#7F7F7F",
      "textTertiary": "#696969",
      "selectionFill": "#32D74B2B",
-     "hoverFill": "#FFFFFF0A"
+     "hoverFill": "#FFFFFF08"
     },
     "tonal": {
      "textPrimary": "#B3B3B3",
      "textSecondary": "#919191",
      "textTertiary": "#7D7D7D",
-     "selectionFill": "#FFFFFF0D",
-     "hoverFill": "#FFFFFF0F"
+     "selectionFill": "#FFFFFF0B",
+     "hoverFill": "#FFFFFF0D"
     },
     "quiet": {
      "textPrimary": "#B3B3B3",
      "textSecondary": "#7D7D7D",
      "textTertiary": "#7D7D7D",
      "selectionFill": "#32D74B00",
-     "hoverFill": "#FFFFFF0F"
+     "hoverFill": "#FFFFFF0D"
     }
    }
   },
@@ -1041,11 +1041,11 @@
     "stripStep": "#00000038",
     "textPrimary": "#FFFFFF",
     "textSecondary": "#AAAAAA",
-    "textTertiary": "#888888",
-    "hoverFill": "#FFFFFF0F",
+    "textTertiary": "#838383",
+    "hoverFill": "#FFFFFF0D",
     "selectionFill": "#0A84FF42",
     "secondarySelectionFill": "#0A84FF2E",
-    "pressedFill": "#FFFFFF24",
+    "pressedFill": "#FFFFFF1F",
     "badgeFill": "#FFFFFF24",
     "separator": "#FFFFFF14",
     "paneBorder": "#FFFFFF12",
@@ -1065,10 +1065,10 @@
    "composited": {
     "sidebarStep": "#272727",
     "stripStep": "#171717",
-    "hoverFill": "#2C2C2C",
+    "hoverFill": "#292929",
     "selectionFill": "#193959",
     "secondarySelectionFill": "#1A3047",
-    "pressedFill": "#3E3E3E",
+    "pressedFill": "#393939",
     "badgeFill": "#3E3E3E",
     "separator": "#303030",
     "paneBorder": "#2E2E2E",
@@ -1083,23 +1083,23 @@
     "fade": {
      "textPrimary": "#B0B0B0",
      "textSecondary": "#797979",
-     "textTertiary": "#636363",
+     "textTertiary": "#606060",
      "selectionFill": "#0A84FF2B",
-     "hoverFill": "#FFFFFF0A"
+     "hoverFill": "#FFFFFF08"
     },
     "tonal": {
      "textPrimary": "#AAAAAA",
-     "textSecondary": "#888888",
-     "textTertiary": "#757575",
-     "selectionFill": "#FFFFFF0D",
-     "hoverFill": "#FFFFFF0F"
+     "textSecondary": "#838383",
+     "textTertiary": "#727272",
+     "selectionFill": "#FFFFFF0B",
+     "hoverFill": "#FFFFFF0D"
     },
     "quiet": {
      "textPrimary": "#AAAAAA",
-     "textSecondary": "#757575",
-     "textTertiary": "#757575",
+     "textSecondary": "#727272",
+     "textTertiary": "#727272",
      "selectionFill": "#0A84FF00",
-     "hoverFill": "#FFFFFF0F"
+     "hoverFill": "#FFFFFF0D"
     }
    }
   },
@@ -1143,10 +1143,10 @@
     "textPrimary": "#000000",
     "textSecondary": "#616161",
     "textTertiary": "#7F8080",
-    "hoverFill": "#0000000D",
+    "hoverFill": "#0000000A",
     "selectionFill": "#E5272229",
     "secondarySelectionFill": "#E527221C",
-    "pressedFill": "#0000001C",
+    "pressedFill": "#0000001A",
     "badgeFill": "#0000001A",
     "separator": "#00000012",
     "paneBorder": "#00000017",
@@ -1166,10 +1166,10 @@
    "composited": {
     "sidebarStep": "#F4F5F5",
     "stripStep": "#F1F2F2",
-    "hoverFill": "#F1F2F2",
+    "hoverFill": "#F4F5F5",
     "selectionFill": "#FADCDC",
     "secondarySelectionFill": "#FBE7E7",
-    "pressedFill": "#E2E3E3",
+    "pressedFill": "#E5E6E6",
     "badgeFill": "#E5E6E6",
     "separator": "#ECEDED",
     "paneBorder": "#E7E8E8",
@@ -1186,21 +1186,21 @@
      "textSecondary": "#989898",
      "textTertiary": "#ABACAC",
      "selectionFill": "#E527221B",
-     "hoverFill": "#00000008"
+     "hoverFill": "#00000007"
     },
     "tonal": {
      "textPrimary": "#616161",
      "textSecondary": "#7F8080",
      "textTertiary": "#959696",
-     "selectionFill": "#0000000B",
-     "hoverFill": "#0000000D"
+     "selectionFill": "#00000008",
+     "hoverFill": "#0000000A"
     },
     "quiet": {
      "textPrimary": "#616161",
      "textSecondary": "#959696",
      "textTertiary": "#959696",
      "selectionFill": "#E5272200",
-     "hoverFill": "#0000000D"
+     "hoverFill": "#0000000A"
     }
    }
   },
@@ -1243,11 +1243,11 @@
     "stripStep": "#0000000D",
     "textPrimary": "#000000",
     "textSecondary": "#616161",
-    "textTertiary": "#7F8080",
-    "hoverFill": "#0000000D",
+    "textTertiary": "#828282",
+    "hoverFill": "#0000000A",
     "selectionFill": "#008A2329",
     "secondarySelectionFill": "#008A231C",
-    "pressedFill": "#0000001C",
+    "pressedFill": "#0000001A",
     "badgeFill": "#0000001A",
     "separator": "#00000012",
     "paneBorder": "#00000017",
@@ -1267,10 +1267,10 @@
    "composited": {
     "sidebarStep": "#F4F5F5",
     "stripStep": "#F1F2F2",
-    "hoverFill": "#F1F2F2",
+    "hoverFill": "#F4F5F5",
     "selectionFill": "#D5ECDC",
     "secondarySelectionFill": "#E2F2E7",
-    "pressedFill": "#E2E3E3",
+    "pressedFill": "#E5E6E6",
     "badgeFill": "#E5E6E6",
     "separator": "#ECEDED",
     "paneBorder": "#E7E8E8",
@@ -1285,23 +1285,23 @@
     "fade": {
      "textPrimary": "#595959",
      "textSecondary": "#989898",
-     "textTertiary": "#ABACAC",
+     "textTertiary": "#ADAEAE",
      "selectionFill": "#008A231B",
-     "hoverFill": "#00000008"
+     "hoverFill": "#00000007"
     },
     "tonal": {
      "textPrimary": "#616161",
-     "textSecondary": "#7F8080",
-     "textTertiary": "#959696",
-     "selectionFill": "#0000000B",
-     "hoverFill": "#0000000D"
+     "textSecondary": "#828282",
+     "textTertiary": "#979898",
+     "selectionFill": "#00000008",
+     "hoverFill": "#0000000A"
     },
     "quiet": {
      "textPrimary": "#616161",
-     "textSecondary": "#959696",
-     "textTertiary": "#959696",
+     "textSecondary": "#979898",
+     "textTertiary": "#979898",
      "selectionFill": "#008A2300",
-     "hoverFill": "#0000000D"
+     "hoverFill": "#0000000A"
     }
    }
   },
@@ -1344,11 +1344,11 @@
     "stripStep": "#0000000D",
     "textPrimary": "#000000",
     "textSecondary": "#616161",
-    "textTertiary": "#7F8080",
-    "hoverFill": "#0000000D",
+    "textTertiary": "#828282",
+    "hoverFill": "#0000000A",
     "selectionFill": "#0074E529",
     "secondarySelectionFill": "#0074E51C",
-    "pressedFill": "#0000001C",
+    "pressedFill": "#0000001A",
     "badgeFill": "#0000001A",
     "separator": "#00000012",
     "paneBorder": "#00000017",
@@ -1368,10 +1368,10 @@
    "composited": {
     "sidebarStep": "#F4F5F5",
     "stripStep": "#F1F2F2",
-    "hoverFill": "#F1F2F2",
+    "hoverFill": "#F4F5F5",
     "selectionFill": "#D5E9FB",
     "secondarySelectionFill": "#E2F0FC",
-    "pressedFill": "#E2E3E3",
+    "pressedFill": "#E5E6E6",
     "badgeFill": "#E5E6E6",
     "separator": "#ECEDED",
     "paneBorder": "#E7E8E8",
@@ -1386,23 +1386,23 @@
     "fade": {
      "textPrimary": "#595959",
      "textSecondary": "#989898",
-     "textTertiary": "#ABACAC",
+     "textTertiary": "#ADAEAE",
      "selectionFill": "#0074E51B",
-     "hoverFill": "#00000008"
+     "hoverFill": "#00000007"
     },
     "tonal": {
      "textPrimary": "#616161",
-     "textSecondary": "#7F8080",
-     "textTertiary": "#959696",
-     "selectionFill": "#0000000B",
-     "hoverFill": "#0000000D"
+     "textSecondary": "#828282",
+     "textTertiary": "#979898",
+     "selectionFill": "#00000008",
+     "hoverFill": "#0000000A"
     },
     "quiet": {
      "textPrimary": "#616161",
-     "textSecondary": "#959696",
-     "textTertiary": "#959696",
+     "textSecondary": "#979898",
+     "textTertiary": "#979898",
      "selectionFill": "#0074E500",
-     "hoverFill": "#0000000D"
+     "hoverFill": "#0000000A"
     }
    }
   },
@@ -1443,12 +1443,12 @@
     "sidebarStep": "#FDFFF10A",
     "stripStep": "#00000038",
     "textPrimary": "#FDFFF1",
-    "textSecondary": "#B2B4A9",
-    "textTertiary": "#92938A",
-    "hoverFill": "#FDFFF10F",
+    "textSecondary": "#B0B2A6",
+    "textTertiary": "#909187",
+    "hoverFill": "#FDFFF10D",
     "selectionFill": "#AE81FF42",
     "secondarySelectionFill": "#AE81FF2E",
-    "pressedFill": "#FDFFF124",
+    "pressedFill": "#FDFFF11F",
     "badgeFill": "#FDFFF124",
     "separator": "#FDFFF114",
     "paneBorder": "#FDFFF112",
@@ -1468,10 +1468,10 @@
    "composited": {
     "sidebarStep": "#30312A",
     "stripStep": "#1E1F1B",
-    "hoverFill": "#34352E",
+    "hoverFill": "#32332C",
     "selectionFill": "#4A3F5B",
     "secondarySelectionFill": "#3F384A",
-    "pressedFill": "#45463F",
+    "pressedFill": "#41423B",
     "badgeFill": "#45463F",
     "separator": "#383933",
     "paneBorder": "#363730",
@@ -1485,24 +1485,24 @@
    "inactiveTabs": {
     "fade": {
      "textPrimary": "#B2B4A9",
-     "textSecondary": "#818379",
-     "textTertiary": "#6D6E65",
+     "textSecondary": "#808178",
+     "textTertiary": "#6B6C64",
      "selectionFill": "#AE81FF2B",
-     "hoverFill": "#FDFFF10A"
+     "hoverFill": "#FDFFF108"
     },
     "tonal": {
-     "textPrimary": "#B2B4A9",
-     "textSecondary": "#92938A",
-     "textTertiary": "#7F8177",
-     "selectionFill": "#FDFFF10D",
-     "hoverFill": "#FDFFF10F"
+     "textPrimary": "#B0B2A6",
+     "textSecondary": "#909187",
+     "textTertiary": "#7E7F76",
+     "selectionFill": "#FDFFF10B",
+     "hoverFill": "#FDFFF10D"
     },
     "quiet": {
-     "textPrimary": "#B2B4A9",
-     "textSecondary": "#7F8177",
-     "textTertiary": "#7F8177",
+     "textPrimary": "#B0B2A6",
+     "textSecondary": "#7E7F76",
+     "textTertiary": "#7E7F76",
      "selectionFill": "#AE81FF00",
-     "hoverFill": "#FDFFF10F"
+     "hoverFill": "#FDFFF10D"
     }
    }
   },
@@ -1547,10 +1547,10 @@
     "textPrimary": "#FFFFFF",
     "textSecondary": "#B0B0B0",
     "textTertiary": "#919191",
-    "hoverFill": "#FFFFFF0F",
+    "hoverFill": "#FFFFFF0D",
     "selectionFill": "#FF9F0A42",
     "secondarySelectionFill": "#FF9F0A2E",
-    "pressedFill": "#FFFFFF24",
+    "pressedFill": "#FFFFFF1F",
     "badgeFill": "#FFFFFF24",
     "separator": "#FFFFFF14",
     "paneBorder": "#FFFFFF12",
@@ -1570,10 +1570,10 @@
    "composited": {
     "sidebarStep": "#272727",
     "stripStep": "#171717",
-    "hoverFill": "#2C2C2C",
+    "hoverFill": "#292929",
     "selectionFill": "#594019",
     "secondarySelectionFill": "#47351A",
-    "pressedFill": "#3E3E3E",
+    "pressedFill": "#393939",
     "badgeFill": "#3E3E3E",
     "separator": "#303030",
     "paneBorder": "#2E2E2E",
@@ -1590,21 +1590,21 @@
      "textSecondary": "#7D7D7D",
      "textTertiary": "#696969",
      "selectionFill": "#FF9F0A2B",
-     "hoverFill": "#FFFFFF0A"
+     "hoverFill": "#FFFFFF08"
     },
     "tonal": {
      "textPrimary": "#B0B0B0",
      "textSecondary": "#919191",
      "textTertiary": "#7D7D7D",
-     "selectionFill": "#FFFFFF0D",
-     "hoverFill": "#FFFFFF0F"
+     "selectionFill": "#FFFFFF0B",
+     "hoverFill": "#FFFFFF0D"
     },
     "quiet": {
      "textPrimary": "#B0B0B0",
      "textSecondary": "#7D7D7D",
      "textTertiary": "#7D7D7D",
      "selectionFill": "#FF9F0A00",
-     "hoverFill": "#FFFFFF0F"
+     "hoverFill": "#FFFFFF0D"
     }
    }
   },
@@ -1647,10 +1647,10 @@
     "textPrimary": "#1F2328",
     "textSecondary": "#626568",
     "textTertiary": "#7F8284",
-    "hoverFill": "#1F23280D",
+    "hoverFill": "#1F23280A",
     "selectionFill": "#BF398929",
     "secondarySelectionFill": "#BF39891C",
-    "pressedFill": "#1F23281C",
+    "pressedFill": "#1F23281A",
     "badgeFill": "#1F23281A",
     "separator": "#1F232812",
     "paneBorder": "#1F232817",
@@ -1670,10 +1670,10 @@
    "composited": {
     "sidebarStep": "#F6F6F6",
     "stripStep": "#F2F2F2",
-    "hoverFill": "#F4F4F4",
+    "hoverFill": "#F6F6F6",
     "selectionFill": "#F5DFEC",
     "secondarySelectionFill": "#F8E9F2",
-    "pressedFill": "#E6E7E7",
+    "pressedFill": "#E9E9EA",
     "badgeFill": "#E9E9EA",
     "separator": "#EFF0F0",
     "paneBorder": "#EBEBEC",
@@ -1690,21 +1690,21 @@
      "textSecondary": "#999B9D",
      "textTertiary": "#ACADAF",
      "selectionFill": "#BF39891B",
-     "hoverFill": "#1F232808"
+     "hoverFill": "#1F232807"
     },
     "tonal": {
      "textPrimary": "#626568",
      "textSecondary": "#7F8284",
      "textTertiary": "#96989A",
-     "selectionFill": "#1F23280B",
-     "hoverFill": "#1F23280D"
+     "selectionFill": "#1F232808",
+     "hoverFill": "#1F23280A"
     },
     "quiet": {
      "textPrimary": "#626568",
      "textSecondary": "#96989A",
      "textTertiary": "#96989A",
      "selectionFill": "#BF398900",
-     "hoverFill": "#1F23280D"
+     "hoverFill": "#1F23280A"
     }
    }
   }

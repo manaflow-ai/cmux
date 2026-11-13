@@ -255,7 +255,7 @@ impl Outbox {
         }
         for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
             if !named.contains(&entry.path()) {
-                let _ = std::fs::remove_file(entry.path());
+                let _ = crate::home_fs::remove_file(entry.path());
             }
         }
         let pending = book.deliveries.values().filter(|d| !d.settled()).cloned().collect();
@@ -299,9 +299,9 @@ impl Outbox {
         crate::attach::any(blocks).then(|| attachments_dir(&path).join(format!("{}.json", d.id)))
     }
 
-    /// Records a new delivery; the same prompt id again answers with the first one. Fails when
-    /// the file cannot be written: then the delivery is not kept in memory either (not kept
-    /// means not sent), and a later write never puts it on disk.
+    /// Records a new delivery; the same prompt id to the same target again answers with the first
+    /// one. Fails when the file cannot be written: then the delivery is not kept in memory either
+    /// (not kept means not sent), and a later write never puts it on disk.
     pub fn add(&self, delivery: Delivery) -> anyhow::Result<Delivery> {
         let (delivery, change, added) = self.add_scoped(delivery, false);
         self.save_or_take_out(change, added.then_some(delivery.id.as_str()))?;
@@ -325,16 +325,18 @@ impl Outbox {
     }
 
     /// The delivery that holds the prompt id, the change to wait for, and whether it is new.
+    /// A prompt id names one message to one target, as the target's prompt ledger keys it
+    /// (`Hub::prompt_with`): the same id to another target is another message.
     fn add_scoped(&self, delivery: Delivery, scoped: bool) -> (Delivery, u64, bool) {
         let mut book = self.book();
         let prompt_id = delivery.prompt_id().to_owned();
         if let Some(first) = book.deliveries.values().find(|d| {
             !d.is_team_receipt()
                 && d.prompt_id() == prompt_id
+                && d.target == delivery.target
                 && d.request.pointer("/_meta/acpmux/forwardProjection").is_some() == scoped
                 && (!scoped
                     || (d.caller == delivery.caller
-                        && d.target == delivery.target
                         && projected_message(d) == projected_message(&delivery)))
         }) {
             let first = first.clone();
@@ -526,7 +528,7 @@ impl Outbox {
                             // cannot truncate on Windows, so through its own write handle. Should
                             // that fail too, the next write is a snapshot (`snapshot_next`),
                             // which resets the journal.
-                            let _ = std::fs::OpenOptions::new()
+                            let _ = crate::home_fs::OpenOptions::new()
                                 .write(true)
                                 .open(&journal)
                                 .and_then(|w| w.set_len(start).and_then(|()| w.sync_data()));
@@ -655,7 +657,7 @@ fn read_saved(path: &Path) -> Saved {
             // Set aside: a journal started against "no snapshot" must never sit beside it, or a
             // later read that works would ignore that journal's accepted changes.
             let aside = path.with_extension("json.unreadable");
-            let moved = std::fs::rename(path, &aside);
+            let moved = crate::home_fs::rename(path, &aside);
             tracing::error!(
                 "outbox: {} cannot be read ({e}); starting empty, set aside at {} ({moved:?})",
                 path.display(),
@@ -680,7 +682,7 @@ fn read_saved(path: &Path) -> Saved {
             // Set aside, never replaced by the next change's new journal: its lines may hold
             // changes that were answered as saved.
             let aside = journal_path(path).with_extension("journal.unreadable");
-            let moved = std::fs::rename(journal_path(path), &aside);
+            let moved = crate::home_fs::rename(journal_path(path), &aside);
             tracing::error!(
                 "outbox: the journal cannot be read ({e}); reading the snapshot alone, journal \
                  set aside at {} ({moved:?})",
@@ -905,6 +907,30 @@ mod tests {
         assert_eq!(outbox.add(delivery(1)).unwrap().id, "d-1");
     }
 
+    /// A queued send's prompt id is a key for one message to one target, as the target's own
+    /// prompt ledger keys it (`Hub::prompt_with`): the same prompt id to another target is a
+    /// message of its own and is delivered too. Before, `add` answered it with the first
+    /// message's delivery (`delivered`, to the first target), and the second never went.
+    #[test]
+    fn a_queued_send_with_a_reused_prompt_id_to_another_target_is_its_own() {
+        let outbox = Outbox::default();
+        let first = delivery(1);
+        assert_eq!(outbox.add(first.clone()).unwrap().id, "d-1");
+        // The same message again (a CLI retry): the first delivery.
+        let mut again = first.clone();
+        again.id = "retry".into();
+        assert_eq!(outbox.add(again).unwrap().id, "d-1");
+        // The same prompt id to another target: its own delivery.
+        let mut other = first.clone();
+        other.id = "d-2".into();
+        other.target = "other".into();
+        other.request["sessionId"] = json!("other");
+        assert_eq!(outbox.add(other.clone()).unwrap().id, "d-2");
+        other.id = "retry-2".into();
+        assert_eq!(outbox.add(other).unwrap().id, "d-2");
+        assert_eq!(outbox.unsettled(), 2);
+    }
+
     #[test]
     fn provisional_duplicate_does_not_consume_acceptance_hooks() {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1115,13 +1141,12 @@ mod tests {
         d
     }
 
-    /// cmuxterm-hq#8660 (hang-watch `6159015094`): the bytes a change writes do not grow with
-    /// the deliveries kept. Small is 10 kept, god 25,000 (ten days of a busy machine, 52 MB);
-    /// "before" is what the whole-file rewrite wrote for each change, the snapshot's size.
-    #[test]
-    fn a_change_writes_the_same_bytes_with_ten_or_25000_deliveries_kept() {
-        let mut per_change = Vec::new();
-        for kept in [10, 25_000] {
+    /// The bytes each of 2,000 changes writes (a send's life, four changes each) with `kept`
+    /// delivered deliveries already in the outbox, for each size in `sizes`, after checking every
+    /// one reads back after a restart and that each change writes under a tenth of what the
+    /// whole-file rewrite did (the snapshot's size; `kept` 10 aside, whose snapshot is tiny).
+    fn bytes_per_change(sizes: [usize; 2]) -> [u64; 2] {
+        sizes.map(|kept| {
             let (dir, path) = temp_outbox();
             let all: BTreeMap<String, Delivery> =
                 (0..kept).map(|n| sized(n, State::Delivered)).map(|d| (d.id.clone(), d)).collect();
@@ -1141,7 +1166,6 @@ mod tests {
             }
             let after = (outbox.disk.lock().unwrap().written - start) / changes as u64;
             eprintln!("kept {kept}: before {before} B per change, after {after} B per change");
-            per_change.push(after);
             // Everything comes back after a restart, from the snapshot and the journal.
             let restarted = Outbox::default();
             assert!(restarted.open(&path).is_empty());
@@ -1149,12 +1173,37 @@ mod tests {
             assert_eq!(restarted.get(&format!("d-{kept}")).unwrap().attempts, 1);
             assert!(before > 10 * after || kept == 10);
             let _ = std::fs::remove_dir_all(&dir);
-        }
+            after
+        })
+    }
+
+    /// cmuxterm-hq#8660 (hang-watch `6159015094`): the bytes a change writes do not grow with
+    /// the deliveries kept. Small is 10 kept, large 2,500 (a day of a busy machine, 5 MB);
+    /// "before" is what the whole-file rewrite wrote for each change, the snapshot's size. A
+    /// count of bytes, so it holds at any size: a change that rewrote the file, or compacted it
+    /// more often as it grew, writes more at 2,500 as it would at 25,000. The full ten days,
+    /// `a_change_writes_the_same_bytes_with_25000_deliveries_kept`, runs on its own.
+    #[test]
+    fn a_change_writes_the_same_bytes_with_ten_or_2500_deliveries_kept() {
+        let [small, large] = bytes_per_change([10, 2_500]);
         assert!(
-            per_change[1] * 10 <= per_change[0] * 12,
-            "god {} B per change is over 1.2x small {} B",
-            per_change[1],
-            per_change[0]
+            large * 10 <= small * 12,
+            "large {large} B per change is over 1.2x small {small} B"
+        );
+    }
+
+    /// The same at 25,000 kept (ten days of a busy machine, 52 MB), the size hang-watch saw. A
+    /// debug build took 86 s alone on an idle 8-core CI runner and ran past nextest's 120 s hang
+    /// guard beside other work (3 of 3 loaded lib runs), so it is a check for its own run:
+    /// `cargo test -p acpmux --lib hub::outbox::tests::a_change_writes_the_same_bytes_with_25000_deliveries_kept -- --ignored --exact --test-threads=1 --nocapture`.
+    /// The default run keeps `a_change_writes_the_same_bytes_with_ten_or_2500_deliveries_kept`.
+    #[test]
+    #[ignore = "own run, one test at a time: 52 MB through a debug build, past the hang guard under load"]
+    fn a_change_writes_the_same_bytes_with_25000_deliveries_kept() {
+        let [small, large] = bytes_per_change([10, 25_000]);
+        assert!(
+            large * 10 <= small * 12,
+            "large {large} B per change is over 1.2x small {small} B"
         );
     }
 

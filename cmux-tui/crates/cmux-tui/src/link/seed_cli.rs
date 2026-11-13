@@ -102,7 +102,7 @@ const USAGE: &str = "usage: cmux link seed push --socket PATH LOCAL_FOLDER REMOT
        cmux link seed pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
 [--or-copy | --base-head SHA --base-index SHA --base-work SHA]
        cmux link seed fetch --socket PATH NEW_LOCAL_FOLDER REMOTE_FOLDER [--adopt] [--find-root]
-       cmux link seed move --from-socket PATH --socket PATH LOCAL_FOLDER FROM_FOLDER TO_FOLDER";
+       cmux link seed move --from-socket PATH --socket PATH [LOCAL_FOLDER] FROM_FOLDER TO_FOLDER";
 
 /// Time between two `git.seed.status` requests.
 const STATUS_EVERY: Duration = Duration::from_millis(500);
@@ -239,12 +239,21 @@ pub(super) fn run(args: &[String]) -> i32 {
     {
         return held::copy_rest(Path::new(socket), job, Path::new(local), remote);
     }
-    // A seeded folder from one machine to another as git, this Mac's folder untouched ([`hop`]):
-    // both passes at once, as `cmux link agent move --sync relay --sync-seed-local` runs them.
-    if let ["move", "--from-socket", from, "--socket", to, local, from_root, to_root] =
-        args.iter().map(String::as_str).collect::<Vec<_>>().as_slice()
-    {
-        let (from, to, local) = (Path::new(from), Path::new(to), Path::new(local));
+    // A folder from one machine to another as git, this Mac's folder untouched ([`hop`]): both
+    // passes at once, as `cmux link agent move --sync relay [--sync-seed-local]` runs them.
+    // LOCAL_FOLDER names the folder a seed from this Mac put on the first machine; without it
+    // the folder goes from the first machine's upstream (or back to the second's own record).
+    let moving = match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+        ["move", "--from-socket", from, "--socket", to, local, from_root, to_root] => {
+            Some((*from, *to, Some(*local), *from_root, *to_root))
+        }
+        ["move", "--from-socket", from, "--socket", to, from_root, to_root] => {
+            Some((*from, *to, None, *from_root, *to_root))
+        }
+        _ => None,
+    };
+    if let Some((from, to, local, from_root, to_root)) = moving {
+        let (from, to, local) = (Path::new(from), Path::new(to), local.map(Path::new));
         let (from_root, to_root) = (from_root.trim_end_matches('/'), to_root.trim_end_matches('/'));
         // One person's move from a shell: its own owner, apart from any chat's.
         let owner = "cli";
@@ -450,18 +459,10 @@ struct Machine<'a> {
 impl<'a> Machine<'a> {
     /// Refuses a machine too old for `fs-v1` (`machine_outdated`).
     fn read(socket: &'a Path) -> Result<Self, SeedError> {
-        let identity = machine_gate::identify(socket);
-        if identity.is_none() {
-            return Err(SeedError::new(
-                "sync_failed",
-                format!("the machine at {} did not answer", socket.display()),
-            ));
-        }
-        let lacks = |capability: &str| {
-            identity
-                .as_ref()
-                .and_then(|identity| machine_gate::outdated_identity(identity, &[capability]))
-        };
+        // The first contact after a lease waits for the link (`machine_gate::reach`).
+        let identity = machine_gate::reach(socket)
+            .map_err(|unreached| SeedError::new("sync_failed", unreached.to_string()))?;
+        let lacks = |capability: &str| machine_gate::outdated_identity(&identity, &[capability]);
         if let Some(outdated) = lacks(cmux_tui_core::fs_ops::FS_CAPABILITY) {
             // `machine_outdated` only for an older build: a current one that does not serve
             // `fs-v1` on this connection names it instead (an update would change nothing).
@@ -470,10 +471,7 @@ impl<'a> Machine<'a> {
         }
         let seeds = lacks(cmux_tui_core::git_seed::GIT_SEED_CAPABILITY).is_none();
         let holds = lacks(cmux_tui_core::git_seed::GIT_SEED_HOLD_CAPABILITY).is_none();
-        let id = identity
-            .as_ref()
-            .and_then(|identity| identity.get("session_id").and_then(Value::as_str))
-            .map(str::to_owned);
+        let id = identity.get("session_id").and_then(Value::as_str).map(str::to_owned);
         Ok(Self { socket, id, seeds, holds })
     }
 
@@ -499,7 +497,7 @@ pub(in crate::link) fn follow(
     let local = std::fs::canonicalize(local)?;
     let Some(mut kept) = record::load(&local, from_root)? else { return Ok(false) };
     let id = |socket: &Path| {
-        machine_gate::identify(socket)?.get("session_id")?.as_str().map(str::to_owned)
+        machine_gate::reach(socket).ok()?.get("session_id")?.as_str().map(str::to_owned)
     };
     if kept.machine.is_some() {
         let source = anyhow::Context::context(
@@ -751,6 +749,7 @@ fn copied(
         stash: None,
         stash_known: false,
         filling: filling.map(str::to_owned),
+        hop: None,
     };
     // A record that could not be kept only makes the next --since-last
     // answer seed.no_previous; the copy itself is done.
@@ -792,6 +791,7 @@ fn seed_record(machine: Option<String>, planned: &Planned, filling: Option<&str>
         stash: planned.params.stash.clone(),
         stash_known: true,
         filling: filling.map(str::to_owned),
+        hop: None,
     }
 }
 

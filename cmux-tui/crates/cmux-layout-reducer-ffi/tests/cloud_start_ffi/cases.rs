@@ -134,3 +134,27 @@ fn the_machine_route_op_names_its_command_and_judges_the_report() {
     let login = json!({"ok": false, "holds_credential": true, "agents": {}});
     assert_eq!(judged(&login.to_string()), json!("holds_credential"));
 }
+
+/// The pre-approval token's two ops round-trip the state the app keeps, numbers as Swift's `JSONValue` sends them.
+#[test]
+fn the_capability_ops_answer() {
+    // The process holds the token: the app sends no state, and a drop forgets it.
+    call(c"cloud_capability_drop", &json!({}));
+    let first = call(c"cloud_capability_header", &json!({"team": "team-a", "nowMs": 1.0e12})).1;
+    assert_eq!(first, json!({"header": null, "fetch": true}));
+    let body = json!({"ok": true, "value": {"capability": "cc1.a.b", "team": "team-a", "issued_at": 5.0, "expires_at": 300_005.0, "refresh_at": 240_005.0}});
+    let kept = call(
+        c"cloud_capability_answer",
+        &json!({"team": "team-a", "sentMs": 1.0e12, "nowMs": 1.0e12 + 200.0, "status": 200.0, "body": body}),
+    )
+    .1;
+    assert_eq!(kept["outcome"], "held");
+    let next =
+        call(c"cloud_capability_header", &json!({"team": "team-a", "nowMs": 1.0e12 + 1000.0})).1;
+    assert_eq!(next, json!({"header": "cc1.a.b", "fetch": false}));
+    call(c"cloud_capability_drop", &json!({}));
+    let after =
+        call(c"cloud_capability_header", &json!({"team": "team-a", "nowMs": 1.0e12 + 2000.0})).1;
+    assert_eq!(after, json!({"header": null, "fetch": true}));
+    call(c"cloud_capability_drop", &json!({}));
+}

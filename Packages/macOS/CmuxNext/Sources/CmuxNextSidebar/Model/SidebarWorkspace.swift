@@ -144,9 +144,6 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// compact row has no second line of its own, Leo 2026-10-30). Nil for
     /// every other row.
     public var stage: String?
-    /// Nobody named the workspace and its title says nothing (the daemon's default name, or a
-    /// terminal in the home folder): the row reads quiet while idle (`WorkspaceRowView.isQuiet`).
-    public var isUnnamed = false
     /// Its front tab is a New Tab page whose Send starts a Cloud chat (`AgentCloudStartTitles`): the row draws the
     /// cloud mark from the Send, as the chat's own row on its machine does once it opens (``WorkspaceRowContent/runsInCloud``).
     public var startsInCloud = false

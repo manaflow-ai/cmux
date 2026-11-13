@@ -11,15 +11,24 @@ import {
 } from "./folderTrust";
 import type { StringKey } from "./i18n";
 import { trustRefusal } from "./direct";
+import { errorMessage } from "./transportErrors";
 
 /// The chat's trust question: "ask" while the folder reads as unknown for the chat's agent, then
 /// the user's answer with its Undo, or "failed" when saving it didn't. `repo`: the repository
 /// holding the folder (the question offers to trust it whole); `via`: the folder the answer was
 /// made for when not this one (the repository, or a parent folder).
 export type FolderTrustAsk = { cwd: string; repo?: TrustRepo; via?: string } & (
-  | { state: "ask" | "failed" | "remote" }
+  | { state: "ask" | "remote" }
+  /// `reason`: why the save failed, as the host said it (absent when it said nothing).
+  | { state: "failed"; reason?: string }
   | { state: "decided"; level: Exclude<TrustLevel, "unknown"> }
 );
+
+/// The question again after a save of its answer failed with `error`, saying why.
+export function failedAsk(cwd: string, error: unknown): FolderTrustAsk {
+  const reason = errorMessage(error).trim();
+  return { cwd, state: "failed", ...(reason ? { reason } : {}) };
+}
 
 /// Where the folder's answer lives, read or answered last: the trusted grant names it, and Undo
 /// forgets the answer there.
@@ -181,7 +190,8 @@ function sameAsk(left: FolderTrustAsk | undefined, right: FolderTrustAsk | undef
       left.via === right.via &&
       left.repo?.root === right.repo?.root &&
       left.repo?.worktree === right.repo?.worktree &&
-      (left.state === "decided" ? left.level : undefined) === (right.state === "decided" ? right.level : undefined))
+      (left.state === "decided" ? left.level : undefined) === (right.state === "decided" ? right.level : undefined) &&
+      (left.state === "failed" ? left.reason : undefined) === (right.state === "failed" ? right.reason : undefined))
   );
 }
 
@@ -559,8 +569,8 @@ export function useFolderTrustAsk(
           resend.current.delete(found.key);
           found.held.declined?.();
         }
-      } catch {
-        if (stillHere()) setAsk({ cwd: asked.cwd, state: "failed" });
+      } catch (error) {
+        if (stillHere()) setAsk(failedAsk(asked.cwd, error));
       } finally {
         if (sameAuthority()) saving.current = false;
       }
@@ -607,9 +617,9 @@ export function useFolderTrustAsk(
     resend.current.delete(key);
     try {
       held.again();
-    } catch {
+    } catch (error) {
       // A failed retry stays in its row/draft and keeps the question recoverable, as save did.
-      setAsk({ cwd, state: "failed" });
+      setAsk(failedAsk(cwd, error));
     }
   }, [ask, trusted, blockSend, sessionId, cwd, family, sameAuthority, sameVisit, visitValue]);
 

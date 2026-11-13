@@ -32,9 +32,7 @@ pub(super) fn dispatch(
             let target = target(fields)?;
             Ok(mux.with_settings(|state| state.get(&target).to_json()))
         }
-        ResourceOperation::SettingsSnapshot => {
-            Ok(mux.with_settings(|state| state.snapshot().to_json()))
-        }
+        ResourceOperation::SettingsSnapshot => Ok(mux.settings_snapshot()),
         ResourceOperation::SettingsSet
         | ResourceOperation::SettingsReset
         | ResourceOperation::SettingsResetAll => {

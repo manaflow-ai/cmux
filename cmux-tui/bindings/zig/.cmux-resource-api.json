@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "7a7b3e8bc2a6eb6d12e276c8073c3200a6b8d9a9bfd1b0403217c18c6323aee8",
+  "catalog_sha256": "8ec79db544ca0c218587df94b2233e8477320ecb1e080d69154419887130fcba",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -175,7 +175,13 @@
     "closed.reopen": {
       "class": "mutation"
     },
+    "cloud.machine.chat_access": {
+      "class": "read"
+    },
     "cloud.machine.io": {
+      "class": "mutation"
+    },
+    "cloud.machine.share_chat": {
       "class": "mutation"
     },
     "cloud.owner.acpmux_keyed_start": {

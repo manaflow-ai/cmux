@@ -75,6 +75,10 @@ struct Entry {
     copied_folder: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     target_pane: Option<String>,
+    /// `machine_id` was made for this send (the App's create it pinned, or the platform's
+    /// ensure that created it): a retry that fails for good still deletes it ([`Ledger::made`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    made: bool,
 }
 
 impl Entry {
@@ -281,15 +285,21 @@ impl Ledger {
     /// Pins `send` to `machine` (before anything runs there). A pin to the
     /// same machine keeps its copy's place and finished copy.
     pub(crate) fn record(&mut self, machine: &str, send: &Send) {
+        self.record_made(machine, send, false);
+    }
+
+    /// [`Self::record`], and `made`: `machine` was made for `send` (kept once true for the same machine).
+    pub(crate) fn record_made(&mut self, machine: &str, send: &Send, made: bool) {
         self.pending_creates.retain(|pending| !pending.is(send));
         let same = self.entry(send).filter(|entry| entry.machine_id == machine);
-        let (place, copied_chat, copied_folder, target_pane) =
-            same.map_or((None, None, None, None), |entry| {
+        let (place, copied_chat, copied_folder, target_pane, was_made) =
+            same.map_or((None, None, None, None, false), |entry| {
                 (
                     entry.place.clone(),
                     entry.copied_chat.clone(),
                     entry.copied_folder.clone(),
                     entry.target_pane.clone(),
+                    entry.made,
                 )
             });
         self.put(Entry {
@@ -300,7 +310,32 @@ impl Ledger {
             copied_chat,
             copied_folder,
             target_pane,
+            made: made || was_made,
         });
+    }
+
+    /// The App's pin of `send` to `machine` (`start-chat pin`): made for the send when its create was
+    /// pending ([`Self::begin_create`]), the App's create; a repick's machine, chosen, never is.
+    pub(crate) fn record_pin(&mut self, machine: &str, send: &Send) {
+        let made = self.pending_create(send).is_some_and(|pending| !pending.refused);
+        self.record_made(machine, send, made);
+    }
+
+    /// Whether `machine` was made for `send` ([`Self::record_made`]).
+    pub(crate) fn made(&self, send: &Send, machine: &str) -> bool {
+        self.entry(send).is_some_and(|entry| entry.machine_id == machine && entry.made)
+    }
+
+    /// What a retry's plan onto `send`'s pinned `machine` says: the tab's target pane, and an
+    /// `ensured` of `{"created": true}` when the machine was made for the send (else null), so the
+    /// App deletes it when the retry fails for good too (Codex review on #40957: only the first try knew).
+    pub(crate) fn retry_facts(
+        &self,
+        send: &Send,
+        machine: &str,
+    ) -> (Option<String>, serde_json::Value) {
+        let made = self.made(send, machine).then(|| serde_json::json!({"created": true}));
+        (self.target_pane(send, machine), made.unwrap_or_default())
     }
 
     /// The chat's folder on `machine` when `send`'s copy finished there.
@@ -353,6 +388,7 @@ impl Ledger {
             copied_chat: None,
             copied_folder: None,
             target_pane: self.target_pane(send, machine),
+            made: self.made(send, machine),
         });
     }
 
@@ -373,6 +409,7 @@ impl Ledger {
             copied_chat: Some(chat.to_string()),
             copied_folder: Some(folder.to_string()),
             target_pane: self.target_pane(send, machine),
+            made: self.made(send, machine),
         });
     }
 
@@ -399,6 +436,7 @@ impl Ledger {
                 copied_chat: old.copied_chat.clone(),
                 copied_folder: None,
                 target_pane: None,
+                made: false,
             });
         }
         let count = imported.len();
@@ -407,6 +445,22 @@ impl Ledger {
         imported.drain(..over);
         self.entries = imported;
         count
+    }
+
+    /// A start that can't go on gives up `machine`, the one made for it: drops `send`'s pin, and
+    /// answers whether the machine is the start's alone to delete. It is when no other send of
+    /// any account is pinned to it; then every workspace binding to it goes too, so no later
+    /// plan picks it (a plan pins under this same lock, so a send that took it first keeps it,
+    /// and one after this never finds it). When another send is on it, its bindings stay and
+    /// the machine is only released (Codex review F1 on #40957: a second chat on the
+    /// workspace's machine while the first start was still copying).
+    pub(crate) fn strand(&mut self, send: &Send, machine: &str) -> bool {
+        self.forget(send);
+        let shared = self.entries.iter().any(|entry| entry.machine_id == machine);
+        if !shared {
+            self.workspaces.retain(|binding| binding.machine_id != machine);
+        }
+        !shared
     }
 
     /// Drops `send`'s pin (its machine is gone).
@@ -540,3 +594,7 @@ pub(crate) fn path() -> Option<PathBuf> {
             .join("destinations.json"),
     )
 }
+
+#[cfg(test)]
+#[path = "made_tests.rs"]
+mod made_tests;

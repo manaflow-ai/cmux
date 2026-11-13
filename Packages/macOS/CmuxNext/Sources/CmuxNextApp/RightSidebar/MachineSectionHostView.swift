@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextServer
 
-/// Hosts the right sidebar's Machines section (a React page, `MachineSectionPageProvider.makeSection`), made the first
+/// Hosts the Machines section (no surface shows it now: the right sidebar that held it is gone; a React page, `MachineSectionPageProvider.makeSection`), made the first
 /// time the section shows: its provider reads the machine registry, each machine's last check, the
 /// section's layout tunable and the person's machines joined through the hub (`cmux machine list`),
 /// read when the section is made and each time it shows. New Workspace and Add Machine… run
@@ -24,7 +24,7 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
             addMachine: { registry.perform("device.add") }, present: { _, _ in },
             menu: { kind, row in Self.menu(kind, row: row, registry: registry) }, cloudTeam: { [weak cloud = services.cloud] in cloud.flatMap { TeamRowText.machinesTeam($0.auth) } }))
         section = provider.makeSection(joined: joined)
-        super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
+        super.init(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
         section.translatesAutoresizingMaskIntoConstraints = false
         addSubview(section)
         NSLayoutConstraint.activate([

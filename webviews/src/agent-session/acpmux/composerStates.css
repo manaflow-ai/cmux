@@ -263,8 +263,11 @@
    lens's rim. Reduce Transparency (the system's or the host's) keeps the solid card exactly as it was:
    no material rim, no frost and its old shadow (none in a dark theme). */
 @media not (prefers-reduced-transparency: reduce) {
+  /* The composer's depth is the material's quieter step (glass.css --glass-material-depth-composer;
+     Leo 2026-11-06: "maybe less shadow? ... Probably just a little bit more subtle."): the card rests
+     on the pane, so it casts about half the floating glass's reach and dark. */
   :root:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-box.ui-glass-material {
-    --acpmux-composer-shadow: var(--glass-material-depth);
+    --acpmux-composer-shadow: var(--glass-material-depth-composer);
   }
   :root:not([data-reduce-transparency]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
     .acpmux-composer
@@ -556,6 +559,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   outline: 0;
   background: transparent;
   resize: none;
+  /* As tall as its lines, up to the cap: the browser sizes it, no script reads its scrollHeight. */
+  field-sizing: content;
   overflow-y: auto;
   overscroll-behavior: contain;
   font: var(--text-content)/var(--text-content--line-height) ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -690,7 +695,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   border-radius: 6px;
   background: var(--acpmux-composer-hover);
 }
-.acpmux-queued:focus-visible .acpmux-queued-actions {
+/* Only while the page is the key one: another pane or app taking the keyboard fades them (styles.css). */
+:root:not([data-page-inactive]) .acpmux-queued:focus-visible .acpmux-queued-actions {
   opacity: 1;
 }
 /* The edit field draws no ring of its own (Leo, 2026-10-21: no thick focus ring): its hairline edge
@@ -698,6 +704,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-queued-edit {
   grid-column: 1 / -1;
   min-width: 0;
+  /* As tall as its lines, up to the cap: the browser sizes it, no script reads its scrollHeight. */
+  field-sizing: content;
   max-height: calc(var(--text-content--line-height) * 4);
   /* Its text stays where the row's text was. */
   margin: 2px 0 2px -6px;
@@ -785,12 +793,17 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-composer-queue {
   grid-auto-rows: max-content;
 }
-/* fitList writes the queue's whole-row max-height as prompts arrive or the fold toggles. Let the
-   stack take that structural space on the same move token as transcript folds, so the composer and
-   the transcript do not jump a row in one frame. Reduce Motion and the host's zero-duration policy
-   still apply it at once. */
+/* fitList writes the queue's whole-row max-height as prompts arrive or leave or the reader toggles
+   the fold, a row's edit or a row from the keyboard. The reader's toggles take that structural
+   space on the same move token as transcript folds, so the transcript does not jump a row in one
+   frame. A prompt that arrives or leaves takes it at once ([data-rows-changed], ComposerQueue.tsx):
+   a sent prompt is its whole queued row in the frame the composer clears, never a list easing open
+   over a clipped row (Leo, 2026-11-11: "you sending a message while I have things queued up, like
+   that sort of slow growth is just... it gives me the heebie-jeebies to look at"); the transcript's
+   follow carries the chat above (followChase.ts). Reduce Motion and the host's zero-duration
+   policy apply every change at once. */
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-composer-queue[data-fit-ready]:not([data-held]) {
+  .acpmux-composer-queue[data-fit-ready]:not([data-held], [data-rows-changed]) {
     transition: max-height var(--agent-motion-move) var(--agent-ease-out);
   }
 }

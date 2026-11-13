@@ -90,6 +90,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         // The start takes `permission_mode` wherever it is served; only a start on the caller's
         // own Cloud VM acts on it (agent_session_start.rs `start_policy`).
         capabilities.push(AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY);
+        capabilities.push(AGENT_SESSION_START_MODE_CAPABILITY);
         // A phone's channel (hostd's `cloud-acpmux`) is enforced here: the carrier's signed
         // owner role (carrier_role.rs), the phone floor on its start (agent_session_start.rs)
         // and on every prompt (acpmux, `via: cloud-mobile`), and the adapter's commands only
@@ -254,6 +255,7 @@ pub(super) fn advertised_capabilities(
         crate::mux::SPLIT_DIVIDER_VISIBILITY_CAPABILITY,
         split_kind::SPLIT_BEFORE_CAPABILITY,
         creating_input::TERMINAL_INPUT_WHILE_CREATING_CAPABILITY,
+        creating_input::CREATING_INPUT_CANCEL_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_FOREGROUND_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_AGENT_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
@@ -420,6 +422,7 @@ pub(super) fn advertised_capabilities(
         crate::state::sidebar_doc_store::CAPABILITY,
         crate::state::sidebar_doc_store::HOST_GROUP_OPTOUT_CAPABILITY,
         crate::state::placement_shift::CAPABILITY,
+        SESSION_LIVE_CURSOR_CAPABILITY,
         crate::state::projects_store::CAPABILITY,
         crate::state::projects_store::SOURCES_CAPABILITY,
         crate::state::palette_usage_store::CAPABILITY,
@@ -443,10 +446,13 @@ pub(super) fn advertised_capabilities(
         crate::state::conversation_tabs_store::PAGE_TAB_ROUTE_CAPABILITY,
         crate::state::remote_terminal_tabs_store::REMOTE_TERMINAL_TABS_CAPABILITY,
         detached_terminals::DETACHED_TERMINALS_CAPABILITY,
+        cmd_terminals::CREATE_TERMINAL_WORKSPACE_CAPABILITY,
         close_tabs_command::CLOSE_REASON_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_SPLIT_CAPABILITY,
         frontend_browser_history::FRONTEND_BROWSER_TAB_SPLIT_CAPABILITY,
+        frontend_browser_history::FRONTEND_BROWSER_TAB_WORKSPACE_CAPABILITY,
+        frontend_browser_history::WORKSPACE_FIRST_TAB_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::history_ops::CAPABILITY,

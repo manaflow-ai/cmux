@@ -35,6 +35,11 @@ name: Cloud capture account provision
 # secrets (no environment) as CMUX_DOGFOOD_STACK_* and CMUX_JOURNEY_PROD_STACK_*: the journeys after its deploys.
 # `put` then needs write access to that repository's secrets.
 #
+# With `probe_teams: N` (target capture), the run only makes sure the staging capture account is the only member of N
+# probe teams ("cmux probe team K (test accounts only)"), each with the team operator grant: the teams a concurrent-create
+# probe spreads its creates over (cmuxterm-hq platform_probe.py "teams"; 3x10 needs 2, 5x10 needs 4). A rerun finds
+# the teams it made and makes no more; nothing is rotated, sealed or uploaded.
+#
 # With `grant_email` set, the run only gives that existing capture test account (cmux-cloud-capture…@manaflow.dev,
 # e.g. the no-team owner account) the `pro` operator plan: no password change, nothing sealed or uploaded.
 
@@ -55,6 +60,11 @@ on:
         type: boolean
         required: false
         default: false
+      probe_teams:
+        description: "With target capture: only make sure the capture account is the only member of this many probe teams, each granted the team plan (0 = off; 4 lets a 5x10 probe run; no rotation, no bundle)"
+        type: number
+        required: false
+        default: 0
 
 permissions:
   contents: read
@@ -82,7 +92,7 @@ jobs:
           sparse-checkout-cone-mode: true
 
       - name: libsodium
-        if: inputs.grant_email == '' && !inputs.team_only
+        if: inputs.grant_email == '' && !inputs.team_only && inputs.probe_teams == 0
         run: |
           set -euo pipefail
           if ! ldconfig -p | grep -q 'libsodium\.so\.23'; then
@@ -91,7 +101,7 @@ jobs:
           fi
 
       - name: Grant the operator plan only
-        if: inputs.grant_email != '' && inputs.target != 'production' && inputs.target != 'production-team' && inputs.target != 'journey-production' && inputs.target != 'platform-production'
+        if: inputs.probe_teams == 0 && inputs.grant_email != '' && inputs.target != 'production' && inputs.target != 'production-team' && inputs.target != 'journey-production' && inputs.target != 'platform-production'
         env:
           NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
           NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
@@ -100,7 +110,7 @@ jobs:
         run: python3 scripts/ci/cloud_capture_provision.py --grant-only "$GRANT_EMAIL"
 
       - name: Join the company team only
-        if: inputs.grant_email == '' && inputs.team_only
+        if: inputs.probe_teams == 0 && inputs.grant_email == '' && inputs.team_only
         env:
           NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
           NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
@@ -108,8 +118,18 @@ jobs:
           TARGET: ${{ inputs.target || 'capture' }}
         run: python3 scripts/ci/cloud_capture_provision.py --target "$TARGET" --team-only
 
+      - name: Make the probe teams only
+        if: inputs.probe_teams > 0 && inputs.grant_email == '' && !inputs.team_only
+        env:
+          NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
+          STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
+          TARGET: ${{ inputs.target || 'capture' }}
+          PROBE_TEAMS: ${{ inputs.probe_teams }}
+        run: python3 scripts/ci/cloud_capture_provision.py --target "$TARGET" --probe-teams "$PROBE_TEAMS"
+
       - name: Provision and seal
-        if: inputs.grant_email == '' && !inputs.team_only
+        if: inputs.grant_email == '' && !inputs.team_only && inputs.probe_teams == 0
         env:
           NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
           NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
@@ -118,7 +138,7 @@ jobs:
         run: python3 scripts/ci/cloud_capture_provision.py --target "$TARGET" --out "$RUNNER_TEMP/sealed-secrets.json"
 
       - name: Upload the sealed bundle (ciphertext only)
-        if: inputs.grant_email == '' && !inputs.team_only
+        if: inputs.grant_email == '' && !inputs.team_only && inputs.probe_teams == 0
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sealed-secrets

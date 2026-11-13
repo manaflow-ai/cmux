@@ -19,6 +19,8 @@ final class CloudMachineSession {
     var sizePick: CloudSizePick?
     let daemon: DaemonService
     @ObservationIgnored let appLink: CloudLinkSession
+    /// A workspace close already said this machine is kept (it says so once, not on every close).
+    @ObservationIgnored var toldKeptOnClose = false
     /// This Mac's own daemon identity: an app link socket that leads back to
     /// it is refused after the handshake (`DaemonIdentity.checkNotLocal(local:)`, CmuxNextCloud).
     @ObservationIgnored private let localIdentity: @MainActor () -> DaemonIdentity?
@@ -451,22 +453,22 @@ final class CloudMachineSession {
         suspend()
     }
 
-    /// Drops the daemon connection while keeping the link reusable after a
-    /// provider pause/resume transition.
-    func suspend() {
+    /// Drops the daemon connection, keeping the link reusable, after a provider pause/resume transition, or
+    /// (`pausing`) as soon as the server took a person's pause, which a rollback then reconnects (mutationFailed).
+    func suspend(pausing: Bool = false) {
         suspends += 1
+        if pausing { noteMutationInterruption() }
         // A new pause: an earlier resume's failure no longer applies.
         resumeFailure = nil
         connectHop?.cancel()
-        appTicket = nil
-        linkPhase = .idle
+        (appTicket, linkPhase) = (nil, .idle)
         daemon.shutdownConnection()
         let previous = linkTransition
         let appLink = appLink
-        // task-owner: reversible teardown; resume waits for this hop
+        // task-owner: reversible teardown (the serve stops, so nothing wakes the machine); resume waits for this hop
         linkTransition = Task {
             await previous?.value
-            await appLink.end(reason: "paused")
+            await appLink.park(reason: "paused")
         }
     }
 }

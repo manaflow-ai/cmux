@@ -67,4 +67,17 @@ struct DockedDevToolsWindowImageTests {
         // The divider between them keeps the window's own pixels.
         #expect(try Self.colors(image, in: NSRect(x: 0, y: 41, width: 200, height: 2)) == [[255, 255, 255]])
     }
+    /// A rounded pane gives the page window a clip, worked out from the page's own area
+    /// (`CEFTab.pageWindowClip`); the DevTools image beside the page is not cut away by it
+    /// (fleet probe 2026-11-09: Chromium's DevTools image arrived, the window image showed blank).
+    @Test func devToolsImageShowsWhenThePageWindowHasARoundedClip() throws {
+        let base = try Self.solid(1, 1, 1)
+        let devTools = try Self.solid(1, 0, 0, width: 200, height: 40)
+        let page = try Self.solid(0, 0, 1, width: 200, height: 56)
+        let clip = CGPath(roundedRect: Self.pageArea, cornerWidth: 6, cornerHeight: 6, transform: nil)
+        let image = try #require(WindowImageLayer.composite(base: base, windowSize: Self.size, layers:
+            WindowImageLayer.chromiumPage(page, Self.pageArea, clip: clip, devTools: (area: Self.devToolsArea, image: devTools))))
+        #expect(try Self.colors(image, in: Self.devToolsArea.insetBy(dx: 1, dy: 1)) == [[255, 0, 0]])
+        #expect(try Self.colors(image, in: Self.pageArea.insetBy(dx: 8, dy: 8)) == [[0, 0, 255]])
+    }
 }

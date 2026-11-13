@@ -1095,27 +1095,36 @@ fn an_unreadable_shares_file_is_kept_aside_and_never_overwritten() {
 
 /// A move aside never replaces a copy already kept: when `.unreadable` and the `-<unix ms>` name
 /// the clock gives are both taken (two moves in one millisecond, or a clock that went back), the
-/// new copy goes to a free name beside them and every earlier copy survives (cmux#33921).
+/// new copy goes to a free name beside them and every earlier copy survives (cmux#33921). The
+/// move's millisecond is fixed, so the taken names are known however slow the host is.
 #[test]
 fn a_move_aside_never_replaces_a_kept_copy_on_a_suffix_collision() {
+    const MS: u64 = 1_700_000_000_000;
     let directory = scratch("shares-unreadable-collision");
     let dir = Some(directory.as_path());
     let first = directory.join(format!("{FILE}.unreadable"));
     std::fs::write(&first, b"first").unwrap();
-    // Take every `-<ms>` name the move can pick in the next few seconds.
-    let now = wall_ms();
-    let taken: Vec<_> =
-        (now..now + 3_000).map(|ms| directory.join(format!("{FILE}.unreadable-{ms}"))).collect();
+    // The `-<ms>` name and the next suffixes the move tries are all taken.
+    let taken: Vec<_> = std::iter::once(directory.join(format!("{FILE}.unreadable-{MS}")))
+        .chain((1..=3).map(|n| directory.join(format!("{FILE}.unreadable-{MS}-{n}"))))
+        .collect();
     for path in &taken {
         std::fs::write(path, b"earlier").unwrap();
     }
     std::fs::write(directory.join(FILE), b"not json").unwrap();
-    LinkShares::default().insert(dir, SESSION.into(), 1, terms(), false).unwrap();
-    assert!(wall_ms() < now + 3_000, "the move ran inside the taken window");
+    let shares = LinkShares::default();
+    shares.set_aside_ms.store(MS, Ordering::Relaxed);
+    shares.insert(dir, SESSION.into(), 1, terms(), false).unwrap();
     assert_eq!(std::fs::read(&first).unwrap(), b"first", "`.unreadable` is not replaced");
     for path in &taken {
         assert_eq!(std::fs::read(path).unwrap(), b"earlier", "{} was replaced", path.display());
     }
+    let free = directory.join(format!("{FILE}.unreadable-{MS}-4"));
+    assert_eq!(
+        std::fs::read(&free).unwrap(),
+        b"not json",
+        "the new copy takes the first free name"
+    );
     let moved: Vec<_> = std::fs::read_dir(&directory)
         .unwrap()
         .map(|entry| entry.unwrap().path())

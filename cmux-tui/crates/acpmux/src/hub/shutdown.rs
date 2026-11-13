@@ -12,6 +12,10 @@ pub(crate) struct ShutdownPlan {
     keep: std::collections::HashSet<String>,
 }
 
+/// How long the hub's own tasks, and its peers', get to end once cancelled at shutdown
+/// (`Hub::close_owned_tasks`).
+pub(crate) const OWNED_TASKS_CLOSE: std::time::Duration = std::time::Duration::from_secs(2);
+
 impl Hub {
     /// The coming shutdown ends hosted agents too (the app's Quit
     /// Everything), except those of the sessions in `keep` (the app's Home
@@ -56,6 +60,34 @@ impl Hub {
     pub(crate) fn shutting_down(&self) -> bool {
         // A poisoned plan still says whether the shutdown began.
         self.shutdown_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner).started
+    }
+
+    /// The hub's own tasks end, after its agents (`daemon.rs`): each peer's, then the hub's
+    /// (its connections' among them), cancelled and joined within [`OWNED_TASKS_CLOSE`] in all.
+    /// A task still running then is aborted and named at warn.
+    pub(crate) async fn close_owned_tasks(&self) {
+        let deadline = tokio::time::Instant::now() + OWNED_TASKS_CLOSE;
+        let peers: Vec<_> = self
+            .peers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .cloned()
+            .collect();
+        let mut reports = Vec::with_capacity(peers.len() + 1);
+        for peer in peers {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            reports.push(peer.close_tasks(left).await);
+        }
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        reports.push(self.scope.close(left).await);
+        for report in reports {
+            if report.joined() {
+                tracing::debug!("{report}");
+            } else {
+                tracing::warn!("{report}");
+            }
+        }
     }
 
     /// Fences new turns and automatic continuations before transports begin draining.
@@ -310,11 +342,14 @@ impl Hub {
         self.append(s, "mux", "turn_result", result);
     }
 
-    /// Save every session's meta and sync the event log to disk.
+    /// Save changed metadata and sync the event log to disk.
     pub fn flush(&self) {
         // Each chat's last change is on disk before this returns, also while another save of it
         // runs: the seal that follows refuses every later write.
         for s in self.sessions() {
+            if !s.meta_writer.needs_flush(&s) {
+                continue;
+            }
             if let Err(e) = self.write_meta(&s) {
                 tracing::error!(session = %s.id, "save meta at shutdown failed: {e}");
             }

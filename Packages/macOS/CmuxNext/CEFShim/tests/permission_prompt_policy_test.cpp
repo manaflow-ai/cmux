@@ -4,7 +4,9 @@
 // A page that called Notification.requestPermission() in a Chromium tab waited for good
 // (cmux nightly 1bd15914, 2026-11-10: still pending after 75 s, permission `default`): the
 // request stayed with Chromium, whose bubble cmux never shows. cmux shows no web notification
-// from a Chromium tab, so the request must end at once, refused.
+// from a Chromium tab, so the request must end at once. It ends unanswered, never refused
+// (Lawrence, 2026-11-11): a refusal is remembered for the site and would block a later real
+// notification feature; unanswered, the permission stays `default`.
 #include <cstdint>
 #include <iostream>
 
@@ -22,8 +24,8 @@ int main() {
   const uint32_t camera = 1u << 3;  // CEF_PERMISSION_TYPE_CAMERA_STREAM, a kind neither asked nor refused
   const Case cases[] = {
       {"location asks in the host's prompt bar", cmux_shim::kPermissionGeolocation, PermissionPromptRoute::kHost},
-      {"a notification request is refused at once", cmux_shim::kPermissionNotifications,
-       PermissionPromptRoute::kDeny},
+      {"a notification request ends at once, unanswered", cmux_shim::kPermissionNotifications,
+       PermissionPromptRoute::kEndUnanswered},
       {"notifications grouped with location stay with Chromium",
        cmux_shim::kPermissionNotifications | cmux_shim::kPermissionGeolocation, PermissionPromptRoute::kChromium},
       {"notifications grouped with another kind stay with Chromium", cmux_shim::kPermissionNotifications | camera,

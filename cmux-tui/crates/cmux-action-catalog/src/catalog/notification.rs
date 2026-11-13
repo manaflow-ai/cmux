@@ -10,7 +10,7 @@ const GROUP: &str = "NotificationActionCatalog";
 #[rustfmt::skip]
 pub static ACTIONS: &[Action] = &[
     // The Feed page's native UI ops (feed-page.md 2): the page passes an item id; the item itself is read
-    // from the daemon's feed client, never taken from the caller. Open Feed Item without an item opens the Inbox.
+    // from the daemon's feed client, never taken from the caller. Open Feed Item without an item does nothing (the Inbox page is gone).
     Action {
         id: "feed.openItem",
         group: GROUP,
@@ -250,6 +250,17 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
         cli_name: "notification toggle-banners",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "notifications.allowDesktop",
+        group: GROUP,
+        title: t("ActionCatalog", "action.notifications.allowDesktop", "Allow cmux Notifications"),
+        keywords: &["permission", "allow", "enable", "banner", "desktop", "system", "macos", "notifications", "setup"],
+        category: "notifications",
+        symbol: "bell.badge",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action notifications-allow-desktop",
         ..Action::DEFAULT
     },
     Action {

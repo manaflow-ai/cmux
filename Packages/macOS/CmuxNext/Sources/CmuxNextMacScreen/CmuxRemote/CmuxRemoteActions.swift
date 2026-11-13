@@ -35,7 +35,7 @@ extension CmuxRemoteActionEnvironment {
             _ = registry.bindEffect(id, unavailable: { remote.started ? nil : CmuxRemoteStrings.unavailable }, effect: { _ in
                 // action-wait-allow: the request runs in cmux Remote, another process; it shows its own prompt or restarts a worker.
                 .waiting(.externalProcess) {
-                    do { _ = try await remote.call(method, params) } catch { return ActionWorkFailure(String(describing: error)) }
+                    do { _ = try await remote.call(method, params) } catch { return ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error)) }
                     return nil
                 }
             })
@@ -45,6 +45,7 @@ extension CmuxRemoteActionEnvironment {
         host("remote.allowScreenRecording", "request", .object(["permission": .string("screen-recording")]))
         host("remote.restartComputerUse", "restart", .object(["worker": .string("computer-use")]))
         host("remote.restartScreenSharing", "restart", .object(["worker": .string("screen-sharing")]))
+        host("remote.stopScreenSession", "screen.stop_session", .object([:]))
         _ = registry.bindEffect("remote.showStatus", unavailable: { remote.started ? nil : CmuxRemoteStrings.unavailable }, effect: { _ in
             // action-wait-allow: the status comes from the daemon and cmux Remote, other processes; the dialog shows it.
             .waiting(.externalProcess) {
@@ -64,7 +65,7 @@ extension CmuxRemoteActionEnvironment {
                 // action-wait-allow: the device hub owns the sharing switch; the Devices page follows its push.
                 return .waiting(.network) {
                     do { try await Self.apply(on ? "share" : "unshare", device: "", scope: nil, hub: hub, remote: remote) } catch {
-                        return ActionWorkFailure(String(describing: error))
+                        return ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))
                     }
                     return nil
                 }

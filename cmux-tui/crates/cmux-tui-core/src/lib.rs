@@ -126,6 +126,8 @@ mod terminal_loss_log;
 mod terminal_metadata;
 mod terminal_tail;
 pub use cmux_tui_util::terminal_respawn_text;
+#[cfg(test)]
+mod walk_counters;
 mod workspace_registry;
 /// A synthetic registry of a long-lived owner's shape (startup measurements).
 pub use workspace_registry::synth as synth_registry;
@@ -198,6 +200,7 @@ pub use mux::{
     MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_idle_terminal_reaper, start_terminal_reaper,
     validate_terminal_reap_grace,
 };
+pub use mux::{JournalFollowerSnapshot, JournalFollowersSnapshot};
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use program_status::ShownProgramStatus;
 pub use remote_relay_state::{

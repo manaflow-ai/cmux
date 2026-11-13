@@ -27,6 +27,10 @@ final class WorkspaceRowView: SidebarRowView {
     var activityState = StatusIndicatorState.idle
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
     var rowBadgeStyle = SidebarRowBadgeStyle.corner
+    /// The badge states this row last showed, and for which workspace: a done glyph settles in only
+    /// when the same workspace's work finishes (`configureBadges`), never on a first configure or a
+    /// row the pool hands to another workspace (cleared in `prepareForReuse`).
+    var shownBadges: (workspace: WorkspaceID, states: [StatusIndicatorState])?
     /// The agents acting in the workspace (`sidebar.presenceDots`, cx-gg84).
     let presenceDots = PresenceDotsView()
     /// An agent driving the screen or a browser in the workspace (`sidebar.driveIndicator`), shown with the dots off.
@@ -82,8 +86,6 @@ final class WorkspaceRowView: SidebarRowView {
     /// The workspace's name, while the row draws another (`sidebar.rowTitle` focused tab, an inherited chat): calm
     /// mode's tooltip says it, since no hover card opens there.
     var hiddenWorkspaceName: String?
-    /// An idle workspace nobody named: its name reads in the secondary ink (Leo 2026-10-20: such rows clutter the sidebar).
-    var isQuiet = false
     /// Archived in the sidebar document: the row draws dimmed (`SidebarStyle.archivedAlpha`).
     var isArchived = false
     var iconKind: WorkspaceIcon?
@@ -234,6 +236,7 @@ final class WorkspaceRowView: SidebarRowView {
         title.alphaValue = 1
         placeholderBar.layer?.removeAllAnimations()
         placeholderBar.alphaValue = 1
+        shownBadges = nil
     }
 
     private struct Content: Hashable {
@@ -292,7 +295,6 @@ final class WorkspaceRowView: SidebarRowView {
         title.stringValue = shownTitle
         lastTitle = shownTitle
         hiddenWorkspaceName = ws.namesWorkspace(shownTitle) ? nil : ws.title
-        isQuiet = ws.isUnnamed && !ws.unread.isUnread && ws.activity == .idle && !ws.agentWorking
         isArchived = ws.isArchived
         icon.alphaValue = isArchived ? SidebarStyle.archivedAlpha : 1
         // Roll is for renames: a first name over the loading bar arrives at once, as under instant.

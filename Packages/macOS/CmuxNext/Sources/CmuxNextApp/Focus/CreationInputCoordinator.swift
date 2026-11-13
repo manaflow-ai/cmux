@@ -118,9 +118,20 @@ final class CreationInputCoordinator {
     func hasPendingCreation(in window: NSWindow?) -> Bool { window.flatMap { buffers[$0.windowNumber] }?.hasPendingCreation == true }
 
     /// The person closed provisional tab `tab` in `window` before the daemon made it: the keys held
-    /// for it are dropped and the rest go on (``CreationInputBuffer/cancel(tab:)``).
+    /// for it are dropped and the rest go on (``CreationInputBuffer/cancel(tab:)``), with the keys a New Tab page's opening holds for it. So are the keys its
+    /// terminal already sent to the daemon: there (``CreatingTerminalInput/close()``), and when the daemon gives them back (``GivenBackInput/creationClosed(terminal:)``).
     func drop(tab: String, in window: NSWindow?) {
+        if let input = router?.services?.cache.existingTerminal(tab)?.io.creatingInput { GivenBackInput.shared.creationClosed(terminal: input.terminalID); input.close() }
         if let window, buffers[window.windowNumber]?.cancel(tab: tab) == true { scheduleFlush(in: window) }
+        router?.newTabInputCoordinator.drop(tab: tab, in: window)
+    }
+
+    /// The person closed what holds `panes` (a workspace, a screen, a stand-in pane): the same drop for each terminal of them that has
+    /// not started, so the keys it gave back never go to the terminal that the window shows and focuses next.
+    func drop(closing panes: [PaneModel]) {
+        guard let services = router?.services else { return }
+        let windows = services.windows.controllers.compactMap(\.window)
+        for tab in panes.flatMap(\.tabs) where services.cache.existingTerminal(tab.id)?.gate != nil { windows.forEach { drop(tab: tab.id, in: $0) } }
     }
 
     /// A selection shows a terminal whose surface comes later: keys wait for it, at most `holdLimit`.
@@ -322,7 +333,7 @@ final class CreationInputCoordinator {
     /// wait for a focused terminal of the window that showed that terminal, never another window's.
     /// Keys from a terminal no window shows any more are dropped (never typed into a guess).
     func giveBack(_ bytes: Data, terminal terminalID: String) {
-        GivenBackInput.shared.deliver(adding: bytes, window: window(ofCreatingTerminal: terminalID), to: nil)
+        GivenBackInput.shared.deliver(adding: bytes, from: terminalID, window: window(ofCreatingTerminal: terminalID), to: nil)
         giveBack()
     }
 
@@ -395,13 +406,13 @@ final class CreationInputCoordinator {
 }
 
 extension CreationInputCoordinator {
-    /// The focused content a key typed now would miss (``AwaitedContent``): a terminal whose surface is not shown in its
-    /// pane yet, or a browser tab whose page is not made yet (a restored Chromium tab starts after the window shows).
+    /// The focused content a key typed now would miss (``AwaitedContent``): a terminal whose surface is not shown in its pane yet, a browser tab whose
+    /// page is not made yet (a restored Chromium tab starts after the window shows), or an agent chat or page tab whose view is not shown yet.
     static func awaitedContent(_ controller: WindowController) -> AwaitedContent? {
         let state = controller.focus.currentState()
         guard case let (pane, tab, isPage)? = state.awaitableContent, let content = controller.content, content.workspace.id == state.topology.workspace else { return nil }
         let shown = content.paneController(key: pane).map { shown in
-            AwaitedContent.Pane(selectedTab: shown.stripModel.selectedID?.rawValue, shownTab: shown.currentTabKey, shownKind: shown.currentContent.flatMap { if case .terminal = $0 { .terminal } else if case .browser = $0 { .browser } else { nil } }, selectedIsLiveTerminal: shown.showsLiveTerminal, shownPageReady: shown.currentContent.flatMap { if case .browser(let entry) = $0 { entry.tab.pageReady } else { nil } } ?? true)
+            AwaitedContent.Pane(selectedTab: shown.stripModel.selectedID?.rawValue, shownTab: shown.currentTabKey, shownKind: shown.currentContent.flatMap { if case .terminal = $0 { .terminal } else if case .conversation = $0 { nil } else { .browser } }, selectedIsLiveTerminal: shown.showsLiveTerminal, shownPageReady: shown.currentContent.flatMap { if case .browser(let entry) = $0 { entry.tab.pageReady } else { nil } } ?? true)
         }
         return AwaitedContent.awaited(isPage ? .browser : .terminal, tab: tab, pane: shown, paneInTopology: state.topology.panes.contains { $0.id == pane })
     }

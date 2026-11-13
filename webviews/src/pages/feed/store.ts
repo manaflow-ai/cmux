@@ -393,12 +393,6 @@ export class FeedStore {
     this.run(FeedActions.openItem, { item: id });
   }
 
-  /** Opens the Inbox (Needs you's "N more", its bar with more than one request): `feed.openItem`
-   * without an item. */
-  showFeed(): void {
-    this.run(FeedActions.openItem, {});
-  }
-
   /** Settings > Notifications at the GitHub connection. */
   addConnection(): void {
     this.run(FeedActions.openSettings, { ...ADD_CONNECTION_SETTINGS });

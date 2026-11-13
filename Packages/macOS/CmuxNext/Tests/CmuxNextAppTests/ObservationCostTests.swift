@@ -63,6 +63,11 @@ struct ObservationCostTests {
             await LargeSessionFixture.drainMain()
             #expect(Self.mapped(work) >= 1, "fixture: no workspace was read again (the counter is not wired): \(name)")
             #expect(openTabs.byOrigin[origin] == shows, "\(name)")
+            // The table kept from single changes is the table a join of every workspace gives (the reader before).
+            let whole = OpenTabFavicons.table(fixture.store.workspaces.map { workspace in
+                OpenTabFavicons.favicons(of: workspace) { LargeSessionObservationTests.favicon($0) }
+            })
+            #expect(openTabs.byOrigin == whole, "\(name): the table is not the join of every workspace")
             #expect(work.count <= Self.bound,
                     "\(name): one favicon change visited \(work.count) items \(work.byStep) in a session of \(size.workspaces) workspaces")
         }
@@ -104,17 +109,29 @@ struct ObservationCostTests {
                                          requestID: String(format: "%032llx", UInt64(workspace)))
             store.session.apply(.delta([.tab(ResourceID(rawValue: "tab_\(workspace)_0"), .init(attention: attention))]), in: store)
         }
+        /// Makes one change of one tab's mark, waits until its workspace was read again and the list has `count` items,
+        /// and checks what that one change visited and that the list is the join of every workspace (the watch before).
+        func step(_ name: String, count: Int, _ change: () -> Void) async {
+            work.reset()
+            change()
+            await LargeSessionFixture.until { Self.mapped(work) >= 1 && tabs.items.count == count }
+            await LargeSessionFixture.drainMain()
+            #expect(Self.mapped(work) >= 1, "fixture: no workspace was read again (the counter is not wired): \(name)")
+            #expect(tabs.items.count == count, "\(name)")
+            #expect(work.count <= Self.bound,
+                    "\(name): one mark visited \(work.count) items \(work.byStep) in a session of \(size.workspaces) workspaces")
+            let whole = AttentionTabsWatch.items(in: store.workspaces.map { ($0, machine: "local") })
+            #expect(tabs.items == whole, "\(name): the list is not the join of every workspace")
+        }
         let marked = [size.workspaces / 2, 2, size.workspaces - 1]
         for (index, workspace) in marked.enumerated() {
-            work.reset()
-            mark(workspace)
-            await LargeSessionFixture.until { Self.mapped(work) >= 1 && tabs.items.count == index + 1 }
-            await LargeSessionFixture.drainMain()
-            #expect(Self.mapped(work) >= 1, "fixture: no workspace was read again (the counter is not wired): mark \(index + 1)")
-            #expect(tabs.items.count == index + 1, "mark \(index + 1)")
-            #expect(work.count <= Self.bound,
-                    "mark \(index + 1): one mark visited \(work.count) items \(work.byStep) in a session of \(size.workspaces) workspaces")
+            await step("mark \(index + 1)", count: index + 1) { mark(workspace) }
         }
         #expect(tabs.items.map(\.reason) == marked.sorted(by: >).map { "Sign in \($0)" })
+        // The person acted in one tab: its mark is gone (a tab record with no attention).
+        await step("a mark is cleared", count: 2) {
+            store.session.apply(.delta([.tab(ResourceID(rawValue: "tab_2_0"), .init())]), in: store)
+        }
+        #expect(tabs.items.map(\.reason) == [size.workspaces - 1, size.workspaces / 2].map { "Sign in \($0)" })
     }
 }

@@ -1,9 +1,9 @@
 import CmuxMobileAuth
+import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileShell
 import CmuxMobileVoice
 #if DEBUG
-import CmuxMobileLive
 import CmuxMobileTerminal
 #endif
 import SwiftUI
@@ -16,6 +16,10 @@ struct CmuxMobileApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        // An update from the classic app (the same bundle id) left its Keychain items and
+        // settings here: they are deleted once, before anything reads either, so this app
+        // starts signed out instead of half-reading a classic session.
+        ClassicLeftovers.cleanUpIfDue()
         // Settings, account and outboxes saved under the pre-rename (cnx) names move first.
         LegacyStorage.migrate()
         #if !DEBUG

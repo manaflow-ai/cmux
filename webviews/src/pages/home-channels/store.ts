@@ -6,7 +6,6 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { AttachmentService, messageGroups } from "./attachmentService";
-import { INLINE_TEXT_BYTES } from "./textUpload";
 import { AvatarService } from "./avatars";
 import { DraftBook, type HomeDraft } from "./drafts";
 import { hashLink, mergeMessages, parseConversationLink, threadOf } from "./model";
@@ -51,8 +50,6 @@ const LINK_PAGES = 20;
  * and older history loads only on a scroll the short timeline never has (#25570). */
 const FILL_TOP_LEVEL = 30;
 export const WINDOW = 1500;
-/** Conversations whose newest page stays in memory after another opens (``RecentPages``). */
-export const RECENT_PAGES = 8;
 
 export type Connection = "connecting" | "online" | "offline";
 
@@ -83,49 +80,12 @@ export interface PendingSend {
   replyTo?: string;
   createdAt: number;
   failed: boolean;
-  /** The app refused to keep it across a quit (too large): the row says so. */
-  unkept?: boolean;
 }
 
 /** Pending sends that outlive one store: the page makes a new store on every reconnect, and a
  * send that failed with the old connection keeps its "Not sent" row and Retry in the new one. */
 export class PendingCarry {
-  private list: readonly PendingSend[] = [];
-  /** The store that shows these: a restore reaches it. */
-  private showing: ((entries: readonly PendingSend[]) => void) | undefined;
-
-  get entries(): readonly PendingSend[] {
-    return this.list;
-  }
-
-  set entries(entries: readonly PendingSend[]) {
-    if (entries === this.list) return;
-    this.list = entries;
-    this.changed(entries);
-  }
-
-  /** The entries changed (a send, a delivery, a failure, a discard): a durable carry keeps them. */
-  protected changed(_entries: readonly PendingSend[]): void {}
-
-  /** The store showing the entries now (the latest store of the page). */
-  show(store: (entries: readonly PendingSend[]) => void): void {
-    this.showing = store;
-  }
-
-  /** Changes the entries from outside a store (a durable carry's refusal) and shows them. */
-  protected replace(entries: readonly PendingSend[]): void {
-    this.entries = entries;
-    this.showing?.(this.list);
-  }
-
-  /** Sends kept from before (a relaunch) go ahead of these, not sent, with Retry: their
-   * idempotency keys came with them, so a retry never sends one twice. */
-  restore(kept: readonly PendingSend[]): void {
-    const known = new Set(this.list.map((entry) => entry.key));
-    const back = kept.filter((entry) => !known.has(entry.key)).map((entry) => ({ ...entry, failed: true }));
-    if (back.length === 0) return;
-    this.replace([...back, ...this.list]);
-  }
+  entries: readonly PendingSend[] = [];
 }
 
 export interface HomeSnapshot {
@@ -187,18 +147,6 @@ export class HomeChannelsStore {
   private readonly drafts = new DraftBook();
   /** Split sends (`PendingSend.chain`) whose messages are being delivered now. */
   private readonly chainsInFlight = new Set<string>();
-  /** The sends going to the owner now, by key: Cancel Upload aborts one (`cancel`). */
-  private readonly inFlight = new Map<string, AbortController>();
-  /** Uploads a send's files again when the owner no longer holds them (`unknown_attachment`: it
-   * collects an upload no message names after a day); the parts to send, or undefined when their
-   * bytes are gone. The Messages page sets it (attachmentDrafts.ts `resend`). */
-  reupload:
-    | ((
-        conversation: string,
-        parts: readonly HomeAttachment[],
-        signal: AbortSignal,
-      ) => Promise<readonly HomeAttachment[] | undefined>)
-    | undefined;
   /** Agent runs (`cmux.home.runs`, `cmux.home.run`, run events): rows read them through `useRun`. */
   readonly runs = new RunBook();
   /** A Chief's live run text (`chief-live-v1`): the run card and the typing row read it. */
@@ -213,9 +161,6 @@ export class HomeChannelsStore {
   /** Who types in each conversation (typing events); activity adds the running drafts. */
   private readonly typingBy = new Map<string, Set<string>>();
   private readonly viewingBy = new Map<string, Set<string>>();
-  /** The newest page of the conversations shown last: going back to one draws it at once while its
-   * page is read again, instead of a blank transcript for data this page already had. */
-  private readonly recent = new RecentPages(RECENT_PAGES, PAGE);
 
   /** Participants' pictures through this store's client (none without a client: initials). */
   readonly avatars: AvatarService | undefined;
@@ -264,12 +209,7 @@ export class HomeChannelsStore {
       inboxState: false,
     };
     carry.entries = this.snapshot.pending;
-    carry.show((pending) => this.set({ pending }));
   }
-
-  /** Which conversation a read of the inbox opens when none is open: the Chief DM first, else the
-   * newest (the Channels page). The Messages page sets its own: the app picks its default there. */
-  pickDefault: (conversations: readonly HomeConversation[]) => string | undefined = defaultSelection;
 
   getSnapshot = (): HomeSnapshot => this.snapshot;
 
@@ -482,7 +422,7 @@ export class HomeChannelsStore {
       const selected =
         this.snapshot.selected && conversations.has(this.snapshot.selected)
           ? this.snapshot.selected
-          : this.pickDefault(inbox.conversations);
+          : defaultSelection(inbox.conversations);
       this.set({
         me: inbox.me,
         conversations,
@@ -503,19 +443,13 @@ export class HomeChannelsStore {
 
   /** Opens a conversation: its newest page, then marks it read. */
   async select(id: string, opened = true): Promise<void> {
-    // Open with its page read: nothing to do (a page still answering a revisit's kept copy reads again).
-    const { messages } = this.snapshot;
-    if (id === this.snapshot.selected && messages.length > 0 && !messages.some((m) => this.recent.seeded(m))) return;
+    if (id === this.snapshot.selected && this.snapshot.messages.length > 0) return;
     // Opening a conversation I marked unread reads it: the mark goes (not the page's own first
     // pick at load: a mark stays until I open the conversation).
     if (opened && this.snapshot.conversations.get(id)?.markedUnread) void this.setMarkedUnread(id, false);
-    const left = this.snapshot.selected;
-    if (left && left !== id) this.recent.keep(left, this.snapshot.messages);
     this.set({
       selected: id,
-      // What this conversation showed when it was last open, until its page answers (`reloadPage`
-      // replaces it with the owner's page, as if it had not been there).
-      messages: this.recent.seed(id),
+      messages: [],
       hasOlder: false,
       thread: undefined,
       threadView: undefined,
@@ -544,10 +478,9 @@ export class HomeChannelsStore {
       // messages that end before the page starts (more than a page came in since, a reconnect)
       // would leave a hole no older page fills: the window starts at the page then (#25570).
       const kept = joining(
-        this.snapshot.messages.filter((m) => m.conversation === id && !this.recent.seeded(m)),
+        this.snapshot.messages.filter((m) => m.conversation === id),
         page.messages[0]?.seq,
       );
-      this.recent.release();
       const fresh = page.messages.map((m) => {
         const event = kept.find((k) => k.seq === m.seq);
         return event && (event.editedAt ?? 0) > (m.editedAt ?? 0) ? event : m;
@@ -574,7 +507,7 @@ export class HomeChannelsStore {
       this.runs.noteMessages(messages);
       void this.loadRuns(id, messages, true);
       void this.loadLive(id);
-      if (this.readsItself()) this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
+      if (this.shown) this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
     } catch (error) {
       if (generation === this.generation) this.set({ error: describe(error) });
       return;
@@ -743,36 +676,11 @@ export class HomeChannelsStore {
     void this.deliver(again);
   }
 
-  /** Sends another sender made for this page (the app's first send of New Message, which got no
-   * answer) show as this page's own: not sent, with Retry under their own keys (never twice). */
-  adoptPending(sends: readonly PendingSend[]): void {
-    this.carry.restore(sends);
-  }
-
   /** Drops a pending message. The rest of its send, if held behind it, goes on. */
   discard(key: string): void {
     const pending = this.snapshot.pending.find((entry) => entry.key === key);
     this.set({ pending: this.snapshot.pending.filter((entry) => entry.key !== key) });
     if (pending?.chain) this.resumeChain(pending.chain);
-  }
-
-  /** Whether a send still uploads and can be stopped (MessagesLab's Cancel Upload, HomeStore
-   * `canCancelSend`): it is going now and carries files or text long enough to upload. */
-  canCancel(key: string): boolean {
-    if (!this.inFlight.has(key)) return false;
-    const pending = this.snapshot.pending.find((entry) => entry.key === key);
-    return (
-      !!pending && !pending.failed && (!!pending.attachments?.length || pending.text.length > INLINE_TEXT_BYTES / 3)
-    );
-  }
-
-  /** Cancel Upload: stops a send that is going (its upload and its call) and drops its row. */
-  cancel(key: string): void {
-    const going = this.inFlight.get(key);
-    if (!going) return;
-    this.inFlight.delete(key);
-    going.abort();
-    this.discard(key);
   }
 
   /** Delivers the failed messages of split send `chain` again, in their order, unless it is
@@ -790,33 +698,17 @@ export class HomeChannelsStore {
   }
 
   /** Resolves true when the owner took it. */
-  private async deliver(pending: PendingSend, resent = false): Promise<boolean> {
-    if (!this.client) return false;
-    const controller = new AbortController();
-    this.inFlight.set(pending.key, controller);
-    try {
-      return await this.deliverOnce(pending, resent, controller.signal);
-    } finally {
-      // Its key may have changed on the way (a resend after `unknown_attachment`).
-      for (const [key, going] of this.inFlight) if (going === controller) this.inFlight.delete(key);
-    }
-  }
-
-  private async deliverOnce(pending: PendingSend, resent: boolean, signal: AbortSignal): Promise<boolean> {
+  private async deliver(pending: PendingSend): Promise<boolean> {
     if (!this.client) return false;
     try {
-      await this.client.call(
-        HomeOps.send,
-        {
-          conversation: pending.conversation,
-          text: pending.text,
-          attachments: pending.attachments,
-          threadRoot: pending.threadRoot,
-          replyTo: pending.replyTo,
-          idempotencyKey: pending.key,
-        },
-        { signal },
-      );
+      await this.client.call(HomeOps.send, {
+        conversation: pending.conversation,
+        text: pending.text,
+        attachments: pending.attachments,
+        threadRoot: pending.threadRoot,
+        replyTo: pending.replyTo,
+        idempotencyKey: pending.key,
+      });
       // The owner's event may have come first (or a retry was a replay of a message already in
       // the window): settle from what the page holds now.
       const held = [...this.snapshot.messages, ...(this.snapshot.threadView?.messages ?? [])];
@@ -826,25 +718,6 @@ export class HomeChannelsStore {
     } catch (error) {
       // Gone already: the owner's event settled it (the answer was lost), or it was discarded.
       if (!this.snapshot.pending.some((entry) => entry.key === pending.key)) return true;
-      // The owner let go of a file (collected after a day): upload its bytes again, then send once more.
-      const reupload = this.reupload;
-      if (!resent && reupload && pending.attachments?.length && unknownAttachment(error)) {
-        const parts = await reupload(pending.conversation, pending.attachments, signal).catch(() => undefined);
-        if (parts && this.snapshot.pending.some((entry) => entry.key === pending.key)) {
-          // The owner keeps its refusal under the send's key (cloud's ledger answers a repeat from
-          // it), so the resend goes under a new key, in the same place (HomeStore
-          // `uploadAgainAfterSweep`). An uncertain outcome keeps its key, so it never goes twice.
-          const again = { ...pending, key: this.key("send"), attachments: parts };
-          this.set({ pending: this.snapshot.pending.map((entry) => (entry.key === pending.key ? again : entry)) });
-          const going = this.inFlight.get(pending.key);
-          if (going) {
-            this.inFlight.delete(pending.key);
-            this.inFlight.set(again.key, going);
-          }
-          return this.deliverOnce(again, true, signal);
-        }
-        if (!this.snapshot.pending.some((entry) => entry.key === pending.key)) return true;
-      }
       this.set({
         error: describe(error),
         pending: this.snapshot.pending.map((entry) => (entry.key === pending.key ? { ...entry, failed: true } : entry)),
@@ -862,21 +735,16 @@ export class HomeChannelsStore {
   }
 
   /** Adds my reaction, or takes it back when I already reacted with it. */
-  /** Adds my reaction `value`, or takes it back when I already gave it. `on` names the part and the
-   * tapback (the Messages tapback menu): only my reaction on that part counts, and a new one goes
-   * there. Without it (Channels), my reaction on any part counts and a new one goes on part 0. */
-  async react(message: HomeMessage, value: string, on?: { partIndex: number; tapback?: string }): Promise<void> {
+  async react(message: HomeMessage, value: string): Promise<void> {
     if (!this.client) return;
-    const mine = message.reactions.find(
-      (r) => r.value === value && r.author === this.snapshot.me?.id && (!on || r.partIndex === on.partIndex),
-    );
+    const mine = message.reactions.find((r) => r.value === value && r.author === this.snapshot.me?.id);
     try {
       await this.client.call(HomeOps.react, {
         conversation: message.conversation,
         message: message.id,
-        partIndex: mine?.partIndex ?? on?.partIndex ?? 0,
+        partIndex: mine?.partIndex ?? 0,
         value,
-        tapback: mine?.tapback ?? on?.tapback,
+        tapback: mine?.tapback,
         remove: mine !== undefined,
         idempotencyKey: this.key("react"),
       });
@@ -1030,67 +898,18 @@ export class HomeChannelsStore {
     this.set({ conversations: new Map(this.snapshot.conversations).set(id, next) });
   }
 
-  /** Deletes my message for everyone (the owner keeps a "deleted" row). It shows retracted at once
-   * (the native transcript's Delete, HomeProjection+Delete): until the owner's echo says so, every
-   * copy that arrives stays retracted; a refusal brings it back. Resolves true when the owner took it. */
-  async retract(message: HomeMessage): Promise<boolean> {
-    if (!this.client || message.retracted || this.retracting.has(message.id)) return false;
-    this.retracting.add(message.id);
-    this.showRetracting();
+  /** Deletes my message for everyone (the owner keeps a "deleted" row). */
+  async retract(message: HomeMessage): Promise<void> {
+    if (!this.client) return;
     try {
       await this.client.call(HomeOps.retract, {
         conversation: message.conversation,
         message: message.id,
         idempotencyKey: this.key("retract"),
       });
-      return true;
     } catch (error) {
-      // The row comes back as the owner has it: the copy before the delete, or a newer one.
-      if (this.retracting.delete(message.id)) this.restoreRetracted(message);
       this.set({ error: describe(error) });
-      return false;
     }
-  }
-
-  /** The messages deleted here whose retraction the owner has not echoed yet. */
-  private readonly retracting = new Set<string>();
-
-  /** `messages` with the ones being deleted shown retracted; a copy the owner retracted leaves the set. */
-  private withRetracting(messages: readonly HomeMessage[]): readonly HomeMessage[] {
-    if (this.retracting.size === 0) return messages;
-    let changed = false;
-    const out = messages.map((message) => {
-      if (!this.retracting.has(message.id)) return message;
-      if (message.retracted) {
-        this.retracting.delete(message.id);
-        return message;
-      }
-      changed = true;
-      return { ...message, retracted: true, parts: [], reactions: [] };
-    });
-    return changed ? out : messages;
-  }
-
-  private showRetracting(): void {
-    const view = this.snapshot.threadView;
-    const messages = this.withRetracting(this.snapshot.messages);
-    const thread = view && this.withRetracting(view.messages);
-    const patch: Partial<HomeSnapshot> = {};
-    if (messages !== this.snapshot.messages) patch.messages = messages;
-    if (view && thread && thread !== view.messages) patch.threadView = { ...view, messages: thread };
-    if (Object.keys(patch).length) this.set(patch);
-  }
-
-  /** A refused delete: `original` back in place of the retracted copy shown for it. */
-  private restoreRetracted(original: HomeMessage): void {
-    const back = (messages: readonly HomeMessage[]) =>
-      messages.some((m) => m.id === original.id && m.retracted && m.parts.length === 0)
-        ? messages.map((m) => (m.id === original.id && m.retracted ? original : m))
-        : messages;
-    const view = this.snapshot.threadView;
-    const patch: Partial<HomeSnapshot> = { messages: back(this.snapshot.messages) };
-    if (view) patch.threadView = { ...view, messages: back(view.messages) };
-    this.set(patch);
   }
 
   dismissError(): void {
@@ -1102,21 +921,6 @@ export class HomeChannelsStore {
   private shown = true;
   /** The page's hash names the open conversation (false: the gallery, which owns its window hash). */
   routed = true;
-
-  /** The page reads only what its transcript shows (``readThrough``), never by itself: the Messages
-   * page, whose New Message hides the transcript, as the native transcript read only while it
-   * showed its newest message in a focused window. */
-  readsOnView = false;
-
-  private readsItself(): boolean {
-    return this.shown && !this.readsOnView;
-  }
-
-  /** The transcript showed `id`'s messages through `seq` (``readsOnView``): my read cursor moves there. */
-  readThrough(id: string, seq: number): void {
-    const conversation = this.snapshot.conversations.get(id);
-    if (conversation) this.markRead(conversation, seq);
-  }
 
   setShown(shown: boolean): void {
     if (shown === this.shown) return;
@@ -1163,7 +967,7 @@ export class HomeChannelsStore {
 
   /** Reads the open conversation through its newest loaded message. */
   private readOpen(): void {
-    if (!this.readsItself()) return;
+    if (!this.shown) return;
     const { selected, messages } = this.snapshot;
     const open = selected ? this.snapshot.conversations.get(selected) : undefined;
     if (open) this.markRead(open, messages.at(-1)?.seq ?? 0);
@@ -1214,7 +1018,6 @@ export class HomeChannelsStore {
     for (const id of batch.removed ?? []) {
       conversations ??= new Map(this.snapshot.conversations);
       conversations.delete(id);
-      this.recent.forget(id);
     }
     for (const change of batch.inbox ?? []) {
       const current = (conversations ?? this.snapshot.conversations).get(change.conversation);
@@ -1230,8 +1033,7 @@ export class HomeChannelsStore {
     if (conversations) patch.conversations = conversations;
     const selected = this.snapshot.selected;
     const incoming = (batch.messages ?? []).filter((message) => message.conversation === selected);
-    if (incoming.length > 0)
-      patch.messages = this.withRetracting(mergeMessages(this.snapshot.messages, incoming, WINDOW));
+    if (incoming.length > 0) patch.messages = mergeMessages(this.snapshot.messages, incoming, WINDOW);
     const left = this.settled(batch.messages ?? []);
     if (left) patch.pending = left;
     const activity = this.activityAfter(batch);
@@ -1248,10 +1050,7 @@ export class HomeChannelsStore {
       const tail = view.hasMore
         ? threadIncoming.filter((m) => view.messages.some((k) => k.seq === m.seq))
         : threadIncoming;
-      patch.threadView = {
-        ...view,
-        messages: this.withRetracting(mergeMessages(view.messages, tail, Number.MAX_SAFE_INTEGER)),
-      };
+      patch.threadView = { ...view, messages: mergeMessages(view.messages, tail, Number.MAX_SAFE_INTEGER) };
     }
     if (batch.presence)
       for (const entry of batch.presence) {
@@ -1278,7 +1077,7 @@ export class HomeChannelsStore {
     if (conversations) this.syncViewing();
     const open = selected ? this.snapshot.conversations.get(selected) : undefined;
     if (open && incoming.length > 0 && document.visibilityState === "visible") {
-      if (this.readsItself()) this.markRead(open, Math.max(...incoming.map((m) => m.seq)));
+      if (this.shown) this.markRead(open, Math.max(...incoming.map((m) => m.seq)));
     }
     if (batch.inboxStale) void this.reloadInbox();
     else if (selected && batch.stale?.includes(selected)) void this.reloadPage(selected);
@@ -1598,57 +1397,6 @@ function defaultSelection(conversations: readonly HomeConversation[]): string | 
  * while the page was read), and older ones only while they run without a gap up to the page. A
  * window that ends before the page starts (more than a page came in, a reconnect) would leave a
  * hole no older page fills, so the window then starts at the page (#25570). */
-/**
- * The newest page of the last few conversations shown (at most `size`, each at most `page`
- * messages, the least recently left dropped first): what a revisit draws while its page is read
- * again. The copies drawn are marked (`seeded`) so the page's answer replaces them rather than
- * joining them as events that came in meanwhile; an event's newer copy is a new object and joins.
- */
-export class RecentPages {
-  private readonly pages = new Map<string, readonly HomeMessage[]>();
-  /** The copies the shown conversation was seeded with, until its page answered. */
-  private marks = new WeakSet<HomeMessage>();
-
-  constructor(
-    private readonly size: number,
-    private readonly page: number,
-  ) {}
-
-  /** `conversation` was left showing `messages` (its own; any other conversation's are ignored). */
-  keep(conversation: string, messages: readonly HomeMessage[]): void {
-    const own = messages.filter((message) => message.conversation === conversation).slice(-this.page);
-    this.pages.delete(conversation);
-    if (!own.length) return;
-    this.pages.set(conversation, own);
-    for (const oldest of this.pages.keys()) {
-      if (this.pages.size <= this.size) break;
-      this.pages.delete(oldest);
-    }
-  }
-
-  /** What `conversation` showed when it was left, marked as a seed (empty: nothing kept). */
-  seed(conversation: string): HomeMessage[] {
-    const kept = this.pages.get(conversation);
-    this.marks = new WeakSet(kept);
-    return kept ? [...kept] : [];
-  }
-
-  /** `message` is a kept copy drawn on a revisit, not one the owner sent since. */
-  seeded(message: HomeMessage): boolean {
-    return this.marks.has(message);
-  }
-
-  /** The page answered: no copy on screen is a seed any more. */
-  release(): void {
-    this.marks = new WeakSet();
-  }
-
-  /** The conversation is gone: nothing of it is drawn again. */
-  forget(conversation: string): void {
-    this.pages.delete(conversation);
-  }
-}
-
 function joining(window: readonly HomeMessage[], first: number | undefined): HomeMessage[] {
   if (first === undefined) return [...window];
   const older = window.filter((m) => m.seq < first).sort((a, b) => b.seq - a.seq);
@@ -1660,10 +1408,4 @@ function joining(window: readonly HomeMessage[], first: number | undefined): Hom
     next -= 1;
   }
   return [...kept.reverse(), ...window.filter((m) => m.seq >= first)];
-}
-
-/** The owner refused a send for a file it does not hold (home-core `unknown_attachment`). */
-function unknownAttachment(error: unknown): boolean {
-  if (!isPageError(error)) return false;
-  return error.code.includes("unknown_attachment") || error.message.includes("unknown_attachment");
 }

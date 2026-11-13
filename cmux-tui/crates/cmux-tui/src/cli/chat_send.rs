@@ -209,7 +209,9 @@ fn read_or_wait(global: &mut GlobalArgs, verb: &str, words: &[String]) -> i32 {
         let Some(last) = super::last_chat::recall() else {
             return super::wire::print_local_error(&super::last_chat::none_yet(), global.output, 1);
         };
-        words[0] = last.session;
+        if let Some(first) = words.first_mut() {
+            *first = last.session;
+        }
         // Its VM, as recorded: no lookup in the app's topology.
         if let Some(vm) = last.vm {
             let words = cloud_start_chat::lift_output_of(

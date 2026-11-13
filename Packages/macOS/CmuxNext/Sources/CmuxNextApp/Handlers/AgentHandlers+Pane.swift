@@ -262,7 +262,7 @@ extension AgentHandlers {
                 return nil
             } catch {
                 daemon.logger.error("agent chat workspace over a top page failed: \(String(describing: error), privacy: .public)")
-                return ActionWorkFailure("new agent chat: \(error)")
+                return ActionWorkFailure(log: "new agent chat: \(error)")
             }
         })
         return true

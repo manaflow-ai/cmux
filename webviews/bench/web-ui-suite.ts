@@ -82,6 +82,14 @@ export const BENCHES: readonly Bench[] = [
     args: ["--turns", "600"],
     timeoutMs: 150_000,
   },
+  // 50 tool calls landing in a running turn on the wall clock, as an agent sends them: frame gaps, long tasks, a
+  // record's arrival to its paint, task ms per call and layout shift.
+  {
+    name: "tool-call-burst",
+    file: "tool-call-burst.bench.ts",
+    args: ["--rounds", "3"],
+    timeoutMs: 120_000,
+  },
   // 500 chats on the History page and 500 live chats (one per workspace) on the New Tab page: scroll frame work,
   // React per frame, mount and a row's press to its paint.
   {
@@ -97,6 +105,16 @@ export const BENCHES: readonly Bench[] = [
     file: "update-one.bench.ts",
     args: ["--changes", "20", "--turns", "1000"],
     timeoutMs: 300_000,
+    ownPart: true,
+  },
+  // The pane's state layer kept per operation that should keep nothing (sessions made and closed, chats reopened,
+  // reconnects mid-stream, a shell's output streaming), small and god side by side: bytes, objects and entries per
+  // operation after warm-up (bench/stateGrowth.ts). perf-cron.py's web-ui-growth part runs it (`--only state-growth`).
+  {
+    name: "state-growth",
+    file: "state-growth.bench.ts",
+    args: ["120", "--scale", "both"],
+    timeoutMs: 240_000,
     ownPart: true,
   },
   // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:

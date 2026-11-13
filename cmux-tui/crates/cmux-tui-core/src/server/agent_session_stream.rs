@@ -1,4 +1,5 @@
 //! Attach replay and live-stream delivery, shared by every native attach caller.
+use super::agent_session_link::list_gate::SessionListFilter;
 use super::*;
 use crate::panic_free::JsonFields;
 use cmux_json::JsonSet as _;
@@ -87,13 +88,30 @@ pub(super) fn connect_and_attach(
     slot.lock().unwrap_or_else(|e| e.into_inner()).session = Some(resolved.clone());
     // Session status changes (`_acpmux/session_changed`) come only to
     // watchers; the reader keeps only this session's and its descendants'.
-    // The answer (every session's summary) never reaches the client: only
+    // The watch turns them on with a one-row page, then this machine's own
+    // list names the descendants (a peer's session is never one,
+    // `agent_session_children::descendants`). A whole watch answered every
+    // peer's sessions too: 31 MB on a Mac that mirrors ~10,000, on each attach.
+    // An acpmux without `session-list-filters-v1` ignores `localOnly` and
+    // answers them all the same, so it gets the whole watch alone: the list
+    // once, not twice (`list_gate`). The list never reaches the client: only
     // the descendants it names are followed from now on.
+    let meta = author.as_ref().map(|author| json!({"acpmux": {"author": author}}));
     let mut watch = json!({"enabled": true});
-    if let Some(author) = &author {
-        watch.set_path(&["_meta", "acpmux", "author"], author.clone());
+    let mut own = json!({});
+    if let Some(meta) = &meta {
+        watch.set("_meta", meta.clone());
+        own.set("_meta", meta.clone());
     }
-    let watched = link.call_whole_list("_acpmux/watch", watch, CALL_TIMEOUT);
+    let local = SessionListFilter { local_only: true, ..SessionListFilter::default() };
+    let own = local.gate(own, link.capabilities(meta.as_ref(), CALL_TIMEOUT));
+    let watched = if own.served() {
+        watch.set("limit", json!(1));
+        link.call("_acpmux/watch", watch, CALL_TIMEOUT)
+            .and_then(|_| link.call_whole_list("_acpmux/sessions", own.params, CALL_TIMEOUT))
+    } else {
+        link.call_whole_list("_acpmux/watch", watch, CALL_TIMEOUT).map(|list| own.narrow(list))
+    };
     // A list read whole from bad pages would follow only some of the session's descendants,
     // and lose the changes of the rest; the client attaches again instead.
     if let Err(LinkError::BadList(_)) = &watched {

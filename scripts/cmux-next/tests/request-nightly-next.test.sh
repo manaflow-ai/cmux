@@ -17,6 +17,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 # git_q, and no background git maintenance in the scratch repositories.
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
 source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 fail() { printf '%s\n' "$@" >&2; exit 1; }
 sha() { shasum -a 256 "$1" | awk '{print $1}'; }
@@ -29,6 +30,7 @@ cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$ROOT/scripts/cmux-next/tree-commi
 [[ -f "$ROOT/scripts/cmux-next/request-nightly-next.sh" ]] \
   && cp "$ROOT/scripts/cmux-next/request-nightly-next.sh" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$src/scripts/ci/"
+cp "$ROOT/scripts/cmux-next/nightly_quarantine.py" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$src/scripts/cmux-next/"
 echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
 "$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$src"
@@ -121,6 +123,11 @@ if [[ "\$1" == api && "\$2" == repos/*/actions/workflows/cmux-tui-artifacts.yml/
   esac
   exit 0
 fi
+# The direct-push quarantine's history read: $TMP/gh-graphql's answer, else no status anywhere.
+if [[ "\$1 \$2" == "api graphql" ]]; then
+  if [[ -f "$TMP/gh-graphql" ]]; then cat "$TMP/gh-graphql"; else echo '{"data":{"repository":{"object":{"history":{"nodes":[]}}}}}'; fi
+  exit 0
+fi
 [[ "\$1" == api ]] || exit 0
 echo "gh stub: unexpected api call \$*" >&2; exit 1
 STUB
@@ -162,6 +169,27 @@ request --sha "$head" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$head" || fail "a green commit with a published tree must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 [[ "$(grep -c "workflow run nightly.yml" "$TMP/gh.log")" == 1 ]] || fail "the tick requests one promotion:" "$(cat "$TMP/gh.log")"
 
+# A direct push red on feat-cmux-next's push runs quarantines its commit (the status cmuxterm-hq's base-red-watch
+# posts, read by scripts/cmux-next/nightly_quarantine.py): it is not promoted until a later push is green. The shape is
+# 11-12's e0d3bb0ec2f0 by lawrencecchen.
+quarantine() { # <state> <commit>
+  printf '{"data":{"repository":{"object":{"history":{"nodes":[{"oid":"%s","author":{"user":{"login":"lawrencecchen"},"name":"Lawrence Chen"},"status":{"context":{"state":"%s","description":"red: base %s since e0d3bb0ec2f0 by lawrencecchen"}}}]}}}}}\n' "$2" "$1" "$(printf '4%.0s' {1..40})" > "$TMP/gh-graphql"
+}
+quarantine FAILURE "$head"
+request --sha "$head" --release-compile-green
+[[ "$status" == 0 ]] || fail "a quarantined commit is not an error (exit $status):" "$out"
+! dispatched "$head" || fail "a quarantined commit must not be promoted:" "$(cat "$TMP/gh.log")"
+grep -q "quarantined since direct push e0d3bb0ec2f0 by lawrencecchen" <<<"$out" || fail "the skip must name the push:" "$out"
+# The tick walks up to 120 commits, each a call of this script: GH_TICK_CACHE keeps the one read for the tick.
+GH_TICK_CACHE="$TMP/tick" request --sha "$head" --release-compile-green
+GH_TICK_CACHE="$TMP/tick" request --sha "$head" --release-compile-green
+! dispatched "$head" || fail "a cached quarantine must still hold the commit:" "$(cat "$TMP/gh.log")"
+[[ "$(grep -c '^api graphql ' "$TMP/gh.log")" == 0 ]] || fail "the tick's second call must read the quarantine from its cache:" "$(cat "$TMP/gh.log")"
+quarantine SUCCESS "$head"
+request --sha "$head" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$head" || fail "once a push's gates pass the commit is promoted:" "$out"
+rm -f "$TMP/gh-graphql"
+
 # A later app-only commit shares the published tree (the key is content-addressed).
 echo app > "$src/App.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "app only"
 app=$(git -C "$src" rev-parse HEAD)
@@ -181,7 +209,12 @@ git_q -C "$src" checkout -q --detach "$head"
 branch() { # <commit>: feat-cmux-next's tip (the script's history, fetched or local)
   git_q -C "$src" update-ref refs/heads/feat-cmux-next "$1"
 }
-no_api() { ! grep -q '^api' "$TMP/gh.log" || fail "--tree-ready must read no GitHub API:" "$(cat "$TMP/gh.log")"; }
+# No REST read. The one exception is the direct-push quarantine's single GraphQL read (its own budget, kept for the
+# whole tick in GH_TICK_CACHE), made only once a candidate is about to be requested.
+no_api() {
+  ! grep -v '^api graphql ' "$TMP/gh.log" | grep -q '^api' || fail "--tree-ready must read no GitHub REST API:" "$(cat "$TMP/gh.log")"
+  (( $(grep -c '^api graphql ' "$TMP/gh.log") <= 1 )) || fail "the quarantine is read once a call:" "$(cat "$TMP/gh.log")"
+}
 branch "$other"
 request --tree-ready "$head"
 [[ "$status" == 0 ]] && dispatched "$app" || fail "the newest commit with the published tree must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"

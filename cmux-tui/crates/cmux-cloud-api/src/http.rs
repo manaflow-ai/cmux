@@ -33,6 +33,10 @@ pub enum Failure {
         message: Option<String>,
         action: Option<String>,
         trace_id: Option<String>,
+        /// The body's own `retryable` (cmux-platform#1192 sends one on every Cloud refusal).
+        retryable: Option<bool>,
+        /// A rate limit's window: the body's `retryAfterSeconds`.
+        retry_after_s: Option<u64>,
     },
     /// A refusal a paid plan lifts (`pro` or `max`).
     PlanRequired {
@@ -79,7 +83,15 @@ impl Failure {
     }
 
     pub(crate) fn http(status: u16, code: Option<String>, message: Option<String>) -> Self {
-        Failure::Http { status, code, message, action: None, trace_id: None }
+        Failure::Http {
+            status,
+            code,
+            message,
+            action: None,
+            trace_id: None,
+            retryable: None,
+            retry_after_s: None,
+        }
     }
 
     pub fn json(&self) -> Value {
@@ -87,10 +99,22 @@ impl Failure {
             Failure::TimedOut(path) => json!({ "kind": "timed_out", "path": path }),
             Failure::Transport(message) => json!({ "kind": "transport", "message": message }),
             Failure::NoBackend => json!({ "kind": "no_backend" }),
-            Failure::Http { status, code, message, action, trace_id } => json!({
-                "kind": "http", "status": status, "code": code, "message": message,
-                "action": action, "trace_id": trace_id,
-            }),
+            Failure::Http { status, code, message, action, trace_id, retryable, retry_after_s } => {
+                let mut line = json!({
+                    "kind": "http", "status": status, "code": code, "message": message,
+                    "action": action, "trace_id": trace_id,
+                });
+                // Only when the refusal said: the app's error cases stay as they were otherwise.
+                if let Value::Object(object) = &mut line {
+                    if let Some(retryable) = retryable {
+                        object.insert("retryable".into(), json!(retryable));
+                    }
+                    if let Some(seconds) = retry_after_s {
+                        object.insert("retry_after_s".into(), json!(seconds));
+                    }
+                }
+                line
+            }
             Failure::PlanRequired { message, upgrade_url, plan } => json!({
                 "kind": "plan_required", "message": message, "upgrade_url": upgrade_url, "plan": plan,
             }),
@@ -112,6 +136,8 @@ pub(crate) struct Reply {
     pub(crate) status: u16,
     /// `x-cmux-vm-error`, classic's code header.
     pub(crate) header_code: Option<String>,
+    /// `Retry-After`: a rate limit's window, in seconds.
+    pub(crate) retry_after: Option<String>,
     pub(crate) body: Vec<u8>,
 }
 
@@ -227,6 +253,11 @@ impl Http {
             .get("x-cmux-vm-error")
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned);
+        let retry_after = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
         let body =
             match tokio::time::timeout(timeout, bounded_body(response, crate::MAX_ANSWER_BYTES))
                 .await
@@ -243,7 +274,7 @@ impl Http {
                 }
                 Ok(Ok(bytes)) => bytes,
             };
-        Ok(Reply { status, header_code, body })
+        Ok(Reply { status, header_code, retry_after, body })
     }
 
     /// A classic call (`/api/runs`): a 2xx body as JSON (`null` when it has none),
@@ -346,9 +377,15 @@ pub(crate) fn vm_error(status: u16, body: &[u8], header_code: Option<&str>) -> F
         ApiError::PlanRequired { message, upgrade_url, plan } => {
             Failure::PlanRequired { message, upgrade_url, plan }
         }
-        ApiError::Http { code, message, action, trace_id, .. } => {
-            Failure::Http { status, code, message, action, trace_id }
-        }
+        ApiError::Http { code, message, action, trace_id, .. } => Failure::Http {
+            status,
+            code,
+            message,
+            action,
+            trace_id,
+            retryable: None,
+            retry_after_s: None,
+        },
         // `from_response` reads a response, so it answers one of the two above.
         _ => Failure::http(status, None, None),
     }

@@ -163,6 +163,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.finishSound":
+            if let kind = (params?["kind"] as? String).flatMap(AgentPaneFinishSound.Kind.init(rawValue:)) {
+                self = .finishSound(kind)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.saveFile":
             // A document's kind only: the inspector's log has its own method.
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneSave.Kind.init(rawValue:)), kind != .log,
@@ -245,7 +251,8 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.painted":
-            self = .painted(fromKeptTail: params?["drewKeptTail"] as? Bool ?? false)
+            self = .painted(fromKeptTail: params?["drewKeptTail"] as? Bool ?? false,
+                            settled: params?["settled"] as? Bool ?? false)
         case "pane.renderRate":
             if let full = params?["full"] as? Bool {
                 self = .renderRate(full)
@@ -261,7 +268,8 @@ extension AgentPaneRequest {
                                                  run: kind != .terminal || params?["run"] as? Bool != false,
                                                  keep: params?["keep"] as? Bool == true,
                                                  profile: kind == .browser ? AgentPaneOpenTabProfile(params: params) : nil,
-                                                 inPlace: params?["inPlace"] as? Bool == true))
+                                                 inPlace: params?["inPlace"] as? Bool == true,
+                                                 beside: kind == .browser && params?["beside"] as? Bool == true))
             } else {
                 self = .unsupported(method)
             }
@@ -276,10 +284,17 @@ extension AgentPaneRequest {
         case "account.add":
             self = AgentPaneAddAccount(params: params).map(AgentPaneRequest.addAccount) ?? .unsupported(method)
         case "harness.update":
-            // A harness id (profile file name), never a command.
-            if let id = params?["id"] as? String, !id.isEmpty, id.utf8.count <= 128,
-               id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) }) {
-                self = .harnessUpdate(id: id)
+            // Harness ids (profile file names), never a command: one `id`, or `ids` for Update all.
+            let harnessId = { (value: Any?) -> String? in
+                guard let id = value as? String, !id.isEmpty, id.utf8.count <= 128,
+                      id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) }) else { return nil }
+                return id
+            }
+            if let id = harnessId(params?["id"]) {
+                self = .harnessUpdate(ids: [id], each: false)
+            } else if let list = params?["ids"] as? [Any], (1 ... 32).contains(list.count) {
+                let ids = list.compactMap(harnessId)
+                self = ids.count == list.count && Set(ids).count == ids.count ? .harnessUpdate(ids: ids, each: true) : .unsupported(method)
             } else {
                 self = .unsupported(method)
             }
@@ -334,8 +349,6 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "newTab.editWidgets":
-            self = AgentPaneNewTabEdit(widgetParams: params).map(AgentPaneRequest.editNewTab) ?? .unsupported(method)
         case "readAloud.speak", "readAloud.stop":
             self = AgentPaneReadAloud.Command(method: method, params: params).map(AgentPaneRequest.readAloud) ?? .unsupported(method)
         case "nowPlaying.command":
@@ -554,13 +567,14 @@ extension AgentPaneRequest {
         case "chat.subagentPane":
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
                 // `title`: the subagent's own name, which its pane's tab shows (SubagentTabTitles).
-                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, title: params?["title"] as? String, tone: params?["tone"] as? Int)
+                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, title: params?["title"] as? String, tone: params?["tone"] as? Int,
+                                     mark: SubagentTabTitles.mark(params?["mark"]))
             } else { self = .unsupported(method) }
         case "chat.subagentShown":
             let id = params?["subagent"] as? String
             if let id, id.isEmpty || id.count > 256 { self = .unsupported(method) } else {
                 self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String, tone: id == nil ? nil : params?["tone"] as? Int,
-                                      facts: id == nil ? nil : SubagentTabFacts(params))
+                                      facts: id == nil ? nil : SubagentTabFacts(params), mark: id == nil ? nil : SubagentTabTitles.mark(params?["mark"]))
             }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
@@ -690,8 +704,6 @@ extension AgentPaneRequest {
         case "dictation.toggle": self = .dictation(.toggle)
         case "dictation.handoff": self = .dictationHandoff
         case "dictation.sources": self = .dictationSources
-        case "dictation.watchMicrophone":
-            if let on = params?["on"] as? Bool { self = .watchMicrophone(on) } else { self = .unsupported(method) }
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)
         case "dictation.cancel": self = .dictation(.cancel)

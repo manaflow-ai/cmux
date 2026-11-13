@@ -112,6 +112,7 @@ impl Hub {
             additional_directories,
             person,
             wait_start,
+            throwaway,
             require_asking,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
@@ -353,7 +354,7 @@ impl Hub {
             }
             meta.name = match name {
                 Some(n) => {
-                    if sessions.values().any(|s| s.meta().name == n) {
+                    if sessions.values().any(|s| s.read_meta(|m| m.name == n)) {
                         return Err(RpcError::invalid_params(format!(
                             "session name {n:?} is taken"
                         )));
@@ -366,13 +367,14 @@ impl Hub {
                 // A pooled harness was started under its name: keep it.
                 None => match self
                     .pool_claimed_name(&id)
-                    .filter(|n| !sessions.values().any(|s| s.meta().name == *n))
+                    .filter(|n| !sessions.values().any(|s| s.read_meta(|m| m.name == *n)))
                 {
                     Some(n) => n,
                     None => unique_name_among(&sessions, agent),
                 },
             };
             meta.wait_start = wait_start;
+            meta.throwaway = throwaway;
             let session = self.make_session(meta);
             session.person.store(person, Ordering::SeqCst);
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
@@ -412,6 +414,8 @@ impl Hub {
         // No `git` record exists yet; retain that baseline even if the chat grows before attach.
         self.restore_git_branch(&session, session.meta().git_branch);
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
+        // Opt-in usage patterns: one more chat on this harness (its kind, not the chat).
+        cmux_usage_patterns::count("agent-chat", agent);
         if let Some(a) = &adopt {
             let adopted = if fork_from.is_some() {
                 json!({"agentSessionId": a.agent_session_id, "fork": true})
@@ -1320,11 +1324,7 @@ impl Hub {
         self.wake_idle_reaper();
 
         // Start the inbound loop for this session once.
-        if let Some(rx) = session.inbound_rx.lock().await.take() {
-            let hub = self.clone();
-            let s = session.clone();
-            tokio::spawn(async move { hub.inbound_loop(s, rx).await });
-        }
+        self.spawn_inbound_loop(session).await;
 
         let init = match child.request(method::INITIALIZE, super::pool::initialize_params()).await {
             Ok(v) => v,
@@ -1641,6 +1641,20 @@ impl Hub {
         if let Some(models) = present("models") {
             session.meta.lock().unwrap().models = Some(models);
         }
+    }
+
+    /// How many requests wait on the agent of the session `key` now; None when it has none
+    /// running.
+    pub async fn agent_pending_requests(&self, key: &str) -> Option<usize> {
+        let session = self.resolve(key).ok()?;
+        let child = session.child.lock().await.clone()?;
+        Some(child.pending_requests().await)
+    }
+
+    /// How many client requests this hub's connections serve now, each holding its work slot
+    /// on its connection (`server/in_flight.rs`): a cancelled one leaves at once.
+    pub fn requests_in_flight(&self) -> usize {
+        self.requests_in_flight.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub(super) async fn child_for(

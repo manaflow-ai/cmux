@@ -157,15 +157,23 @@ impl StartupTimings {
 
     /// A one-line summary for the log: the total and the slowest laps.
     pub fn summary(&self) -> String {
+        format!(
+            "startup {} ms to the first answer; slowest: {}",
+            self.total().as_millis(),
+            self.slowest(3)
+        )
+    }
+
+    /// The `count` slowest laps, slowest first: `step N ms, ...`.
+    pub fn slowest(&self, count: usize) -> String {
         let mut slowest = self.steps();
         slowest.sort_by_key(|(_, took)| std::cmp::Reverse(*took));
-        let top = slowest
+        slowest
             .iter()
-            .take(3)
+            .take(count)
             .map(|(step, took)| format!("{step} {} ms", took.as_millis()))
             .collect::<Vec<_>>()
-            .join(", ");
-        format!("startup {} ms to the first answer; slowest: {top}", self.total().as_millis())
+            .join(", ")
     }
 }
 

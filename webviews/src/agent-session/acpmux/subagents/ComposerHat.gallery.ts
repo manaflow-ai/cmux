@@ -17,6 +17,7 @@ type Props = {
   surface?: "card" | "queue" | "codex-strip";
   narrow?: boolean;
   tucked?: boolean;
+  bridge?: "none" | "seated" | "perched" | "before";
 };
 
 const stage = (name: string) => ({ selector: `[data-stage="${name}"]` });
@@ -137,6 +138,25 @@ export default componentEntry<Props>({
     "line-tuck": {
       note: "Twelve run and the hat is out: Tuck the hat, and the gap is the pill's whole width from its first frame.",
       props: { start: 12, tucked: false },
+    },
+    // No line of the pill's own beside it (Leo, 2026-11-11: "did this line behind the count box get
+    // removed yet?"): where the pill sits on the card's line. `bridge-none` ships; theme switch for
+    // light and dark; test/composer-hat-line-gap.test.ts.
+    "bridge-none": {
+      note: "Shipped: 41 run (^ 41) and the pill hangs no stub; the card's line runs up to its rim, 2px under its middle.",
+      props: { start: 41 },
+    },
+    "bridge-seated": {
+      note: "Candidate: no stubs and no lift, the pill centred on the card's line.",
+      props: { start: 41, bridge: "seated" },
+    },
+    "bridge-perched": {
+      note: "Candidate: no stubs, the pill lifted till its foot stands on the card's line.",
+      props: { start: 41, bridge: "perched" },
+    },
+    "bridge-before": {
+      note: "Before (Leo's capture): 8px stubs at the pill's middle ran 2px over the card's line, a second line poking out on both sides.",
+      props: { start: 41, bridge: "before" },
     },
     "line-before": {
       note: "Before: the card's top line ran through the middle of the pill's glass.",

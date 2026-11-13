@@ -132,7 +132,7 @@ declare namespace Cmux {
   type CreationResolution = { correlation_key: string; state: "pending" | "created" | "not_applied" | "indeterminate"; recovery: "retry_same_idempotency_key" | "retry_new_idempotency_key" | "wait" | "none" | "do_not_retry"; operation?: string; idempotency_key?: string; created_path?: Cmux.CreatedPath; generation?: string; revision?: string }
   type CredentialCheck = { valid: boolean; actor?: string; reason?: "unknown_key" | "credential_invalid" | "credential_malformed" | "credential_foreign_host" | "credential_closed" }
   type CronSpec = { expr: string; tz: string }
-  type Cursor = { generation: string; revision: string }
+  type Cursor = { generation: string; revision: string; live?: string }
   type DeviceId = string
   type DeviceStatus = { install: Cmux.InstallId; user: string; policy_version: number; app_version: string; mdm_keys: Array<string>; conflicts: Array<string>; reported_at: number }
   type DiffComment = Record<string, Cmux.JsonValue>
@@ -206,7 +206,7 @@ declare namespace Cmux {
   type GroupPlacement = { kind: "local" | "mini" | "cloud_vm"; host?: string; machine?: string }
   type GroupWorkspaceId = string
   type Handoff = { id: string; to: string; epoch: number; at: number }
-  type HistoryEntriesListResult = { entries: Array<Cmux.HistoryEntry>; revision: string }
+  type HistoryEntriesListResult = { entries: Array<Cmux.HistoryEntry>; revision: string; pending_kinds?: Array<Cmux.HistoryKind> }
   type HistoryEntry = { id: string; kind: Cmux.HistoryKind; at_ms: string; title: string; detail?: string; machine?: string; workspace?: string; available: boolean; current?: boolean; running?: boolean; url?: string; profile?: string; closed_kind?: "terminal_tab" | "browser_tab" | "conversation_tab" | "screen" | "workspace"; cwd?: string; command?: string; exit_code?: number; session_id?: string; provider?: string; window?: string; location?: Cmux.HistoryTrailLocation }
   type HistoryKind = "page" | "location" | "closed" | "command" | "agent"
   type HistoryPurgeResult = { purged: number }
@@ -1283,7 +1283,7 @@ interface CmuxGlobal {
     /** `pane.run` (mutation, scope `workspace:execute`) */
     run: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; correlation_key?: string; argv?: Array<string>; shell?: string; cwd?: string; name?: string; on_exit?: "close" | "keep" | "shell"; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `pane.split` (mutation, scope `workspace:write`) */
-    split: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; correlation_key?: string; direction: "left" | "right" | "up" | "down"; ratio?: number; viewport_width?: number; cwd?: string; argv?: Array<string>; shell?: string; focus?: boolean; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
+    split: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; correlation_key?: string; direction: "left" | "right" | "up" | "down"; ratio?: number; viewport_width?: number; fit?: boolean; cwd?: string; argv?: Array<string>; shell?: string; focus?: boolean; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     split_ratio: {
       /** `pane.split_ratio.set` (mutation, scope `workspace:write`) */
       set: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; split_id: string /* split_… */; ratio: number; expected_revision?: string }, Cmux.MutationResult<Cmux.PaneSnapshot>>

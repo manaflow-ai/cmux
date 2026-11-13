@@ -733,28 +733,3 @@
   gap: 8px;
   margin-top: auto;
 }
-
-/* A queued or unlinked agent's card under its pill (HomeAgentPillCard): the shared popup surface. */
-/* Inside the ui/ Popover, which owns its surface, place, Escape and press-outside. */
-.hm-pill-card {
-  width: 240px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--ds-space-2);
-  padding: var(--ds-space-3);
-}
-
-.hm-pill-card__title {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: var(--weight-emphasis);
-}
-
-.hm-pill-card__status {
-  color: var(--ds-color-muted);
-  font-size: var(--text-detail);
-  margin-bottom: var(--ds-space-1);
-}
