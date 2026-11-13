@@ -264,6 +264,22 @@ impl Session {
         self.reporter.set_activity(activity, true, now).into_iter().collect()
     }
 
+    /// The updater's block the first report carries (no report of its own: `start` makes it).
+    pub fn with_updater(mut self, block: Option<Value>) -> Session {
+        let _ = self.reporter.set_updater(block, false, 0);
+        self
+    }
+
+    /// The updater's block as it stands (`updater/look.rs` `report`). A report goes
+    /// when its outcome, reason, run or swap changed; a check that only moved its
+    /// time rides along with the next report.
+    pub fn updater(&mut self, block: Option<Value>, now: u64) -> Vec<OpRequest> {
+        let cur = self.reporter.updater().cloned();
+        let changed =
+            crate::updater::look::report_key(&block) != crate::updater::look::report_key(&cur);
+        self.reporter.set_updater(block, changed, now).into_iter().collect()
+    }
+
     /// The activity stream connected or dropped: `activity` is advertised
     /// only while it is live.
     pub fn activity_stream(&mut self, connected: bool, now: u64) -> Vec<OpRequest> {
