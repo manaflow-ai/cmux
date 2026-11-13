@@ -32,7 +32,7 @@ class SidebarRowView: NSView {
         self.key = key
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerCurve = .continuous
+        layer?.cornerCurve = Metrics.tabCornerCurve // one curve with the tabs (`TabCornerCurve`)
         layer?.cornerRadius = SidebarStyle.rowCornerRadius
     }
 

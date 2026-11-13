@@ -18,6 +18,9 @@ type Row = {
   spinners: number;
   shimmer: boolean;
   bandAnimation: string;
+  bandDuration: string;
+  bandEasing: string;
+  bandIterations: string;
   litText: string;
   litOverflow: string;
   animations: number;
@@ -47,7 +50,7 @@ await requireBrowserLane("tool-row-shimmer-browser.test.ts", async () => {
     await vite?.close();
   });
 
-  async function measure(reducedMotion: "reduce" | "no-preference", motion?: string): Promise<Row[]> {
+  async function measure(reducedMotion: "reduce" | "no-preference", motion?: string, idle = false): Promise<Row[]> {
     const page = await browser.newPage({ viewport: { width: 820, height: 400 }, deviceScaleFactor: 2, reducedMotion });
     try {
       const errors: string[] = [];
@@ -58,6 +61,12 @@ await requireBrowserLane("tool-row-shimmer-browser.test.ts", async () => {
       );
       await page.locator("[data-fixture-state] .cv-tool").nth(4).waitFor();
       await page.evaluate(() => document.fonts.ready);
+      if (reducedMotion === "no-preference" && !motion) {
+        await page.waitForFunction(
+          () => document.querySelectorAll("[data-fixture-state=running] .is-shimmer-active").length === 3,
+        );
+        if (idle) await page.waitForFunction(() => document.querySelectorAll(".is-shimmer-active").length === 0);
+      }
       const rows = await page.evaluate(() =>
         [...document.querySelectorAll<HTMLElement>("[data-fixture-state]")].map((holder) => {
           const row = holder.querySelector<HTMLElement>(".cv-tool")!;
@@ -82,11 +91,19 @@ await requireBrowserLane("tool-row-shimmer-browser.test.ts", async () => {
             text: base,
             detachedMarks,
             spinners: row.querySelectorAll(".cv-spinner").length,
-            shimmer: Boolean(shimmer && getComputedStyle(shimmer).display !== "none"),
+            shimmer: Boolean(
+              shimmer?.classList.contains("is-shimmer-active") && getComputedStyle(shimmer).display !== "none",
+            ),
             bandAnimation: band ? getComputedStyle(band).animationName : "none",
+            bandDuration: band ? getComputedStyle(band).animationDuration : "0s",
+            bandEasing: band ? getComputedStyle(band).animationTimingFunction : "linear",
+            bandIterations: band ? getComputedStyle(band).animationIterationCount : "0",
             litText: lit?.textContent ?? "",
             litOverflow: lit ? getComputedStyle(lit).textOverflow : "",
-            animations: row.getAnimations({ subtree: true }).length,
+            animations: row
+              .getAnimations({ subtree: true })
+              .filter((animation) => (animation as CSSAnimation).animationName.startsWith("cmux-cadenced-shimmer-"))
+              .length,
             color: getComputedStyle(words).color,
             wordsGrew: words.scrollWidth > words.clientWidth + 0.5,
           };
@@ -101,14 +118,16 @@ await requireBrowserLane("tool-row-shimmer-browser.test.ts", async () => {
 
   test("a running row's words shimmer and no mark waits at its far edge; a finished row has none", async () => {
     const rows = await measure("no-preference");
-    console.log(`TOOL_ROW_SHIMMER motion ${JSON.stringify(rows)}`);
     expect(rows.map((row) => row.id)).toEqual(["monitor", "read", "command", "done-read", "done-command"]);
     for (const row of rows) {
       expect(row.spinners, `spinner: ${row.id}`).toBe(0);
       expect(row.detachedMarks, `mark at the far edge: ${row.id}`).toBe(0);
       if (row.state === "running") {
         expect(row.shimmer, `shimmer: ${row.id}`).toBe(true);
-        expect(row.bandAnimation, `band: ${row.id}`).toBe("cmux-shimmer-band");
+        expect(row.bandAnimation, `band: ${row.id}`).toBe("cmux-cadenced-shimmer-band");
+        expect(row.bandDuration).toBe("1s");
+        expect(row.bandEasing).toMatch(/^steps\(48(?:, end)?\)$/);
+        expect(row.bandIterations).toBe("1");
         // The band lights the row's own words.
         expect(row.litText, `lit words: ${row.id}`).toBe(row.text);
         // A cut label ends in its ellipsis under the band too.
@@ -125,6 +144,17 @@ await requireBrowserLane("tool-row-shimmer-browser.test.ts", async () => {
     expect(rows[1]!.color).not.toBe(rows[3]!.color);
   });
 
+  test("running rows keep their dim words during the three-second idle interval without animations", async () => {
+    const rows = await measure("no-preference", undefined, true);
+    for (const row of rows) {
+      expect(row.shimmer, row.id).toBe(false);
+      expect(row.animations, row.id).toBe(0);
+      expect(row.bandAnimation, row.id).toBe("none");
+      expect(row.wordsGrew, row.id).toBe(false);
+    }
+    expect(rows[1]!.color).not.toBe(rows[3]!.color);
+  });
+
   for (const [name, reduced, motion] of [
     ["Reduce Motion", "reduce", undefined],
     ["the motion gate (reduced)", "no-preference", "reduced"],
@@ -132,7 +162,6 @@ await requireBrowserLane("tool-row-shimmer-browser.test.ts", async () => {
   ] as const) {
     test(`${name}: running words hold still, dimmed, with no mark at the edge`, async () => {
       const rows = await measure(reduced, motion);
-      console.log(`TOOL_ROW_SHIMMER ${name} ${JSON.stringify(rows)}`);
       for (const row of rows) {
         expect(row.spinners, `spinner: ${row.id}`).toBe(0);
         expect(row.detachedMarks, `mark at the far edge: ${row.id}`).toBe(0);

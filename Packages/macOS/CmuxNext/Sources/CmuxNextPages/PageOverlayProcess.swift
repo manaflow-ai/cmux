@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import WebKit
 
 /// One WebKit web content process for the app's transparent overlay pages
@@ -18,7 +19,7 @@ import WebKit
 /// The composition root (`AppServices.overlayProcess`) makes the app's one instance and hands it to each
 /// overlay page's owner, which passes it to ``PageWebView`` (`overlayProcess:`). A page made without one
 /// keeps its own store and its own process: tests, every other page, and the browser chrome's popups
-/// (`BrowserChromeWebHost`: Page Info and the cookie import card, made only when opened).
+/// (`BrowserChromeWebHost`: Page Info's windows and the cookie import card, made only when opened).
 @MainActor
 public final class PageOverlayProcess {
     /// The most overlay pages one process serves: what one crash of that process takes down.
@@ -36,7 +37,8 @@ public final class PageOverlayProcess {
     /// Relates `configuration` to the current group's first page when it lives and has room, so the
     /// view made from it runs in that page's process; then call ``joined(_:)`` with the view.
     func prepare(_ configuration: WKWebViewConfiguration) {
-        guard let anchor, members < pagesPerProcess,
+        // A retired anchor whose page closed (WebViewRetirement) serves no new page, as in WebProcessGroups.
+        guard let anchor, members < pagesPerProcess, WebViewRetirement.isPageClosed(anchor) != true,
               anchor.configuration.processPool === configuration.processPool,
               anchor.configuration.websiteDataStore === configuration.websiteDataStore else {
             members = 0

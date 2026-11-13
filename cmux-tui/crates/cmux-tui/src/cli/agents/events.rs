@@ -12,6 +12,11 @@
 //!
 //! Events carry ids, states and short titles only: no terminal text, no
 //! chat text, no tool input. A notification's title and body are cut.
+//!
+//! With `--until KIND.CHANGE` and/or `--match PATH=VALUE` (cli/event_match.rs)
+//! a call waits for the first matching event instead: it answers that event
+//! alone (and any reset), `matched`, and a cursor right after it, and a CLI
+//! timeout may then be longer than [`MAX_TIMEOUT_SECONDS`].
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -21,6 +26,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
+use super::super::event_match::EventMatch;
 use super::super::mcp::{self, Backend, CallFailure, FailureKind};
 use super::super::{UsageError, app};
 use super::{AgentFailure, compose_snapshot, snapshot_plan};
@@ -29,6 +35,8 @@ use cmux_json::JsonSet as _;
 pub(in crate::cli) const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
 /// One request at a time per MCP connection: a long-poll holds the others.
 pub(in crate::cli) const MAX_TIMEOUT_SECONDS: u64 = 60;
+/// A wait for one event (`--until`, `--match`) may hold up to a day.
+const MAX_WAIT_SECONDS: u64 = 86_400;
 pub(in crate::cli) const DEFAULT_LIMIT: usize = 100;
 pub(in crate::cli) const MAX_LIMIT: usize = 200;
 pub(in crate::cli) const KINDS: [&str; 5] = ["dialog", "notification", "tab", "workspace", "agent"];
@@ -67,6 +75,16 @@ pub(in crate::cli) struct EventsRequest {
     kinds: BTreeSet<&'static str>,
     pub timeout: Duration,
     limit: usize,
+    /// `--until` / `--match`: answer the first event that matches.
+    until: Option<EventMatch>,
+}
+
+impl EventsRequest {
+    /// Whether `answer` is a wait for one event that ran out of time (the
+    /// CLI exits 124). A plain long-poll's empty answer is not.
+    pub(in crate::cli) fn ran_out(&self, answer: &Value) -> bool {
+        self.until.is_some() && answer.get("timed_out").and_then(Value::as_bool) == Some(true)
+    }
 }
 
 /// Where a caller is: the last event number it got, the daemon journal
@@ -102,6 +120,12 @@ struct DaemonCursor {
     revision: u64,
     #[serde(rename = "k", default, skip_serializing_if = "is_zero")]
     skip: usize,
+    /// The daemon's live position (`live` in its cursor), sent back as it
+    /// came: the next call then gets only the terminals whose live facts
+    /// changed after this one. `None` from a daemon that has no live
+    /// position, and in a cursor of a build before it.
+    #[serde(rename = "l", default, skip_serializing_if = "Option::is_none")]
+    live: Option<String>,
 }
 
 fn is_zero(value: &usize) -> bool {
@@ -126,22 +150,28 @@ impl Cursor {
 
     fn daemon_param(&self) -> Option<Value> {
         let daemon = self.daemon.as_ref()?;
-        Some(json!({"generation": daemon.generation, "revision": daemon.revision.to_string()}))
+        let mut cursor =
+            json!({"generation": daemon.generation, "revision": daemon.revision.to_string()});
+        if let (Some(live), Some(fields)) = (&daemon.live, cursor.as_object_mut()) {
+            fields.insert("live".to_owned(), json!(live));
+        }
+        Some(cursor)
     }
 }
 
 /// Parses the words after `cmux agents events`.
 pub(super) fn parse(args: &[&str]) -> Result<EventsRequest, UsageError> {
     let usage = |message: String| UsageError::new(format!("agents events: {message}"));
-    let (mut after, mut timeout, mut limit) = (None, None, None);
+    let (mut after, mut timeout, mut limit, mut until) = (None, None, None, None);
     let mut kinds = BTreeSet::new();
+    let mut matches = Vec::new();
     let mut index = 0;
     while index < args.len() {
         let (flag, inline) = match args[index].split_once('=') {
             Some((flag, value)) if flag.starts_with("--") => (flag, Some(value)),
             _ => (args[index], None),
         };
-        if !matches!(flag, "--after" | "--kind" | "--timeout" | "--limit") {
+        if !matches!(flag, "--after" | "--kind" | "--timeout" | "--limit" | "--until" | "--match") {
             return Err(usage(format!("unexpected argument {flag:?}")));
         }
         let value = match inline {
@@ -158,6 +188,10 @@ pub(super) fn parse(args: &[&str]) -> Result<EventsRequest, UsageError> {
             return Err(usage(format!("{flag} needs a value")));
         }
         index += 1;
+        if flag == "--match" {
+            matches.push(value);
+            continue;
+        }
         if flag == "--kind" {
             for kind in value.split(',') {
                 let known = KINDS.iter().find(|known| **known == kind).ok_or_else(|| {
@@ -170,6 +204,7 @@ pub(super) fn parse(args: &[&str]) -> Result<EventsRequest, UsageError> {
         let slot = match flag {
             "--after" => &mut after,
             "--timeout" => &mut timeout,
+            "--until" => &mut until,
             _ => &mut limit,
         };
         if slot.is_some() {
@@ -184,17 +219,18 @@ pub(super) fn parse(args: &[&str]) -> Result<EventsRequest, UsageError> {
             })
         })
         .transpose()?;
+    let until = EventMatch::new("agents events", until, &matches)?;
+    let max = if until.is_some() { MAX_WAIT_SECONDS } else { MAX_TIMEOUT_SECONDS };
     let timeout = match timeout {
         None => Duration::from_secs(DEFAULT_TIMEOUT_SECONDS),
-        Some(value) => match value.parse::<f64>() {
-            Ok(seconds)
-                if seconds.is_finite() && (0.0..=MAX_TIMEOUT_SECONDS as f64).contains(&seconds) =>
-            {
+        Some(value) => match timeout_seconds(value) {
+            Some(seconds) if seconds.is_finite() && (0.0..=max as f64).contains(&seconds) => {
                 Duration::from_secs_f64(seconds)
             }
             _ => {
+                let wait = if until.is_some() { " with --until or --match" } else { "" };
                 return Err(usage(format!(
-                    "--timeout is a number of seconds from 0 to {MAX_TIMEOUT_SECONDS}"
+                    "--timeout is 0 to {max} seconds{wait} (30, 30s, 5m, 1500ms)"
                 )));
             }
         },
@@ -209,7 +245,26 @@ pub(super) fn parse(args: &[&str]) -> Result<EventsRequest, UsageError> {
     if kinds.is_empty() {
         kinds.extend(KINDS);
     }
-    Ok(EventsRequest { after, kinds, timeout, limit })
+    Ok(EventsRequest { after, kinds, timeout, limit, until })
+}
+
+/// `30`, `0.5`, `30s`, `5m`, `2h` or `1500ms` as seconds.
+fn timeout_seconds(text: &str) -> Option<f64> {
+    let (number, scale) = match text.find(|character: char| character.is_ascii_alphabetic()) {
+        None => (text, 1.0),
+        Some(index) => {
+            let (number, unit) = text.split_at(index);
+            let scale = match unit {
+                "ms" => 0.001,
+                "s" => 1.0,
+                "m" => 60.0,
+                "h" => 3_600.0,
+                _ => return None,
+            };
+            (number, scale)
+        }
+    };
+    number.parse::<f64>().ok().map(|value| value * scale)
 }
 
 /// Reads the events after `request.after` (from now without it) and
@@ -254,13 +309,18 @@ pub(in crate::cli) fn run<B: Backend>(
     }
     poll.stream(backend, session, deadline);
     let next_after = poll.fit_cursor();
-    Ok(json!({
+    let mut answer = json!({
         "schema_version": 1,
         "events": poll.events,
         "next_after": next_after,
-        "timed_out": poll.events.is_empty(),
+        "timed_out": if request.until.is_some() { !poll.matched } else { poll.events.is_empty() },
         "sources": {"daemon": poll.daemon_seen, "app": poll.app_seen},
-    }))
+    });
+    if let Some(until) = &request.until {
+        answer.set("matched", json!(poll.matched));
+        answer.set("until", until.describe());
+    }
+    Ok(answer)
 }
 
 struct Poll<'a> {
@@ -275,6 +335,8 @@ struct Poll<'a> {
     bound: Instant,
     /// The cursor had no daemon position: the first snapshot is a reset.
     unanchored: bool,
+    /// A `--until` / `--match` call got its event.
+    matched: bool,
 }
 
 impl<'a> Poll<'a> {
@@ -289,6 +351,7 @@ impl<'a> Poll<'a> {
             app_seen: false,
             bound,
             unanchored: false,
+            matched: false,
         }
     }
 
@@ -378,13 +441,21 @@ impl<'a> Poll<'a> {
         self.answered(item.is_none(), deadline)
     }
 
+    /// No more events fit: a wait's match, or a plain poll's limit. A wait
+    /// holds at most its resets and its match, so a reset (an expired
+    /// cursor, `--limit 1`) never fills it before the match.
     fn full(&self) -> bool {
-        self.events.len() >= self.request.limit
+        match self.request.until {
+            Some(_) => self.matched,
+            None => self.events.len() >= self.request.limit,
+        }
     }
 
     fn answered(&self, quiet: bool, deadline: Instant) -> bool {
         self.full()
-            || self.first_event.is_some_and(|first| quiet || first.elapsed() >= SETTLE)
+            // A wait for one event ends on it (full), not on a reset.
+            || (self.request.until.is_none()
+                && self.first_event.is_some_and(|first| quiet || first.elapsed() >= SETTLE))
             || (quiet && Instant::now() >= deadline)
     }
 
@@ -405,7 +476,19 @@ impl<'a> Poll<'a> {
         if let Value::Object(fields) = fields {
             event.extend(fields.into_iter().filter(|(_, value)| !value.is_null()));
         }
-        self.events.push(Value::Object(event));
+        let event = Value::Object(event);
+        if let Some(until) = &self.request.until
+            && kind != "reset"
+        {
+            // A wait keeps only its event; the others are passed, not answered.
+            let change = event.get("change").and_then(Value::as_str);
+            let name = change.map_or_else(|| kind.to_owned(), |change| format!("{kind}.{change}"));
+            if !until.matches(Some(&name), &event) {
+                return true;
+            }
+            self.matched = true;
+        }
+        self.events.push(event);
         self.first_event.get_or_insert_with(Instant::now);
         true
     }
@@ -438,10 +521,14 @@ impl<'a> Poll<'a> {
                 let changes = item["changes"].as_array().map(Vec::as_slice).unwrap_or_default();
                 for (index, change) in changes.iter().enumerate().skip(skip) {
                     if !self.change(change) {
+                        // Before this item, so its live position too: the
+                        // daemon sends the item again.
+                        let live = self.cursor.daemon.take().and_then(|from| from.live);
                         self.cursor.daemon = Some(DaemonCursor {
                             generation: next.generation,
                             revision: previous.unwrap_or(next.revision.saturating_sub(1)),
                             skip: index,
+                            live,
                         });
                         return false;
                     }
@@ -672,14 +759,16 @@ impl<'a> Poll<'a> {
     }
 }
 
-/// `{generation, revision}` as the daemon writes it.
+/// `{generation, revision}` as the daemon writes it, with `live` when the
+/// daemon gives the live position.
 fn daemon_cursor(cursor: &Value, skip: usize) -> Option<DaemonCursor> {
     let generation = cursor["generation"].as_str()?.to_owned();
     let revision = match &cursor["revision"] {
         Value::String(text) => text.parse().ok()?,
         other => other.as_u64()?,
     };
-    Some(DaemonCursor { generation, revision, skip })
+    let live = cursor["live"].as_str().map(str::to_owned);
+    Some(DaemonCursor { generation, revision, skip, live })
 }
 
 /// The state of each daemon agent record in a session snapshot.
@@ -791,3 +880,7 @@ pub(in crate::cli) fn human_lines(answer: &Value) -> String {
     }
     out
 }
+
+#[cfg(test)]
+#[path = "events_tests.rs"]
+mod tests;

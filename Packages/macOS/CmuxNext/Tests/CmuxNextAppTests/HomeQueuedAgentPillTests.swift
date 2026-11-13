@@ -1,6 +1,10 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextActions
+@testable import CmuxNextApp
+import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxNextHomeEngine
 import CmuxNextTestSupport
 import Foundation
 @testable import MessagesLabHome
@@ -91,20 +95,97 @@ import Testing
         #expect(card.startNowButton == nil)
     }
 
+    /// The menu's Start now is the registry's `home.startQueuedAgent` row (check-menu-actions.py: no inline
+    /// selector), so a click on it runs the action the palette and `cmux home start-agent` run, on this agent.
     @Test func aQueuedPillsContextMenuHasStartNow() async throws {
         let home = try await home()
         defer { close(home) }
+        home.view.onStartAgent = { _ in true }
+        let registry = ActionRegistry(catalog: ActionCatalog.all.filter { $0.id == "home.startQueuedAgent" })
         var started: [String] = []
-        home.view.onStartAgent = { peer in started.append(peer); return true }
+        registry.bindEffect("home.startQueuedAgent", effect: { invocation in
+            started.append(invocation["agent"]?.stringValue ?? "")
+            return .done
+        })
+        let conversation = home.conversation.rawValue
+        home.view.startAgentMenuItem = { peer in
+            registry.makeContextMenuItem(for: "home.startQueuedAgent", in: .agentChat,
+                                         arguments: ["agent": .string(peer), "conversation": .string(conversation)])
+        }
         let menu = try #require(home.view.transcript.agentPillMenu)
         let items = menu("a7")
         let index = try #require(items.firstIndex { $0.title == "Start now" }, "no Start now in \(items.map(\.title))")
+        #expect(items[index].identifier?.rawValue == "cmux.action.home.startQueuedAgent")
         #expect(menu("a5").contains { $0.title == "Start now" } == false)
         // The item runs as a click on it does: through the menu.
         let shown = NSMenu()
         items.forEach(shown.addItem)
         shown.performActionForItem(at: index)
-        await home.view.pendingAgentStart?.value
         #expect(started == ["a7"])
     }
+
+    /// A transcript that starts its own agents, with no Chief (the DEBUG fixture and Agent Messages Playground over
+    /// the mock owner), keeps the menu's Start now: the registered row runs the one action, which starts the agent
+    /// through the transcript's own `onStartAgent` (review of #38595: the playground lost its menu row).
+    @Test func aTranscriptThatStartsItsOwnAgentsKeepsStartNowInItsMenu() async throws {
+        let home = try await home()
+        defer { close(home) }
+        var started: [String] = []
+        home.view.onStartAgent = { peer in started.append(peer); return true }
+        let registry = ActionRegistry(catalog: ActionCatalog.all.filter { $0.id == HomeChiefHomes.startQueuedAgent })
+        let homes = HomeChiefHomes()
+        homes.bind(into: registry)
+        homes.startsOwnAgents(home.view)
+        let menu = try #require(home.view.transcript.agentPillMenu)
+        let items = menu("a7")
+        let index = try #require(items.firstIndex { $0.title == "Start now" }, "no Start now in \(items.map(\.title))")
+        let shown = NSMenu()
+        items.forEach(shown.addItem)
+        shown.performActionForItem(at: index)
+        for _ in 0..<100_000 where started.isEmpty { await Task.yield() }
+        #expect(started == ["a7"])
+    }
+
+    /// Two transcripts of one conversation that start their own agents (two fixture tabs over the mock owner's
+    /// one Chief chat, or one and the playground): each pill menu's Start now starts its own transcript's agent
+    /// (review of #38595 at c0e25e5e: the first match by conversation could start the other one's).
+    @Test func eachTranscriptOfOneConversationStartsItsOwnAgentFromItsMenu() async throws {
+        let first = try await home(), second = try await home()
+        defer { close(first); close(second) }
+        try #require(first.conversation == second.conversation)
+        var started: [String] = []
+        first.view.onStartAgent = { peer in started.append("first \(peer)"); return true }
+        second.view.onStartAgent = { peer in started.append("second \(peer)"); return true }
+        let registry = ActionRegistry(catalog: ActionCatalog.all.filter { $0.id == HomeChiefHomes.startQueuedAgent })
+        let homes = HomeChiefHomes()
+        homes.bind(into: registry)
+        homes.startsOwnAgents(first.view)
+        homes.startsOwnAgents(second.view)
+        for (home, name) in [(second, "second"), (first, "first")] {
+            let menu = try #require(home.view.transcript.agentPillMenu)
+            let items = menu("a7")
+            let index = try #require(items.firstIndex { $0.title == "Start now" })
+            let shown = NSMenu()
+            items.forEach(shown.addItem)
+            shown.performActionForItem(at: index)
+            for _ in 0..<100_000 where started.last != "\(name) a7" { await Task.yield() }
+        }
+        #expect(started == ["second a7", "first a7"])
+    }
+
+    #if DEBUG
+    /// The DEBUG fixture page (`debug.home_native_fixture.open`) registers each transcript it shows, so its queued
+    /// pills keep the menu's Start now (review of #38595 at 231883bb: only the playground registered).
+    @Test func theDebugFixturePageKeepsStartNowInItsMenu() async throws {
+        let homes = HomeChiefHomes()
+        let page = DebugHomeNativeFixture(openPanel: MadeAheadOpenPanel(), homes: homes)
+        let container = page.makeView(for: "fixture", in: nil)
+        defer { page.tabClosed("fixture"); withExtendedLifetime(homes) {} } // the page holds it weakly, as the app does
+        func transcript(in view: NSView) -> HomeNativeTranscriptView? {
+            view as? HomeNativeTranscriptView ?? view.subviews.lazy.compactMap(transcript(in:)).first
+        }
+        for _ in 0..<100_000 where transcript(in: container)?.startAgentMenuItem == nil { await Task.yield() }
+        #expect(transcript(in: container)?.startAgentMenuItem != nil)
+    }
+    #endif
 }

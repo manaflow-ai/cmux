@@ -70,7 +70,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use cmux_remote::crypto::StaticIdentity;
-use cmux_remote::unix_socket::{OwnedUnixListener, UnixAcceptBackoff};
+use cmux_remote::unix_socket::OwnedUnixListener;
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _};
 use tokio::net::UnixStream;
 use tokio::signal::unix::{Signal, SignalKind, signal};
@@ -90,7 +90,7 @@ use super::{STDIO_SHUTDOWN_TIMEOUT, ServeArgs, client, reply, route_log};
 pub(super) const MAX_CONNECTIONS: usize = 64;
 /// How long open sessions get to close once the listener stops.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
-const USAGE: &str = "usage: cmux carrier serve --machine vm_… --socket /absolute/path [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]";
+const USAGE: &str = "usage: cmux carrier serve --machine vm_… --socket /absolute/path [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--wg-hub PATH]";
 
 /// What every connection shares.
 struct Shared {
@@ -107,6 +107,8 @@ struct Shared {
     prefetched: Arc<Prefetched>,
     /// The connect log: route and phases lines.
     log: Arc<dyn Fn(String) + Send + Sync>,
+    /// The ssh backup carrier's pieces, for every dial.
+    ssh: Arc<super::ssh::SshSetup>,
 }
 
 /// `cmux carrier serve …`: the exit code.
@@ -127,7 +129,9 @@ pub(super) fn run(args: &[String]) -> i32 {
         let source = source.clone();
         Arc::new(move || source.identity())
     };
+    let ssh = Arc::new(super::ssh::SshSetup::from_env(dial.wg_hub.clone()));
     let shared = Arc::new(Shared {
+        ssh,
         session: Slot::new(idle_time(), who.clone()),
         machine: dial.machine,
         deadline: dial.deadline,
@@ -160,7 +164,7 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
     let (stop, stopped) = watch::channel(false);
     let permits = Arc::new(Semaphore::new(MAX_CONNECTIONS));
     let mut tasks = JoinSet::new();
-    let mut backoff = UnixAcceptBackoff::new();
+    let mut backoff = cmux_remote::unix_socket::accept_backoff();
     let ended = ended(shared.clone(), terminate, interrupt);
     tokio::pin!(ended);
     let code = loop {
@@ -179,7 +183,7 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
                         tasks.spawn(task);
                     }
                 }
-                Err(error) => match backoff.retry_delay(&error) {
+                Err(error) => match cmux_tui_core::backoff::accept_retry_delay(&mut backoff, &error) {
                     Some(delay) => tokio::time::sleep(delay).await,
                     None => {
                         reply(&contract::failure_line(SOCKET, Some(&error.to_string())));
@@ -293,19 +297,24 @@ async fn connection(
         prefetched: shared.prefetched.clone(),
         log: shared.log.clone(),
         phases: shared.log.clone(),
+        fresh_sessions: Default::default(),
+        progress: None,
+        ssh: shared.ssh.clone(),
+        ssh_refusal: super::ssh::SshRefusal::default(),
     };
     let plan = &plan;
-    let opened = tokio::select! {
-        opened = shared.session.stream(deadline, move || client::dial(plan, super::jitter)) => opened,
+    let outcome = tokio::select! {
+        outcome = shared.session.stream(deadline, move || client::dial(plan)) => outcome,
         _ = stopped.wait_for(|stopped| *stopped) => return,
     };
-    let held::Stream { mux, vmk, lease, dialed } = match opened {
-        Ok(opened) => opened,
-        Err(held::Refused { failure, dialed }) => {
+    let held::Stream { mux, vmk, lease, dialed, opened } = match outcome {
+        Ok(stream) => stream,
+        Err(held::Refused { failure, dialed, opened }) => {
             if !dialed {
-                // No dial attempt logged this one: the held session's.
+                // No dial attempt logged this one: the held session's. Its
+                // mux time is the stream open alone; `ms` runs from accept.
                 let elapsed = accepted.elapsed();
-                let times = PhaseTimes { mux: elapsed, ..PhaseTimes::default() };
+                let times = PhaseTimes { mux: opened, ..PhaseTimes::default() };
                 (shared.log)(contract::phases_line(
                     &shared.machine,
                     PhasesOf::Stream,
@@ -322,7 +331,7 @@ async fn connection(
         // The dial's own attempts wrote theirs; a stream on the held
         // session writes one line of its own.
         let elapsed = accepted.elapsed();
-        let times = PhaseTimes { mux: elapsed, ..PhaseTimes::default() };
+        let times = PhaseTimes { mux: opened, ..PhaseTimes::default() };
         (shared.log)(contract::phases_line(
             &shared.machine,
             PhasesOf::Stream,

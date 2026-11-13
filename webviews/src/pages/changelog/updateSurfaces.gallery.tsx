@@ -13,6 +13,7 @@ import {
   UpdatedCard,
   UpdateReadyHighlights,
   type BriefLayout,
+  type NoteLoadingLook,
   type PreviewLayout,
   type ReadyLayout,
   type WhatsNewPlacement,
@@ -87,6 +88,18 @@ type Props = {
   overRows?: "glass" | "tint" | "solid";
   /** How the Updated card's changes beside the sidebar stand (UpdatedNotes); `sections` ships. */
   notesLook?: NotesLook;
+  /** The Updated card's notes still loading: the title, and a loading change line in its look. */
+  notesLoading?: boolean;
+  loadingLook?: NoteLoadingLook;
+  /** The card's glass with no words: what the sidebar drew while the card's page loaded, before. */
+  blankGlass?: boolean;
+};
+
+/** Leo's card of 2026-11-09: "Updated to Nightly", then "Fixed: lock horizontal scroll". */
+const leoFirstPaint: UpdateHighlights = {
+  ...base,
+  items: [{ id: "scroll", title: "Lock horizontal scroll", summary: null, category: "fixed" }],
+  moreCount: 0,
 };
 
 // Three themes as WebTheme sends them (the page's --page-* and the glass's surface), each over its
@@ -326,6 +339,23 @@ function ComposerStandIn() {
   );
 }
 
+/** The Updated card's glass before its page drew its words: the composer's material at its one-line
+    height and corner, empty (the first frame Leo flagged on 2026-11-09). */
+function BlankGlassStandIn() {
+  return (
+    <div
+      data-composer-material=""
+      style={{
+        boxSizing: "border-box",
+        height: "var(--composer-material-height)",
+        borderRadius: "var(--composer-material-radius)",
+        background: "var(--composer-material-tint)",
+        boxShadow: "var(--composer-material-ring), var(--composer-material-rim)",
+      }}
+    />
+  );
+}
+
 /** The sidebar's workspace rows the open preview stands over, in the stage behind the card. */
 function RowsStandIn() {
   const rows = [
@@ -397,6 +427,9 @@ function UpdateSurfacesGallery({
   besideComposer = false,
   overRows,
   notesLook,
+  notesLoading,
+  loadingLook,
+  blankGlass = false,
 }: Props) {
   const [strings] = useState(() => createStrings(table));
   const noop = () => undefined;
@@ -452,20 +485,26 @@ function UpdateSurfacesGallery({
           }
         >
           <div style={besideComposer ? { flex: "0 0 236px" } : undefined}>
-            <UpdatedCard
-              data={data}
-              span={notes}
-              strings={strings}
-              actions={{ openChangelog: noop, dismiss: noop }}
-              decoration={decoration}
-              animate={animate}
-              placement={placement}
-              previewOpen={previewOpen}
-              glass={overRows ? overRows === "glass" : undefined}
-              previewLayout={previewLayout}
-              // The held-open preview stills show the in-card list (the look before the popover).
-              previewMode={previewOpen === undefined ? undefined : "above"}
-            />
+            {blankGlass ? (
+              <BlankGlassStandIn />
+            ) : (
+              <UpdatedCard
+                data={data}
+                span={notes}
+                strings={strings}
+                actions={{ openChangelog: noop, dismiss: noop }}
+                decoration={decoration}
+                animate={animate}
+                placement={placement}
+                previewOpen={previewOpen}
+                glass={overRows ? overRows === "glass" : undefined}
+                previewLayout={previewLayout}
+                // The held-open preview stills show the in-card list (the look before the popover).
+                previewMode={previewOpen === undefined ? undefined : "above"}
+                notesLoading={notesLoading}
+                loadingLook={loadingLook}
+              />
+            )}
           </div>
           {besideComposer && <ComposerStandIn />}
         </div>
@@ -580,6 +619,34 @@ export default componentEntry<Props>({
       note: "Picked and shipped (Leo 2026-11-07: \"just update it to Nightly, and then What's New with the up and to the right arrow that you can click as a thing\"): \"Updated to Nightly · What's New ↗\" on one line over the top change, in the composer's material at the composer's one-line height (48) and corner. Chosen over What's New at the line's far end because it reads as one sentence, keeps the link beside the words it belongs to, and leaves the line's end free for the x that shows on hover, so nothing shifts when it does. The freed button row is the height the card gives back. The x on hover only; a click on Nightly copies the full build.",
       props: { surface: "card", data: base, theme: "dark" },
     },
+    "card-loading-dots": {
+      note: "Picked and shipped (Leo 2026-11-09: \"it should have the updated to Nightly already loaded in, instead of just having a blank glass bit ... should have a loading indicator, like an ellipsis-type thing\"): the card draws with its title from its first frame, and while the update's notes load its change line is three small still dots in the note's quiet color on the line's baseline, then the words take their place once, at the same height (card-loading-after). Chosen because it is the quietest look that still reads as an indicator rather than cut text, with no motion at all: a dot that breathes or blinks forever is the look Leo had removed (2026-10-21), and the line never stays (after 1.5 s the host's top change stands in). Refs: cmux/live/updates-nightly-whats-new-modal (the compact nightly card), claude/live/transcript-task-list-in-progress (a small mark while work runs), against cmux/live/session-info-context-breakdown-loading (a spinner and \"Loading ...\" words Leo found heavy).",
+      props: { surface: "card", data: leoFirstPaint, theme: "dark", notesLoading: true, loadingLook: "dots" },
+    },
+    "card-loading-dots-light": {
+      note: "The shipped loading line in the light theme.",
+      props: { surface: "card", data: leoFirstPaint, theme: "light", notesLoading: true, loadingLook: "dots" },
+    },
+    "card-loading-before": {
+      note: 'Before (Leo 2026-11-09: "instead of just having a blank glass bit"): the sidebar drew the card\'s glass at its room while its page loaded, empty for up to a second after a relaunch, then the title and the change came in together.',
+      props: { surface: "card", data: leoFirstPaint, theme: "dark", blankGlass: true },
+    },
+    "card-loading-after": {
+      note: "The same card once the notes are in: the words take the dots' place, and nothing moves.",
+      props: { surface: "card", data: leoFirstPaint, theme: "dark" },
+    },
+    "card-loading-glyph": {
+      note: "Variant: the ellipsis glyph in the quiet color. As quiet as the dots, but at the note's size it reads as a line cut short, not as words on their way.",
+      props: { surface: "card", data: leoFirstPaint, theme: "dark", notesLoading: true, loadingLook: "glyph" },
+    },
+    "card-loading-bar": {
+      note: "Variant: a bar the line's height that a light crosses (a skeleton line, cf. claude/live/settings-loading-skeleton). Says where the words go, but the sweep is the busiest motion on the glass for a line that loads in about a second.",
+      props: { surface: "card", data: leoFirstPaint, theme: "dark", notesLoading: true, loadingLook: "bar" },
+    },
+    "card-loading-words": {
+      note: 'Variant: "Loading what\'s new…" in the quiet color. Plain, but it is words that are then replaced by other words, a text swap that reads as a change of content (cf. cmux/live/session-info-context-breakdown-loading).',
+      props: { surface: "card", data: leoFirstPaint, theme: "dark", notesLoading: true, loadingLook: "words" },
+    },
     "card-whats-new-top-right": {
       note: "Variant: What's New ↗ at the far end of the title line, beside the x's room. It lines up with the x, but in a narrow sidebar the title and the link meet in the middle, and the x that shows on hover crowds the link.",
       props: { surface: "card", data: base, theme: "dark", placement: "top-right" },
@@ -625,7 +692,7 @@ export default componentEntry<Props>({
       props: { surface: "card", data: spanData, span, theme: "dark", placement: "top-right", previewOpen: true },
     },
     "card-preview-over-rows": {
-      note: "Shipped (Leo 2026-11-08: \"I feel like we should be able to keep it as glass though, right?\"): the open preview over the sidebar's rows stays the card's glass. The host draws a native glass behind the page that frosts the rows, so the rows read as moving shapes, not words, and the card has the same fill open and at rest (the fill swap was the flicker). The glass follows the preview on the card's curve, cubic-bezier(0.16, 1, 0.3, 1) over 265 ms.",
+      note: "Shipped (Leo 2026-11-08: \"I feel like we should be able to keep it as glass though, right?\"): the open preview over the sidebar's rows stays the card's glass. The host draws a native glass behind the page that frosts the rows, so the rows read as moving shapes, not words, and the card has the same fill open and at rest (the fill swap was the flicker). The glass follows the preview on the card's curve, cubic-bezier(0.16, 1, 0.3, 1) over 180 ms.",
       props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true, overRows: "glass" },
     },
     "card-preview-over-rows-light": {

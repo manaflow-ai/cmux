@@ -7,6 +7,12 @@
 //! `CMUX_SOCKET_PATH`), the app does not know the pane and answered
 //! `caller.found false`. There the innermost multiplexer answers instead
 //! (pane_context.rs). `cmux app identify` and `--app-socket` still ask the app.
+//!
+//! Where no cmux app can be found at all (a headless session on a runner,
+//! `--session NAME` or `CMUX_TUI_SOCKET` naming a session no app owns), the
+//! session daemon answers too: the same identity with `app_connected: false`,
+//! `app: null` and the app's `app_error`, exit 0. Only the app commands need
+//! the app; `identify` says where the caller runs.
 
 use std::io::{BufReader, Write as _};
 use std::path::Path;
@@ -22,13 +28,45 @@ use super::{GlobalArgs, OutputMode};
 /// explicit route; `None` lets the app answer.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;
-    if !super::app::is_classic_identify(&command_args) || explicitly_routed(&global) {
+    if !super::app::is_classic_identify(&command_args) {
         return None;
     }
-    let Innermost::SessionPane { socket, terminal } = pane_context::innermost() else {
+    if !explicitly_routed(&global)
+        && let Innermost::SessionPane { socket, terminal } = pane_context::innermost()
+    {
+        return Some(run(&global, &socket, &terminal));
+    }
+    run_headless(&global)
+}
+
+/// `identify` with no cmux app to ask: the session daemon's answer, marked
+/// `app_connected: false`. `None` (the app's own error stands) when an app
+/// socket is found or named, or no session daemon answers either.
+fn run_headless(global: &GlobalArgs) -> Option<i32> {
+    // `--socket` and `--app-socket` name the app socket here, and
+    // `--machine` another machine: those keep the classic answer.
+    if global.socket.is_some() || global.app_socket.is_some() || global.machine.is_some() {
         return None;
-    };
-    Some(run(&global, &socket, &terminal))
+    }
+    let app_error = super::app::command_socket(global).err()?;
+    let (socket, derived) = super::wire::resolve_socket_with_origin(global).ok()?;
+    let terminal = std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| id.starts_with("term_"));
+    let identity = read_identity_at(&socket, derived, terminal.as_deref()).ok()?;
+    let identity = with_daemon_build(identity, &socket);
+    Some(print(global, &without_app(identity, &app_error)))
+}
+
+/// `identity` marked as answered with no cmux app: `app_error` is why none
+/// was reached (`app.not_found`, `socket.no_app`).
+fn without_app(mut identity: Value, app_error: &Value) -> Value {
+    if let Some(object) = identity.as_object_mut() {
+        object.insert("app_connected".into(), Value::Bool(false));
+        object.insert("app".into(), Value::Null);
+        let pick = |key: &str| app_error.get(key).cloned().unwrap_or(Value::Null);
+        object
+            .insert("app_error".into(), json!({"code": pick("code"), "message": pick("message")}));
+    }
+    identity
 }
 
 /// A route the caller named keeps its classic meaning (`--socket` and
@@ -42,40 +80,56 @@ fn explicitly_routed(global: &GlobalArgs) -> bool {
 }
 
 fn run(global: &GlobalArgs, socket: &Path, terminal: &str) -> i32 {
-    let identity = match read_identity(socket, terminal) {
-        Ok(identity) => identity,
-        Err(failure) => return failure.report(global.output),
-    };
+    match read_identity(socket, terminal) {
+        Ok(identity) => print(global, &with_daemon_build(identity, socket)),
+        Err(failure) => failure.report(global.output),
+    }
+}
+
+fn print(global: &GlobalArgs, identity: &Value) -> i32 {
     match global.output {
         OutputMode::Human => {
             let mut stdout = std::io::stdout().lock();
-            let _ = stdout.write_all(human(&identity).as_bytes());
+            let _ = stdout.write_all(human(identity).as_bytes());
             let _ = stdout.flush();
             0
         }
-        output => super::wire::print_local_success(&identity, output),
+        output => super::wire::print_local_success(identity, output),
     }
 }
 
 /// A local daemon answers these reads at once; a stuck one fails the call.
+// timeout: a stuck local daemon fails the read instead of hanging the CLI.
 const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The pane's identity from the daemon at `socket`.
 pub(super) fn read_identity(socket: &Path, terminal: &str) -> Result<Value, Failure> {
-    let stream = cmux_tui_core::server::connect_session_socket(socket, false).map_err(|error| {
-        Failure::Local {
-            error: json!({
-                "code": "socket.unreachable",
-                "message": format!(
-                    "cannot reach this pane's cmux-tui session at {}: {error}",
-                    socket.display()
-                ),
-                "details": {"socket": socket.display().to_string()},
-                "retryable": true,
-            }),
-            exit: 3,
-        }
-    })?;
+    read_identity_at(socket, false, Some(terminal))
+}
+
+/// The identity from the daemon at `socket` (`derived`: a path in cmux's
+/// own runtime directory). With no `terminal`, the caller runs in no cmux
+/// terminal and `caller.found` is false.
+fn read_identity_at(
+    socket: &Path,
+    derived: bool,
+    terminal: Option<&str>,
+) -> Result<Value, Failure> {
+    let stream =
+        cmux_tui_core::server::connect_session_socket(socket, derived).map_err(|error| {
+            Failure::Local {
+                error: json!({
+                    "code": "socket.unreachable",
+                    "message": format!(
+                        "cannot reach this pane's cmux-tui session at {}: {error}",
+                        socket.display()
+                    ),
+                    "details": {"socket": socket.display().to_string()},
+                    "retryable": true,
+                }),
+                exit: 3,
+            }
+        })?;
     let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
     let mut reader = BufReader::new(stream);
     let mut read = |operation, extra: Option<(&str, &str)>| {
@@ -88,14 +142,24 @@ pub(super) fn read_identity(socket: &Path, terminal: &str) -> Result<Value, Fail
     let session = read(ResourceOperation::SessionGet, None)?;
     let machine = read(ResourceOperation::MachineGet, None)?;
     let mut records = CallerRecords::default();
-    let caller = match caller_records(&mut read, terminal, &mut records) {
-        Ok(()) => records.caller(terminal),
-        Err(Failure::Resource(error)) => json!({
+    let caller = match terminal {
+        None => json!({
             "found": false,
-            "terminal_id": terminal,
-            "error": error,
+            "terminal_id": null,
+            "error": {
+                "code": "caller.outside",
+                "message": "this command runs in no cmux terminal (CMUX_TUI_TERMINAL_ID is unset)",
+            },
         }),
-        Err(failure) => return Err(failure),
+        Some(terminal) => match caller_records(&mut read, terminal, &mut records) {
+            Ok(()) => records.caller(terminal),
+            Err(Failure::Resource(error)) => json!({
+                "found": false,
+                "terminal_id": terminal,
+                "error": error,
+            }),
+            Err(failure) => return Err(failure),
+        },
     };
     Ok(identity_value(socket, &session, &machine, caller, outer_app()))
 }
@@ -199,6 +263,91 @@ fn identity_value(
     })
 }
 
+/// `identity` with `build`: this CLI's build id (`cli`), the daemon's
+/// (`daemon`, from `identify`'s `daemon-build-v1`; null from an older
+/// daemon), the daemon's own `cmux` (`daemon_cli`) and whether the builds
+/// match (`matches`, null when unknown), plus a `warning` when they do not
+/// (W5-Q): an agent that runs an older `cmux` on PATH learns which one to run.
+fn with_build(
+    identity: &mut Value,
+    own: &str,
+    daemon: Option<&super::skew::DaemonBuild>,
+    reach: Reach<'_>,
+) {
+    let Some(object) = identity.as_object_mut() else { return };
+    let matches = daemon.map(|daemon| daemon.build_id == own);
+    object.insert(
+        "build".into(),
+        json!({
+            "cli": own,
+            "daemon": daemon.map(|daemon| daemon.build_id.as_str()),
+            "daemon_cli": daemon.map(|daemon| daemon.cli_path.display().to_string()),
+            "matches": matches,
+        }),
+    );
+    let warning = daemon.filter(|_| matches == Some(false)).map(|daemon| match reach {
+        // The daemon's `cmux` is a path on the other machine: name the
+        // remote upgrade, as the CLI's own skew line does.
+        Reach::Tunnel { socket } => super::skew::remote_skew(daemon, own, socket),
+        Reach::Local { pane_cli } => {
+            let cli = daemon.cli_path.display().to_string();
+            // A pane's `CMUX_TUI_CLI` is its own session's `cmux`; a `--socket`
+            // to another session's daemon needs that daemon's `cmux`.
+            let run = match pane_cli.filter(|path| same_file(Path::new(path), &daemon.cli_path)) {
+                Some(_) => format!("\"$CMUX_TUI_CLI\" ({cli})"),
+                None => cli,
+            };
+            crate::localization::catalog()
+                .pane_cli
+                .build_mismatch
+                .replace("{own}", own)
+                .replace("{daemon}", &daemon.build_id)
+                .replace("{run}", &run)
+        }
+    });
+    object.insert("warning".into(), json!(warning));
+}
+
+/// Whether absolute path `path` names the file `target` names (the same
+/// path, or a link to it).
+fn same_file(path: &Path, target: &Path) -> bool {
+    if !path.is_absolute() {
+        return false;
+    }
+    match (std::fs::canonicalize(path), std::fs::canonicalize(target)) {
+        (Ok(path), Ok(target)) => path == target,
+        _ => path == target,
+    }
+}
+
+/// How the CLI reached the daemon that answered, as [`with_build`] words its
+/// warning.
+#[derive(Clone, Copy, Debug)]
+enum Reach<'a> {
+    /// The daemon itself answered on a local socket; `pane_cli` is the
+    /// `CMUX_TUI_CLI` this process has (set in a cmux pane). The warning
+    /// names it only when it is the daemon's own `cmux` file.
+    Local { pane_cli: Option<&'a str> },
+    /// The socket tunnels to a daemon on another machine; its `cmux` is a
+    /// path there.
+    Tunnel { socket: &'a Path },
+}
+
+/// [`with_build`] for the daemon at `socket`, asked over its own connection.
+fn with_daemon_build(mut identity: Value, socket: &Path) -> Value {
+    let probed = super::skew::probe_socket(socket.to_path_buf());
+    let pane_cli = std::env::var("CMUX_TUI_CLI").ok();
+    let reach = match &probed {
+        Some((_, daemon, route)) if !super::skew::answered_itself(daemon, route) => {
+            Reach::Tunnel { socket }
+        }
+        _ => Reach::Local { pane_cli: pane_cli.as_deref() },
+    };
+    let daemon = probed.map(|(_, daemon, _)| daemon);
+    with_build(&mut identity, super::skew::own_build_id(), daemon.as_ref(), reach);
+    identity
+}
+
 /// The human answer: one labelled line per object.
 fn human(identity: &Value) -> String {
     let labels = &crate::localization::catalog().pane_cli;
@@ -226,10 +375,16 @@ fn human(identity: &Value) -> String {
         rows.push((labels.terminal, labels.not_found.replace("{why}", why)));
     }
     rows.push((labels.socket, text("/socket_path")));
+    if at("/app_connected").as_bool() == Some(false) {
+        rows.push((labels.app, labels.no_app.to_owned()));
+    }
     if let Some(app) = at("/outer_app/socket_path").as_str() {
         rows.push((labels.outer_app, format!("{app} (`cmux app identify`)")));
     }
     rows.push((labels.guide, "cmux skill show".to_owned()));
+    if let Some(warning) = at("/warning").as_str() {
+        rows.push((labels.warning, warning.to_owned()));
+    }
     let width = rows.iter().map(|(label, _)| label.chars().count()).max().unwrap_or(0);
     rows.into_iter()
         .map(|(label, value)| {
@@ -320,6 +475,161 @@ mod tests {
         let text = human(&value);
         assert!(text.contains("session_1 bench"), "{text}");
         assert!(text.contains("/x/cmux.sock (`cmux app identify`)"), "{text}");
+    }
+
+    /// With no app, identify still answers from the daemon and says why no
+    /// app answered.
+    #[test]
+    fn a_headless_identity_says_no_app_answered() {
+        let value = without_app(
+            identity_value(
+                Path::new("/run/cmux-tui/main.sock"),
+                &record(&[("id", "session_1"), ("name", "main")]),
+                &record(&[("id", "machine_1"), ("name", "runner")]),
+                json!({"found": false, "terminal_id": null, "error": {"message": "outside"}}),
+                Value::Null,
+            ),
+            &json!({"code": "app.not_found", "message": "no cmux app found", "details": {}}),
+        );
+        assert_eq!(value["app_connected"], false);
+        assert_eq!(value["app"], Value::Null);
+        assert_eq!(
+            value["app_error"],
+            json!({"code": "app.not_found", "message": "no cmux app found"})
+        );
+        assert_eq!(value["session"]["name"], "main");
+        let text = human(&value);
+        assert!(text.contains(crate::localization::catalog().pane_cli.no_app), "{text}");
+    }
+
+    /// W5-Q (bench round 4 orchestration #3): `identify` says when the
+    /// `cmux` that runs is not the session daemon's build, and which `cmux`
+    /// is (`cli_path`). The bench's `cmux` on PATH was an old install.
+    #[test]
+    fn w5q_identify_warns_when_this_cmux_is_not_the_daemons_build() {
+        let identity = || {
+            identity_value(
+                Path::new("/tmp/s.sock"),
+                &record(&[("id", "session_1"), ("name", "bench")]),
+                &record(&[("id", "machine_1"), ("name", "mac")]),
+                json!({"found": true, "terminal_id": "term_1"}),
+                Value::Null,
+            )
+        };
+        let daemon = super::super::skew::DaemonBuild {
+            build_id: "cmux-tui 0.9 (def456)".into(),
+            cli_path: "/Applications/cmux.app/Contents/Resources/bin/cmux".into(),
+            pid: 7,
+        };
+        let in_pane = Reach::Local { pane_cli: Some("/opt/cmux/bin/cmux") };
+        let mut other = identity();
+        with_build(&mut other, "cmux-tui 0.1 (abc123)", Some(&daemon), in_pane);
+        assert_eq!(other["build"]["cli"], "cmux-tui 0.1 (abc123)", "{other}");
+        assert_eq!(other["build"]["daemon"], "cmux-tui 0.9 (def456)", "{other}");
+        assert_eq!(other["build"]["matches"], false, "{other}");
+        let warning = other["warning"].as_str().unwrap_or_default();
+        assert!(warning.contains("def456") && warning.contains("abc123"), "{other}");
+        assert!(warning.contains("/Applications/cmux.app/Contents/Resources/bin/cmux"), "{other}");
+        assert!(human(&other).contains(warning), "{}", human(&other));
+
+        let mut same = identity();
+        with_build(&mut same, "cmux-tui 0.9 (def456)", Some(&daemon), in_pane);
+        assert_eq!(same["build"]["matches"], true, "{same}");
+        assert_eq!(same["warning"], Value::Null, "{same}");
+
+        // A daemon too old to say its build: nothing to compare, no warning.
+        let mut unknown = identity();
+        with_build(&mut unknown, "cmux-tui 0.1 (abc123)", None, in_pane);
+        assert_eq!(unknown["build"]["daemon"], Value::Null, "{unknown}");
+        assert_eq!(unknown["warning"], Value::Null, "{unknown}");
+    }
+
+    /// W5-Q review (PR B finding 5): a tunnel's daemon runs on another
+    /// machine, so its `cmux` path is not here: the warning names the
+    /// remote upgrade, as the CLI's skew line does. Outside a pane
+    /// (`CMUX_TUI_CLI` not set) the warning names only the daemon's `cmux`.
+    #[test]
+    fn w5q_identify_warns_by_how_it_reached_the_daemon() {
+        let mut identity = identity_value(
+            Path::new("/tmp/s.sock"),
+            &record(&[("id", "session_1"), ("name", "bench")]),
+            &record(&[("id", "machine_1"), ("name", "mac")]),
+            json!({"found": true, "terminal_id": "term_1"}),
+            Value::Null,
+        );
+        let daemon = super::super::skew::DaemonBuild {
+            build_id: "cmux-tui 0.9 (def456)".into(),
+            cli_path: "/remote/only/bin/cmux".into(),
+            pid: 7,
+        };
+        let mut tunnel = identity.clone();
+        let socket = Path::new("/tmp/w5q-no-route-record.sock");
+        with_build(&mut tunnel, "cmux-tui 0.1 (abc123)", Some(&daemon), Reach::Tunnel { socket });
+        let warning = tunnel["warning"].as_str().unwrap_or_default().to_owned();
+        assert!(warning.contains("def456"), "{tunnel}");
+        assert!(!warning.contains("/remote/only/bin/cmux"), "a remote path: {warning}");
+        assert!(!warning.contains("CMUX_TUI_CLI"), "{warning}");
+
+        let local = Reach::Local { pane_cli: None };
+        with_build(&mut identity, "cmux-tui 0.1 (abc123)", Some(&daemon), local);
+        let warning = identity["warning"].as_str().unwrap_or_default();
+        assert!(warning.contains("/remote/only/bin/cmux"), "{warning}");
+        assert!(!warning.contains("CMUX_TUI_CLI"), "outside a pane: {warning}");
+    }
+
+    /// W5-Q follow-up (PR B review): the warning says `"$CMUX_TUI_CLI"` only
+    /// when that path is the target daemon's own `cmux` file (the same path,
+    /// or a link to it). A pane's `CMUX_TUI_CLI` names its own session's
+    /// `cmux`; a `--socket` to another session's daemon needs that daemon's
+    /// `cmux`, so the warning names its path.
+    #[test]
+    fn w5q_identify_names_cmux_tui_cli_only_for_the_daemons_own_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "w5q-identify-cli-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_nanos())
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let daemon_cli = dir.join("cmux");
+        std::fs::write(&daemon_cli, b"").expect("daemon cmux file");
+        let link = dir.join("cmux-link");
+        std::os::unix::fs::symlink(&daemon_cli, &link).expect("link to the daemon cmux");
+        let other_cli = dir.join("other-cmux");
+        std::fs::write(&other_cli, b"").expect("another cmux file");
+        let daemon = super::super::skew::DaemonBuild {
+            build_id: "cmux-tui 0.9 (def456)".into(),
+            cli_path: daemon_cli.clone(),
+            pid: 7,
+        };
+        let warning = |pane_cli: &Path| {
+            let mut identity = identity_value(
+                Path::new("/tmp/s.sock"),
+                &record(&[("id", "session_1"), ("name", "bench")]),
+                &record(&[("id", "machine_1"), ("name", "mac")]),
+                json!({"found": true, "terminal_id": "term_1"}),
+                Value::Null,
+            );
+            let pane_cli = pane_cli.to_str().unwrap_or_default();
+            let reach = Reach::Local { pane_cli: Some(pane_cli) };
+            with_build(&mut identity, "cmux-tui 0.1 (abc123)", Some(&daemon), reach);
+            identity["warning"].as_str().unwrap_or_default().to_owned()
+        };
+        let daemon_path = daemon_cli.display().to_string();
+
+        let other = warning(&other_cli);
+        assert!(!other.contains("CMUX_TUI_CLI"), "another session's cmux: {other}");
+        assert!(other.contains(&daemon_path), "{other}");
+        let missing = warning(Path::new("/opt/w5q-no-such/bin/cmux"));
+        assert!(!missing.contains("CMUX_TUI_CLI"), "a cmux that is not there: {missing}");
+        assert!(missing.contains(&daemon_path), "{missing}");
+
+        let same = warning(&daemon_cli);
+        assert!(same.contains("\"$CMUX_TUI_CLI\""), "the daemon's own cmux: {same}");
+        let linked = warning(&link);
+        assert!(linked.contains("\"$CMUX_TUI_CLI\""), "a link to the daemon's cmux: {linked}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// `machine.get` refuses a session parameter ("unknown parameters").

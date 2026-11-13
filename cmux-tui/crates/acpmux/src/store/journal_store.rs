@@ -68,21 +68,22 @@ mod checkpoint;
 mod fenced;
 mod meta;
 mod new_folders;
-mod repair;
+pub(super) mod repair;
 #[cfg(all(test, unix))]
 mod seal_tests;
 
 use checkpoint::{frozen_marker, read_checkpoint, remove_checkpoint_temporaries};
 pub(super) use fenced::FencedStorage;
 #[cfg(test)]
-pub(super) use meta::SETTLE_HOLD;
+pub(super) use meta::on_settle_hold;
 use repair::Replay;
 #[cfg(test)]
 pub(super) use repair::{FAIL_NEXT_WRITE_BACK, HELD_CAP, STOP_AFTER_CUT};
 
 /// The journal record kinds. (Kind 3, a `cancel` of a line the log refused, was used before the
 /// review of #34901 and never shipped: a refused line is never journaled now. Kind 4 is `meta`,
-/// `journal_store/meta.rs`; kind 5 was planned for S3 and never used.)
+/// `journal_store/meta.rs`; kind 5 was planned for S3 and never used; kind 7 is a `meta` change,
+/// `meta::KIND_META_PATCH`.)
 const KIND_LOG: u16 = 1;
 const KIND_FORGET: u16 = 2;
 /// A freeze (a failed sync of the store's files; its reason as text): the open that replays it
@@ -137,6 +138,32 @@ pub(crate) struct CheckpointerSeams {
 /// Tests: a stop on one thread: it says so on the first channel, then waits on the second.
 #[cfg(test)]
 pub(crate) type Hold = (std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>);
+
+/// Tests: the test's end of a [`Hold`]: it lets the held thread go when it drops, so every path
+/// out of the test releases, a panic included. Bind it after the store: locals drop in reverse
+/// order, so an unwind releases before the store's drop waits on the held thread (a held
+/// checkpointer keeps the timer lock `JournalStore::drop` takes; #41627 F1).
+#[cfg(test)]
+pub(crate) struct Release(Option<std::sync::mpsc::Sender<()>>);
+
+#[cfg(test)]
+impl Release {
+    pub(crate) fn new(release: std::sync::mpsc::Sender<()>) -> Self {
+        Self(Some(release))
+    }
+
+    /// Lets the held thread go now.
+    pub(crate) fn now(self) {}
+}
+
+#[cfg(test)]
+impl Drop for Release {
+    fn drop(&mut self) {
+        if let Some(release) = self.0.take() {
+            let _ = release.send(());
+        }
+    }
+}
 
 #[cfg(test)]
 static CHECKPOINTER_SEAMS: Mutex<BTreeMap<PathBuf, CheckpointerSeams>> =
@@ -330,6 +357,9 @@ struct Order {
     /// Each chat's newest metadata image that its `session.json` does not hold yet (S3a,
     /// `journal_store/meta.rs`): reads see it first, the checkpoint writes it.
     metas: BTreeMap<String, meta::Pending>,
+    /// What this process last journaled of each chat's metadata: the base of its next change's
+    /// record, which holds only the fields that changed (`journal_store/meta.rs`).
+    images: HashMap<String, meta::LastImage>,
     /// The log segments whose verified bytes the open's repair wrote back over themselves: the
     /// next checkpoint syncs them before it retires their records. A killed daemon's writes may
     /// be in the page cache only, and a previous run's failed sync may have dropped pages that
@@ -455,9 +485,9 @@ impl JournalStore {
         // The lines of chats whose repair failed at an earlier open, journaled again first.
         inner.take_repairs(&mut replay);
         inner.apply(replay)?;
-        // The checkpoint after the replay runs on the checkpointer's thread at once, not here: the
-        // daemon binds its socket after this open returns, and the checkpoint's syncs are the
-        // open's cost per replayed chat (6.1 s for 300 chats on a loaded Mac, fleet 59175d6b).
+        // The checkpoint after replay runs on the checkpointer's thread at once, not here: its
+        // syncs must not hold up store open and request handling (6.1 s for 300 chats on a loaded
+        // Mac, fleet 59175d6b). The daemon already bound its socket before opening this store.
         if inner.order.lock_or_recover().has_work() {
             inner.timer.lock_or_recover().wanted = true;
         }
@@ -554,7 +584,7 @@ fn open_journal(
 /// `sessions/` hold every acknowledged change on their own (`store::catch_up_journal`; DESIGN.md
 /// 3.3c, the catch-up of 3.6). Nothing to do when there is no journal.
 pub(super) fn catch_up(config: &StoreConfig, home: &Path) -> Result<()> {
-    if std::fs::symlink_metadata(home.join(JOURNAL_DIR)).is_err() {
+    if crate::home_fs::symlink_metadata(home.join(JOURNAL_DIR)).is_err() {
         return Ok(());
     }
     let store = JournalStore::open(
@@ -643,6 +673,7 @@ impl Store for JournalStore {
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
+        super::note_write_budget(record, line.len());
         let kind = record_class(record);
         let class = if kind == RecordClass::Acked { Class::Ack } else { Class::Stream };
         let payload = encode_log(id, line.as_bytes());
@@ -709,6 +740,15 @@ impl Store for JournalStore {
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
         self.inner.fenced(|| Store::scan(&self.inner.local, id, after, visit))
     }
+    fn scan_matching(
+        &self,
+        id: &str,
+        after: u64,
+        may_match: &dyn Fn(&[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.inner.fenced(|| Store::scan_matching(&self.inner.local, id, after, may_match, visit))
+    }
     fn scan_strict(
         &self,
         id: &str,
@@ -726,6 +766,17 @@ impl Store for JournalStore {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.inner.fenced(|| Store::scan_back(&self.inner.local, id, after, before, skip, visit))
+    }
+    fn scan_back_indexed(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.inner
+            .fenced(|| Store::scan_back_indexed(&self.inner.local, id, after, before, skip, visit))
     }
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
         self.inner.fenced(|| Store::tail_after(&self.inner.local, id, after))
@@ -845,6 +896,15 @@ impl Store for JournalStore {
     fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {
         Store::stage_compaction(&self.inner.local, id, mode)
     }
+    /// Beside the log, not in the journal: what it keeps takes no seq (`hub/restore_writer.rs`).
+    /// Not while a delete or a checkpoint works on the chat's folder.
+    fn keep_parked(&self, id: &str, kept: Option<&[u8]>) -> Result<()> {
+        let _folder = self.inner.folders.lock_or_recover();
+        Store::keep_parked(&self.inner.local, id, kept)
+    }
+    fn kept_parked(&self, id: &str) -> Result<Option<Vec<u8>>> {
+        Store::kept_parked(&self.inner.local, id)
+    }
     /// No journal record of the chat may be past the checkpoint: a replay must never write the
     /// lines a retention rewrite cut back into its log. A chat whose newest log record is at or
     /// below it (`Order::log_lsn`; retention takes chats untouched for days) needs no checkpoint;
@@ -871,6 +931,35 @@ impl Store for JournalStore {
             Store::commit_compaction(&inner.local, id, staged)
         })
     }
+    fn stage_cold(&self, id: &str) -> Result<Option<StagedCold>> {
+        self.inner.fenced(|| Store::stage_cold(&self.inner.local, id))
+    }
+    /// As `commit_compaction`: no journal record of the chat may be past the checkpoint, or a
+    /// replay would write its lines into an `events/` beside the archive. The caller holds the
+    /// chat's append lock. The renames and folder syncs run in `counted_sync`.
+    fn commit_cold(&self, id: &str, staged: StagedCold) -> Result<bool> {
+        let inner = &self.inner;
+        let covered = {
+            let order = inner.order.lock_or_recover();
+            !order.frozen
+                && order.log_lsn.get(id).is_none_or(|newest| *newest <= order.checkpointed)
+        };
+        if !covered {
+            inner.checkpoint()?;
+        }
+        inner.counted_sync("a cold-archived event log failed to sync", || {
+            Store::commit_cold(&inner.local, id, staged)
+        })
+    }
+    fn rehydrate(&self, id: &str) -> Result<bool> {
+        self.inner.fenced(|| Store::rehydrate(&self.inner.local, id))
+    }
+    fn is_cold(&self, id: &str) -> bool {
+        Store::is_cold(&self.inner.local, id)
+    }
+    fn on_rehydrate(&self, hook: RehydrateHook) {
+        Store::on_rehydrate(&self.inner.local, hook)
+    }
     /// The `forget` record under the appends' lock, then the folder's removal off it, without a
     /// wait for the record: the replay never makes a folder that is gone again. Then the chat's
     /// repair file, if its repair failed at the open (after the folder: a crash between the two
@@ -890,6 +979,7 @@ impl Store for JournalStore {
             inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
             order.applied = lsn;
             order.metas.remove(id);
+            order.images.remove(id);
             order.repairs.get(id).cloned()
         };
         inner.touched();
@@ -949,6 +1039,9 @@ impl Store for JournalStore {
     }
     fn briefs_path(&self) -> Option<PathBuf> {
         Store::briefs_path(&self.inner.local)
+    }
+    fn audit_dir(&self) -> Option<PathBuf> {
+        Store::audit_dir(&self.inner.local)
     }
 }
 

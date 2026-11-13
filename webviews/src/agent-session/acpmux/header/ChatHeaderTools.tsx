@@ -30,6 +30,8 @@ import { useHeaderFold } from "./headerOverflow";
 import { nativeChatMenu, nativeCustomizeMenu } from "./nativeMenuBindings";
 import { HEADER_SYMBOLS } from "./headerSymbols";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
+import type { NativeRowNeedsYou } from "./nativeRowTools";
+import type { NeedsYouItem } from "../needsYou/model";
 import { newKinds, type HeaderControls, type NewKind } from "./headerTrio";
 import { HeaderNewButton } from "./HeaderNewButton";
 import { useShortcut } from "../shortcuts";
@@ -50,6 +52,8 @@ import { headerState, useHeaderState } from "./headerState";
 import { PullRequestChip } from "./PullRequestChip";
 import { WorktreePill } from "./WorktreePill";
 import { useWorktree } from "./worktreePillModel";
+import { useWorktreeOps } from "./worktreeOps";
+import { usePullRequestOps } from "./pullRequestOps";
 import type { MergeResult } from "./PullRequestMerge";
 import {
   QUICK_ACTION_DEFAULTS,
@@ -120,6 +124,7 @@ function ChatHeaderToolsView({
   newButton,
   controls,
   nativeRowTools,
+  nativeNeedsYou,
   working = false,
   motion,
 }: {
@@ -183,6 +188,8 @@ function ChatHeaderToolsView({
   controls?: HeaderControls;
   /// Only the migrated icons; the host offers this opt-in while its native tab row is visible.
   nativeRowTools?: NativeRowToolsHost;
+  /// Needs You's native menu data; the web inbox remains the source while native tools are off.
+  nativeNeedsYou?: NativeRowNeedsYou;
   /// The chat's turn runs: with a motion style, Changes carries the activity dot (headerMotion.ts).
   working?: boolean;
   /// The motion style, when the gallery picks one; else the App's (`agentChat.headerMotion`).
@@ -199,6 +206,33 @@ function ChatHeaderToolsView({
   const style = motion ?? headerMotion;
   const actions = useQuickActions();
   const worktree = useWorktree(folder, readStatus, statusKey);
+  const worktreeOps = useWorktreeOps(worktree, folder, onApplyWorktree, onRemoveWorktree);
+  const pullRequestOps = usePullRequestOps(pullRequest, onMergePullRequest);
+  const nativeNeedsYouMenu = nativeNeedsYou?.nativeMenu === true;
+  const [needsYouFailure, setNeedsYouFailure] = useState<NativeRowNeedsYou["failure"]>();
+  const nativeNeedsYouForTools = nativeNeedsYouMenu
+    ? {
+        ...nativeNeedsYou,
+        failure: needsYouFailure,
+        actions: {
+          ...nativeNeedsYou.actions,
+          answer: async (...args: Parameters<NativeRowNeedsYou["actions"]["answer"]>) => {
+            setNeedsYouFailure(undefined);
+            return nativeNeedsYou.actions.answer(...args);
+          },
+          ask: async (...args: Parameters<NativeRowNeedsYou["actions"]["ask"]>) => {
+            setNeedsYouFailure(undefined);
+            return nativeNeedsYou.actions.ask(...args);
+          },
+        },
+        onFailure: (item: NeedsYouItem, action: "answer" | "ask", error: unknown) =>
+          setNeedsYouFailure({
+            itemId: item.id,
+            action,
+            ...(error instanceof Error && error.message ? { reason: error.message } : {}),
+          }),
+      }
+    : undefined;
   // The right-clicked button, read as the menu opens.
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();
@@ -342,9 +376,17 @@ function ChatHeaderToolsView({
               menu: chatMenu.items,
             },
             runMenu: chatMenu.invoke,
+            // The chat menu is reserved before the variable check and ask lists spend the budget.
+            menuPriority: "fixed" as const,
           },
         ]
       : [],
+    extras: {
+      worktree: worktree ? { value: worktree, ops: worktreeOps } : undefined,
+      pullRequest: pullRequest && pullRequestChip !== false ? { value: pullRequest, ops: pullRequestOps } : undefined,
+      needsYou: nativeNeedsYouForTools,
+    },
+    t,
   });
   const shortcuts: Partial<Record<QuickActionId, string | undefined>> = {
     terminal: terminalKey,
@@ -472,14 +514,16 @@ function ChatHeaderToolsView({
       data-activity-on={cue?.on}
     >
       {preview && <HeaderToolPreview target={preview} />}
-      {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
-      {pullRequest && pullRequestChip !== false && (
-        <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
+      {!native && worktree && (
+        <WorktreePill ops={worktreeOps} worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />
+      )}
+      {!native && pullRequest && pullRequestChip !== false && (
+        <PullRequestChip ops={pullRequestOps} pullRequest={pullRequest} onMerge={onMergePullRequest} />
       )}
       {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
       {!native && sessionInfo}
       {typeof summary === "function" ? summary(native) : !native && summary}
-      {inbox}
+      {(!native || !nativeNeedsYouMenu) && inbox}
       {buttons ? (
         <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
           {onCustomize ? (

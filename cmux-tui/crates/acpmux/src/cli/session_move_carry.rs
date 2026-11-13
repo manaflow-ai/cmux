@@ -26,9 +26,6 @@ use base64::Engine as _;
 use serde_json::{Value, json};
 use std::path::Path;
 
-/// The most a carried patch may be: more is work to commit and push, not to carry.
-pub(crate) const MAX_CARRY_BYTES: usize = 64 * 1024 * 1024;
-
 /// Runs one of the fixed scripts where the folder is, its stdin given.
 pub(crate) type Exec<'a> = &'a dyn Fn(&str, &[u8]) -> Result<RemoteOut>;
 
@@ -64,26 +61,34 @@ git -c core.fsmonitor=false ls-files -z --others --exclude-standard >"$s" || exi
 base64 <"$s" | tr -d '\n'
 echo"#;
 
-/// The fixed script that makes the patch: the top folder, the base commit, the most bytes the
-/// patch may be and the untracked files to add (NUL-separated, base64) on four lines of stdin.
-/// Prints the number of files the patch touches, its size, then the patch in base64 (left out
-/// when it is over the most). Exit 4: HEAD is no longer the base.
-const PATCH_SCRIPT: &str = r#"read -r top || exit 2; read -r base || exit 2; read -r max || exit 2; read -r keep
+/// The fixed script that makes the patch: the top folder, the base commit and the untracked files
+/// to add (NUL-separated, base64) on three lines of stdin. Prints the number of files the patch
+/// touches, its size, then the whole patch in base64, whatever its size: a move never leaves work
+/// behind for being large. Exit 4: HEAD is no longer the base.
+const PATCH_SCRIPT: &str = r#"read -r top || exit 2; read -r base || exit 2; read -r keep
 cd -- "$top" || exit 2
 head=$(git rev-parse HEAD) || exit 3
 if [ "$head" != "$base" ]; then echo "HEAD moved from $base to $head" >&2; exit 4; fi
 real=$(git rev-parse --git-path index) || exit 3
 s=$(mktemp -d) || exit 2
 trap 'rm -rf -- "$s"' EXIT
-if [ -f "$real" ]; then cp -- "$real" "$s/index" || exit 2; fi
 GIT_INDEX_FILE="$s/index"; export GIT_INDEX_FILE
+# With no index, the scratch one starts at HEAD: an empty one would carry every tracked file
+# the untracked list leaves out (a tracked `.env`) as a deletion. A sparse checkout's
+# skip-worktree marks live only in its index, so without one every file outside the cone would
+# read as deleted: that is refused (exit 5).
+if [ -f "$real" ]; then cp -- "$real" "$s/index" || exit 2
+elif [ "$(git config --type=bool core.sparseCheckout)" = true ]; then
+  echo "it is a sparse checkout with no index: rebuild it there with git reset -q && git sparse-checkout reapply (edits stay), then move again" >&2; exit 5
+else git read-tree HEAD || exit 3; fi
 # Every path is a file name, never pathspec magic: `:(glob)**` must not add the secrets left out.
 GIT_LITERAL_PATHSPECS=1; export GIT_LITERAL_PATHSPECS
 g() { git -c core.fsmonitor=false -c core.quotepath=false "$@"; }
-g add --update -- . || exit 3
+# `--sparse`: a sparse checkout's changes inside its cone carry like any other.
+g add --sparse --update -- . || exit 3
 if [ -n "$keep" ]; then
   printf '%s' "$keep" | { base64 -d 2>/dev/null || base64 -D; } >"$s/keep" || exit 2
-  g add --pathspec-from-file="$s/keep" --pathspec-file-nul -- || exit 3
+  g add --sparse --pathspec-from-file="$s/keep" --pathspec-file-nul -- || exit 3
 fi
 tree=$(g write-tree) || exit 3
 g diff --name-only -z --no-renames "$base" "$tree" >"$s/names" || exit 3
@@ -91,7 +96,7 @@ tr -cd '\000' <"$s/names" | wc -c | tr -d ' '
 g diff --binary --full-index --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$base" "$tree" >"$s/patch" || exit 3
 size=$(wc -c <"$s/patch" | tr -d ' ')
 echo "$size"
-if [ "$size" -le "$max" ]; then base64 <"$s/patch" | tr -d '\n'; fi
+base64 <"$s/patch" | tr -d '\n'
 echo"#;
 
 fn decode(text: &str) -> Result<Vec<u8>> {
@@ -142,7 +147,7 @@ pub(crate) fn snapshot(exec: Exec<'_>, top: &Path, local: bool) -> Result<Carry>
         }
     }
     let keep = base64::engine::general_purpose::STANDARD.encode(&keep);
-    let input = format!("{top_line}\n{base}\n{MAX_CARRY_BYTES}\n{keep}\n");
+    let input = format!("{top_line}\n{base}\n{keep}\n");
     let out = exec(PATCH_SCRIPT, input.as_bytes())?;
     if !out.ok {
         return Err(failed(&out, "reading the uncommitted changes"));
@@ -152,13 +157,6 @@ pub(crate) fn snapshot(exec: Exec<'_>, top: &Path, local: bool) -> Result<Carry>
     let (Some(files), Some(size)) = (number(), number()) else {
         bail!("reading the uncommitted changes answered no counts");
     };
-    if size > MAX_CARRY_BYTES {
-        bail!(
-            "its uncommitted changes are {} MiB, more than the {} MiB a move carries: commit them",
-            size / (1024 * 1024),
-            MAX_CARRY_BYTES / (1024 * 1024)
-        );
-    }
     let patch = decode(lines.next().unwrap_or_default()).context("the patch")?;
     if patch.len() != size {
         bail!("the uncommitted changes came over cut short ({} of {size} bytes)", patch.len());

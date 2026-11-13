@@ -21,6 +21,7 @@ use super::browser_pixels_for_cells;
 use super::commit_client_attach_and_start_worker;
 use super::detach_committed_attach;
 use super::mark_resource_client_attached;
+use super::message_writer::long_connection::stream_start_error;
 use super::render_state_message;
 use super::resource_browser_surface;
 use super::resource_stream_end;
@@ -98,10 +99,6 @@ pub(super) fn resource_stream_id(
     serde_json::from_value(field).map_err(|_| {
         ResourceError::selector_invalid("stream", &selector, "expected an opaque stream id")
     })
-}
-
-fn resource_transport_error(reason: impl Into<String>) -> ResourceError {
-    ResourceError::transport_closed(reason)
 }
 
 fn resource_stream_install_error(
@@ -203,9 +200,8 @@ fn install_resource_outbound(
 ) -> Result<(OutboundStream, Arc<AtomicBool>, ResourceWorkerPermit), ResourceError> {
     let overflow =
         resource_stream_end(stream_id, "gap", None, Some("open a fresh attachment stream"), None);
-    let outbound = writer
-        .start_stream(&overflow)
-        .map_err(|error| resource_transport_error(error.to_string()))?;
+    let outbound =
+        writer.start_stream(&overflow).map_err(|error| stream_start_error(operation, &error))?;
     let (canceled, worker_permit) =
         register_resource_outbound(mux, client, stream_id, &outbound, operation)?;
     Ok((outbound, canceled, worker_permit))
@@ -972,8 +968,14 @@ pub(super) fn send_resource_response(
     let result = crate::resource_router::validate_operation_outcome(operation, result)
         .map_err(|error| with_internal_request_id(operation, error));
     let envelope = match result {
-        Ok(result) => ResourceResponseEnvelope::success(id, result),
-        Err(error) => ResourceResponseEnvelope::failure(id, error),
+        Ok(result) => {
+            crate::diagnostics::request_log::reply_follows(true, None);
+            ResourceResponseEnvelope::success(id, result)
+        }
+        Err(error) => {
+            crate::diagnostics::request_log::reply_follows(false, Some(error.code.as_str()));
+            ResourceResponseEnvelope::failure(id, error)
+        }
     };
-    serde_json::to_value(envelope).is_ok_and(|value| writer.send_control(&value).is_ok())
+    envelope.into_value().is_ok_and(|value| writer.send_control(&value).is_ok())
 }

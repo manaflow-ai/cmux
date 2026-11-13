@@ -4,8 +4,9 @@
  * terminal. docs/cloud-guest-upgrades.md is the contract and the runbook.
  *
  * Each machine gets a fresh run directory under /var/lib/cmux-tui-upgrade with
- * the pinned install command (`cmuxTuiInstallCommand`, the exact command the
- * image bake runs), the current state-mount helper, and the guest script
+ * the pinned install command (`cmuxTuiUpgradeInstallScript`: the binary and the
+ * guest `cmux` integration, as the image bake installs them), the current guest
+ * adapter, the current state-mount helper, and the guest script
  * `scripts/cloud-vm/cmux-tui-upgrade.sh`,
  * which runs detached as root, holds a per-machine lock, and writes one result
  * line. This runner only starts the script and polls the result; the guest
@@ -29,7 +30,9 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CMUX_TUI_STATE_MOUNT_HELPER_PATH, readImageManifest } from "./devbox-image-common";
-import { cmuxTuiInstallCommand, cmuxTuiServiceInstallCommand, parseCmuxTuiManifest, shellQuote } from "../services/vms/drivers/cmuxTuiDaemon";
+import { parseCmuxTuiManifest, shellQuote } from "../services/vms/drivers/cmuxTuiDaemon";
+import { cmuxTuiUpgradeInstallScript } from "../services/vms/drivers/cmuxTuiUpgradeInstall";
+import { GUEST_CMUX_SHIM } from "../services/vms/guestCli";
 
 const argValues = (name: string): string[] =>
   process.argv.flatMap((arg, index) => (arg === name && process.argv[index + 1] ? [process.argv[index + 1]] : []));
@@ -95,9 +98,10 @@ const freestyle = new Freestyle({ apiKey, ...(process.env.FREESTYLE_API_URL ? { 
 
 // One directory per run: concurrent runs never share an install command or result.
 const runDir = `${GUEST_DIR}/run-${new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14)}-${source.commit.slice(0, 12)}`;
+const adapterFile = `${runDir}/cmux-cloud-adapter`;
 const launch = [
-  `mkdir -p ${runDir}`,
-  writeFileCommand(`${runDir}/install.cmd`, `set -e\n${cmuxTuiInstallCommand(source)}\n${cmuxTuiServiceInstallCommand()}`),
+  `test -s ${adapterFile}`,
+  writeFileCommand(`${runDir}/install.cmd`, cmuxTuiUpgradeInstallScript(source, adapterFile)),
   writeFileCommand(`${runDir}/upgrade.sh`, guestScript),
   writeFileCommand(`${runDir}/state-mount.sh`, stateMountScript),
   `(setsid nohup sh ${runDir}/upgrade.sh ${source.sha256} ${source.commit} ${runDir} ${CMUX_TUI_STATE_MOUNT_HELPER_PATH} </dev/null >/dev/null 2>&1 &)`,
@@ -115,6 +119,18 @@ async function run(id: string, command: string): Promise<string> {
 
 const results = new Map<string, string>();
 await Promise.all(ids.map(async (id) => {
+  // The adapter is too large for one exec argument, so it goes up as a file first.
+  const prepared = await run(id, `mkdir -p ${runDir} && echo prepared`);
+  if (!prepared.endsWith("prepared")) {
+    results.set(id, `FAIL prepare: ${prepared.slice(0, 200)}`);
+    return;
+  }
+  try {
+    await freestyle.vms.ref(id).fs.writeTextFile(adapterFile, GUEST_CMUX_SHIM, { mode: 0o755 });
+  } catch (error) {
+    results.set(id, `FAIL adapter upload: ${error instanceof Error ? error.message : String(error)}`.slice(0, 200));
+    return;
+  }
   const launched = await run(id, launch);
   if (!launched.endsWith("launched")) results.set(id, `FAIL launch: ${launched.slice(0, 200)}`);
 }));

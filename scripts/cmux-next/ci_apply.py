@@ -84,7 +84,7 @@ APP_BUILD_JOBS = re.compile(
 DAEMON_BUILD_JOBS = re.compile(r"^cmux-tui artifacts / (build|build-windows|build-darwin-fallback)( \(.*\))?$")
 # Jobs that compile the app's test targets. The lane keeps them for Swift: a unit test needs its
 # own target built, and no prebuilt build holds a PR's test bundle.
-TEST_COMPILE_JOBS = re.compile(r"^cmux-next / cmux-next (swift test|fast tier)|^fleet test-compile / ")
+TEST_COMPILE_JOBS = re.compile(r"^cmux-next / cmux-next (swift test|fast tier)|^fleet test-compile( \(advisory\))? / ")
 
 # Measured costs of the lane's own steps, in minutes, added back to its time.
 # base app: an answered `cmux-ci build cmux --any-tag` download (cmuxterm-hq#7238, median ready
@@ -107,9 +107,11 @@ def app_linked_rust(paths: list[str], repo: Path = ROOT) -> list[str]:
     inputs = [p for p in route.SWIFT_JOB_INPUTS if p.startswith("cmux-tui/")]
     try:
         inputs += list(route.app_ffi_inputs(Path(repo))) + list(route.scheme_phase_rust_inputs(Path(repo)))
+        excluded = route.app_ffi_excluded(Path(repo))  # the FFI crates' tests/, benches/, examples/: not linked
     except Exception:  # noqa: BLE001 - a router that cannot read the tree: treat every Rust path as linked
         return [p for p in paths if p.startswith("cmux-tui/")]
-    return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)]
+    return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)
+            and not any(p.startswith(d + "/") for d in excluded)]
 
 
 def full_inputs(paths: list[str]) -> list[str]:

@@ -27,6 +27,8 @@ Usage: chief-subagents-live.py --tag <tag> --app PATH --debug-cli PATH --derived
 Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 """
 import argparse, glob, json, os, re, shutil, signal, socket, sqlite3, subprocess, sys, tempfile, threading, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -1098,7 +1100,7 @@ def cloud_chief():
             return next((w for w in (snap.get("topology") or {}).get("workspaces", [])
                          if key and (w.get("key") == key or w.get("id") == key)), None)
         ws = wait(server_ws, 120)
-        print("cloud ws:", json.dumps({k: (ws or {}).get(k) for k in ("id", "key", "name", "machine", "session")}), flush=True)
+        safe_print("cloud ws:", json.dumps({k: (ws or {}).get(k) for k in ("id", "key", "name", "machine", "session")}), flush=True)
         if ws:
             focus_workspace(ws.get("id"), f"cloud-{sub}-watch")
         state = rpc("debug.agent_pane", {"action": "chat_state"})
@@ -1124,7 +1126,7 @@ def cloud_chief():
             bool(seen) and bool(ws) and bool(typed) and "agent-session-attach-v1" in caps)
     finally:
         if host:
-            print("cloud cleanup:", json.dumps(rpc("debug.server_reach.cleanup", {"host": host, **({"chief": chief} if chief else {})},
+            safe_print("cloud cleanup:", json.dumps(rpc("debug.server_reach.cleanup", {"host": host, **({"chief": chief} if chief else {})},
                                                   timeout=90))[:300], flush=True)
         for p in reversed(procs):
             if p.poll() is None:
@@ -1220,7 +1222,7 @@ def cleanup():
         for line in ps.splitlines():
             parts = line.split(None, 1)
             if len(parts) == 2 and parts[1].startswith(APP + "/") and int(parts[0]) != os.getpid():
-                print("leftover", line[:160], flush=True)
+                safe_print("leftover", line[:160], flush=True)
                 try:
                     os.kill(int(parts[0]), signal.SIGTERM)
                 except OSError:

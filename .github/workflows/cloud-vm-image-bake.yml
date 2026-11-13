@@ -66,9 +66,9 @@ on:
         default: false
         type: boolean
       agent_tools:
-        description: Bake the agent tools (browser role baked, on-demand agent display and computer use, tool dir for acpmux; dev snapshots only, bead cx-h8n)
+        description: Bake the required Cloud desktop closure (browser role, on-demand agent display and computer use, cmux-rd desktop socket, and acpmux tool dir; bead cx-h8n)
         required: false
-        default: false
+        default: true
         type: boolean
       team_vm:
         description: Bake the team VM image (TEAM_VM_SNAPSHOT; adds the team files root /srv/team, bead cx-cemg); the smoke checks /srv/team and the candidate records var TEAM_VM_SNAPSHOT
@@ -93,7 +93,7 @@ on:
       clones: { type: string, required: false, default: "5" }
       keep_snapshot: { type: boolean, required: false, default: false }
       probes: { type: boolean, required: false, default: false }
-      agent_tools: { type: boolean, required: false, default: false }
+      agent_tools: { type: boolean, required: false, default: true }
       layered: { type: boolean, required: false, default: true }
       roll: { type: boolean, required: false, default: false }
       cmux_tui_commit: { type: string, required: false, default: "" }
@@ -174,7 +174,9 @@ jobs:
         working-directory: .
         env:
           DEV_SNAPSHOT: ${{ inputs.dev_snapshot }}
-          FLAG_INPUTS: ${{ (inputs.agent_tools || inputs.team_vm || inputs.dev_tree || inputs.probes) && 'set' || '' }}
+          # agent_tools defaults true because every Cloud Native bake carries the desktop closure. The other
+          # flags still come from the dev image's recorded bake in prod-copy mode.
+          FLAG_INPUTS: ${{ (inputs.team_vm || inputs.dev_tree || inputs.probes) && 'set' || '' }}
           # Whether each production secret is set, never its value: the copy is only useful once promote can run too.
           HAS_KEY: ${{ secrets.FREESTYLE_API_KEY != '' && 'yes' || '' }}
           HAS_EMAIL: ${{ secrets.CMUX_UITEST_STACK_EMAIL != '' && 'yes' || '' }}
@@ -184,8 +186,18 @@ jobs:
           refuse() { echo "::error title=Production copy::$1"; exit 1; }
           [ "$GITHUB_REF" = refs/heads/feat-cmux-next ] || refuse "dispatch from feat-cmux-next, not $GITHUB_REF"
           [[ "$DEV_SNAPSHOT" =~ ^sh-[0-9a-f]{32}$ ]] || refuse "dev_snapshot must be the dev image's snapshot id (sh-...)"
-          [ -z "$FLAG_INPUTS" ] || refuse "agent_tools, team_vm, dev_tree and probes come from the dev image's record in prod-copy mode; leave them off"
+          [ -z "$FLAG_INPUTS" ] || refuse "team_vm, dev_tree and probes come from the dev image's record in prod-copy mode; leave them off"
           [ -n "$HAS_KEY" ] && [ -n "$HAS_EMAIL" ] && [ -n "$HAS_PASSWORD" ] || refuse "cmux-next-vm-image-prod needs FREESTYLE_API_KEY (production account), CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD; nothing was created"
+
+      # Every newly baked Cloud Native image carries the cmux-rd desktop closure. A false
+      # value is accepted only for prod-copy, where the flags are read from the recorded
+      # dev image and prod-copy.ts enforces the same contract.
+      - name: Require the Cloud desktop closure
+        if: inputs.mode != 'prod-copy' && !inputs.agent_tools
+        working-directory: .
+        run: |
+          echo "::error title=Cloud image::agent_tools is required; every new Cloud Native image must include the cmux-rd desktop closure" >&2
+          exit 1
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -338,6 +350,7 @@ jobs:
              ($bake | words) as $bake | ($smoke | words) as $smoke |
              {schema: 1, env: "dev", var: $var, snapshot: $b[0].name, snapshot_id: $id, lock_sha256: $b[0].lockSha256, source_sha: $sha, run: ($run|tonumber), baked_at: (now|todate),
               bake: "\($bake) (CI run \($run))", smoke: {result: "PASSED", at: (now|todate), detail: "\($smoke) (CI run \($run)): \($s[0].checks | length) checks passed"}}
+             + (if ($b[0].desktop // null) != null then {desktop: $b[0].desktop} else {} end)
              + (if ($b[0].daemonIdentify.capabilities // [] | type) == "array" then {cmux_tui: {commit: ($b[0].daemonIdentify.build_commit // $sha), committed_at: (now|todate), capabilities: $b[0].daemonIdentify.capabilities}} else {} end)
              + (if $b[0].teamFilesRoot then {team_files_root: $b[0].teamFilesRoot} else {} end)' \
             > "$candidate"
@@ -461,6 +474,7 @@ jobs:
              ($bake | words) as $bake | ($smoke | words) as $smoke |
              {schema: 1, env: "production", copy_of: $dev, var: $var, snapshot: $b[0].name, snapshot_id: $id, lock_sha256: $b[0].lockSha256, source_sha: $sha, run: ($run|tonumber), baked_at: (now|todate),
               bake: "\($bake) (CI run \($run))", smoke: {result: "PASSED", at: (now|todate), detail: "\($smoke) (CI run \($run)): \($s[0].checks | length) checks passed"}}
+             + (if ($b[0].desktop // null) != null then {desktop: $b[0].desktop} else {} end)
              + (if $b[0].teamFilesRoot then {team_files_root: $b[0].teamFilesRoot} else {} end)' \
             > "$OUT_DIR/channel-production.json"
           cat "$OUT_DIR/channel-production.json"
@@ -552,7 +566,9 @@ jobs:
   first-build-before:
     if: inputs.mode == 'bake' && inputs.dev_tree
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    environment: cmux-next-vm-image-dev
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
     timeout-minutes: 150
     defaults:
       run:

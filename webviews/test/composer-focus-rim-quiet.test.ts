@@ -15,6 +15,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -152,7 +153,7 @@ await requireBrowserLane("composer-focus-rim-quiet.test.ts", async () => {
       const page = await open(theme);
       const { text, page: bg } = THEMES[theme];
       const rest = await layers(page);
-      await page.focus("#composer-field");
+      await focusByKey(page, "#composer-field");
       const focused = await layers(page);
       await page.close();
 

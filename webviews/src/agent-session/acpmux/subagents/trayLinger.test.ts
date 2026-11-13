@@ -120,9 +120,55 @@ describe("trayLinger", () => {
     expect(shown[0]!.kind === "command" && shown[0]!.command.endedAt).toBe(300);
     expect(shown[1]!.kind === "command" && shown[1]!.command.endedAt).toBe(50);
   });
+
+  test("a finished subagent with no end of its own takes the end this view saw, the same on every pass", () => {
+    const agent = (id: string, extra: object = {}): TrayItem => ({
+      kind: "agent",
+      id,
+      depth: 0,
+      agent: { id, parent: null, name: id, state: "completed", startedAt: 0, ...extra },
+    });
+    const items = [agent("a1"), agent("a2", { endedAt: 40 })];
+    const kept = new Map([
+      ["agent:a1", 5_000],
+      ["agent:a2", 40],
+    ]);
+    // The hat folded and opened again: a later pass draws the same ends, so the line's time stays put.
+    for (const pass of [lingeringTrayItems(items, kept), lingeringTrayItems(items, kept)]) {
+      expect(pass[0]!.kind === "agent" && pass[0]!.agent.endedAt).toBe(5_000);
+      expect(pass[1]!.kind === "agent" && pass[1]!.agent.endedAt).toBe(40);
+    }
+  });
 });
 
 describe("trayLinger review follow-ups", () => {
+  test("a subagent whose grace ran out keeps the end it was seen at while its group stays", () => {
+    // The parent ends at 5 s with no end of its own; its child runs on, then ends at 190 s, after the
+    // parent's grace ran out. The group stays for the child, and the parent's time stays at 5 s.
+    const agent = (id: string, depth: number, parent: string | null): TrayItem => ({
+      kind: "agent",
+      id,
+      depth,
+      agent: { id, parent, name: id, state: "completed", startedAt: 0 },
+    });
+    const linger = createLinger();
+    const grace = { grace: 100_000, cooldown: 0, together: 0 };
+    stepLinger(linger, { live: ["agent:parent", "agent:child"], ended: [], hold: false, now: 0, ...grace });
+    stepLinger(linger, { live: ["agent:child"], ended: [{ key: "agent:parent" }], hold: false, now: 5_000, ...grace });
+    const later = { live: [], ended: [{ key: "agent:parent" }, { key: "agent:child" }], hold: false, ...grace };
+    const step = stepLinger(linger, { ...later, now: 190_000 });
+    expect([...step.kept.keys()]).toEqual(["agent:child"]);
+    const items = [agent("parent", 0, null), agent("child", 1, "parent")];
+    for (const pass of [
+      lingeringTrayItems(items, step.kept, step.ends),
+      lingeringTrayItems(items, step.kept, step.ends),
+    ]) {
+      expect(pass.map((item) => item.id)).toEqual(["parent", "child"]);
+      expect(pass[0]!.kind === "agent" && pass[0]!.agent.endedAt).toBe(5_000);
+      expect(pass[1]!.kind === "agent" && pass[1]!.agent.endedAt).toBe(190_000);
+    }
+  });
+
   test("F2: a completion delivered late while the hat was held all along does not expire at once", () => {
     const linger = createLinger();
     // Seen running, the hat held from the start; the end (stamped at 0) arrives after a 3-minute

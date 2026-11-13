@@ -11,6 +11,8 @@
 
 import type { AcpmuxUsageLimits } from "../../agent-session/acpmux/model";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+import type { WorktreeRecipe } from "../../worktreeRecipe";
+import { OWNER_SENTENCE } from "../shared/userMessage";
 
 /** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
 export type MuseumArtResult = {
@@ -783,11 +785,16 @@ export type HarnessesRun = {
  * plans/cmux-next/cloud-environments-DESIGN.md): the team's environments on the cmux-next Cloud path.
  * `status` is CloudDO's; the page localizes it. `error` texts come from the host. */
 export type CloudEnvironmentStatus = "unbuilt" | "building" | "ready" | "stale" | "failed";
+/** A plain variable (baked into the snapshot) or a secret (a vault item's name; its value never
+ * enters the snapshot), as CloudDO's `CloudEnvironmentVariable`. */
+export type CloudEnvironmentVariable = { name: string; value: string } | { name: string; secret: string };
 export type CloudEnvironmentRow = {
   id: string;
   name: string;
   repo: string | null;
   setup_script: string;
+  /** Absent from a host that predates variables. */
+  env?: CloudEnvironmentVariable[];
   status: CloudEnvironmentStatus | string;
   /** The last failed build's message and its log tail; null otherwise. */
   error: string | null;
@@ -803,7 +810,16 @@ export type CloudEnvironmentsState = {
 /** One Cloud Environments gesture: Refresh, Save (create, or edit with `id`), Build, Delete. */
 export type CloudEnvironmentsRun =
   | { action: "refresh" }
-  | { action: "save"; id?: string; name: string; repo?: string; setup_script?: string }
+  | {
+      action: "save";
+      id?: string;
+      /** Required to create; an edit sends it only when renamed. */
+      name?: string;
+      repo?: string;
+      setup_script?: string;
+      /** The whole list; absent leaves it as it is. */
+      env?: CloudEnvironmentVariable[];
+    }
   | { action: "build"; id: string }
   | { action: "delete"; id: string };
 
@@ -1105,6 +1121,14 @@ export type ChannelSwitch = {
  */
 export type ChannelMachines = { title: string; lines: string[]; updates?: (string | null)[]; updateLabel?: string };
 
+/**
+ * A Switch or Go Back the host is running (`cmux.settings.channels.switch.changed`): `build` is the
+ * build it restarts into (Go Back's: the kept build), `label` the host's text for the stage it is
+ * at ("Downloading… 42%", "Checking the download…", "Restarting…"), `fraction` 0..1 while it
+ * downloads, else null.
+ */
+export type ChannelsProgress = { build: string; label: string; fraction: number | null };
+
 /** Settings > Updates' Channels card (`cmux.settings.channels.state`). */
 export type ChannelsState = {
   title: string;
@@ -1125,6 +1149,8 @@ export type ChannelsState = {
   daemon?: { title: string; value: string } | null;
   /** Other machines the app updates that cannot update in place or whose update failed, one line each. */
   machines?: ChannelMachines | null;
+  /** The switch running when the card reads; null or absent: none (older hosts send none). */
+  progress?: ChannelsProgress | null;
 };
 
 /** Every op the page calls: params and result. */
@@ -1202,6 +1228,12 @@ export type SettingsOps = {
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
   "cmux.settings.shares.revoke": [{ share_id: string }, unknown];
+  /** Native: Settings > Agents > Worktree Setup, the session host's `project.list`,
+   * `git.worktree.setup` and (on your click) `project.update` field `worktree`, on the app's own
+   * connection: a page may not reach them itself. */
+  "cmux.settings.worktree.list": [{ limit?: number }, unknown];
+  "cmux.settings.worktree.read": [{ path: string }, unknown];
+  "cmux.settings.worktree.save": [Mutation<{ path: string; worktree: WorktreeRecipe | null }>, unknown];
   /** Native: Settings > Devices; rejects with `cmux.page.unavailable` when the host has no device hub. */
   "cmux.settings.devices.state": [Record<string, never>, DevicesState];
   /** Native: one Devices gesture; a failure answers its localized text in `error`. */
@@ -1293,6 +1325,8 @@ export type SettingsStreams = {
   "cmux.settings.host.changed": HostLists;
   /** Settings > Updates' row of other machines changed (its new value; null: none to list). */
   "cmux.settings.channels.machines.changed": ChannelsState["machines"];
+  /** A Switch or Go Back moved to its next stage (null: none runs, it ended or was refused). */
+  "cmux.settings.channels.switch.changed": ChannelsProgress | null;
   /** The page bridge's link to the daemon (one stream for every page). */
   "cmux.page.connection": { connected: boolean };
   /** Commands from the app's key dispatcher (the page handles no Cmd or Ctrl chords). */
@@ -1326,7 +1360,15 @@ export type ErrorCode =
 
 const unavailableCodes = new Set(["cmux.protocol.closed", "cmux.page.unavailable", "cmux.protocol.auth_refused"]);
 
-/** The error a call rejected with, as a plain record. */
+/** Refusals the host words for the person: the updater's (Go Back, Switch, Update) and a
+ * person-only action's (RefusalStrings). Any other failure shows the plain sentence. */
+export const SETTINGS_SENTENCES = {
+  "cmux.page.refused": OWNER_SENTENCE,
+  "cmux.app.user_only": OWNER_SENTENCE,
+} as const;
+
+/** The error a call rejected with, as a plain record (its `message` is for logs; the page shows
+ * `userMessage(error)`). */
 export function wireError(error: unknown): WireError {
   if (typeof error === "object" && error !== null && typeof (error as WireError).code === "string") {
     const { code, message, details } = error as WireError;

@@ -228,6 +228,9 @@ request file `terminal-snapshot-history.md`.
   keys (E, J, B, L, R, M) work. No images follow a local READY: a match keeps
   the viewer's images, a mismatch asks for a plain READY. Cap 32 MiB of
   decoded pixels per READY (`skipped_images`).
+  Retired 2026-11-08: GHOSTSNP carries the images itself (records 8 to 10,
+  ghostty-next sync of #35478), so the images phase sent each image twice.
+  The host no longer advertises the capability and ignores the field.
 
 ## 3. Manual IO mode
 

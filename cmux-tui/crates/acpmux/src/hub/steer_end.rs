@@ -148,8 +148,19 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
         }
         delivery_started.store(true, std::sync::atomic::Ordering::SeqCst);
         let callback = move || {
-            drop(input_handoff);
+            // Tests only: the prompt is written and its `on_sent` has not run yet.
+            #[cfg(test)]
+            if let Some((arrived, release)) =
+                session.sent_seam.lock().unwrap_or_else(|e| e.into_inner()).take()
+            {
+                let _ = arrived.send(());
+                let _ = release.recv();
+            }
+            // What the written prompt records (the rules it carried, `turns.rs`) is recorded
+            // before the handoff is let go: a fork, which takes the handoff for its copy and
+            // cut (`fork.rs`), sees a written prompt with its record.
             on_sent();
+            drop(input_handoff);
         };
         if confirm_written {
             child.request_with_confirmed_hook(method::SESSION_PROMPT, params, fence, callback).await
@@ -228,7 +239,15 @@ impl Hub {
             .agent_session_id
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         let text = prompt_text(&blocks);
-        let msg = json!({"text": text, "steer": true, "client": client, "promptId": prompt_id, "turnId": turn_id});
+        // With what a run of it checks again, as a turn's prompt records it (`turns.rs`): a restart
+        // that finds it unread runs it next under the same rules (`unread_steer.rs`).
+        let mut msg = json!({"text": text, "steer": true, "client": client, "promptId": prompt_id, "turnId": turn_id,
+                             "control": control.as_str(), "cloudMobile": opts.cloud_mobile, "trustGate": trust_gate});
+        // Into this turn or nowhere: a restart that finds it unread does not run it next
+        // (`unread_steer.rs`).
+        if opts.steer_only {
+            crate::no_panic::JsonExt::set(&mut msg, "steerOnly", json!(true));
+        }
         let msg = crate::prompt_provenance::marked(msg, opts.provenance.as_ref());
         self.append_prompt(session, msg, &blocks, opts.display_parts.as_ref());
         let mut accepted = json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "state": "steered", "steer": true});
@@ -290,6 +309,7 @@ impl Hub {
                     trust_gate,
                     reports: super::lane_reports::reports_only(opts.provenance.as_ref()),
                     trigger: crate::prompt_provenance::is_trigger(opts.provenance.as_ref()),
+                    asked: opts.provenance.clone(),
                 },
             };
             now.sent.insert(prompt_id.clone(), sent);
@@ -379,6 +399,8 @@ impl Hub {
             Some(&held as &(dyn Fn() -> bool + Send + Sync)),
             || {
                 written.notify_one();
+                // A question it carries is answered by this turn (`question_replies.rs`).
+                self.question_reply_in_turn(session, &prompt_id, turn_id);
                 if inbox_notice {
                     self.inbox_prompt_written(session, &prompt_id);
                 }

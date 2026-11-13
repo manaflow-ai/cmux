@@ -501,6 +501,8 @@ def _cmux_tui_crates_markdown(kind: str, rust_target: str, cache: Path, source_t
             "--lock", str(ROOT / "cmux-tui/Cargo.lock"), "--lock-label", "cmux-tui/Cargo.lock",
             "--workspace", str(ROOT / "cmux-tui"), "--repo-root", str(ROOT),
             "--first-party", "cmux-tui/crates/*", "--first-party", "cmux-tui/bindings/*",
+            # cmux vm's own workspace (GPL-3.0-or-later): cmux-tui links cmux-vm in process.
+            "--first-party", "workers/cmux-vm/cli/crates/*",
             "--first-party-license", str(ROOT / "cmux-tui/dist/npm/cmux/LICENSE"),
             "--reviewed", str(BUILD_SUPPORT / "reviewed.json"),
             "--source-tag", source_tag, "--target", rust_target,

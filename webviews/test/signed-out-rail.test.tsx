@@ -7,6 +7,8 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
+import { until } from "./support/until";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -74,12 +76,8 @@ afterEach(() => {
   dom.window.localStorage.clear();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 type Sent = { method: "model" | "harness" | "effort"; value: string };
@@ -283,10 +281,9 @@ test("a search lists a signed-out harness's models after the ready ones, and a p
     setValue.call(input, "gpt");
     input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   });
-  // A searched row's title is its name, its harness, then its provider ("GPT 5.3 Codex" is a model).
-  const codexRows = modelRows().filter((row) => row.title.split(" · ")[1] === "Codex");
+  // A signed-out row says so in its description (its tooltip is the name alone); only Codex is signed out here.
+  const codexRows = modelRows().filter((row) => row.getAttribute("aria-description") === "Signed out");
   expect(codexRows.length).toBeGreaterThan(0);
-  expect(codexRows.every((row) => row.title.includes("Signed out"))).toBe(true);
   const headings = [...dom.window.document.querySelectorAll(".acpmux-cols .acpmux-cols-group")].map(
     (heading) => heading.textContent,
   );
@@ -294,10 +291,11 @@ test("a search lists a signed-out harness's models after the ready ones, and a p
   expect(headings).toContain("CodexSigned out");
   // Other providers can offer GPT models; those that are ready come first.
   if (headings.length > 1) expect(headings[0]).not.toBe("CodexSigned out");
-  await act(async () => {
-    codexRows[0]!.click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
+  await act(async () => codexRows[0]!.click());
+  await until(
+    () => logins.length > 0,
+    () => act(async () => {}),
+  );
   expect(logins).toEqual(["codex: codex login"]);
   expect(sent).toEqual([]);
   (await import("../src/agent-session/acpmux/harnessSetup")).resetHarnessSetupForTests();

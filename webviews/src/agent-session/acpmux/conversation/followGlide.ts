@@ -21,7 +21,7 @@
 // Stop condition: each animation is finite (its duration); `stop` cancels it on reader input, Jump
 // to latest, a chat switch and unmount, and `fit` when the room it lands in shrinks below what it
 // still holds back (VirtualTranscript).
-import { MOTION_EASE_OUT, MOTION_MS } from "../../../motion/scale.generated";
+import { MOTION_EASE_OUT, MOTION_EASE_SEND, MOTION_MS, MOTION_SEND_MS } from "../../../motion/scale.generated";
 import type { AcpmuxRow } from "../model";
 import { geometryOf, type GeometrySource } from "../conversationGeometry";
 import { cssTimeMs } from "./fold";
@@ -60,13 +60,16 @@ export type FollowGlide = {
 };
 
 /// The step's duration: the host's move token (`--agent-motion-move`, 0 with motion off), else the
-/// motion scale's standard step. None under Reduce Motion or with cmux's motion off.
-function glideMs(node: HTMLElement): number {
+/// motion scale's standard step; a send's, the send motion (`--agent-motion-send`, the scale's send
+/// step scaled as the move is). None under Reduce Motion or with cmux's motion off.
+function glideMs(node: HTMLElement, send = false): number {
   const view = node.ownerDocument.defaultView;
   if (!view || view.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return 0;
   if (node.ownerDocument.documentElement.dataset.agentMotion === "off") return 0;
-  const token = cssTimeMs(view.getComputedStyle(node).getPropertyValue("--agent-motion-move"));
-  return token ?? MOTION_MS.standard;
+  const token = cssTimeMs(
+    view.getComputedStyle(node).getPropertyValue(send ? "--agent-motion-send" : "--agent-motion-move"),
+  );
+  return token ?? (send ? MOTION_SEND_MS : MOTION_MS.standard);
 }
 
 export function createFollowGlide(): FollowGlide {
@@ -88,10 +91,12 @@ export function createFollowGlide(): FollowGlide {
     animation?.cancel();
   };
   /// Draws the thread back by `lag` and slides it to rest on the move step; false when nothing may.
-  const play = (thread: HTMLElement | null, lag: number): boolean => {
+  /// A send's glide runs on the send motion (`--agent-motion-send`, its settling curve), the clock the
+  /// sent prompt's bubble and the thinking row come in on (conversation.css SEND-ENTRANCE).
+  const play = (thread: HTMLElement | null, lag: number, send = false): boolean => {
     if (!thread || typeof thread.animate !== "function" || !(lag > 0.5)) return false;
     if (thread.closest(FOLLOW_GLIDE_OFF)) return false;
-    const duration = glideMs(thread);
+    const duration = glideMs(thread, send);
     if (!(duration > 0)) {
       stop();
       return false;
@@ -100,7 +105,7 @@ export function createFollowGlide(): FollowGlide {
     from = lag;
     const animation = thread.animate([{ translate: `0 ${lag}px` }, { translate: "0 0" }], {
       duration,
-      easing: MOTION_EASE_OUT,
+      easing: send ? MOTION_EASE_SEND : MOTION_EASE_OUT,
     });
     running = animation;
     animation.onfinish = () => {
@@ -122,12 +127,12 @@ export function createFollowGlide(): FollowGlide {
       // Where the rows are drawn now, plus the rise the offset just took: they start where the
       // reader saw them, short of the room's end. A send's glide in flight keeps all it holds back.
       const lag = sending ? outstanding() + rose : Math.min(room, outstanding() + rose);
-      return play(thread, lag) ? lag : 0;
+      return play(thread, lag, sending) ? lag : 0;
     },
     sent(thread, rose) {
       if (!(rose > 0.5)) return 0;
       const lag = outstanding() + rose;
-      if (!play(thread, lag)) return 0;
+      if (!play(thread, lag, true)) return 0;
       sending = true;
       return lag;
     },

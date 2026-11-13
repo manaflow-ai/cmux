@@ -188,6 +188,11 @@ path = "tests/test_ci_guard_workflow_structure.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_guards_read_through_workflow_jobs.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Fails on any guard under tests/ that reads a job's runs-on, environment, env or secrets raw, or copies a job with {**job} or dict(job), instead of through tests/workflow_jobs.py; run python3 tests/test_ci_guards_read_through_workflow_jobs.py yourself after changing a workflow guard (a few seconds, no build)."
+
+[[test]]
 path = "tests/test_ci_health_report.py"
 lane = "linux-guard"
 
@@ -207,6 +212,11 @@ reason = "Portable unit tests for the overflow watch's hosted light rescue (main
 [[test]]
 path = "tests/test_ci_ios_conventions_diff.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_job_list_fixture_mutations.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Proves each job-list fixture goes red with the pre-fix secret, job-header and environment reader and green with tests/workflow_jobs.py; run python3 tests/test_ci_job_list_fixture_mutations.py yourself after changing workflow_jobs.py or a job-list guard (no build)."
 
 [[test]]
 path = "tests/test_ci_killpg_tolerates_eperm.py"
@@ -286,6 +296,11 @@ path = "tests/test_ci_next_macos_cascade.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_nightly_cmux_tui_client_download.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins that the nightly's cmux-tui install steps fetch only NIGHTLY_COMPILE_ARCHS's slice and that install-cmux-tui-client.sh abandons a trickling download at the stall bound (run 42675465011); run python3 tests/test_ci_nightly_cmux_tui_client_download.py yourself after changing those scripts (about 15 s, no build; needs openssl and curl)."
+
+[[test]]
 path = "tests/test_ci_nightly_no_hosted_mac.py"
 lane = "linux-guard"
 
@@ -311,6 +326,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_no_single_size_pins.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_noclobber_sweep.py"
 lane = "linux-guard"
 
 [[test]]
@@ -381,6 +400,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_portable_job_placement.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_post_merge_checks.py"
 lane = "linux-guard"
 
 [[test]]
@@ -460,6 +483,10 @@ path = "tests/test_ci_r2_storage_census.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_recovery_runs_after_a_timeout.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_relay_deploy_plan.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/relay_deploy_plan.py (the carrier relay deploy's ordering and migration-approval rules) on a throwaway git history; run python3 tests/test_ci_relay_deploy_plan.py yourself after changing it or cloudflare-relay.yml's plan (about 1 s, no build)."
@@ -471,6 +498,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_release_product_reuse.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_release_publish_tag_gate.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Fails when a publishing, attesting, asset-uploading or release-secret step in coderouter-release.yml or app-ffi-release.yml loses a condition that requires its release ref, or a workflow_dispatch can reach it; run python3 tests/test_ci_release_publish_tag_gate.py yourself after editing either workflow (about 10 s, no build)."
 
 [[test]]
 path = "tests/test_ci_reload_build_cache_keys.py"
@@ -543,6 +575,10 @@ path = "tests/test_ci_rust_cache_keeps_runner_bin.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_rust_cache_runner_cargo_home.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_rust_targets_installed_first.py"
 lane = "linux-guard"
 
@@ -551,8 +587,18 @@ path = "tests/test_ci_sanitize_xcode_source_packages_cache.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_secrets_only_environments_log_no_deployment.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that every job in a secrets-only environment (no protection rules) says deployment: false, so PRs log no deployment event; run python3 tests/test_ci_secrets_only_environments_log_no_deployment.py yourself after adding an environment to a job (about 2 s, no build)."
+
+[[test]]
 path = "tests/test_ci_select_package_tests.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_self_hosted_downloads_are_fresh.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Fails when a job on a self-hosted selector downloads an artifact into a relative directory (a persistent worker keeps an earlier job's files there) instead of ${{ runner.temp }}; run python3 tests/test_ci_self_hosted_downloads_are_fresh.py yourself after adding a download-artifact step (a few seconds, no build)."
 
 [[test]]
 path = "tests/test_ci_session_label_routing.py"
@@ -579,11 +625,24 @@ path = "tests/test_ci_simple_pool_picker.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_single_host_fallbacks.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/cmux-next/check-single-host-fallbacks.py, which CI runs only with --advisory (warnings) and the pre-push gate runs strictly; run python3 tests/test_ci_single_host_fallbacks.py yourself after changing the checker or .github/single-host-fallbacks.json (about 10 s, no build)."
+
+[[test]]
 path = "tests/test_ci_source_lint_guard_structure.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_sparse_checkout_imports.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_starved_labels.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_step_table.py"
 lane = "linux-guard"
 
 [[test]]
@@ -625,6 +684,16 @@ path = "tests/test_ci_testbox_broker_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_timeout_handlers.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Finds TimeoutExpired handlers in scripts/ci/*.py that fail a check without asking whether the change touched what timed out; run python3 -I tests/test_ci_timeout_handlers.py yourself after adding or changing a subprocess timeout in scripts/ci (about 1 s, no build)."
+
+[[test]]
+path = "tests/test_ci_timeout_kills_tree.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Finds subprocess calls in scripts/ci/*.py that stop only the process they started on a timeout (its children keep running); run python3 -I tests/test_ci_timeout_kills_tree.py yourself after adding or changing a subprocess call in scripts/ci (about 1 s, no build)."
+
+[[test]]
 path = "tests/test_ci_timing_readout.py"
 lane = "linux-guard"
 
@@ -657,11 +726,20 @@ path = "tests/test_ci_web_test_verdict.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_webviews_affected.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/webviews_affected.py's selection for the react-apps-check shards on pull requests; run python3 tests/test_ci_webviews_affected.py yourself after changing it or focused_tests.py's webviews graph (about 5 s, no build)."
+
+[[test]]
 path = "tests/test_ci_workflow_guards_are_wired.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_path_filter_parity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_paths_cover_inputs.py"
 lane = "linux-guard"
 
 [[test]]

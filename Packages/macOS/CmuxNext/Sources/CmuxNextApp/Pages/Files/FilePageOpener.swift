@@ -83,7 +83,7 @@ final class FilePageOpener: FileOpening {
     /// reads another machine's file, so a web page shows its source and an image or PDF does not
     /// open. The local daemon opens through ``open(_:in:userChose:asText:at:placed:)``.
     func open(_ file: URL, on machine: DaemonService, in pane: PaneController?, userChose: Bool, asText: Bool = false, at position: FilePosition? = nil,
-              placed: (@MainActor (SurfaceID) -> Void)? = nil, shownInPlace: (@MainActor () -> Void)? = nil) -> String? {
+              noFollow: Bool = false, placed: (@MainActor (SurfaceID) -> Void)? = nil, shownInPlace: (@MainActor () -> Void)? = nil) -> String? {
         guard !machine.isLocal else {
             return open(file, in: pane, userChose: userChose, asText: asText, at: position, placed: placed, shownInPlace: shownInPlace)
         }
@@ -92,11 +92,11 @@ final class FilePageOpener: FileOpening {
         let url = file.standardizedFileURL
         switch Self.route(for: url, userChose: userChose, asText: asText) {
         case .markdown:
-            services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, on: machine, placed: placed,
-                                                shownInPlace: shownInPlace)
+            services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, on: machine, noFollow: noFollow,
+                                                placed: placed, shownInPlace: shownInPlace)
         case .editor, .renderedPage:
             services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, at: position, on: machine,
-                                              placed: placed, shownInPlace: shownInPlace)
+                                              noFollow: noFollow, placed: placed, shownInPlace: shownInPlace)
         case .preview:
             return RemoteFilePageFiles.remotePreview(url.lastPathComponent)
         }

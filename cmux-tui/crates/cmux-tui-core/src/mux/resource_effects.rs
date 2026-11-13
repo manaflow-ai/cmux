@@ -204,6 +204,11 @@ impl Mux {
         crate::debug_spans::mark("projection.built");
         persist_public_topology_result(operation, &mut projection.result, &projection.changes)?;
         #[cfg(test)]
+        crate::walk_counters::projection_prepared(
+            projection.patch.changes.len(),
+            projection.changes.as_array().map_or(0, Vec::len),
+        );
+        #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
         }
@@ -339,6 +344,21 @@ impl Mux {
         )
     }
 
+    /// Records why a resource effect's outcome is unknown. A
+    /// `mutation.indeterminate` response carries no cause, so this log line is
+    /// the only evidence of it. `cause` must not hold raw transport text that
+    /// can name private sockets or credentials.
+    pub(crate) fn report_resource_effect_indeterminate(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        cause: &str,
+    ) {
+        self.report_internal_diagnostic(format!(
+            "resource effect {operation} (idempotency key {idempotency_key}) is indeterminate: {cause}"
+        ));
+    }
+
     #[track_caller]
     pub(crate) fn mark_resource_effect_indeterminate(
         &self,
@@ -440,9 +460,6 @@ impl Mux {
 /// journal already states (a scoped walk still restates every workspace's
 /// row), and a full projection's, unpruned, may seed the public fold.
 fn projection_plan(projection: ResourceEffectProjection) -> ResourceMutationPlan {
-    let mut plan =
-        ResourceMutationPlan::new(projection.patch, projection.result, projection.changes, |_| {});
-    plan.restates_all = projection.restates_all;
-    plan.prunes_stated = true;
-    plan
+    ResourceMutationPlan::new(projection.patch, projection.result, projection.changes, |_| {})
+        .projected(projection.restates_all)
 }

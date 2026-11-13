@@ -294,6 +294,7 @@ impl Surface {
                 cmd.env(k, v);
             }
         }
+        cmd.terminal_identity();
         for key in crate::shell_integration::keys_to_unset_in_child(&launch.env) {
             cmd.env_remove(key);
         }

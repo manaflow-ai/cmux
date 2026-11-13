@@ -21,6 +21,9 @@ extension AgentPaneView {
             self.model.transport.gestures.recordQuestionReturn(false)
             self.questionKeyBinding = nil
             if visible { self.refreshQuestionKeyBinding() }
+            // Hidden: the page writes its chat's drawn copy now, before a hidden page freezes
+            // (chatSnapshot/live.ts), so the next launch draws what it showed last.
+            else { _ = self.pageEvents?.publish(.chatSnapshotWrite) }
         }
         page.onQuestionKeyChannelInvalidated = { [weak self] in
             guard let self else { return }
@@ -83,11 +86,17 @@ extension AgentPaneView {
         if let page { page.focusPage() } else { window.makeFirstResponder(webView) }
     }
 
+    /// Whether the app froze this hidden page (hibernation): it runs no script until work for it thaws
+    /// it, and ``callPageScript(_:arguments:timeout:)`` thaws it first (``AgentPaneTransport/beforePageWork``
+    /// is set only while the page is frozen).
+    var pageIsFrozen: Bool { model.transport.beforePageWork != nil }
+
     /// Runs `body` as an async function body in the chat's page, in whichever engine shows it
-    /// (``PageWebView/callPageScript(_:arguments:)``).
-    public func callPageScript(_ body: String, arguments: [String: Any] = [:]) async throws -> Any? {
+    /// (``PageWebView/callPageScript(_:arguments:timeout:)``; `timeout` lets a script that awaits on
+    /// purpose outlast Chromium's short DevTools default).
+    public func callPageScript(_ body: String, arguments: [String: Any] = [:], timeout: Duration? = nil) async throws -> Any? {
         model.transport.beforePageWork?()
-        if let page { return try await page.callPageScript(body, arguments: arguments) }
+        if let page { return try await page.callPageScript(body, arguments: arguments, timeout: timeout) }
         return try await webView.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
     }
 }
