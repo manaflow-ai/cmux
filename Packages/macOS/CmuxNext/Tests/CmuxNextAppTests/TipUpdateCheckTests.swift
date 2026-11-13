@@ -192,7 +192,7 @@ import CmuxNextWakeupsTestSupport
         #expect(h.checks.count == 1, "build 500 is out but no check started")
         // The check found it: the update-found step asks; the fast check keeps reading for a newer one.
         h.updater.debugIndicatorPhase = .available(version: "5.0.0")
-        #expect(h.updater.availableButton == UpdateAvailableButton(version: "5.0.0", restarts: true), "the found update did not ask")
+        #expect(h.updater.availableButton == UpdateAvailableButton(version: "5.0.0"), "the found update did not ask")
         #expect(h.updater.readyCard == nil, "the found update staged without an answer")
         #expect(h.updater.tipCheck.timer.isScheduled, "a found update waiting on its ask stopped the fast check")
     }

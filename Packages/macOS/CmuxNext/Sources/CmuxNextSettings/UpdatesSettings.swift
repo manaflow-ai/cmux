@@ -12,8 +12,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     /// Seconds between automatic checks.
     public var checkIntervalSeconds = UpdatesSettings.checkIntervalDefault
     public var downloadAutomatically = UpdatesSettings.downloadAutomaticallyDefault
-    /// One click on a found update's Update downloads, installs and restarts (on by default; off: the Update Ready
-    /// card asks first).
+    /// One click on a found update's Update downloads, installs and restarts (off: the Update Ready card asks first).
     public var oneClickInstall = UpdatesSettings.oneClickInstallDefault
     /// Found updates download and install with no click, then cmux restarts (opt-in; off: only a click installs).
     public var installAutomatically = UpdatesSettings.installAutomaticallyDefault

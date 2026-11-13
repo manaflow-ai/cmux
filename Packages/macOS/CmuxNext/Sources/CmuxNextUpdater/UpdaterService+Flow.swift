@@ -25,8 +25,8 @@ extension UpdaterService {
 
     /// The sidebar footer's quiet Update Available button: a found update that waits for a click
     /// (`updates.downloadAutomatically` off, or downloads deferred on a metered network); a click
-    /// downloads it (``downloadClicked()``), then installs and relaunches once it is staged
-    /// (`updates.oneClickInstall`, on by default; off, the staged update asks before relaunching).
+    /// downloads it (``downloadClicked()``), and the staged update then asks before relaunching
+    /// (with `updates.oneClickInstall`, it installs and relaunches instead).
     /// Nil otherwise, and for a version the
     /// person closed or snoozed (``updateSnooze``), and while a check the person asked for shows
     /// it on the notice card (``card``).
@@ -105,11 +105,12 @@ extension UpdaterService {
     }
 
     /// Why the update flow failed, as Sparkle reported it (a failed check, download or install
-    /// preflight), else the read-only probe's failure on a build without Sparkle; nil otherwise.
+    /// preflight) in plain words (``UpdateFailureText``), else the read-only probe's failure on a
+    /// build without Sparkle; nil otherwise.
     public var failureReason: String? {
         if let controller, disabledReason == nil {
             guard case .error(let failure) = controller.model.effectiveState else { return nil }
-            return failure.error.localizedDescription
+            return UpdateFailureText.plain(failure.error)
         }
         return lastProbeError
     }

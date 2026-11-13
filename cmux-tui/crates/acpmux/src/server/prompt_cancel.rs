@@ -10,6 +10,11 @@
 //! else exactly its turn stopped (`Hub::stop_cancelled_prompt`). Its turn then ends as every
 //! turn does (`finish_turn`, the prompt's outcome to its waiters, its saved files settled), and
 //! its answer, which nobody reads any more, is dropped.
+//!
+//! Its caller reads the reply no more either (review F2 of #41361): the reader it held
+//! (`PromptOptions::reply_reader`, the lane report's `LaneReplyReader`) reads as gone from the
+//! cancel on ([`ReaderGone`]), as for a caller whose connection ended, so the lane report of
+//! its turn still goes to the lead and a question's reply goes back to its asker.
 
 use crate::hub::{Hub, Session};
 use serde_json::Value;
@@ -17,6 +22,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+use tokio::sync::watch;
 
 type OnAccepted = Option<Box<dyn FnOnce(Value) + Send>>;
 
@@ -26,6 +32,45 @@ pub(super) struct PromptStop {
     hub: Arc<Hub>,
     session: Arc<Session>,
     state: Mutex<State>,
+    /// Its caller's reader of the reply, revoked by the cancel.
+    reader: Option<ReaderGone>,
+}
+
+/// Whether a prompt's caller still reads its reply, read as a connection's `ended` is (true:
+/// it reads no more): true once its connection ended or it cancelled the request.
+pub(super) struct ReaderGone {
+    tx: watch::Sender<bool>,
+    rx: watch::Receiver<bool>,
+}
+
+impl ReaderGone {
+    /// Gone with `ended`, the caller's connection's end, or with a cancel ([`PromptStop`]).
+    pub(super) fn new(hub: &Arc<Hub>, mut ended: watch::Receiver<bool>) -> Self {
+        let (tx, rx) = watch::channel(*ended.borrow());
+        let gone = tx.clone();
+        // Ends with the connection, or once nobody reads it any more.
+        hub.scope.spawn_named("prompt-reader-gone", async move {
+            loop {
+                if *ended.borrow_and_update() {
+                    break;
+                }
+                tokio::select! {
+                    changed = ended.changed() => if changed.is_err() { break },
+                    () = gone.closed() => return,
+                }
+            }
+            gone.send_replace(true);
+        });
+        Self { tx, rx }
+    }
+
+    pub(super) fn subscribe(&self) -> watch::Receiver<bool> {
+        self.rx.clone()
+    }
+
+    fn revoke(&self) {
+        self.tx.send_replace(true);
+    }
 }
 
 #[derive(Default)]
@@ -38,8 +83,17 @@ struct State {
 }
 
 impl PromptStop {
-    pub(super) fn new(hub: &Arc<Hub>, session: &Arc<Session>) -> Arc<Self> {
-        Arc::new(Self { hub: hub.clone(), session: session.clone(), state: Default::default() })
+    pub(super) fn new(
+        hub: &Arc<Hub>,
+        session: &Arc<Session>,
+        reader: Option<ReaderGone>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            hub: hub.clone(),
+            session: session.clone(),
+            state: Default::default(),
+            reader,
+        })
     }
 
     /// `on_accepted`, which first notes the prompt id the chat took it under.
@@ -56,8 +110,12 @@ impl PromptStop {
         }))
     }
 
-    /// The request was cancelled: its prompt stops, now or once the chat takes it.
+    /// The request was cancelled: its caller reads the reply no more, and its prompt stops, now
+    /// or once the chat takes it.
     fn cancel(&self) {
+        if let Some(reader) = &self.reader {
+            reader.revoke();
+        }
         self.state.lock().unwrap_or_else(|e| e.into_inner()).cancelled = true;
         self.stop_if_due();
     }

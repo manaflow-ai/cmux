@@ -55,6 +55,7 @@ on:
       - "webviews/scripts/agent-pane/reactCompilerPlugin.mjs"
       - "webviews/scripts/agent-pane/tailwind-css.mjs"
       - "webviews/scripts/agent-pane/tailwindCompile.mjs"
+      - "webviews/scripts/bundle-metafile.mjs"
       - "webviews/scripts/pages/gen-design-scale.mjs"
       - "webviews/scripts/pages/gen-feature-tips.mjs"
       - "webviews/scripts/pages/gen-strings.mjs"
@@ -98,6 +99,7 @@ on:
       - "schemas/type-scale/**"
       - "schemas/motion-scale/**"
       - "schemas/layout-grid/**"
+      - "schemas/theme/slots.json"
       - "schemas/sync-motion/**"
       - "schemas/settings/settings-schema.json"
       - "schemas/theme/slots.json"
@@ -118,6 +120,8 @@ on:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/AddMachine.xcstrings"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/Localizable.xcstrings"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/Localizable.xcstrings"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextResources/Resources/Localizable.xcstrings"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/Localizable.xcstrings"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Resources/Localizable.xcstrings"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextHistory/Resources/Localizable.xcstrings"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/AddMachine.xcstrings"
@@ -146,6 +150,7 @@ on:
       - "webviews/scripts/agent-pane/reactCompilerPlugin.mjs"
       - "webviews/scripts/agent-pane/tailwind-css.mjs"
       - "webviews/scripts/agent-pane/tailwindCompile.mjs"
+      - "webviews/scripts/bundle-metafile.mjs"
       - "webviews/scripts/pages/gen-design-scale.mjs"
       - "webviews/scripts/pages/gen-feature-tips.mjs"
       - "webviews/scripts/pages/gen-strings.mjs"
@@ -189,6 +194,7 @@ on:
       - "schemas/type-scale/**"
       - "schemas/motion-scale/**"
       - "schemas/layout-grid/**"
+      - "schemas/theme/slots.json"
       - "schemas/sync-motion/**"
       - "schemas/settings/settings-schema.json"
       - "schemas/theme/slots.json"
@@ -209,6 +215,8 @@ on:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/AddMachine.xcstrings"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/Localizable.xcstrings"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/Localizable.xcstrings"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextResources/Resources/Localizable.xcstrings"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/Localizable.xcstrings"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Resources/Localizable.xcstrings"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextHistory/Resources/Localizable.xcstrings"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/AddMachine.xcstrings"
@@ -314,10 +322,20 @@ jobs:
           path: ${{ runner.temp }}/base-gallery
           retention-days: 1
           if-no-files-found: error
+          # A whole-workflow rerun runs this job again under the same run, where the first attempt's artifact
+          # of this name already exists: without this the upload fails and the rerun goes red.
+          overwrite: true
 
   health:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    # The 16 vCPU pool (its next member is 32 vCPU when 16 starts nothing): a shard's render is CPU-bound, about
+    # three quarters of each case is the stage's page loading and mounting in a fresh renderer, and on 4 vCPU the
+    # four workers held the CPU at 91% (#41952's shards: per-case p50 1.0-1.6 s against 583 ms alone, render 4-6
+    # min of a 7-11 min job). Same 73 cases, same runner code (2026-11-13, AMD EPYC, 8 cores x 2 threads): 4 vCPU
+    # with 4 workers 30.5 s, 8 with 8 17.3 s, 16 with 12 13.4 s. Reusing a context per worker or merging the reads
+    # after ready saved 6% at most: the page load is the cost, so a shard gets more cores, not less setup
+    # (ask-378f0fa70e).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16 }}
     timeout-minutes: 45
     # Sixteen shards, so a shard runs in under 10 minutes as the gallery grows: at eight, with three
     # cases at once, a shard's render took 9 to 13 minutes and its job 11 to 17 (run 42946512341,
@@ -521,8 +539,12 @@ jobs:
           fi
           CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
+          # Three workers per four vCPUs past 8: two threads share each core there, and 12 workers on 16
+          # vCPU rendered as fast as 16 with a lower p90 (3.0 s against 4.3) and less ready-CPU drift.
+          cpus=$(nproc)
+          workers=$(( cpus > 8 ? cpus * 3 / 4 : cpus ))
           bun health.ts --manifest "$RUNNER_TEMP/manifest.json" --gallery-dir "$RUNNER_TEMP/gallery" \
-            --output-dir "$RUNNER_TEMP/health" --shard-count 16 --shard-index "$SHARD"
+            --output-dir "$RUNNER_TEMP/health" --shard-count 16 --shard-index "$SHARD" --concurrency "$workers"
 
       # The base gallery the "base gallery" job built for this run. Not there yet, or failed: the judge step
       # builds the red entries itself.

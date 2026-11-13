@@ -12,8 +12,8 @@ import Foundation
 /// update-found step (``UpdateIndicatorPhase/available(version:)``) until Update
 /// (``UpdateFlowEvent/downloadRequested``), and the staged update waits on the Update Ready card
 /// until Restart to Update (``UpdateFlowEvent/installRequested``). With `updates.oneClickInstall`
-/// (on by default since Leo 2026-11-11) the first ask is the only one: Update downloads, then
-/// installs and relaunches once staged. Hide, or no answer, never relaunches; a quit installs it only with `updates.installOnQuit` on (off by default, the
+/// (off by default) the first ask is the only one: Update downloads, then installs and relaunches
+/// once staged. Hide, or no answer, never relaunches; a quit installs it only with `updates.installOnQuit` on (off by default, the
 /// nightly restart policy).
 nonisolated public struct UpdateFlow: Equatable, Sendable {
     public private(set) var phase: UpdateIndicatorPhase = .hidden

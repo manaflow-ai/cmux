@@ -435,7 +435,7 @@ import CmuxNextWakeupsTestSupport
         s.updater.debugIndicatorPhase = .checking
         #expect(s.updater.card == nil, "the pushed build's check showed its progress")
         s.updater.debugIndicatorPhase = .available(version: "2.0.0")
-        #expect(s.updater.availableButton == UpdateAvailableButton(version: "2.0.0", restarts: true), "the pushed build did not ask")
+        #expect(s.updater.availableButton == UpdateAvailableButton(version: "2.0.0"), "the pushed build did not ask")
         #expect(downloads == 0 && s.updater.readyCard == nil, "the pushed build downloaded without an answer")
         // Update answers the found step: it downloads, and nothing installs yet.
         s.updater.downloadClicked()

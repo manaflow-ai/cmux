@@ -25,6 +25,10 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
                                                             comfortable: 7)
     public static let titlebarHeight = LayoutMetricSetting(name: "titlebarHeight", range: titlebarHeightRange, compact: titlebarHeightPlaceholder,
                                                            comfortable: 40)
+    /// The workspace row height, shared with tabs and browser controls through `Metrics.chromeRowHeight`.
+    /// Unset, the app density supplies it. Explicit tab sizing still takes precedence for tabs.
+    public static let sidebarRowHeight = LayoutMetricSetting(name: "sidebarRowHeight", range: sidebarRowHeightRange, compact: sidebarRowHeightPlaceholder,
+                                                             comfortable: 32)
 
     /// The tab bar rows' ranges and compact values (their Settings placeholders) come from
     /// schemas/settings/source/tabs.json (SettingsSchema+Tabs.generated.swift).
@@ -46,7 +50,7 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
     public static let tabFontSize = LayoutMetricSetting(name: "tabFontSize", range: tabFontSizeRange, compact: tabFontSizePlaceholder, comfortable: 12)
     public static let tabBar: [LayoutMetricSetting] = [tabStripHeight, tabFontSize]
 
-    public static let all: [LayoutMetricSetting] = [sidebarWidth, columnGap, dividerThickness, dividerHitWidth, titlebarHeight] + tabBar + tabWidths
+    public static let all: [LayoutMetricSetting] = [sidebarWidth, sidebarRowHeight, columnGap, dividerThickness, dividerHitWidth, titlebarHeight] + tabBar + tabWidths
 
     /// A tab strip width whose comfortable value is the shared token's; its range and compact value (the
     /// Settings placeholder) are the source's (schemas/settings/source/tabs.json).

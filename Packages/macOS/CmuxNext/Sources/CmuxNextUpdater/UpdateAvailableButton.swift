@@ -1,6 +1,6 @@
 /// The sidebar footer's quiet Update Available button (``UpdaterService/availableButton``): a found
-/// update that waits for a click; the click downloads it, and with `updates.oneClickInstall` (on by
-/// default) also installs it and restarts cmux.
+/// update that waits for a click; the click downloads it, and with `updates.oneClickInstall` also
+/// installs it and restarts cmux.
 nonisolated public struct UpdateAvailableButton: Equatable, Sendable {
     /// The found update's version, when Sparkle named it.
     public var version: String?

@@ -10,10 +10,7 @@ import Testing
 /// update asks before the relaunch (the Update Ready card: Restart to Update / Hide). Hide, or no
 /// answer, never relaunches; a quit installs it only with `updates.installOnQuit` on (the nightly
 /// restart policy keeps it off by default). The automatic-download opt-in
-/// (`updates.downloadAutomatically`) only skips the first ask. Since Leo 2026-11-11 ("when I click the
-/// button, it just downloads and it installs") the found step's Update is also the relaunch's ask by
-/// default (`updates.oneClickInstall`, ``UpdateOneClickInstallTests``); these tests turn it off to
-/// cover the two-ask flow it still offers.
+/// (`updates.downloadAutomatically`) only skips the first ask.
 @MainActor @Suite(.serialized) struct UpdateAsksBeforeInstallTests {
     nonisolated static let stable = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app", shortVersion: "0.70.0", build: "100",
                                                         minimumSystemVersion: nil, infoFeedURL: TipAppTrackTests.stableFeed, hasPublicKey: true)
@@ -33,15 +30,13 @@ import Testing
 
     /// An updater for `identity` with the given `updates.downloadAutomatically` (off by default:
     /// these tests are about the asks, which the nightly ring's default skips) or the channel's
-    /// default (`optIn` nil), and `updates.oneClickInstall` as given (off: the two asks); downloads,
-    /// installs and cancels are counted.
-    static func make(_ identity: UpdateBuildIdentity, optIn: Bool? = false, oneClick: Bool = false) -> (UpdaterService, Effects) {
+    /// default (`optIn` nil); downloads, installs and cancels are counted.
+    static func make(_ identity: UpdateBuildIdentity, optIn: Bool? = false) -> (UpdaterService, Effects) {
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false },
                                      defaults: UserDefaults(testSuiteName: "UpdateAsksBeforeInstallTests.\(UUID().uuidString)")!,
                                      enableSparkle: false, recordsUpdates: false)
         updater.announcementsFetch = false
         updater.notesLoader = { _ in nil }
-        updater.preferences = UpdatePreferences(oneClickInstall: oneClick)
         let effects = Effects()
         updater.acceptAvailable = { effects.downloads += 1 }
         updater.installStaged = { effects.installs += 1 }

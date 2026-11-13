@@ -7,16 +7,16 @@ import Testing
 
 /// Leo 2026-11-04, on the Codex app's Update available button: "codex having this update available
 /// and then me clicking it enabling it to auto install and restart is... interesting. should we do
-/// that?" `updates.oneClickInstall` makes Update on a found update the only ask: the download shows
-/// its progress, then cmux installs and relaunches with no Restart to Update click. Leo 2026-11-11
-/// made it the default: "when I click the button, it just downloads and it installs [...] I want to
-/// click the [...] button, just like how [another app] has this [...] button". Off, the flow asks twice as
-/// before (``UpdateAsksBeforeInstallTests``). A button that just
+/// that?" `updates.oneClickInstall` (off by default) makes Update on a found update the only ask:
+/// the download shows its progress, then cmux installs and relaunches with no Restart to Update
+/// click. Off, the flow asks twice as before (``UpdateAsksBeforeInstallTests``). A button that just
 /// showed under the pointer ignores a click for a moment, so a click meant for what was there never
 /// starts an update that restarts cmux.
 @MainActor @Suite(.serialized) struct UpdateOneClickInstallTests {
     static func make(oneClick: Bool) -> (UpdaterService, UpdateAsksBeforeInstallTests.Effects) {
-        UpdateAsksBeforeInstallTests.make(UpdateAsksBeforeInstallTests.nightly, optIn: false, oneClick: oneClick)
+        let (updater, effects) = UpdateAsksBeforeInstallTests.make(UpdateAsksBeforeInstallTests.nightly, optIn: false)
+        updater.preferences = UpdatePreferences(oneClickInstall: oneClick)
+        return (updater, effects)
     }
 
     func eventually(_ condition: () -> Bool) async -> Bool {
@@ -25,23 +25,9 @@ import Testing
         return condition()
     }
 
-    @Test func onByDefault() {
-        #expect(UpdatePreferences.defaults.oneClickInstall, "the Update button only downloads by default")
+    @Test func offByDefault() {
+        #expect(!UpdatePreferences.defaults.oneClickInstall, "one click restarts cmux by default")
         #expect(!UpdatePreferences.defaults.installAutomatically, "updates install with no click by default")
-    }
-
-    /// The defaults as the App applies them (no `updates.*` in cmux.json): the footer's Update says it
-    /// restarts, and its one click downloads, installs and relaunches.
-    @Test func theDefaultsClickDownloadsInstallsAndRelaunches() async {
-        let (updater, effects) = UpdateAsksBeforeInstallTests.make(UpdateAsksBeforeInstallTests.stable)
-        updater.preferences = .defaults
-        updater.debugIndicatorPhase = .available(version: "2.0.0")
-        #expect(updater.availableButton == UpdateAvailableButton(version: "2.0.0", restarts: true))
-        updater.downloadClicked()
-        #expect(effects.downloads == 1 && updater.flow.installRequested, "the default click did not hold the install")
-        updater.debugIndicatorPhase = .downloading(.starting)
-        updater.debugIndicatorPhase = .ready(version: "2.0.0")
-        #expect(await eventually { effects.installs == 1 }, "the default click waited for Restart to Update")
     }
 
     /// The footer's Update Available: one click downloads with its progress, then installs and

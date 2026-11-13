@@ -15,9 +15,9 @@ extension UpdatesSettings {
     /// `updates.downloadAutomatically`.
     public nonisolated static let downloadAutomaticallyPath = ["updates", "downloadAutomatically"]
     public nonisolated static let downloadAutomaticallyDefault = false
-    /// `updates.oneClickInstall`: One click on a found update's Update downloads it with its progress, then installs and restarts (Leo 2026-11-04, after the Codex app's Update available button). On by default since Leo 2026-11-11: "when I click the button, it just downloads and it installs". Off: the Update Ready card asks before the restart.
+    /// `updates.oneClickInstall`: One click on a found update's Update downloads it with its progress, then installs and restarts (Leo 2026-11-04, after the Codex app's Update available button). Off: the Update Ready card asks before the restart.
     public nonisolated static let oneClickInstallPath = ["updates", "oneClickInstall"]
-    public nonisolated static let oneClickInstallDefault = true
+    public nonisolated static let oneClickInstallDefault = false
     /// `updates.installAutomatically`: Opt-in: found updates download and install with no click, at a moment that cuts nothing off (no modal, sheet, open menu or text mid-composition), then cmux restarts; an app in the background reopens behind the app in front. Off by default: an update installs only on the person's click (Leo 2026-11-11: "Like I'm not saying it just does it, you know, automatically, as in I don't have to click a button. I want to click the freaking button... Maybe I can enable it, right?").
     public nonisolated static let installAutomaticallyPath = ["updates", "installAutomatically"]
     public nonisolated static let installAutomaticallyDefault = false

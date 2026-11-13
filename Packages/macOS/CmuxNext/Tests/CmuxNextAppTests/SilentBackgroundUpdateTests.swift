@@ -119,7 +119,7 @@ import Testing
         let updater = Self.updater()
         updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false)
         updater.debugIndicatorPhase = .available(version: "2.0")
-        #expect(updater.availableButton == UpdateAvailableButton(version: "2.0", restarts: true), "with downloads off the person never learns of the update")
+        #expect(updater.availableButton == UpdateAvailableButton(version: "2.0"), "with downloads off the person never learns of the update")
         #expect(updater.card == nil, "the found update showed the notice card, not the quiet button")
         updater.debugIndicatorPhase = .downloading(UpdateTransfer(stage: .downloading, fraction: 0.5))
         #expect(updater.availableButton == nil, "the button stayed while the update downloads")
