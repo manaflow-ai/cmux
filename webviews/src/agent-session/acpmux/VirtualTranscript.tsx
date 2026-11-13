@@ -2161,10 +2161,10 @@ function TranscriptView({
   const olderDragPending = useRef(false);
   const [scrollbarRange, setScrollbarRange] = useState<{ session: string; height: number } | undefined>(undefined);
   const draggedHeight = scrollbarRange?.session === sessionKey ? scrollbarRange.height : undefined;
-  if (sessionChanged) {
+  useLayoutEffect(() => {
     olderDragPending.current = false;
-    if (scrollbarRange !== undefined) setScrollbarRange(undefined);
-  }
+    setScrollbarRange(undefined);
+  }, [sessionKey]);
   /// How far the reader has scrolled up among the rows while room was owed (olderReserve.ts `rose`),
   /// in total, and the offset the last scroll event read: each rise pays some of what is owed.
   /// offset the last scroll event read.
@@ -3118,8 +3118,7 @@ function TranscriptView({
           earlier: earlier?.length,
           promptCount,
           rose: roomRose,
-          dragging:
-            scrollbarRange !== undefined && ref.current !== null && userScrollIntent(ref.current).isScrollbarDragging(),
+          dragging: draggedHeight !== undefined,
           // Exact where this chat was held whole before at this width (transcriptHeights.ts).
           knownAbove: hasPromptTops(sessionId, rowWidth)
             ? (row) => knownPromptTop(sessionId, rowWidth, row.id)
@@ -3155,7 +3154,7 @@ function TranscriptView({
     promptCount,
     roomGone,
     roomRose,
-    scrollbarRange,
+    draggedHeight,
   ]);
   // A chat held whole keeps each prompt's measured place (transcriptHeights.ts), so the next open on
   // its tail holds exactly the older history's room. In idle time, once the rows stop changing: one
@@ -3341,9 +3340,7 @@ function TranscriptView({
     jumpTarget.current !== undefined ||
     (scroller !== null && userScrollIntent(scroller).isHeld() && !followRequest.current?.());
   const projectedTop =
-    sessionSwitched ||
-    placedBefore === layout ||
-    (scroller !== null && userScrollIntent(scroller).isScrollbarDragging())
+    sessionSwitched || placedBefore === layout || draggedHeight !== undefined
       ? undefined
       : followingRef.current
         ? openedAtLatest && !followHeld
