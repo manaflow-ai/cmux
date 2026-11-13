@@ -103,6 +103,17 @@ public extension CloudHarnessLoginDecision {
     /// ``CloudSpareWarm`` reports its copy installed); then the start records ``warmReceipt`` and reads and passes no login
     /// of its own (Leo, 2026-11-10: "if they're logged in why do we need to re-check their login after the critical path").
     /// Never for a `--login` word, which decides for itself; no harness named is Claude, as the rules read it.
+    mutating func takeWarmReceipt(cli binary: URL?, machine: String, ask: CloudHarnessLoginAsk, auth: CloudAuth,
+                                  platform: URL?, identity: MacInstallIdentity, claims: CloudClaimedCopyRegistrations) async -> Bool {
+        guard let platform, let userID = auth.user?.id else { return false }
+        let teamID = auth.teamID, otherTeams = auth.loginScopes
+        let ready = await takeWarmReceipt(cli: binary, machine: machine, userID: userID, ask: ask, claims: claims) {
+            await CloudWarmLoginScope().read(platform: platform, identity: identity, userID: userID, teamID: teamID, otherTeams: otherTeams)
+        }
+        return ready && auth.user?.id == userID && auth.teamID == teamID
+    }
+
+    /// The same receipt lookup with the host's local scope read injected.
     mutating func takeWarmReceipt(cli binary: URL?, machine: String, userID: String?, ask: CloudHarnessLoginAsk,
                                   claims: CloudClaimedCopyRegistrations,
                                   readScope: @MainActor @Sendable () async -> CloudMoveCLI.SpareLoginScope?) async -> Bool {

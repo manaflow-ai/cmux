@@ -30,13 +30,7 @@ extension CloudStartChat {
                                                  harness: harness, signedIn: userID != nil)
         let gate = Self.loginCopyGate(services, asker: asker), steps = CloudStartSteps(logger: cloud.logger)
         defer { machine.harnessLogin = decision; cloud.logger.info("cloud start chat: harness login \(decision.summary, privacy: .public)") } // Never silent (CloudHarnessLoginDecision): the reason goes to the log and the machine's `cloud.machines` row.
-        if await decision.takeWarmReceipt(cli: cloud.move.cli, machine: machineID, userID: userID, ask: ask,
-                                          claims: cloud.claimedCopies, readScope: {
-                                              guard let platform = cloud.configuration.artifactsAPIBaseURL(), let userID else { return nil }
-                                              return await CloudWarmLoginScope().read(platform: platform, identity: cloud.installIdentity, userID: userID,
-                                                                                     teamID: teamID, otherTeams: otherTeams)
-                                          }),
-           cloud.auth.user?.id == userID, cloud.auth.teamID == teamID { steps.done("login.receipt"); return true } // the warm's copy is the check: no re-check after Send
+        if await decision.takeWarmReceipt(cli: cloud.move.cli, machine: machineID, ask: ask, auth: cloud.auth, platform: cloud.configuration.artifactsAPIBaseURL(), identity: cloud.installIdentity, claims: cloud.claimedCopies) { steps.done("login.receipt"); return true } // the warm's copy is the check: no re-check after Send
         await gate.read(into: &decision)
         steps.done("login.gate")
         ask.apply(to: &decision, userID: userID) // `--login`, the kept choice, and whether a prompt may show
