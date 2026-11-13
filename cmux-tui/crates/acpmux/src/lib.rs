@@ -164,6 +164,7 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+pub mod peer_notice_queue;
 pub mod peer_paths;
 pub mod peer_states;
 pub mod placement;

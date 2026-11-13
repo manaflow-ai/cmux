@@ -1137,6 +1137,9 @@ impl Hub {
             "permissionPolicy": cfg.permission_policy.to_string(),
             "peers": self.peers(),
             "remoteSessions": self.remote_sessions.read().len(),
+            // Peers' whole lists waiting to be applied, one per peer at most, and those a newer
+            // list superseded unread (`peer_notice_queue.rs`).
+            "peerLists": self.peer_notices.lists_status(),
             "openWaits": self.open_waits.load(Ordering::SeqCst),
             // Messages this daemon sent near the per-message cap, or refused over it
             // (`wire_size.rs`): the next one too large to send is seen coming.

@@ -78,6 +78,8 @@ mod ledger_hub_tests;
 #[cfg(test)]
 mod owned_scope_bench_tests;
 #[cfg(test)]
+mod peer_list_coalesce_tests;
+#[cfg(test)]
 mod peer_notice_cost_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
@@ -913,9 +915,9 @@ pub struct Hub {
     /// Each peer session's events as this daemon saw them, kept on disk
     /// (`peer_snapshot.rs`): a paused or offline peer's chat paints from it.
     pub(super) peer_snapshots: peer_snapshot::PeerSnapshots,
-    pub(super) peer_notices: mpsc::Sender<(String, u64, crate::peer::PeerNotice)>,
-    pub(super) peer_notices_rx:
-        Mutex<Option<mpsc::Receiver<(String, u64, crate::peer::PeerNotice)>>>,
+    /// Whole lists kept one per peer, not one per reconnect (`peer_notice_queue.rs`).
+    pub(super) peer_notices: crate::peer_notice_queue::NoticeSender,
+    pub(super) peer_notices_rx: Mutex<Option<crate::peer_notice_queue::NoticeReceiver>>,
     pub(super) peer_notices_stop: tokio::sync::watch::Sender<bool>,
     pub(super) peer_notices_finished: AtomicBool,
     pub(super) peer_notices_done: Arc<Notify>,
@@ -1282,7 +1284,7 @@ impl Hub {
         start_peers: bool,
     ) -> Arc<Self> {
         let events = list_guard::Events::new(8192);
-        let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
+        let (peer_notices, peer_notices_rx) = crate::peer_notice_queue::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
         // Loaded now, so a forced `sessions.allowFullAccess` off holds from the first request
