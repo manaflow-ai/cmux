@@ -105,3 +105,34 @@ fn explicit_path(raw: &str, operation: &'static str) -> Result<PathBuf, Resource
     }
     Ok(path.parent().map_or_else(|| path.to_path_buf(), Path::to_path_buf))
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    /// A new folder, by its real path.
+    fn fresh_folder() -> PathBuf {
+        let mut bytes = [0_u8; 6];
+        getrandom::fill(&mut bytes).unwrap();
+        let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+        let folder = std::env::temp_dir().join(format!("cmux-git-target-{hex}"));
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::canonicalize(folder).unwrap()
+    }
+
+    #[test]
+    fn own_tree_a_path_request_gets_the_real_folder_behind_a_link() {
+        let top = fresh_folder();
+        let real = top.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("file.txt"), "one\n").unwrap();
+        let link = top.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let folder = explicit_path(link.to_str().unwrap(), "git.status").ok();
+        assert_eq!(folder, Some(real.clone()), "a link to a folder");
+        let of_file = explicit_path(link.join("file.txt").to_str().unwrap(), "git.status").ok();
+        assert_eq!(of_file, Some(real), "a file below a link to a folder");
+        std::fs::remove_dir_all(top).unwrap();
+    }
+}
