@@ -582,6 +582,16 @@ install_remote "$APP_HOST_APP" --arch arm64 > "$TEST_DIR/app-host-gone.log" 2>&1
 grep -q 'publishes no cmux-app-host' "$TEST_DIR/app-host-gone.log"
 echo "PASS: the app host installs from the same build and a build without one removes it"
 
+# --require-companions (the nightly bundle) makes a companion the build lacks
+# fail the install, so a nightly without bin/cmux-app-host never publishes.
+printf '%s\n' "$MANIFEST_WITHOUT_APP_HOST" > "$SERVE/manifest.json"
+if install_remote "$TEST_DIR/RequireCompanions.app" --arch arm64 --require-companions > "$TEST_DIR/require-companions.log" 2>&1; then
+  echo "FAIL: --require-companions accepted a build with no app host" >&2; exit 1
+fi
+grep -q 'publishes no cmux-app-host for arm64' "$TEST_DIR/require-companions.log"
+[ ! -e "$TEST_DIR/RequireCompanions.app/Contents/Resources/bin/cmux-app-host" ]
+echo "PASS: --require-companions refuses a build without the app host"
+
 # The Cloud app server (cmux/cloud) installs beside the app host as bin/cmux-cloud the
 # same way; a wrong sha256 is refused and leaves no binary; a build without it removes it.
 printf 'cloud arm\n' > "$SERVE/cmux-tui-cloud-server-aarch64-apple-darwin"
