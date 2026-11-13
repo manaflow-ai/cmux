@@ -446,7 +446,12 @@ def god_vs_small(doc: Any, why: Optional[str]) -> Dict[str, Any]:
         ratio = r.get("ratio")
         if not isinstance(ratio, (int, float)):
             ratio = round(god / small, 3) if isinstance(small, (int, float)) and small > 0 and isinstance(god, (int, float)) else None
-        rows.append({"name": str(r.get("name") or "?"), "small_p95": small, "god_p95": god, "ratio": ratio})
+        status = r.get("status")
+        if not isinstance(status, str):
+            status = "skipped" if ratio is None else ("ok" if ratio <= GOD_SMALL_LIMIT else "red")
+        reason = r.get("reason")
+        rows.append({"name": str(r.get("name") or "?"), "small_p95": small, "god_p95": god, "ratio": ratio,
+                     "status": status, "reason": reason if isinstance(reason, str) else None})
     ratios = [r["ratio"] for r in rows if isinstance(r["ratio"], (int, float))]
     return {"source": "god-vs-small", "limit": GOD_SMALL_LIMIT, "rows": rows,
             "failing": [r["name"] for r in rows if isinstance(r["ratio"], (int, float)) and r["ratio"] > GOD_SMALL_LIMIT],
@@ -807,6 +812,10 @@ def render_markdown(r: Dict[str, Any], public: bool) -> str:
     g = r["god_vs_small"]
     if g["failing"]:
         out += ["", f"God over {g['limit']}x small: " + ", ".join(f"`{n}`" for n in g["failing"][:10])]
+    skipped = [row for row in g["rows"] if row.get("status") == "skipped"]
+    if skipped:
+        out += ["", "God-vs-small rows skipped: " + ", ".join(
+            f"`{row['name']}`" + (f" ({row['reason']})" if row.get("reason") else "") for row in skipped)]
     out += ci_markdown(r.get("ci_health") or {})
     return "\n".join(out) + "\n"
 
