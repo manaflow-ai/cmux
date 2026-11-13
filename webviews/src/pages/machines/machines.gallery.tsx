@@ -135,7 +135,7 @@ export default componentEntry<Props>({
       },
     },
     "screen-awaiting": {
-      note: "View screen remains available while a Cloud machine is connecting; unavailable rows keep their quiet state.",
+      note: "A connecting Cloud machine keeps its quiet spinner; View screen appears as soon as the link is ready.",
       props: {
         snapshot: {
           ...sampleSnapshot,

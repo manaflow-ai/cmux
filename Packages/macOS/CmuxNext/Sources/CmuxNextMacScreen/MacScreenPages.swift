@@ -114,6 +114,15 @@ public final class MacScreenPages {
         approval.hub = { [weak self] in self?.hub }
     }
 
+    /// The record a Machines row should open. Machine registries and the device hub use different
+    /// ids in some builds, so a missing match deliberately falls back to the Mac Screen home.
+    public func record(forMachine machine: String) -> MacScreenRecord {
+        guard let device = hub?.devices.first(where: { $0.id == machine || $0.name == machine }) else {
+            return MacScreenRecord(macID: nil)
+        }
+        return MacScreenRecord(deviceID: device.id)
+    }
+
     /// cmux Remote serves this Mac (docs/cmux-remote.md): its Screen Sharing worker shows the
     /// approval banner and serves host sessions, also with this app quit; this app is a viewer.
     public var remoteHosted = false {

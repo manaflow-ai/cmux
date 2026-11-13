@@ -192,6 +192,11 @@ extension AppServices {
         macScreenTabs.open(MacScreenRecord(macID: nil), in: pane, focus: true, byPerson: true)
     }
 
+    func openMacScreen(for machine: String, in target: PaneController?) {
+        guard let pane = target ?? windows.active?.focusedPane else { return registry.refuse(RefusalStrings.noWindowOpen) }
+        macScreenTabs.open(macScreenPages.record(forMachine: machine), in: pane, focus: true, byPerson: true)
+    }
+
     /// The pane whose strip lists tab `key` (any kind of tab).
     func paneController(listing key: String) -> PaneController? {
         windows.controllers.lazy.compactMap { $0.content?.panes.values.first { $0.tab(StripTabID(key)) != nil } }.first

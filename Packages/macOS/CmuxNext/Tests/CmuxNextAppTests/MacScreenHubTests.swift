@@ -38,6 +38,27 @@ private final class CallLog {
 
 private let hostID = "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff"
 
+private final class MachineDevicesURLProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var body = #"{"devices":[]}"#
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url else { return }
+        let body = url.path == "/v1/auth/stack"
+            ? #"{"session":"hub-session","userId":"u","expiresAt":4102444800000}"#
+            : Self.body
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])
+        if let response { client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed) }
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 @MainActor
 private func testHub() -> DeviceHub {
     let identity = DeviceIdentity(deviceID: UUID(), keys: TestDeviceKeys())
@@ -85,6 +106,28 @@ struct MacScreenDeviceRecordTests {
         #expect(MacScreenPages.record(route: route) == record)
         #expect(MacScreenPages.record(route: "device:nope") == nil)
         #expect(MacScreenPages.route(of: MacScreenRecord(macID: nil)) == "home")
+    }
+
+    @MainActor
+    @Test func machineRowsResolveHubDevicesAndFallBackHome() async throws {
+        let deviceID = "6f1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        MachineDevicesURLProtocol.body = #"{"devices":[{"id":"6f1c2a4e-0d3b-4c5a-9e7f-112233445566","name":"Air Blue","platform":"macos","online":true}]}"#
+        let identity = DeviceIdentity.software()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MachineDevicesURLProtocol.self]
+        let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
+                                     tokens: DeviceHubAccountToken { "stack-token" },
+                                     session: URLSession(configuration: configuration))
+        let hub = DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "Test Mac")
+        await hub.refreshDevices()
+
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        pages.hub = hub
+        #expect(pages.record(forMachine: deviceID) == MacScreenRecord(deviceID: deviceID))
+        #expect(pages.record(forMachine: "Air Blue") == MacScreenRecord(deviceID: deviceID))
+        #expect(pages.record(forMachine: "missing-machine").isHome)
+        pages.hub = nil
     }
 }
 
