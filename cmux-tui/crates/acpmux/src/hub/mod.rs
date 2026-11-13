@@ -94,6 +94,8 @@ mod shutdown_tests;
 #[cfg(test)]
 mod startup_wait_tests;
 #[cfg(test)]
+mod time_breakdown_restore_tests;
+#[cfg(test)]
 mod transcript_seq_tests;
 pub(crate) use fork::offers_fork;
 pub mod created_by;
@@ -2473,12 +2475,32 @@ impl Hub {
         };
         if stored {
             session.note_transfer_event(&record);
-            {
+            let (save, backfill) = {
                 let mut breakdown =
                     session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
                 if breakdown.initialized {
                     breakdown.record(&record);
+                    // Keep the saved copy within `SAVE_EVERY` records of the log, so a restart
+                    // folds a few records and never the whole journal.
+                    let due =
+                        breakdown.last_seq() >= breakdown.saved_seq + time_breakdown::SAVE_EVERY;
+                    let save = due.then(|| breakdown.save()).flatten();
+                    if let Some((_, seq)) = &save {
+                        breakdown.saved_seq = *seq;
+                    }
+                    (save, false)
+                } else {
+                    // A chat with no saved copy is folded once, here, never by an open.
+                    (None, record.kind == "turn_result")
                 }
+            };
+            if let Some((bytes, seq)) = save
+                && let Some(dir) = self.store.session_path(&session.id)
+            {
+                self.write_time_breakdown(session, &dir.join(time_breakdown::FILE), &bytes, seq);
+            }
+            if backfill {
+                self.start_time_breakdown_backfill(session);
             }
             // The review queue's index and the audit trail: O(1), never blocking on a write.
             self.observe_for_review(session, &record);
