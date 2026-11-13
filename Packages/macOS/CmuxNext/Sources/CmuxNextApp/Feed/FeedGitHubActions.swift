@@ -4,8 +4,8 @@ import CmuxNextAgentPane
 import CmuxNextFeedClient
 
 /// The Feed page's native UI ops (plans/cmux-next/feed-page.md 2), run through
-/// `cmux.app.action.run`: `feed.openItem {item}` opens what an item points at (without an item,
-/// the Inbox), and
+/// `cmux.app.action.run`: `feed.openItem {item}` opens what an item points at (nothing without an
+/// item: the Inbox page is gone), and
 /// `feed.githubAction {item, action, comment?}` opens a GitHub item, starts an agent on it or
 /// types its `gh` command into a new terminal. Both read the item from the daemon by id
 /// (`feed.item.get`), never from the caller, and only open user-requested tabs.
@@ -14,11 +14,8 @@ enum FeedGitHubActions {
     static func bind(into registry: ActionRegistry, services: AppServices) {
         registry.bindEffect("feed.openItem", effect: { [weak services] invocation in
             guard let services else { return .done }
-            // Without an item (Needs you's "N more"): the Inbox.
-            guard let id = invocation["item"]?.stringValue, !id.isEmpty else {
-                try? services.feedPage.open(focus: invocation.allowsViewChange)
-                return .done
-            }
+            // Without an item there is nothing to open (the Inbox page is gone).
+            guard let id = invocation["item"]?.stringValue, !id.isEmpty else { return .done }
             let feed = services.feed
             // action-wait-allow: the item's context lives in the daemon's feed client; nothing shows before it is read.
             return .waiting(.daemonEcho) { [weak services] in
@@ -42,7 +39,7 @@ enum FeedGitHubActions {
     }
 
     /// Opens an item's source: its link (a pull request, a sign-in page) in the browser; else the
-    /// sign-in's own tab, or the tab or chat that asked; else the Feed's Inbox, on the item.
+    /// sign-in's own tab, or the tab or chat that asked; else nothing.
     static func open(_ item: FeedDaemonItem, services: AppServices) {
         if let url = item.url ?? item.prompt?.url.flatMap(URL.init(string:)) {
             services.externalOpen.openWebLink(url)
@@ -51,8 +48,7 @@ enum FeedGitHubActions {
         let store = services.daemon.store
         let at = item.context
         let tab = store.tab(reported: item.prompt?.browserTab ?? at?.browserTab ?? at?.tab, terminal: at?.terminal, agentSession: at?.acpSession)
-        if let tab, services.revealTab(tab.id) { return }
-        try? services.feedPage.open(focus: true, route: item.inboxRoute)
+        if let tab { services.revealTab(tab.id) }
     }
 
     private static func perform(_ action: String, item: FeedDaemonItem, text: String?, services: AppServices) {

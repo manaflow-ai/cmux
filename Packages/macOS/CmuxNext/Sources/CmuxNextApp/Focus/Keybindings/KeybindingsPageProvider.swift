@@ -143,7 +143,7 @@ final class KeybindingsPageProvider: PageProvider {
                 for listener in changedListeners.values { listener([:]) }
             }
         } catch {
-            throw PageError(code: "cmux.keybindings.keymap_failed", message: String(describing: error))
+            throw PageError.failed(error, code: "cmux.keybindings.keymap_failed")
         }
         return ["path": .string(url.path)]
     }

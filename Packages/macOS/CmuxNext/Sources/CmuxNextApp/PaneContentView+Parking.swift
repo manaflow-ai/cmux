@@ -45,13 +45,9 @@ extension PaneContentView {
     /// Puts `view` on screen as the pane's content: unhides it when it is parked here, else adds it (also from another
     /// pane, a moved tab). `leaving`, retired right after, does not count as content above it.
     func install(_ view: NSView, replacing leaving: NSView? = nil) {
-        // In a key hold a row-sharing chat keeps its parked frame top-held (its row above the area); otherwise (bottom-held, or
-        // from another pane) it joins the held rect rowless, unsized until the landing sizes it once (S1B, Codex #34247).
-        let local = view.superview === contentHost, held = contentHost.isHolding, topHeld = local && contentHost.hold?.bottom == false
-        if held, !topHeld, let row = view as? PaneTabRowSharing { row.setTabRow(height: 0, trailingInset: 0) }
-        guard local else {
+        guard view.superview === contentHost else {
             view.frame = contentHost.contentBounds(for: view)
-            view.autoresizingMask = held && parkedFrame(of: view) != nil ? [] : [.width, .height]
+            view.autoresizingMask = [.width, .height]
             contentHost.addSubview(view)
             refreshNativeToolOwner()
             // Parked in the pane it came from.
@@ -59,14 +55,15 @@ extension PaneContentView {
             return
         }
         parked.removeAll { $0.view == nil || $0.view === view }
-        if let frame = parkedFrame(of: view), held ? topHeld : view.frame == frame && frame != contentHost.bounds {
+        if let frame = parkedFrame(of: view), frame != contentHost.bounds || contentHost.keepsOutOfTabRowInHold(view), view.frame == frame || contentHost.isHolding {
             // A chat parked at the size it shows at (`layoutParked`) keeps it: the pane's next layout moves the host under the
-            // tab row and puts the chat at its origin, same size (sized to the host first, its page jumped as it showed).
+            // tab row and puts the chat at its origin, same size (sized to the host first, its page jumped as it showed). The Home shown inside a key hold (`keepsOutOfTabRowInHold`) goes this way also when its parked frame IS the host's (the tab before was a chat in the tab row): with the fill mask it was held at the whole pane's size with its row while the host went under the strip.
+            if view.frame != frame { view.frame = frame } // parked through a key hold (`layoutParked` waits for its end): one size, the one it shows at
             view.autoresizingMask = []
             needsLayout = true
         } else {
             if view.frame != contentHost.contentBounds(for: view) { view.frame = contentHost.contentBounds(for: view) }
-            view.autoresizingMask = held && parkedFrame(of: view) != nil ? [] : [.width, .height]
+            view.autoresizingMask = [.width, .height]
         }
         // Above what still shows (a backdrop or a held page); hidden parked
         // views stay where they are, so a switch moves no view.
