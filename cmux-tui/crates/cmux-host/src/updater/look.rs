@@ -80,7 +80,7 @@ impl Look {
         let open = prev.seen_at.is_some()
             && matches!(prev.outcome.as_str(), "held" | "busy" | "off" | "failed");
         let mut look = Look { at, reason: None, ..prev };
-        let mut start_run = |look: &mut Look| {
+        let start_run = |look: &mut Look| {
             if !open {
                 look.seen_at = Some(at);
                 look.waited = None;
@@ -268,7 +268,7 @@ mod tests {
         assert_eq!(l.waited.as_deref(), Some("busy:turn"));
         assert_eq!(l.swapped, Some(Swap { commit: "0123456789ab".into(), at: T + 20_000 }));
         // A look that saved the swap is kept as it is.
-        let later = Look::next(Some(l.clone()), Seen::Failed, T + 40_000);
+        let later = Look::next(Some(l), Seen::Failed, T + 40_000);
         assert_eq!(Look::with_pending(Some(later.clone()), A, T + 20_000), later);
         // A machine whose updater never checked before the flip.
         assert_eq!(Look::with_pending(None, A, T).seen_at, Some(T));

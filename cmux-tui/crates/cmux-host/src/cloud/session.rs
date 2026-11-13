@@ -639,7 +639,7 @@ mod tests {
         assert_eq!(start[0].params["updater"], swapped);
         s.answered(&start[0], &ok(), 0, 0.5);
 
-        let mut later = swapped.clone();
+        let mut later = swapped;
         later["at"] = json!(16_000);
         assert!(s.updater(Some(later), 20_000).is_empty(), "only its time moved");
         let current = json!({"outcome": "current", "at": 46_000, "seen_at": 500, "waited": "busy:turn",
