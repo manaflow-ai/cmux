@@ -34687,8 +34687,8 @@
       },
       "palette_suggested" : null,
       "title" : "Start Desktop…",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudSetupDesktop",
+      "title_table" : "ActionCatalog"
     },
     {
       "args" : [
