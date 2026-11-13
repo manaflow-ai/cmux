@@ -49,6 +49,10 @@ public nonisolated struct CmuxToast: Equatable, Sendable {
     /// the same id replaces only within its window. A long run's working toast (Moving to Cloud,
     /// ``untilClosed``) whose result shows after the person switched windows ends with it.
     public var oneWindow: Bool
+    /// Says how a run is going (Moving to Cloud, its step and about how long is left), shown again under
+    /// its id as the run goes on. Once the person closes one, later working toasts under that id stay
+    /// closed until one that is not working (the run's result) shows, or ``CmuxToastCenter/close(id:)``.
+    public var working: Bool
     /// The toast shows for exactly ``duration``: it echoes a live change (a zoom percent, a density
     /// level) and would linger past it. Every other toast shows longer (``CmuxToastTuning``).
     public var keepsDuration: Bool
@@ -58,11 +62,13 @@ public nonisolated struct CmuxToast: Equatable, Sendable {
     public static let untilClosed: Duration = .zero
 
     public init(id: String, kind: String? = nil, message: String, detail: String? = nil, action: Action? = nil,
-                duration: Duration = .seconds(6), oneWindow: Bool = false, keepsDuration: Bool = false) {
+                duration: Duration = .seconds(6), oneWindow: Bool = false, keepsDuration: Bool = false,
+                working: Bool = false) {
         self.id = id
         self.kind = kind ?? id
         self.keepsDuration = keepsDuration
         self.oneWindow = oneWindow
+        self.working = working
         self.message = message
         self.detail = detail?.isEmpty == false ? detail : nil
         self.action = action

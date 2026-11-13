@@ -23,9 +23,9 @@ import Testing
 struct CloudBringBackTests {
     @Test func twoChatsWithTimeOrderedIDsGetTheirOwnFoldersOnTheTarget() {
         // UUIDv7 session ids made seconds apart share their first characters; each chat still gets its own folder.
-        let first = CloudBringBack.targetSuffix(machineID: "019a6b2c-0000-7000-8000-000000000001", session: "019a6b2c-1111-7000-8000-00000000000a")
-        let second = CloudBringBack.targetSuffix(machineID: "019a6b2c-0000-7000-8000-000000000001", session: "019a6b2c-1111-7000-8000-00000000000b")
-        let otherMachine = CloudBringBack.targetSuffix(machineID: "019a6b2c-0000-7000-8000-000000000002", session: "019a6b2c-1111-7000-8000-00000000000a")
+        let first = CloudMoveFolder.targetSuffix(machineID: "019a6b2c-0000-7000-8000-000000000001", session: "019a6b2c-1111-7000-8000-00000000000a")
+        let second = CloudMoveFolder.targetSuffix(machineID: "019a6b2c-0000-7000-8000-000000000001", session: "019a6b2c-1111-7000-8000-00000000000b")
+        let otherMachine = CloudMoveFolder.targetSuffix(machineID: "019a6b2c-0000-7000-8000-000000000002", session: "019a6b2c-1111-7000-8000-00000000000a")
         #expect(Set([first, second, otherMachine]).count == 3)
     }
 
