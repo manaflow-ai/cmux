@@ -613,17 +613,18 @@ fn a_burst_of_300_hosted_terminals_joins_nothing_and_keeps_the_long_lane_at_its_
     assert_eq!(held(&connections), (0, 0, 0));
 }
 
-/// Each connection that the terminal in process session `session` gets
-/// from now to its first refusal: the rest of its share of the terminals'
-/// lane.
+/// Each connection that a client in process session `session`, whose
+/// leader's parent is `parent`, gets from now to its first refusal: the rest
+/// of its terminal's share of the terminals' lane.
 fn fill_the_share(
     connections: &Arc<ConnectionStats>,
     session: u32,
+    parent: Option<u32>,
 ) -> Vec<(ConnectionPermit, UnixStream)> {
     let mut taken = Vec::new();
     loop {
         let (daemon_side, client) = UnixStream::pair().unwrap();
-        match admit_session(connections, &daemon_side, Some(session)) {
+        match admit_session_by(connections, &daemon_side, Some(session), |_| parent) {
             Ok(permit) => taken.push((permit, client)),
             Err(lane) => {
                 assert_eq!(lane, ClientKind::Terminal, "the terminals' lane refuses");
@@ -633,26 +634,24 @@ fn fill_the_share(
     }
 }
 
-/// A terminal's first connection, which comes while its host starts, counts
-/// in that terminal's own share of the terminals' lane (the share is by the
-/// client's process session, before and after the terminal's seat). The
-/// count: beside one connection of another terminal, a terminal with an
-/// early connection gets as many connections in all as the same terminal
-/// with none. An early connection that is counted for no terminal, or for
-/// another key, is one more place beside the share.
+/// A connection that comes while its terminal's host starts counts in that
+/// terminal's own share of the terminals' lane, by the client's process
+/// session: the share is the same before and after the terminal's seat. The
+/// count: beside one connection of another terminal, a terminal that has
+/// only its host's seat gets as many connections as a terminal with its own
+/// seat. Its own seat then changes no count and opens no new place. A
+/// connection that is counted for no terminal, or under another key, is
+/// outside the share: the terminal then gets more places than its share.
 #[test]
 fn an_early_connection_counts_in_its_own_terminals_share() {
     let connections = Arc::new(ConnectionStats::default());
     let other_seat = connections.seat_terminal(Some(SESSION + 1), None);
     let (other, _other_client) = connect(&connections, SESSION + 1);
     let host_seat = HostSeating::of(connections.clone(), Some("terminal-1")).seat(HOST);
-    let early = connect_under(&connections, SESSION, Some(HOST));
-    let seat = connections.seat_terminal(Some(SESSION), Some("terminal-1"));
-    drop(host_seat);
-    let mut own = vec![early];
-    own.extend(fill_the_share(&connections, SESSION));
-    let with_an_early_one = u64::try_from(own.len()).unwrap();
-    assert_eq!(held(&connections), (with_an_early_one + 1, with_an_early_one + 1, 0));
+    assert!(!connections.terminal_seated(SESSION), "only the terminal's host has a seat");
+    let early = fill_the_share(&connections, SESSION, Some(HOST));
+    let early_ones = u64::try_from(early.len()).unwrap();
+    assert_eq!(held(&connections), (early_ones + 1, early_ones + 1, 0));
 
     let reference = Arc::new(ConnectionStats::default());
     let reference_seats = (
@@ -660,16 +659,24 @@ fn an_early_connection_counts_in_its_own_terminals_share() {
         reference.seat_terminal(Some(SESSION), Some("terminal-1")),
     );
     let reference_other = connect(&reference, SESSION + 1);
-    let share = u64::try_from(fill_the_share(&reference, SESSION).len()).unwrap();
+    let share = u64::try_from(fill_the_share(&reference, SESSION, None).len()).unwrap();
     assert!(share > 1 && share < LANE - 1, "the share of one terminal is {share} of {LANE}");
     assert_eq!(
-        with_an_early_one, share,
-        "a terminal with an early connection holds {with_an_early_one} places of the lane; its \
-         share is {share}"
+        early_ones, share,
+        "a terminal with only its host's seat holds {early_ones} places of the lane; its share \
+         is {share}"
     );
+
+    // The terminal's seat takes nothing over, and the share is as full
+    // after it as before.
+    let seat = connections.seat_terminal(Some(SESSION), Some("terminal-1"));
+    drop(host_seat);
+    assert_eq!(held(&connections), (share + 1, share + 1, 0), "a join at the terminal's seat");
+    let after_the_seat = fill_the_share(&connections, SESSION, None);
+    assert!(after_the_seat.is_empty(), "the terminal's seat opened a new place");
 
     // The other terminal still finds a place.
     let (next, _next_client) = connect(&connections, SESSION + 1);
-    drop((own, other, next, seat, other_seat, reference_other, reference_seats));
+    drop((early, other, next, seat, other_seat, reference_other, reference_seats));
     assert_eq!(held(&connections), (0, 0, 0));
 }

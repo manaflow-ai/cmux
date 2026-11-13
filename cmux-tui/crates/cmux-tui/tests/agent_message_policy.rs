@@ -115,7 +115,13 @@ mod agent_message_policy {
         let mut run = daemon.terminal_started(&beta, &script);
         // The terminal's process runs: its host made it, and waits at the gate.
         wait_for_file(&started);
-        // Each read of the count is one connection of the test itself.
+        // Each read of the count is one connection of the test itself. The
+        // count is of each client of the daemon, so the wait ends at the
+        // first new connection that is not a read. A connection of another
+        // client in that time would end the wait before the terminal's
+        // process connects; this test starts no such client there (the run
+        // command connected before `started`, and the other terminal runs
+        // `sleep`).
         let mut reads = 0;
         let mut connections_of_others = || {
             reads += 1;
