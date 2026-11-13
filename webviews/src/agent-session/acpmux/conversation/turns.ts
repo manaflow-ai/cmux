@@ -731,6 +731,7 @@ export function turnViewFrom(
       waitingSteers,
       messageBreaks,
       trayAgents,
+      supersededReplyIds,
     });
   for (let at = first; at < starts.length; at += 1) {
     const start = starts[at]!;
