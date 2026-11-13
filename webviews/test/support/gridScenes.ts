@@ -203,12 +203,14 @@ export const gridScenes: GridScene[] = [
       point(".acpmux-composer-box", "left"),
       token("composer-lead-center"),
     ),
+    // The context ring stands half a base step before the model button (composerLocation.css
+    // --acpmux-ring-gap), so the row ends on the model button's effort.
     from(
-      "trail",
-      ".acpmux-composer-box",
-      "right",
-      point(".acpmux-context-ring svg", "cx"),
-      token("composer-trail-center"),
+      "ring: before the model",
+      ".acpmux-model .acpmux-picker-button",
+      "left",
+      point(".acpmux-context-ring", "right"),
+      "calc(var(--grid-base) / 2)",
     ),
     value("mid: mode mark", ".acpmux-access-trigger svg", "cy", point(":scope", "cy")),
     mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),
@@ -224,12 +226,14 @@ export const gridScenes: GridScene[] = [
       point(".acpmux-composer-box", "left"),
       token("composer-lead-center"),
     ),
+    // The context ring stands half a base step before the model button (composerLocation.css
+    // --acpmux-ring-gap), so the row ends on the model button's effort.
     from(
-      "trail",
-      ".acpmux-composer-box",
-      "right",
-      point(".acpmux-context-ring svg", "cx"),
-      token("composer-trail-center"),
+      "ring: before the model",
+      ".acpmux-model .acpmux-picker-button",
+      "left",
+      point(".acpmux-context-ring", "right"),
+      "calc(var(--grid-base) / 2)",
     ),
     value("mid: mode mark", ".acpmux-access-trigger svg", "cy", point(":scope", "cy")),
     mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),
@@ -339,7 +343,8 @@ export const gridScenes: GridScene[] = [
     mid(".cv-tool__text, .cv-command__text", ".cv-tool__icon"),
   ]),
   // The turn footer's action row (TurnRows.tsx TurnFooter): Copy, Pin, Read aloud and More in Claude's
-  // 28 buttons in ChatGPT's 32 line (design/transcript-spacing.md "Reply footer"), then its time. A reply no longer draws its own row (#29740: model.ts hasReplyActions is false, and the
+  // 28 buttons in ChatGPT's 32 line (design/transcript-spacing.md "Reply footer"), and no time (the
+  // Codex app shows none; Lawrence, 2026-11-11 standup). A reply no longer draws its own row (#29740: model.ts hasReplyActions is false, and the
   // agent-pane.reply-actions gallery entry is gone), so the footer under the first turn, which the
   // `footer` variant points at, is the one action row the transcript draws.
   scene(
@@ -350,7 +355,6 @@ export const gridScenes: GridScene[] = [
     [
       value("action control", ".cv-iconbtn", "width", token("transcript-action-control")),
       ...centered(".cv-iconbtn svg", ".cv-iconbtn"),
-      mid(".cv-turn-time", ".cv-iconbtn"),
     ],
   ),
   card(

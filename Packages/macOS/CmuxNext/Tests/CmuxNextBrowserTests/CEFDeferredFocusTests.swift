@@ -47,6 +47,33 @@ import Testing
         #expect(FocusSpyShim.granted == [8])
     }
 
+    /// Lawrence 2026-11-10 ("there are multiple steps"): selecting a loaded Chromium tab shows its page in this turn,
+    /// and its focus ask is granted only after the turn's frame commit (up to 40 ms later on a busy Mac). Meanwhile the
+    /// cmux window has no first responder, so a plain key typed then reached no view. A page whose ask waits is not
+    /// ready for keys (the window's key hold keeps them), and it reports ready again at the grant, which ends the hold.
+    @Test func aLoadedPageWhoseFocusAskWaitsIsNotReadyForKeysUntilTheGrant() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, reported) = try Self.readyTab(runtime, browser: 31)
+        tab.contentView.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        Self.load(runtime, 31, "https://example.com/")
+        try #require(tab.pageReady && reported() == 1)
+        FocusSpyShim.granted = []
+
+        // The tab is selected: its view enters the window and the focus applier asks, in one turn.
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        try #require(window.contentView).addSubview(tab.contentView)
+        tab.setFocused(true)
+        try #require(FocusSpyShim.granted.isEmpty, "the page took focus in the turn it showed: nothing waits, the test proves nothing")
+        #expect(!tab.pageReady, "a key typed before the grant reaches no view, and nothing holds it")
+
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [31])
+        #expect(tab.pageReady, "the page has the keys and is not ready")
+        #expect(reported() == 2, "the grant did not report the page ready: the key hold waits for its bound (reported \(reported()))")
+    }
+
     /// An ask taken back (focus moved on) before the page showed is not granted later.
     @Test func focusTakenBackBeforeThePageShowsIsNotGranted() throws {
         let (runtime, root) = try FocusSpyShim.runtime()

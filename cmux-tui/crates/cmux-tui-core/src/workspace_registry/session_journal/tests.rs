@@ -938,8 +938,21 @@ fn a_read_only_kind_read_decodes_a_segment_whose_map_is_not_proven_whole() {
 /// The same on a synthetic registry of a long-lived owner's shape
 /// (`synth_registry`: `personal.session.put` churn, agent events, sealed
 /// segments) whose kind map is gone, as an older build's segments have none:
-/// the first kind read the roster replay makes, and all of them to the head.
-/// Writes both times to `.build/kind-backfill-slice.json` for the PR.
+/// the first kind read the roster replay makes maps one segment of the
+/// backfill, not all of them, and stops short of the head.
+///
+/// The bound is a count of segments, with the slice at zero so that it does
+/// not depend on the host: one call of the backfill then maps exactly one
+/// segment. A first read that waits for the whole backfill maps every
+/// segment and fails here. It was a ratio of two wall times before (the
+/// first read under a third of all reads): with the 100 ms slice the first
+/// read is 100 ms and one segment whatever the host, and all the reads took
+/// about three times that on the Linux CI host (121 ms of 338 ms in one red
+/// run), so the ratio stood at its limit by design and failed on correct
+/// code.
+///
+/// Both times with the real slice still go to
+/// `.build/kind-backfill-slice.json` for a PR; nothing asserts them.
 #[test]
 fn a_synth_registrys_first_kind_read_is_bounded_while_its_backfill_is_unfinished() {
     use crate::synth_registry::{SynthOptions, generate};
@@ -954,18 +967,41 @@ fn a_synth_registrys_first_kind_read_is_bounded_while_its_backfill_is_unfinished
     };
     let report = generate(&root, &options).unwrap();
     let registry = WorkspaceRegistry::open(&root, &options.session).unwrap();
-    let db = registry.connection.get();
-    db.execute_batch(
-        "DELETE FROM journal_segment_kinds;
-         DELETE FROM meta WHERE key LIKE 'journal_segment_kinds_backfill%';",
-    )
-    .unwrap();
-    drop(db);
+    let forget_kind_maps = |registry: &WorkspaceRegistry| {
+        registry
+            .connection
+            .get()
+            .execute_batch(
+                "DELETE FROM journal_segment_kinds;
+                 DELETE FROM meta WHERE key LIKE 'journal_segment_kinds_backfill%';",
+            )
+            .unwrap();
+    };
+    let mapped = |registry: &WorkspaceRegistry| -> i64 {
+        registry
+            .connection
+            .get()
+            .query_row("SELECT COUNT(DISTINCT segment_id) FROM journal_segment_kinds", [], |row| {
+                row.get(0)
+            })
+            .unwrap()
+    };
     let head = registry.session_journal_head().unwrap();
     let kinds = crate::journal_reducers::AgentRoster::folds_kind;
+
+    // The bound, in segments: a zero slice is one segment a call.
+    forget_kind_maps(&registry);
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(Some(std::time::Duration::ZERO)));
+    let (_, first_cursor) = registry.session_journal_kinds_after(0, head, kinds, 512).unwrap();
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(None));
+    let first_mapped = mapped(&registry);
+
+    // The times with the real slice, for the report only.
+    forget_kind_maps(&registry);
     let started = std::time::Instant::now();
     let (_, mut cursor) = registry.session_journal_kinds_after(0, head, kinds, 512).unwrap();
     let first = started.elapsed();
+    let sliced_mapped = mapped(&registry);
     let mut reads = 1;
     while cursor < head {
         let (_, reached) = registry.session_journal_kinds_after(cursor, head, kinds, 512).unwrap();
@@ -978,6 +1014,9 @@ fn a_synth_registrys_first_kind_read_is_bounded_while_its_backfill_is_unfinished
         "segments": report.segments,
         "journal_head": head,
         "registry_bytes": report.registry_bytes,
+        "zero_slice_first_read_mapped_segments": first_mapped,
+        "zero_slice_first_read_cursor": first_cursor,
+        "first_read_mapped_segments": sliced_mapped,
         "first_read_ms": first.as_millis().to_string(),
         "all_reads_ms": total.as_millis().to_string(),
         "reads": reads,
@@ -989,10 +1028,8 @@ fn a_synth_registrys_first_kind_read_is_bounded_while_its_backfill_is_unfinished
     drop(registry);
     let _ = fs::remove_dir_all(&root);
     assert!(report.segments > 8, "{numbers}");
-    // The slice and one segment past it, with room for a slow host; the
-    // whole backfill is several times that.
-    assert!(first < std::time::Duration::from_millis(600), "{numbers}");
-    assert!(first * 3 < total, "the first read is a slice of the backfill: {numbers}");
+    assert_eq!(first_mapped, 1, "the first read maps one segment of the backfill: {numbers}");
+    assert!(first_cursor < head, "the first read stops short of the head: {numbers}");
 }
 
 /// The page reader's cursor rules (`query_resource_events_after`): a cursor at the head reads an empty page

@@ -59,6 +59,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_FORK_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_ATTENTION_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_SETTINGS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY);
@@ -84,6 +85,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_VM_KIND_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_MODEL_CAPABILITY);
+        capabilities.push(AGENT_SESSION_START_MODE_CAPABILITY);
         // A phone's channel (hostd's `cloud-acpmux`) is enforced here: the carrier's signed
         // owner role (carrier_role.rs), the phone floor on its start (agent_session_start.rs)
         // and on every prompt (acpmux, `via: cloud-mobile`), and the adapter's commands only
@@ -248,6 +250,7 @@ pub(super) fn advertised_capabilities(
         crate::mux::SPLIT_DIVIDER_VISIBILITY_CAPABILITY,
         split_kind::SPLIT_BEFORE_CAPABILITY,
         creating_input::TERMINAL_INPUT_WHILE_CREATING_CAPABILITY,
+        creating_input::CREATING_INPUT_CANCEL_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_FOREGROUND_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_AGENT_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
@@ -438,10 +441,13 @@ pub(super) fn advertised_capabilities(
         crate::state::conversation_tabs_store::PAGE_TAB_ROUTE_CAPABILITY,
         crate::state::remote_terminal_tabs_store::REMOTE_TERMINAL_TABS_CAPABILITY,
         detached_terminals::DETACHED_TERMINALS_CAPABILITY,
+        cmd_terminals::CREATE_TERMINAL_WORKSPACE_CAPABILITY,
         close_tabs_command::CLOSE_REASON_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_SPLIT_CAPABILITY,
         frontend_browser_history::FRONTEND_BROWSER_TAB_SPLIT_CAPABILITY,
+        frontend_browser_history::FRONTEND_BROWSER_TAB_WORKSPACE_CAPABILITY,
+        frontend_browser_history::WORKSPACE_FIRST_TAB_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::history_ops::CAPABILITY,
@@ -454,6 +460,7 @@ pub(super) fn advertised_capabilities(
         crate::git_ops::WORKTREE_APPLY_CAPABILITY,
         crate::git_ops::WORKTREE_REMOVE_CAPABILITY,
         crate::git_ops::DIFF_COMMENTS_CAPABILITY,
+        crate::git_ops::DIFF_COMMENTS_SEND_CAPABILITY,
         crate::git_ops::WORKTREE_SETUP_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
         crate::request_origin::page_router_table::PAGE_ROUTER_CAPABILITY,

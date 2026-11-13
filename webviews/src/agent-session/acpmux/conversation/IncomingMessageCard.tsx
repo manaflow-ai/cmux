@@ -265,7 +265,13 @@ export function SenderChip({
     if (!query) return;
     onOpen(resolved?.sessionId ?? query);
   };
-  const from = inboxNames || (message.relation ? t(RELATION_LABEL[message.relation], { name }) : name);
+  // cmux's own notice is named by what it is, never the app (Leo, 2026-11-12: "should this really
+  // be labelled as \"cmux\"?"): a background task by its description, else "Background task";
+  // anything else by nothing, so it has no chip.
+  const system = message.notice?.system ? message.notice : undefined;
+  const from = system
+    ? message.name.trim() || (system.task ? t("notice.backgroundTask") : "")
+    : inboxNames || (message.relation ? t(RELATION_LABEL[message.relation], { name }) : name);
   const icon =
     toolNotice && look !== "tag" ? <NoticeMark severity={toolNotice.severity} /> : <SenderMark message={message} />;
   const host = toolNotice?.host ?? sender.host;
@@ -308,13 +314,13 @@ export function SenderChip({
           ariaLabel={open}
           onClick={openAsked}
         />
-      ) : (
+      ) : from ? (
         <AgentTag name={from} className="cv-received__from" title={about} />
-      )}
+      ) : null}
       {/* A sender acpmux could not verify (Leo, 2026-11-05: "why is it sending it as if it were
           me?"): the one subtle marker, never words in or beside its name. The message row draws
           its own (AgentMessageRow.tsx `unverified`). */}
-      {withMark && message.unverified && <UnverifiedMark program={message.program} />}
+      {withMark && message.unverified && <UnverifiedMark program={message.program} claimed={message.name} />}
       {/* The other machine the sender's chat runs on, on the line itself, not only in the name's
           tooltip (Leo, 2026-10-27, on a lane's message: "Is this, like, from another machine? But
           even if they're from another machine, what's going on here?"). This Mac's chats name none. */}
@@ -680,6 +686,7 @@ export function IncomingMessageLine({
         nameSlot={<SenderChip message={message} onOpen={onOpen} />}
         unverified={message.unverified === true}
         program={message.program}
+        claimed={message.name}
         preview={preview || t("message.noText")}
         label={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
         open={open}

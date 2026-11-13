@@ -184,6 +184,8 @@ pub enum ResourceOperation {
     DiffCommentsList,
     #[serde(rename = "diff.comments.save")]
     DiffCommentsSave,
+    #[serde(rename = "diff.comments.send")]
+    DiffCommentsSend,
     #[serde(rename = "git.branches")]
     GitBranches,
     #[serde(rename = "git.commit")]
@@ -640,6 +642,10 @@ pub enum ResourceOperation {
     CloudPreviewsRevokeLink,
     #[serde(rename = "cloud.machine.io")]
     CloudMachineIo,
+    #[serde(rename = "cloud.machine.chat_access")]
+    CloudMachineChatAccess,
+    #[serde(rename = "cloud.machine.share_chat")]
+    CloudMachineShareChat,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]

@@ -276,7 +276,10 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
         for (let node = walker.nextNode(); node; node = walker.nextNode()) {
           if (!node.textContent?.trim()) continue;
           const parent = node.parentElement;
-          if (!parent || parent.closest("[aria-hidden='true'], [inert]")) continue;
+          // Hidden from readers inside the row is not drawn for the eye; the row itself hidden (a
+          // fold's drawn copy, turnFold.ts `ghostOf`) is: its text shows while the fold plays.
+          const quiet = parent?.closest("[aria-hidden='true'], [inert]");
+          if (!parent || (quiet && quiet !== row && row.contains(quiet))) continue;
           if (getComputedStyle(parent).visibility === "hidden" || drawnOpacity(parent, row) < 0.05) continue;
           // Glyphs, not line boxes: a line box's half-leading above and below draws nothing.
           const lead =

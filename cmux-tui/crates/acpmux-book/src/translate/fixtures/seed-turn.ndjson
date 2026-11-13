@@ -1,0 +1,9 @@
+{"seq":1,"at":1000,"dir":"mux","kind":"user_message","msg":{"promptId":"p1","turnId":"t1","text":"hi"}}
+{"seq":2,"at":2000,"dir":"mux","kind":"turn_started","msg":{"turnId":"t1","promptId":"p1"}}
+{"seq":3,"at":3000,"dir":"in","kind":"agent_message_chunk","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","messageId":"m1","content":{"type":"text","text":"Let me "}}}}}
+{"seq":4,"at":4000,"dir":"in","kind":"agent_message_chunk","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","messageId":"m1","content":{"type":"text","text":"look."}}}}}
+{"seq":5,"at":5000,"dir":"in","kind":"usage_update","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"usage_update","used":1,"size":2}}}}
+{"seq":6,"at":6000,"dir":"in","kind":"tool_call","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"c1","title":"Read a.rs","kind":"read","status":"pending","_meta":{"claude":{"tool":"Read"}}}}}}
+{"seq":7,"at":7000,"dir":"in","kind":"tool_call_update","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","content":[{"type":"content","content":{"type":"text","text":"fn a() {}"}}]}}}}
+{"seq":8,"at":8000,"dir":"in","kind":"agent_message_chunk","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","messageId":"m2","content":{"type":"text","text":"Done."}}}}}
+{"seq":9,"at":9000,"dir":"mux","kind":"turn_result","msg":{"turnId":"t1","promptId":"p1","status":"completed"}}
