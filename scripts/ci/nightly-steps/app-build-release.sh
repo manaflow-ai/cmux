@@ -117,13 +117,11 @@ echo "compilation cache limit: $cas_limit_bytes bytes (${cas_free_kib:-unknown} 
 # One build root per nightly Mac when this slot keeps build state (app-host-build-root.sh).
 # shellcheck source=scripts/ci/nightly-steps/app-host-build-root.sh
 source scripts/ci/nightly-steps/app-host-build-root.sh
-# Every binary artifact (Iroh, Sentry-Dynamic, WebRTC, CCmuxAppFFI) is in this tree's own SourcePackages before the
-# build: one missing or recorded in another tree drops the artifact state and resolves again
-# (spm_artifact_preflight.py). The project's local packages are read from cmux.xcodeproj, since the seeded tree
-# has no workspace-state.json to name them.
+# Every binary artifact (Iroh, Sentry-Dynamic, WebRTC) is in this tree's own SourcePackages before the build: one
+# missing or recorded in another tree drops the artifact state and resolves again (spm_artifact_preflight.py).
 (
   cd "$build_root"
-  python3 scripts/ci/spm_artifact_preflight.py .spm-cache --xcodeproj cmux.xcodeproj \
+  python3 scripts/ci/spm_artifact_preflight.py .spm-cache \
     --resolved cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved -- \
     xcodebuild -resolvePackageDependencies -scheme cmux \
     -clonedSourcePackagesDirPath .spm-cache \
