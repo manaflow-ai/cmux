@@ -461,6 +461,7 @@ fn open_state_from_log(
             || checkpoint.cursors.iter().any(|cursor| cursor.stamp != actor.source_stamp)
     });
     if stamp_changed {
+        actor.log.cut_to_checkpoint()?;
         actor.edition = next_edition(Some(actor.edition), || (actor.config.edition_random)());
         actor.boot_id = actor.config.boot_id;
     }

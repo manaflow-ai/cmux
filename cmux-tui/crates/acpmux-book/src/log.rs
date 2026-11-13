@@ -403,6 +403,11 @@ pub struct Log {
     raw_map_len: u64,
     undo: File,
     checkpoint_mark: UndoHead,
+    checkpoint_last_seq: u64,
+    checkpoint_min_row: u64,
+    checkpoint_max_row: u64,
+    checkpoint_raw_files: u32,
+    checkpoint_raw_map_len: u64,
     undo_head: Option<UndoHead>,
     options: Options,
     /// Held for the lock on it.
@@ -816,6 +821,11 @@ impl Log {
             raw_map_len,
             undo,
             checkpoint_mark,
+            checkpoint_last_seq: mark.last_seq,
+            checkpoint_min_row: mark.min_row,
+            checkpoint_max_row: mark.max_row,
+            checkpoint_raw_files: mark.raw_files,
+            checkpoint_raw_map_len: mark.raw_map_len,
             undo_head,
             options,
             _lock: lock,
@@ -834,6 +844,62 @@ impl Log {
             fail_after: None,
         };
         Ok((log, recovered))
+    }
+
+    /// Discards the replay suffix and returns the files to the last checkpoint. The actor uses
+    /// this when a source stamp or boot changed: its checkpoint state remains authoritative, so
+    /// records translated under the old source must not survive under the new edition.
+    pub fn cut_to_checkpoint(&mut self) -> Result<(), Error> {
+        if self.tail.seg < self.checkpoint_mark.seg
+            || self.tail.len < u64::from(self.checkpoint_mark.off)
+        {
+            return Err(Error::Corrupt("checkpoint is past the log tail"));
+        }
+        let rows_synced = self.rows.sync()?;
+        let seqs_synced = self.seqs.sync()?;
+        self.stats.syncs =
+            self.stats.syncs.saturating_add(u64::from(rows_synced) + u64::from(seqs_synced));
+
+        let old_last = self.tail.seg;
+        if old_last == self.checkpoint_mark.seg {
+            self.tail.file.set_len(u64::from(self.checkpoint_mark.off))?;
+            fsio::sync(&self.tail.file)?;
+            self.stats.syncs = self.stats.syncs.saturating_add(1);
+            self.tail.len = u64::from(self.checkpoint_mark.off);
+            self.tail.file.seek(SeekFrom::End(0))?;
+        } else {
+            let checkpoint_path = segment_path(&self.rows_dir, self.checkpoint_mark.seg);
+            let mut checkpoint_file =
+                OpenOptions::new().read(true).write(true).append(true).open(&checkpoint_path)?;
+            checkpoint_file.set_len(u64::from(self.checkpoint_mark.off))?;
+            fsio::sync(&checkpoint_file)?;
+            self.stats.syncs = self.stats.syncs.saturating_add(1);
+            let old_file = std::mem::replace(&mut self.tail.file, checkpoint_file);
+            drop(old_file);
+            for seg in (self.checkpoint_mark.seg + 1)..=old_last {
+                let path = segment_path(&self.rows_dir, seg);
+                if path.exists() {
+                    fs::remove_file(path)?;
+                    fsio::sync_dir(&self.rows_dir)?;
+                }
+            }
+            self.tail.seg = self.checkpoint_mark.seg;
+            self.tail.len = u64::from(self.checkpoint_mark.off);
+        }
+        self.raw_map.set_len(self.checkpoint_raw_map_len)?;
+        self.raw_map.seek(SeekFrom::End(0))?;
+        self.raw_files = self.checkpoint_raw_files;
+        self.raw_map_len = self.checkpoint_raw_map_len;
+        self.undo.set_len(0)?;
+        fsio::sync(&self.undo)?;
+        self.undo_head = None;
+        self.last_seq = self.checkpoint_last_seq;
+        self.min_row = self.checkpoint_min_row;
+        self.max_row = self.checkpoint_max_row;
+        self.readers.clear();
+        self.unsynced = false;
+        self.broken = false;
+        Ok(())
     }
 
     fn create_segment(rows_dir: &Path, seg: u32) -> Result<File, Error> {
@@ -1290,6 +1356,11 @@ impl Log {
         self.undo.set_len(0)?;
         fsio::sync(&self.undo)?;
         self.checkpoint_mark = checkpoint_mark;
+        self.checkpoint_last_seq = mark.last_seq;
+        self.checkpoint_min_row = mark.min_row;
+        self.checkpoint_max_row = mark.max_row;
+        self.checkpoint_raw_files = mark.raw_files;
+        self.checkpoint_raw_map_len = mark.raw_map_len;
         self.undo_head = None;
         self.edition = edition;
         self.stats.syncs = self.stats.syncs.saturating_add(synced).saturating_add(1);
