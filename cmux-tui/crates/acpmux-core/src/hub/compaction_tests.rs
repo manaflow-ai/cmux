@@ -120,7 +120,7 @@ async fn changes_during_rotation_survive_install_and_restart_without_duplicate_r
     assert!(writer.compaction.is_some());
     writer = tokio::task::spawn_blocking(move || {
         for n in 0..50 {
-            writer.apply_remove(&RowKey::new("local", format!("row-{n:04}"))).unwrap();
+            writer.apply_remove("local", &RowKey::new("local", format!("row-{n:04}"))).unwrap();
         }
         for n in 50..100 {
             let mut row = Summary::new(format!("row-{n:04}"));
