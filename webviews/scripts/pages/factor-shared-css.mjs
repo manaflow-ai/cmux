@@ -23,5 +23,10 @@ export function factorSharedCss(styles) {
   while (commonLength > 0 && !boundaries.every((set) => set.has(commonLength))) commonLength -= 1;
   if (!commonLength) throw new Error("Pages CSS has no exact shared complete-rule prefix");
   const shared = first.slice(0, commonLength);
+  // Moving CSS from an inline <style> to __shared changes the base directory for relative URLs.
+  // Fragment/data URLs are document-independent; keep a future asset-bearing prefix inline.
+  const urls = [...shared.matchAll(/url\(\s*(?:(['"])(.*?)\1|([^\s)]+))\s*\)/gi)];
+  const unsafe = urls.find((match) => !/^(?:#|data:|blob:|about:)/i.test(match[2] ?? match[3] ?? ""));
+  if (unsafe) throw new Error(`Pages CSS shared prefix contains a relative URL: ${unsafe[0]}`);
   return { shared, remainders: styles.map((style) => style.slice(commonLength)) };
 }
