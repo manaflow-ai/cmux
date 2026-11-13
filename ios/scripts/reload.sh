@@ -12,16 +12,20 @@ Usage: ios/scripts/reload.sh --tag <tag> [--simulator <name>] [--simulator-id <i
 Build, install, and launch the cmux iOS app with an isolated tag.
 
 --review is the end-of-task hand-off (AGENTS.md "Finishing a task"). One
-command builds the same-tag Mac app and the iOS app, installs the iOS app on the
-iPhone through the authenticated install (scripts/verify-iphone-auth.sh must
-pass), then boots the tag's isolated simulator, opens its Simulator window in
-the background (never taking focus) and launches the app there signed in and
-paired, ready to review. It ends with a "Review ready" block: the Tag Opener
-link, the simulator state and the iPhone result. Builds run on the build fleet
-when an hq checkout with build-fleet/ios-reload.py is found (CMUX_HQ_ROOT, then
-`cmux-ci hq-root`); otherwise they build locally. A phone that is unreachable,
-locked or fails the auth gate fails the command (exit non-zero): it is a
-blocker to report, never something to skip. The review simulator signs in with
+command builds the same-tag Mac app and the iOS app, installs the iOS app on
+EVERY connected iPhone (not only the configured default) through the
+authenticated install (scripts/verify-iphone-auth.sh must pass), and registers
+a newly connected phone in ~/.config/cmux/iphone-device-ids. It then boots the
+tag's isolated simulator, opens its Simulator window in the background (never
+taking focus) and launches the app there signed in, ready to review. It ends
+with a "Review ready" block: the Tag Opener link, the simulator state and one
+result line per iPhone. Builds run on the build fleet when an hq checkout with
+build-fleet/ios-reload.py is found (CMUX_HQ_ROOT, then `cmux-ci hq-root`);
+otherwise they build locally. No connected phone, or a phone that fails its
+install or auth gate, fails the command (exit non-zero): it is a blocker to
+report, never something to skip. A new phone needs Tailscale signed in to the
+team tailnet before its first dev install, because the dev API is a tailnet
+host. The review simulator signs in with
 the personal profile, the same account as the phone, so it cannot replace the
 phone's pairing with the tagged Mac; the phone is re-verified after it.
 
@@ -655,17 +659,100 @@ review_simulator() {
 # Re-run the phone's auth gate after the simulator launch, so the report proves
 # the phone is still signed in and paired.
 review_verify_phone() {
-  local verify="$IOS_DIR/../scripts/verify-iphone-auth.sh" device_id="${DEVICE_ID:-$DEFAULT_DEVICE_ID}"
-  local args=(--tag "$TAG" --auth-profile "$DEVICE_AUTH_PROFILE" \
+  local device_id="$1" label="$2"
+  local verify="$IOS_DIR/../scripts/verify-iphone-auth.sh"
+  local args=(--tag "$TAG" --device-id "$device_id" --auth-profile "$DEVICE_AUTH_PROFILE" \
     --expected-account "$DEVICE_AUTH_ACCOUNT" --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE")
-  [[ -n "$device_id" ]] && args+=(--device-id "$device_id")
   local line
   if ! line="$("$verify" "${args[@]}" | tail -n 1)"; then
     echo "$line" >&2
-    echo "error: iPhone auth gate failed after the simulator launch; this is a blocker to report" >&2
+    echo "error: $label: iPhone auth gate failed after the simulator launch; this is a blocker to report" >&2
+    review_phone_result "$label: BLOCKED, installed but the auth gate failed ($line); retry: scripts/verify-iphone-auth.sh --tag $TAG --device-id $device_id"
     return 1
   fi
-  REVIEW_PHONE_STATUS="${device_id:-default iPhone}: installed, signed in and paired ($line)"
+  review_phone_result "$label: installed, signed in ($line)"
+}
+
+# One line per phone for the report.
+review_phone_result() {
+  REVIEW_PHONE_STATUS+="${REVIEW_PHONE_STATUS:+$'\n  '}$1"
+}
+
+# Every connected, paired, booted iPhone/iPad: "<udid>\t<name>\t<model>".
+# Same reachability rule as scripts/iphone-install-queue.sh probe.
+review_connected_phones() {
+  local json
+  json="$(mktemp "${TMPDIR:-/tmp}/cmux-review-devices.XXXXXX")" || return 1
+  xcrun devicectl list devices --json-output "$json" >/dev/null 2>&1 || { rm -f "$json"; return 1; }
+  /usr/bin/python3 - "$json" <<'PYDEV'
+import json, sys
+for d in json.load(open(sys.argv[1])).get("result", {}).get("devices", []):
+    hw, conn, props = d.get("hardwareProperties", {}), d.get("connectionProperties", {}), d.get("deviceProperties", {})
+    if hw.get("platform") != "iOS" or hw.get("reality") != "physical" or conn.get("pairingState") != "paired":
+        continue
+    reachable = str(props.get("bootState") or "").lower() == "booted" or (
+        conn.get("transportType") == "localNetwork" and conn.get("tunnelState") != "unavailable"
+        and props.get("developerModeStatus"))
+    udid = hw.get("udid") or d.get("identifier")
+    if reachable and udid:
+        print(f"{udid}\t{props.get('name') or udid}\t{hw.get('marketingName') or hw.get('productType') or ''}")
+PYDEV
+  local rc=$?
+  rm -f "$json"
+  return "$rc"
+}
+
+# Known phones live in ~/.config/cmux/iphone-device-ids (one "<udid>\t<name>\t<model>"
+# per line). A connected phone that is not listed yet is a new phone: it is added
+# there, and becomes the default (~/.config/cmux/iphone-device-id) when none is set.
+REVIEW_PHONES_FILE="${CMUX_CONFIG_DIR:-$HOME/.config/cmux}/iphone-device-ids"
+review_register_phone() {
+  local udid="$1" name="$2" model="$3" default_file
+  default_file="$(dirname "$REVIEW_PHONES_FILE")/iphone-device-id"
+  mkdir -p "$(dirname "$REVIEW_PHONES_FILE")"
+  if ! grep -qi "^$udid" "$REVIEW_PHONES_FILE" 2>/dev/null; then
+    printf '%s\t%s\t%s\n' "$udid" "$name" "$model" >> "$REVIEW_PHONES_FILE"
+    echo "==> new iPhone registered: $name ($model, $udid) in $REVIEW_PHONES_FILE"
+    echo "==> a new phone needs Tailscale signed in to the team tailnet before its first dev install (the dev API is a tailnet host)"
+  fi
+  if [[ ! -s "$default_file" ]]; then
+    printf '%s\n' "$udid" > "$default_file"
+    echo "==> default iPhone set to $name ($udid)"
+  fi
+}
+
+# The phones this review installs on: every connected phone. A --device-id or
+# default phone that is not connected is reported (the explicit one fails).
+REVIEW_TARGETS=()
+REVIEW_FAILED=0
+review_resolve_phones() {
+  local udid name model line wanted
+  local connected=()
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && connected+=("$line")
+  done < <(review_connected_phones || true)
+  for line in ${connected[@]+"${connected[@]}"}; do
+    IFS=$'\t' read -r udid name model <<<"$line"
+    review_register_phone "$udid" "$name" "$model"
+    REVIEW_TARGETS+=("$udid"$'\t'"$name ($model, $udid)")
+  done
+  for wanted in "$DEVICE_ID" "$DEFAULT_DEVICE_ID"; do
+    [[ -n "$wanted" ]] || continue
+    if ! printf '%s\n' ${connected[@]+"${connected[@]}"} | grep -qi "^$wanted"; then
+      if [[ "$wanted" == "$DEVICE_ID" ]]; then
+        echo "error: --device-id $wanted is not connected" >&2
+        review_phone_result "$wanted: BLOCKED, requested with --device-id but not connected (unlock it and connect it by USB or Wi-Fi)"
+        REVIEW_FAILED=1
+      else
+        echo "warning: the default iPhone $wanted is not connected" >&2
+        review_phone_result "$wanted (default): not connected, nothing installed"
+      fi
+    fi
+  done
+  if [[ "${#REVIEW_TARGETS[@]}" -eq 0 ]]; then
+    echo "error: --review found no connected iPhone; connect and unlock one (a missing phone is a blocker to report)" >&2
+    return 1
+  fi
 }
 
 review_report() {
@@ -680,29 +767,46 @@ iPhone:
 EOF
 }
 
+# Finish after every phone's install: launch the simulator, re-verify each phone
+# that installed, print the report, and fail when any phone failed.
+REVIEW_INSTALLED=()
 review_finish() {
-  review_simulator || return 1
-  review_verify_phone || return 1
+  local target
+  if ! review_simulator; then
+    REVIEW_SIM_STATUS="BLOCKED: the simulator launch failed (see the error above)"
+    REVIEW_FAILED=1
+  fi
+  for target in ${REVIEW_INSTALLED[@]+"${REVIEW_INSTALLED[@]}"}; do
+    review_verify_phone "${target%%$'\t'*}" "${target#*$'\t'}" || REVIEW_FAILED=1
+  done
   review_report
+  [[ "$REVIEW_FAILED" -eq 0 ]]
 }
 
 if [[ "$REVIEW" -eq 1 ]]; then
-  if [[ -z "${DEVICE_ID:-$DEFAULT_DEVICE_ID}" ]]; then
-    echo "error: --review needs the iPhone: pass --device-id, set CMUX_IPHONE_DEVICE_ID, or write ~/.config/cmux/iphone-device-id" >&2
-    exit 2
-  fi
+  review_resolve_phones || exit 1
+  echo "==> --review: installing on ${#REVIEW_TARGETS[@]} connected iPhone(s)"
   if REVIEW_HQ_ROOT="$(review_hq_root)"; then
     echo "==> --review: building on the fleet through $REVIEW_HQ_ROOT/build-fleet/ios-reload.py"
-    fleet_args=(--tag "$TAG" --checkout "$(cd "$IOS_DIR/.." && pwd)" --device-id "${DEVICE_ID:-$DEFAULT_DEVICE_ID}")
-    [[ -n "$REVIEW_WORKSPACE" ]] && fleet_args+=(--workspace "$REVIEW_WORKSPACE")
-    fleet_rc=0
-    /usr/bin/python3 "$REVIEW_HQ_ROOT/build-fleet/ios-reload.py" "${fleet_args[@]}" || fleet_rc=$?
-    if [[ "$fleet_rc" -ne 0 ]]; then
-      echo "error: fleet build/install failed (exit $fleet_rc); a pending phone install is a blocker to report." >&2
-      echo "error: rerun the same command to resume the saved fleet jobs without resubmitting." >&2
-      exit "$fleet_rc"
-    fi
-    REVIEW_MAC_STATUS="fleet build, published to HQ"
+    # The first phone's run waits for the fleet jobs; later runs reuse the
+    # same saved jobs and the installed Mac app, and only sign and install.
+    REVIEW_MAC_STATUS="fleet build failed; see the error above"
+    for target in "${REVIEW_TARGETS[@]}"; do
+      udid="${target%%$'\t'*}"; label="${target#*$'\t'}"
+      echo "==> --review: iPhone $label"
+      fleet_args=(--tag "$TAG" --checkout "$(cd "$IOS_DIR/.." && pwd)" --device-id "$udid")
+      [[ -n "$REVIEW_WORKSPACE" ]] && fleet_args+=(--workspace "$REVIEW_WORKSPACE")
+      fleet_rc=0
+      /usr/bin/python3 "$REVIEW_HQ_ROOT/build-fleet/ios-reload.py" "${fleet_args[@]}" || fleet_rc=$?
+      if [[ "$fleet_rc" -eq 0 ]]; then
+        REVIEW_MAC_STATUS="fleet build, published to HQ"
+        REVIEW_INSTALLED+=("$target")
+      else
+        echo "error: $label: fleet build or install failed (exit $fleet_rc); this is a blocker to report" >&2
+        review_phone_result "$label: BLOCKED, fleet build or install failed (exit $fleet_rc); rerun this command to resume the saved fleet jobs"
+        REVIEW_FAILED=1
+      fi
+    done
     review_finish || exit 1
     exit 0
   fi
@@ -1478,13 +1582,22 @@ if [[ "$RELOAD_SIMULATOR" -eq 1 ]]; then
   reload_simulator
 fi
 
-if [[ "$RELOAD_DEVICE" -eq 1 ]]; then
-  reload_device
-fi
-
 if [[ "$REVIEW" -eq 1 ]]; then
   REVIEW_MAC_STATUS="local build"
+  for target in "${REVIEW_TARGETS[@]}"; do
+    DEVICE_ID="${target%%$'\t'*}"
+    device_rc=0
+    ( reload_device ) || device_rc=$?
+    if [[ "$device_rc" -eq 0 ]]; then
+      REVIEW_INSTALLED+=("$target")
+    else
+      review_phone_result "${target#*$'\t'}: BLOCKED, install or auth gate failed (exit $device_rc)"
+      REVIEW_FAILED=1
+    fi
+  done
   review_finish || exit 1
+elif [[ "$RELOAD_DEVICE" -eq 1 ]]; then
+  reload_device
 fi
 
 update_qr_tag_marker

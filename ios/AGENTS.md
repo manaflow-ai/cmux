@@ -26,18 +26,34 @@ It does, in order, and fails (non-zero) if any step fails:
    `build-fleet/ios-reload.py` (found through `CMUX_HQ_ROOT`, then `cmux-ci hq-root`), installs
    the Mac app at its Tag Opener path and publishes it to HQ. Without an hq checkout it builds
    locally, which is only for contributors outside the team.
-2. Signs and installs the iOS app on the connected iPhone with the authenticated install:
-   signed in with the `personal` profile, paired to the tagged Mac, `scripts/verify-iphone-auth.sh`
-   PASS. Never raw `devicectl`.
+2. Signs and installs the iOS app on **every connected iPhone**, not only the configured default,
+   with the authenticated install: signed in with the `personal` profile,
+   `scripts/verify-iphone-auth.sh` PASS. Never raw `devicectl`. One phone's failure does not stop
+   the others; each gets its own line in the report.
 3. Boots the tag's isolated simulator `cmux-dev-<slug>` on the person's Mac (at most three booted),
    opens its Simulator window in the background (`open -g`, never taking focus) and launches the
    app signed in and paired, ready to review. This review simulator signs in with the `personal`
    profile, the phone's account, so it cannot replace the phone's pairing with the tagged Mac;
    agent-driven Simulator verification still uses `agent`.
-4. Runs `verify-iphone-auth.sh` again, so the phone is proven signed in after the simulator launch,
-   and prints a `Review ready` block with the Tag Opener link, the simulator state and the iPhone result.
+4. Runs `verify-iphone-auth.sh` again on each phone, so every phone is proven signed in after the
+   simulator launch, and prints a `Review ready` block with the Tag Opener link, the simulator
+   state and one line per iPhone.
 
-The iPhone is always connected. An unreachable or locked phone, a queued install or a failed auth
+### New phones
+
+Connecting a new phone is welcome: `--review` treats every connected, paired iPhone as a target.
+The first time it sees a phone, it adds it to `~/.config/cmux/iphone-device-ids`
+(`<udid>\t<name>\t<model>`), installs on it, and makes it the default
+(`~/.config/cmux/iphone-device-id`) when none is set. A default phone that is not connected is
+listed as "not connected" in the report. To get a new phone ready:
+
+1. Pair it with this Mac once (unlock it, tap Trust) and turn on Developer Mode.
+2. Install Tailscale on it and sign in to the team tailnet. The dev API
+   (`CMUXApiBaseURL`, a `*.ts.net` host) is reachable only on the tailnet; without it the app
+   installs but never signs in, and the gate fails with "never published a signed-in app receipt".
+3. Run `--review` again; the report shows the phone's own line.
+
+A phone is always connected. No connected phone, a locked phone, a queued install or a failed auth
 gate is a blocker: report its `FAIL:` line and the retry command. Do not skip the phone, fall back
 to `--simulator-only` or pass `--no-sign-in`/`--no-attach`/`--no-setup`. Rerunning the same command
 resumes the saved fleet jobs without resubmitting. Copy the `Review ready` block into the report
@@ -60,7 +76,7 @@ Guidelines for any iOS UI change and citing the page in the PR. It applies to
 
 ## iOS builds open on the iPhone by default
 
-Any work verified by opening the iOS app installs BOTH an isolated-simulator build AND the same build on the user's iPhone. Never stop at simulator-only. A macOS CMUX build proves neither iOS compilation nor installation. Build with `ios/scripts/reload.sh --tag <tag>`; with a default iPhone configured (`CMUX_IPHONE_DEVICE_ID` or `~/.config/cmux/iphone-device-id`) the device leg is automatic, and `--device-id <id>` still overrides (`xcrun devicectl list devices`). Physical iPhone builds always select the `personal` auth profile. Agent-driven Simulator verification always selects `agent`. Both named profiles live in `~/.secrets/cmuxterm-dev.env`; neither may fall back to the other. The simulator leg uses the tag's own isolated device `cmux-dev-<slug>`, created on demand; do not target a shared or user-visible simulator.
+Any work verified by opening the iOS app installs BOTH an isolated-simulator build AND the same build on the user's iPhones (with `--review`, every connected one; see "Finishing a task"). Never stop at simulator-only. A macOS CMUX build proves neither iOS compilation nor installation. Build with `ios/scripts/reload.sh --tag <tag>`; with a default iPhone configured (`CMUX_IPHONE_DEVICE_ID` or `~/.config/cmux/iphone-device-id`) the device leg is automatic, and `--device-id <id>` still overrides (`xcrun devicectl list devices`). Physical iPhone builds always select the `personal` auth profile. Agent-driven Simulator verification always selects `agent`. Both named profiles live in `~/.secrets/cmuxterm-dev.env`; neither may fall back to the other. The simulator leg uses the tag's own isolated device `cmux-dev-<slug>`, created on demand; do not target a shared or user-visible simulator.
 
 **Every phone install MUST be authenticated before handoff. Installed-but-signed-out is a failed install.** A tagged bundle id can retain an older account, so every authenticated launch clears that tagged session, signs both surfaces into the selected profile, verifies the exact tagged Mac account through `auth status`, then mints the pairing ticket. The iPhone auth gate passes only after the same-account host accepts the phone RPC and emits `mobile.rpc.ready`. `scripts/verify-iphone-auth.sh --tag <tag> [--device-id <id>]` repeats the Mac-account check, relaunches the phone without credentials, and passes only when persisted phone state reconnects. Never install with raw `devicectl device install app`, and never pass `--no-sign-in`/`--no-attach`/`--no-setup` for a dogfood build. The scripts refuse those device paths unless a human sets `CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1`. If setup fails, report the gate reason and exact retry command.
 

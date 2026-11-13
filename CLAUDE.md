@@ -67,11 +67,16 @@ A documentation-only change needs no build; give the file path instead.
   Report the Tag Opener link `http://127.0.0.1:17320/<task-slug>`. Never `open` it (macOS sends it
   to the default browser); team members add it to their workspace with hq's `scripts/open-dev-build.sh <task-slug>`.
 - **iOS:** run `ios/scripts/reload.sh --review --tag <task-slug>`. In one command it builds on the
-  fleet (the Mac build above included, same tag, published to HQ), installs on the connected
-  iPhone through the authenticated install (`scripts/verify-iphone-auth.sh` must pass; never raw
-  `devicectl`), then boots the tag's Simulator on the person's Mac, opens its window without taking
+  fleet (the Mac build above included, same tag, published to HQ), installs on every connected
+  iPhone, not only the configured one, through the authenticated install
+  (`scripts/verify-iphone-auth.sh` must pass; never raw `devicectl`), then boots the tag's Simulator on the person's Mac, opens its window without taking
   focus and launches the app signed in and paired, ready to review. Details: [ios/AGENTS.md](ios/AGENTS.md#finishing-a-task).
-- **The iPhone is always connected.** An unreachable or locked phone, a queued install or a
+- **Install on every connected phone.** A phone that is connected gets the build, including one
+  you have not seen before: `--review` registers a new phone and installs on it too. Before a new
+  phone's first install, it needs Tailscale signed in to the team tailnet (the dev API is a tailnet
+  host); without it the install succeeds but the auth gate fails with "never published a signed-in
+  app receipt". Report that as the phone's blocker and ask the person to set Tailscale up.
+- **A phone is always connected.** No connected phone, a locked phone, a queued install or a
   failed auth gate is a blocker to report with its error and retry command, never a step to skip
   or replace with a simulator-only result.
 - End the report with:
@@ -79,7 +84,8 @@ A documentation-only change needs no build; give the file path instead.
   ```text
   Dev build:  http://127.0.0.1:17320/<task-slug>   (fleet job <JOB_ID>, head <sha>)
   Simulator:  cmux-dev-<slug>: booted, window open, app signed in and paired
-  iPhone:     <device id>: installed, verify-iphone-auth PASS   (or BLOCKED: <reason>; retry: <command>)
+  iPhone:     <name> (<model>, <udid>): installed, verify-iphone-auth PASS
+              <name> (<model>, <udid>): BLOCKED: <reason>; retry: <command>   (one line per connected phone)
   ```
 
 ## cmux-next checks before every push
