@@ -188,12 +188,14 @@ def build(encoding, kept, aliases):
     return bytes(out)
 
 
-def remove(pak, should_drop):
-    """(new pak bytes, [dropped ids]) without the entries where should_drop(id, data)."""
+def remove(pak, should_drop, held_ids=frozenset()):
+    """(new pak bytes, [dropped ids]) without the entries where should_drop(id, data).
+    An entry that an alias of held_ids points to stays, so that alias does too."""
     encoding, entries, alias_list = parse(pak)
+    held = {idx for rid, idx in alias_list if rid in held_ids}
     kept, dropped, index_map = [], [], {}
     for i, (rid, data) in enumerate(entries):
-        if should_drop(rid, data):
+        if i not in held and should_drop(rid, data):
             dropped.append(rid)
             continue
         index_map[i] = len(kept)
@@ -393,13 +395,15 @@ def trim_resources(pak_path, header_path, framework):
     sounds = intro_sound_ids(header)
     if not sounds:
         print(f"warning: cef-pak-drop: {header_path} names no {PREFIX}*; resources.pak keeps its intro sounds")
-    pages = {}
+    pages, listed, named = {}, set(), set(header_names(header))
     if framework:
         try:
             with open(framework, "rb") as f:
                 macho = macho_slice(f.read())
-            _, entries, _ = parse(pak)
-            pages, found = webui_ids(resource_maps(macho, {rid for rid, _ in entries}), header_names(header))
+            _, entries, aliases = parse(pak)
+            maps = resource_maps(macho, {rid for rid, _ in entries} | {rid for rid, _ in aliases})
+            pages, found = webui_ids(maps, header_names(header))
+            listed = {rid for run in maps for _, rid in run}
             missing = sorted(set(WEBUI_PAGES) - set(found))
             if not found:
                 print(f"warning: cef-pak-drop: no WebUI resource map in {framework}; resources.pak keeps its pages")
@@ -407,9 +411,10 @@ def trim_resources(pak_path, header_path, framework):
                 print(f"note: cef-pak-drop: no resource map for {', '.join(missing)}")
         except (OSError, ValueError, struct.error, IndexError) as error:
             print(f"warning: cef-pak-drop: {framework}: {error}; resources.pak keeps its pages")
-            pages = {}
+            pages, listed = {}, set()
     new, dropped = remove(pak, lambda rid, data: (rid in sounds and data.startswith(MAGIC))
-                          or (rid in pages and not native_image(data)))
+                          or (rid in pages and not native_image(data)),
+                          held_ids=(listed - set(pages)) | named)
     lost = lost_images(pak, new)
     if lost:
         print(f"error: cef-pak-drop: the trim would drop {len(lost)} image resources native code may load"
