@@ -103,6 +103,9 @@ struct LinkOpenPlacementTests {
         #expect(Rule.inColumn(right: "web", column: ["web"], sourceWidth: 1400, width: wide, kind: .browser, holds: holds) == .pane("web"))
         #expect(Rule.inColumn(right: "shell", column: ["shell"], sourceWidth: 1400, width: wide, kind: .browser, holds: holds)
                 == .splitBelow(of: "shell"))
+        // Aziz 2026-11-09 (LinkReusesExistingPaneTests): a web link beside a terminal is a tab in it, no new pane.
+        #expect(Rule.inColumn(right: "shell", column: ["shell"], sourceWidth: 1400, width: wide, kind: .browser, holds: holds, link: true)
+                == .pane("shell"))
     }
 
     /// Review of #28044 at 34122a1a: with nothing on its right, a 900-959 pt source still split to

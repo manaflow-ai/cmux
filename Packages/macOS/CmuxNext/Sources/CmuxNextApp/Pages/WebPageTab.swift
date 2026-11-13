@@ -132,7 +132,7 @@ extension WebPageTab {
             pane.focusContent()
             return true
         }
-        return services.linkOpener.open(from: source, kind: .browser) { [weak tab] pane, placed in
+        return services.linkOpener.open(from: source, kind: .browser, link: true) { [weak tab] pane, placed in
             guard let tab, let window = services.windowController(showing: pane) else { return false }
             let key = LocalPageTab.makeKey(.github), opener = pane === source && placed == nil && !HomeDockOpens.opensBeside(pane.pane, services: services) ? pane.selectedTab : nil
             tab.restore(link.route, for: key)
