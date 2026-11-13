@@ -84,6 +84,15 @@ fn a_refused_row_fails_on_a_finding_it_does_not_name() {
     assert!(why.as_deref().is_some_and(|w| w.contains("text.rs:2:")), "B went unnamed: {why:?}");
 }
 
+/// #42341 review F1: two matching statics on one line are two findings. A row that names one
+/// fails on the second, though both start `text.rs:1:` and hold `closure`.
+#[test]
+fn a_refused_row_fails_on_a_second_copy_of_its_finding() {
+    let two = "pub static A: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new(); pub static B: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();\n";
+    let why = judge_row("refused text.rs 1 closure", two);
+    assert!(why.as_deref().is_some_and(|w| w.contains(": B: ")), "B went unnamed: {why:?}");
+}
+
 /// The property, run by hand: ACPMUX_TEST_HOOKS_CHAINS names a directory of generated chains,
 /// `N.rs` each with `N.base` holding 1 when the python check refused it. Writes `N.new` (1 when
 /// this check refuses) and fails on a chain the python check refused that this one passes.

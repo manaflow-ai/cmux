@@ -211,6 +211,39 @@ fn a_row_fails_on_a_finding_it_does_not_name() {
     );
 }
 
+/// #42341 review F1: a row names its finding once, so a second static of the same name on the
+/// same line (another module's) fails it.
+#[test]
+fn a_row_fails_on_a_second_copy_of_its_finding() {
+    let hooks = row(
+        "test_hooks",
+        "refused",
+        "H",
+        "closure",
+        "type A = std::sync::OnceLock<fn(bool)>;\nstatic H: A = A::new(); mod m { static H: super::A = super::A::new(); }\n",
+    );
+    let why = judge(&hooks);
+    assert!(why.as_deref().is_some_and(|w| w.contains("found more")), "the second H: {why:?}");
+}
+
+/// #42341 review F1: the tree holds exactly the instances of each known miss, so a second
+/// instance of a known site (the same test and comparison again) fails the ratchet.
+#[test]
+fn the_tree_check_fails_on_a_second_instance_of_a_known_site() {
+    let instance = |line| cmux_source_scan::timing_ratio::Finding {
+        rel: "cmux-tui/crates/demo/tests/timing.rs".to_string(),
+        line,
+        kind: "spread bound",
+        test: "t".to_string(),
+        text: "g50 < 500.0".to_string(),
+    };
+    let scan = Scan { found: vec![instance(3), instance(4)], files: 1, ..Scan::default() };
+    let known: BTreeSet<String> =
+        ["cmux-tui/crates/demo/tests/timing.rs t g50 < 500.0".to_string()].into();
+    let drift = tree_drift(&scan, &known);
+    assert!(!drift.is_empty(), "a second instance of a known site passed");
+}
+
 /// #41567 review F2: a file the scan could not parse was judged no further, so the tree check
 /// fails naming it rather than reading it as clean.
 #[test]

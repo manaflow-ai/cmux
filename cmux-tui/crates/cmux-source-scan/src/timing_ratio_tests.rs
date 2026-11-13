@@ -186,6 +186,26 @@ fn a_flagged_row_fails_on_a_finding_it_does_not_name() {
     );
 }
 
+/// #42341 review F1: a `tests` row names each finding by its test, counting duplicates, so a
+/// test with a second finding fails a row that names it once.
+#[test]
+fn a_tests_row_fails_on_a_second_finding_in_a_test_it_names() {
+    let row = Row {
+        verdict: "tests".to_string(),
+        what: "two_bounds".to_string(),
+        kind: "-".to_string(),
+        title: "a fixture".to_string(),
+        rust: "#[test]\nfn two_bounds() {\n    let p95 = helper();\n    assert!(p95 < BUDGET_MS); assert!(p95 < OTHER_MS);\n}\n".to_string(),
+        bare: false,
+        nextest: None,
+    };
+    let why = judge_row(&row);
+    assert!(
+        why.as_deref().is_some_and(|w| w.contains("p95 < OTHER_MS")),
+        "the second bound went unnamed: {why:?}"
+    );
+}
+
 #[test]
 fn a_finding_names_its_file_line_kind_test_and_comparison() {
     let source = format!(
