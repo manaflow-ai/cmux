@@ -188,6 +188,29 @@ fn watch_hints_when_a_watched_folder_changes_mode() {
     expect_hint(&hints, "a mode change of a watched folder");
 }
 
+/// A watched folder name that is also the nearest existing ancestor of a
+/// missing folder on the way to a watched file (an apps folder, and a file in
+/// a folder of it that is not made yet). On Linux one inode then has the
+/// watch of the name and the watch of the ancestor: the folder being made
+/// hints, and so does the file made in it after that. This pins the shape at
+/// rest; no test forces a change into the time of one rearm.
+#[cfg(target_os = "linux")]
+#[test]
+fn watch_hints_when_a_folder_is_made_in_a_watched_folder_name() {
+    let scratch = Scratch::new("ancestor-name");
+    let folder = scratch.0.join("apps");
+    let below = folder.join("sub");
+    let file = below.join("app.json");
+    fs::create_dir_all(&folder).unwrap();
+    let (_watcher, hints) = armed(&[&folder, &file]);
+    fs::create_dir(&below).unwrap();
+    expect_hint(&hints, "a missing folder made in a watched folder name");
+    fs::write(&file, "{}").unwrap();
+    expect_hint(&hints, "a watched file made in the new folder");
+    fs::write(&file, "{\"a\": 1}").unwrap();
+    expect_hint(&hints, "a write to that file");
+}
+
 /// A settings file kept in another folder (a dotfiles checkout) and linked to
 /// its place: the watch follows the link, so a write in place to the file it
 /// names hints, and after the link is pointed at another file, a write to
