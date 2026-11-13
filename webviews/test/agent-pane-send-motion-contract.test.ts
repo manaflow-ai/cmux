@@ -117,18 +117,23 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
   type Opened = { page: Page; frames?: Frames120; close(): Promise<void> };
   /// The chat at its latest row, at rest: Chromium on the 120 Hz clock, WebKit on its own.
   async function open(name: string, pane: NonNullable<typeof idle>, ready: string): Promise<Opened> {
+    const t0 = Date.now();
     const viewport = { width: 980, height: 700 };
     let page: Page;
     let frames: Frames120 | undefined;
     if (name === "chromium" && chromium120) {
       frames = await open120Hz(pane.address().replace("/#", "/?clock=frames#"), { viewport, clock: "frames" });
+      current = frames;
       page = frames.page;
     } else page = await browsers.get(name)!.newPage({ viewport });
+    page.on("console", (m) => {
+      if (m.text().startsWith("DIAG")) console.log(`${m.text()} wall ${Date.now() - t0}`);
+    });
     await installPaintedFrames(page);
     await installMotionRecorder(page);
     if (!frames) await page.goto(pane.address());
-    await page.getByText(ready, { exact: false }).first().waitFor({ timeout: 120_000 });
-    await settle(page);
+    await watched(page, "open ready", page.getByText(ready, { exact: false }).first().waitFor({ timeout: 120_000 }));
+    await watched(page, "open settle", settle(page));
     return {
       page,
       frames,
@@ -166,6 +171,18 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
                   Number.isFinite(animation.effect?.getComputedTiming().endTime ?? Number.POSITIVE_INFINITY),
               );
             still = now === last && !running ? still + 1 : 0;
+            if (frames % 60 === 0 || frames >= 900)
+              console.log(
+                `DIAG settle frame ${frames} at ${Math.round(performance.now())} still ${still} now ${now} last ${last} running ${document
+                  .getAnimations()
+                  .filter(
+                    (a) =>
+                      a.playState === "running" &&
+                      Number.isFinite(a.effect?.getComputedTiming().endTime ?? Number.POSITIVE_INFINITY),
+                  )
+                  .map((a) => `${(a as CSSAnimation).animationName ?? a.constructor.name}@${((a.effect as KeyframeEffect | null)?.target as Element | null)?.className}`)
+                  .join(",")}`,
+              );
             last = now;
             if (still < 12 && frames < 900) return true;
             resolve();
@@ -182,10 +199,31 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
   const composer = (page: Page) => page.locator(".acpmux-composer-box [contenteditable=true]").first();
 
   /// Types `text` and sends it with Enter, marking the frame; returns the prompt id the page sent.
+  let current: Frames120 | undefined;
+  async function watched<T>(page: Page, what: string, work: Promise<T>): Promise<T> {
+    const dog = setInterval(async () => {
+      const cdp = current ? await page.context().newCDPSession(page).catch(() => undefined) : undefined;
+      const state = cdp
+        ? await Promise.race([
+            cdp
+              .send("Runtime.evaluate", { expression: "JSON.stringify(globalThis.__frameClockDebug?.())", returnByValue: true } as never)
+              .then((r) => (r as { result: { value: string } }).result.value)
+              .catch((e) => `err ${e}`),
+            new Promise((r) => setTimeout(() => r("page did not answer in 5 s"), 5000)),
+          ])
+        : "no cdp";
+      console.log(`DIAG stuck in ${what}: pump ${JSON.stringify(current?.debug())} page ${state}`);
+    }, 15_000);
+    try {
+      return await work;
+    } finally {
+      clearInterval(dog);
+    }
+  }
   async function send(page: Page, pane: NonNullable<typeof idle>, text: string) {
-    await composer(page).click();
-    await page.keyboard.type(text);
-    await settle(page);
+    await watched(page, "click", composer(page).click());
+    await watched(page, "type", page.keyboard.type(text));
+    await watched(page, "settle after typing", settle(page));
     const before = pane.prompts.length;
     const asked = pane.sent("session/prompt", pane.methods.filter((method) => method === "session/prompt").length);
     await mark(page, "send");

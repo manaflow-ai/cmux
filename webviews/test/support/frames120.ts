@@ -36,6 +36,7 @@ export type Frames120 = {
   start(): void;
   stop(): Promise<FramePacing>;
   close(): Promise<void>;
+  debug(): Record<string, unknown>;
 };
 
 async function freePort(): Promise<number> {
@@ -110,6 +111,7 @@ export async function open120Hz(
     }
     let running = true;
     let measuring = false;
+    const dbg = { drawn: 0, askedAt: 0, inBegin: false, inIdle: false, idleTimeouts: 0 };
     let pacing: FramePacing = { frameMs: [], dropped: 0 };
     /// `clock: "frames"`: until the page ran what the last frame left due (its frame clock's
     /// `__frameIdle`, absent until the page loaded it); a second at most, so a page that never answers
@@ -137,14 +139,21 @@ export async function open120Hz(
         while (performance.now() < next) {}
         let args: { interval: number; frameTimeTicks?: number } = { interval: FRAME_MS };
         if (clock === "frames") {
-          await pageIdle();
+          dbg.inIdle = true;
+          const settled = await Promise.race([pageIdle().then(() => "ok"), new Promise((r) => setTimeout(() => r("slow"), 990))]);
+          if (settled === "slow") dbg.idleTimeouts += 1;
+          dbg.inIdle = false;
           if (frameAt !== undefined) {
             args = { interval: FRAME_MS, frameTimeTicks: frameAt };
             frameAt += FRAME_MS;
           }
         }
         const asked = performance.now();
+        dbg.inBegin = true;
+        dbg.askedAt = asked;
         await cdp.send("HeadlessExperimental.beginFrame", args as never).catch(() => undefined);
+        dbg.inBegin = false;
+        dbg.drawn += 1;
         const drawn = performance.now();
         // The next slot after the frame was drawn; slots it ran over are dropped.
         let slots = 1;
@@ -169,6 +178,9 @@ export async function open120Hz(
       async stop() {
         measuring = false;
         return pacing;
+      },
+      debug() {
+        return { ...dbg, beginPendingMs: dbg.inBegin ? Math.round(performance.now() - dbg.askedAt) : 0 };
       },
       async close() {
         running = false;
