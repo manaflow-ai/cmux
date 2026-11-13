@@ -39,9 +39,9 @@ pub enum ReadWait {
 /// a clone. The timeout is a property of the socket: a clone gets it too, as
 /// with `set_read_timeout`.
 ///
-/// Test support only: the module is behind the `test-support` feature,
-/// which a dependent enables only from `[dev-dependencies]`, so no
-/// production build contains this function.
+/// Test support only: the module is in this crate's own tests and behind
+/// the `test-support` feature, which a dependent enables only from
+/// `[dev-dependencies]`, so no production build contains this function.
 pub fn read_timeout_or_ended(stream: &UnixStream, timeout: Duration) -> io::Result<ReadWait> {
     settle(stream, stream.set_read_timeout(Some(timeout)))
 }
