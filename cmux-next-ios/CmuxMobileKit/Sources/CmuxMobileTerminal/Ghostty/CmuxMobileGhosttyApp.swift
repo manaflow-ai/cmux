@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import Foundation
 import GhosttyNextKit
 import UIKit
@@ -18,8 +19,16 @@ final class CmuxMobileGhosttyApp {
     private static var current: CmuxMobileGhosttyApp?
     nonisolated static let wakeupGate = WakeupGate()
 
-    /// Terminal theme: true black like the app chrome, the cmux-next ANSI palette.
-    static let background = UIColor(red: 0, green: 0, blue: 0, alpha: 1)
+    /// Terminal theme: true black like the app chrome, the cmux-next ANSI palette; with Match Mac
+    /// theme, the colors of the Mac's terminal theme as last sent (ask-87d30da8e5). Read once:
+    /// the terminal engine takes its colors at launch, so a new Mac theme reaches it on the next.
+    static let macTheme: CmuxMobileMacPalette? = CmuxMobileMacTheme.shared.palette
+    static let background = macTheme.map { CmuxMobileRGBA(hex: $0.terminalBackground).uiColor }
+        ?? UIColor(red: 0, green: 0, blue: 0, alpha: 1)
+    static let foreground = macTheme.map { CmuxMobileRGBA(hex: $0.terminalForeground).uiColor }
+        ?? UIColor(red: 0xE6 / 255, green: 0xE6 / 255, blue: 0xE6 / 255, alpha: 1)
+    /// The look of the terminal page's own chrome (keys, glass, keyboard): the theme's.
+    static let interfaceStyle: UIUserInterfaceStyle = macTheme.map { $0.isDark ? .dark : .light } ?? .dark
 
     static func shared() throws -> CmuxMobileGhosttyApp {
         if let current { return current }
@@ -109,13 +118,14 @@ final class CmuxMobileGhosttyApp {
     /// height, which native scrolling relies on), the app's black, the
     /// scrollback cap, and no auto-scroll: the screen owns the viewport.
     private static func loadProductConfig(_ config: ghostty_config_t) {
+        let colorLines = (macTheme?.terminalConfigLines ?? ["background = #000000", "foreground = #E6E6E6"])
+            .joined(separator: "\n")
         let text = """
         scrollback-limit-bytes = \(8 * 1024 * 1024)
         window-padding-x = 0
         window-padding-y = 0
         window-padding-balance = false
-        background = #000000
-        foreground = #E6E6E6
+        \(colorLines)
         cursor-style = block
         cursor-style-blink = false
         scroll-to-bottom = no-keystroke,no-output
