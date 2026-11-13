@@ -135,6 +135,103 @@ fn watch_with_writes_hints_for_a_write_its_writer_keeps_open() {
     drop(writer);
 }
 
+/// A watched file that was there when the watch started (no create event
+/// came first): an append that its writer then closes hints.
+#[test]
+fn watch_hints_when_a_watched_file_is_appended_and_closed() {
+    use std::io::Write as _;
+    let scratch = Scratch::new("append");
+    let file = scratch.0.join("cmux-next.json");
+    fs::write(&file, "{}").unwrap();
+    let (_watcher, hints) = armed(&[&file]);
+    let mut writer = fs::OpenOptions::new().append(true).open(&file).unwrap();
+    writeln!(writer).unwrap();
+    drop(writer);
+    expect_hint(&hints, "an append to a watched file, closed");
+}
+
+/// A mode change decides whether the reader can read the file, so it hints:
+/// also the one that makes the file unreadable, and the one that undoes it.
+#[test]
+fn watch_hints_when_a_watched_file_changes_mode() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let scratch = Scratch::new("mode");
+    let file = scratch.0.join("cmux-next.json");
+    fs::write(&file, "{}").unwrap();
+    let (_watcher, hints) = armed(&[&file]);
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+    expect_hint(&hints, "a mode change of a watched file");
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+    expect_hint(&hints, "a watched file made unreadable");
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+    expect_hint(&hints, "a watched file made readable again");
+}
+
+/// A settings file kept in another folder (a dotfiles checkout) and linked to
+/// its place: the watch follows the link, so a write in place to the file it
+/// names hints, and after the link is pointed at another file, a write to
+/// that one hints.
+#[test]
+fn watch_hints_when_the_target_of_a_watched_symbolic_link_is_written() {
+    let scratch = Scratch::new("link");
+    let (real, linked) = (scratch.0.join("real"), scratch.0.join("linked"));
+    fs::create_dir_all(&real).unwrap();
+    fs::create_dir_all(&linked).unwrap();
+    let (first, second) = (real.join("first.json"), real.join("second.json"));
+    fs::write(&first, "{}").unwrap();
+    fs::write(&second, "{}").unwrap();
+    let file = linked.join("cmux-next.json");
+    std::os::unix::fs::symlink(&first, &file).unwrap();
+    let (_watcher, hints) = armed(&[&file]);
+    fs::write(&first, "{\"a\": 1}").unwrap();
+    expect_hint(&hints, "a write to the file a watched link names");
+    let staged = linked.join("cmux-next.json.tmp");
+    std::os::unix::fs::symlink(&second, &staged).unwrap();
+    fs::rename(staged, &file).unwrap();
+    expect_hint(&hints, "a watched link pointed at another file");
+    fs::write(&second, "{\"a\": 2}").unwrap();
+    expect_hint(&hints, "a write to the file the link names now");
+}
+
+/// A watch of a file's contents is a watch of the file that was at the name
+/// when it was armed. After a replace by rename the watcher arms the new
+/// file before it hints, so the reader's read has each write made before
+/// that, and a later write hints again: the reader ends with what is on disk.
+#[test]
+fn a_reader_sees_a_write_made_right_after_a_replace_by_rename() {
+    use std::io::Write as _;
+    let scratch = Scratch::new("race");
+    let file = scratch.0.join("cmux-next.json");
+    fs::write(&file, "one").unwrap();
+    let (read, reads) = mpsc::channel();
+    let watched = file.clone();
+    let _watcher = Watcher::start(vec![file.clone()], move || {
+        let _ = read.send(fs::read_to_string(&watched).unwrap_or_default());
+    })
+    .expect("the watch starts");
+    let seen = |want: &str, what: &str| {
+        let mut last = String::new();
+        while last != want {
+            last = reads
+                .recv_timeout(HINT_WITHIN)
+                .unwrap_or_else(|_| panic!("after {what} the reader's last read was {last:?}"));
+        }
+    };
+    seen("one", "the watch was armed");
+    let staged = scratch.0.join("cmux-next.json.tmp");
+    fs::write(&staged, "two").unwrap();
+    fs::rename(staged, &file).unwrap();
+    let mut writer = fs::OpenOptions::new().append(true).open(&file).unwrap();
+    write!(writer, " three").unwrap();
+    drop(writer);
+    seen("two three", "a replace by rename and a write at once");
+    // The file that replaced it has a watch of its own now.
+    let mut writer = fs::OpenOptions::new().append(true).open(&file).unwrap();
+    write!(writer, " four").unwrap();
+    drop(writer);
+    seen("two three four", "a write to the file that replaced it");
+}
+
 /// Each watch has its own thread: a hint that runs long (the daemon's
 /// project-source import, `state/project_watch.rs`) delays no other watch.
 /// A settings file written while another watch's hint is busy is still

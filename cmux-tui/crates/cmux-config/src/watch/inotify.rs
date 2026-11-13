@@ -89,14 +89,7 @@ pub(super) fn start(
     writes: bool,
     mut on_hint: impl FnMut() + Send + 'static,
 ) -> notify::Result<Handle> {
-    let fd = inotify_init1(IN_CLOEXEC);
-    if fd < 0 {
-        return Err(notify::Error::io(io::Error::last_os_error()));
-    }
-    // SAFETY: `fd` is a new descriptor from inotify_init1 that nothing else
-    // owns; the File closes it.
-    let file = File::from(unsafe { OwnedFd::from_raw_fd(fd) });
-    let mut watches = Watches { file, by_dir: BTreeMap::new(), names: HashMap::new(), writes };
+    let mut watches = Watches::new(writes).map_err(notify::Error::io)?;
     watches.rearm(&files).map_err(notify::Error::io)?;
     let (stop, stopped) = UnixStream::pair().map_err(notify::Error::io)?;
     let thread = std::thread::Builder::new()
@@ -203,6 +196,18 @@ fn wait(events: RawFd, stop: RawFd, timeout: Option<Duration>) -> Wake {
 }
 
 impl Watches {
+    /// A new inotify descriptor with no watch yet.
+    fn new(writes: bool) -> io::Result<Self> {
+        let fd = inotify_init1(IN_CLOEXEC);
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `fd` is a new descriptor from inotify_init1 that nothing else
+        // owns; the File closes it.
+        let file = File::from(unsafe { OwnedFd::from_raw_fd(fd) });
+        Ok(Self { file, by_dir: BTreeMap::new(), names: HashMap::new(), writes })
+    }
+
     /// Reads the queued events; true when one of them matters.
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<bool> {
         let length = loop {
@@ -328,3 +333,6 @@ impl Watches {
         if wd < 0 { Err(io::Error::last_os_error()) } else { Ok(wd) }
     }
 }
+
+#[cfg(test)]
+mod tests;
