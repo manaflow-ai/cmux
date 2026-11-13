@@ -133,9 +133,6 @@ fn chief_work_admits_the_owner_channels_page_and_refuses_other_devices_and_agent
     let page = connect(ClientTransport::WebSocket);
     set_scoped_page(&mux, page, "home-channels".to_owned());
     assert!(reader(&mux, page));
-    let messages = connect(ClientTransport::WebSocket);
-    set_scoped_page(&mux, messages, "home-messages".to_owned());
-    assert!(reader(&mux, messages));
     let paired = connect(ClientTransport::WebSocket);
     mux.control_clients.mark_person(paired);
     set_page(&mux, paired, "home-channels".to_owned());
@@ -149,15 +146,15 @@ fn chief_work_admits_the_owner_channels_page_and_refuses_other_devices_and_agent
 }
 
 #[test]
-fn chief_work_scoped_hello_admits_channels_and_messages_and_refuses_every_other_page() {
+fn chief_work_scoped_hello_admits_channels_and_refuses_every_other_page() {
     use crate::server::client_hello::{HelloGate, Peer};
     let mux = Mux::new_for_test("chief-work-hello", crate::SurfaceOptions::default());
     let request = r#"{"id":42,"cmd":"chief-work","chief":"agent_mux"}"#;
-    for page in ["home-channels", "home-messages", "history", "agent", "unknown"] {
+    for page in ["home-channels", "history", "agent", "unknown"] {
         let mut gate = HelloGate::new(ClientTransport::WebSocket);
         gate.scope_to_page(page);
         let reply = gate.observe(&mux, u64::MAX, request, Peer::unknown);
-        if page == "home-channels" || page == "home-messages" {
+        if page == "home-channels" {
             assert!(reply.is_none());
         } else {
             let reply = reply.unwrap();

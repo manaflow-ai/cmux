@@ -92,7 +92,10 @@ impl OpRouter for MuxRouter {
 
     fn start_events(&self, publish: Box<dyn Fn(&str) + Send + Sync>) {
         let Some(mux) = self.mux.upgrade() else { return };
-        let events = mux.subscribe();
+        // Only the events that invalidate an app stream: every other daemon
+        // event (terminal output, titles, notifications) was cloned into this
+        // mailbox and woke this thread for nothing.
+        let events = mux.subscribe_matching(|event| !streams(event).is_empty());
         drop(mux);
         let _ = std::thread::Builder::new().name("cmux-apps-events".into()).spawn(move || {
             while let Ok(event) = events.recv() {

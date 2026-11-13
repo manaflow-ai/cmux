@@ -8,9 +8,13 @@
 // wordings: the count and total (chosen), the total alone, "Turn" and the total, and the count with
 // the total in full ink. References: chatgpt/web/transcript-work-worked-for-browser-screenshot and
 // codex/live/transcript-worked-for-collapsed-summary (a turn's time as one short muted phrase).
+// The turn's time outside every call and thought (Leo, 2026-11-05: "im not sure what the total thing
+// is meant to represent. the total time of a turn?") in three arms: a striped last row with its sum
+// (chosen), the gaps shaded in every track, and nothing (before). `one-call` is his screenshot: one
+// 2.7s read in a 14.1s turn.
 import { componentEntry } from "../../../gallery/format";
 import type { AcpmuxActivity } from "../model";
-import { TurnWaterfall, type WaterfallLook, type WaterfallSummary } from "./TurnWaterfall";
+import { TurnWaterfall, type WaterfallLook, type WaterfallModelTime, type WaterfallSummary } from "./TurnWaterfall";
 import { TurnActionsContext } from "./turnActions";
 
 const START = Date.UTC(2026, 10, 5, 13, 10, 0);
@@ -53,21 +57,33 @@ const WORK: AcpmuxActivity[] = [
 ];
 const ROW = { at: START + 72_000, durationMs: 72_000 };
 
-function Waterfall({ look, summary }: { look: WaterfallLook; summary?: WaterfallSummary }) {
+// Leo's screenshot: a 14.1s turn whose one timed call was a 2.7s read near its start.
+const ONE_CALL: AcpmuxActivity[] = [call("read-3", "read", "Read threads and probe output", 0, 2_700)];
+const ONE_CALL_ROW = { at: START + 14_100, durationMs: 14_100 };
+
+type Props = { look: WaterfallLook; summary?: WaterfallSummary; modelTime?: WaterfallModelTime; one?: boolean };
+
+function Waterfall({ look, summary, modelTime, one }: Props) {
   return (
     <TurnActionsContext.Provider value={{ showCall: () => true }}>
       <div className="acpmux-shell" style={{ padding: 16 }}>
         {/* The shell is a flex row, and the Timeline is a size container with no width of its own:
             a block around it gives it the pane's width, as the transcript's row does. */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <TurnWaterfall row={ROW} work={WORK} look={look} summary={summary} />
+          <TurnWaterfall
+            row={one ? ONE_CALL_ROW : ROW}
+            work={one ? ONE_CALL : WORK}
+            look={look}
+            summary={summary}
+            modelTime={modelTime}
+          />
         </div>
       </div>
     </TurnActionsContext.Provider>
   );
 }
 
-export default componentEntry<{ look: WaterfallLook; summary?: WaterfallSummary }>({
+export default componentEntry<Props>({
   id: "agent-pane.turn-waterfall",
   title: "Turn timeline (waterfall)",
   area: "Agent pane",
@@ -83,8 +99,20 @@ export default componentEntry<{ look: WaterfallLook; summary?: WaterfallSummary 
   load: async () => Waterfall,
   variants: {
     bars: {
-      note: "Chosen: each call's label, its bar on the turn's axis and its time on one row; the slowest and failed calls tagged. At phone width the label goes over its bar. The header corner says \"10 calls · 1m 12s\": how much the turn did and how long it took, muted like the axis.",
+      note: "Chosen: each call's label, its bar on the turn's axis and its time on one row; the slowest and failed calls tagged. At phone width the label goes over its bar. The header corner says \"10 calls · 1m 12s\": how much the turn did and how long it took, muted like the axis. A last striped row holds the model's time outside every call and thought, so the rows add up to the total.",
       props: { look: "bars" },
+    },
+    "one-call": {
+      note: 'Leo\'s screenshot, chosen: one 2.7s read in a 14.1s turn. The striped "Model, no tool running" row holds the other 11.4s, so the rows add up to the axis.',
+      props: { look: "bars", one: true },
+    },
+    "model-tint": {
+      note: "The model's time as a shade behind every call's bar, no row of its own: shorter, but it never says what the shade is or how long.",
+      props: { look: "bars", modelTime: "tint" },
+    },
+    "model-none": {
+      note: "Before: no model time. One 2.7s bar on a 14.1s axis leaves the rest of the turn blank and the total unexplained.",
+      props: { look: "bars", modelTime: "none", one: true },
     },
     "summary-total": {
       note: 'Header corner: the total alone, "1m 12s total". Shortest, but it only repeats the axis\'s end.',

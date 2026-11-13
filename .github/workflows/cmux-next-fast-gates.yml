@@ -89,6 +89,11 @@ jobs:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           JOBS: resolve post
+          # Never a mini: an owned Mac's ephemeral runner spends 20-60 s setting up and tearing down
+          # ("Set up runner", "Complete runner") around these jobs' ~5 s of work. resolve placed on a mini
+          # ran 41 s at p50 and 67 s at p90 against 5 s and 7 s on hosted Ubuntu (2026-11-11 timing
+          # records, 27 and 224 jobs), on the fast gate's critical path. Fleet Linux, when free, still takes them.
+          LINUX_ONLY: resolve post
           # Only the owned-pool rescue bot's third attempt may re-place these
           # light jobs. Other workflows and manual retries stay fail-closed.
           PORTABLE_ATTEMPT3_RESCUE: '1'
@@ -129,6 +134,13 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
+          # Only the commits matter here (git rev-parse HEAD^1 and HEAD^2): no blobs and one small file in the
+          # work tree. The full tree took 44 s of this job's 48 s p50 (2026-11-07..11 timing records), on the
+          # fast gate's critical path ahead of the gates themselves.
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/runners.json
 
       # Runs no checked-out code: git rev-parse on the merge ref, or the GitHub API
       # on dispatch, which refuses a fork head, a closed pull request

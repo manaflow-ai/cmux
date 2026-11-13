@@ -78,21 +78,24 @@ const model: CookieImportCardModel = {
   icon: "data:image/png;base64,AAAA",
 };
 
-test("the app's look is a toast: icon, one line, then Don't Show Again, Import and the close button", () => {
+// Lawrence 2026-11-09 (msg 26162): the flat gray toast with washed-out text was ugly. The app's look is the
+// dialog card's grammar now: the icon, the line in the title's weight, Don't Show Again quiet, Not Now a
+// button and Import the filled primary, every answer a labelled button (no bare close glyph).
+test("the app's look is the dialog card: icon, the line, Don't Show Again quiet, Not Now, Import primary", () => {
   const doc = render(
     <CookieImportCard model={model} look={APP_COOKIE_IMPORT_LOOK} onChoice={() => undefined} glass={false} />,
   );
   const card = doc.querySelector(".ci-card")!;
   expect(APP_COOKIE_IMPORT_LOOK).toBe("toast");
-  expect(card.textContent).toBe("Import cookies from Google ChromeDon't Show AgainImport…");
+  expect(card.textContent).toBe("Import cookies from Google ChromeDon't Show AgainNot NowImport…");
   expect(card.querySelectorAll("input, [role=checkbox]").length).toBe(0);
+  expect(card.querySelector(".ci-close")).toBeNull();
   const buttons = [...card.querySelectorAll("button")];
-  expect(buttons.map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual([
-    "Don't Show Again",
-    "Import…",
-    "Not Now",
+  expect(buttons.map((b) => [b.textContent, b.getAttribute("data-role")])).toEqual([
+    ["Don't Show Again", "quiet"],
+    ["Not Now", "cancel"],
+    ["Import…", "default"],
   ]);
-  expect(buttons[0]!.hasAttribute("data-quiet")).toBe(true);
   // On the app's glass the card paints none of its own.
   expect(card.classList.contains("ui-glass")).toBe(false);
   expect(card.hasAttribute("data-native-glass")).toBe(true);
@@ -102,14 +105,14 @@ test("every answer reaches the host as its type only", () => {
   const answers: CookieImportCommand[] = [];
   const doc = render(<CookieImportCard model={model} onChoice={(choice) => answers.push(choice)} glass={false} />);
   for (const button of doc.querySelectorAll<HTMLElement>(".ci-card button")) act(() => button.click());
-  expect(answers).toEqual([{ type: "never" }, { type: "import" }, { type: "notNow" }]);
+  expect(answers).toEqual([{ type: "never" }, { type: "notNow" }, { type: "import" }]);
 });
 
 test("no Don't Show Again: Import and the close button", () => {
   const doc = render(<CookieImportCard model={{ ...model, neverTitle: null }} onChoice={() => undefined} />);
   expect(
     [...doc.querySelectorAll(".ci-card button")].map((b) => b.getAttribute("aria-label") ?? b.textContent),
-  ).toEqual(["Import…", "Not Now"]);
+  ).toEqual(["Not Now", "Import…"]);
 });
 
 test("the gallery's other looks keep the three answers", () => {

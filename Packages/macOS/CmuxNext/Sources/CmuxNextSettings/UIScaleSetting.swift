@@ -3,7 +3,7 @@ import Foundation
 /// The `app.uiScale` setting applied to cmux chrome and first-party web pages.
 /// Terminal content keeps its own font size.
 public struct UIScaleSetting: Sendable {
-    // The path, the default (1 is 100%) and the range (85% through 150%) are generated from
+    // The path, the default (1 is 100%) and the range (25% through 500%) are generated from
     // schemas/settings/source/appearance.json.
 
     /// The increment used by the View menu and keyboard shortcuts.
@@ -21,11 +21,11 @@ public struct UIScaleSetting: Sendable {
         }
         guard let value = members["uiScale"] else { return fallback }
         guard let number = value.doubleValue, number.isFinite else {
-            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "app.uiScale", message: "expected a number from 0.85 to 1.5"))
+            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "app.uiScale", message: "expected a number from 0.25 to 5"))
             return fallback
         }
         if !Self.range.contains(number) {
-            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "app.uiScale", message: "expected a scale from 0.85 to 1.5; clamped"))
+            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "app.uiScale", message: "expected a scale from 0.25 to 5; clamped"))
         }
         return number
     }
