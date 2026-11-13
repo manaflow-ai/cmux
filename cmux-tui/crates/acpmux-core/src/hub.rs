@@ -878,6 +878,7 @@ impl Hub {
             has_before: page.has_before,
             has_after: page.has_after,
             cold_unread: page.cold_unread,
+            deeper: page.deeper.into_iter().map(wire_key).collect(),
             before_key: page.before_key.map(wire_key),
             after_key: page.after_key.map(wire_key),
             missing: Vec::new(),

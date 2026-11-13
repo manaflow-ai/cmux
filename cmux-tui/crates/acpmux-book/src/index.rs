@@ -578,7 +578,7 @@ impl SummaryIndex {
                 self.live_ordered.insert(SortKey::of(&row), row);
             }
             if let Some(row) = self.by_id.get(&key) {
-                self.kin.insert(row);
+                self.kin.insert_arc(row);
             }
         }
     }
@@ -757,7 +757,7 @@ impl SummaryIndex {
         if row.is_live() {
             next.live_ordered.insert(SortKey::of(&row), row.clone());
         }
-        next.kin = next.kin.replace(old.as_deref(), Some(&row));
+        next.kin = next.kin.replace_arc(old.as_ref(), Some(&row));
         next
     }
 
@@ -817,7 +817,7 @@ impl SummaryIndex {
         }
         let mut next =
             Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
-        next.kin = self.kin.replace(old.as_deref(), Some(&summary));
+        next.kin = self.kin.replace_arc(old.as_ref(), Some(&summary));
         next
     }
 
