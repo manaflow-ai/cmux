@@ -305,9 +305,13 @@ impl Trees {
             .configure(notify::Config::default());
     }
 
-    /// The files under `folder` (not through a symbolic link) the index reads.
+    /// `folder` itself when the index reads it (as it was handed on before), and the files under
+    /// it (not through a symbolic link) the index reads.
     #[cfg(not(target_os = "macos"))]
     fn files_in(&self, folder: &Path, out: &mut Vec<PathBuf>) {
+        if self.filter.reads(folder) && !out.iter().any(|p| p == folder) {
+            out.push(folder.to_path_buf());
+        }
         let mut pending = vec![folder.to_path_buf()];
         while let Some(dir) = pending.pop() {
             for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
