@@ -334,8 +334,9 @@ const openEditedDiff = async (ctx: PlayContext) => {
     show: "never",
   });
   await openEndedStretch(ctx);
-  await ctx.waitFor(() => ctx.document.querySelector("button.cv-tool[data-tool-id]"));
-  await ctx.click({ selector: "button.cv-tool[data-tool-id]" });
+  const toggle = "button.cv-tool.is-toggle[data-tool-id], button.cv-tool.is-toggle[data-tool-group]";
+  await ctx.waitFor(() => ctx.document.querySelector(toggle));
+  if (ctx.find({ selector: toggle }).getAttribute("aria-expanded") !== "true") await ctx.click({ selector: toggle });
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-edit-diff")));
 };
 
