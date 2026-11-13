@@ -339,8 +339,8 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>, Vec<String>) {
     let mut c = Chat { lines: Vec::new() };
     let mut stretches = Vec::new();
     let mut calls = 0;
-    let mut pending = Vec::new();
-    let mut late = Vec::new();
+    let mut pending: Vec<String> = Vec::new();
+    let mut late: Vec<String> = Vec::new();
     for t in 0..1 + pick(4) {
         let notice = t > 0 && pick(3) == 0;
         let prompt_id = if pending.is_empty() { None } else { Some(pending.remove(0)) };
