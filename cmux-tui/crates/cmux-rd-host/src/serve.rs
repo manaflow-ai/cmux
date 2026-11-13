@@ -45,6 +45,9 @@ struct Viewer {
 
 #[derive(Deserialize)]
 struct Setup {
+    /// Raw signed peer marker: omission preserves the legacy protocol.
+    #[serde(default)]
+    peer_carrier: crate::carrier::LinkMode,
     session: String,
     peer_key: String,
     viewer: Viewer,
@@ -235,7 +238,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         );
     }
     let mut carrier = ServeCarrier {
-        link: LinkCarrier::new(net, crate::wg_carrier::Role::Host)?,
+        link: LinkCarrier::new(net, crate::wg_carrier::Role::Host, setup.peer_carrier)?,
         app: AppLines { buf: Vec::new() },
     };
     let reason = match serve_session(opts, &setup, view_only, &mut carrier) {
@@ -394,7 +397,7 @@ fn serve_session(
         width,
         height,
         max_datagram,
-        carrier: "rd_wg".into(),
+        carrier: carrier.link.wire_name().into(),
         service: negotiated.service.clone(),
         caps: negotiated.caps.clone(),
     })?;

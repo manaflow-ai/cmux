@@ -31,10 +31,23 @@ Build on a fleet Mac: `cargo build --release --no-default-features --features be
 
 `serve` and `connect` keep the signed hub session's Noise link for admission,
 reliable control, candidate routing and revocation. A fresh ephemeral cmux-wg
-session carries media inside its authenticated datagrams; no private WG key is
-signaled. `connected` is emitted only after both sides report WG readiness.
+session carries media inside its authenticated datagrams when the signed offer
+and answer select `rd_wg/1`; no private WG key is signaled. For WG, `connected`
+is emitted only after both sides report WG readiness.
 The media MTU accounts for WG padding and the inner IP/UDP header. Both the
 outer media queue and per-session queues are bounded.
+
+Process Setup/Answer accept optional `peer_carrier`: omission preserves the
+original rd-link media protocol for legacy peers, while the exact string
+`rd_wg/1` selects WG before networking starts. Any supplied unknown, empty,
+null or malformed value fails closed. The app forwards the peer's authenticated
+`a=fingerprint:cmux-rd-carrier rd_wg/1` marker, and the host echoes its selected
+marker only after Rust accepts Setup. Mixed old/new pairs therefore keep their
+original protocol; two updated peers select WG. This initial legacy selection
+is not a fallback: a selected WG session can never switch to bare rd media.
+The app and worker must ship together: the bundled `bin/cmux` (or explicit dev
+override) must contain this selector before Swift advertises or echoes WG support.
+An old worker ignores unknown setup fields, so Swift-only validation is insufficient.
 
 Before readiness, an unsupported or failed WG negotiation proposes a typed
 WebRTC retry. Both sides acknowledge the proposal, and each waits until its

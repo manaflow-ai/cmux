@@ -31,6 +31,9 @@ use std::os::unix::net::{UnixListener, UnixStream};
 
 #[derive(Deserialize)]
 struct Answer {
+    /// Raw signed peer marker: omission preserves the legacy protocol.
+    #[serde(default)]
+    peer_carrier: crate::carrier::LinkMode,
     session: String,
     peer_key: String,
     #[serde(default)]
@@ -106,7 +109,7 @@ pub fn run() -> Res<()> {
     for c in answer.candidates.iter().filter_map(|c| Candidate::from_wire(c)) {
         net.add_remote_candidate(c);
     }
-    let mut link = LinkCarrier::new(net, crate::wg_carrier::Role::Viewer)?;
+    let mut link = LinkCarrier::new(net, crate::wg_carrier::Role::Viewer, answer.peer_carrier)?;
     say(AppLine { listening: true, ..AppLine::default() });
     // SAFETY: fcntl on our own stdin, after the blocking answer read.
     unsafe {
