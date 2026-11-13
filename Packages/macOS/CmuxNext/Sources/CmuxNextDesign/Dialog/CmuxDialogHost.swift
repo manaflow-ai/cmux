@@ -7,6 +7,14 @@ public protocol CmuxDialogHosting: AnyObject {
     /// tab or window closed), and the center then cancels the dialog.
     func show(_ dialog: CmuxDialogPresentation, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void)
     func hide(_ dialog: CmuxDialogPresentation)
+    /// Takes `dialog`'s card off the screen whatever the host still records of it: the center calls it for a card
+    /// that took a press after its dialog ended, which must leave rather than sit there taking presses that end
+    /// nothing (Aziz 2026-11-12, "Close “IOS INTERNAL CI”?": Close, Cancel and the check box did nothing).
+    func discard(_ dialog: CmuxDialogPresentation)
+}
+
+public extension CmuxDialogHosting {
+    func discard(_ dialog: CmuxDialogPresentation) { hide(dialog) }
 }
 
 /// What draws dialogs for ``CmuxDialogOverlayHost``: ``CmuxDialogNativeDrawing`` (AppKit) by default; tests
@@ -157,6 +165,25 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         entry.watcher?.stop()
         detach(entry)
         drawing?.detach(dialog)
+    }
+
+    /// ``hide(_:)`` for a dialog this host still shows; else its card still in a window (the host lost track of it)
+    /// leaves that window's overlay host, with its scrim and its hold on the window's input, or, on no overlay, its view.
+    public func discard(_ dialog: CmuxDialogPresentation) {
+        if shown[ObjectIdentifier(dialog)] != nil { return hide(dialog) }
+        drawing?.detach(dialog)
+        guard let view = dialog.view, view.superview != nil else { return }
+        dialog.notePresented(false)
+        let panel = view.window
+        let overlay = panel.flatMap { panel in
+            panel.parent.flatMap(WindowOverlayHost.existingHost(for:)) ?? (WindowOverlayHost.appHost().panel === panel ? WindowOverlayHost.appHost() : nil)
+        }
+        if let handle = overlay?.presentedHandles.first(where: { $0.content === view || ($0.clipView.map(view.isDescendant(of:)) ?? false) }) {
+            handle.onDismiss = nil
+            handle.dismiss()
+        } else {
+            view.removeFromSuperview()
+        }
     }
 
     /// Presents or withdraws the overlay to match the scope's visibility.
