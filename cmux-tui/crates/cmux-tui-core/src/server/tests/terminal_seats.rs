@@ -40,8 +40,8 @@ fn start_stream(permit: &ConnectionPermit) -> std::io::Result<OutboundStream> {
 /// from a connection of its own.
 fn own_session(stream: &UnixStream) -> u32 {
     let key = Stream::peer_process_key(stream).expect("peer key");
-    let pid = crate::server::origin_gate::peer_pid(&key);
-    pid.and_then(crate::server::origin_gate::peer_session_id).expect("our session")
+    let pid = origin_gate::peer_pid(&key);
+    pid.and_then(origin_gate::peer_session_id).expect("our session")
 }
 
 /// The accept loop read the terminals from the session state when its lock
