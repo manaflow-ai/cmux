@@ -14,7 +14,11 @@
 //! `cmux harness add` creates later is picked up; nothing is created here. A
 //! source folder whose path does not exist yet (no `~/.config/cmux`, no
 //! `/etc/cmux/harnesses`) is watched through its nearest existing ancestor,
-//! and each folder on the way as it is made (`nearest_folders`).
+//! and each folder on the way as it is made (`nearest_folders`). On Linux the
+//! watch follows paths (`quiet_dirs`): a source folder replaced with `mv` is
+//! watched again, a source folder that is a link is followed to its target
+//! (through the target's nearest existing ancestor while it is missing), and
+//! a watch no longer needed is removed.
 //! No timers and no polling: the event thread blocks until an event comes,
 //! gathers the burst (debounce) and only signals. One task on the runtime
 //! takes the signals and reloads the catalog one reload at a time
@@ -78,6 +82,7 @@ pub(crate) struct HarnessWatcher {
     watcher: StdMutex<crate::quiet_dirs::QuietDirs>,
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     watcher: StdMutex<notify::RecommendedWatcher>,
+    #[cfg(not(target_os = "linux"))]
     watched: StdMutex<Vec<PathBuf>>,
     /// The kqueue watch (macOS) on the watched folders, the files in the
     /// source folders and cmux.json, made again on each refresh; its events
@@ -115,7 +120,11 @@ impl Hub {
         }
         let (tx, rx) = std::sync::mpsc::channel();
         #[cfg(target_os = "linux")]
-        let watcher = match crate::quiet_dirs::QuietDirs::start(tx, "acpmux-harness-inotify") {
+        let watcher = match crate::quiet_dirs::QuietDirs::follow(
+            tx,
+            "acpmux-harness-inotify",
+            followed_targets(&sources),
+        ) {
             Ok(watcher) => watcher,
             Err(e) => {
                 tracing::warn!("harness watch cannot start: {e}");
@@ -135,6 +144,7 @@ impl Hub {
         let watch = Arc::new(HarnessWatcher {
             #[cfg(not(target_os = "macos"))]
             watcher: StdMutex::new(watcher),
+            #[cfg(not(target_os = "linux"))]
             watched: StdMutex::new(Vec::new()),
             #[cfg(target_os = "macos")]
             kernel: StdMutex::new(None),
@@ -222,11 +232,20 @@ impl HarnessWatcher {
     /// folder no longer the nearest one (its child came) is let go, so a home watched while
     /// `~/.config` was missing stops sending its events once the path exists.
     fn refresh(&self, sources: &ProfileSources) {
+        // Linux: the watch follows the source paths itself (`quiet_dirs`): a folder that came,
+        // went, or was replaced under its name. Looking again here covers what changed while
+        // the burst gathered.
+        #[cfg(target_os = "linux")]
+        {
+            let _ = sources;
+            self.watcher.lock().unwrap_or_else(|p| p.into_inner()).sync();
+        }
+        #[cfg(not(target_os = "linux"))]
         let mut watched = self.watched.lock().unwrap_or_else(|p| p.into_inner());
         // A folder made between its look and its parent's watch has no event (the watch came
         // after it): after each new watch every folder is looked at again, until a look adds
         // none (`settings_watch.rs` `refresh`).
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         {
             let mut watcher = self.watcher.lock().unwrap_or_else(|p| p.into_inner());
             let folders = source_folders(sources);
@@ -287,16 +306,16 @@ impl HarnessWatcher {
     }
 }
 
-/// Watches `dir`, for its entries only or every change in it; false when it cannot be watched.
+/// What the Linux watch follows: each source folder, and cmux.json (through its folder). The
+/// folder that holds the user folder needs no watch of its own: while the user folder is
+/// missing, its nearest existing ancestor stands in.
 #[cfg(target_os = "linux")]
-fn arm_dir(watcher: &mut crate::quiet_dirs::QuietDirs, dir: &Path, entries_only: bool) -> bool {
-    use crate::quiet_dirs::Kind;
-    watcher.watch(dir, if entries_only { Kind::Entries } else { Kind::Changes })
-}
-
-#[cfg(target_os = "linux")]
-fn disarm_dir(watcher: &mut crate::quiet_dirs::QuietDirs, dir: &Path) {
-    watcher.unwatch(dir);
+fn followed_targets(sources: &ProfileSources) -> Vec<crate::quiet_dirs::Target> {
+    use crate::quiet_dirs::Target;
+    let mut targets: Vec<Target> = sources.managed.iter().cloned().map(Target::Dir).collect();
+    targets.extend(sources.user_dir.iter().cloned().map(Target::Dir));
+    targets.extend(sources.cmux_json.iter().cloned().map(Target::File));
+    targets
 }
 
 /// Watches `dir` (notify has no entries-only watch: every change).
@@ -312,6 +331,7 @@ fn disarm_dir(watcher: &mut notify::RecommendedWatcher, dir: &Path) {
 
 /// The folders the sources live in: each source folder, the folder that holds the user folder
 /// (`cmux harness add` creates the user folder there) and cmux.json's folder.
+#[cfg(not(target_os = "linux"))]
 fn source_folders(sources: &ProfileSources) -> Vec<PathBuf> {
     let mut folders: Vec<PathBuf> = sources.managed.clone();
     if let Some(user) = &sources.user_dir {
@@ -325,6 +345,7 @@ fn source_folders(sources: &ProfileSources) -> Vec<PathBuf> {
 /// The folder to watch for each source folder: the folder itself when it exists, else its
 /// nearest existing ancestor, whose entries name the next folder on the way when it is made.
 /// Each once.
+#[cfg(not(target_os = "linux"))]
 fn nearest_folders(sources: &ProfileSources) -> Vec<PathBuf> {
     let mut nearest: Vec<PathBuf> = Vec::new();
     for folder in source_folders(sources) {
@@ -418,6 +439,24 @@ fn real_sources(sources: &ProfileSources) -> ProfileSources {
     }
 }
 
+/// Linux: whether `path` is a profile source as the sources' links resolve now (a link's
+/// target may not have existed at start, or the link was pointed elsewhere since).
+#[cfg(target_os = "linux")]
+fn followed(path: &Path, sources: &ProfileSources) -> bool {
+    use crate::quiet_dirs::resolve;
+    let now = ProfileSources {
+        managed: sources.managed.iter().map(|p| resolve(p).0).collect(),
+        user_dir: sources.user_dir.as_deref().map(|p| resolve(p).0),
+        cmux_json: sources.cmux_json.as_deref().map(|p| resolve(p).0),
+    };
+    relevant(path, &now)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn followed(_path: &Path, _sources: &ProfileSources) -> bool {
+    false
+}
+
 /// Ends when the watcher is dropped (the channel closes), or when the reload
 /// task is gone (the runtime stopped or the hub dropped).
 fn run(
@@ -436,7 +475,9 @@ fn run(
         Ok(event) if matches!(event.kind, notify::EventKind::Access(_)) => false,
         Ok(event) => {
             event.need_rescan()
-                || event.paths.iter().any(|p| relevant(p, sources) || relevant(p, &real))
+                || event.paths.iter().any(|p| {
+                    relevant(p, sources) || relevant(p, &real) || followed(p, sources)
+                })
         }
     };
     while let Ok(first) = rx.recv() {
