@@ -322,6 +322,15 @@ struct TaskComposerSheet: View {
                 Text(blocker.message)
                     .foregroundStyle(blocker == .noFolder || blocker == .noMac ? theme.colors.warning.color : theme.colors.label2.color)
                     .accessibilityIdentifier("taskComposer.blocker")
+            } else if draft.picks.count > 1 {
+                // One workspace per agent, each named for its agent (the Name field is what they share).
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(draft.picks) { pick in
+                        Text("\(pick.name ?? WorkspaceCreator.agentTitle(pick.harness)) · \(draft.title)").lineLimit(1)
+                    }
+                    if let folder { Text(folder) }
+                }
+                .accessibilityIdentifier("taskComposer.titles")
             } else if let folder {
                 Text(folder)
             }

@@ -50,6 +50,29 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         return "could not bring it below the bar"
     }
 
+    /// A step that checks where the scene got to: nil when `ok`, else why (so a capture that
+    /// missed its state is reported as missed, not attached as if it showed it).
+    @MainActor
+    private static func check(_ ok: @autoclosure () -> Bool, _ why: String, timeout: Double = 4) -> String? {
+        let end = Date().addingTimeInterval(timeout)
+        while Date() < end { if ok() { return nil }; pause(0.3) }
+        return ok() ? nil : why
+    }
+
+    /// Picks `mac` in the Mac picker (twice at most: a menu tap can land while it opens).
+    @MainActor
+    private static func switchMac(_ app: XCUIApplication, to mac: String) -> String? {
+        for _ in 0..<2 {
+            if let miss = tap(any(app, "taskComposer.mac"), "Mac picker") { return miss }
+            pause(0.8)
+            let item = app.buttons[mac].firstMatch
+            if item.waitForExistence(timeout: 3) { item.tap() }
+            pause(1.0)
+            if app.buttons["taskComposer.start"].firstMatch.label == "Start" { return nil }
+        }
+        return "the Mac did not switch to \(mac)"
+    }
+
     /// A short drag up inside the sheet (a fraction of a screen), to bring the next rows in.
     @MainActor
     private static func nudgeUp(_ app: XCUIApplication, by fraction: Double = 0.3) {
@@ -196,6 +219,7 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                          { C.tap(C.any(app, "taskComposer.agent.claude-work"), "work") },
                          { C.tap(C.any(app, "taskComposer.agent.claude-review"), "review") },
                          { C.tap(C.any(app, "taskComposer.agent.claude-docs"), "docs, the fifth") },
+                         { Self.check(app.buttons["taskComposer.start"].firstMatch.label == "Start 4", "not four agents") },
                          { Self.nudgeUp(app, by: 0.2); return nil }])
             },
             // A3: a model the account can't use is listed with why and can't be chosen.
@@ -216,9 +240,8 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                          { Self.nudgeUp(app, by: 0.1); return nil },
                          { C.tap(C.any(app, "taskComposer.agent.claude-cr"), "Router") },
                          { app.swipeUp(); C.pause(0.6); return nil },
-                         { C.tap(C.any(app, "taskComposer.mac"), "Mac picker") },
-                         { C.tap(app.buttons["MacBook Pro"].firstMatch, "MacBook Pro") },
-                         { C.pause(1.5); return nil }])
+                         { Self.check(app.buttons["taskComposer.start"].firstMatch.label == "Start 2", "two agents not picked") },
+                         { Self.switchMac(app, to: "MacBook Pro") }])
             },
             // A8: Cancel keeps all of it: prompt, photos, agents (Start 2), then folder and name.
             Scene(group: g, id: "draft-full-kept-top", args: Self.list, env: ["CMUX_MOBILE_TASK_DRAFT_IMAGES": "2"]) { app in
@@ -229,7 +252,8 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                          { C.tap(C.any(app, "taskComposer.name"), "name field") },
                          { C.any(app, "taskComposer.name").typeText("design pass"); return nil },
                          { C.tap(C.any(app, "taskComposer.cancel"), "Cancel") },
-                         { C.pause(1); return Self.openComposer(app) }])
+                         { C.pause(1); return Self.openComposer(app) },
+                         { Self.check(app.buttons["taskComposer.start"].firstMatch.label == "Start 2", "the two agents did not come back") }])
             },
             Scene(group: g, id: "draft-full-kept-bottom", args: Self.list, env: ["CMUX_MOBILE_TASK_DRAFT_IMAGES": "2"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Match this design") },
@@ -240,12 +264,14 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                          { C.any(app, "taskComposer.name").typeText("design pass"); return nil },
                          { C.tap(C.any(app, "taskComposer.cancel"), "Cancel") },
                          { C.pause(1); return Self.openComposer(app) },
-                         { app.swipeUp(); C.pause(0.6); return nil }])
+                         { app.swipeUp(); C.pause(0.6); return nil },
+                         { Self.check((C.any(app, "taskComposer.name").value as? String) == "design pass", "the name did not come back") }])
             },
             // A10: the workspace is made but its task doesn't reach the agent, three ways.
             Scene(group: g, id: "delivery-not-sent", args: Self.list + ["-cmux-mobile-mock-create-delay", "1", "-cmux-mobile-task-delivery", "not-sent"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
-                         { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(2.2); return nil }])
+                         { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(2.2); return nil },
+                         { Self.check(C.label(app, contains: "ready to send").exists, "no not-sent toast") }])
             },
             Scene(group: g, id: "delivery-uncertain", args: Self.list + ["-cmux-mobile-mock-create-delay", "1", "-cmux-mobile-task-delivery", "uncertain"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
@@ -286,7 +312,8 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "refused-draft-restored", args: Self.list + ["-cmux-mobile-refuse-next-create"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
                          { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(3); return nil },
-                         { Self.backToList(app) }, { Self.openComposer(app) }])
+                         { Self.backToList(app) }, { Self.openComposer(app) },
+                         { Self.check(C.any(app, "taskComposer.refusal").exists, "no refusal banner") }])
             },
             Scene(group: g, id: "draft-kept-after-cancel", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Half-written idea") },

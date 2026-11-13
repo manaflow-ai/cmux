@@ -90,19 +90,26 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 throw error
             }
             if request.task != nil { taskSessions[key] = session }
-            do {
-                let tree = try await sync.listNow()
-                guard let workspace = tree.workspaces.first(where: { $0.id == key }) else {
-                    throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
+            // `create-workspace` answered with the key, so the Mac has it: a fresh list that
+            // leaves it out twice is a broken state, and a task start that the phone reports as
+            // failed (its draft comes back) closes it, so no unprompted chat is left to start
+            // again. A list that fails (the link) proves nothing: the workspace stays, with no
+            // prompt sent, so nothing can run twice.
+            for attempt in 0..<2 {
+                let tree: DaemonTree
+                do {
+                    tree = try await sync.listNow()
+                } catch {
+                    taskSessions[key] = nil
+                    throw error
                 }
-                return workspace
-            } catch {
-                // The phone reports this start as failed (a task's draft comes back): the
-                // workspace and its unprompted chat go too, so nothing is left to start twice.
-                taskSessions[key] = nil
-                if request.task != nil { _ = try? await client.request("close-workspace", params: ["key": key]) }
-                throw error
+                if let workspace = tree.workspaces.first(where: { $0.id == key }) { return workspace }
+                if attempt == 1 {
+                    taskSessions[key] = nil
+                    if request.task != nil { _ = try? await client.request("close-workspace", params: ["key": key]) }
+                }
             }
+            throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
         } catch let error as DaemonReplyError {
             throw WorkspaceCreationError(error.message)
         }
