@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import hashlib
+import os
 import http.client
 import urllib.error
 import json
@@ -10,7 +11,10 @@ from pathlib import Path
 import io
 import re
 import shlex
+import subprocess
+import sys
 import tempfile
+import textwrap
 from unittest import TestCase, main
 from unittest.mock import patch
 
@@ -200,6 +204,34 @@ class VerifyPublishedManifestTests(TestCase):
     @staticmethod
     def reads_latest(argv: list[str]) -> bool:
         return any("/latest/" in arg for arg in argv)
+
+    def workflow_machine_manifest(
+        self, payloads: dict[str, bytes], *, intel_mac: bool
+    ) -> dict[str, object]:
+        """The machine manifest as the workflow's own build_machine_manifest writes it for these files."""
+        workflow = ARTIFACT_WORKFLOW.read_text(encoding="utf-8")
+        function = workflow.split("build_machine_manifest() {", 1)[1]
+        builder = textwrap.dedent(function.split("<<'PY'\n", 1)[1].split("\n          PY\n", 1)[0])
+        self.assertIn("CMUX_TUI_DARWIN_X86_64", builder)
+        environment = {k: v for k, v in os.environ.items() if k != "CMUX_TUI_DARWIN_X86_64"}
+        if intel_mac:
+            environment["CMUX_TUI_DARWIN_X86_64"] = "1"
+        with tempfile.TemporaryDirectory() as directory:
+            relay, tui = Path(directory) / "chatmux-relay", Path(directory) / "cmux-tui"
+            relay.mkdir()
+            tui.mkdir()
+            for name, payload in payloads.items():
+                ((tui if name.startswith("cmux-tui-") else relay) / name).write_bytes(payload)
+            subprocess.run(
+                [
+                    sys.executable, "-", str(relay), str(tui), self.COMMIT, f"0.0.0-r2.sha-{self.COMMIT}",
+                    "https://github.com", "manaflow-ai/cmux", "123456789",
+                    f"https://github.com/manaflow-ai/cmux/releases/tag/chatmux-relay-r2-{self.COMMIT}",
+                    "https://github.com/manaflow-ai/cmux/actions/runs/123456789",
+                ],
+                input=builder, text=True, check=True, capture_output=True, env=environment,
+            )
+            return json.loads((relay / "manifest.json").read_text(encoding="utf-8"))
 
     def verify(self, manifest: dict[str, object]) -> None:
         with patch.object(VERIFY, "urlopen", return_value=FakeResponse(manifest)):
@@ -649,6 +681,21 @@ class VerifyPublishedManifestTests(TestCase):
         for step, argv in calls:
             with self.subTest(step=step):
                 self.assertEqual(self.run_machine_check(argv, manifest, payloads), (0, ""))
+
+    def test_the_workflow_writes_and_checks_the_same_machine_targets_on_each_ref(self) -> None:
+        """The writer and each check take the target set from the same switch, so one cannot move alone.
+
+        #42230 took the Intel Mac target out of the writer and left the check at four targets.
+        """
+        for intel_mac in (False, True):
+            payloads = self.machine_payloads(intel_mac=intel_mac)
+            manifest = self.workflow_machine_manifest(payloads, intel_mac=intel_mac)
+            self.assertEqual(manifest, self.machine_manifest(payloads, intel_mac=intel_mac))
+            for step, argv in self.machine_manifest_calls(intel_mac=intel_mac):
+                if self.reads_latest(argv) and not intel_mac:
+                    continue
+                with self.subTest(intel_mac=intel_mac, step=step):
+                    self.assertEqual(self.run_machine_check(argv, manifest, payloads), (0, ""))
 
     def test_a_ref_without_intel_mac_refuses_a_machine_manifest_that_has_it(self) -> None:
         """The check wants exactly the targets the caller built, not 'three or four'."""
