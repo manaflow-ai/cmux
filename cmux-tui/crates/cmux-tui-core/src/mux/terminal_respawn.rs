@@ -104,8 +104,9 @@ const RESPAWN_REASONS: &[&str] = &[
     "died_without_exit_status",
     "missing_record",
     "incarnation_mismatch",
-    // A signal that ended the shell while the owner shut down (logout, a
-    // daemon stop): the next owner's start sweep respawns it.
+    // A signal or an exit status that ended the shell while the owner shut
+    // down (logout, a restart, a daemon stop): the next owner's start sweep
+    // respawns it.
     "session_shutdown",
     // A host that ended its shell because no owner served it for the orphan
     // grace, or a SIGTERM reached it while orphaned (cx-3ryj): a host that

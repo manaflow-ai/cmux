@@ -46,6 +46,7 @@ on:
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
+      - scripts/cmux-next/cef-pak-drop.py
       - scripts/cmux-next/fetch-ublock.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
@@ -390,6 +391,7 @@ on:
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
+      - scripts/cmux-next/cef-pak-drop.py
       - scripts/cmux-next/fetch-ublock.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
@@ -1798,6 +1800,7 @@ jobs:
             python3 -I scripts/cmux-next/tests/test_bundle_size.py
             python3 -I scripts/cmux-next/tests/test_bundle_size_pr.py
             python3 -I scripts/cmux-next/tests/test_fetch_nightly_dmg.py
+            python3 -I scripts/cmux-next/tests/test_cef_pak_drop.py
             bash scripts/cmux-next/tests/bundle-ublock-locales.test.sh
             bash tests/test_strip_release_bundle_atom_info.sh
             bash scripts/cmux-next/tests/version-surfaces.test.sh
@@ -7014,10 +7017,27 @@ jobs:
           ref: feat-cmux-next
           fetch-depth: 200
 
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-347
+      - name: Mint the cmux-bot read token
+        id: read-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+          permission-pull-requests: read
+
       - name: Find the one merge to revert
         id: find
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_READ_TOKEN: ${{ steps.read-token.outputs.token }}
         run: |
           python3 scripts/ci/cmux_next_compile_revert.py --repo "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" \
             --sha "$GITHUB_SHA" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"

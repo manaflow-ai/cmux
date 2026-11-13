@@ -688,7 +688,6 @@ public struct AgentChatBottomStack: View {
     nonisolated private static let stackSpace = "AgentChatBottomStack"
     /// The composer field's focus (a UITextView that follows it both ways).
     @State private var composerFocused = false
-    @State private var retryCount = 0
 
     public init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -705,43 +704,20 @@ public struct AgentChatBottomStack: View {
         VStack(spacing: 12) {
             VStack(spacing: 12) {
                 if let error = store.clientError {
-                    if store.canRetryPrompt {
-                        HStack(spacing: 8) {
-                            Button {
-                                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
-                            } label: {
-                                Label(error, systemImage: "exclamationmark.circle")
-                                    .font(.footnote.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityHint("Dismiss")
-                            Button("Retry", systemImage: "arrow.clockwise") {
-                                retryCount += 1
-                            }
+                    // One symbol, no Retry: the draft is back in the composer, so Send retries it.
+                    Button {
+                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
+                    } label: {
+                        Label(error, systemImage: "exclamationmark.circle")
                             .font(.footnote.weight(.semibold))
-                            .buttonStyle(.plain)
-                            .disabled(surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && surface.attachments.isEmpty)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .glassEffect(.regular, in: .capsule)
-                        .transition(.opacity.combined(with: .offset(y: 8)))
-                    } else {
-                        Button {
-                            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
-                        } label: {
-                            Label(error, systemImage: "exclamationmark.circle")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.primary)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 9)
-                        }
-                        .buttonStyle(.plain)
-                        .glassEffect(.regular, in: .capsule)
-                        .transition(.opacity.combined(with: .offset(y: 8)))
-                        .accessibilityHint("Dismiss")
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
                     }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular, in: .capsule)
+                    .transition(.opacity.combined(with: .offset(y: 8)))
+                    .accessibilityHint("Dismiss")
                 }
                 AgentChatConnectionLine(store: store)
                 // Pinned plan progress while a turn runs (ACP web UI parity).
@@ -782,7 +758,6 @@ public struct AgentChatBottomStack: View {
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
                                  denyingPermission: replying,
                                  suggestionsCeiling: surface.stackCeiling.map { $0 + composerOffset },
-                                 retryCount: retryCount,
                                  cmuxCommands: CmuxSlashCommand.allCases.filter { $0 != .fork || surface.tabActions != nil },
                                  runCmuxCommand: { [surface, store] command, args in
                                      await surface.run(command, args: args, store: store)

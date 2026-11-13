@@ -282,9 +282,9 @@ export function devboxGhosttyDebUrl(dockerfile = readDevboxDockerfile()): string
  * a moved or tampered release asset fails the bake instead of installing.
  */
 /**
- * The Ghostty release the image is built against, from the .deb pin: the
- * version panes export as TERM_PROGRAM_VERSION (cmux-devbox-boot reads it from
- * /etc/cmux/ghostty-version). Base images ship no Ghostty binary, so the pin,
+ * The Ghostty release the image is built against, from the .deb pin, recorded
+ * in /etc/cmux/ghostty-version (read by the acpmux daemon launch,
+ * acpmuxPersonKey.ts). Base images ship no Ghostty binary, so the pin,
  * not `ghostty +version`, is the source.
  */
 export function devboxGhosttyVersion(dockerfile = readDevboxDockerfile()): string {

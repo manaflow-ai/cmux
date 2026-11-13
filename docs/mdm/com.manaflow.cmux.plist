@@ -1747,7 +1747,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>afterCurrent</string>
+			<string>top</string>
 			<key>pfm_description</key>
 			<string>Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it.</string>
 			<key>pfm_name</key>
@@ -4426,7 +4426,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>expanded</string>
+			<string>off</string>
 			<key>pfm_description</key>
 			<string>When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.</string>
 			<key>pfm_name</key>
@@ -9299,7 +9299,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>5</integer>
+			<integer>3</integer>
 			<key>pfm_name</key>
 			<string>agentPane.editedFiles.maxRows</string>
 			<key>pfm_range_max</key>
@@ -9558,7 +9558,7 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page.</string>
+			<string>Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page. It also counts which packages agents install, by name.</string>
 			<key>pfm_name</key>
 			<string>diagnostics.usagePatterns</string>
 			<key>pfm_title</key>

@@ -1059,6 +1059,22 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 22"):
             self.judge()
 
+    def test_a_red_job_in_a_base_run_that_reads_green_is_still_red(self):
+        # hq#10319 row 4 (cmux#42047): a fallback job can turn a base run's conclusion green while the job the head
+        # failed is red in it. The verdict is that job's conclusion, never the run's.
+        self.gh.base_runs[1]["conclusion"] = "success"
+        text = "\n".join(self.judge())
+        self.assertIn("excused", text)
+        self.assertIn("run 20", text)
+        self.assertIn("writesTheRequestAfterTheReadyMarkerAndReturnsTheReply()", text)
+
+    def test_a_green_job_in_a_base_run_that_reads_red_is_still_green(self):
+        # The other way round: a base run red for another job's sake is no red for this one.
+        self.gh.jobs[2] = dict(self.gh.jobs[2], conclusion="success",
+                               steps=[{"name": TEST_STEP, "status": "completed", "conclusion": "success"}])
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
+            self.judge()
+
     def test_a_failure_not_on_the_base_blocks(self):
         self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE, OTHER.replace("palettePages", "somethingNew"))
         with self.assertRaisesRegex(excuse.Refused, "somethingNew"):
@@ -2684,6 +2700,15 @@ class BaseRedWindow(unittest.TestCase):
             self.judge()
         self.assertNotIn(28, self.reads)
         self.assertNotIn(29, self.reads)
+
+    def test_a_red_job_in_a_run_that_reads_green_stays_in_the_window(self):
+        # hq#10319 row 4 (cmux#42047): run 29's conclusion is green (a fallback job), its job red: the job is a red
+        # verdict in the window, not a pass that ends it.
+        self.base(30, 12)
+        self.base(29, 11, (ISSUE,))
+        self.gh.base_runs[-1]["conclusion"] = "success"
+        text = self.judge()
+        self.assertIn("writesTheRequestAfterTheReadyMarkerAndReturnsTheReply() (red on run 29)", text)
 
     def test_a_test_red_only_outside_the_window_is_the_heads(self):
         for offset in range(excuse.BASE_WINDOW):
@@ -7214,6 +7239,99 @@ class SweepGitHub(FakeGitHub):
                                 checks=[self.STATUS])
         except excuse.Refused as why:
             return f"refused: {why}"
+
+
+class TreeReuseGitHub(FakeGitHub):
+    """cmux#42047 at 69e5e634 (2026-11-13): its red 'build / build x86_64-apple-darwin' (head run 10) and base run 20,
+    whose same job failed the same way, behind more than BASE_JOB_READS newer base runs of the workflow that reuse a
+    published tree and run no Mac build at all. NODES: whether GraphQL answers a `nodes` root field (a token host) or
+    refuses it as an agent host's GitHub broker does, so the suites are read by commit."""
+
+    MAC = "build / build x86_64-apple-darwin"
+    NEWER = excuse.BASE_JOB_READS + 11  # 51 such runs landed between run 20 and the refusal
+
+    def __init__(self, *, nodes: bool, base_conclusion: str = "failure"):
+        super().__init__()
+        self.nodes, self.graphql = nodes, []
+        for job in self.jobs.values():
+            job["name"] = self.MAC
+        self.jobs[2]["conclusion"] = base_conclusion
+        if base_conclusion == "success":
+            self.jobs[2]["steps"][2]["conclusion"] = "success"
+        self.logs = {1: log(self.MAC, TEST_STEP, ISSUE), 2: log(self.MAC, TEST_STEP, ISSUE)}
+        newer = []
+        for n in range(self.NEWER):
+            run, sha = 100 + n, f"{n:040x}"
+            newer.append({"id": run, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                          "conclusion": "success", "head_sha": sha, "check_suite_node_id": f"CS_{run}",
+                          "created_at": f"2026-11-12T23:{59 - n:02d}:00Z"})
+            self.jobs[1000 + n] = dict(failed_job(1000 + n, run, sha, name="cmux-tui tree preflight"),
+                                       conclusion="success")
+        self.base_runs = newer + [{"id": 20, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                                   "conclusion": "success", "head_sha": BASE_SHA, "check_suite_node_id": "CS_20",
+                                   "created_at": "2026-11-12T22:08:04Z"}]
+
+    def checks(self, run: int, name: str) -> dict:
+        return {"pageInfo": {"hasNextPage": False}, "nodes": [
+            {"conclusion": job["conclusion"].upper()} for job in self.jobs.values()
+            if job["run_id"] == run and job["name"] == name]}
+
+    def run(self, args):
+        assert args[:2] == ["api", "graphql"], args
+        query = next(arg for arg in args if arg.startswith("query="))
+        self.graphql.append(query)
+        if "nodes(ids:" in query:
+            if not self.nodes:
+                raise excuse.Refused("GitHub evidence request failed: gh: lane-gh call graphql manaflow-ai/cmux: "
+                                     "refused: graphql: root field nodes is refused")
+            name = next(arg for arg in args if arg.startswith("name="))[len("name="):]
+            return json.dumps({"data": {"nodes": [{"id": f"CS_{run}", "checkRuns": self.checks(int(run), name)}
+                                                  for run in re.findall(r'"CS_(\d+)"', query)]}})
+        assert "owner=manaflow-ai" in args and "name=cmux" in args, args
+        name = next(arg for arg in args if arg.startswith("check="))[len("check="):]
+        commits = {}
+        for alias, sha in re.findall(r'(c\d+): object\(oid: "([0-9a-f]{40})"\)', query):
+            commits[alias] = {"checkSuites": {"pageInfo": {"hasNextPage": False}, "nodes": [
+                {"id": run["check_suite_node_id"], "checkRuns": self.checks(run["id"], name)}
+                for run in self.base_runs if run["head_sha"] == sha]}}
+        return json.dumps({"data": {"repository": commits}})
+
+    def job_reads(self) -> list[int]:
+        return sorted(int(route.split("/actions/runs/", 1)[1].split("/", 1)[0]) for route in self.routes
+                      if route.endswith("/jobs?filter=latest&per_page=100"))
+
+
+class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
+    """A base run whose check suite has no verdict for a job costs no job read and is not counted toward
+    BASE_JOB_READS, so runs that never build a job do not push the one that did out of the window (cmux#42047)."""
+
+    def judge(self, gh):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh)
+
+    def test_the_base_run_behind_the_tree_reuse_runs_excuses_the_red(self):
+        for nodes in (True, False):
+            with self.subTest(nodes=nodes):
+                gh = TreeReuseGitHub(nodes=nodes)
+                said = "\n".join(self.judge(gh))
+                print(f"\nseeded (nodes={'answered' if nodes else 'refused'}): {said}")
+                self.assertIn(f"excused '{TreeReuseGitHub.MAC}'", said)
+                self.assertIn("run 20", said)
+                self.assertEqual([run for run in gh.job_reads() if run != 10], [20])  # one base job list read
+                self.assertLessEqual(len(gh.graphql), 4)  # 52 suites, 25 a request (plus a refused `nodes` once)
+
+    def test_a_green_base_job_there_stays_not_excused(self):
+        for nodes in (True, False):
+            with self.subTest(nodes=nodes):
+                with self.assertRaisesRegex(excuse.Refused, f"'{re.escape(TreeReuseGitHub.MAC)}'.*not red on "
+                                                            "feat-cmux-next run 20"):
+                    self.judge(TreeReuseGitHub(nodes=nodes, base_conclusion="success"))
+
+    def test_runs_whose_suites_cannot_be_read_are_still_bounded(self):
+        gh = TreeReuseGitHub(nodes=True)
+        gh.run = lambda args: json.dumps({"errors": [{"message": "Something went wrong"}]})
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
+            self.judge(gh)
+        self.assertEqual(len([run for run in gh.job_reads() if run != 10]), excuse.BASE_JOB_READS)
 
 
 class SweepLimit(unittest.TestCase):
