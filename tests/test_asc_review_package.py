@@ -26,7 +26,7 @@ APP = "6783338052"
 VERSION = pkg.marketing_version()
 LISTING = pkg.version_listing(VERSION)
 SUPPORT = "https://cmux.com/support"
-LIVE_ENV = {"CMUX_IOS_REVIEW_CHIEF_NAME": "App Review"}
+LIVE_ENV: dict[str, str] = {}
 # Info.plist usage keys in project.yml, by the name the notes give each permission.
 PERMISSION_NAMES = {
     "NSCameraUsageDescription": "Camera",
@@ -160,7 +160,7 @@ class NotesTests(FakeAscCase):
                 self.assertIn(label, strings, f"the notes quote {label!r}, which the app does not show")
 
     def test_template_walks_sign_in_chief_and_account_deletion(self):
-        for label in ('"Continue with email"', '"Check your email"', '"Message Chief"', '"Delete Account"',
+        for label in ('"Continue with email"', '"Check your email"', '"Chief Is Off"', '"Turn On"', '"Delete Account"',
                       '"Delete your cmux account?"', "Settings", '"Account"', '"Not now"'):
             self.assertIn(label, self.TEMPLATE)
 
@@ -191,7 +191,6 @@ class NotesTests(FakeAscCase):
         notes = self.rendered()
         self.assertNotIn("{{", notes)
         self.assertIn("https://www.mailinator.com/v4/public/inboxes.jsp?to=cmux-review", notes)
-        self.assertIn('the Chief named "App Review"', notes)
         self.assertLessEqual(len(notes), pkg.NOTES_LIMIT)
 
     def test_render_keeps_the_inbox_url_already_in_app_store_connect(self):
@@ -216,10 +215,25 @@ class NotesTests(FakeAscCase):
             pkg.render_notes(self.TEMPLATE, {**self.DETAIL, "contactEmail": ""}, LIVE_ENV)
         self.assertIn("REVIEW_CONTACT_EMAIL", str(raised.exception))
 
-    def test_render_refuses_an_unset_review_chief(self):
+    def test_the_notes_need_no_environment_value(self):
+        self.assertEqual(pkg.REVIEW_ENV_VALUES, {})
+        self.assertNotIn("REVIEW_CHIEF_NAME", self.TEMPLATE)
+        self.assertNotIn("{{", pkg.render_notes(self.TEMPLATE, self.DETAIL, {}))
+
+    def test_a_named_review_chief_placeholder_is_refused(self):
+        # The review path opens the Hosted Chief (#40831); a Chief named from a variable is gone.
         with self.assertRaises(pkg.PackageError) as raised:
-            pkg.render_notes(self.TEMPLATE, self.DETAIL, {"CMUX_IOS_REVIEW_CHIEF_NAME": "  "})
-        self.assertIn("CMUX_IOS_REVIEW_CHIEF_NAME", str(raised.exception))
+            pkg.render_notes(self.TEMPLATE + '\nOpen "{{REVIEW_CHIEF_NAME}}".\n', self.DETAIL,
+                             {"CMUX_IOS_REVIEW_CHIEF_NAME": "Chief"})
+        self.assertIn("REVIEW_CHIEF_NAME", str(raised.exception))
+
+    def test_the_demo_steps_open_the_hosted_chief(self):
+        start = self.TEMPLATE.index("## REVIEW DEMO STEPS: START")
+        block = self.TEMPLATE[start:self.TEMPLATE.index("## REVIEW DEMO STEPS: END")]
+        for text in ("Tap Chief", "Main · Cloud", "Send", '"Chief Is Off"', '"Turn On"'):
+            self.assertIn(text, block)
+        self.assertNotIn("Chief named", block)
+        self.assertNotIn("replaces the earlier", self.TEMPLATE)
 
     def test_render_refuses_a_placeholder_with_no_source(self):
         with self.assertRaises(pkg.PackageError) as raised:
@@ -239,8 +253,9 @@ class NotesTests(FakeAscCase):
         self.assertFalse(pkg.sync_notes(api, APP, VERSION, pkg.DEFAULT_NOTES_TEMPLATE, dry_run=False))
         self.assertEqual(len(self.writes(fake, "PATCH")), 1)
 
-    def test_sync_without_the_review_chief_writes_nothing(self):
-        fake = self.start(env={}, notes="old notes")
+    def test_sync_without_review_information_writes_nothing(self):
+        fake = self.start(notes="old notes", detail={"demoAccountName": "", "contactEmail": "c@example.com",
+                                                     "contactPhone": "1", "notes": "old notes"})
         with self.assertRaises(pkg.PackageError):
             pkg.sync_notes(pkg.Api(), APP, VERSION, pkg.DEFAULT_NOTES_TEMPLATE, dry_run=False)
         self.assertEqual(self.writes(fake, "PATCH"), [])

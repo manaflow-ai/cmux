@@ -267,14 +267,31 @@ export interface ChatMetrics {
 
 const round = (value: number) => Math.round(value * 100) / 100;
 
-export function chatMetrics(display: ChatDisplay): ChatMetrics {
-  const scale = display.fontSize / DEFAULT_CHAT_DISPLAY.fontSize;
-  const inline = display.codeScale === null ? 13 * scale : display.fontSize * display.codeScale;
-  const block = display.codeScale === null ? 12 * scale : display.fontSize * display.codeScale;
+/// The density's text scale (the host's `--cmux-density-text-scale`, the chrome body size over Default's): the chat's
+/// text grows and shrinks with the density (Lucas 2026-11-13: chats kept their size at every density). A page without
+/// the host's value (the gallery, a test) draws at 1. The person's own font size is kept as stored and drawn at it.
+const readDensityTextScale = (): number => {
+  if (typeof document === "undefined") return 1;
+  const parsed = Number.parseFloat(
+    document.documentElement?.style?.getPropertyValue?.("--cmux-density-text-scale") ?? "",
+  );
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+};
+let densityTextScale = readDensityTextScale();
+
+/// The chat's drawn font size: the person's, at the density's text scale, in quarter pixels.
+export const drawnFontSize = (display: ChatDisplay, scale: number = densityTextScale): number =>
+  Math.round(display.fontSize * scale * 4) / 4;
+
+export function chatMetrics(display: ChatDisplay, density: number = densityTextScale): ChatMetrics {
+  const fontSize = drawnFontSize(display, density);
+  const scale = fontSize / DEFAULT_CHAT_DISPLAY.fontSize;
+  const inline = display.codeScale === null ? 13 * scale : fontSize * display.codeScale;
+  const block = display.codeScale === null ? 12 * scale : fontSize * display.codeScale;
   return {
     // The System preset's text is the interface font, whichever it is.
-    measureFont: `${display.fontSize}px ${display.font === "system" ? chatUiMeasureStack(display.uiFont) : MEASURE_STACKS[display.font]}`,
-    lineHeight: round(display.fontSize * display.lineHeight),
+    measureFont: `${fontSize}px ${display.font === "system" ? chatUiMeasureStack(display.uiFont) : MEASURE_STACKS[display.font]}`,
+    lineHeight: round(fontSize * display.lineHeight),
     inlineCodeSize: round(inline),
     blockCodeSize: round(block),
     codeLineHeight: round((block * 20) / 12),
@@ -283,14 +300,19 @@ export function chatMetrics(display: ChatDisplay): ChatMetrics {
 }
 
 /// The CSS variables for `display`; a null value removes the variable (the stylesheet's default).
-export function chatDisplayVariables(display: ChatDisplay): Record<string, string | null> {
-  const metrics = chatMetrics(display);
-  const isDefault = (key: keyof ChatDisplay) => display[key] === DEFAULT_CHAT_DISPLAY[key];
+export function chatDisplayVariables(
+  display: ChatDisplay,
+  density: number = densityTextScale,
+): Record<string, string | null> {
+  const metrics = chatMetrics(display, density);
+  const fontSize = drawnFontSize(display, density);
+  const isDefault = (key: keyof ChatDisplay) =>
+    key === "fontSize" ? fontSize === DEFAULT_CHAT_DISPLAY.fontSize : display[key] === DEFAULT_CHAT_DISPLAY[key];
   const codeFont = display.codeFamily ? `${quoteFamily(display.codeFamily)}, var(--cv-mono-default)` : null;
   return {
     ...chatUiFontVariables(display.uiFont),
     "--cv-font": isDefault("font") ? null : FONT_STACKS[display.font],
-    "--cv-font-size": isDefault("fontSize") ? null : `${display.fontSize}px`,
+    "--cv-font-size": isDefault("fontSize") ? null : `${fontSize}px`,
     "--cv-line-height": isDefault("fontSize") && isDefault("lineHeight") ? null : `${metrics.lineHeight}px`,
     "--cv-code-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.inlineCodeSize}px`,
     "--cv-codeblock-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.blockCodeSize}px`,
@@ -441,6 +463,24 @@ export function resetChatDisplay(): void {
 export const chatDisplayValues = (): Readonly<Values> => raw;
 export const chatDisplay = (): ChatDisplay => current;
 export const currentChatMetrics = (): ChatMetrics => chatMetrics(current);
+/// The density's text scale the chat draws at now (`drawnFontSize`); the bubble's padding follows it too.
+export const chatDensityTextScale = (): number => densityTextScale;
+
+/// The host changed the density (its scale script ends with `cmux-ui-scale-change`): the chat draws its text at the
+/// new size, and a new look (the same values) makes the transcript measure every row again, as a new font does.
+if (typeof window !== "undefined") {
+  // The host can set the scale before this module runs, and a chat on the default look never writes its variables
+  // (setChatDisplay returns while the look is unchanged): draw the density's size from the start.
+  if (densityTextScale !== 1 && typeof document !== "undefined") applyChatDisplay(document.documentElement, current);
+  window.addEventListener("cmux-ui-scale-change", () => {
+    const next = readDensityTextScale();
+    if (next === densityTextScale) return;
+    densityTextScale = next;
+    current = { ...current };
+    if (typeof document !== "undefined") applyChatDisplay(document.documentElement, current);
+    for (const listener of listeners) listener();
+  });
+}
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener);

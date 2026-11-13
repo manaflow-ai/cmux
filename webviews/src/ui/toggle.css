@@ -1,0 +1,49 @@
+/* Toggle and ToggleGroup (ui/Toggle.tsx), on top of ui/controls.css's .ui-btn. Toggle.tsx imports this
+   after controls.css, so only a bundle that renders a toggle ships these rules (in controls.css they rode
+   along on every page and the agent pane, about 1.2 KiB each, with no toggle on them). */
+/* TOGGLE (ui/Toggle.tsx): a button that stays pressed. It is a .ui-btn, so hover, hold, focus, sizes
+   and the disabled dim are the button's; pressed (`data-pressed`, Base UI) adds the selection fill,
+   the same fill a selected row or the active pill tab has, in the text colour. */
+.ui-btn.ui-toggle-button[data-pressed] {
+  background: var(--ds-color-selection);
+}
+.ui-btn.ui-toggle-button[data-pressed]:hover:not([data-disabled]) {
+  background: color-mix(in srgb, var(--ds-color-fg) 4%, var(--ds-color-selection));
+}
+/* outline: the control hairline at rest, so an unpressed toggle still reads as a control. */
+.ui-btn.ui-toggle-button[data-variant="outline"] {
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-separator);
+}
+.ui-btn.ui-toggle-button[data-variant="outline"]:hover:not([data-disabled], [data-pressed]) {
+  background: var(--ds-color-hover);
+}
+/* A group: the toggles in a row (or a column), a step apart. */
+.ui-toggle-set {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+.ui-toggle-set[data-orientation="vertical"] {
+  flex-direction: column;
+  align-items: stretch;
+}
+/* segmented: one track holding every toggle; a pressed toggle is the raised surface (Tabs' segmented). */
+.ui-toggle-set[data-variant="segmented"] {
+  gap: 0;
+  padding: var(--grid-half-step);
+  border-radius: var(--ds-radius-lg);
+  background: var(--ds-color-hover);
+}
+.ui-toggle-set[data-variant="segmented"] .ui-btn.ui-toggle-button {
+  height: var(--ds-control-compact);
+  border-radius: var(--ds-radius-control);
+}
+.ui-toggle-set[data-variant="segmented"] .ui-btn.ui-toggle-button:hover:not([data-disabled], [data-pressed]) {
+  background: transparent;
+  color: var(--ds-color-fg);
+}
+.ui-toggle-set[data-variant="segmented"] .ui-btn.ui-toggle-button[data-pressed] {
+  background: var(--ds-color-surface);
+  box-shadow: var(--elevation-1);
+  font-weight: var(--weight-emphasis);
+}
