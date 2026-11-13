@@ -62,6 +62,7 @@ public final class ScreenSharingService {
     var demoMode: DemoMode?
     var demoDiscovery: Discovery?
     var demoMacs: [HubDevice] = []
+    var demoAccess: [String: DeviceScope] = [:]
     @ObservationIgnored var demoTask: Task<Void, Never>?
     #endif
 
@@ -138,6 +139,21 @@ public final class ScreenSharingService {
         return hub.otherDevices.filter { $0.platform == .macos }.sorted(by: Self.listOrder)
     }
 
+    /// Why `mac` can't be shared now, as the list last read it (nil: it can be). Tapping such a
+    /// Mac shows this in an alert instead of asking the hub for a session it would refuse.
+    public func unavailability(of mac: HubDevice) -> ScreenSharingRefusal? {
+        Self.unavailability(of: mac, access: access(to: mac))
+    }
+
+    /// Offline first (a Mac that's off can't say whether it shares), then not shared, then
+    /// blocked for this phone.
+    nonisolated static func unavailability(of mac: HubDevice, access: DeviceScope) -> ScreenSharingRefusal? {
+        if !mac.online { return .hostOffline }
+        if !mac.macScreenShared { return .notShared }
+        if access == .none { return .permissionNone }
+        return nil
+    }
+
     /// Sharing and online first, then online, then the rest; by name within each.
     nonisolated static func listOrder(_ lhs: HubDevice, _ rhs: HubDevice) -> Bool {
         let left = lhs.rank, right = rhs.rank
@@ -146,6 +162,9 @@ public final class ScreenSharingService {
 
     /// What this phone may do on `mac`'s screen, as the Mac last listed it.
     public func access(to mac: HubDevice) -> DeviceScope {
+        #if DEBUG
+        if demoDiscovery != nil { return demoAccess[mac.id] ?? .ask }
+        #endif
         guard let hub else { return .ask }
         return hub.scope(host: mac.id, viewer: hub.identity.id)
     }
