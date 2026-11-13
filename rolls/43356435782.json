@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43356435782",
+  "recorded_at": "2026-11-13T03:31:03Z",
+  "reason": "cmux-tui eac9a0757c27 changes the image's cmux-tui (pinned 513c868c3aca)",
+  "dry_run": false,
+  "cmux_tui": "eac9a0757c27f81d81b12caba1813cbed14a9123",
+  "fixes": [
+    {
+      "sha": "eac9a0757c27f81d81b12caba1813cbed14a9123",
+      "mergedAt": "2026-11-12T18:36:23-08:00",
+      "subject": "acpmux: the store lint resolves self::/super:: and limits a std::fs glob to its items (#41970 follow-ups) (#42003)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T03:31:03Z",
+    "snapshot_id": "sh-94f750558f814e64860f6e767baf071c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43356435782): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8a2f035fd3b9bd9a1c6bc7970eea128bf3268bf2",
+    "image": "cloud-native-auto-eac9a075-43356435782-1",
+    "revision": "ci-43356435782-1",
+    "at": "2026-11-13T03:31:03Z"
+  },
+  "rolled_back": false
+}
