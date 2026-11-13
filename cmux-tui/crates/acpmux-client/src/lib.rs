@@ -408,10 +408,10 @@ where
                         .or_else(|| value.get("sessionId"))
                         .and_then(Value::as_str)
                         .map(str::to_owned);
-                    if let Some(key) = key.as_deref() {
-                        if state.changed_keys.contains(key) {
-                            return false;
-                        }
+                    if let Some(key) = key.as_deref()
+                        && state.changed_keys.contains(key)
+                    {
+                        return false;
                     }
                     let origin = value.get("origin").and_then(Value::as_str);
                     !origin.is_some_and(|origin| state.removed_origins.contains(origin))
@@ -441,7 +441,7 @@ where
                 let method =
                     value.get("method").and_then(Value::as_str).unwrap_or("unknown").to_owned();
                 let code = value.get("code").and_then(Value::as_str).unwrap_or("error").to_owned();
-                if sid.as_deref().is_some_and(|sid| method == "sub" && code != "not_ready") {
+                if sid.is_some() && method == "sub" && code != "not_ready" {
                     self.subscriptions.remove(sid.as_deref().unwrap_or_default());
                 }
                 self.push_change(
@@ -552,10 +552,10 @@ where
                     let charge = !charged;
                     charged = true;
                     emitted = true;
-                    if origin.state == wire::OriginState::Removed {
-                        if let Some(page) = self.pages.get_mut(&sid) {
-                            page.removed_origins.insert(origin.id.clone());
-                        }
+                    if origin.state == wire::OriginState::Removed
+                        && let Some(page) = self.pages.get_mut(&sid)
+                    {
+                        page.removed_origins.insert(origin.id.clone());
                     }
                     self.push_change(
                         Change::Origin { sid: sid.clone(), seq, origin, replay },
@@ -578,10 +578,10 @@ where
                 }
                 Err(_) => {
                     self.advance(&sid, seq);
-                    if let Some(page) = self.pages.get_mut(&sid) {
-                        if let Some(chat_id) = raw.get("chatId").and_then(Value::as_str) {
-                            page.changed_keys.insert(chat_id.to_owned());
-                        }
+                    if let Some(page) = self.pages.get_mut(&sid)
+                        && let Some(chat_id) = raw.get("chatId").and_then(Value::as_str)
+                    {
+                        page.changed_keys.insert(chat_id.to_owned());
                     }
                 }
             }
@@ -788,7 +788,7 @@ mod tests {
         .encode();
         assert_eq!(client.received(&frame), frame.len());
         assert_eq!(client.received(&frame), 0);
-        let _ = client.next_change();
+        while client.next_change().is_some() {}
         assert_eq!(client.received(&frame), frame.len());
     }
 
@@ -833,6 +833,7 @@ mod tests {
     async fn tokio_driver_preserves_multiple_frames() {
         use tokio::io::{AsyncWriteExt, duplex};
         let (mut tx, rx) = duplex(4096);
+        let (_output_reader, output_writer) = duplex(4096);
         let (out_tx, mut out_rx) = tokio::sync::mpsc::channel(8);
         let mut client = Client::<Value>::connected_v2();
         let hello = Frame::json(
@@ -848,7 +849,7 @@ mod tests {
         .unwrap()
         .encode();
         client.subscribe(Sub::new("s", "list")).unwrap();
-        let task = tokio::spawn(tokio_driver::drive(client, rx, out_tx));
+        let task = tokio::spawn(tokio_driver::drive(client, rx, output_writer, out_tx));
         tx.write_all(&hello).await.unwrap();
         tx.write_all(&window).await.unwrap();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(1), out_rx.recv())
