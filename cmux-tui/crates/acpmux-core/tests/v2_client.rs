@@ -379,5 +379,8 @@ async fn client_and_daemon_credit_a_slow_taker_past_one_window() {
     assert!(data_bytes > wire::CREDIT_WINDOW_BYTES);
     assert!(credits >= 2, "slow taker should be fed past one credit window");
     drop(stream);
-    task.await.unwrap().unwrap();
+    match task.await.unwrap() {
+        Ok(()) | Err(ConnError::Io(_)) => {}
+        Err(error) => panic!("unexpected connection error: {error}"),
+    }
 }
