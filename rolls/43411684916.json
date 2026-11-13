@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43411684916",
+  "recorded_at": "2026-11-13T10:57:33Z",
+  "reason": "cmux-tui 744c1ef77b35 changes the image's cmux-tui (pinned 48316772702a)",
+  "dry_run": false,
+  "cmux_tui": "744c1ef77b357e743c909ca2a3bfc0d674ed47b3",
+  "fixes": [
+    {
+      "sha": "744c1ef77b357e743c909ca2a3bfc0d674ed47b3",
+      "mergedAt": "2026-11-13T02:23:01-08:00",
+      "subject": "acpmux (Linux): a file written into a just-made folder reaches the chat and settings watches (#42526)"
+    },
+    {
+      "sha": "634f578dfd1c545cef63beb74cf122fe16085e71",
+      "mergedAt": "2026-11-13T04:16:58-06:00",
+      "subject": "acpmux tests: an ACP session/list read in pages shows each change it was told of and costs about one list"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T10:57:33Z",
+    "snapshot_id": "sh-5706e7436d9642dcbdf09aafff131254",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43411684916): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5aad4764a48a910d6a7b7f3ce0e054a9d43675fc",
+    "image": "cloud-native-auto-744c1ef7-43411684916-1",
+    "revision": "ci-43411684916-1",
+    "at": "2026-11-13T10:57:33Z"
+  },
+  "rolled_back": false
+}
