@@ -509,9 +509,17 @@ fn source_places_can_have_gaps_and_resume_exactly() {
 fn full_mailbox_remains_responsive_over_one_hundred_thousand_lines() {
     let home = tempfile::tempdir().unwrap();
     let mut raw = Vec::new();
-    for seq in 1..=100_000 {
-        writeln!(raw, "{{\"seq\":{seq},\"at\":0,\"dir\":\"mux\",\"kind\":\"usage\",\"msg\":{{}}}}")
-            .unwrap();
+    writeln!(
+        raw,
+        r#"{{"seq":1,"at":0,"dir":"mux","kind":"turn_started","msg":{{"turnId":"load"}}}}"#
+    )
+    .unwrap();
+    for seq in 2..=100_000 {
+        writeln!(
+            raw,
+            "{{\"seq\":{seq},\"at\":{seq},\"dir\":\"mux\",\"kind\":\"host_notice\",\"msg\":{{}}}}"
+        )
+        .unwrap();
     }
     let fixture = gap_fixture(home.path(), &raw);
     let (go, gate) = mpsc::channel();
@@ -545,6 +553,9 @@ fn full_mailbox_remains_responsive_over_one_hundred_thousand_lines() {
     let checkpoint = Checkpoint::from_recovered(&recovered).unwrap();
     assert_eq!(checkpoint.cursors[0].place, 1_000_001);
     assert!(fixture.reads.load(Ordering::SeqCst) >= 100_000);
+    let (log, _) = Log::open(home.path(), Options::default()).unwrap();
+    assert_eq!(log.max_row(), 99_999);
+    assert_eq!(log.last_seq(), 99_999);
 }
 
 #[test]
@@ -732,4 +743,112 @@ fn rebuilding_an_absent_book_with_an_external_file_source_succeeds() {
     rebuild(config.clone());
     assert!(!rows(&config.book).is_empty());
     assert!(home.path().join("raw.ndjson").exists());
+}
+
+#[test]
+fn reopening_in_the_same_boot_keeps_the_checkpoint_bytes() {
+    let home = tempfile::tempdir().unwrap();
+    let config = fixture(home.path(), 2);
+    catch_up(config.clone());
+    let before = fs::read(home.path().join("checkpoint")).unwrap();
+    let state = open_state(config).unwrap();
+    assert_eq!(state.log.stats().checkpoints, 0);
+    assert_eq!(fs::read(home.path().join("checkpoint")).unwrap(), before);
+}
+
+#[test]
+fn damage_rebuilds_choose_the_proven_or_next_edition() {
+    let home = tempfile::tempdir().unwrap();
+    let clean = home.path().join("clean");
+    catch_up(fixture(&clean, 2));
+    let expected = rows(&clean);
+    for (damage, edition) in [("segment", 1), ("checkpoint-body", 2), ("folds", 1)] {
+        let book = home.path().join(damage);
+        let config = fixture(&book, 2);
+        catch_up(config.clone());
+        match damage {
+            "segment" => {
+                let path = book.join("rows/000001.seg");
+                let mut bytes = fs::read(&path).unwrap();
+                bytes[0] ^= 1;
+                fs::write(path, bytes).unwrap();
+            }
+            "checkpoint-body" => {
+                let path = book.join("checkpoint");
+                let mut bytes = fs::read(&path).unwrap();
+                *bytes.last_mut().unwrap() ^= 1;
+                fs::write(path, bytes).unwrap();
+            }
+            "folds" => fs::write(book.join("folds.idx"), []).unwrap(),
+            _ => unreachable!(),
+        }
+        let actor = ChatActor::spawn(config);
+        wait_health(&actor.handle, crate::life::Health::Running);
+        actor.join();
+        assert_eq!(rows(&book), expected, "{damage}");
+        assert_eq!(log::CheckpointHead::read(&book).unwrap().unwrap().edition, edition, "{damage}");
+    }
+}
+
+#[test]
+fn repeated_head_loss_never_reuses_a_constant_edition() {
+    let home = tempfile::tempdir().unwrap();
+    let next = AtomicU64::new(76);
+    let config = fixture(home.path(), 1)
+        .with_edition_random(Arc::new(move || next.fetch_add(1, Ordering::SeqCst) as u32 + 1));
+    catch_up(config.clone());
+    for expected in [77, 78] {
+        fs::write(home.path().join("checkpoint"), b"lost head").unwrap();
+        rebuild(config.clone());
+        assert_eq!(log::CheckpointHead::read(home.path()).unwrap().unwrap().edition, expected);
+    }
+}
+
+fn large_body_raw() -> Vec<u8> {
+    let mut events: Vec<serde_json::Value> =
+        SEED.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+    events[6]["msg"]["params"]["update"]["content"][0]["content"]["text"] =
+        "a".repeat(20_000).into();
+    let mut replacement = events[6].clone();
+    events[6]["msg"]["params"]["update"]["status"] = "pending".into();
+    replacement["msg"]["params"]["update"]["content"][0]["content"]["text"] =
+        "b".repeat(30_000).into();
+    events.insert(7, replacement);
+    let mut raw = Vec::new();
+    for (index, event) in events.iter_mut().enumerate() {
+        event["seq"] = (index as u64 + 1).into();
+        serde_json::to_writer(&mut raw, event).unwrap();
+        raw.push(b'\n');
+    }
+    raw
+}
+fn final_blobs(book: &Path) -> BTreeMap<String, Vec<u8>> {
+    fs::read_dir(book.join("blobs"))
+        .unwrap()
+        .map(Result::unwrap)
+        .filter(|entry| entry.file_type().unwrap().is_file())
+        .map(|entry| (entry.file_name().into_string().unwrap(), fs::read(entry.path()).unwrap()))
+        .collect()
+}
+
+#[test]
+fn large_body_replacement_survives_every_raw_line_kill() {
+    let home = tempfile::tempdir().unwrap();
+    let clean = home.path().join("clean");
+    let raw = large_body_raw();
+    fs::create_dir(&clean).unwrap();
+    fs::write(clean.join("source.ndjson"), &raw).unwrap();
+    catch_up(config_at(&clean));
+    let expected = rows(&clean);
+    let blobs = final_blobs(&clean);
+    assert!(!blobs.is_empty(), "fixture must spill a body");
+    for cut in 1..=10 {
+        let book = home.path().join(format!("blob-kill-{cut}"));
+        fs::create_dir(&book).unwrap();
+        fs::write(book.join("source.ndjson"), &raw).unwrap();
+        kill_at(&book, Some(cut), None);
+        catch_up(config_at(&book));
+        assert_eq!(rows(&book), expected, "kill after {cut}");
+        assert_eq!(final_blobs(&book), blobs, "blob after {cut}");
+    }
 }
