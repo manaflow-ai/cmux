@@ -84,15 +84,7 @@ impl HookQueueSnapshot {
             })
             .unwrap_or(0);
         let count = |name: &str| {
-            open_for_reading(&directory.join(name))
-                .ok()
-                .and_then(|file| {
-                    // Never wait on a request thread: a writer holds this
-                    // lock for microseconds, and a busy moment reports 0.
-                    file.try_lock_shared().ok()?;
-                    read_count(&file)
-                })
-                .unwrap_or(0)
+            open_for_reading(&directory.join(name)).ok().and_then(shared_count).unwrap_or(0)
         };
         Self {
             queued_events,
@@ -322,12 +314,32 @@ fn add_dropped_events(directory: &Path, events: u64) -> io::Result<()> {
 }
 
 fn add_count(path: &Path, events: u64) -> io::Result<()> {
-    let mut file = open_spool_file(path)?;
-    file.lock()?;
-    let total = read_count(&file).unwrap_or(0).saturating_add(events);
+    add_count_in(open_spool_file(path)?, events)
+}
+
+/// [`add_count`] on the count file opened as `file`.
+fn add_count_in(file: File, events: u64) -> io::Result<()> {
+    use cmux_file_lock::{FileLock, Kind};
+    // Unlocked when it drops, not only closed: a child the server forked meanwhile keeps no lock.
+    let mut lock = FileLock::take(file, Kind::Exclusive)?;
+    let file = lock.file_mut();
+    let total = read_count(file).unwrap_or(0).saturating_add(events);
     file.set_len(0)?;
     file.seek(SeekFrom::Start(0))?;
     writeln!(file, "{total}")
+}
+
+/// The count in `file` under a shared lock taken now; `None` when a writer
+/// holds it. Never waits on a request thread: a writer holds this lock for
+/// microseconds, and a busy moment reports 0.
+/// The lock is unlocked before the file closes: a child another daemon thread
+/// forked meanwhile shares the open file until it execs, and a close alone
+/// would leave the lock held in that copy.
+fn shared_count(file: File) -> Option<u64> {
+    file.try_lock_shared().ok()?;
+    let count = read_count(&file);
+    let _ = file.unlock();
+    count
 }
 
 fn read_count(mut file: &File) -> Option<u64> {
@@ -461,5 +473,49 @@ mod tests {
         assert!(hook_spool_dir(&root.join("s.sock")).is_err());
         assert!(!root.join(HOOK_SPOOL_DIR).exists());
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(all(test, unix))]
+mod count_lock_tests {
+    use super::*;
+
+    /// A count's lock is free once the count is written, also while a child the server forked
+    /// meanwhile has the descriptor: else `server-stats` reads the count as 0 and the next
+    /// hook's count waits.
+    #[test]
+    fn a_written_count_leaves_its_lock_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = crate::fork_tests::Scratch::new("hook_queue");
+        let path = dir.path().join("dropped-events");
+        let count = open_spool_file(&path).unwrap();
+        let keeper = crate::fork_tests::Keeper::fork();
+        add_count_in(count, 2).unwrap();
+        let free = crate::fork_tests::free(&path);
+        drop(keeper);
+        assert!(free, "the count left its lock held");
+        add_count(&path, 3).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "5\n");
+    }
+}
+
+#[cfg(all(test, unix))]
+mod snapshot_lock_tests {
+    use super::*;
+
+    /// A `server-stats` look at a count leaves its lock free, also while a child the server
+    /// forked meanwhile has the look's descriptor: else the next hook's count waits for that
+    /// child.
+    #[test]
+    fn a_count_look_leaves_its_lock_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = crate::fork_tests::Scratch::new("hook_queue_look");
+        let path = dir.path().join("dropped-events");
+        std::fs::write(&path, "2\n").unwrap();
+        let look = open_for_reading(&path).unwrap();
+        let keeper = crate::fork_tests::Keeper::fork();
+        let count = shared_count(look);
+        let free = crate::fork_tests::free(&path);
+        drop(keeper);
+        assert_eq!(count, Some(2));
+        assert!(free, "a count look left its lock held");
     }
 }

@@ -136,7 +136,8 @@ extension WebPageTab {
             guard let tab, let window = services.windowController(showing: pane) else { return false }
             let key = LocalPageTab.makeKey(.github), opener = pane === source && placed == nil && !HomeDockOpens.opensBeside(pane.pane, services: services) ? pane.selectedTab : nil
             tab.restore(link.route, for: key)
-            // As for its web tab: the chat is its opener in the chat's pane; in another pane its close, emptying it, focuses the chat.
+            // As for its web tab: the chat is its opener in the chat's pane (the close rule hears of it here: the page shows before its store tab exists); in another pane its close, emptying it, focuses the chat.
+            if let opener { pane.state?.selection.closeRule.expect(in: pane.paneKey, opener: opener.id, listed: pane.pane.tabs.map(\.id), quick: false, link: true) }
             let adopt = opener.flatMap { o in NewTabSlot.placing(after: o, services: services) { [weak services] in services?.cache.pageRequests.openers.adopt($0, opener: o.surface) } }
             let made = placed ?? adopt ?? HomeDockOpens.placing(pane.pane, services: services, focus: true, then: nil)
             var created = made

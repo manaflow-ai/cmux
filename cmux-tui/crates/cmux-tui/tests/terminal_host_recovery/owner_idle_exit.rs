@@ -12,7 +12,9 @@ fn owner_idle_exit_leaves_hosted_terminals_alive_and_the_next_owner_readopts_the
     // executable is gone: run the daemon from a copy and delete the copy.
     harness.session = "cmux-app-idleexit".into();
     let copy = harness.dir.join("cmux-tui-copy");
-    fs::copy(bin(), &copy).unwrap();
+    // The copy is copied by `cp`, not `fs::copy`: a write descriptor held here would pass to the child of any test thread that starts a process meanwhile, and exec of the copy then fails with ETXTBSY.
+    let copied = Command::new("cp").arg(bin()).arg(&copy).status().unwrap();
+    assert!(copied.success(), "cp {} {}", bin(), copy.display());
     let template = harness.daemon_command();
     let mut command = {
         let mut copied = Command::new(&copy);

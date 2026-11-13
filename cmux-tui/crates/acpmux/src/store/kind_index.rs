@@ -11,10 +11,18 @@
 //! bytes only.
 //!
 //! A copy whose file is gone (replaced, or another log's after a move) or shorter than it covers
-//! is read past and made again. A copy is written whole under a temporary name and renamed into
-//! place, so a crash leaves the old copy or none. A scan writes one when it had none or read at
-//! least [`COPY_AFTER`] bytes past it; nothing is written on the append path, and a chat's folder
-//! is deleted with its copies.
+//! is read past and made again. A new copy is written whole under a temporary name and renamed
+//! into place, so a crash leaves the old copy or none. A scan that read at least [`COPY_AFTER`]
+//! bytes past a copy it took adds only the lines it read to it: the new lines go at the end of
+//! the copy's lines, then its fixed-width header ([`HEADER_WIDTH`]) is written again in place. A
+//! crash between the two leaves the old header, which covers the old lines only (the bytes past
+//! them are read past, and the next addition cuts them off); a torn header or a lost line fails
+//! the copy's seal, so the copy is read past and made again, never read wrong. So each indexed
+//! line is written to its copy once, not once per [`COPY_AFTER`] bytes of log: a chat whose
+//! prompts were megabytes each rewrote its whole copy, every prompt in it, on every scan
+//! (cmuxterm-hq#9263: `logged_inbox_answer` → `scan_kinds`, 131 of 757 samples of 549 GB of
+//! writes in a day). Nothing is written on the append path, and a chat's folder is deleted with
+//! its copies.
 //!
 //! A strict scan ([`Store::scan_kinds_strict`], the transfer authority's) fails on a line that
 //! does not read, as one of the whole log would: a copy says whether every line it covers read,
@@ -73,10 +81,18 @@ pub const INDEXED_KINDS: &[&str] = &[
 
 /// The folder of a chat's copies, beside its `events`.
 pub const DIR: &str = "events-index";
-const SCHEMA: &str = "acpmux.kind-index.v4";
+const SCHEMA: &str = "acpmux.kind-index.v5";
+
+/// A copy's first line, its header, padded with spaces to this many bytes and a newline, so an
+/// addition writes it again in place ([`LocalStore::append_kind_index`]).
+pub(super) const HEADER_WIDTH: usize = 512;
 
 /// A scan that read this many bytes of a segment past its copy saves the copy again.
 pub(super) const COPY_AFTER: u64 = 1 << 20;
+
+/// The longest tail past a copy a page reads whole: past it the page seeks for its `before`
+/// (`offset_of_seq`, whose probes read 64 KiB each), as the read back from the end does.
+const TAIL_SEEK_BYTES: u64 = 256 * 1024;
 
 /// What a copy was read from: the segment file, and the bytes of it the copy covers.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -93,18 +109,67 @@ struct Header {
     kinds: u64,
     /// Every line of the bytes it covers read as a record: a strict scan takes no other copy.
     parsed: bool,
-    /// The copied lines' length, and an FNV-1a hash of every other field and the lines: a damaged
-    /// or cut copy is read past.
+    /// The copied lines' length and their FNV-1a hash, which an addition carries on from; `seal`,
+    /// a hash of every other field: a damaged or cut copy is read past.
     lines_len: u64,
     lines_hash: u64,
+    seal: u64,
 }
 
-/// FNV-1a, 64 bits, of a copy's file, coverage, kinds and lines: stable across builds, so a copy
-/// one daemon wrote checks in the next.
-fn seal(id: (u64, u64, u64), len: u64, kinds: u64, parsed: bool, lines: &[u8]) -> u64 {
-    let fields = [id.0, id.1, id.2, len, kinds, u64::from(parsed), lines.len() as u64];
-    fnv(fields.iter().flat_map(|f| f.to_le_bytes()).chain(lines.iter().copied()))
+impl Header {
+    fn new(id: (u64, u64, u64), len: u64, parsed: bool, lines_len: u64, lines_hash: u64) -> Self {
+        let kinds = kinds();
+        Self {
+            schema: SCHEMA.into(),
+            dev: id.0,
+            ino: id.1,
+            born_ns: id.2,
+            len,
+            kinds,
+            parsed,
+            lines_len,
+            lines_hash,
+            seal: seal(id, len, kinds, parsed, lines_len, lines_hash),
+        }
+    }
+
+    /// The header line, padded to [`HEADER_WIDTH`]; None if it would not fit (it always does).
+    fn line(&self) -> Option<Vec<u8>> {
+        let mut out = serde_json::to_vec(self).ok()?;
+        if out.len() >= HEADER_WIDTH {
+            return None;
+        }
+        out.resize(HEADER_WIDTH - 1, b' ');
+        out.push(b'\n');
+        Some(out)
+    }
 }
+
+/// FNV-1a, 64 bits, of a copy's file, coverage, kinds and its lines' length and hash: stable
+/// across builds, so a copy one daemon wrote checks in the next.
+fn seal(
+    id: (u64, u64, u64),
+    len: u64,
+    kinds: u64,
+    parsed: bool,
+    lines_len: u64,
+    lines: u64,
+) -> u64 {
+    let fields = [id.0, id.1, id.2, len, kinds, u64::from(parsed), lines_len, lines];
+    fnv(fields.iter().flat_map(|f| f.to_le_bytes()))
+}
+
+/// The FNV-1a offset basis: the hash of no bytes, which [`fnv_on`] carries on from.
+const FNV_START: u64 = 0xcbf2_9ce4_8422_2325;
+
+/// FNV-1a from `state` (a hash of the bytes before) over `bytes`.
+fn fnv_on(state: u64, bytes: &[u8]) -> u64 {
+    bytes.iter().fold(state, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x100_0000_01b3))
+}
+
+/// One addition to a copy at a time in this process: two scans of a chat that added at once
+/// would each cut the other's lines (the seal would catch it, and the copy be made again).
+static APPENDS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// FNV-1a, 64 bits, of [`INDEXED_KINDS`].
 fn kinds() -> u64 {
@@ -112,7 +177,7 @@ fn kinds() -> u64 {
 }
 
 pub(super) fn fnv(bytes: impl Iterator<Item = u8>) -> u64 {
-    bytes.fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3))
+    bytes.fold(FNV_START, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3))
 }
 
 /// What a copy is of: the segment file (its device, inode and birth time) and its length now.
@@ -198,6 +263,88 @@ impl Scan<'_> {
 }
 
 impl LocalStore {
+    /// `scan_back` (`indexed`: `scan_back_indexed`, whose `skip` passes only [`INDEXED_KINDS`]).
+    /// Segments are read newest first; an indexed read takes a segment's copy where it is of that
+    /// very file and whole ([`Self::read_kind_index`]): the segment's bytes past the copy back from
+    /// the end, then the copy's lines newest first. Anywhere else (no copy yet, a copy a
+    /// compaction or an upgrade left stale, a file system with no birth time) it reads the segment
+    /// back from its end, as `scan_back` does. It never writes a copy: the log load does.
+    pub(super) fn scan_back_in(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+        indexed: bool,
+    ) -> Result<()> {
+        let done = std::cell::Cell::new(false);
+        // One line, newest first: false once the read is over (`visit` stopped, or `after`).
+        let mut line = |line: &[u8]| {
+            match record_seq(line) {
+                Some(seq) if seq >= before => return true,
+                Some(seq) if seq <= after => {
+                    done.set(true);
+                    return false;
+                }
+                _ => {}
+            }
+            if let (Some(dir), Some(kind)) = (record_dir(line), record_kind(line))
+                && skip(dir, kind)
+            {
+                return true;
+            }
+            let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
+            if rec.seq >= before {
+                return true;
+            }
+            if rec.seq <= after || !visit(rec) {
+                done.set(true);
+                return false;
+            }
+            true
+        };
+        for (index, path) in self.segments(id)?.into_iter().rev() {
+            if first_seq(&path)?.is_some_and(|first| first >= before) {
+                continue;
+            }
+            let mut file = crate::config::private_state_file(&path)?;
+            let copy =
+                if indexed { self.read_kind_index(id, index, &Stamp::of(&file)?) } else { None };
+            match copy {
+                // A copy covers the segment's first `from` bytes, whole lines: what was written
+                // after them (none in a segment a log load sealed and copied, at most the segment
+                // in the one being written) is read from the segment, then the copy. A long tail
+                // is first cut at `before`, as `scan_back` cuts the segment; a short one is read
+                // whole, which costs less than the seek's probes.
+                Some((lines, from, _)) => {
+                    let len = std::io::Seek::seek(&mut file, std::io::SeekFrom::End(0))?;
+                    let end = if before != u64::MAX && len.saturating_sub(from) > TAIL_SEEK_BYTES {
+                        offset_of_seq(&mut file, before)?.max(from)
+                    } else {
+                        u64::MAX
+                    };
+                    for_each_line_rev_between(&mut file, from, end, &mut line)?;
+                    if !done.get() {
+                        for copied in lines.split(|b| *b == b'\n').rev() {
+                            if !copied.is_empty() && !line(copied) {
+                                break;
+                            }
+                        }
+                    }
+                }
+                None => {
+                    let end = offset_of_seq(&mut file, before)?;
+                    for_each_line_rev_from(&mut file, end, &mut line)?;
+                }
+            }
+            if done.get() {
+                return Ok(());
+            }
+        }
+        Ok(())
+    }
+
     fn kind_index_path(&self, id: &str, index: u32) -> PathBuf {
         self.dir(id).join(DIR).join(format!("{index:06}.ndjson"))
     }
@@ -264,6 +411,8 @@ impl LocalStore {
         }
         let had_copy = copy.is_some();
         let lines = copy.get_or_insert_with(Vec::new);
+        // The copy's own lines: an addition writes only the lines past them.
+        let copied = lines.len();
         // The bytes past `from` read up to the end of their last whole line.
         let mut covered = 0u64;
         let mut reader = BufReader::with_capacity(256 * 1024, file);
@@ -305,16 +454,18 @@ impl LocalStore {
         }
         if let Some(stamp) = stamp
             && (!had_copy || covered >= COPY_AFTER)
-            && let Err(e) = self.write_kind_index(
-                id,
-                index,
-                &stamp,
-                from.saturating_add(covered),
-                parsed,
-                lines,
-            )
         {
-            tracing::warn!(session = %id, segment = index, "saving the log's kind index failed: {e}");
+            let len = from.saturating_add(covered);
+            let added = had_copy
+                && self
+                    .append_kind_index(id, index, &stamp, len, parsed, lines, copied)
+                    .unwrap_or_else(|e| {
+                        tracing::debug!(session = %id, segment = index, "adding to the log's kind index failed: {e}");
+                        false
+                    });
+            if !added && let Err(e) = self.write_kind_index(id, index, &stamp, len, parsed, lines) {
+                tracing::warn!(session = %id, segment = index, "saving the log's kind index failed: {e}");
+            }
         }
         Ok(true)
     }
@@ -335,10 +486,20 @@ impl LocalStore {
         let end = bytes.iter().position(|b| *b == b'\n')?;
         let header: Header = serde_json::from_slice(&bytes[..end]).ok()?;
         let id = segment.id;
-        let lines = bytes.split_off(end.saturating_add(1));
+        let mut lines = bytes.split_off(end.saturating_add(1));
+        // Bytes past the lines the header covers are an addition a crash cut before its header.
+        lines.truncate(usize::try_from(header.lines_len).ok()?);
         let file = (header.dev, header.ino, header.born_ns);
         let whole = lines.len() as u64 == header.lines_len
-            && seal(file, header.len, header.kinds, header.parsed, &lines) == header.lines_hash
+            && fnv_on(FNV_START, &lines) == header.lines_hash
+            && seal(
+                file,
+                header.len,
+                header.kinds,
+                header.parsed,
+                header.lines_len,
+                header.lines_hash,
+            ) == header.seal
             && lines.last().is_none_or(|b| *b == b'\n');
         let same = header.schema == SCHEMA && header.kinds == kinds() && id.2 != 0 && file == id;
         (same && whole && segment.len >= header.len).then_some((lines, header.len, header.parsed))
@@ -363,33 +524,80 @@ impl LocalStore {
         // whatever the umask: under 002 it would be group-writable, and `private_state_dir`
         // refuses that.
         let dir = self.dir(id).join(DIR);
-        let mut made = std::fs::DirBuilder::new();
-        #[cfg(unix)]
-        std::os::unix::fs::DirBuilderExt::mode(&mut made, 0o700);
-        if let Err(e) = made.create(&dir)
+        if let Err(e) = crate::home_fs::create_dir(&dir, 0o700)
             && e.kind() != std::io::ErrorKind::AlreadyExists
         {
             return Err(e.into());
         }
         crate::config::private_state_dir(&dir)?;
-        let kinds = kinds();
-        let lines_len = lines.len() as u64;
-        let lines_hash = seal((dev, ino, born_ns), len, kinds, parsed, lines);
-        let header = Header {
-            schema: SCHEMA.into(),
-            dev,
-            ino,
-            born_ns,
+        let header = Header::new(
+            (dev, ino, born_ns),
             len,
-            kinds,
             parsed,
-            lines_len,
-            lines_hash,
-        };
-        let mut out = serde_json::to_vec(&header)?;
-        out.push(b'\n');
+            lines.len() as u64,
+            fnv_on(FNV_START, lines),
+        );
+        let mut out = header.line().ok_or_else(|| anyhow::anyhow!("kind index header too long"))?;
         out.extend_from_slice(lines);
-        write_atomic(&self.kind_index_path(id, index), &out)
+        crate::config::write_atomic_unsynced(&self.kind_index_path(id, index), &out)
+    }
+
+    /// Adds `lines[copied..]`, the lines read past the copy of segment `index` that `lines[..copied]`
+    /// is, to that copy, which now covers the segment's first `len` bytes: the new lines at the end
+    /// of the copy's lines, then its header again in place ([module docs](self)). False (nothing
+    /// written) when the copy on disk is not the one the scan read, so the caller writes it whole.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn append_kind_index(
+        &self,
+        id: &str,
+        index: u32,
+        segment: &Stamp,
+        len: u64,
+        parsed: bool,
+        lines: &[u8],
+        copied: usize,
+    ) -> Result<bool> {
+        use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
+        if segment.id.2 == 0 {
+            return Ok(true);
+        }
+        let _one = APPENDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let path = self.kind_index_path(id, index);
+        crate::config::refuse_lost_home(&path)?;
+        let mut options = crate::home_fs::OpenOptions::new();
+        options.read(true).write(true);
+        #[cfg(unix)]
+        options.custom_flags(libc::O_NOFOLLOW);
+        let mut file = options.open(&path)?;
+        let mut head = vec![0u8; HEADER_WIDTH];
+        if file.read_exact(&mut head).is_err() || head.last() != Some(&b'\n') {
+            return Ok(false);
+        }
+        let Ok(old) = serde_json::from_slice::<Header>(&head) else { return Ok(false) };
+        let (old_lines, new_lines) = lines.split_at(copied.min(lines.len()));
+        if old.schema != SCHEMA
+            || (old.dev, old.ino, old.born_ns) != segment.id
+            || old.lines_len != old_lines.len() as u64
+            || old.lines_hash != fnv_on(FNV_START, old_lines)
+        {
+            return Ok(false);
+        }
+        let header = Header::new(
+            segment.id,
+            len,
+            old.parsed && parsed,
+            lines.len() as u64,
+            fnv_on(old.lines_hash, new_lines),
+        );
+        let Some(line) = header.line() else { return Ok(false) };
+        let end = (HEADER_WIDTH as u64).saturating_add(old.lines_len);
+        // A crash's addition past the header's lines goes first.
+        file.set_len(end)?;
+        file.seek(SeekFrom::Start(end))?;
+        file.write_all(new_lines)?;
+        file.seek(SeekFrom::Start(0))?;
+        file.write_all(&line)?;
+        Ok(true)
     }
 }
 

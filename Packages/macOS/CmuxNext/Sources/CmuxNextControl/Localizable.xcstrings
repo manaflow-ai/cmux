@@ -8778,6 +8778,137 @@
         }
       }
     },
+    "control.error.settingsBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "another cmux process holds the lock of the settings file; the write did not finish, send the request again"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عملية cmux أخرى تحتفظ بقفل ملف الإعدادات؛ لم تكتمل الكتابة، أرسل الطلب مرة أخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "drugi cmux proces drži zaključavanje datoteke postavki; upis nije završen, pošaljite zahtjev ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "en anden cmux-proces holder låsen på indstillingsfilen; skrivningen blev ikke færdig, send anmodningen igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ein anderer cmux-Prozess hält die Sperre der Einstellungsdatei; der Schreibvorgang wurde nicht abgeschlossen, sende die Anfrage erneut"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "otro proceso de cmux mantiene el bloqueo del archivo de ajustes; la escritura no terminó, envía la solicitud de nuevo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "un autre processus cmux détient le verrou du fichier de réglages ; l’écriture n’est pas terminée, renvoyez la requête"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "un altro processo cmux detiene il blocco del file delle impostazioni; la scrittura non è terminata, invia di nuovo la richiesta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "別の cmux プロセスが設定ファイルのロックを保持しています。書き込みは完了していません。リクエストをもう一度送信してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដំណើរការ cmux ផ្សេងទៀតកំពុងកាន់សោឯកសារការកំណត់; ការសរសេរមិនបានបញ្ចប់ទេ សូមផ្ញើសំណើម្តងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 cmux 프로세스가 설정 파일의 잠금을 보유하고 있습니다. 쓰기가 완료되지 않았으니 요청을 다시 보내세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "en annen cmux-prosess holder låsen på innstillingsfilen; skrivingen ble ikke fullført, send forespørselen på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "inny proces cmux trzyma blokadę pliku ustawień; zapis nie został ukończony, wyślij żądanie ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "outro processo do cmux mantém o bloqueio do arquivo de ajustes; a gravação não terminou, envie a requisição novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "другой процесс cmux удерживает блокировку файла настроек; запись не завершена, отправьте запрос ещё раз"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กระบวนการ cmux อื่นถือล็อกของไฟล์การตั้งค่าอยู่ การเขียนยังไม่เสร็จ ให้ส่งคำขออีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "başka bir cmux işlemi ayarlar dosyasının kilidini tutuyor; yazma tamamlanmadı, isteği yeniden gönderin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "інший процес cmux утримує блокування файлу налаштувань; запис не завершено, надішліть запит ще раз"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "một tiến trình cmux khác đang giữ khóa của tệp cài đặt; thao tác ghi chưa hoàn tất, hãy gửi lại yêu cầu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "另一个 cmux 进程持有设置文件的锁;写入未完成,请重新发送请求"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "另一個 cmux 程序持有設定檔的鎖;寫入未完成,請重新傳送請求"
+          }
+        }
+      }
+    },
     "control.error.unknownParam": {
       "extractionState": "manual",
       "localizations": {
