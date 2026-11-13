@@ -255,9 +255,12 @@ struct ClassicImportTests {
         try FileManager.default.createDirectory(at: home.classic, withIntermediateDirectories: true)
         try session.write(to: home.session(), atomically: true, encoding: .utf8)
 
+        // `classic_import.*` is the verified app's only: the daemon gets an install key and the
+        // connection proves it, as the app's own (`DaemonService.localConfiguration`).
+        let key = FrontendInstallKey.generate()
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: "cn-classic-\(UUID().uuidString.prefix(8).lowercased())",
-                                 stateDirectory: root.appendingPathComponent("state")),
+                                 stateDirectory: root.appendingPathComponent("state"), installKey: key),
             environment: { home.daemonEnvironment() })
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -271,7 +274,8 @@ struct ClassicImportTests {
         }
         services.onboarding.classicChatPlan = { adopt, cwd in AcpmuxChatOpenPlan(result: plan(adopt, cwd)) }
         services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, clientHello: .init(installKey: key)),
+                             endpointProvider: launcher.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
         defer {

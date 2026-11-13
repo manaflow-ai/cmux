@@ -77,9 +77,12 @@ struct ClassicMigrationTests {
     private func launch(_ mac: Mac, state: String = "state", answer: ClassicImportAnswer = .accepted,
                         after: @MainActor (AppServices) async throws -> Void = { _ in }) async throws -> Tree {
         let binary = try #require(SameTreeDaemonBinary.url)
+        // `classic_import.*` is the verified app's only: the daemon gets an install key and the
+        // connection proves it, as the app's own (`DaemonService.localConfiguration`).
+        let key = FrontendInstallKey.generate()
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: "cn-migrate-\(UUID().uuidString.prefix(8).lowercased())",
-                                 stateDirectory: mac.root.appendingPathComponent(state)),
+                                 stateDirectory: mac.root.appendingPathComponent(state), installKey: key),
             environment: { [home = mac.home] in home.daemonEnvironment() })
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -90,7 +93,8 @@ struct ClassicMigrationTests {
         services.onboarding.classicMigrationConfirmation = { _ in answer }
         services.onboarding.classicChatPlan = { _, _ in nil }
         services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, clientHello: .init(installKey: key)),
+                             endpointProvider: launcher.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
         defer {

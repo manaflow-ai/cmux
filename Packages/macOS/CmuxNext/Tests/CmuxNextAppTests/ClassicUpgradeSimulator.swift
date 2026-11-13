@@ -103,6 +103,9 @@ final class ClassicUpgradeSimulator {
     let mac: Mac
     let services: AppServices
     private let launcher: DaemonLauncher
+    /// The daemon's install key, proved by the app's connection: `classic_import.*` is the verified app's only
+    /// (`DaemonService.localConfiguration` does the same).
+    private let installKey: FrontendInstallKey
     let tap: DaemonCommandTap?
     /// Seconds since the migration started at which each workspace name first showed (``watch()``).
     private(set) var appeared: [String: Double] = [:]
@@ -128,9 +131,11 @@ final class ClassicUpgradeSimulator {
         self.mac = mac
         self.tap = tap
         let binary = try #require(SameTreeDaemonBinary.url)
+        let installKey = FrontendInstallKey.generate()
+        self.installKey = installKey
         launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: "cn-upgrade-\(UUID().uuidString.prefix(8).lowercased())",
-                                 stateDirectory: mac.root.appendingPathComponent("state")),
+                                 stateDirectory: mac.root.appendingPathComponent("state"), installKey: installKey),
             environment: { [home = mac.daemonHome] in home.daemonEnvironment(shell: shell) })
         _ = NSApplication.shared
         services = AppServices(environment: AppEnvironment.current([:]))
@@ -165,7 +170,8 @@ final class ClassicUpgradeSimulator {
         // As the app connects (`DaemonService.localConfiguration`): `session.events` brings the sidebar document's
         // changes (the echo of each adopt and move) and the personal rows, and the document path echoes
         // `placement-shift-v1`. Without them the document never confirms a placement (#28425).
-        var configuration = DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true)
+        var configuration = DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true,
+                                                           clientHello: .init(installKey: installKey))
         configuration.echoesPlacementShift = true
         services.daemon.start { [configuration] in
             DaemonConnection(configuration: configuration, endpointProvider: endpoints)
