@@ -231,6 +231,14 @@ test("a running turn draws its thought from its first line, then keeps it in the
     { now: 3_000, working: true },
   );
   expect(short.some((row) => row.id === "act")).toBe(false);
+  // A thought that opens its run waits out its first 100 ms of chunks, so its row never lands in the
+  // frame its run and the turn's Working line do (turn-transition-jumps burst-thought).
+  const first = turnView(
+    [user(1_000), { id: "act", version: 1, at: 2_000, kind: "activity", items: [{ ...thought, endedAt: 2_040 }] }],
+    new Set(),
+    { now: 3_000, working: true },
+  );
+  expect(first.some((row) => row.id === "act")).toBe(false);
   // One that has run a second draws now, as it does once the turn ends or the chat reloads: live and
   // restored agree (Leo, 2026-11-09: "now i see it", after a reload).
   const slow = turnView(
