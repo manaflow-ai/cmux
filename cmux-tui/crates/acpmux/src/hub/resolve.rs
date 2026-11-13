@@ -396,6 +396,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         harness_cost_usd: None,
         pull_requests: vec![],
         pull_request_times: Default::default(),
+        closed_pull_requests: vec![],
         touched_files: vec![],
         git_branch: None,
         git_head: None,
