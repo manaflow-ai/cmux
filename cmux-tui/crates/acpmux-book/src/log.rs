@@ -903,8 +903,8 @@ impl Log {
             self.tail.file.seek(SeekFrom::End(0))?;
         } else {
             let checkpoint_path = segment_path(&self.rows_dir, self.checkpoint_mark.seg);
-            let mut checkpoint_file =
-                OpenOptions::new().read(true).write(true).append(true).open(&checkpoint_path)?;
+            let checkpoint_file =
+                OpenOptions::new().read(true).append(true).open(&checkpoint_path)?;
             checkpoint_file.set_len(u64::from(self.checkpoint_mark.off))?;
             fsio::sync(&checkpoint_file)?;
             self.stats.syncs = self.stats.syncs.saturating_add(1);
