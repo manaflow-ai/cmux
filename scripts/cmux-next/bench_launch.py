@@ -211,6 +211,21 @@ def close_all_workspaces(read_ids, close_all, settle=30.0, step=0.5, clock=time.
     return frozenset(last), done
 
 
+def wait_for_count(read_count, target, settle=30.0, step=0.5, clock=time.monotonic, sleep=time.sleep):
+    """`read_count()` once it reaches `target`, else its last value after `settle` seconds.
+
+    `workspace create` returns on the daemon's reply, while `snapshot.get` serves the topology the app last
+    published (ControlRouter+Builtins.swift, `call.snapshot`): read right after the last create, it can lack the
+    newest workspaces. instant-new-surfaces read it once and stopped two short at 100 and at 1000 workspaces
+    (cmux#24569: "workspaces: 1 -> 98", "could not reach 100 workspaces (have 98)")."""
+    now = read_count()
+    deadline = clock() + settle
+    while now < target and clock() < deadline:
+        sleep(step)  # bounded wait for the creations to land in the published topology
+        now = read_count()
+    return now
+
+
 def account_home():
     """The home the app resolves (`FileManager.homeDirectoryForCurrentUser`): the password database's."""
     try:

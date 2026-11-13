@@ -160,6 +160,23 @@ class CloseAllWorkspacesTests(unittest.TestCase):
         self.assertFalse(done)
 
 
+class WaitForCountTests(unittest.TestCase):
+    """cmux#24569: the instant probe read snapshot.get once right after its last `workspace create` and stopped two
+    short ("workspaces: 1 -> 98", "could not reach 100 workspaces (have 98)"): the published topology lags the
+    daemon's replies."""
+
+    def wait(self, counts, target):
+        reads, clock = iter(counts), iter(range(1000))
+        return bench_launch.wait_for_count(lambda: next(reads), target, settle=30, step=1,
+                                           clock=lambda: next(clock), sleep=lambda _s: None)
+
+    def test_lagging_topology_reaches_the_target(self):
+        self.assertEqual(self.wait([98, 99, 100], 100), 100)
+
+    def test_a_count_that_never_arrives_ends_at_the_deadline(self):
+        self.assertEqual(self.wait([98] * 100, 100), 98)
+
+
 class ProbeReasonTests(unittest.TestCase):
     def test_failed_probe_names_its_reason(self):
         with tempfile.TemporaryDirectory() as tmp:

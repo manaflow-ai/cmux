@@ -56,7 +56,7 @@ if "--bench=new-pane-start-state" in sys.argv:
     os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=new-pane-start-state"]])
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import BenchApp, bundle_id, close_all_workspaces  # noqa: E402
+from bench_launch import BenchApp, bundle_id, close_all_workspaces, wait_for_count  # noqa: E402
 import bench_arms  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -489,15 +489,21 @@ def workspace_count():
 def grow_workspaces(count):
     """At least `count` workspaces; optionally seed empty rows to avoid opening 1000 PTYs."""
     have = workspace_count()
+    failed = []
     for index in range(have, count):
         if opts.empty_workspaces:
-            run("workspace", "create", "--empty", "--name", f"bench-{index}", timeout=120)
+            done = run("workspace", "create", "--empty", "--name", f"bench-{index}", timeout=120)
+            if done.returncode != 0:
+                failed.append(f"bench-{index}: exit {done.returncode} {done.stderr.strip()[-200:]}")
         else:
-            rpc("action.run", {"action": "newTab", "args": {"name": f"bench-{index}"}, "wait": True})
-    now = workspace_count()
+            reply = rpc("action.run", {"action": "newTab", "args": {"name": f"bench-{index}"}, "wait": True})
+            if isinstance(reply, dict) and reply.get("error"):
+                failed.append(f"bench-{index}: {json.dumps(reply['error'])[:200]}")
+    # The creates return before the published topology lists them (bench_launch.wait_for_count).
+    now = wait_for_count(workspace_count, count)
     print(f"workspaces: {have} -> {now}", flush=True)
     if now < count:
-        sys.exit(f"could not reach {count} workspaces (have {now})")
+        sys.exit(f"could not reach {count} workspaces (have {now}; {len(failed)} creates failed: {failed[:3]})")
     return now
 
 
