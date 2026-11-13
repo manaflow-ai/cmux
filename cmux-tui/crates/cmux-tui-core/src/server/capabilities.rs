@@ -99,6 +99,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_owner_cloud_start() {
         capabilities.push(AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY);
+        // The owner's model credential with the start and its refresh (agent_session_start.rs).
+        capabilities.push(AGENT_SESSION_START_CREDENTIALS_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_update() {

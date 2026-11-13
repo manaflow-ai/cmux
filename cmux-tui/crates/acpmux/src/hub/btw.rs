@@ -404,6 +404,8 @@ impl Hub {
                     person: session.person.load(Ordering::SeqCst),
                     wait_start: false,
                     require_asking: false,
+                    // A side chat never runs on its chat's Cloud credential.
+                    credential: None,
                 };
                 let side = match with_inline_creation(
                     self.clone(),

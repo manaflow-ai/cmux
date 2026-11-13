@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextTabs
 import CmuxNextDaemon
 import Foundation
@@ -95,13 +96,17 @@ extension AgentTabStore {
         // A default model pick is omitted by the page. After a harness switch it must remain
         // that harness's default, rather than restoring the previous harness's seeded model.
         let model = chosenModel ?? (harness == seed?.harness ? seed?.model : nil)
-        do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model, permissionMode: startPermissionMode())) } catch { result = .failure(error) }
+        // The owner's model credential its Cloud start chose (read now; never sent to a machine that is not theirs).
+        let credential = ownerLink == nil ? nil : try await cloudCredentials?.launchCredential(chat: key, machine: machine)
+        do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model, permissionMode: startPermissionMode(),
+                                                      credentials: credential?.env)) } catch { result = .failure(error) }
         let phases = await client.startPhases
         await client.close()
         switch result {
         case .success(let session):
             // The daemon bound the session on its tab (it is the record's writer); this is the view mirror.
             if self.record(for: scopedKey) != nil { sessions[scopedKey] = session }
+            if let credential { cloudCredentials?.started(chat: key, machine: machine, on: credential, push: CloudAgentCredentialRefresher.machinePush(surface: surface, ownerLink: ownerLink, reconnect: reconnect, endpoint: endpoint)) }
             onRemoteChatStarted?(record.host, session, fallback, harness)
             return .init(surface: surface, session: session, phases: phases)
         case .failure(let error as AgentSessionAttachError):
