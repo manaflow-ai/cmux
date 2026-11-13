@@ -612,7 +612,8 @@ fn hold(_git_dir: &Path) -> Option<File> {
 /// holds the lock of the worktree whose git folder is `git_dir`.
 #[cfg(unix)]
 fn held(git_dir: &Path) -> bool {
-    let Ok(file) = File::open(git_dir.join(LOCK_FILE)) else { return false };
+    // A link or a named pipe in the lock's place is nobody's lock.
+    let Some(file) = open_own(&git_dir.join(LOCK_FILE)) else { return false };
     held_on(file)
 }
 
@@ -655,17 +656,27 @@ fn signal_group(pid: u32, signal: Signal) {
 fn signal_group(_pid: u32, _signal: Signal) {}
 
 fn read_status(git_dir: &Path) -> Option<Status> {
-    let mut bytes = Vec::new();
-    open_own(&git_dir.join(STATUS_FILE))?.read_to_end(&mut bytes).ok()?;
-    serde_json::from_slice(&bytes).ok()
+    serde_json::from_slice(&read_own(&git_dir.join(STATUS_FILE))?).ok()
 }
 
-/// Opens a file that a setup wrote in a worktree's git folder, for a read.
-/// The file is the setup's own: a link in its place is not followed, and
-/// only a regular file is read (the open file is looked at, not its name).
+/// The bytes of a file that cmux keeps in a git folder ([`open_own`]).
+fn read_own(path: &Path) -> Option<Vec<u8>> {
+    let mut bytes = Vec::new();
+    open_own(path)?.read_to_end(&mut bytes).ok()?;
+    Some(bytes)
+}
+
+/// Opens a file that cmux keeps in a git folder (a setup's status, log and
+/// lock, the repository's ports), for a read ([`open_as_own`]).
 fn open_own(path: &Path) -> Option<File> {
-    let mut options = OpenOptions::new();
-    options.read(true);
+    open_as_own(OpenOptions::new().read(true), path)
+}
+
+/// Opens with `options` a file that cmux keeps in a git folder. The file is
+/// cmux's own: a link in its place is not followed, the open waits for
+/// nothing (a named pipe has no other end to wait for), and only a regular
+/// file is used (the open file is looked at, not its name).
+fn open_as_own(options: &mut OpenOptions, path: &Path) -> Option<File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt as _;
@@ -674,7 +685,7 @@ fn open_own(path: &Path) -> Option<File> {
     // No open here refuses a link: the look at the name is all there is.
     #[cfg(not(unix))]
     {
-        if !fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file()) {
+        if fs::symlink_metadata(path).is_ok_and(|metadata| !metadata.is_file()) {
             return None;
         }
     }
@@ -708,12 +719,12 @@ mod ports {
     fn lock(path: &Path) -> Lock {
         static LOCK: Mutex<()> = Mutex::new(());
         let guard = LOCK.lock().unwrap_or_else(PoisonError::into_inner);
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(path.with_extension("lock"))
-            .ok();
+        // No lock file is made through a link, and none is taken on a file
+        // that is not a regular one: the allocation then has this process's
+        // lock alone, as when the file cannot be made.
+        let mut options = OpenOptions::new();
+        options.create(true).truncate(false).write(true);
+        let file = open_as_own(&mut options, &path.with_extension("lock"));
         #[cfg(unix)]
         if let Some(file) = &file {
             use std::os::fd::AsRawFd as _;
@@ -737,10 +748,7 @@ mod ports {
     }
 
     fn load(path: &Path) -> BTreeMap<String, u16> {
-        fs::read(path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+        read_own(path).and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
     }
 
     fn save(path: &Path, ports: &BTreeMap<String, u16>) {
