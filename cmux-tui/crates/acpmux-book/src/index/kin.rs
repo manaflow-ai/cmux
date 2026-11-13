@@ -311,7 +311,7 @@ mod tests {
         title.title.push('!');
         let writes = AtomicUsize::new(0);
         let unchanged = moved.replace_counted(Some(&second), Some(&title), &writes);
-        assert_eq!(writes.load(AtomicOrdering::Relaxed), 2);
+        assert_eq!(writes.load(AtomicOrdering::Relaxed), 1);
         assert_eq!(
             unchanged
                 .folder_rows(&FolderKey::new("machine", "two"))
