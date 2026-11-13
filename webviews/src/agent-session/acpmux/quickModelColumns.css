@@ -48,6 +48,8 @@
   padding-right: var(--ds-space-3);
 }
 .acpmux-cols-search > svg {
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
   align-self: center;
   flex: 0 0 auto;
   margin: 0 8px 0 calc(var(--acpmux-cols-pad) + var(--acpmux-cols-inline));
