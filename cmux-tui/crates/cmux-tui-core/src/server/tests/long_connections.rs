@@ -193,7 +193,7 @@ fn at_the_bound_a_loopback_open_names_the_long_limit_and_not_its_own() {
     let permit = claim_terminal_connection_from(&connections, 1).expect("a short slot");
     let (writer, outbound) = writer_of(&permit);
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let target = loopback_forward::classify_target("127.0.0.1").unwrap();
     assert!(mux.control_clients.loopback.reserve_for_test(client, 1));
