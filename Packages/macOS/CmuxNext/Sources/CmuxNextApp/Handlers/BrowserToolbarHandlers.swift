@@ -139,9 +139,12 @@ enum BrowserToolbarHandlers {
         return submenu
     }
 
-    /// One item per browser profile (the tab's checked), each moving the tab
-    /// with `browserProfile.moveTab`; then New Browser Profile, Import from
-    /// Browser and Rename Browser Profile for the tab's profile.
+    /// One item per browser profile (the tab's checked), each other one moving
+    /// the tab with `browserProfile.moveTab`; then the tab's profile's own menu
+    /// (the profile badge's: New Tab, Window and Workspace with it, New Browser
+    /// Profile, Rename, Appearance, Manage Extensions, Clear Browsing Data,
+    /// Delete), Import from Browser and the Web Store. Every row is a palette
+    /// action (#42437, `MenuPaletteParityTests`).
     static func profileMenu(for entry: BrowserEntry, services: AppServices) -> NSMenu {
         let profiles = services.browserProfiles
         let current = services.cache.tabModel(entry.tab.id.rawValue).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
@@ -153,26 +156,29 @@ enum BrowserToolbarHandlers {
         let target = ActionTargetRef(kind: .tab, id: tabKey)
         let menu = NSMenu()
         for record in profiles {
-            let item = NSMenuItem(title: record.icon.map { "\($0)  \(record.name)" } ?? record.name, action: nil, keyEquivalent: "")
-            item.state = record.id == current ? .on : .off
-            let closure = ActionMenuClosure { [weak registry] in
-                guard record.id != current else { return }
-                registry?.perform("browserProfile.moveTab", invocation: ActionInvocation(
-                    target: target, arguments: ["browserProfile": .string(record.id)], origin: .user))
+            let title = record.icon.map { "\($0)  \(record.name)" } ?? record.name
+            // The tab's own profile is the checked choice; it runs nothing (moving there refuses).
+            guard record.id != current else {
+                let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+                item.state = .on
+                menu.addItem(item)
+                continue
             }
-            item.target = closure
-            item.action = #selector(ActionMenuClosure.run)
-            item.representedObject = closure
-            menu.addItem(item)
+            // The palette's Move Tab to Browser Profile…, with this profile picked.
+            if let item = registry.makeContextMenuItem(for: "browserProfile.moveTab", in: .browserPage, target: target,
+                                                       arguments: ["browserProfile": .string(record.id)], title: title) {
+                menu.addItem(item)
+            }
         }
         menu.addItem(.separator())
+        // The tab's profile's own menu, as its badge shows it; New Tab with Browser Profile and
+        // Manage Extensions open in this tab's pane.
         let profileTarget = ActionTargetRef(kind: .browserProfile, id: current)
-        let entries: [ContextMenuEntry] = [.action("browserProfile.new"), .action("importFromBrowser")]
-        move(registry.makeContextMenu(for: .browserPage, target: target, entries: entries), into: menu)
-        move(registry.makeContextMenu(for: .browserProfile, target: profileTarget, entries: [.action("browserProfile.rename")]), into: menu)
-        // This profile's own extensions (chrome://extensions and the Web Store open in it).
+        move(registry.makeContextMenu(for: .browserProfile, target: profileTarget, arguments: ["tab": .target(target)], customize: false),
+             into: menu)
+        // Import from Browser, and the Web Store opened in this tab's profile.
         move(registry.makeContextMenu(for: .browserPage, target: target,
-                                      entries: [.separator, .action("browser.extensions.manage"), .action("browser.extensions.webStore")]), into: menu)
+                                      entries: [.separator, .action("importFromBrowser"), .action("browser.extensions.webStore")]), into: menu)
         return menu
     }
 
