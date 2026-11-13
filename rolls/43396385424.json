@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43396385424",
+  "recorded_at": "2026-11-13T08:52:42Z",
+  "reason": "cmux-tui 6f36aa977c6f changes the image's cmux-tui (pinned 2484b45e9075)",
+  "dry_run": false,
+  "cmux_tui": "6f36aa977c6f10ce57e070c617039d56b054234d",
+  "fixes": [
+    {
+      "sha": "6f36aa977c6f10ce57e070c617039d56b054234d",
+      "mergedAt": "2026-11-13T00:26:45-08:00",
+      "subject": "Cmd-K at a prompt keeps only that prompt: older prompts directly above it go (#42476)"
+    },
+    {
+      "sha": "06a1b3048109176c1063de3c49c1636843bfc688",
+      "mergedAt": "2026-11-13T00:14:39-08:00",
+      "subject": "fix(links): a CLI login's page opens on the right of its terminal"
+    },
+    {
+      "sha": "c2e1fc36c6279ae6d492148fac213f9f90c0bd97",
+      "mergedAt": "2026-11-13T00:14:39-08:00",
+      "subject": "test(cli open): a program's opener with its output on /dev/null is a person's open"
+    },
+    {
+      "sha": "5745c218091f3cb55b06bc66ba6a42ded9c0d9e5",
+      "mergedAt": "2026-11-13T00:12:09-08:00",
+      "subject": "Terminal comes back as it was after a daemon restart: a wrapped row keeps its line break when the next row no longer starts with text (#42493)"
+    },
+    {
+      "sha": "276632356d3e5775f7f121c0d82177ea0e4af102",
+      "mergedAt": "2026-11-13T00:10:40-08:00",
+      "subject": "Sidebar Row Tuner: hand-tune the sidebar rows live in a floating panel"
+    },
+    {
+      "sha": "4dc9f334e42ecee2a48d9fbd05ef267aa0ada5df",
+      "mergedAt": "2026-11-13T00:10:27-08:00",
+      "subject": "acpmux: bg_stop ends every process the task started, not only its group (#42482)"
+    },
+    {
+      "sha": "eac7010820d71937b7f9475b57537956584457b9",
+      "mergedAt": "2026-11-13T00:07:42-08:00",
+      "subject": "acpmux tests: the held-home lint follows type aliases and glob re-export chains (#42352 review F1, F2) (#42366)"
+    },
+    {
+      "sha": "12a43d4538684b02b0d78dbb2ac229a26eaf137f",
+      "mergedAt": "2026-11-13T00:06:56-08:00",
+      "subject": "acpmux: no open of a chat folds its whole journal for the time breakdown (#42481)"
+    },
+    {
+      "sha": "64aaafc88be786487c89840ca34cd39d7d5ab30b",
+      "mergedAt": "2026-11-13T00:04:44-08:00",
+      "subject": "cmux-source-scan: an inline module's names stay its own; self:: and a block's spread names end at the block (#41693 F1, #42384 F1) (#42467)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-13T08:52:42Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
