@@ -51,6 +51,9 @@ PY
     deadline=$((SECONDS + seconds))
     first_ms=""
     last_hash=""
+    bucket_start_ms=""
+    bucket_bytes=0
+    bucket_frames=0
     rows=()
     i=0
     while (( SECONDS < deadline )); do
@@ -66,13 +69,27 @@ PY
           touch "$go"
         fi
         bytes=$(stat -f %z "$png" 2>/dev/null || wc -c <"$png")
-        rows+=("{\"unix_ms\":$now,\"bytes\":$bytes,\"frames\":$changed}")
+        if [[ -z "$bucket_start_ms" ]]; then bucket_start_ms=$now; fi
+        bucket_bytes=$((bucket_bytes + bytes))
+        bucket_frames=$((bucket_frames + changed))
+        if (( now - bucket_start_ms >= 1000 )); then
+          # The evaluator treats each row as one second of traffic.  Keep the
+          # high-rate capture private and publish one-second aggregates so
+          # bytes are kbps and changed hashes are fps.
+          rows+=("{\"unix_ms\":$now,\"bytes\":$bucket_bytes,\"frames\":$bucket_frames}")
+          bucket_start_ms=$now
+          bucket_bytes=0
+          bucket_frames=0
+        fi
         last_hash=$hash
         cp "$png" "$snapshot"
       fi
       i=$((i + 1))
-      sleep 1
+      sleep 0.1
     done
+    if (( bucket_bytes > 0 )); then
+      rows+=("{\"unix_ms\":$(date +%s%3N),\"bytes\":$bucket_bytes,\"frames\":$bucket_frames}")
+    fi
     [[ -e "$go" ]] || touch "$go"
     cpu=$(ps -axo comm=,%cpu= | awk '$1 ~ /Screen/ {sum += $2} END {print sum + 0}')
     printf '{"series":[%s],"extra":{"first_frame_ms":%s,"cpu_pct":%s,"mode":"%s","viewer":"Screen Sharing.app"}}\n' \
