@@ -186,11 +186,11 @@ export const PER_REPORTER_STORED = 100
 export const CORRELATION_WINDOW_MS = 10 * 60_000
 /** How long an incident is remembered (so a late duplicate or end still finds its message). */
 export const RETENTION_MS = 7 * 86_400_000
-/** A Mac is awake when its socket pinged (or connected) this recently. Hosts ping every 15 s. */
+/** A Mac is awake when its socket sent an application ping this recently. Hosts ping every 15 s. */
 export const ALIVE_WITHIN_MS = 45_000
-/** A report delivered this long after the phone saw it cannot have its Mac's liveness checked now. */
+/** A report delivered this long after the phone saw it says so in its message. */
 export const LATE_MS = 2 * 60_000
-/** A new incident for the same reporter, Mac and kind this soon after the last one goes in its thread. */
+/** A new incident for the same reporter and Mac (either kind) this soon after the last one goes in its thread. */
 export const THREAD_WINDOW_MS = 30 * 60_000
 
 export interface Reporter {
@@ -258,17 +258,19 @@ const HOUR = 3_600_000
 export type MacCheck = { readonly liveness: MacLiveness | null }
 
 /**
- * Whether an incident's start may be posted: the cmux service failing the phone always may; otherwise the Mac
- * must have proved it was awake (a ping or a connect) within ALIVE_WITHIN_MS. A report too late to check is
- * posted (it was queued because the service could not be reached, which is ours).
+ * Whether an incident's start may be posted. The cmux service failing the phone always may (that outage is
+ * ours, whatever the Mac does). Otherwise the Mac must have proved it is awake with an application ping
+ * within ALIVE_WITHIN_MS. A connect alone is no proof: a Mac's dark wake connects and goes back to sleep,
+ * and a stretch of 30 s unreachable leaves an awake host time for at least one ping (every 15 s). A late
+ * report is held to the same rule: posting one unchecked would page the team for a Mac that slept.
  */
 export const startVerdict = (report: IncidentReport, check: MacCheck, now: number): Suppressed | undefined => {
   if (report.serviceReachable === false) return undefined
-  if (now - Date.parse(report.observedAt) > LATE_MS) return undefined
   const live = check.liveness
   if (!live || !live.connected) return "mac_offline"
+  if (!live.pings) return "mac_liveness_unknown"
   if (live.lastAliveAt !== null && now - live.lastAliveAt <= ALIVE_WITHIN_MS) return undefined
-  return live.pings ? "mac_asleep" : "mac_liveness_unknown"
+  return "mac_asleep"
 }
 
 /**
@@ -336,7 +338,7 @@ export const applyReport = (desk: DeskState, report: IncidentReport, reporter: R
 
 const postNew = (desk: DeskState, incident: Incident, report: IncidentReport, now: number): Omit<DeskOutcome, "changed" | "removed"> => {
   const route = incident.route
-  // The same person, Mac and kind again soon after (the app came back, still unreachable): its thread.
+  // The same person and Mac again soon after (the app came back, still unreachable; or its link kept dropping): its thread.
   const parent = Object.values(desk.incidents)
     .filter(
       (i) =>
@@ -346,7 +348,6 @@ const postNew = (desk: DeskState, incident: Incident, report: IncidentReport, no
         i.route === route &&
         i.reporter.key === incident.reporter.key &&
         i.report.mac.id === report.mac.id &&
-        i.report.kind === report.kind &&
         now - i.updatedAt <= THREAD_WINDOW_MS
     )
     .sort((a, b) => b.updatedAt - a.updatedAt)[0]
@@ -360,14 +361,17 @@ const postNew = (desk: DeskState, incident: Incident, report: IncidentReport, no
   const mine = desk.meta.posted.filter((p) => p.route === route && p.reporter === incident.reporter.key).length
   const all = desk.meta.posted.filter((p) => p.route === route).length
   if (mine >= LIMITS.perReporterPerHour || all >= LIMITS.overallPerHour) {
+    // Counted once, however many of its states arrive while the limit holds.
+    if (incident.suppressed !== "rate_limited") desk.meta.suppressedSince[route] += 1
     incident.suppressed = "rate_limited"
-    desk.meta.suppressedSince[route] += 1
     return { accepted: true, note: "rate_limited", actions: [] }
   }
+  // A held incident posted now is no longer held: it leaves the count it was in.
+  if (incident.suppressed === "rate_limited") desk.meta.suppressedSince[route] = Math.max(0, desk.meta.suppressedSince[route] - 1)
   incident.suppressed = undefined
   incident.queued = true
   desk.meta.posted.push({ at: now, reporter: incident.reporter.key, route })
-  const text = render(incident, report, desk, now)
+  const text = render(incident, report, desk, now, { announceHeld: true })
   desk.meta.suppressedSince[route] = 0
   return { accepted: true, actions: [{ kind: "post", incident: incident.id, route, text }] }
 }
@@ -438,7 +442,7 @@ const headline = (incident: Incident, report: IncidentReport): string => {
 }
 
 /** The whole message for `incident` in the state `report` describes. */
-export const render = (incident: Incident, report: IncidentReport, desk: DeskState, now: number): string => {
+export const render = (incident: Incident, report: IncidentReport, desk: DeskState, now: number, opts: { announceHeld?: boolean } = {}): string => {
   const lines = [headline(incident, report)]
   if (report.kind === "mac_unreachable" && report.serviceReachable === false)
     lines.push("• :warning: The phone could not reach the cmux service either (the internet worked): likely a cmux service outage")
@@ -459,7 +463,7 @@ export const render = (incident: Incident, report: IncidentReport, desk: DeskSta
   const late = now - Date.parse(report.observedAt)
   if (late > LATE_MS) lines.push(`• Delivered ${duration(late)} late (the phone queued it)`)
   const suppressed = desk.meta.suppressedSince[incident.route]
-  if (report.state === "open" && suppressed > 0) lines.push(`• ${suppressed} more incident${suppressed === 1 ? "" : "s"} in the last hour were not posted (rate limit)`)
+  if (opts.announceHeld && suppressed > 0) lines.push(`• ${suppressed} more incident${suppressed === 1 ? "" : "s"} in the last hour were not posted (rate limit)`)
   if (incident.route === "test") lines.push(`• _Test route: ${TEST_WORDS[incident.why ?? "agent_account"]}_`)
   lines.push(`_Incident \`${incident.id.slice(0, 8)}\` · started <!date^${Math.floor(Date.parse(report.startedAt) / 1000)}^{date_short_pretty} {time_secs}|${report.startedAt}> · Mac \`${esc(report.mac.id.slice(0, 8))}\`_`)
   return lines.join("\n")
@@ -510,9 +514,8 @@ export const retryable = (error: string | undefined): boolean =>
 
 /** Retry delays for a Slack call that failed for a reason that can pass (seconds; the last repeats). */
 const RETRY_S = [5, 30, 120, 600, 1800]
-/** A call still failing after this many tries or this long is dropped (and logged). */
-const MAX_TRIES = 12
-const MAX_AGE_MS = 86_400_000
+/** A call that keeps failing for a passing reason is retried as long as its incident is kept, then dropped (logged). */
+const MAX_AGE_MS = RETENTION_MS
 
 interface Outbox {
   action: SlackAction
@@ -601,7 +604,7 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
       const incident = await this.ctx.storage.get<Incident>(`inc:${head.action.incident}`)
       const result = await this.send(head.action, incident, config, call).catch((e) => ({ ok: false as const, error: `network: ${String(e).slice(0, 80)}` }))
       const outbox = await this.outbox()
-      const giveUp = !result.ok && (!retryable(result.error) || head.tries + 1 >= MAX_TRIES || Date.now() - head.at > MAX_AGE_MS)
+      const giveUp = !result.ok && (!retryable(result.error) || Date.now() - head.at > MAX_AGE_MS)
       if (result.ok || giveUp) {
         if (giveUp) console.log(JSON.stringify({ msg: "connectivity alert dropped", kind: head.action.kind, error: result.error, tries: head.tries + 1 }))
         outbox.shift()

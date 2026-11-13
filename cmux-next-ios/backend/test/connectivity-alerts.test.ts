@@ -108,23 +108,23 @@ describe("the report", () => {
 
 describe("whether the Mac was awake", () => {
   const open = report({}, T0)
-  it("posts only for a Mac that pinged or connected within 45 s", () => {
+  it("posts only for a Mac that sent an application ping within 45 s", () => {
     expect(startVerdict(open, AWAKE(T0), T0)).toBeUndefined()
     expect(startVerdict(open, { liveness: { connected: true, lastAliveAt: T0 - ALIVE_WITHIN_MS, pings: true } }, T0)).toBeUndefined()
     // Asleep: the socket is still open (half open) but the pings stopped.
     expect(startVerdict(open, { liveness: { connected: true, lastAliveAt: T0 - ALIVE_WITHIN_MS - 1, pings: true } }, T0)).toBe("mac_asleep")
-    // A host that never pings, connected long ago: whether it is awake is unknown.
+    // A connect alone proves nothing (a dark wake connects and sleeps again), recent or not.
+    expect(startVerdict(open, { liveness: { connected: true, lastAliveAt: T0 - 5000, pings: false } }, T0)).toBe("mac_liveness_unknown")
     expect(startVerdict(open, { liveness: { connected: true, lastAliveAt: T0 - 600_000, pings: false } }, T0)).toBe("mac_liveness_unknown")
-    // ...but one that connected moment ago is awake.
-    expect(startVerdict(open, { liveness: { connected: true, lastAliveAt: T0 - 5000, pings: false } }, T0)).toBeUndefined()
     expect(startVerdict(open, { liveness: { connected: false, lastAliveAt: null, pings: false } }, T0)).toBe("mac_offline")
     expect(startVerdict(open, { liveness: null }, T0)).toBe("mac_offline")
   })
 
-  it("always posts when the phone could not reach the cmux service, and posts a late report it can no longer check", () => {
+  it("always posts when the phone could not reach the cmux service, and holds a late report to the same rule", () => {
     const outage = report({ serviceReachable: false }, T0)
     expect(startVerdict(outage, { liveness: null }, T0)).toBeUndefined()
-    expect(startVerdict(open, { liveness: null }, T0 + 3 * 60_000)).toBeUndefined()
+    expect(startVerdict(open, { liveness: null }, T0 + 3 * 60_000)).toBe("mac_offline")
+    expect(startVerdict(open, AWAKE(T0 + 3 * 60_000), T0 + 3 * 60_000)).toBeUndefined()
   })
 })
 
@@ -184,6 +184,9 @@ describe("the desk", () => {
     const end = applyReport(desk, report({ id: again.id, state: "resolved", durationMs: 70_000 }, T0 + 130_000), tina, TEAM, { liveness: null }, T0 + 130_000)
     expect(end.actions).toEqual([{ kind: "reply", incident: first.id, text: expect.stringContaining("Resolved: reconnected after 1m 10s.") }])
     expect(desk.meta.posted).toHaveLength(1)
+    // The same Mac's link then keeps dropping (the other kind): still its thread, never a second message.
+    const unstable = applyReport(desk, report({ kind: "link_unstable", drops: 3 }, T0 + 135_000), tina, TEAM, AWAKE(T0 + 135_000), T0 + 135_000)
+    expect(unstable.actions).toEqual([{ kind: "reply", incident: first.id, text: expect.stringContaining("keeps dropping") }])
     // Another Mac, or 30 minutes later: a message of its own.
     expect(applyReport(desk, report({ mac: { id: "m-other-1", name: "Air" } }, T0 + 140_000), tina, TEAM, AWAKE(T0 + 140_000), T0 + 140_000).actions[0]).toMatchObject({ kind: "post" })
     expect(applyReport(desk, report({}, T0 + 2_000_000), tina, TEAM, AWAKE(T0 + 2_000_000), T0 + 2_000_000).actions[0]).toMatchObject({ kind: "post" })
@@ -209,12 +212,28 @@ describe("the desk", () => {
     // The held incident's end is posted as a whole once the hour has passed.
     const late = applyReport(desk, { ...held, state: "resolved", durationMs: 50_000 }, tina, TEAM, AWAKE(T0), T0 + 3_600_001)
     expect(late.actions.map((a) => a.kind)).toEqual(["post"])
+    expect(desk.meta.suppressedSince.team).toBe(0)
     // Overall limit: 20 a route.
     const busy = emptyDesk()
     for (let i = 0; i < LIMITS.overallPerHour; i++) applyReport(busy, onMac(i), { key: `u${i}`, email: `u${i}@cmux.com` }, TEAM, AWAKE(T0), T0)
     expect(applyReport(busy, onMac(1), { key: "u99", email: "u99@cmux.com" }, TEAM, AWAKE(T0), T0).note).toBe("rate_limited")
     // The test route has its own budget.
     expect(applyReport(busy, onMac(1), { key: "u99", email: "u99@cmux.com" }, { route: "test", why: "simulator" }, AWAKE(T0), T0).actions).toHaveLength(1)
+  })
+
+  it("counts a held incident once and says so in the next post, even when that post is an end", () => {
+    const desk = emptyDesk()
+    const onMac = (i: number) => report({ mac: { id: `mac-${i}-0000`, name: `Mac ${i}` } }, T0)
+    for (let i = 0; i < LIMITS.perReporterPerHour; i++) applyReport(desk, onMac(i), tina, TEAM, AWAKE(T0), T0)
+    // Held: its start and then its end arrive while the limit holds; it counts once.
+    const held = onMac(90)
+    applyReport(desk, held, tina, TEAM, AWAKE(T0), T0 + 1)
+    applyReport(desk, { ...held, state: "ended", endReason: "mac_offline", durationMs: 60_000 }, tina, TEAM, AWAKE(T0), T0 + 2)
+    expect(desk.meta.suppressedSince.team).toBe(1)
+    // The next post is an end (its start was lost to a relaunch): it still carries the count.
+    const endOnly = applyReport(desk, report({ mac: { id: "mac-77-0000", name: "M" }, state: "ended", endReason: "app_relaunched" }, T0 + 3), ted, TEAM, AWAKE(T0), T0 + 3)
+    expect(text(endOnly)).toContain("1 more incident in the last hour were not posted (rate limit)")
+    expect(desk.meta.suppressedSince.team).toBe(0)
   })
 
   it("keeps at most 100 incidents per reporter", () => {
@@ -237,7 +256,7 @@ describe("the desk", () => {
 
   it("says when the phone delivered a report late", () => {
     const desk = emptyDesk()
-    const out = applyReport(desk, report({}, T0), tina, TEAM, { liveness: null }, T0 + 600_000)
+    const out = applyReport(desk, report({}, T0), tina, TEAM, AWAKE(T0 + 600_000), T0 + 600_000)
     expect(text(out)).toContain("Delivered 10m late")
   })
 
@@ -300,12 +319,15 @@ describe("POST /v1/diagnostics/connectivity-incidents", () => {
   /** Waits for the desk's Slack calls made after its answer. */
   const settled = () => runInDurableObject(desk(), (d: ConnectivityAlertDesk) => d.settled())
 
-  /** A user's awake Mac: registered, its socket open (it connected just now). */
+  /** A user's awake Mac: registered, its socket open, and it sent the application ping (answered "pong"). */
   const awakeMac = async (user: string, tok: string) => {
     const space = `personal-${user}`
     const id = await register(tok, "mac", space, "Studio")
     const sock = await connect(tok, space, id)
     await sock.until((s) => s.frames.some((f) => f.type === "hello"))
+    const pong = new Promise<void>((resolve) => sock.ws.addEventListener("message", (e) => e.data === "pong" && resolve()))
+    sock.ws.send("ping")
+    await pong
     return { id, sock }
   }
 
@@ -326,6 +348,17 @@ describe("POST /v1/diagnostics/connectivity-incidents", () => {
     expect(calls[1]!.body).toMatchObject({ channel: "CTEAM", ts: "1001.0001" })
     expect(calls[2]!.body).toMatchObject({ channel: "CTEAM", thread_ts: "1001.0001", text: "Resolved: reconnected after 1m 15s." })
     mac.sock.ws.close()
+  })
+
+  it("posts nothing for a Mac that connected but never pinged (a dark wake)", async () => {
+    const tok = await token("ted")
+    const id = await register(tok, "mac", "personal-ted", "Napping")
+    const sock = await connect(tok, "personal-ted", id)
+    await sock.until((s) => s.frames.some((f) => f.type === "hello"))
+    expect(await call("POST", PATH, tok, body({ mac: { id, name: "Napping" } }))).toMatchObject({ status: 202, json: { note: "mac_liveness_unknown" } })
+    await settled()
+    expect(calls).toEqual([])
+    sock.ws.close()
   })
 
   it("posts nothing for a Mac that is not connected (asleep, quit or someone else's)", async () => {

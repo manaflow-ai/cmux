@@ -150,6 +150,21 @@ import Testing
         }
     }
 
+    @Test func aNewStretchCountsOnlyItsOwnDials() throws {
+        var d = detector()
+        _ = unreachable(&d, to: 60)
+        _ = d.appActive(false, at: at(65))
+        _ = d.appActive(true, at: at(70))
+        // Two more dials after the wake, then the 30 s pass.
+        var out = d.link(macID: "m1", name: "Studio", Self.trying, at: at(72))
+        out += d.link(macID: "m1", name: "Studio", Self.trying, at: at(90))
+        let tick = d.tick(at: at(101))
+        let id = try #require(checkID(out + tick))
+        let opened = reports(d.reachability(macID: "m1", checkID: id, internet: true, service: true, at: at(101)))
+        let open = try #require(opened.first)
+        #expect(open.attempts == 2)
+    }
+
     @Test func aNetworkChangeRestartsTheStretch() {
         var d = detector()
         _ = d.link(macID: "m1", name: "Studio", Self.trying, at: at(0))
@@ -503,6 +518,12 @@ import Testing
         #expect(!signals.contains { if case .dropped = $0 { true } else { false } })
         while !controller.phase.isConnected, ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(5)) // test: waits for the redial
+        }
+        // A transport switch redials on purpose: no drop either.
+        controller.send(.transport(.wireGuard))
+        #expect(!signals.contains { if case .dropped = $0 { true } else { false } })
+        while !controller.phase.isConnected, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5)) // test: waits for the redial on the new transport
         }
         controller.send(.linkDropped(generation: controller.dialGeneration, reason: "stream ended"))
         #expect(signals.contains(.dropped(reason: "stream ended")))

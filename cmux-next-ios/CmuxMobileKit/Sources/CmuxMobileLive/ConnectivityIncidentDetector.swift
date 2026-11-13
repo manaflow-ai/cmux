@@ -306,10 +306,13 @@ public struct ConnectivityIncidentDetector: Sendable {
         return recent.first
     }
 
+    /// A new stretch counts its own dials: a report after a wake or a network change never carries
+    /// the dials of the stretch before it.
     private mutating func restartStretches(at date: Date) {
         for id in macs.keys where macs[id]?.isTrying == true {
             macs[id]?.downSince = date
             macs[id]?.check = .none
+            macs[id]?.attempts = 0
         }
     }
 
@@ -330,6 +333,7 @@ public struct ConnectivityIncidentDetector: Sendable {
             track.downSince = nil
             track.check = .none
             track.drops = []
+            track.attempts = 0
             macs[id] = track
         }
         return out
