@@ -1039,14 +1039,14 @@ fn queued_entries_are_idempotent_bounded_and_raw() {
     let first = mux(1, "user_message", r#"{"text":"first","promptId":"p","turnId":"t1"}"#);
     t(&mut state, Harness::V1, first.as_bytes()).unwrap();
     let queued = mux(2, "queued", r#"{"text":"hé","promptId":"q"}"#);
-    let ops = super::translate(&mut state, Harness::V1, 700, 3, queued.as_bytes()).unwrap();
+    let ops = translate(&mut state, Harness::V1, 700, 3, queued.as_bytes()).unwrap();
     assert!(ops.iter().any(|op| matches!(
         &op.change,
         Change::Queue(QueueChange::Add(entry))
             if entry.place == 700 && entry.span == 3 && entry.text_len == "hé".len() as u32
     )));
     assert_eq!(state.queue.len(), 1);
-    let duplicate = super::translate(&mut state, Harness::V1, 700, 3, queued.as_bytes()).unwrap();
+    let duplicate = translate(&mut state, Harness::V1, 700, 3, queued.as_bytes()).unwrap();
     assert!(duplicate.is_empty());
 
     let paused = mux(3, "queue_paused", r#"{"held":["q"]}"#);
