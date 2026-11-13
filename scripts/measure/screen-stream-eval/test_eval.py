@@ -13,6 +13,61 @@ spec.loader.exec_module(report)
 
 
 class ReportTests(unittest.TestCase):
+    def video_run(self, folder, *, requested=True):
+        for kind in ("key", "pointer"):
+            (folder / f"latency-{kind}.json").write_text('{"g2g_ms":{"p50":10,"p95":20,"n":200}}')
+        if requested:
+            (folder / "video-requested.json").write_text(json.dumps({"sha256": "a" * 64, "duration_s": 20}))
+        for rep, frames in enumerate((24, 30), 1):
+            (folder / f"window-{rep}.json").write_text(json.dumps({"series": [
+                {"unix_ms": 2000, "bytes": 1000, "frames": 60},
+                {"unix_ms": 12000, "bytes": 2000, "frames": frames}]}))
+            phases = [{"phase": p, "start_unix_ms": 0, "end_unix_ms": 3000}
+                      for p in ("idle", "typing", "scroll")]
+            phases.append({"phase": "video", "start_unix_ms": 10000, "end_unix_ms": 30000})
+            (folder / f"phases-{rep}.jsonl").write_text("".join(json.dumps(p) + "\n" for p in phases))
+            (folder / f"ocr-{rep}.json").write_text('{"cer":0.02}')
+            (folder / f"video-media-{rep}.json").write_text(json.dumps({
+                "sha256": "a" * 64, "width": 1920, "height": 1080, "nominal_fps": 30,
+                "duration_s": 120, "presented_frames": 600,
+                "start_unix_ms": 10000, "end_unix_ms": 30000}))
+
+    def test_video_requires_request_and_keeps_source_frames_separate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            self.video_run(folder, requested=False)
+            out = folder / "target.json"
+            report.target("rd", folder, out)
+            target = json.loads(out.read_text())
+            self.assertTrue(target["ok"])
+            self.assertIsNone(target["fps"]["video"])
+            (folder / "video-requested.json").write_text(json.dumps({"sha256": "a" * 64, "duration_s": 20}))
+            report.target("rd", folder, out)
+            target = json.loads(out.read_text())
+            self.assertTrue(target["ok"])
+            self.assertEqual(target["fps"]["video"], 27)
+            self.assertEqual(target["kbps"]["video"], 16)
+            self.assertEqual(target["extra"]["repeats"][0]["video_media"]["presented_frames"], 600)
+
+    def test_video_with_unbound_or_missing_media_cannot_report_success(self):
+        for bad in (None, {"sha256": "b" * 64}, {"presented_frames": 0},
+                    {"nominal_fps": None}, {"width": True}, {"duration_s": 10},
+                    {"start_unix_ms": 9999}, {"end_unix_ms": 29999}):
+            with self.subTest(bad=bad), tempfile.TemporaryDirectory() as directory:
+                folder = Path(directory)
+                self.video_run(folder)
+                media = folder / "video-media-1.json"
+                if bad is None:
+                    media.unlink()
+                else:
+                    media.write_text(json.dumps({**json.loads(media.read_text()), **bad}))
+                out = folder / "target.json"
+                report.target("rd", folder, out)
+                target = json.loads(out.read_text())
+                self.assertFalse(target["ok"])
+                self.assertTrue(any("video" in e for e in target["errors"]))
+                self.assertIsNone(target["fps"]["video"])
+
     def test_buckets_crossing_phase_or_guard_are_discarded(self):
         phases = {"idle": {"start_unix_ms": 2000, "end_unix_ms": 6000}}
         rows = [
