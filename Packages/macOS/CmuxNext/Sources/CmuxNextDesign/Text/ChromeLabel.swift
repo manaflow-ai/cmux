@@ -269,6 +269,9 @@ open class ChromeLabel: NSView {
     /// The glyph image of `drawn.ink` per stem weight: a color change between two weights (a
     /// selected row's color and its plain one) swaps images and draws each weight once.
     private var images: [Int: CGImage] = [:]
+    /// How many times the glyphs were drawn into a new image (a swap to a kept weight's image is not one). For tests
+    /// that name the labels a pane width change draws again (HomeResizeLabelRedrawTests).
+    private(set) var glyphDraws = 0
 
     nonisolated override open var wantsUpdateLayer: Bool { true }
 
@@ -295,7 +298,9 @@ open class ChromeLabel: NSView {
         guard drawn?.ink != ink || drawn?.weight != weight else { return }
         if drawn?.ink != ink { images = [:] }
         drawn = (ink, weight)
-        let image = images[weight] ?? glyphImage(ink, color: color)
+        let kept = images[weight]
+        if kept == nil { glyphDraws += 1 }
+        let image = kept ?? glyphImage(ink, color: color)
         images[weight] = image
         glyphs.contents = image
         // The image at its own pixel size, top edge on top.
