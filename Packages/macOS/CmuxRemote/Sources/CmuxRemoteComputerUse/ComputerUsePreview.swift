@@ -77,14 +77,7 @@ enum ComputerUsePreview {
 
     private static func capturedStill(window id: UInt32, longSide: Int) async -> Result<(jpeg: Data, width: Int, height: Int), Refusal> {
         do {
-            // The cached listing while the window is where it was (4 frames a second need no fresh one).
-            let content: SCShareableContent
-            if let cached = ScreenCapture.reusableContent(holding: id) {
-                content = cached
-            } else {
-                content = try await ScreenCapture.freshContent()
-            }
-            guard let window = content.windows.first(where: { $0.windowID == id }) else { return .failure(.captureFailed) }
+            guard let window = try? await ScreenCapture.window(id) else { return .failure(.captureFailed) }
             let filter = SCContentFilter(desktopIndependentWindow: window)
             let scale = Double(filter.pointPixelScale)
             let size = fitted(width: window.frame.width * scale, height: window.frame.height * scale, longSide: longSide)

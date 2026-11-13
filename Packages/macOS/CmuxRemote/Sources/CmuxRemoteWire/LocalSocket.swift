@@ -12,9 +12,16 @@ public final class LineChannel: Sendable {
     private let state = OSAllocatedUnfairLock(initialState: State())
     /// False once ``closeWrite()`` or ``close()`` ran: writes refuse instead of reaching a reused descriptor.
     private let writeLock = OSAllocatedUnfairLock(initialState: true)
-    /// True once ``close()`` ran: the descriptors are closed once, and ``shutdown()`` never touches
-    /// a number another connection may own by then.
-    private let descriptorsClosed = OSAllocatedUnfairLock(initialState: false)
+    /// Whether ``close()`` began (it shut the descriptors down, then closes them) and whether
+    /// ``closeWrite()`` closed a separate write descriptor. Held only for a moment, never across a
+    /// blocking call, so ``close()`` and ``shutdown()`` never wait on a writer stuck in a full
+    /// socket; and nothing touches a descriptor number once it may be closed.
+    private let descriptors = OSAllocatedUnfairLock(initialState: Descriptors())
+
+    private struct Descriptors: Sendable {
+        var closing = false
+        var writeClosed = false
+    }
 
     private struct State: Sendable {
         var buffer = LineBuffer()
@@ -97,7 +104,10 @@ public final class LineChannel: Sendable {
         writeLock.withLock { open in
             guard open else { return }
             open = false
-            if writeDescriptor != readDescriptor { Darwin.close(writeDescriptor) }
+            guard writeDescriptor != readDescriptor else { return }
+            // Recorded before the close, so ``close()`` never shuts down a number reused after it.
+            descriptors.withLock { $0.writeClosed = true }
+            Darwin.close(writeDescriptor)
         }
     }
 
@@ -117,29 +127,34 @@ public final class LineChannel: Sendable {
 
     /// Ends both directions and closes the descriptors, once: a blocked `readLine` on another
     /// thread returns nil, and every later ``write(_:)`` refuses (it never reaches the descriptor
-    /// number, which the next connection may reuse).
+    /// number, which the next connection may reuse). The shutdown comes first, before the write
+    /// lock: a writer blocked in a full socket (a peer that stopped reading) wakes with an error and
+    /// lets go, so this never waits on it.
     public func close() {
-        descriptorsClosed.withLock { closed in
-            guard !closed else { return }
-            closed = true
-            // No write is in flight once this returns, and none follows.
-            let writeWasOpen = writeLock.withLock { open in
-                defer { open = false }
-                return open
-            }
+        let shutDownWrite = descriptors.withLock { state -> Bool? in
+            guard !state.closing else { return nil }
+            state.closing = true
             _ = Darwin.shutdown(readDescriptor, SHUT_RDWR)
-            Darwin.close(readDescriptor)
-            if writeDescriptor != readDescriptor, writeWasOpen { Darwin.close(writeDescriptor) }
+            let separate = writeDescriptor != readDescriptor && !state.writeClosed
+            if separate { _ = Darwin.shutdown(writeDescriptor, SHUT_RDWR) }
+            return separate
         }
+        guard let shutDownWrite else { return }
+        // No write is in flight once this returns (the shutdown woke a stuck one), and none follows.
+        writeLock.withLock { $0 = false }
+        Darwin.close(readDescriptor)
+        if shutDownWrite { Darwin.close(writeDescriptor) }
     }
 
     /// Ends both directions without closing the descriptors: a blocked `readLine` returns nil and
-    /// writes fail, while the owner closes the channel later, once nothing can write to it.
+    /// writes fail (a writer blocked in a full socket wakes), while the owner closes the channel
+    /// later, once nothing can write to it.
     public func shutdown() {
-        descriptorsClosed.withLock { closed in
-            guard !closed else { return }
+        descriptors.withLock { state in
+            // A close that began shut them down already, and may have closed them since.
+            guard !state.closing else { return }
             _ = Darwin.shutdown(readDescriptor, SHUT_RDWR)
-            if writeDescriptor != readDescriptor { _ = Darwin.shutdown(writeDescriptor, SHUT_RDWR) }
+            if writeDescriptor != readDescriptor, !state.writeClosed { _ = Darwin.shutdown(writeDescriptor, SHUT_RDWR) }
         }
     }
 

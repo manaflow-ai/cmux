@@ -116,6 +116,15 @@ struct ScreenCapture: Sendable {
         return content
     }
 
+    /// ScreenCaptureKit's window `id`: from the recent listing while the window is where it was
+    /// (a few looks a second need no fresh one), else a fresh listing.
+    static func window(_ id: UInt32) async throws -> SCWindow {
+        let content: SCShareableContent
+        if let cached = reusableContent(holding: id) { content = cached } else { content = try await freshContent() }
+        guard let window = content.windows.first(where: { $0.windowID == id }) else { throw Failure.noWindow(id) }
+        return window
+    }
+
     /// Recent content that holds window `id` where it is now, if any. The window's frame decides
     /// how screenshot pixels map to the desktop, so content whose frame for it differs from the
     /// window server's current bounds (it moved or resized) is not reused.

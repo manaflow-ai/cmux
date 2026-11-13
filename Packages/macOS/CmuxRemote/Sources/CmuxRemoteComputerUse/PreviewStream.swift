@@ -9,69 +9,6 @@ import VideoToolbox
 
 private let logger = Logger(subsystem: "com.cmuxterm.remote", category: "computer-use-preview")
 
-/// What one look at an agent's window decides for its stream (pure: tests cover each step).
-enum PreviewStreamStep: Equatable, Sendable {
-    /// Start streaming this window.
-    case start(UInt32)
-    /// The agent works in another window now: stream that one.
-    case restart(UInt32)
-    /// Keep the stream as it is.
-    case keep
-    /// Stop (or do not start), and tell the app why.
-    case stop(ComputerUsePreview.Refusal)
-
-    /// The step from the window streamed now and what the privacy gate says of the session's window.
-    static func next(streaming current: UInt32?, gate: Result<UInt32, ComputerUsePreview.Refusal>) -> PreviewStreamStep {
-        switch (current, gate) {
-        case (nil, .success(let window)): .start(window)
-        case (let current?, .success(let window)): current == window ? .keep : .restart(window)
-        case (_, .failure(let refusal)): .stop(refusal)
-        }
-    }
-
-    /// The app's status for a refusal: blocked drops any picture; the rest keep the last one, paused.
-    static func state(for refusal: ComputerUsePreview.Refusal) -> String {
-        switch refusal {
-        case .blocked: "blocked"
-        case .noWindow: "no_window"
-        case .captureFailed, .permission: "paused"
-        }
-    }
-}
-
-/// The encoded frames waiting for a preview's channel (pure: tests cover it).
-struct PreviewFrameBacklog: Equatable, Sendable {
-    /// Frames handed to the writer and not yet written.
-    var pending = 0
-    /// Frames are dropped until the next keyframe.
-    var dropping = false
-    /// The encoder should make its next frame a keyframe (``takeKeyframeRequest()`` clears it).
-    var wantsKeyframe = false
-
-    /// Whether an encoded frame goes to the writer (counted as pending) or is dropped. Past `limit`
-    /// pending frames the stream drops every frame until a keyframe that fits, and asks the encoder
-    /// for one (again if that keyframe had to be dropped too).
-    mutating func admit(keyframe: Bool, limit: Int) -> Bool {
-        if keyframe, pending < limit { dropping = false }
-        if !dropping, pending >= limit {
-            dropping = true
-            wantsKeyframe = true
-        }
-        if dropping {
-            if keyframe { wantsKeyframe = true }
-            return false
-        }
-        pending += 1
-        return true
-    }
-
-    /// Whether the encoder should force a keyframe now; the request is taken.
-    mutating func takeKeyframeRequest() -> Bool {
-        defer { wantsKeyframe = false }
-        return wantsKeyframe
-    }
-}
-
 /// The worker's preview socket: the host splices the app's `computer-use-preview` channel here.
 /// Only the host (this worker's parent) may connect; each connection streams one session.
 final class PreviewStreamServer: Sendable {
@@ -101,67 +38,9 @@ final class PreviewStreamServer: Sendable {
     }
 }
 
-/// What a preview session reads from the system: the owner and bounds of a window, the
-/// ScreenCaptureKit window to stream, and a still. Tests pass their own.
-struct PreviewCapture: Sendable {
-    var owner: @Sendable (UInt32) -> ComputerUseActivity.App?
-    var bounds: @Sendable (UInt32) -> CGRect?
-    var window: @Sendable (UInt32) async throws -> SCWindow
-    var still: @Sendable (UInt32, Int) async -> Result<(jpeg: Data, width: Int, height: Int), ComputerUsePreview.Refusal>
-
-    static let live = PreviewCapture(
-        owner: { ComputerUseActivityReporter.owner(ofWindow: $0) },
-        bounds: { ScreenCapture.currentBounds(of: $0) },
-        window: { id in
-            let content: SCShareableContent
-            if let cached = ScreenCapture.reusableContent(holding: id) {
-                content = cached
-            } else {
-                content = try await ScreenCapture.freshContent()
-            }
-            guard let window = content.windows.first(where: { $0.windowID == id }) else { throw ScreenCapture.Failure.noWindow(id) }
-            return window
-        },
-        still: { id, side in await ComputerUsePreview.still(window: id, longSide: side) })
-}
-
-/// A preview session's pace. Tests shorten it.
-struct PreviewTiming: Sendable {
-    /// How often the session's window and its owner are looked at again.
-    var look: DispatchTimeInterval = .milliseconds(500)
-    /// The least time between two stills.
-    var still: TimeInterval = 0.5
-    /// The wait before a failed stream start is tried again, doubling up to ``retryMax``.
-    var retryBase: TimeInterval = 2
-    var retryMax: TimeInterval = 30
-    /// The least time between two keyframes the app or the backlog asked for.
-    var keyframeGap: TimeInterval = 0.3
-}
-
-/// When the encoder makes a keyframe (pure: tests cover it): always at a stream's start or after
-/// a new encoder, and when the app or the backlog asks, at most once per `gap`.
-struct PreviewKeyframePolicy: Equatable, Sendable {
-    var gap: TimeInterval
-    /// A new stream or encoder: the next frame is a keyframe whatever the gap.
-    var required = true
-    /// The app (`K`) or the backlog asked for one.
-    var asked = false
-    var lastForced: Date?
-
-    /// Whether the frame encoded at `now` is forced to be a keyframe; a forced one clears the asks.
-    mutating func force(now: Date) -> Bool {
-        let due = required || (asked && lastForced.map { now.timeIntervalSince($0) >= gap } ?? true)
-        guard due else { return false }
-        required = false
-        asked = false
-        lastForced = now
-        return true
-    }
-}
-
 /// One app connection: streams the window `request.session` works in, re-checking the window and
 /// its app's privacy every half second and its app's privacy on each frame, until the app closes it.
-final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable { // crash-allow: mutable state lives on `queue` only
+final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable { // crash-allow: mutable state lives on `queue` only (the stills in PreviewStreamStills.swift too)
     /// The stream's highest frame rate.
     static let framesPerSecond: Int32 = 30
     /// The most encoded frames waiting for the channel; past it frames are dropped until a keyframe.
@@ -172,35 +51,35 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
     private let channel: LineChannel
     private let request: PreviewStreamWire.Request
     private let windowOf: @Sendable (String) -> ComputerUsePreview.SessionWindow?
-    private let blocked: @Sendable (String, String) -> Bool
-    private let capture: PreviewCapture
-    private let timing: PreviewTiming
-    private let queue = DispatchQueue(label: "remote-cu-preview.session")
-    private let writes = DispatchQueue(label: "remote-cu-preview.write")
+    let blocked: @Sendable (String, String) -> Bool
+    let capture: PreviewCapture
+    let timing: PreviewTiming
+    let queue = DispatchQueue(label: "remote-cu-preview.session")
+    let writes = DispatchQueue(label: "remote-cu-preview.write")
     private let closed = DispatchSemaphore(value: 0)
     /// Frames handed to `writes` and not yet written, and whether frames are being dropped until the
     /// next keyframe (the app is reading slower than the stream). VideoToolbox's thread and `writes`.
     private let backlog = OSAllocatedUnfairLock(initialState: PreviewFrameBacklog())
     /// ``ended``, readable off `queue` (a still checks it before it captures).
-    private let isEnded = OSAllocatedUnfairLock(initialState: false)
+    let isEnded = OSAllocatedUnfairLock(initialState: false)
 
     // `queue` only.
-    private var window: UInt32?
-    private var owner: ComputerUseActivity.App?
-    private var stream: SCStream?
+    var window: UInt32?
+    var owner: ComputerUseActivity.App?
+    var stream: SCStream?
     private var encoder: VTCompressionSession?
     private var size = (width: 0, height: 0)
     /// Pixels per point of the streamed window (its filter's scale).
     private var pointScale = 2.0
     /// The picture's long side the app asked for (its request, then `L` lines).
-    private var longSide: Int
+    var longSide: Int
     private var keyframes: PreviewKeyframePolicy
-    private var lastState = ""
-    private var ended = false
+    var lastState = ""
+    var ended = false
     private var timer: (any DispatchSourceTimer)?
-    private var stillAt: Date?
+    var stillAt: Date?
     /// A still is being captured: never a second one (a slow capture must not pile up).
-    private var stillInFlight = false
+    var stillInFlight = false
     /// The stream start in flight (its token), so a late result of an older start is ignored.
     private var startToken = 0
     private var starting = false
@@ -214,7 +93,7 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
     private var generation = 0
     private var generationWindow: UInt32?
     /// The generation the last `still` status named.
-    private var lastStillGeneration: Int?
+    var lastStillGeneration: Int?
     /// A size change of the running stream is in flight.
     private var reconfiguring = false
 
@@ -234,12 +113,17 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
 
     /// Streams until the app closes the channel (this connection's own thread waits).
     func run() {
-        queue.async { self.look() }
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + timing.look, repeating: timing.look)
-        timer.setEventHandler { [weak self] in self?.look() }
-        queue.sync { self.timer = timer }
-        timer.resume()
+        // The first look and the look timer start on `queue`, only if the session has not ended
+        // already (a write that failed at once ends it): end() cancels the timer it finds there.
+        queue.async {
+            guard !self.ended else { return }
+            self.look()
+            let timer = DispatchSource.makeTimerSource(queue: self.queue)
+            timer.schedule(deadline: .now() + self.timing.look, repeating: self.timing.look)
+            timer.setEventHandler { [weak self] in self?.look() }
+            self.timer = timer
+            timer.resume()
+        }
         // The app sends only `K` (a keyframe) and `L <side>` (a picture size) lines after its
         // request; a read ends when it closes the channel or ``end()`` shuts it down. This thread is
         // the only one that closes the channel, after its last read and after the writes queued on
@@ -308,7 +192,7 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
         }
     }
 
-    private func send(state: String, extra: [String: Any] = [:]) {
+    func send(state: String, extra: [String: Any] = [:]) {
         guard state != lastState || !extra.isEmpty else { return }
         lastState = state
         var fields: [String: Any] = ["state": state]
@@ -322,7 +206,7 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
         write(PreviewStreamWire.status(fields))
     }
 
-    private func write(_ data: Data) {
+    func write(_ data: Data) {
         writes.async { [weak self] in
             guard let self else { return }
             if !channel.write(data) { end() }
@@ -413,7 +297,7 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
 
     /// The generation `streaming` names for window `id`: the same while the session streams one
     /// window (a resize keeps it), a new one for another window.
-    private func streamGeneration(_ id: UInt32) -> Int {
+    func streamGeneration(_ id: UInt32) -> Int {
         if generationWindow != id {
             generationWindow = id
             generation += 1
@@ -512,51 +396,6 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
         send(state: "streaming", extra: ["width": target.width, "height": target.height, "window": generation])
     }
 
-    // MARK: Stills (queue)
-
-    /// One JPEG of the window, at most twice a second and one at a time: the fallback when no
-    /// stream runs. Only the window the last look passed through the gate (``window``), never one
-    /// looked up here. The capture runs in its own task, never on `writes`, so a slow
-    /// ScreenCaptureKit holds neither the channel's writes nor its close; its result is sent only
-    /// if it still may be when it comes.
-    private func sendStill() {
-        guard let id = window, stream == nil, !stillInFlight, !ended else { return }
-        let now = Date()
-        if let stillAt, now.timeIntervalSince(stillAt) < timing.still { return }
-        stillAt = now
-        stillInFlight = true
-        let side = longSide, capture = capture, isEnded = isEnded
-        // task-owner: the session's one still in flight (stillInFlight); its result comes back on `queue`.
-        Task.detached(priority: .userInitiated) { [weak self] in
-            let result: Result<(jpeg: Data, width: Int, height: Int), ComputerUsePreview.Refusal>?
-                = isEnded.withLock({ $0 }) ? nil : await capture.still(id, side)
-            guard let self else { return }
-            queue.async {
-                // A deny-list edit, another window or a stream since the capture began: not sent.
-                guard case .success(let frame)? = result, self.stillMaySend(window: id) else {
-                    self.stillInFlight = false
-                    return
-                }
-                // The status names the window's generation (as `streaming` does) once per window,
-                // so the app drops another window's picture before this one's still shows.
-                let generation = self.streamGeneration(id)
-                if self.lastState != "still" || self.lastStillGeneration != generation {
-                    self.lastStillGeneration = generation
-                    self.send(state: "still", extra: ["window": generation])
-                }
-                self.write(PreviewStreamWire.message(PreviewStreamWire.still, frame.jpeg))
-                // The next still waits until this one is written: a slow app never queues stills.
-                self.writes.async { [weak self] in self?.queue.async { self?.stillInFlight = false } }
-            }
-        }
-    }
-
-    /// Whether a still of window `id`, captured a moment ago, may go to the app now (queue).
-    private func stillMaySend(window id: UInt32) -> Bool {
-        guard !ended, stream == nil, window == id, let owner, let app = owner.id, !app.isEmpty else { return false }
-        return !blocked(app, owner.name ?? app)
-    }
-
     // MARK: Frames (queue)
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
@@ -615,69 +454,5 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
             backlog.withLock { $0.pending -= 1 }
             if !written { end() }
         }
-    }
-
-    // MARK: VideoToolbox
-
-    /// A hardware H.264 encoder tuned for low latency: no frame reordering, real time, a keyframe
-    /// at least every two seconds (a late-joining decoder catches up quickly).
-    static func makeEncoder(width: Int, height: Int) -> VTCompressionSession? {
-        let specification = [kVTVideoEncoderSpecification_EnableLowLatencyRateControl: true] as CFDictionary
-        var session: VTCompressionSession?
-        let status = VTCompressionSessionCreate(allocator: nil, width: Int32(width), height: Int32(height), codecType: kCMVideoCodecType_H264,
-                                                encoderSpecification: specification, imageBufferAttributes: nil,
-                                                compressedDataAllocator: nil, outputCallback: nil, refcon: nil,
-                                                compressionSessionOut: &session)
-        guard status == noErr, let session else { return nil }
-        let bitrate = max(500_000, width * height * 4)
-        let properties: [CFString: Any] = [
-            kVTCompressionPropertyKey_RealTime: true,
-            kVTCompressionPropertyKey_AllowFrameReordering: false,
-            kVTCompressionPropertyKey_ProfileLevel: kVTProfileLevel_H264_Main_AutoLevel,
-            kVTCompressionPropertyKey_ExpectedFrameRate: framesPerSecond,
-            kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration: 2,
-            kVTCompressionPropertyKey_AverageBitRate: bitrate,
-        ]
-        VTSessionSetProperties(session, propertyDictionary: properties as CFDictionary)
-        VTCompressionSessionPrepareToEncodeFrames(session)
-        return session
-    }
-
-    /// A ScreenCaptureKit frame that carries a new picture (not an idle or blank one).
-    static func isComplete(_ sample: CMSampleBuffer) -> Bool {
-        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
-              let raw = attachments.first?[.status] as? Int, let status = SCFrameStatus(rawValue: raw) else { return false }
-        return status == .complete
-    }
-
-    static func isKeyframe(_ sample: CMSampleBuffer) -> Bool {
-        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[CFString: Any]],
-              let first = attachments.first else { return true }
-        return first[kCMSampleAttachmentKey_NotSync] as? Bool != true
-    }
-
-    static func bytes(of sample: CMSampleBuffer) -> Data? {
-        guard let block = sample.dataBuffer else { return nil }
-        let length = CMBlockBufferGetDataLength(block)
-        guard length > 0 else { return nil }
-        var data = Data(count: length)
-        let status = data.withUnsafeMutableBytes { buffer -> OSStatus in
-            guard let base = buffer.baseAddress else { return kCMBlockBufferBadPointerParameterErr }
-            return CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: length, destination: base)
-        }
-        return status == noErr ? data : nil
-    }
-
-    static func parameterSets(_ format: CMFormatDescription) -> (sps: Data, pps: Data)? {
-        func set(_ index: Int) -> Data? {
-            var pointer: UnsafePointer<UInt8>?
-            var size = 0
-            guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format, parameterSetIndex: index, parameterSetPointerOut: &pointer,
-                                                                    parameterSetSizeOut: &size, parameterSetCountOut: nil,
-                                                                    nalUnitHeaderLengthOut: nil) == noErr, let pointer else { return nil }
-            return Data(bytes: pointer, count: size)
-        }
-        guard let sps = set(0), let pps = set(1) else { return nil }
-        return (sps, pps)
     }
 }

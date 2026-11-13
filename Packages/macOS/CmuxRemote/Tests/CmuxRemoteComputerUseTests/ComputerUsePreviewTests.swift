@@ -2,6 +2,7 @@
 import AppKit
 @testable import CmuxRemoteComputerUse
 import CmuxRemoteWire
+import Darwin
 import Foundation
 import os
 import Testing
@@ -93,6 +94,34 @@ import VideoToolbox
         _ = fcntl(peer, F_SETFL, O_NONBLOCK)
         var byte: UInt8 = 0
         #expect(read(peer, &byte, 1) == -1 && errno == EAGAIN, "nothing reached the reused descriptor")
+    }
+
+    /// A writer blocked in a full socket (the peer stopped reading) must not hold up close():
+    /// RemoteHost closes the old daemon's channel during a handoff, and a hang there keeps the new
+    /// daemon from its hello reply (full review of a0f8d73).
+    @Test func closeDoesNotWaitForAWriterStuckInAFullSocket() throws {
+        var fds: [Int32] = [-1, -1]
+        #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0)
+        defer { Darwin.close(fds[1]) }
+        let channel = LineChannel(socket: fds[0])
+        let wrote = OSAllocatedUnfairLock<Bool?>(initialState: nil)
+        let writerDone = DispatchSemaphore(value: 0)
+        let started = DispatchSemaphore(value: 0)
+        Thread {
+            started.signal()
+            let ok = channel.write(Data(repeating: 0x41, count: 16 * 1024 * 1024)) // far past the socket buffer
+            wrote.withLock { $0 = ok }
+            writerDone.signal()
+        }.start()
+        started.wait()
+        #expect(writerDone.wait(timeout: .now() + 0.3) == .timedOut, "the writer is stuck: nobody reads")
+        let closed = DispatchSemaphore(value: 0)
+        Thread { channel.close(); closed.signal() }.start()
+        #expect(closed.wait(timeout: .now() + 5) == .success, "close() returns")
+        #expect(writerDone.wait(timeout: .now() + 5) == .success, "and the writer wakes")
+        #expect(wrote.withLock { $0 } == false)
+        channel.shutdown() // after a close: a no-op, never a reused number
+        channel.close()
     }
 
     /// ScreenCaptureKit slow on the stills path: the session never starts a second still while one

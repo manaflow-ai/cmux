@@ -96,6 +96,21 @@ import Testing
         #expect(reporter.window(of: "a")?.window == 7, "B's capture leaves A's window alone")
     }
 
+    /// A session that only captures (it never acts) adds no session and keeps no capture past 2 s,
+    /// and at most 64 sessions' captures are kept (full review of a0f8d73: the map only grew).
+    @Test func capturesOnlyWithoutActionsNeverGrowTheState() {
+        let rig = Rig(windows: [7: .init(id: "com.apple.mail", name: "Mail", pid: 70)])
+        let reporter = rig.reporter()
+        for index in 0..<200 { reporter.noteCapture(CaptureRequest(target: .window(7), session: "s\(index)")) }
+        #expect(reporter.window(of: "s5") == nil && rig.written.isEmpty, "capturing is not acting")
+        #expect(reporter.captureCount == ComputerUseActivityReporter.maximumCaptures)
+        rig.advance(3)
+        reporter.noteCapture(CaptureRequest(target: .window(7), session: "late"))
+        #expect(reporter.captureCount == 1, "captures older than 2 s are gone")
+        reporter.noteCursor(cursor("click", session: "late"))
+        #expect(reporter.window(of: "late")?.window == 7)
+    }
+
     @Test func captureRequestsReadTheirSession() {
         #expect(CaptureRequest(json: Data(#"{"window":"42","session":"terminal:t:9"}"#.utf8))
             == CaptureRequest(target: .window(42), session: "terminal:t:9"))

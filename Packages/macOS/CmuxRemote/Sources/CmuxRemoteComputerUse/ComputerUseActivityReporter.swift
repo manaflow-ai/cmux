@@ -22,8 +22,6 @@ final class ComputerUseActivityReporter: Sendable {
         /// The app that owned ``window`` when the session captured it (the live preview refuses a
         /// window whose owner is not this app any more).
         var windowApp: App?
-        /// Its latest window capture, and when (its screenshot comes before its action).
-        var captured: (id: UInt32, at: Date)?
         /// When it acted last; a stopped session's refused calls do not count.
         var actedAt: Date?
         var stopped = false
@@ -35,11 +33,20 @@ final class ComputerUseActivityReporter: Sendable {
 
     private struct State: Sendable {
         var sessions: [String: SessionState] = [:]
+        /// Each session's latest window capture, and when (its screenshot comes before its action,
+        /// so a session that has not acted yet has one). Only captures of the last 2 s are kept, at
+        /// most ``maximumCaptures``: a session that only captures never grows the map.
+        var captures: [String: (id: UInt32, at: Date)] = [:]
         /// The app of each window resolved so far (a few entries; a window keeps its owner).
         var windowApps: [UInt32: App] = [:]
         /// The sessions the person stopped (kept when a session's cursor hides, so it shows again stopped).
         var stopped: Set<String> = []
     }
+
+    /// How long a window capture names the window of its session's next action.
+    static let captureWindow: TimeInterval = 2
+    /// The most sessions whose recent capture is kept.
+    static let maximumCaptures = 64
 
     private let write: @Sendable (Data) -> Void
     private let clock: @Sendable () -> Date
@@ -63,9 +70,12 @@ final class ComputerUseActivityReporter: Sendable {
         guard case .window(let id) = request.target, let session = request.session else { return }
         let now = clock()
         state.withLockUnchecked { state in
-            var entry = state.sessions[session] ?? SessionState(stopped: state.stopped.contains(session))
-            entry.captured = (id, now)
-            state.sessions[session] = entry
+            state.captures = state.captures.filter { now.timeIntervalSince($0.value.at) < Self.captureWindow }
+            if state.captures.count >= Self.maximumCaptures, state.captures[session] == nil,
+               let oldest = state.captures.min(by: { $0.value.at < $1.value.at })?.key {
+                state.captures.removeValue(forKey: oldest)
+            }
+            state.captures[session] = (id, now)
         }
     }
 
@@ -100,7 +110,7 @@ final class ComputerUseActivityReporter: Sendable {
         let given = (object["app"] as? [String: Any]).map { App(id: $0["id"] as? String, name: $0["name"] as? String) }
         // This session's own window capture within the last 2 s is the window it acts in.
         let window = state.withLockUnchecked { state -> UInt32? in
-            guard let captured = state.sessions[session]?.captured, now.timeIntervalSince(captured.at) < 2 else { return nil }
+            guard let captured = state.captures[session], now.timeIntervalSince(captured.at) < Self.captureWindow else { return nil }
             return state.windowApps[captured.id] == nil ? captured.id : nil
         }
         // Outside the lock: one CGWindowList read for a window not seen before.
@@ -118,7 +128,7 @@ final class ComputerUseActivityReporter: Sendable {
                 return nil
             }
             entry.actedAt = now
-            let recent = entry.captured.flatMap { now.timeIntervalSince($0.at) < 2 ? $0.id : nil }
+            let recent = state.captures[session].flatMap { now.timeIntervalSince($0.at) < Self.captureWindow ? $0.id : nil }
             let windowApp = recent.flatMap { state.windowApps[$0] }
             // The app named on the event wins; else the app of the window this session captured.
             if let given { entry.app = given } else if let windowApp { entry.app = windowApp }
@@ -154,6 +164,9 @@ final class ComputerUseActivityReporter: Sendable {
             return ComputerUsePreview.SessionWindow(window: window, app: entry.windowApp)
         }
     }
+
+    /// How many sessions' recent captures are kept now (tests).
+    var captureCount: Int { state.withLockUnchecked { $0.captures.count } }
 
     /// The session's line when it is due: what it shows changed, or the interval passed.
     private static func due(_ state: inout State, _ session: String, now: Date, force: Bool) -> Data? {
