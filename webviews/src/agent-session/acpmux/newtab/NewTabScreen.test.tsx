@@ -467,7 +467,7 @@ test("with a chat on this Mac, New Tab draws no starters", async () => {
   expect(container.querySelector(".nt-starters")).toBeNull();
 });
 
-test("No folder, then a remote machine with a folder: headline, location and send name that folder", async () => {
+test("No folder, then a remote machine with a folder: location and send name that folder", async () => {
   const remoteFolder = "/remote/project";
   const asks: unknown[][] = [];
   await act(async () => {
@@ -488,7 +488,6 @@ test("No folder, then a remote machine with a folder: headline, location and sen
         cwd="/Users/you/src/cmux"
         startCwd="/Users/you/src/cmux"
         projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
-        pageWidgets={new Set(["greeting"])}
         machineName="This Mac"
         environments
         onAsk={(...args) => asks.push(args)}
@@ -510,15 +509,12 @@ test("No folder, then a remote machine with a folder: headline, location and sen
   );
   expect(noProject).toBeTruthy();
   await act(async () => noProject!.click());
-  expect(container.querySelector(".nt-headline-text")?.textContent).toBe("What should we work on at This Mac?");
+  expect(container.querySelector(".nt-location")?.textContent).toContain("No folder");
 
   await openMachines(container.querySelector<HTMLButtonElement>('[data-kind="computer"] button')!);
   await act(async () => document.querySelector<HTMLElement>('.acpmux-env-row[data-kind="ssh"]')!.click());
 
-  // The machine pick took its known folder: the chat starts there, so all three name it.
-  const headline = container.querySelector(".nt-headline-text")?.textContent ?? "";
-  expect(headline).toContain("project");
-  expect(headline).toContain("build-box");
+  // The machine pick took its known folder: the chat starts there, so the location row names it.
   expect(container.querySelector(".nt-location")?.textContent).toContain("project");
   expect(container.querySelector(".nt-location")?.textContent).not.toContain("No folder");
   await typePrompt("fix it");
@@ -1056,7 +1052,7 @@ test("with Cloud picked and No folder, a send names no folder: not even the tab'
         snapshot={noChat()}
         cwd="/repo/A"
         startCwd="/repo/A"
-        pageWidgets={new Set(["projects"])}
+        template="default"
         onAsk={() => {}}
         onOpen={() => {}}
         onSearch={() => {}}
@@ -1398,7 +1394,6 @@ test("Add folder… is the host's folder panel: a second one while it is open as
     root!.render(
       <NewTabScreen
         {...firstRunProps}
-        pageWidgets={new Set(["projects"])}
         projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
         onBrowseProject={(request) => {
           // The folder menu commits the pick itself (deferPick), so a folder picked meanwhile wins.
@@ -1501,7 +1496,6 @@ test.each(["project", "saved"] as const)(
           {...firstRunProps}
           snapshot={noChat()}
           cwd="/repo/original"
-          pageWidgets={new Set(["projects"])}
           projects={[{ cwd: "/repo/local", label: "Local project" }]}
           environments
           savedEnvironments={{
@@ -1738,7 +1732,7 @@ test("New project: the name follows the prompt until edited; the send makes that
   expect(container.querySelector('[role="alert"]')).toBeNull();
 });
 
-test("New project refused: the reason shows above the card, no chat starts and the prompt stays", async () => {
+test("New project refused: plain words show above the card, no chat starts and the prompt stays", async () => {
   const asks: unknown[][] = [];
   const names: string[] = [];
   const reason = "a folder named habit-tracker can't be made";
@@ -1753,9 +1747,8 @@ test("New project refused: the reason shows above the card, no chat starts and t
 
   expect(names).toEqual(["habit-tracker"]);
   expect(asks).toHaveLength(0);
-  expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-    translate("project.new.failedBecause", { reason }),
-  );
+  // acpmux's own words go to the log, never the notice.
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe(translate("project.new.failed"));
   expect(promptValue()).toBe("a habit tracker web app");
   // Still New project, so a second send tries again.
   expect(projectNameField()?.value).toBe("habit-tracker");

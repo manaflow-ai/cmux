@@ -42,7 +42,9 @@ ROOT = Path(__file__).resolve().parents[1]
 DOC = ROOT / "docs" / "privacy.md"
 KINDS = ("connects", "opens", "identifier", "example", "not-a-host")
 SCAN = {
-    "include": ["Packages/macOS/CmuxNext/", "Packages/Shared/", "cmux-tui/", "webviews/src/", "cmux-next-ios/"],
+    # The customize templates are app code too: an installed widget runs in NEXT's app host and fetches through it.
+    "include": ["Packages/macOS/CmuxNext/", "Packages/Shared/", "cmux-tui/", "webviews/src/", "cmux-next-ios/",
+                "skills/cmux-customization/templates/"],
     # Servers and developer tools, not the app: relays and the iPhone push backend run on our side.
     "exclude": ["cmux-tui/relays/", "cmux-next-ios/backend/", "/tools/", "/src/bin/", "/benches/",
                 "/typed_corpus.rs", "/hot_bench.rs", "/smoke.ts", "Fixture.swift", "/Mock", "/prototype/"],
