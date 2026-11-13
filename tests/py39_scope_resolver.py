@@ -28,7 +28,8 @@ compile) is unresolved: owners() is None and a caller must not pass it (fail clo
 
 Vendored from teamleaderleo/leo-workspace tools/scope_resolver.py at 07b4c9bf9
 (LW #4755, #4769, #4775); keep the compiler scope and binding rules together.
-Local follow-up: record defaults in the shared argument walker, including lambda parameters.
+Local follow-ups: retain callable defaults, propagate uncertainty through assignments and calls,
+and refuse scope-construction failures instead of returning an empty binding map.
 Source of truth: leo-workspace tools/scope_resolver.py. Standard library only; runs on Python 3.9 (macOS's
 /usr/bin/python3) and later.
 """
@@ -107,6 +108,12 @@ class Resolver:
         self._walrus = set()  # id() of a walrus target
         self.root = Scope("module", tree, None, "top", 0)
         self.scope[id(tree)] = self.root
+        try:
+            self._build(tree, source)
+        except (RecursionError, MemoryError) as exc:
+            raise ScopeResolutionError("could not build scopes: %s" % exc) from exc
+
+    def _build(self, tree, source):
         self._walk(tree, self.root)
         self._match(tree, source)
         self.landing = {}  # id(site) -> [(name, Scope it lands in)]
@@ -748,7 +755,10 @@ class Resolver:
                     {b for b in base if b.endswith(".*")}), complete
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             func, func_complete = self.values(node.func, node.func.id)
+            # A complete set of possible callees is not a settled call result.
+            func_complete = func_complete and len(func) == 1
             if "builtins.getattr" in func and len(node.args) >= 2:
+                func_complete = func_complete and len(node.args) == 2 and not node.keywords
                 bases, base_complete = self.dotted_info(node.args[0])
                 bases = {b for b in bases if not b.endswith(".*")}
                 attr = node.args[1]
@@ -758,9 +768,20 @@ class Resolver:
             if ("builtins.__import__" in func and node.args and isinstance(node.args[0], ast.Constant)
                     and isinstance(node.args[0].value, str)):
                 module = node.args[0].value
-                fromlist = next((kw.value for kw in node.keywords if kw.arg == "fromlist"), None)
-                if len(node.args) >= 4:
-                    fromlist = node.args[3]
+                names = ("name", "globals", "locals", "fromlist", "level")
+                arguments = dict(zip(names, node.args))
+                valid = len(node.args) <= len(names) and not any(
+                    isinstance(arg, ast.Starred) for arg in node.args)
+                for kw in node.keywords:
+                    if kw.arg not in names or kw.arg in arguments:
+                        valid = False
+                    arguments[kw.arg] = kw.value
+                level = arguments.get("level")
+                absolute = level is None or (isinstance(level, ast.Constant)
+                                             and type(level.value) is int and level.value == 0)
+                if not valid or not absolute:
+                    return {module.split(".")[0], module}, False
+                fromlist = arguments.get("fromlist")
                 if fromlist is None:
                     return {module.split(".")[0]}, func_complete
                 if isinstance(fromlist, (ast.List, ast.Tuple, ast.Set)) and not fromlist.elts:
@@ -768,5 +789,5 @@ class Resolver:
                 if isinstance(fromlist, (ast.List, ast.Tuple, ast.Set)) and not any(
                         isinstance(item, ast.Starred) for item in fromlist.elts):
                     return {module}, func_complete
-                return {module.split(".")[0]}, False
+                return {module.split(".")[0], module}, False
         return set(), False

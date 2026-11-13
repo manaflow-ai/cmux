@@ -344,7 +344,10 @@ def runtime_sites(path):
     except (SyntaxError, ValueError):
         return []
     rel = path.relative_to(ROOT).as_posix()
-    _SCOPE["alias"] = _aliases(tree)
+    try:
+        _SCOPE["alias"] = _aliases(tree)
+    except scope_resolver.ScopeResolutionError as exc:
+        raise AssertionError("%s: scope resolution refused: %s" % (path, exc)) from exc
     parent = _parents(tree)
     out = []
     future = any(isinstance(n, ast.ImportFrom) and n.module == "__future__" and
