@@ -1891,11 +1891,12 @@ impl Hub {
             self.end_trigger_background(session, turn_id);
         }
         self.reset_stream(session);
-        // Nobody showing it: the sidebar dot and `wait --until done` see it. While work it
-        // started still runs (a background subagent, a working sub-session) the task is not
-        // done: the dot waits for that work to end (`work_below.rs`, manaflow-ai/cmux#25563).
-        if !trigger && !self.shown(session) {
-            self.mark_unread_unless_work_below(session);
+        // Nobody attending it (not shown, or shown to a person who is away, `seen.rs`): the
+        // sidebar dot and `wait --until done` see it. While work it started still runs (a
+        // background subagent, a working sub-session) the task is not done: the dot waits for
+        // that work to end (`work_below.rs`, manaflow-ai/cmux#25563).
+        if !trigger {
+            self.note_turn_end(session);
         }
         if session.status() != SessionStatus::Closed {
             let alive = child.is_alive().await;
@@ -1922,6 +1923,8 @@ impl Hub {
             drop(state);
         }
         self.save_meta(session);
+        // The chat's settled view, for the shape its pane opens with (`settled_view.rs`).
+        self.settle_view_at_turn_end(session);
         self.send_offer_result(session);
         self.lane_turn_ended(session, true, turn);
         self.inbox_turn_ended(session, turn_id, turn, true);
@@ -2012,6 +2015,7 @@ impl Hub {
                 self.set_status(session, status);
             }
             self.save_meta(session);
+            self.settle_view_at_turn_end(session);
             self.lane_turn_ended(session, false, turn);
             self.inbox_turn_ended(session, turn_id, turn, false);
             return;
@@ -2038,6 +2042,7 @@ impl Hub {
             self.set_status(session, SessionStatus::Disconnected);
         }
         self.save_meta(session);
+        self.settle_view_at_turn_end(session);
         // The turn was counted: its lane's parent hears it failed, with no reply of its own
         // (`lane_reports.rs`).
         self.lane_turn_ended(session, false, turn);
@@ -2428,7 +2433,7 @@ impl Hub {
             .lock()
             .unwrap()
             .values()
-            .any(|s| s.id != session.id && s.meta().name == name)
+            .any(|s| s.id != session.id && s.read_meta(|m| m.name == name))
         {
             return Err(RpcError::invalid_params(format!("session name {name:?} is taken")));
         }
@@ -2616,6 +2621,7 @@ impl Hub {
                 remote: None,
                 update_line: Default::default(),
                 row: Default::default(),
+                list_seq: 0,
             });
             drop(sessions);
         }

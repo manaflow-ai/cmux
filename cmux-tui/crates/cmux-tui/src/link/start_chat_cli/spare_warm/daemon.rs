@@ -12,7 +12,7 @@ use cmux_tui_core::server::cloud_spare_warm::{
 };
 use serde_json::Value;
 
-use super::{Request, answer, login_copy, now_ms, post};
+use super::{Report, Request, answer, login_copy, now_ms, post, report_login};
 
 /// The installed service: the start-chat state folder is read on every call, as the CLI does.
 struct DaemonSpareWarm;
@@ -54,9 +54,9 @@ impl SpareWarmService for DaemonSpareWarm {
 /// Starts the copy the answer hands out on its own thread; false when it could not start.
 type Spawn<'a> = &'a dyn Fn(SpareWarmParams, PathBuf, Arc<dyn CopyGuard>, String, String) -> bool;
 
-/// The ledger's answer to `params` (a warm, or the claim of `params.claimed`), and the copy it
-/// hands out started with `spawn`. A copy that cannot start is reported abandoned at once, so the
-/// next warm answers it again and no start waits on it.
+/// The ledger's answer to `params` (a warm, the claim of `params.claimed`, or the spare-ready copy
+/// onto `params.ready`), and the copy it hands out started with `spawn`. A copy that cannot start
+/// is reported abandoned at once, so the next warm answers it again and no start waits on it.
 fn warm(
     params: SpareWarmParams,
     state: &Path,
@@ -73,9 +73,18 @@ fn warm(
         wait_copy: None,
         login_receipt: None,
         claimed: params.claimed.clone(),
+        ready: params.ready.clone(),
     };
-    let reply =
-        answer(request, &params.access_token, &params.install_token, state, now_ms(), transport);
+    // A warm or a claim ends no copy, so it reports nothing.
+    let reply = answer(
+        request,
+        &params.access_token,
+        &params.install_token,
+        state,
+        now_ms(),
+        transport,
+        &|_, _, _, _| {},
+    );
     let copy = reply.get("copy").and_then(|copy| {
         let machine = copy.get("machine")?.as_str()?.to_owned();
         let team = copy.get("team")?.as_str()?.to_owned();
@@ -84,7 +93,7 @@ fn warm(
     if let Some((machine, team)) = copy {
         let report = params.clone();
         if !spawn(params, state.to_path_buf(), guard, machine.clone(), team) {
-            end(&report, state, &machine, End::Abandoned, transport);
+            end(&report, state, &machine, End::Abandoned, transport, &report_login);
         }
     }
     reply
@@ -121,7 +130,7 @@ fn copy_then_report(
     } else {
         End::Abandoned
     };
-    end(params, state, machine, ended, &post);
+    end(params, state, machine, ended, &post, &report_login);
 }
 
 /// How a copy ended: installed (the ledger keeps it as the start's login receipt), done otherwise
@@ -133,13 +142,16 @@ enum End {
     Abandoned,
 }
 
-/// Reports the copy onto `machine` ended to the ledger.
+/// Reports the copy onto `machine` ended to the ledger; an installed copy is also reported to the
+/// platform with `report` (`POST /v1/cloud/spare/login`, once the ledger's lock is let go), as the
+/// CLI's `installed` end is (#41676).
 fn end(
     params: &SpareWarmParams,
     state: &Path,
     machine: &str,
     ended: End,
     transport: super::Transport<'_>,
+    report: Report<'_>,
 ) {
     let named = |end: End| (ended == end).then(|| machine.to_owned());
     let request = Request {
@@ -151,9 +163,17 @@ fn end(
         wait_copy: None,
         login_receipt: None,
         claimed: None,
+        ready: None,
     };
-    let _ =
-        answer(request, &params.access_token, &params.install_token, state, now_ms(), transport);
+    let _ = answer(
+        request,
+        &params.access_token,
+        &params.install_token,
+        state,
+        now_ms(),
+        transport,
+        report,
+    );
 }
 
 #[cfg(test)]

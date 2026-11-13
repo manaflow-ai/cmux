@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '8f3969913e08f981c465e8b845faf315ef3574a34090bba398a7a04e348e46e9'
+IR_SHA256 = '4d732676139fc0d13bd9f38eb829fa33b966f408c1146e076a969a43a8135b5a'
 
 
 @dataclass(frozen=True)
@@ -910,6 +910,7 @@ COMMANDS = {
             'install_token': CommandFieldMetadata(None, None),
             'login_teams': CommandFieldMetadata(None, None),
             'platform': CommandFieldMetadata(None, None),
+            'ready': CommandFieldMetadata(None, None),
             'setting': CommandFieldMetadata(None, None),
             'stored_choice': CommandFieldMetadata(None, None),
             'team': CommandFieldMetadata(None, None),

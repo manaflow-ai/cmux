@@ -31,8 +31,10 @@ public import Foundation
     /// Sends the intent; the caller never awaits it. `claimed`: a reserve's or a claim's answer named this machine, so
     /// Rust warms nothing and answers the copy onto it (on unless `cmux.cloud.copyLoginOnClaim` is NO). A claim stays
     /// pending in `claims` until the daemon's ledger answers it, so a start onto that machine never asks `wait-copy` first.
-    public func start(claimed: String? = nil) {
-        guard let userID = auth.user?.id, claimed == nil || CloudMoveCLI.copiesLoginOnClaim(.standard) else { return }
+    /// `ready`: the platform said this spare became ready (``CloudMachineWire/onSpareReady``): the same as `claimed`
+    /// (same switch, same registration), but Rust marks nothing claimed.
+    public func start(claimed: String? = nil, ready: String? = nil) {
+        guard let userID = auth.user?.id, (claimed ?? ready) == nil || CloudMoveCLI.copiesLoginOnClaim(.standard) else { return }
         let team = auth.teamID, teams = auth.teams.map(\.id)
         let setting = CloudCredentialTransfer.passHarnessLoginSetting(.standard)
         let stored = CloudHarnessLoginChoices().load(userID: userID)?.rawValue
@@ -45,13 +47,13 @@ public import Foundation
             // the follower missed included).
             _ = try? await connection.request(CloudSpareWarmConsentRequest(consent: consent, generation: generation), timeout: .seconds(5))
             let request = CloudSpareWarmRequest(platform: platform.absoluteString, api: api.absoluteString, accessToken: access,
-                                                installToken: install, account: userID, claimed: claimed, team: team, loginTeams: teams,
+                                                installToken: install, account: userID, claimed: claimed, ready: ready, team: team, loginTeams: teams,
                                                 dogfood: dogfood, setting: setting, storedChoice: stored, consent: consent)
             // The ledger answers after the platform's warm call (90 s at most); the copy goes on in the daemon after it.
             _ = try? await connection.request(request, timeout: .seconds(120))
         }
-        if let claimed {
-            _ = claims.register(claimed, send)
+        if let machine = claimed ?? ready {
+            _ = claims.register(machine, send)
         } else {
             // task-owner: none; one daemon request bounded by its timeout, and Rust's lock and throttle answer repeats.
             Task { @MainActor in await send() }

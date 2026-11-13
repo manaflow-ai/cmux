@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "8f3969913e08f981c465e8b845faf315ef3574a34090bba398a7a04e348e46e9";
+pub const ir_sha256 = "4d732676139fc0d13bd9f38eb829fa33b966f408c1146e076a969a43a8135b5a";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -5207,6 +5207,7 @@ pub const CloudSpareWarmRequest = struct {
     install_token: []const u8,
     login_teams: ?[]const []const u8 = null,
     platform: []const u8,
+    ready: wire.Field([]const u8) = .absent,
     setting: wire.Field(bool) = .absent,
     stored_choice: wire.Field([]const u8) = .absent,
     team: wire.Field([]const u8) = .absent,

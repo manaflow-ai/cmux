@@ -133,8 +133,16 @@ fn a_dogfood_warm_installs_the_cached_login_on_an_owner_machine() {
     assert!(writes[0].0.starts_with("/home/cmux/.cmux/credential-transfer/"));
     assert_eq!(writes[0].1, TOKEN);
     assert_eq!(fake.ran("CMUX_CREDENTIAL_INSTALL"), 1);
+    // The installer is told whose login it is (the account id, never the login), so a machine that already holds this
+    // account's same login is left as it is (#41676).
+    let execs = fake.execs.lock().unwrap();
+    assert!(
+        execs.iter().any(|command| command.contains("CMUX_CREDENTIAL_INSTALL")
+            && command.contains(" owner 'user_a' <<'CMUX_CREDENTIAL_INSTALL'")),
+        "the install names the account"
+    );
     // The token goes only in the write's body, never in a command.
-    assert!(fake.execs.lock().unwrap().iter().all(|command| !command.contains("sk-ant-")));
+    assert!(execs.iter().all(|command| !command.contains("sk-ant-")));
 }
 
 #[test]

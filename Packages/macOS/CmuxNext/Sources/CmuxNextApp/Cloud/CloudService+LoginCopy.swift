@@ -35,14 +35,13 @@ extension CloudStartChat {
     }
 
     /// Tells the daemon the person means Cloud (``CloudSpareWarm``): Rust warms their spare and copies their login onto it; nothing here spawns or waits.
-    @MainActor static func warmSpare(_ services: AppServices, claimed: String? = nil) {
+    @MainActor static func warmSpare(_ services: AppServices, claimed: String? = nil, ready: String? = nil) {
         let cloud = services.cloud
         guard !services.registry.disabledFeatures.contains(.cloud), cloud.mayCallCloud, let connection = services.daemon.connection, let platform = cloud.configuration.artifactsAPIBaseURL() else { return }
-        CloudSpareWarm(auth: cloud.auth, installIdentity: cloud.installIdentity, connection: connection, platform: platform, api: cloud.configuration.ownerAPIBaseURL(), dogfood: DevTools.isEnabled, consent: { [weak services] in .init(live: services?.daemon.isLive == true, consent: services.flatMap(loginCopyConsent)) }, claims: cloud.claimedCopies).start(claimed: claimed)
+        CloudSpareWarm(auth: cloud.auth, installIdentity: cloud.installIdentity, connection: connection, platform: platform, api: cloud.configuration.ownerAPIBaseURL(), dogfood: DevTools.isEnabled, consent: { [weak services] in .init(live: services?.daemon.isLive == true, consent: services.flatMap(loginCopyConsent)) }, claims: cloud.claimedCopies).start(claimed: claimed, ready: ready)
     }
 
-    /// The Release copy's gate (``CloudLoginCopyGate``) over this app's switch, cmux.json and consent,
-    /// asked by `asker` (a start's card), else as a dialog in the active window.
+    /// The Release copy's gate (``CloudLoginCopyGate``) over this app's switch, cmux.json and consent, asked by `asker` (a start's card), else as a dialog in the active window.
     @MainActor static func loginCopyGate(_ services: AppServices, asker: AgentPaneCloudAsker? = nil) -> CloudLoginCopyGate {
         CloudLoginCopyGate(dogfood: DevTools.isEnabled, readSwitch: { [weak services] in await services?.cloud.readHarnessLoginCopySwitch() },
                            consent: { [weak services] in services.flatMap(loginCopyConsent) },

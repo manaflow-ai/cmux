@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8f3969913e08f981c465e8b845faf315ef3574a34090bba398a7a04e348e46e9.
+// cmux-tui mux protocol 12, IR 4d732676139fc0d13bd9f38eb829fa33b966f408c1146e076a969a43a8135b5a.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};

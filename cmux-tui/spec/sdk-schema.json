@@ -28266,6 +28266,14 @@
       "presence": "optional",
       "nullable": true
      },
+     "ready": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
      "team": {
       "type": {
        "kind": "scalar",

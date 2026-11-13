@@ -1655,7 +1655,8 @@ with error code `input.overflow` and queues nothing. When the creation committed
 the queue is written to it in order. Until that write ended, input by `terminal_id` still joins the queue
 (`{queued:true}`), and input to the new terminal by any other path (`send {surface}`, `send-key`, the
 `terminal.input.*` resource operations, an image paste commit, `clear-history`) waits for it, so queued bytes precede all later input. When the
-creation fails, its connection closes first, or it has not ended 10 seconds after the first queued byte,
+creation fails, its connection closes first, or it has not ended 120 seconds after the first queued byte (a backstop for
+a creation that never ends: a slow one keeps its queue until it commits),
 nothing of the queue is written: each connection that queued bytes gets them back, in order, in one
 `terminal-input-unclaimed` control event ([events.md](events.md#terminal-input-unclaimed)) with `reason`
 `failed`, `cancelled` or `expired`, so the client can give them to the terminal that has focus. When a write
@@ -8334,18 +8335,22 @@ API authorization; this native forwarding command never grants it to agents.
 | since | protocol 12 additive extension; capability `cloud-spare-warm-v1` |
 
 The app's Cloud intent: it came to the front signed in, the composer picked
-Cloud, or a reserve's or a claim's answer named a machine (`claimed`). Only the
+Cloud, a reserve's or a claim's answer named a machine (`claimed`), or the
+platform said the person's spare just became ready (`ready`, from
+`cloud.spare.ready` on the app's Cloud wire). Only the
 verified native app may send it. The daemon does the rest in Rust on a cloud
 request worker: the spare warm's throttle and ledger (`spare-warm.json` in the
 start-chat state folder, the one `cmux link start-chat warm-spare` and
 `wait-copy` read), the platform's `POST /v1/cloud/spare/warm` (none for a
-claim), and, when the ledger hands out a copy, the headless Claude login copy
+claim or a ready spare), and, when the ledger hands out a copy, the headless Claude login copy
 onto that machine: the Release remote switch, the harness login decision
 (cmux-cloud-start-core `harness_login::decide`, headless), the guest's kind and
 the machine's own login, the Keychain read, the guest check, the write and the
 install. The answer is the ledger's (`{ok, machine?, team?, fresh, copy?}`),
 sent once it is written; the copy goes on on its own thread and reports its end
-to the same ledger (`finished`, or `abandoned` when the copy was ended).
+to the same ledger (`finished`, or `abandoned` when the copy was ended); an
+installed copy is also reported to the platform (`POST /v1/cloud/spare/login`), so
+its claim prefers that machine.
 
 The copy asks again whether it may go on: before it reads anything, after
 the last blocking read (the remote switch), and after the write, before the
@@ -8359,7 +8364,9 @@ under one 30 s deadline.
 
 Fields: `platform` (the warm's origin), `api` (the cmux API the copy's machine
 routes and the Release switch call), `access_token` (the Stack session), `install_token`,
-`account` (the Stack user), and optionally `claimed`, `team` (the selected Stack
+`account` (the Stack user), and optionally `claimed`, `ready` (the machine id of
+a spare that just became ready: no warm, the copy onto it unless a receipt, a copy
+in flight or a copy given already covers it), `team` (the selected Stack
 team), `login_teams` (the person's teams; the selected team's login is read first, these next, the personal login last), `dogfood`,
 `setting` (`cmux.cloud.passHarnessLogin`), `stored_choice` (the person's kept
 login choice) and `consent` (the one-time Release consent). Neither token is
@@ -10161,6 +10168,16 @@ shows the chat (`_acpmux/view`; a new attachment counts as shown). Both answer
 `{}` and name no session: `on` and `visible` are booleans and any other param
 is `agent_session.bad_request`. An observation attachment may send
 `agent-session-view` but never `agent-session-typing` (`agent_session.read_only`).
+
+`agent-session-attention-v1` (advertised with it) adds two optional params to
+`agent-session-view`: `attending` (boolean: the person attends the chat their
+window shows, on screen, window key, input within the pane's idle window) and
+`seen_seq` (number: the chat's log seq at their last input). Both go to acpmux's
+`_acpmux/view` as `attending` and `seenSeq`: a chat shown to a person who is away
+keeps its turns unread, left off at `seen_seq` (acpmux `hub/seen.rs`). The
+answer is acpmux's, `{lastReturn?: {since, turns}}` when coming back to attend
+put "New since you looked" on the chat. An app sends them only to a daemon that
+advertises the capability.
 
 A connection that echoed `agent-session-presence-v1` in `set-client-info` then
 gets `{event:"agent-session-presence", surface, presence}` on every change (one

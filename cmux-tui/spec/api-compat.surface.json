@@ -8438,6 +8438,10 @@
         "ty": "string",
         "required": true
       },
+      "/ready": {
+        "ty": "string",
+        "nullable": true
+      },
       "/setting": {
         "ty": "boolean",
         "nullable": true

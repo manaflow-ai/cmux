@@ -20780,6 +20780,11 @@ Result<Json> Codec<CloudSpareWarmRequest>::encode(const CloudSpareWarmRequest& v
     auto encoded_platform = encode_value(value.platform);
     if (!encoded_platform) return std::move(encoded_platform).error();
     object.emplace("platform", std::move(encoded_platform).value());
+    if (!value.ready.is_absent()) {
+        auto encoded = encode_value(value.ready);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("ready", std::move(encoded).value());
+    }
     if (!value.setting.is_absent()) {
         auto encoded = encode_value(value.setting);
         if (!encoded) return std::move(encoded).error();
@@ -20878,6 +20883,16 @@ Result<CloudSpareWarmRequest> Codec<CloudSpareWarmRequest>::decode(const Json& v
         auto decoded = decode_value<std::string>(*field_platform);
         if (!decoded) return std::move(decoded).error();
         result.platform = std::move(decoded).value();
+    }
+    const Json* field_ready = value.find("ready");
+    if (field_ready) {
+        if (field_ready->is_null()) {
+            result.ready = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_ready);
+            if (!decoded) return std::move(decoded).error();
+            result.ready = Field<std::string>(std::move(decoded).value());
+        }
     }
     const Json* field_setting = value.find("setting");
     if (field_setting) {

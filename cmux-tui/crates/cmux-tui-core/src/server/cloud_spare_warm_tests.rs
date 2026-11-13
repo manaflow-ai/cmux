@@ -6,8 +6,14 @@ fn the_params_never_print_a_token() {
         "platform": "https://platform.example", "api": "https://api.example",
         "access_token": "stack.secret", "install_token": "install.secret", "account": "user_a",
         "claimed": "vm_0123456789abcdefghij", "team": "team_b", "login_teams": ["team_a", "team_b"], "dogfood": true,
+        "ready": "vm_abcdefghij0123456789",
     }))
     .unwrap();
+    assert_eq!(
+        params.ready.as_deref(),
+        Some("vm_abcdefghij0123456789"),
+        "a spare-ready copy is accepted"
+    );
     let printed = format!("{params:?}");
     assert!(!printed.contains("secret"), "{printed}");
     // The selected team first, the other teams, then personal; never twice.

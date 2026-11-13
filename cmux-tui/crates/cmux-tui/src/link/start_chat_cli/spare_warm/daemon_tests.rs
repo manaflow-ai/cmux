@@ -93,3 +93,45 @@ fn a_bad_account_is_refused_before_anything_runs() {
     let reply = warm(params, dir.path(), yes(), &never, &|_, _, _, _, _| panic!("no copy"));
     assert_eq!(reply["ok"], false, "{reply}");
 }
+
+#[test]
+fn a_ready_spare_gets_its_copy_once_with_no_platform_call() {
+    let dir = tempfile::tempdir().unwrap();
+    let ready = || SpareWarmParams { ready: Some(MACHINE.to_owned()), ..params(None) };
+    let started = Mutex::new(Vec::new());
+    let reply = warm(ready(), dir.path(), yes(), &never, &|_, _, _, machine, team| {
+        started.lock().unwrap().push((machine, team));
+        true
+    });
+    assert_eq!(reply["copy"]["machine"], MACHINE, "{reply}");
+    assert_eq!(*started.lock().unwrap(), vec![(MACHINE.to_owned(), TEAM.to_owned())]);
+    // A repeat event, or the claim of the same machine, waits on that copy instead of starting another.
+    let again =
+        warm(ready(), dir.path(), yes(), &never, &|_, _, _, _, _| panic!("one copy per machine"));
+    assert_eq!(again["fresh"], false, "{again}");
+    let claim = warm(params(Some(MACHINE)), dir.path(), yes(), &never, &|_, _, _, _, _| {
+        panic!("one copy per machine")
+    });
+    assert!(claim.get("copy").is_none(), "{claim}");
+}
+
+#[test]
+fn only_an_installed_copy_is_reported_to_the_platform() {
+    let dir = tempfile::tempdir().unwrap();
+    let reports = Mutex::new(Vec::new());
+    let report = |_: &Request, credential: &str, team: &str, machine: &str| {
+        reports.lock().unwrap().push((credential.to_owned(), team.to_owned(), machine.to_owned()));
+    };
+    let ready = SpareWarmParams { ready: Some(MACHINE.to_owned()), ..params(None) };
+    warm(ready, dir.path(), yes(), &never, &|_, _, _, _, _| true);
+    end(&params(None), dir.path(), MACHINE, End::Finished, &never, &report);
+    end(&params(None), dir.path(), MACHINE, End::Abandoned, &never, &report);
+    assert!(reports.lock().unwrap().is_empty());
+    end(&params(None), dir.path(), MACHINE, End::Installed, &never, &report);
+    assert_eq!(
+        *reports.lock().unwrap(),
+        vec![("tok".to_owned(), TEAM.to_owned(), MACHINE.to_owned())]
+    );
+    // The installed copy is the start's receipt, and no start waits on it any more.
+    assert!(!super::super::copy_in_flight(dir.path(), MACHINE, now_ms()));
+}

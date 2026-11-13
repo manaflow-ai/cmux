@@ -13,6 +13,8 @@ import CmuxTabsKit
     func make(_ backend: MockWorkspaceCreationBackend = MockWorkspaceCreationBackend(latency: .zero),
               memory: [String: String] = ["ws-cmux": "t-zsh"]) -> (AppStore, WorkspaceTabsSource) {
         let store = AppStore.mock(tabMemory: .inMemory(memory))
+        // Opens on that tab: a plain open starts at the layout's top-left, so ask for it.
+        for (workspace, tab) in memory { store.requestOpen(tabID: tab, in: workspace) }
         return (store, WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", creator: WorkspaceCreator(store: store, backend: backend)))
     }
 

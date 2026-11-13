@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "8f3969913e08f981c465e8b845faf315ef3574a34090bba398a7a04e348e46e9";
+inline constexpr std::string_view kProtocolIrSha256 = "4d732676139fc0d13bd9f38eb829fa33b966f408c1146e076a969a43a8135b5a";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -2039,6 +2039,7 @@ struct CloudSpareWarmRequest {
     std::string install_token{};
     std::optional<std::vector<std::string>> login_teams{};
     std::string platform{};
+    Field<std::string> ready{};
     Field<bool> setting{};
     Field<std::string> stored_choice{};
     Field<std::string> team{};

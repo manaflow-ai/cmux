@@ -247,7 +247,7 @@ fn transfer(
     let installed = written
         && still()
         && effects
-            .exec(&scripts::install_command(&path), EXEC_MS)
+            .exec(&scripts::install_command(&path, &params.account), EXEC_MS)
             .is_some_and(|(code, _)| code == 0);
     if installed {
         return Ok(());

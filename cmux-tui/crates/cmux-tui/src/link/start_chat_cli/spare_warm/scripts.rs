@@ -13,9 +13,10 @@ fi
 [ ! -L /home/cmux/.cmux/credential-transfer ] && [ "$(stat -c %U /home/cmux/.cmux/credential-transfer)" = cmux ]"##;
 
 /// The installer (`CloudCredentialInstaller.script`), run by [`install_command`].
-pub(super) const INSTALL_SCRIPT: &str = r##"import json, os, pathlib, pwd, stat, sys, tempfile
+pub(super) const INSTALL_SCRIPT: &str = r##"import fcntl, hashlib, json, os, pathlib, pwd, stat, sys, tempfile
 provider, source = sys.argv[1:3]
 kinds = set((sys.argv[3] if len(sys.argv) > 3 else 'owner').split(',')) & {'owner', 'team'}
+account = sys.argv[4] if len(sys.argv) > 4 else ''
 policy = pathlib.Path('/etc/cmux')
 if (policy / 'vm-kind').read_text().strip() not in kinds or not (policy / 'agent-auth.sh').is_file():
     sys.exit(70)
@@ -43,6 +44,27 @@ def save(path, value):
         os.replace(tmp, path)
     finally:
         if os.path.exists(tmp): os.unlink(tmp)
+# The image's model-plane stub values (agent-auth.sh cmux_agent_drop_model_plane_env): its placeholder key and
+# its CodeRouter or team endpoint. A settings env holding only these is no custom endpoint, and they are dropped
+# from it, so the own login never goes to the model plane.
+stub_key = 'cmux-vm-edge-placeholder'
+stub_urls = {u.rstrip('/') for u in (os.environ.get('CMUX_CODEROUTER_URL'), os.environ.get('CMUX_CLAUDE_TEAM_BASE_URL')) if u}
+def stub(env, k):
+    v = env.get(k)
+    if k == 'ANTHROPIC_API_KEY': return v == stub_key
+    if k == 'ANTHROPIC_BASE_URL':
+        return isinstance(v, str) and (v.rstrip('/') in stub_urls or (not stub_urls and env.get('ANTHROPIC_API_KEY') == stub_key))
+    return False
+def digest(text): return hashlib.sha256(text.encode()).hexdigest()
+def installed(provider):
+    # The login this machine holds now, as a digest (never the login itself), or None.
+    try:
+        if provider == 'claude':
+            token = json.loads((home / '.claude/settings.json').read_text()).get('env', {}).get('CLAUDE_CODE_OAUTH_TOKEN')
+            return digest(token) if isinstance(token, str) and token else None
+        return digest(json.dumps(json.loads((home / '.codex/auth.json').read_text())))
+    except Exception:
+        return None
 try:
     # Custom endpoints/keys must never receive the transferred subscription credential.
     conflicts = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL',
@@ -50,12 +72,29 @@ try:
     if any(os.environ.get(k) for k in conflicts): raise ValueError()
     if os.environ.get('CMUX_' + provider.upper() + '_AUTH') == 'team': raise ValueError()
     value = source.read_text()
+    marks = home / '.config/cmux/agent-auth'
+    private_dir(marks)
+    # One install at a time on a machine: a second copy (another Mac, or a spare-ready copy beside a claim's)
+    # waits, then finds the first one's login and leaves it.
+    lock = os.open(marks / ('.' + provider + '.install.lock'), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    mark = marks / (provider + '.login')
+    if mark.is_symlink(): raise ValueError()
+    try: prior = json.loads(mark.read_text()) if mark.exists() else {}
+    except Exception: prior = {}
+    wanted = digest(value if provider == 'claude' else json.dumps(json.loads(value)))
+    held = installed(provider)
+    # The same account's same login, still in place and chosen: nothing to do, and success.
+    if (held == wanted and prior.get('digest') == wanted and prior.get('account', '') == account
+            and (marks / provider).is_file() and (marks / provider).read_text().strip() == 'own'):
+        sys.exit(0)
     if provider == 'claude':
         settings = home / '.claude/settings.json'
         if settings.is_symlink(): raise ValueError()
         config = json.loads(settings.read_text()) if settings.exists() else {}
         env = config.setdefault('env', {})
-        if 'apiKeyHelper' in config or any(env.get(k) for k in conflicts): raise ValueError()
+        if 'apiKeyHelper' in config or any(env.get(k) and not stub(env, k) for k in conflicts): raise ValueError()
+        for k in [k for k in conflicts if stub(env, k)]: env.pop(k)
         env['CLAUDE_CODE_OAUTH_TOKEN'] = value
         save(settings, json.dumps(config))
         # The image launcher checks this standard Claude login marker before starting
@@ -72,6 +111,7 @@ try:
         save(home / '.codex/auth.json', json.dumps(json.loads(value)))
     else: raise ValueError()
     save(home / '.config/cmux/agent-auth' / provider, 'own\n')
+    save(mark, json.dumps({'account': account, 'digest': wanted}))
 except Exception:
     sys.exit(72)
 finally:
@@ -135,10 +175,13 @@ pub(super) fn login_probe(cached_fingerprint: Option<&str>) -> String {
 }
 
 /// Installs the Claude login staged at `payload_path` (`CloudCredentialInstaller.command`, owner guests only).
-pub(super) fn install_command(payload_path: &str) -> String {
+/// `account`: the cmux account whose login this is (an id, never the login): a machine that already holds this
+/// account's same login is left as it is and answers success; another account's login is replaced.
+pub(super) fn install_command(payload_path: &str, account: &str) -> String {
     format!(
-        "set -e\n. /etc/cmux/agent-auth.sh\ncmux_agent_drop_model_plane_env\npython3 - {} {} owner <<'CMUX_CREDENTIAL_INSTALL'\n{INSTALL_SCRIPT}\nCMUX_CREDENTIAL_INSTALL",
+        "set -e\n. /etc/cmux/agent-auth.sh\ncmux_agent_drop_model_plane_env\npython3 - {} {} owner {} <<'CMUX_CREDENTIAL_INSTALL'\n{INSTALL_SCRIPT}\nCMUX_CREDENTIAL_INSTALL",
         quote("claude"),
         quote(payload_path),
+        quote(account),
     )
 }

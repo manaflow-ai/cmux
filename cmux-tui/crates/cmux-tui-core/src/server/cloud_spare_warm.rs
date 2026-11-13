@@ -44,6 +44,11 @@ pub struct SpareWarmParams {
     /// The machine a reserve's or a claim's answer named: no warm, the copy onto it.
     #[serde(default)]
     pub claimed: Option<String>,
+    /// The machine of the person's spare that the platform said just became ready
+    /// (`cloud.spare.ready` on the app's Cloud wire): no warm, the copy onto it, unless a receipt,
+    /// a copy in flight or a copy given already covers it.
+    #[serde(default)]
+    pub ready: Option<String>,
     /// The selected Stack team (nil: personal), whose cached login is read first.
     #[serde(default)]
     pub team: Option<String>,
@@ -88,6 +93,7 @@ impl std::fmt::Debug for SpareWarmParams {
             .field("install_token", &"[redacted]")
             .field("account", &self.account)
             .field("claimed", &self.claimed)
+            .field("ready", &self.ready)
             .field("dogfood", &self.dogfood)
             .finish_non_exhaustive()
     }

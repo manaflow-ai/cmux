@@ -747,8 +747,8 @@
     },
     {
       "path": "CloudSpareWarmRequest.java",
-      "sha256": "85cca4da78878ce11b7b6d772da12a4001dc8ad8864d2bb27452caccf7800462",
-      "size": 9753
+      "sha256": "d83d371589152c0a2126c7b0dffa068032bb1863e396ec31b0d655ee4430de3f",
+      "size": 10366
     },
     {
       "path": "CloudStartChatReservationRequest.java",
@@ -2217,7 +2217,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "37dc3f203896f32329d3d5d735acf052c84537431a80fef99c7040d0c0071210",
+      "sha256": "b752f2b1043c6142cae2d7002e3063f68ea8fff1c5349062c2396a933b4ba3d4",
       "size": 8000
     },
     {
@@ -3717,7 +3717,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "8f3969913e08f981c465e8b845faf315ef3574a34090bba398a7a04e348e46e9",
+  "ir_sha256": "4d732676139fc0d13bd9f38eb829fa33b966f408c1146e076a969a43a8135b5a",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

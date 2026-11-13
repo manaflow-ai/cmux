@@ -42,7 +42,7 @@ async fn listening_fleet(peers: usize, rows: usize) -> u16 {
         hub.peers.lock().unwrap().insert(name.clone(), peer.clone());
         let list = (0..rows).map(|i| row(p, i)).collect();
         let mut settled = peer.settled();
-        for notice in [PeerNotice::Sessions(list), PeerNotice::Connected] {
+        for notice in [PeerNotice::sessions_from_values(list), PeerNotice::Connected] {
             hub.peer_notices.send((name.clone(), peer.generation, notice)).await.unwrap();
         }
         tokio::time::timeout(Duration::from_secs(30), settled.wait_for(|n| *n >= 1))
@@ -130,7 +130,7 @@ async fn a_20k_row_list_reaches_a_peer_every_row_once_compressed_or_plain() {
                 .expect("the link connects")
                 .expect("the link stays open");
             match notice {
-                PeerNotice::Sessions(rows) => listed = Some(rows),
+                PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
                 PeerNotice::Connected => break,
                 PeerNotice::Disconnected(why) => panic!("the link dropped: {why}"),
                 _ => {}

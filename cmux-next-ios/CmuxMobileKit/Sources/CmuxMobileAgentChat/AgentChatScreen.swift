@@ -499,9 +499,6 @@ public struct AgentChatTranscript: View {
                 ChatTurnBar(navigator: navigator, store: store, surface: surface)
                     .padding(.top, (topInset ?? 0) + 4)
                     .transition(.opacity)
-            } else {
-                AgentChatUpdatingPill(store: store)
-                    .padding(.top, (topInset ?? 0) + 4)
             }
         }
         // UIKit owns the native top edge and the workspace's iOS 26 gradient fallback.
@@ -613,26 +610,22 @@ struct AgentChatLoadingState: View {
     }
 }
 
-/// Kept rows show while the chat catches up with the Mac: a small pill under the header says so.
-struct AgentChatUpdatingPill: View {
+/// Kept rows show while the chat is away from the Mac or catches up with it; after
+/// ``QuietStatusGate/threshold`` one quiet line by the composer says so
+/// (``AgentChatStore/connectionLine``). Never a pill over the rows.
+struct AgentChatConnectionLine: View {
     let store: AgentChatStore
 
     var body: some View {
-        if store.isLoadingHistory, store.hasTurns {
-            HStack(spacing: 6) {
-                CmuxSpinner(tint: .secondary).controlSize(.mini)
-                Text(store.summary.status == .disconnected
-                     ? "Connecting to \(store.summary.macName)…"
-                     : "Updating…")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .glassEffect(.regular, in: .capsule)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("agentChat.updatingHistory")
-            .allowsHitTesting(false)
+        if let line = store.connectionLine {
+            Text(verbatim: line)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .accessibilityIdentifier("agentChat.connectionLine")
+                .allowsHitTesting(false)
+                .transition(.opacity)
         }
     }
 }
@@ -695,7 +688,6 @@ public struct AgentChatBottomStack: View {
     nonisolated private static let stackSpace = "AgentChatBottomStack"
     /// The composer field's focus (a UITextView that follows it both ways).
     @State private var composerFocused = false
-    @State private var retryCount = 0
 
     public init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -712,44 +704,22 @@ public struct AgentChatBottomStack: View {
         VStack(spacing: 12) {
             VStack(spacing: 12) {
                 if let error = store.clientError {
-                    if store.canRetryPrompt {
-                        HStack(spacing: 8) {
-                            Button {
-                                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
-                            } label: {
-                                Label(error, systemImage: "exclamationmark.circle")
-                                    .font(.footnote.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityHint("Dismiss")
-                            Button("Retry", systemImage: "arrow.clockwise") {
-                                retryCount += 1
-                            }
+                    // One symbol, no Retry: the draft is back in the composer, so Send retries it.
+                    Button {
+                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
+                    } label: {
+                        Label(error, systemImage: "exclamationmark.circle")
                             .font(.footnote.weight(.semibold))
-                            .buttonStyle(.plain)
-                            .disabled(surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && surface.attachments.isEmpty)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .glassEffect(.regular, in: .capsule)
-                        .transition(.opacity.combined(with: .offset(y: 8)))
-                    } else {
-                        Button {
-                            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
-                        } label: {
-                            Label(error, systemImage: "exclamationmark.circle")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.primary)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 9)
-                        }
-                        .buttonStyle(.plain)
-                        .glassEffect(.regular, in: .capsule)
-                        .transition(.opacity.combined(with: .offset(y: 8)))
-                        .accessibilityHint("Dismiss")
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
                     }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular, in: .capsule)
+                    .transition(.opacity.combined(with: .offset(y: 8)))
+                    .accessibilityHint("Dismiss")
                 }
+                AgentChatConnectionLine(store: store)
                 // Pinned plan progress while a turn runs (ACP web UI parity).
                 if let progress = store.runningPlan, let entries = store.runningPlanEntries {
                     PlanProgressBar(progress: progress, entries: entries)
@@ -788,7 +758,6 @@ public struct AgentChatBottomStack: View {
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
                                  denyingPermission: replying,
                                  suggestionsCeiling: surface.stackCeiling.map { $0 + composerOffset },
-                                 retryCount: retryCount,
                                  cmuxCommands: CmuxSlashCommand.allCases.filter { $0 != .fork || surface.tabActions != nil },
                                  runCmuxCommand: { [surface, store] command, args in
                                      await surface.run(command, args: args, store: store)

@@ -15,6 +15,8 @@ public struct CloudSpareWarmRequest: DaemonRequest, CustomStringConvertible {
     public let installToken: String
     public let account: String
     public let claimed: String?
+    /// The spare the platform said just became ready (`cloud.spare.ready`): no warm, the copy onto it, and nothing claimed.
+    public let ready: String?
     public let team: String?
     /// The person's teams; Rust reads the selected team, these, then the personal login.
     public let loginTeams: [String]
@@ -24,15 +26,15 @@ public struct CloudSpareWarmRequest: DaemonRequest, CustomStringConvertible {
     public let consent: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case platform, api, accessToken, installToken, account, claimed, team, loginTeams, dogfood, setting, storedChoice, consent
+        case platform, api, accessToken, installToken, account, claimed, ready, team, loginTeams, dogfood, setting, storedChoice, consent
     }
 
-    public var description: String { "CloudSpareWarmRequest([redacted], claimed: \(claimed ?? "-"))" }
+    public var description: String { "CloudSpareWarmRequest([redacted], claimed: \(claimed ?? "-"), ready: \(ready ?? "-"))" }
 
     public init(platform: String, api: String, accessToken: String, installToken: String, account: String, claimed: String?,
-                team: String?, loginTeams: [String], dogfood: Bool, setting: Bool?, storedChoice: String?, consent: Bool?) {
+                ready: String? = nil, team: String?, loginTeams: [String], dogfood: Bool, setting: Bool?, storedChoice: String?, consent: Bool?) {
         (self.platform, self.api, self.accessToken, self.installToken, self.account) = (platform, api, accessToken, installToken, account)
-        (self.claimed, self.team, self.loginTeams, self.dogfood) = (claimed, team, loginTeams, dogfood)
+        (self.claimed, self.ready, self.team, self.loginTeams, self.dogfood) = (claimed, ready, team, loginTeams, dogfood)
         (self.setting, self.storedChoice, self.consent) = (setting, storedChoice, consent)
     }
 }

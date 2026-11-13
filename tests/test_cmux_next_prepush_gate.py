@@ -3030,6 +3030,112 @@ class RustfmtLayerTests(unittest.TestCase):
         self.assertEqual(out, "")
 
 
+    def fake_rustfmt(self, stderr=None, code=1):
+        """judge() with only a stand-in `rustfmt` on PATH that prints STDERR and exits CODE; with STDERR None, a
+        `rustfmt` file that is there but cannot be run."""
+        folder = Path(self.tmp.name) / "bin"
+        folder.mkdir(exist_ok=True)
+        fake = folder / "rustfmt"
+        if stderr is None:
+            fake.write_text("not a program\n")
+            fake.chmod(0o644)
+        else:
+            (folder / "stderr.txt").write_text(stderr + "\n")
+            # PATH is only this folder, so the stand-in names cat by its path.
+            fake.write_text(f"#!/bin/sh\n/bin/cat '{folder / 'stderr.txt'}' >&2\nexit {code}\n")
+            fake.chmod(0o755)
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = str(folder)
+        try:
+            return self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_UNFORMATTED})
+        finally:
+            os.environ["PATH"] = saved
+
+    def test_a_rustfmt_that_cannot_be_started_is_no_verdict(self):
+        # #41888 review (F2): every OSError launching rustfmt warned and passed. Only "no rustfmt at all"
+        # (FileNotFoundError) is "not available here"; a rustfmt that is there and will not start is no verdict.
+        out = self.fake_rustfmt(None)
+        self.assertTrue(out.startswith("rustfmt gave no verdict: "), out)
+        self.assertIn("PermissionError", out)
+
+    def test_a_rustfmt_diagnostic_that_names_toolchain_is_a_finding_not_a_missing_component(self):
+        # #41888 review (F3): any stderr holding "toolchain" or "not installed" read as rustup's missing component and
+        # passed; real rustfmt diagnostics quote the source, which can hold either.
+        for line in ("error: expected item, found `toolchain`", "error: expected one of `!` or `::`, found `not`\n"
+                     " --> <stdin>:1:9\n  |\n1 | fn f() { not installed }\n"):
+            with self.subTest(line=line):
+                out = self.fake_rustfmt(line)
+                self.assertIn("cmux-tui/crates/x/src/hint.rs: rustfmt cannot parse it: ", out)
+
+    def test_rustups_own_missing_toolchain_or_component_still_warns(self):
+        for line in ("error: 'rustfmt' is not installed for the toolchain '1.90.0-x86_64-unknown-linux-gnu'.\n"
+                     "help: run `rustup component add rustfmt` to install it",
+                     "error: 'rustfmt' is not installed for the toolchain '1.80.0-aarch64-apple-darwin'\n"
+                     "To install, run `rustup component add rustfmt --toolchain 1.80.0-aarch64-apple-darwin`",
+                     "error: toolchain '1.90.0-x86_64-unknown-linux-gnu' is not installed\n"
+                     "help: run `rustup toolchain install 1.90.0-x86_64-unknown-linux-gnu` to install it",
+                     "error: override toolchain '1.90.0-x86_64-unknown-linux-gnu' is not installed"):
+            with self.subTest(line=line):
+                self.assertEqual(self.fake_rustfmt(line), "")
+
+    def test_a_rustfmt_that_fails_with_no_diagnostic_is_no_verdict(self):
+        out = self.fake_rustfmt("thread 'main' panicked at src/lib.rs:1:1", code=101)
+        self.assertTrue(out.startswith("rustfmt gave no verdict: exit 101"), out)
+
+    def test_a_rustfmt_whose_interpreter_is_missing_is_no_verdict(self):
+        # #41927 review (F1): an executable rustfmt whose `#!` interpreter is gone raises FileNotFoundError, which read
+        # as "no rustfmt on PATH" and passed. The file is on PATH; only a PATH with no rustfmt warns.
+        folder = Path(self.tmp.name) / "bin"
+        folder.mkdir(exist_ok=True)
+        fake = folder / "rustfmt"
+        fake.write_text("#!/nonexistent/interpreter\n")
+        fake.chmod(0o755)
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = str(folder)
+        try:
+            out = self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_UNFORMATTED})
+        finally:
+            os.environ["PATH"] = saved
+        self.assertTrue(out.startswith("rustfmt gave no verdict: "), out)
+
+    def test_a_dyld_loader_error_naming_the_toolchain_is_no_verdict(self):
+        # #41888 review (F1): a macOS loader failure names the rustfmt binary's own path under
+        # ~/.rustup/toolchains/..., so a match on "toolchain" anywhere in stderr read it as rustup's "not installed"
+        # and passed. Only rustup's own answer as the whole of stderr warns (#41945); this is a crash, no verdict.
+        # Self-contained (no fake_rustfmt helper) so it also runs against the gate at #41888's head.
+        folder = Path(self.tmp.name) / "dyld-bin"
+        folder.mkdir(exist_ok=True)
+        (folder / "stderr.txt").write_text(
+            "dyld[4242]: Library not loaded: @rpath/librustc_driver-5f3e0e1b6a2d.dylib\n"
+            "  Referenced from: <0D1F2E3A-4B5C-6D7E-8F90-A1B2C3D4E5F6> "
+            "/Users/fixture/.rustup/toolchains/1.90.0-aarch64-apple-darwin/bin/rustfmt\n"
+            "  Reason: tried: '/Users/fixture/.rustup/toolchains/1.90.0-aarch64-apple-darwin/lib/"
+            "librustc_driver-5f3e0e1b6a2d.dylib' (no such file)\n")
+        fake = folder / "rustfmt"
+        fake.write_text(f"#!/bin/sh\n/bin/cat '{folder / 'stderr.txt'}' >&2\nexit 134\n")
+        fake.chmod(0o755)
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = str(folder)
+        try:
+            out = self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_UNFORMATTED})
+        finally:
+            os.environ["PATH"] = saved
+        self.assertTrue(out.startswith("rustfmt gave no verdict: "), out)
+
+    def test_rustups_answer_counts_only_as_the_whole_stderr(self):
+        # #41888 review (F1): a rustfmt diagnostic that quotes `toolchain` passed as rustup's missing component. Rustup
+        # answers alone: its error line first, then only its own help line. A rustup-shaped line after a rustfmt
+        # diagnostic is still the diagnostic's finding.
+        stderr = ("error: expected expression, found `;`\n --> <stdin>:1:17\n  |\n1 | let toolchain = ;\n  |\n"
+                  "error: toolchain 'stable' is not installed")
+        out = self.fake_rustfmt(stderr)
+        self.assertIn("cmux-tui/crates/x/src/hint.rs: rustfmt cannot parse it: error: expected expression", out)
+        # A panic whose message carries a rustup-shaped line is a crash, no verdict.
+        out = self.fake_rustfmt("thread 'main' panicked at src/config.rs:9:5:\nerror: toolchain 'stable' is not "
+                                "installed\nnote: run with `RUST_BACKTRACE=1`", code=101)
+        self.assertTrue(out.startswith("rustfmt gave no verdict: exit 101"), out)
+
+
 class StopCleanlyTests(unittest.TestCase):
     """The gate stops what it started with SIGTERM first, so a `git` under it clears `.git/index.lock`.
 
