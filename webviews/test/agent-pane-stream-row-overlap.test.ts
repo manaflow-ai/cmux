@@ -229,16 +229,56 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
     /// Pairs whose text still crosses once the turn has settled (layout, not motion).
     rest: Overlap[];
     examples: Overlap[];
+    /// Vehicle only: frames of the stream with the flow state on (`acpmux-thread--flow`), the changes of
+    /// the scroller's width between two frames, and each red frame with the flow state in it.
+    flowFrames: number;
+    widthSteps: number;
+    widths: number[];
+    red: {
+      t: number;
+      ink: number;
+      flow: number;
+      flowEnd: number;
+      gap: string;
+      width: number;
+      sinceStep: number;
+      sinceFlow: number;
+    }[];
   };
 
   /// Samples every painted frame until stopped: each pair of rows next to each other (by where they
   /// are drawn), and how far the upper one's box and text reach past the lower one's top.
   const sample = (page: Page) =>
     page.evaluate(() => {
-      type Pair = { t: number; upper: string; lower: string; box: number; ink: number; why?: string };
+      type Pair = {
+        t: number;
+        upper: string;
+        lower: string;
+        box: number;
+        ink: number;
+        why?: string;
+        flow?: number;
+        flowEnd?: number;
+        gap?: string;
+        width?: number;
+        sinceStep?: number;
+        sinceFlow?: number;
+      };
       const w = window as unknown as { __overlaps: Pair[]; __frames: number; __stop: () => void };
       w.__overlaps = [];
       w.__frames = 0;
+      const v = window as unknown as {
+        __flowFrames: number;
+        __widthSteps: number;
+        __widths: number[];
+        __stepAt: number;
+        __flowAt: number;
+      };
+      v.__flowFrames = 0;
+      v.__widthSteps = 0;
+      v.__widths = [];
+      v.__stepAt = -1;
+      v.__flowAt = -1;
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const probe = document.createElement("div");
       probe.style.cssText = "position:fixed;left:0;top:0;height:1px;width:1px;pointer-events:none;visibility:hidden";
@@ -330,6 +370,23 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
       const read = (frame: number) => {
         w.__frames += 1;
         const view = scroller.getBoundingClientRect();
+        const thread = scroller.querySelector<HTMLElement>(".acpmux-thread");
+        const flow = thread?.classList.contains("acpmux-thread--flow") ? 1 : 0;
+        const flowEnd = thread?.classList.contains("acpmux-thread--flow-end") ? 1 : 0;
+        if (frame !== -1) {
+          if (flow) {
+            v.__flowFrames += 1;
+            v.__flowAt = frame;
+          }
+          const width = Math.round(scroller.clientWidth * 10) / 10;
+          if (v.__widths.at(-1) !== width) {
+            if (v.__widths.length > 0) {
+              v.__widthSteps += 1;
+              v.__stepAt = frame;
+            }
+            if (v.__widths.length < 40) v.__widths.push(width);
+          }
+        }
         const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-thread > .acpmux-row")]
           .map((row) => ({ row, rect: row.getBoundingClientRect() }))
           .filter(({ rect }) => rect.height > 0.5 && rect.bottom > view.top && rect.top < view.bottom)
@@ -348,6 +405,12 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
               lower: label(lower.row),
               box: Math.round(box * 10) / 10,
               ink: Math.round(inked * 10) / 10,
+              flow,
+              flowEnd,
+              gap: `${upper.row.style.getPropertyValue("--acpmux-flow-gap")}/${getComputedStyle(upper.row).position}`,
+              width: Math.round(scroller.clientWidth * 10) / 10,
+              sinceStep: v.__stepAt < 0 ? -1 : Math.round(frame - v.__stepAt),
+              sinceFlow: v.__flowAt < 0 ? -1 : Math.round(frame - v.__flowAt),
               // What moved them: each row's running animations (property and progress) and clip.
               why: [upper.row, lower.row]
                 .map(
@@ -389,7 +452,20 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
     });
   const stop = (page: Page): Promise<Report> =>
     page.evaluate(() => {
-      type Pair = { t: number; upper: string; lower: string; box: number; ink: number; why?: string };
+      type Pair = {
+        t: number;
+        upper: string;
+        lower: string;
+        box: number;
+        ink: number;
+        why?: string;
+        flow?: number;
+        flowEnd?: number;
+        gap?: string;
+        width?: number;
+        sinceStep?: number;
+        sinceFlow?: number;
+      };
       const w = window as unknown as { __overlaps: Pair[]; __frames: number; __stop: () => void };
       w.__stop();
       // One read at rest: pairs that still cross once everything has settled are layout, not motion.
@@ -397,8 +473,22 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
       const rest = w.__overlaps.filter((pair) => pair.t === -1 && pair.ink > 0.5);
       w.__overlaps = w.__overlaps.filter((pair) => pair.t !== -1);
       const inked = w.__overlaps.filter((pair) => pair.ink > 0.5);
+      const v = window as unknown as { __flowFrames: number; __widthSteps: number; __widths: number[] };
       return {
         frames: w.__frames,
+        flowFrames: v.__flowFrames,
+        widthSteps: v.__widthSteps,
+        widths: v.__widths,
+        red: inked.slice(0, 60).map((pair) => ({
+          t: pair.t,
+          ink: pair.ink,
+          flow: pair.flow ?? -1,
+          flowEnd: pair.flowEnd ?? -1,
+          gap: pair.gap ?? "",
+          width: pair.width ?? -1,
+          sinceStep: pair.sinceStep ?? -1,
+          sinceFlow: pair.sinceFlow ?? -1,
+        })),
         rest,
         overlapFrames: new Set(inked.map((pair) => pair.t)).size,
         boxFrames: new Set(w.__overlaps.filter((pair) => pair.box > 1).map((pair) => pair.t)).size,
@@ -486,6 +576,18 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
         );
         const report = await stop(page);
         console.log(`OVERLAP_REPORT ${JSON.stringify({ engine: name, scenario: scenario.name, ...report })}`);
+        console.log(
+          `FLOW_IN_RED ${JSON.stringify({
+            engine: name,
+            scenario: scenario.name,
+            frames: report.frames,
+            flowFrames: report.flowFrames,
+            widthSteps: report.widthSteps,
+            widths: report.widths,
+            redFrames: report.overlapFrames,
+            red: report.red,
+          })}`,
+        );
         await page.close();
         expect(report.frames).toBeGreaterThan(20);
         expect({ overlapFrames: report.overlapFrames, examples: report.examples, heldClips }).toEqual({
