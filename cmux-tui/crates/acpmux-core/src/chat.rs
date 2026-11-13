@@ -797,5 +797,8 @@ mod tests {
         rebuilt.handle.wake().unwrap();
         rebuilt.join();
         assert!(log::CheckpointHead::read(dir.path()).unwrap().is_some());
+        let (_log, recovered) = Log::open(dir.path(), Options::default()).unwrap();
+        assert!(recovered.checkpoint);
+        let _ = Checkpoint::from_recovered(&recovered).unwrap();
     }
 }
