@@ -259,11 +259,37 @@ pub(super) fn serving_line(socket: &str) -> String {
 
 /// The reply line of a failed dial.
 pub(super) fn failure_line(error_code: &str, detail: Option<&str>) -> String {
+    refusal_line(error_code, detail, None)
+}
+
+/// The line of a `carrier serve` that refused to start (before its ready
+/// line, after which it exits): [`failure_line`] plus `"final"`, whether
+/// starting serve again can get past it ([`start_refusal_final`]). The app
+/// ends a wait for the link on a final one instead of starting serve again
+/// until the wait's deadline.
+pub(super) fn start_refusal_line(error_code: &str, detail: Option<&str>) -> String {
+    refusal_line(error_code, detail, Some(start_refusal_final(error_code)))
+}
+
+/// Whether every new `carrier serve` refuses to start the same way. Only
+/// `handshake`: before the ready line it means this device's Noise key
+/// could not be read or made (a Keychain that refused it), which a new
+/// serve reads the same way until the person fixes it. `ticket` (no API URL
+/// or credential yet) and `bad_request` (a path another serve still holds,
+/// a usage the caller can change) can pass on a later start.
+pub(super) fn start_refusal_final(error_code: &str) -> bool {
+    error_code == Step::Handshake.error_code()
+}
+
+fn refusal_line(error_code: &str, detail: Option<&str>, final_: Option<bool>) -> String {
     let mut value = serde_json::Map::new();
     value.insert("ok".into(), json!(false));
     value.insert("error_code".into(), json!(error_code));
     if let Some(detail) = detail.and_then(clip_detail) {
         value.insert("error_detail".into(), json!(detail));
+    }
+    if let Some(final_) = final_ {
+        value.insert("final".into(), json!(final_));
     }
     value.insert("route".into(), json!("carrier"));
     cmux_link::dial::line(&serde_json::Value::Object(value))

@@ -133,9 +133,11 @@ only to `connect.log`. stdin carries JSON lines: `{"access_token":"…"}` replac
 credential for every later dial, and sessions already up stay up.
 `{"carrier_answer":{…}}` is used by the next accepted connection's first attempt,
 as with `dial --answer-fd`. Before ready a
-failure writes the dial's failure line: exit 64 usage or a path it cannot claim (a
-live listener, a file that is not a socket), 2 no API or credential, 5 no device
-key. It exits 0 when stdin ends or on SIGTERM or SIGINT, 6 when accepting fails for
+failure writes the dial's failure line with `"final"` added: exit 64 usage or a path
+it cannot claim (a live listener, a file that is not a socket), 2 no API or
+credential, 5 no device key. `"final":true` (only 5: every new serve reads the same
+key the same way) says no new serve gets past it; a refused connection's line after
+ready never carries it. It exits 0 when stdin ends or on SIGTERM or SIGINT, 6 when accepting fails for
 good, and removes the socket on every exit after the bind.
 
 `link dial` bridges standard I/O to a service of a paired install or a Cloud
