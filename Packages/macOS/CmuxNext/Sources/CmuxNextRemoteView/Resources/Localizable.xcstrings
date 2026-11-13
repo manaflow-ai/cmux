@@ -4878,7 +4878,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A script, an agent or a restore opened this tab. Nothing connects until you choose Connect."
+            "value": "Connect opens this desktop in the tab so you can see what is running. Nothing connects until you choose Connect."
           }
         },
         "es": {
@@ -5009,7 +5009,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect to %@?"
+            "value": "Open %@"
           }
         },
         "es": {
@@ -9038,6 +9038,30 @@
             "value": "交還控制並繼續觀看"
           }
         }
+      }
+    },
+    "rd.gate.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open %@" } }
+      }
+    },
+    "rd.gate.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Connect opens %@ in this tab so you can see what is running." } }
+      }
+    },
+    "rd.gate.safety": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This tab was opened by another action. cmux waits for your approval before connecting." } }
+      }
+    },
+    "rd.machine.cloud": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud machine" } }
       }
     }
   },

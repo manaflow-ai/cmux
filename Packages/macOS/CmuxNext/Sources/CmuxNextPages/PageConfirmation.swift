@@ -139,7 +139,11 @@ public extension PageConfirmation {
         case "cmux.cloud.billing.open": return PageConfirmation(kind: .custom, name: PageStrings.cloudBilling)
         case "cmux.cloud.auth.sign_in": return PageConfirmation(kind: .custom, name: PageStrings.cloudSignIn)
         case "cmux.cloud.auth.sign_out": return PageConfirmation(kind: .custom, name: PageStrings.cloudSignOut)
-        case "cmux.cloud.machine.connect": return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudConnect, name))
+        case "cmux.cloud.machine.connect":
+            let displayName = args["displayName"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? args["displayName"]! : PageStrings.cloudMachine
+            return PageConfirmation(kind: .custom, name: String(format: PageStrings.cloudConnect, displayName),
+                                    detail: PageStrings.cloudConnectDetail)
         default: return PageConfirmation(kind: kind, name: name)
         }
     }

@@ -13,6 +13,39 @@ public nonisolated enum RemoteViewTabSource: Sendable, Hashable {
     case person
 }
 
+/// Human-facing context shared by remote connection gates. Machine ids stay in the transport
+/// record; the gate receives only the name and status a person needs.
+public nonisolated struct RemoteConnectionTarget: Sendable, Hashable {
+    public enum Kind: String, CaseIterable, Sendable, Hashable {
+        case desktop, terminal, browser, ports
+
+        var noun: String {
+            switch self {
+            case .desktop: "desktop"
+            case .terminal: "terminal"
+            case .browser: "browser"
+            case .ports: "port preview"
+            }
+        }
+    }
+
+    public var name: String
+    public var status: String?
+    public var region: String?
+    public var kind: Kind
+    /// Script, agent and restore opens require an explicit press. Person-opened targets skip the gate.
+    public var requiresConfirmation: Bool
+
+    public init(name: String, status: String? = nil, region: String? = nil, kind: Kind = .desktop,
+                requiresConfirmation: Bool = true) {
+        self.name = name
+        self.status = status
+        self.region = region
+        self.kind = kind
+        self.requiresConfirmation = requiresConfirmation
+    }
+}
+
 /// What a `remote_view` tab shows.
 public nonisolated enum RemoteViewTabDecision: Sendable, Hashable {
     /// Start the pane for the record (the App picks the stream source).

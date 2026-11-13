@@ -6830,7 +6830,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect to “%@”?"
+            "value": "Open “%@”"
           }
         },
         "ar": {
@@ -9977,6 +9977,18 @@
             "value": "檢查元素"
           }
         }
+      }
+    },
+    "pages.confirm.cloud.machine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud machine" } }
+      }
+    },
+    "pages.confirm.cloud.connectDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Connect opens this machine in cmux so you can see what is running." } }
       }
     }
   },
