@@ -113,10 +113,16 @@ fn measure_child() {
     // Both resident-size runs own and translate the same largest input. Only
     // history length differs; constructing it per use would time the fixture's
     // allocations and make the small side miss its peak entirely.
-    let large_result = (harness == Harness::Claude).then(|| format!(
-        "{{\"type\":\"user\",\"message\":{{\"content\":[{{\"type\":\"tool_result\",\"tool_use_id\":\"t\",\"content\":\"{}\"}}]}}}}\n",
-        "b".repeat(5 * 1024 * 1024)
-    ));
+    let large_result = (harness == Harness::Claude).then(|| {
+        let prefix = r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":""#;
+        let suffix = "\"}]}}\n";
+        let length = 5 * 1024 * 1024;
+        let mut line = String::with_capacity(prefix.len() + length + suffix.len());
+        line.push_str(prefix);
+        line.extend(std::iter::repeat_n('b', length));
+        line.push_str(suffix);
+        line
+    });
     let resident = |point| {
         println!(
             "RSS {count} {point}: VmHWM={} KiB VmRSS={} KiB",
@@ -125,6 +131,7 @@ fn measure_child() {
         );
     };
     resident("before_translate");
+    let before_translate_peak = resident_kib("VmHWM:");
     let mut state = State::default();
     let mut bytes = 0usize;
     for n in 0..count {
@@ -187,6 +194,10 @@ fn measure_child() {
     }
     resident("after_rounds");
     let peak = resident_kib("VmHWM:");
+    assert!(
+        peak > before_translate_peak,
+        "translation must set the resident peak, not the fixture builder"
+    );
     let full = full_state_p95(harness, &lines, cursor, true);
     let queue_empty = full_state_p95(harness, &lines, cursor, false);
     println!(
