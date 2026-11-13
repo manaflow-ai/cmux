@@ -828,6 +828,135 @@ mod tests {
         assert_eq!(client.received(&malformed), 0);
     }
 
+    #[test]
+    fn byte_credit_is_queued_when_taken_changes_cross_quarter_window() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply {
+                daemon_id: "d".into(),
+                limits: Limits { credit_window: 40, ..Limits::default() },
+            },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        client.subscribe(Sub::new("s", "list")).unwrap();
+        while client.take_send().is_some() {}
+        let window = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({"sid":"s","cursor":1,"rows":[],"hasBefore":false,"hasAfter":false,"edition":1}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&window);
+        let _ = client.next_change();
+        let credit = String::from_utf8(client.take_send().unwrap()).unwrap();
+        assert!(credit.contains("credit"));
+    }
+
+    #[test]
+    fn dropped_replaces_sid_and_old_frames_are_ignored() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        client.subscribe(Sub::new("s", "list").from_cursor(3)).unwrap();
+        while client.take_send().is_some() {}
+        let dropped = Frame::json(FrameKind::Dropped, &serde_json::json!({"sid":"s","cursor":3}))
+            .unwrap()
+            .encode();
+        client.received(&dropped);
+        let change = client.next_change().unwrap();
+        let new_sid = match change {
+            Change::Dropped { new_sid: Some(new_sid), .. } => new_sid,
+            other => panic!("unexpected change: {other:?}"),
+        };
+        assert!(String::from_utf8(client.take_send().unwrap()).unwrap().contains(&new_sid));
+        let old_frame = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({"sid":"s","cursor":4,"rows":[],"hasBefore":false,"hasAfter":false,"edition":1}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&old_frame);
+        assert!(client.next_change().is_none());
+    }
+
+    #[test]
+    fn not_ready_keeps_the_subscription_for_a_later_window() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        client.subscribe(Sub::new("s", "list")).unwrap();
+        while client.take_send().is_some() {}
+        let error = Frame::json(
+            FrameKind::Error,
+            &serde_json::json!({"method":"sub","sid":"s","code":"not_ready"}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&error);
+        assert!(matches!(client.next_change(), Some(Change::Error { .. })));
+        let window = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({"sid":"s","cursor":1,"rows":[],"hasBefore":false,"hasAfter":false,"edition":1}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&window);
+        assert!(matches!(client.next_change(), Some(Change::Window(_))));
+    }
+
+    #[test]
+    fn page_drops_rows_changed_while_request_was_out_and_origin_is_one_change() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        client.subscribe(Sub::new("s", "list")).unwrap();
+        while client.take_send().is_some() {}
+        client.page(Page::new("s", "list", wire::PageSide::After, 1)).unwrap();
+        let delta = Frame::json(
+            FrameKind::Delta,
+            &serde_json::json!({"sid":"s","ops":[{"op":"summary","seq":2,"summary":{"chatId":"changed"}}]}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&delta);
+        let _ = client.next_change();
+        let page = Frame::json(
+            FrameKind::Page,
+            &serde_json::json!({"sid":"s","rows":[{"chatId":"changed"},{"chatId":"kept"}],"hasAfter":false}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&page);
+        let Change::Page(page) = client.next_change().unwrap() else { panic!("expected page") };
+        assert_eq!(page.rows, vec![serde_json::json!({"chatId":"kept"})]);
+        let origin = Frame::json(
+            FrameKind::Delta,
+            &serde_json::json!({"sid":"s","ops":[{"op":"origin","seq":3,"id":"p","state":"removed","since":3}]}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&origin);
+        assert!(matches!(client.next_change(), Some(Change::Origin { .. })));
+    }
+
     #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn tokio_driver_preserves_multiple_frames() {
