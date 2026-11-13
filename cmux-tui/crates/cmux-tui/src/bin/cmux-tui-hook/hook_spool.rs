@@ -231,6 +231,10 @@ fn run_between_unlinks(lines: &Path) {
     }
 }
 
+#[cfg(all(test, unix))]
+#[path = "hook_spool_tests.rs"]
+mod lock_tests;
+
 fn ends_with_newline(file: &mut File, length: u64) -> io::Result<bool> {
     file.seek(SeekFrom::Start(length.saturating_sub(1)))?;
     let mut last = [0_u8; 1];
