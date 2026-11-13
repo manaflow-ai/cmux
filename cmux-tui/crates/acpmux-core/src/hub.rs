@@ -727,6 +727,8 @@ mod compaction_tests;
 mod disk_gates;
 #[cfg(test)]
 mod storage_tests;
+#[cfg(test)]
+mod writer_tests;
 
 #[cfg(test)]
 mod tests {
