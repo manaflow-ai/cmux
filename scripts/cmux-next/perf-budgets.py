@@ -117,8 +117,12 @@ def run_bench(name, argv, log_dir, timeout):
     except subprocess.TimeoutExpired:
         code = "timeout"
     took = round(time.time() - start, 1)
-    # A bench that failed shows enough of its log to carry the reason (a crash report's keys alone fill six lines).
-    tail = open(log, errors="replace").read().splitlines()[-(6 if code == 0 else 40):]
+    # A bench that failed shows its launch's reason lines first: the app's own log tail, which follows them, is all
+    # Chromium crash keys when the app died, and pushed the reason out of both a six and a forty line tail.
+    lines = open(log, errors="replace").read().splitlines()
+    tail = lines[-6:]
+    if code != 0:
+        tail = [t[:2000] for t in lines[:-6] if t.startswith(("BENCH-LAUNCH ", "bench-launch: "))][:4] + tail
     print(f"--- {name}: exit {code} in {took}s", *("    " + t for t in tail), sep="\n", flush=True)
     return {"exit": code, "seconds": took, "log": log}
 
