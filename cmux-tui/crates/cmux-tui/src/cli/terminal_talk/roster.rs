@@ -171,6 +171,121 @@ pub(in crate::cli) fn reported_by_agent(record: &Value) -> bool {
     !matches!(record.get("source").and_then(Value::as_str), Some("plugin" | "detected"))
 }
 
+/// The agent's harness of a daemon agent record (`extra.agent`, else
+/// `agent`), canonical (`claude-code` is `claude`).
+fn record_harness(record: &Value) -> Option<String> {
+    let raw = record.pointer("/extra/agent").or_else(|| record.get("agent"))?.as_str()?;
+    Some(super::super::agent_vocabulary::harness_name(raw))
+}
+
+/// The harness session a daemon agent record belongs to, when it says.
+fn record_session(record: &Value) -> Option<&str> {
+    record
+        .pointer("/extra/agent_session_id")
+        .or_else(|| record.get("agent_session_id"))
+        .and_then(Value::as_str)
+}
+
+/// The state of the newest report the `harness` agent in `terminal` gave
+/// of itself in its live session, or `None` when it gave none there:
+/// - its own daemon agent record ([`reported_by_agent`]: hooks or the
+///   socket, not the screen-detection plugin) of that harness, of the
+///   session of the terminal's newest record of that harness;
+/// - its program status records (OSC 7501 whose `app` is that harness),
+///   newer than that own record, or the newest of them when it has none.
+///   The daemon keeps one agent record per terminal, so a plugin guess
+///   replaces the hook's record and only the OSC 7501 report is left.
+///
+/// An own record that says the session ended (`done`) is `Ended`. Records
+/// of another harness never count.
+pub(in crate::cli) fn own_report_state(
+    terminal: &Value,
+    agents: &[Value],
+    harness: &str,
+) -> Option<AgentState> {
+    let id = terminal.get("id").and_then(Value::as_str)?;
+    let harness = super::super::agent_vocabulary::harness_name(harness);
+    let at = |record: &Value| record.get("updated_at_ms").and_then(number).unwrap_or(0);
+    let same = |record: &&Value| {
+        record.get("terminal_id").and_then(Value::as_str) == Some(id)
+            && record_harness(record).as_deref() == Some(harness.as_str())
+    };
+    let live = agents.iter().filter(same).max_by_key(|record| at(record)).and_then(record_session);
+    let own = agents
+        .iter()
+        .filter(same)
+        .filter(|record| reported_by_agent(record))
+        .filter(|record| live.is_none_or(|live| record_session(record) == Some(live)))
+        .max_by_key(|record| at(record));
+    let own_state = match own.and_then(|own| own.get("state")).and_then(Value::as_str) {
+        Some("done") => return Some(AgentState::Ended),
+        Some(word) => AgentState::from_record(word),
+        None => None,
+    };
+    let since = own.map_or(0, at);
+    let status = terminal
+        .pointer("/extra/program_status")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|record| {
+            let app = record.get("app").and_then(Value::as_str);
+            app.map(super::super::agent_vocabulary::harness_name).as_deref()
+                == Some(harness.as_str())
+        })
+        .filter(|record| own.is_none() || at(record) > since)
+        .max_by_key(|record| at(record));
+    status
+        .and_then(|status| status.get("state").and_then(Value::as_str))
+        .and_then(AgentState::from_record)
+        .or(own_state)
+}
+
+/// Whether any program status record (OSC 7501) of the `harness` app in
+/// `terminal` says blocked: a record id per dialog can stay blocked while a
+/// newer record of the same app says idle.
+pub(in crate::cli) fn any_status_blocked(terminal: &Value, harness: &str) -> bool {
+    let harness = super::super::agent_vocabulary::harness_name(harness);
+    terminal
+        .pointer("/extra/program_status")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|record| {
+            let app = record.get("app").and_then(Value::as_str);
+            app.map(super::super::agent_vocabulary::harness_name).as_deref()
+                == Some(harness.as_str())
+        })
+        .any(|record| {
+            record.get("state").and_then(Value::as_str).and_then(AgentState::from_record)
+                == Some(AgentState::Blocked)
+        })
+}
+
+/// Harnesses whose approval hook is verified to fire when the permission
+/// dialog shows (Claude Code's and Codex's `PermissionRequest`), not only
+/// when a tool starts. Muse's `PermissionRequest` and Rovo Dev's
+/// `on_tool_permission` are not verified, so they stay out (fail closed).
+const DIALOG_HOOKS_VERIFIED: &[&str] = &["claude", "codex"];
+
+/// Whether the hooks cmux installs for `harness` report its dialogs: the
+/// harness is verified ([`DIALOG_HOOKS_VERIFIED`]), one of its hooks asks
+/// for approval (cmux-tui-core `agent_hook_event_requests_approval`, shown
+/// as `blocked`), and none is a `Notification` that ends a turn
+/// (Copilot-compatible runtimes, idle while a dialog waits). The last two
+/// come from the installed hooks and their mapping, so a hook change that
+/// drops the approval event turns this off.
+pub(in crate::cli) fn hooks_report_dialogs(harness: &str) -> bool {
+    let notification_ends_turn = |source: &str, event: &str| {
+        event.eq_ignore_ascii_case("notification")
+            && cmux_tui_core::agent_hook_event_completes_turn(source, event)
+    };
+    let canonical = super::super::agent_vocabulary::harness_name(harness);
+    DIALOG_HOOKS_VERIFIED.contains(&canonical.as_str())
+        && harness_hooks_report(harness, cmux_tui_core::agent_hook_event_requests_approval)
+        && !harness_hooks_report(harness, notification_ends_turn)
+}
+
 /// Whether the hooks cmux installs for `harness` (any alias,
 /// cmux-tui-hooks `provider_events`) include one that `kind` matches, a
 /// cmux-tui-core `agent_hook_event_*` predicate. A harness with no such hook

@@ -1,5 +1,7 @@
 //! `terminal <t> status`: the terminal's program status records (OSC 7501)
-//! with the status word every agent list shows (W5-Q, bench round 4 #7).
+//! with the status word every agent list shows (W5-Q, bench round 4 #7),
+//! and on each blocked record the `dialog` the agent waits on (W6-C, bench
+//! round 5 orchestration row 4), read from the terminal's screen.
 //!
 //! A program reports its own words: Claude Code says `done` when a turn
 //! ends. The lists say `idle` once somebody viewed that turn and `done`
@@ -15,6 +17,7 @@ use cmux_tui_core::platform::transport;
 use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
 
+use super::super::agent_start::dialog_options;
 use super::super::agent_vocabulary::harness_name;
 use super::super::command::{RequestPlan, ResponseView};
 use super::super::terminal_talk::roster;
@@ -53,7 +56,40 @@ pub(super) fn with_agent_status(
     .and_then(|notifications| notifications.as_array().cloned())
     .unwrap_or_default();
     let unseen = super::unseen_terminals(&notifications).contains(terminal.as_str());
-    annotate(result, &agents, unseen)
+    let annotated = annotate(result, &agents, unseen);
+    // The screen shows a blocked agent's dialog: read it only then.
+    if dialog_options::blocked_dialog(&annotated, &agents, "").is_none() {
+        return annotated;
+    }
+    let mut screen_params: Map<String, Value> =
+        plan.params.as_object().map(super::super::resolve::route).unwrap_or_default();
+    screen_params.insert("terminal".into(), json!(terminal));
+    let read =
+        super::super::resolve::read(reader, ResourceOperation::TerminalScreenRead, screen_params);
+    let screen = read
+        .ok()
+        .and_then(|screen| screen.get("text").and_then(Value::as_str).map(str::to_owned))
+        .unwrap_or_default();
+    with_dialog(annotated, &agents, &screen)
+}
+
+/// The `terminal status` `result` with a `dialog` on each `blocked` record
+/// (dialog_options.rs `blocked_dialog`: `kind`, `msg`, `options` with their
+/// `keys`, `deny_keys`), when its agent waits on one. `screen` is the
+/// terminal's screen text.
+pub(super) fn with_dialog(mut result: Value, agents: &[Value], screen: &str) -> Value {
+    let Some(dialog) = dialog_options::blocked_dialog(&result, agents, screen) else {
+        return result;
+    };
+    let records = result.pointer_mut("/extra/program_status").and_then(Value::as_array_mut);
+    for record in records.into_iter().flatten() {
+        if record["state"] == "blocked"
+            && let Some(object) = record.as_object_mut()
+        {
+            object.insert("dialog".into(), dialog.clone());
+        }
+    }
+    result
 }
 
 /// The `terminal.get` `result` with each program status record's `status`.

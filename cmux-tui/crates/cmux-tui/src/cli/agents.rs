@@ -22,6 +22,7 @@ pub(super) const DEFAULT_SNAPSHOT_LIMIT: usize = 100;
 pub(super) const MAX_SNAPSHOT_LIMIT: usize = 1_000;
 
 mod events;
+mod terminal_dialogs;
 pub(super) mod turn;
 mod wait;
 
@@ -33,7 +34,7 @@ pub(super) use wait::{
     DEFAULT_TIMEOUT_SECONDS as DEFAULT_WAIT_SECONDS, MAX_TIMEOUT_SECONDS as MAX_WAIT_SECONDS,
 };
 
-const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|chat|wait|events|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty] [--top]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents chat new [--workspace <ws>|--pane <pane>|--top] [--harness <h>] [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] [--attach <file>]... [--] [<prompt>]\n  cmux agents chat send <chat> [--] <text>\n  cmux agents chat read <chat> [--after <item-id>] [--limit <n>]\n  cmux agents chat state <chat>\n  cmux agents chat interrupt <chat>\n  cmux agents chat continue <chat> [[--] <text>]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents events [--after <cursor>] [--kind dialog|notification|tab|workspace|agent ...] [--timeout <seconds>] [--limit <n>] [--json]\n  cmux agents events --until <kind>.<change>|<prefix>* [--match <path>=<value> ...] [--timeout <duration>] [--json]   (the first matching event; exit 124 on timeout)\n  cmux agents doctor [--json]\n";
+const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|chat|wait|events|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty] [--top]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]   (app dialogs as items, blocked terminal agents as terminals)\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents chat new [--workspace <ws>|--pane <pane>|--top] [--harness <h>] [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] [--attach <file>]... [--] [<prompt>]\n  cmux agents chat send <chat> [--] <text>\n  cmux agents chat read <chat> [--after <item-id>] [--limit <n>]\n  cmux agents chat state <chat>\n  cmux agents chat interrupt <chat>\n  cmux agents chat continue <chat> [[--] <text>]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents events [--after <cursor>] [--kind dialog|notification|tab|workspace|agent ...] [--timeout <seconds>] [--limit <n>] [--json]\n  cmux agents events --until <kind>.<change>|<prefix>* [--match <path>=<value> ...] [--timeout <duration>] [--json]   (the first matching event; exit 124 on timeout)\n  cmux agents doctor [--json]\n";
 
 /// Handles the `agents` namespace before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -346,6 +347,9 @@ pub(super) fn execute<B: Backend>(
         AgentCommand::Resource { action, args } => {
             (action, run_resource(backend, session, action, args, idempotency_key)?)
         }
+        AgentCommand::App { action, args } if action == "dialog.list" => {
+            (action, run_dialog_list(backend, session, args)?)
+        }
         AgentCommand::App { action, args } => {
             (action, run_app(backend, action, args, idempotency_key, origin)?)
         }
@@ -451,10 +455,7 @@ fn run_app<B: Backend>(
             params.insert("focus".into(), json!(true));
             ("action.run", Value::Object(params), app::WAITING_RUN_TIMEOUT)
         }
-        "dialog.list" => {
-            let pending_only = !args.iter().any(|arg| arg == "--all");
-            ("feed.list", json!({"pending_only": pending_only}), app::READ_TIMEOUT)
-        }
+        "dialog.list" => dialog_list_request(args),
         "dialog.answer" => {
             let (method, params, timeout) =
                 dialog_answer(args).map_err(|error| AgentFailure::Usage(error.0))?;
@@ -469,6 +470,41 @@ fn run_app<B: Backend>(
         .app(method, params, timeout, key.as_deref(), mutation)
         .map_err(AgentFailure::Owner)?;
     Ok((result, key))
+}
+
+/// `agents dialog list`: the app's pending dialogs (`items`, its agent
+/// chats) and the dialogs of the session's blocked terminal agents
+/// (`terminals`, terminal_dialogs.rs). In a session no app owns (a cmux-tui
+/// session) `items` is empty and `app_error` says why; the terminals still
+/// answer. It fails only when neither the app nor the daemon answers.
+fn run_dialog_list<B: Backend>(
+    backend: &B,
+    session: Option<&str>,
+    args: &[String],
+) -> Result<(Value, Option<String>), AgentFailure> {
+    let (_, params, timeout) = dialog_list_request(args);
+    let feed = backend.app("feed.list", params, timeout, None, false);
+    let snapshot = backend.resource(session, snapshot_plan(), &[]);
+    let terminals = snapshot
+        .as_ref()
+        .map(|snapshot| terminal_dialogs::list(backend, session, snapshot))
+        .unwrap_or_default();
+    let mut result = match feed {
+        Ok(Value::Object(feed)) => Value::Object(feed),
+        Ok(items) => json!({"items": items}),
+        Err(failure) if no_app(&failure) && snapshot.is_ok() => {
+            json!({"items": [], "app_error": failure.error})
+        }
+        Err(failure) => return Err(AgentFailure::Owner(failure)),
+    };
+    result.set("terminals", Value::Array(terminals));
+    Ok((result, None))
+}
+
+/// The app request of `agents dialog list [--all]`.
+fn dialog_list_request(args: &[String]) -> (&'static str, Value, Duration) {
+    let pending_only = !args.iter().any(|arg| arg == "--all");
+    ("feed.list", json!({"pending_only": pending_only}), app::READ_TIMEOUT)
 }
 
 /// A dialog answer with who sends it: the app takes an app ask's Start (an

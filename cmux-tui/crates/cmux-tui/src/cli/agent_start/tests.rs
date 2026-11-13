@@ -454,7 +454,7 @@ fn w3h_start_splits_the_callers_pane_runs_a_named_tab_and_reports_the_trust_dial
         run_with_clock(|clock| start(&daemon, &env(), clock, "beta", &options)).expect("start");
     assert_eq!(exit, super::BLOCKED_EXIT, "{report}");
     assert_eq!(report["state"], "blocked");
-    assert_eq!(report["dialog"], "folder_trust");
+    assert_eq!(report["dialog"]["kind"], "folder_trust");
     assert!(report["reason"].as_str().is_some_and(|reason| reason.contains("trust")));
     assert_eq!(report["harness"], "claude");
     assert_eq!(report["launcher"], "sr2 claude");
@@ -698,7 +698,7 @@ fn start_at_trust(screen: &'static str) -> Value {
     let (report, exit) =
         run_with_clock(|clock| start(&daemon, &env(), clock, "beta", &options)).expect("start");
     assert_eq!(exit, super::BLOCKED_EXIT, "{report}");
-    assert_eq!(report["dialog"], "folder_trust", "{report}");
+    assert_eq!(report["dialog"]["kind"], "folder_trust", "{report}");
     report
 }
 
@@ -711,8 +711,9 @@ fn w5q_folder_trust_result_lists_the_options_and_the_keys_that_accept_it() {
     assert_eq!(
         report["options"],
         json!([
-            {"number": 1, "label": "Yes, I trust this folder", "selected": false},
-            {"number": 2, "label": "No, exit", "selected": true},
+            {"number": 1, "label": "Yes, I trust this folder", "selected": false,
+             "keys": ["up", "enter"]},
+            {"number": 2, "label": "No, exit", "selected": true, "keys": ["enter"]},
         ]),
         "{report}"
     );
@@ -735,7 +736,7 @@ fn w5q_folder_trust_without_options_names_the_terminal() {
     let report = start_at_trust(
         " Do you trust the files in this folder?\n\n /Users/me/new-project\n\n Enter to confirm",
     );
-    assert_eq!(report["dialog"], "folder_trust", "{report}");
+    assert_eq!(report["dialog"]["kind"], "folder_trust", "{report}");
     let reason = report["reason"].as_str().unwrap_or_default();
     assert!(!reason.contains("NAME"), "{reason}");
     assert!(reason.contains("cmux terminal beta keys"), "{reason}");
@@ -1405,4 +1406,86 @@ fn w5r_start_is_not_ready_on_a_screen_detection_record_alone() {
         let own_look = Look { screen: LAUNCHER_BANNER, exited: false, hook_state };
         assert_eq!(readiness::assess(&own_look), Readiness::Ready, "{source}");
     }
+}
+
+/// Claude Code 2.1.321's folder-trust dialog under `sr2 claude`, as the
+/// bench round 5 evaluator read it (`terminal ct5-alpha screen read`): the
+/// launcher's banner, then the dialog, whose two choices have no numbers
+/// and whose cursor starts on "No, exit".
+const TRUST_CLAUDE_2_1_321: &str = "\
+sr2 route: profile settings name http://127.0.0.1:1; managed settings override it with the sr2
+gateway
+sr2 route: gateway http://sr2-gateway.tail137216.ts.net:4016
+sr2 claude2: automatic /compact through cmux terminal term_166ac280e2db633984903b8a8173f732; lo
+g /Users/lawrence/.local/state/subrouter2/claude2.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────
+ Accessing workspace:
+
+ /private/tmp/bench5-proj-cmuxtui
+
+ Quick safety check: Is this a project you created or one you trust? (Like your own code, a
+ well-known open source project, or work from your team). If not, take a moment to review
+ what's in this folder first.
+
+ Claude Code'll be able to read, edit, and execute files here.
+
+ Security guide
+
+ ❯ No, exit
+   Yes, I trust this folder
+
+ Enter to confirm · Esc to cancel";
+
+/// W6-B (bench round 5 orchestration row 3): Claude Code 2.1.321 draws the
+/// folder-trust choices without numbers. The blocked start still lists
+/// them, with the cursor on "No, exit", and names the keys that trust the
+/// folder (Down, then Enter: Enter alone would end the agent).
+#[test]
+fn w6bc_unnumbered_folder_trust_lists_options_and_accept_keys() {
+    let report = start_at_trust(TRUST_CLAUDE_2_1_321);
+    let options = report["options"].as_array().cloned().unwrap_or_default();
+    let labels: Vec<&str> = options.iter().filter_map(|option| option["label"].as_str()).collect();
+    assert_eq!(labels, ["No, exit", "Yes, I trust this folder"], "{report}");
+    assert_eq!(options[0]["selected"], true, "{report}");
+    assert_eq!(options[1]["selected"], false, "{report}");
+    assert_eq!(report["accept_keys"], json!(["down", "enter"]), "{report}");
+    assert_eq!(report["accept_label"], "Yes, I trust this folder", "{report}");
+    let reason = report["reason"].as_str().unwrap_or_default();
+    assert!(reason.contains("cmux terminal beta keys down enter"), "{reason}");
+}
+
+/// W6-B: each listed option carries the keys that pick it from where the
+/// cursor is, for the unnumbered Claude 2.1.321 dialog and for an older
+/// numbered one alike.
+#[test]
+fn w6bc_each_dialog_option_names_the_keys_that_pick_it() {
+    let report = start_at_trust(TRUST_CLAUDE_2_1_321);
+    assert_eq!(report["options"][0]["keys"], json!(["enter"]), "{report}");
+    assert_eq!(report["options"][1]["keys"], json!(["down", "enter"]), "{report}");
+
+    let report = start_at_trust(TRUST_NO_SELECTED);
+    assert_eq!(report["options"][0]["keys"], json!(["up", "enter"]), "{report}");
+    assert_eq!(report["options"][1]["keys"], json!(["enter"]), "{report}");
+    assert_eq!(report["options"][0]["number"], 1, "{report}");
+}
+
+/// W6-C (bench round 5 orchestration row 4): a blocked start gives the one
+/// dialog object every blocked result has (`send`, `wait`, `status`):
+/// `kind`, the question it asks, its options with their keys, the keys
+/// that deny it, and for folder trust the keys and label that accept it.
+#[test]
+fn w6bc_a_blocked_start_has_the_shared_dialog_object() {
+    let report = start_at_trust(TRUST_CLAUDE_2_1_321);
+    let dialog = &report["dialog"];
+    assert_eq!(dialog["kind"], "folder_trust", "{report}");
+    let msg = dialog["msg"].as_str().unwrap_or_default();
+    assert!(msg.ends_with("Is this a project you created or one you trust?"), "{report}");
+    assert_eq!(dialog["options"], report["options"], "{report}");
+    assert_eq!(dialog["options"][1]["keys"], json!(["down", "enter"]), "{report}");
+    assert_eq!(dialog["deny_keys"], json!(["escape"]), "{report}");
+    assert_eq!(dialog["accept_keys"], json!(["down", "enter"]), "{report}");
+    assert_eq!(dialog["accept_label"], "Yes, I trust this folder", "{report}");
+    let line = super::human(&report);
+    assert!(line.contains("blocked (folder_trust)"), "{line}");
 }

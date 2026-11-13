@@ -1,41 +1,76 @@
-//! The numbered options of a startup dialog on an agent's screen, and the
-//! keys that pick the accepting one (W5-Q, bench round 4 orchestration
-//! friction 7).
+//! The options of a dialog on an agent's screen, and the keys that pick
+//! each one (W5-Q, bench round 4 orchestration friction 7; W6-B, bench
+//! round 5 orchestration row 3).
 //!
-//! Claude's folder-trust dialog draws its choices as numbered lines with the
-//! cursor (`❯`) on one of them; Enter picks the line under the cursor. The
-//! `agent start` result lists them, so the orchestrator can show the person
-//! the question and, with their consent, answer with `cmux terminal NAME
-//! keys ...` instead of guessing.
+//! An agent's dialog draws its choices as rows with the cursor (`❯`) on one
+//! of them; Enter picks the row under the cursor. Older Claude Code builds
+//! number the rows (`❯ 1. Yes, proceed`); Claude Code 2.1.321 draws its
+//! folder-trust choices without numbers (`❯ No, exit` above `Yes, I trust
+//! this folder`), the other rows indented to the cursor row's label. Both
+//! are read, and each option carries the keys (Up or Down, then Enter) that
+//! pick it from where the cursor is. The `agent start` result lists them,
+//! so the orchestrator can show the person the question and, with their
+//! consent, answer with `cmux terminal NAME keys ...` instead of guessing.
 
 use serde_json::{Value, json};
+
+use super::super::terminal_talk::roster;
+use super::readiness;
 
 /// How many of the screen's last non-blank rows hold the options at most.
 const OPTION_ROWS: usize = 16;
 /// Cursor marks a dialog draws before the selected option.
 const CURSORS: [char; 3] = ['❯', '>', '›'];
+/// Radio marks a numbered option row may start with (Gemini-family CLIs
+/// draw `● 1. Yes, allow once`): the filled one is the selected option.
+const RADIOS: [(char, bool); 2] = [('●', true), ('○', false)];
 
-/// One numbered option of a dialog.
+/// One option of a dialog.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::cli) struct DialogOption {
+    /// The number the dialog draws, or the option's position (from 1) when
+    /// it draws none.
     pub number: u32,
     pub label: String,
     pub selected: bool,
 }
 
-impl DialogOption {
-    pub(in crate::cli) fn to_json(&self) -> Value {
-        json!({"number": self.number, "label": self.label, "selected": self.selected})
-    }
+/// `options` as JSON: `{number, label, selected, keys}` each, `keys` being
+/// the keys that pick that option ([`keys_to`]).
+pub(in crate::cli) fn options_json(options: &[DialogOption]) -> Value {
+    let listed = options.iter().enumerate().map(|(index, option)| {
+        json!({
+            "number": option.number,
+            "label": option.label,
+            "selected": option.selected,
+            "keys": keys_to(options, index),
+        })
+    });
+    Value::Array(listed.collect())
+}
+
+/// The keys that move the cursor from the selected option (the first one
+/// when none is marked) to `options[target]` and press Enter.
+pub(in crate::cli) fn keys_to(options: &[DialogOption], target: usize) -> Vec<&'static str> {
+    let selected = options.iter().position(|option| option.selected).unwrap_or(0);
+    let (key, moves) =
+        if target < selected { ("up", selected - target) } else { ("down", target - selected) };
+    let mut keys = vec![key; moves];
+    keys.push("enter");
+    keys
 }
 
 /// `row` as a numbered option: an optional cursor, the number, `.`, the label.
 fn option(row: &str) -> Option<DialogOption> {
     let row =
         row.trim_start_matches(|character: char| character.is_whitespace() || character == '│');
-    let (selected, rest) = match row.strip_prefix(CURSORS) {
-        Some(rest) => (true, rest.trim_start()),
-        None => (false, row),
+    let radio = RADIOS.iter().find_map(|(mark, selected)| {
+        row.strip_prefix(*mark).map(|rest| (*selected, rest.trim_start()))
+    });
+    let (selected, rest) = match (row.strip_prefix(CURSORS), radio) {
+        (Some(rest), _) => (true, rest.trim_start()),
+        (None, Some(radio)) => radio,
+        (None, None) => (false, row),
     };
     let digits = rest.find(|character: char| !character.is_ascii_digit())?;
     let number = rest.get(..digits)?.parse().ok()?;
@@ -48,8 +83,15 @@ fn option(row: &str) -> Option<DialogOption> {
     (!label.is_empty()).then(|| DialogOption { number, label: label.to_owned(), selected })
 }
 
-/// The last run of options numbered 1, 2, 3, ... at the bottom of `screen`.
+/// The options at the bottom of `screen`: the last run numbered 1, 2, 3,
+/// ..., else the unnumbered rows around the last cursor row ([`unnumbered`]).
 pub(in crate::cli) fn options(screen: &str) -> Vec<DialogOption> {
+    let numbered = numbered(screen);
+    if numbered.is_empty() { unnumbered(screen) } else { numbered }
+}
+
+/// The last run of options numbered 1, 2, 3, ... at the bottom of `screen`.
+fn numbered(screen: &str) -> Vec<DialogOption> {
     let rows: Vec<&str> = screen.lines().filter(|row| !row.trim().is_empty()).collect();
     let bottom = rows.get(rows.len().saturating_sub(OPTION_ROWS)..).unwrap_or_default();
     let mut found: Vec<DialogOption> = Vec::new();
@@ -72,17 +114,96 @@ pub(in crate::cli) fn options(screen: &str) -> Vec<DialogOption> {
     if run.len() >= 2 { run } else { found }
 }
 
+/// Box and padding characters around a dialog row's text.
+fn padding(character: char) -> bool {
+    character.is_whitespace() || character == '│'
+}
+
+/// A row's text without the box a dialog may draw around it (`│` and the
+/// padding at both ends), and the column (in characters) where that text
+/// starts.
+fn unboxed(row: &str) -> (usize, &str) {
+    let text = row.trim_start_matches(padding);
+    (row.chars().count() - text.chars().count(), text.trim_end_matches(padding))
+}
+
+/// A cursor row: `❯ label` (or `>`, `›`), and the column of its label.
+fn cursor_row(row: &str) -> Option<(usize, &str)> {
+    let (column, text) = unboxed(row);
+    let mark = text.chars().next().filter(|mark| CURSORS.contains(mark))?;
+    let rest = text.get(mark.len_utf8()..)?;
+    let label = rest.trim_start();
+    let gap = rest.chars().count() - label.chars().count();
+    (gap > 0 && !label.is_empty()).then_some((column + 1 + gap, label))
+}
+
+/// A horizontal rule, as an agent's input box draws above and below its
+/// prompt.
+fn rule(row: &str) -> bool {
+    row.chars().filter(|character| matches!(character, '─' | '━' | '═')).count() >= 10
+}
+
+/// The options of a dialog that draws no numbers: the last cursor row among
+/// the bottom [`OPTION_ROWS`] non-blank rows and the rows right above and
+/// below it (no blank row between) whose text starts at that row's label
+/// column. A cursor row next to a rule, or rows with an input box's hint,
+/// are an input box, not a dialog, and fewer than two rows are no choice.
+fn unnumbered(screen: &str) -> Vec<DialogOption> {
+    let rows: Vec<&str> = screen.lines().collect();
+    let non_blank: Vec<usize> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| !row.trim().is_empty())
+        .map(|(at, _)| at)
+        .collect();
+    let bottom = non_blank.get(non_blank.len().saturating_sub(OPTION_ROWS)..).unwrap_or_default();
+    let Some((at, (column, label))) =
+        bottom.iter().rev().find_map(|at| Some((*at, cursor_row(rows.get(*at)?)?)))
+    else {
+        return Vec::new();
+    };
+    let near_rule = [at.checked_sub(1), at.checked_add(1)]
+        .into_iter()
+        .flatten()
+        .filter_map(|other| rows.get(other))
+        .any(|row| rule(row));
+    if near_rule {
+        return Vec::new();
+    }
+    // A sibling row: its text starts at the label column, with no cursor,
+    // no number and no rule.
+    let sibling = |row: &str| {
+        let (start, text) = unboxed(row);
+        let plain = cursor_row(row).is_none() && option(row).is_none() && !rule(row);
+        (start == column && !text.is_empty() && plain).then(|| text.to_owned())
+    };
+    let above: Vec<String> =
+        rows.get(..at).unwrap_or_default().iter().rev().map_while(|row| sibling(row)).collect();
+    let below = rows.get(at + 1..).unwrap_or_default().iter().map_while(|row| sibling(row));
+    let labels: Vec<(String, bool)> = above
+        .into_iter()
+        .rev()
+        .map(|label| (label, false))
+        .chain(std::iter::once((label.to_owned(), true)))
+        .chain(below.map(|label| (label, false)))
+        .collect();
+    // An input box's hint row (`⏎ send`, `? for shortcuts`) is no choice.
+    let joined = labels.iter().map(|(label, _)| label.as_str()).collect::<Vec<_>>().join("\n");
+    if labels.len() < 2 || readiness::composer_visible(&joined) {
+        return Vec::new();
+    }
+    labels
+        .into_iter()
+        .zip(1..)
+        .map(|((label, selected), number)| DialogOption { number, label, selected })
+        .collect()
+}
+
 /// The keys that move the cursor from the selected option to the first one
 /// whose label starts with "Yes" and press Enter; `None` without such an
 /// option.
 pub(in crate::cli) fn accept_keys(options: &[DialogOption]) -> Option<Vec<&'static str>> {
-    let accept = options.iter().position(accepts)?;
-    let selected = options.iter().position(|option| option.selected).unwrap_or(0);
-    let (key, moves) =
-        if accept < selected { ("up", selected - accept) } else { ("down", accept - selected) };
-    let mut keys = vec![key; moves];
-    keys.push("enter");
-    Some(keys)
+    Some(keys_to(options, options.iter().position(accepts)?))
 }
 
 /// Whether [`accept_keys`] picks `option`: the first label that starts
@@ -94,6 +215,176 @@ fn accepts(option: &DialogOption) -> bool {
 /// The label of the option [`accept_keys`] picks; `None` without one.
 pub(in crate::cli) fn accept_label(options: &[DialogOption]) -> Option<&str> {
     options.iter().find(|option| accepts(option)).map(|option| option.label.as_str())
+}
+
+/// Footer hints (lower case) that say Escape cancels the dialog.
+const ESCAPE_HINTS: &[&str] = &["esc to cancel", "esc to deny", "esc to reject", "esc to exit"];
+
+/// Label starts (lower case) of an option that says no.
+const DENY_LABELS: &[&str] = &["no", "deny", "reject", "cancel", "don't", "do not"];
+
+/// The bottom [`OPTION_ROWS`] non-blank rows of `screen`.
+fn bottom_rows(screen: &str) -> Vec<&str> {
+    let rows: Vec<&str> = screen.lines().filter(|row| !row.trim().is_empty()).collect();
+    rows.get(rows.len().saturating_sub(OPTION_ROWS)..).unwrap_or_default().to_vec()
+}
+
+/// The keys that turn the dialog down: Escape when its footer says Escape
+/// cancels it, else the keys that pick its first option that says no;
+/// `None` when neither shows.
+pub(in crate::cli) fn deny_keys(
+    screen: &str,
+    options: &[DialogOption],
+) -> Option<Vec<&'static str>> {
+    let footer = bottom_rows(screen).join(" ").to_lowercase();
+    if ESCAPE_HINTS.iter().any(|hint| footer.contains(hint)) {
+        return Some(vec!["escape"]);
+    }
+    let says_no = |option: &DialogOption| {
+        let label = option.label.to_lowercase();
+        DENY_LABELS.iter().any(|word| {
+            label.strip_prefix(word).is_some_and(|rest| {
+                rest.is_empty() || rest.starts_with(|next: char| !next.is_alphanumeric())
+            })
+        })
+    };
+    Some(keys_to(options, options.iter().position(says_no)?))
+}
+
+/// The question the dialog asks: the lowest of the bottom rows above its
+/// options that holds a `?` other than a lone one, up to the last such `?`
+/// (`Do you want to proceed?`, `Allow execution of: 'touch'?`). A `?` with
+/// a space or the row's edge on both sides is a key in a footer hint
+/// (`? for shortcuts`), not a question.
+fn question(screen: &str) -> Option<String> {
+    bottom_rows(screen).iter().rev().find_map(|row| {
+        if option(row).is_some() || cursor_row(row).is_some() {
+            return None;
+        }
+        let (_, text) = unboxed(row);
+        let characters: Vec<(usize, char)> = text.char_indices().collect();
+        let spaced = |at: Option<&(usize, char)>| at.is_none_or(|(_, next)| next.is_whitespace());
+        let end = characters.iter().enumerate().rev().find_map(|(at, (index, character))| {
+            let lone = spaced(at.checked_sub(1).and_then(|before| characters.get(before)))
+                && spaced(characters.get(at.saturating_add(1)));
+            (*character == '?' && !lone).then_some(*index)
+        })?;
+        let asked = text.get(..=end)?.trim();
+        (asked.len() > 1).then(|| asked.to_owned())
+    })
+}
+
+/// The dialog a blocked agent shows, as every blocked result has it
+/// (`agent start`, `terminal send`, `terminal wait`, `terminal status`,
+/// `agents dialog list`): `kind`, `msg` (the given one, else the question on
+/// the screen), `options` (each with the `keys` that pick it), `deny_keys`,
+/// and for `folder_trust` the `accept_keys` and `accept_label`.
+pub(in crate::cli) fn dialog_json(kind: &str, msg: Option<&str>, screen: &str) -> Value {
+    let options = options(screen);
+    let msg =
+        msg.filter(|msg| !msg.trim().is_empty()).map(str::to_owned).or_else(|| question(screen));
+    let mut dialog = json!({
+        "kind": kind,
+        "msg": msg,
+        "options": options_json(&options),
+        "deny_keys": deny_keys(screen, &options),
+    });
+    if kind == "folder_trust"
+        && let (Some(keys), Some(label)) = (accept_keys(&options), accept_label(&options))
+        && let Some(object) = dialog.as_object_mut()
+    {
+        object.insert("accept_keys".into(), json!(keys));
+        object.insert("accept_label".into(), json!(label));
+    }
+    dialog
+}
+
+/// What blocks the agent in `terminal`, when the word every agent list
+/// shows for it is `blocked` (`roster::agent_of_terminal`): the kind and
+/// message of its newest blocked OSC 7501 record, else a startup dialog on
+/// `screen`, else a question its hooks reported (`agent_question`). `agents`
+/// are the daemon's agent records of that terminal.
+///
+/// A `blocked` that only a screen guess gives (the screen-detection plugin)
+/// is `None` only when all of these hold: the harness's hooks report its
+/// dialogs (`roster::hooks_report_dialogs`), the newest own report of that
+/// agent's live session (`roster::own_report_state`) is idle (never
+/// working), no OSC 7501 record of that agent says blocked
+/// (`roster::any_status_blocked`), and the bottom rows of `screen` show its input box with no dialog
+/// options and no startup dialog. The plugin can read a screen just before
+/// the agent redraws it and then not read it again. Otherwise the block
+/// holds: an agent whose hooks report no dialog, or no own report, never
+/// ends it.
+pub(in crate::cli) fn blocked_dialog(
+    terminal: &Value,
+    agents: &[Value],
+    screen: &str,
+) -> Option<Value> {
+    let row = roster::agent_of_terminal(terminal, agents, false)?;
+    if row.state != roster::AgentState::Blocked {
+        return None;
+    }
+    let screen_guess = matches!(row.source.as_str(), "plugin" | "detected");
+    let own_report_ended = screen_guess
+        && roster::hooks_report_dialogs(&row.harness)
+        && roster::own_report_state(terminal, agents, &row.harness)
+            == Some(roster::AgentState::Idle)
+        && !roster::any_status_blocked(terminal, &row.harness);
+    if own_report_ended
+        && readiness::composer_visible(&bottom_rows(screen).join("\n"))
+        && options(screen).is_empty()
+        && readiness::startup_dialog(screen).is_none()
+    {
+        return None;
+    }
+    let number = |value: &Value| {
+        value.as_u64().or_else(|| value.as_str().and_then(|text| text.parse().ok())).unwrap_or(0)
+    };
+    let record = terminal
+        .pointer("/extra/program_status")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|record| record.get("state").and_then(Value::as_str) == Some("blocked"))
+        .max_by_key(|record| record.get("updated_at_ms").map_or(0, number));
+    let kind = record
+        .and_then(|record| record.get("kind").and_then(Value::as_str))
+        .filter(|kind| !kind.is_empty())
+        .or_else(|| readiness::startup_dialog(screen).map(|dialog| dialog.id))
+        .unwrap_or(readiness::AGENT_QUESTION.id);
+    let msg = record.and_then(|record| record.get("msg").and_then(Value::as_str));
+    Some(dialog_json(kind, msg, screen))
+}
+
+/// The localized reason of a blocked `terminal send` or `terminal wait`:
+/// ask the person, then answer `dialog` in the terminal `who` with keys,
+/// naming its `deny_keys` when it has them.
+pub(in crate::cli) fn dialog_reason(
+    messages: &crate::localization::PaneCliMessages,
+    who: &str,
+    dialog: &Value,
+) -> String {
+    let kind = dialog["kind"].as_str().unwrap_or(readiness::AGENT_QUESTION.id);
+    let deny: Vec<&str> =
+        dialog["deny_keys"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    let template = if deny.is_empty() { messages.dialog_waits } else { messages.dialog_waits_deny };
+    template.replace("{kind}", kind).replace("{who}", who).replace("{deny}", &deny.join(" "))
+}
+
+/// The message of a `terminal send` that cmux refused because the agent of
+/// `who` waits on `dialog`: the [`dialog_reason`] (kind and deny keys), what
+/// the dialog asks when its `msg` is known, and that `--force` types anyway.
+pub(in crate::cli) fn dialog_refusal(
+    messages: &crate::localization::PaneCliMessages,
+    who: &str,
+    dialog: &Value,
+) -> String {
+    let mut parts = vec![dialog_reason(messages, who, dialog)];
+    if let Some(msg) = dialog["msg"].as_str().filter(|msg| !msg.is_empty()) {
+        parts.push(messages.dialog_asks.replace("{msg}", msg));
+    }
+    parts.push(messages.send_refused_typed.to_owned());
+    parts.join(messages.folder_trust_separator)
 }
 
 /// Words of an option that also lets the agent act without approval (a
@@ -176,6 +467,300 @@ mod tests {
         );
         assert_eq!(accept_label(&boxed), Some("Yes, I trust this folder"));
         assert_eq!(boxed.get(1).map(|option| option.label.as_str()), Some("No, exit"));
+    }
+
+    /// W6-B (bench round 5 orchestration row 3): Claude Code 2.1.321 draws
+    /// its choices without numbers, the cursor on one row and the others
+    /// indented to the same column. They are read in screen order (`number`
+    /// is the position), in a box too, and the accept keys move the cursor.
+    #[test]
+    fn w6bc_unnumbered_cursor_rows_are_options() {
+        let screen = " Security guide\n\n ❯ No, exit\n   Yes, I trust this folder\n\n \
+                      Enter to confirm · Esc to cancel";
+        let read = options(screen);
+        assert_eq!(
+            read,
+            [
+                DialogOption { number: 1, label: "No, exit".into(), selected: true },
+                DialogOption {
+                    number: 2,
+                    label: "Yes, I trust this folder".into(),
+                    selected: false,
+                },
+            ]
+        );
+        assert_eq!(accept_keys(&read), Some(vec!["down", "enter"]));
+        assert_eq!(accept_label(&read), Some("Yes, I trust this folder"));
+        let boxed = options(
+            "│ Pick one        │\n│   Later         │\n│ ❯ Yes, go on    │\n│   No            │",
+        );
+        let labels: Vec<&str> = boxed.iter().map(|option| option.label.as_str()).collect();
+        assert_eq!(labels, ["Later", "Yes, go on", "No"]);
+        assert_eq!(accept_keys(&boxed), Some(vec!["enter"]));
+    }
+
+    /// W6-B: an agent's input box (a prompt mark with a rule above or
+    /// below), its wrapped echo and a lone cursor row are no options.
+    #[test]
+    fn w6bc_an_input_box_or_a_lone_cursor_row_is_no_options() {
+        let composer =
+            "────────────────\n❯ fix the test\n  and the build\n────────────────\n  ? for help";
+        assert!(options(composer).is_empty());
+        assert!(options("› Ask Codex to do anything\n  ⏎ send   ctrl+j newline").is_empty());
+        assert!(options(" ❯ Only one choice\n\n Enter to confirm").is_empty());
+        assert!(options(" ❯ No, exit\n     deeper indent is no sibling").is_empty());
+    }
+
+    /// W6-C: the reason of a blocked send or wait is localized, names the
+    /// terminal and the dialog's kind, and names the deny keys when the
+    /// dialog has them.
+    #[test]
+    fn w6bc_the_blocked_dialog_reason_is_localized_and_names_the_deny_keys() {
+        let english = &crate::localization::catalog_for_locale("en_US.UTF-8").pane_cli;
+        let japanese = &crate::localization::catalog_for_locale("ja_JP.UTF-8").pane_cli;
+        let screen = " Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel";
+        let dialog = dialog_json("permission", Some("approve Bash: ls"), screen);
+        assert_eq!(dialog["deny_keys"], json!(["escape"]));
+        assert_eq!(dialog["msg"], "approve Bash: ls");
+        let bare = dialog_json("agent_question", None, " Pick a database?\n plain text");
+        assert_eq!(bare["msg"], "Pick a database?");
+        assert!(bare["deny_keys"].is_null(), "{bare}");
+        for messages in [english, japanese] {
+            let reason = dialog_reason(messages, "beta", &dialog);
+            assert!(reason.contains("cmux terminal beta keys escape"), "{reason}");
+            assert!(reason.contains("permission"), "{reason}");
+            let reason = dialog_reason(messages, "beta", &bare);
+            assert!(reason.contains("cmux terminal beta keys"), "{reason}");
+            assert!(!reason.contains("{deny}"), "{reason}");
+            let refusal = dialog_refusal(messages, "beta", &dialog);
+            assert!(refusal.starts_with(&dialog_reason(messages, "beta", &dialog)), "{refusal}");
+            assert!(refusal.contains("approve Bash: ls"), "{refusal}");
+            assert!(refusal.contains("--force") && !refusal.contains("{msg}"), "{refusal}");
+        }
+        assert_ne!(
+            dialog_refusal(english, "beta", &dialog),
+            dialog_refusal(japanese, "beta", &dialog)
+        );
+        assert_ne!(
+            dialog_reason(english, "beta", &dialog),
+            dialog_reason(japanese, "beta", &dialog)
+        );
+    }
+
+    /// Claude Code 2.1.322 after Escape denied a permission dialog (real
+    /// build, W6-BC deny run): its empty input box and footer hint.
+    const DENIED_CLAUDE_2_1_322: &str = "\
+  ⎿  Interrupted · What should Claude do instead?
+
+✻ Cooked for 20s · done 10:00 AM
+
+────────────────────────────────────────────────────────────────────────────────
+❯ \n\
+────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts                          ● high · /effort";
+
+    /// The same agent while the permission dialog still shows.
+    const PERMISSION_CLAUDE_2_1_322: &str = "\
+⏺ Bash(touch /tmp/w6bc-rb)
+  ⎿  Waiting…
+
+────────────────────────────────────────────────────────────────────────────────
+ Bash command
+ touch /tmp/w6bc-rb
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and always allow access to /tmp from this project
+   3. No
+
+ Esc to cancel · Tab to amend";
+
+    /// A terminal whose own OSC 7501 record went idle after a permission
+    /// dialog, with the agent records `agents`.
+    fn denied_terminal(agents: Value) -> (Value, Vec<Value>) {
+        let terminal = json!({"id": "term_w6bc", "lifecycle": "running", "extra": {
+            "program_status": [{"app": "claude-code", "state": "idle", "updated_at_ms": "1637"}]}});
+        (terminal, agents.as_array().cloned().unwrap_or_default())
+    }
+
+    /// W6-BC review (real build): after Escape denied the dialog, the
+    /// screen-detection plugin read the screen once before Claude redrew it,
+    /// wrote `blocked` 265 ms after Claude's own idle record, and never read
+    /// it again. That screen guess is no dialog once the screen shows the
+    /// input box: `wait --until idle`, `send`, `terminal status` and `agents
+    /// dialog list` read it through `blocked_dialog`.
+    #[test]
+    fn w6bc_a_stale_screen_guess_of_blocked_is_no_dialog() {
+        // The daemon keeps one agent record per terminal: the plugin's guess
+        // replaced the hook's record.
+        let (terminal, agents) = denied_terminal(json!([
+            {"terminal_id": "term_w6bc", "state": "blocked", "source": "plugin",
+             "updated_at_ms": "1902", "extra": {"agent": "claude-code"}},
+        ]));
+        let stale = blocked_dialog(&terminal, &agents, DENIED_CLAUDE_2_1_322);
+        assert!(stale.is_none(), "{stale:?}");
+        // The guess still holds while the screen shows the dialog, and
+        // before the caller has read the screen.
+        let live = blocked_dialog(&terminal, &agents, PERMISSION_CLAUDE_2_1_322);
+        assert_eq!(
+            live.as_ref().map(|dialog| dialog["options"][2]["label"].clone()),
+            Some(json!("No"))
+        );
+        assert!(blocked_dialog(&terminal, &agents, "").is_some());
+        // Claude's own OSC 7501 report, when it says blocked, holds.
+        let mut reported = terminal;
+        reported["extra"]["program_status"][0]["state"] = json!("blocked");
+        assert!(blocked_dialog(&reported, &agents, DENIED_CLAUDE_2_1_322).is_some());
+        // The agent's own report of blocked is never overruled by the screen.
+        let (terminal, agents) = denied_terminal(json!([
+            {"terminal_id": "term_w6bc", "state": "blocked", "source": "hook",
+             "updated_at_ms": "1902", "extra": {"agent": "claude"}},
+        ]));
+        assert!(blocked_dialog(&terminal, &agents, DENIED_CLAUDE_2_1_322).is_some());
+    }
+
+    /// A screen whose transcript holds an input-box hint word and whose
+    /// multi-select rows do not parse as options.
+    const HINT_IN_TRANSCRIPT: &str = "\
+⏺ I turn accept edits on for the build once you pick the checks.
+ Which checks should run?
+ ❯ [ ] 1. Unit tests
+     [ ] 2. Lint
+
+ Enter to select · Esc to cancel";
+
+    /// A Gemini-family tool confirmation (Qwen Code: no hooks, so only the
+    /// plugin reports it): radio rows `● 1. ...` and a context footer.
+    const RADIO_CONFIRMATION: &str = "\
+╭──────────────────────────────────────────────────────────╮
+│ ?  Shell touch /tmp/w6bc-q                                │
+│ Allow execution of: 'touch'?                              │
+│ ● 1. Yes, allow once                                      │
+│   2. Yes, allow always                                    │
+│   3. No, suggest changes (esc)                            │
+╰──────────────────────────────────────────────────────────╯
+ ~/proj         no sandbox         qwen3-coder (99% context left)";
+
+    /// W6-BC review 3: a dialog the agent itself reported stays blocked,
+    /// even when the plugin's record of it is newer and the screen's
+    /// options do not parse.
+    #[test]
+    fn w6bc_a_dialog_the_agent_reported_stays_blocked() {
+        let terminal = json!({"id": "term_w6bc", "lifecycle": "running", "extra": {
+            "program_status": [{"app": "claude-code", "state": "blocked", "kind": "permission",
+                                "updated_at_ms": "1050"}]}});
+        let agents: Vec<Value> = vec![json!({"terminal_id": "term_w6bc", "state": "blocked",
+            "source": "plugin", "updated_at_ms": "1902", "extra": {"agent": "claude-code"}})];
+        let dialog = blocked_dialog(&terminal, &agents, HINT_IN_TRANSCRIPT);
+        assert_eq!(dialog.map(|dialog| dialog["kind"].clone()), Some(json!("permission")));
+    }
+
+    /// W6-BC review 3: a plugin-only agent's radio dialog stays blocked and
+    /// lists its options; its question keeps the quote before the `?`.
+    #[test]
+    fn w6bc_a_radio_dialog_of_a_plugin_only_agent_stays_blocked() {
+        let terminal = json!({"id": "term_w6bc", "lifecycle": "running"});
+        let agents: Vec<Value> = vec![json!({"terminal_id": "term_w6bc", "state": "blocked",
+            "source": "plugin", "updated_at_ms": "1902", "extra": {"agent": "qwen"}})];
+        let dialog = blocked_dialog(&terminal, &agents, RADIO_CONFIRMATION).unwrap_or_default();
+        let labels: Vec<&str> = dialog["options"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|option| option["label"].as_str())
+            .collect();
+        assert_eq!(
+            labels,
+            ["Yes, allow once", "Yes, allow always", "No, suggest changes (esc)"],
+            "{dialog}"
+        );
+        assert_eq!(dialog["options"][0]["selected"], true, "{dialog}");
+        assert_eq!(dialog["msg"], "Allow execution of: 'touch'?", "{dialog}");
+        let asked = dialog_json(
+            "agent_question",
+            None,
+            " Run the build (all targets)?\n ❯ 1. Yes\n   2. No",
+        );
+        assert_eq!(asked["msg"], "Run the build (all targets)?", "{asked}");
+    }
+
+    /// A dialog whose choices do not parse as options, with an input-box
+    /// hint below it.
+    const UNPARSED_DIALOG: &str = "\
+ The agent wants to run: touch /tmp/w6bc-k
+ Allow this action? (y/n)
+
+ ? for shortcuts";
+
+    /// One agent record of `term_w6bc`.
+    fn record(source: &str, agent: &str, state: &str, at: &str) -> Value {
+        json!({"terminal_id": "term_w6bc", "state": state, "source": source,
+               "updated_at_ms": at, "extra": {"agent": agent}})
+    }
+
+    /// W6-BC review 3 (lead decision): a screen guess of blocked drops only
+    /// for a harness whose hooks report dialogs, and only on its own live
+    /// session's reports. Kiro's hooks have no dialog event, Copilot's
+    /// Notification is a turn's end (idle at a dialog), and a Claude session
+    /// that ended before a Qwen agent started in the same terminal says
+    /// nothing about Qwen.
+    #[test]
+    fn w6bc_only_an_agent_whose_hooks_report_dialogs_ends_a_screen_guess() {
+        // One agent record per terminal (the plugin's guess); the agent's
+        // own idle report is an OSC 7501 record of its app.
+        let cases = [
+            ("kiro", "kiro"),
+            ("copilot", "copilot"),
+            // Muse and Rovo Dev install approval hooks, but when they fire
+            // is not verified.
+            ("muse", "muse"),
+            ("rovodev", "rovodev"),
+            // An earlier Claude session's idle report says nothing of Qwen.
+            ("qwen", "claude-code"),
+        ];
+        for (harness, app) in cases {
+            let terminal = json!({"id": "term_w6bc", "lifecycle": "running", "extra": {
+                "program_status": [{"app": app, "state": "idle", "updated_at_ms": "1637"}]}});
+            let agents = vec![record("plugin", harness, "blocked", "1902")];
+            let dialog = blocked_dialog(&terminal, &agents, UNPARSED_DIALOG);
+            assert!(dialog.is_some(), "{harness}: the block must hold");
+        }
+    }
+
+    /// W6-BC review 3 (lead, fail closed): with no hook record left, only
+    /// an OSC 7501 `idle` of the agent ends a screen guess, never
+    /// `working`; and any OSC 7501 `blocked` of that app keeps the block,
+    /// even when a newer record of it says idle.
+    #[test]
+    fn w6bc_only_an_idle_report_and_no_blocked_report_ends_a_screen_guess() {
+        let agents = vec![record("plugin", "claude-code", "blocked", "1902")];
+        let with_status = |statuses: Value| {
+            json!({"id": "term_w6bc", "lifecycle": "running",
+                   "extra": {"program_status": statuses}})
+        };
+        let working = with_status(
+            json!([{"app": "claude-code", "state": "working", "updated_at_ms": "1637"}]),
+        );
+        assert!(blocked_dialog(&working, &agents, DENIED_CLAUDE_2_1_322).is_some());
+        let blocked_id = with_status(json!([
+            {"app": "claude-code", "id": "perm", "state": "blocked", "updated_at_ms": "1500"},
+            {"app": "claude-code", "state": "idle", "updated_at_ms": "1637"},
+        ]));
+        assert!(blocked_dialog(&blocked_id, &agents, DENIED_CLAUDE_2_1_322).is_some());
+        let idle =
+            with_status(json!([{"app": "claude-code", "state": "idle", "updated_at_ms": "1637"}]));
+        assert!(blocked_dialog(&idle, &agents, DENIED_CLAUDE_2_1_322).is_none());
+    }
+
+    /// W6-BC review: a footer hint (`? for shortcuts`) is no question.
+    #[test]
+    fn w6bc_a_footer_hint_is_no_question() {
+        let dialog = dialog_json("agent_question", None, DENIED_CLAUDE_2_1_322);
+        let msg = dialog["msg"].as_str().unwrap_or_default();
+        assert!(!msg.contains("manual mode") && !msg.contains("shortcuts"), "{dialog}");
+        let footer = " Pick one\n ❯ 1. Yes\n   2. No\n  ⏵⏵ accept edits on · ? for shortcuts";
+        assert!(dialog_json("agent_question", None, footer)["msg"].is_null());
+        let dialog = dialog_json("permission", None, PERMISSION_CLAUDE_2_1_322);
+        assert_eq!(dialog["msg"], "Do you want to proceed?", "{dialog}");
     }
 
     /// W5-Q review (PR C): the folder-trust reason is localized, names the

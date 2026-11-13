@@ -36,7 +36,9 @@ const SEND_DESCRIPTION: &str = "Send a message to the agent (or shell) in a cmux
     multi-line message stays one message), presses Enter, waits, and answers {terminal, \
     harness, status, state, timed_out, waited_ms, anchored, reply, reply_source, output}. \
     reply is the agent's own last message from its hooks (reply_source hook) when they gave \
-    it after the send, else the output (reply_source screen). status is the word \
+    it after the send, else the output (reply_source screen). An agent that stopped on a \
+    dialog has reply null and dialog {kind, msg, options: [{number, label, selected, keys}], \
+    deny_keys} plus a reason: ask the person, then answer with terminal keys. status is the word \
     agents_terminal_list says for the same turn (idle, done when the finished turn is not \
     viewed yet, blocked, working, ended); state is the wait's own word. output is only what \
     the terminal printed after the message, less the harness's input box. wait idle (default): until no \
@@ -46,7 +48,7 @@ const SEND_DESCRIPTION: &str = "Send a message to the agent (or shell) in a cmux
     prompt: until the shell shows its prompt. wait none: send and answer at once. A wait that \
     passes timeout_seconds (default 300, at most 900) answers timed_out true with the output \
     so far. An agent that already waits on a dialog is refused unless force is true, since \
-    the text would answer the dialog. target is a term_ id (or unique prefix), a tab_ id or \
+    the text would answer the dialog; the error's details carry the same dialog. target is a term_ id (or unique prefix), a tab_ id or \
     an exact terminal title; agents_terminal_list names them. Optional idempotency_key \
     identifies the complete paste-and-Enter send: a lost reply reports its \
     phase, the resolved terminal id and the same key. When passing a key, target \

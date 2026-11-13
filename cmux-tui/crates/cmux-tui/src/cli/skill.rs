@@ -109,8 +109,9 @@ pub(super) const RECIPES: &[Recipe] = &[
                the agent panes of that row then share their space equally), runs \
                the launcher (--cmd; codex works too) in a tab named alpha and returns once the agent can take a message: `state` \
                `ready` (exit 0) with `terminal_id`, `tab_id`, `pane_id`, or `blocked` \
-               (exit 4) with `dialog` (`folder_trust`, `login`, ...), `reason` and the \
-               dialog's numbered `options` when a startup dialog waits on the person. Ask the \
+               (exit 4) with `dialog` (its `kind`: `folder_trust`, `login`, ...), `reason` and the \
+               dialog's `options` (each with the `keys` that pick it) when a startup dialog \
+               waits on the person. Ask the \
                person; then answer with keys: for folder trust, with their consent, run \
                cmux terminal alpha keys plus the result's `accept_keys`, which pick \
                `accept_label` (tell the person when the reason warns that the option also \
@@ -119,8 +120,10 @@ pub(super) const RECIPES: &[Recipe] = &[
                wherever a terminal, tab or pane selector goes. send pastes the task, presses \
                Enter, waits until the agent is idle and prints its new `output` and `reply` \
                (the agent's own last message, whole, when its hooks gave it); `state` is \
-               `idle`, or `blocked` when it shows a dialog (send refuses to type \
-               into a dialog unless --force). cmux adds its hooks to `claude` and `codex` \
+               `idle`, or `blocked` (exit 4) when it stops on a dialog: then `reply` is null \
+               and `dialog` has `kind`, `msg`, `options` (each with the `keys` that pick it) \
+               and `deny_keys`; ask the person, then answer with cmux terminal alpha keys \
+               (send refuses to type into a dialog unless --force, also exit 4). cmux adds its hooks to `claude` and `codex` \
                started in a cmux terminal; nothing is written to ~/.claude or ~/.codex.",
     },
     Recipe {
@@ -131,7 +134,9 @@ pub(super) const RECIPES: &[Recipe] = &[
             "cmux terminal alpha screen read",
         ],
         read: "wait --until ready: `state` `ready`, or `blocked` with `dialog` and `reason` \
-               (exit 4). terminal list --agents: one record per agent with `name`, `harness`, \
+               (exit 4). Every terminal wait prints `{terminal_id, until, state, waited_ms}`; \
+               --until idle on an agent that waits on a dialog is `blocked` with `dialog` \
+               (exit 4) too. terminal list --agents: one record per agent with `name`, `harness`, \
                `status` (blocked, working, done, idle, unknown; null when the session \
                ended; `state` is a deprecated alias), `tab_id`, `pane_id` and `last_reply` \
                (the agent's last answer, one line, at most 200 characters). screen read prints the screen as text \
@@ -160,7 +165,9 @@ pub(super) const RECIPES: &[Recipe] = &[
                (`name`, `harness`, `status`, `terminal`, `workspace`, `title`). agent list \
                --needs-me: the agents that wait on the person, with the same `name` and \
                `status` words (`state` is a deprecated alias of `status`). status: what the program reports \
-               (for a dialog: kind permission, state blocked, msg).",
+               (for a dialog: kind permission, state blocked, msg, and `dialog` with its \
+               `options`, their `keys` and `deny_keys`). agents dialog list also lists the \
+               blocked terminal agents (`terminals`), in a session no app owns too.",
     },
     Recipe {
         ask: "Tell me when that agent is idle. / Wait until the workspace exists, then go on.",

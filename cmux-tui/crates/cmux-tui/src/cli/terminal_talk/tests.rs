@@ -282,6 +282,8 @@ struct FakeDaemon {
     sent: RefCell<Vec<(String, Value)>>,
     /// What `agent list --terminal` answers while the send waits.
     agents: Value,
+    /// The `extra` of the terminal record `terminal.get` answers.
+    extra: Value,
 }
 
 impl FakeDaemon {
@@ -293,6 +295,7 @@ impl FakeDaemon {
             ),
             sent: RefCell::new(Vec::new()),
             agents: json!([]),
+            extra: json!({}),
         }
     }
 
@@ -320,9 +323,8 @@ impl Daemon for FakeDaemon {
             "terminal.state.read" => json!({
                 "state_base64": base64::engine::general_purpose::STANDARD.encode(b"\x1b[?2004h"),
             }),
-            "terminal.get" => {
-                json!({"id": "term_c1a0de00000000000000000000000001", "lifecycle": "running", "extra": {}})
-            }
+            "terminal.get" => json!({"id": "term_c1a0de00000000000000000000000001",
+                                     "lifecycle": "running", "extra": self.extra}),
             "agent.list" => self.agents.clone(),
             "terminal.screen.read" => {
                 let mut screens = self.screens.borrow_mut();
@@ -579,6 +581,83 @@ fn send_refuses_an_agent_that_waits_on_a_dialog_unless_forced() {
     let forced = SendRequest { force: true, wait: Wait::None, ..request };
     send::run(&daemon, None, &forced).expect("forced");
     assert_eq!(daemon.writes().len(), 2);
+}
+
+/// W6-BC review (real build): a `blocked` that only the screen-detection
+/// plugin guessed, from a screen read before the agent redrew, does not
+/// refuse a send once the screen shows the agent's input box and no dialog.
+#[test]
+fn w6bc_a_stale_screen_guess_of_blocked_does_not_refuse_a_send() {
+    // The daemon keeps one agent record per terminal: the plugin's guess
+    // (1902) replaced the hook's record; Claude's own OSC 7501 report (1637)
+    // says idle, as in the real build.
+    let mut stale = snapshot();
+    stale["agents"][1] = json!({"terminal_id": "term_c0dec000000000000000000000000004",
+        "state": "blocked", "source": "plugin", "updated_at_ms": "1902",
+        "extra": {"agent": "claude-code"}});
+    stale["terminals"][3]["extra"] = json!({"program_status": [
+        {"app": "claude-code", "state": "idle", "updated_at_ms": "1637"}]});
+    let screen = "› \n\n  ? for shortcuts                                100% context left";
+    let daemon = FakeDaemon::new(stale, &[(1, screen)]);
+    let request = SendRequest {
+        target: "term_c0dec000000000000000000000000004".into(),
+        wait: Wait::None,
+        ..quick("yes")
+    };
+    let sent = send::run(&daemon, None, &request);
+    assert!(sent.is_ok(), "{:?}", sent.err().map(|failure| failure.failure.error));
+    assert_eq!(daemon.writes().len(), 2);
+}
+
+/// W6-BC review 3: a send is refused at a dialog the agent itself
+/// reported, even when the plugin's record is newer and the screen shows a
+/// hint word, and at a plugin-only agent's radio dialog.
+#[test]
+fn w6bc_a_send_is_refused_at_a_reported_or_plugin_only_dialog() {
+    let target = "term_c0dec000000000000000000000000004";
+    // One plugin record; Claude's own OSC 7501 report says blocked.
+    let mut reported = snapshot();
+    reported["agents"][1] = json!({"terminal_id": target, "state": "blocked",
+        "source": "plugin", "updated_at_ms": "200", "extra": {"agent": "claude-code"}});
+    reported["terminals"][3]["extra"] = json!({"program_status": [
+        {"app": "claude-code", "state": "blocked", "kind": "permission", "updated_at_ms": "150"}]});
+    let hint =
+        "⏺ I turn accept edits on once you pick.\n Which checks?\n ❯ [ ] 1. Unit\n     [ ] 2. Lint";
+    let radio = " Allow execution of: 'touch'?\n ● 1. Yes, allow once\n   2. No, suggest changes (esc)\n ~/p   (99% context left)";
+    let mut plugin_only = snapshot();
+    plugin_only["agents"][1]["source"] = json!("plugin");
+    for (snapshot, screen) in [(reported, hint), (plugin_only, radio)] {
+        let daemon = FakeDaemon::new(snapshot, &[(1, screen)]);
+        let request = SendRequest { target: target.into(), wait: Wait::None, ..quick("yes") };
+        let failure = send::run(&daemon, None, &request).expect_err("refused");
+        assert_eq!(failure.exit, 4, "{screen}: {:?}", failure.failure.error);
+        assert!(daemon.writes().is_empty(), "{screen}");
+    }
+}
+
+/// W6-BC review 3 (lead decision): a send is refused at a plugin's guess
+/// of a dialog for a harness whose hooks report no dialog (Kiro), whose
+/// Notification is a turn's end (Copilot), or whose only own record is an
+/// earlier agent's ended session (Claude before Qwen).
+#[test]
+fn w6bc_a_send_is_refused_when_no_own_report_can_end_the_dialog() {
+    let target = "term_c0dec000000000000000000000000004";
+    let screen =
+        " The agent wants to run: touch /tmp/w6bc-k\n Allow this action? (y/n)\n\n ? for shortcuts";
+    for (harness, app) in [("kiro", "kiro"), ("qwen", "claude-code"), ("copilot", "copilot")] {
+        // One plugin record; the OSC 7501 idle report is the agent's own
+        // (Kiro, Copilot) or an earlier Claude session's (before Qwen).
+        let mut snapshot = snapshot();
+        snapshot["agents"][1] = json!({"terminal_id": target, "state": "blocked",
+            "source": "plugin", "updated_at_ms": "200", "extra": {"agent": harness}});
+        snapshot["terminals"][3]["extra"] = json!({"program_status": [
+            {"app": app, "state": "idle", "updated_at_ms": "150"}]});
+        let daemon = FakeDaemon::new(snapshot, &[(1, screen)]);
+        let request = SendRequest { target: target.into(), wait: Wait::None, ..quick("yes") };
+        let failure = send::run(&daemon, None, &request).expect_err("refused");
+        assert_eq!(failure.exit, 4, "{harness}: {:?}", failure.failure.error);
+        assert!(daemon.writes().is_empty(), "{harness}");
+    }
 }
 
 #[test]
@@ -1478,4 +1557,93 @@ fn w5r_send_of_bang_and_hash_input_to_a_hook_agent_is_not_stalled() {
             outcome.err().map(|failure| failure.failure.error)
         );
     }
+}
+
+/// Claude Code 2.1.321's permission dialog after a send, as the bench round
+/// 5 evaluator read it (`terminal ct5-beta screen read`).
+const PERMISSION_CLAUDE_2_1_321: &str = "\
+❯ Run the shell command touch /tmp/bench5-perm-cmuxtui-o now.
+
+⏺ Bash(touch /tmp/bench5-perm-cmuxtui-o)
+  ⎿  Waiting…
+
+───────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+ Tip: auto mode handles these prompts for you — choose \"switch to auto mode\" below
+ Create empty file in /tmp
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ touch /tmp/bench5-perm-cmuxtui-o
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and always allow access to /tmp from this project
+   3. Yes, and switch to auto mode · auto mode handles these prompts for you
+   4. No
+
+ Esc to cancel · Tab to amend";
+
+/// A daemon whose Claude Code stops on the 2.1.321 permission dialog after
+/// the send, with the hook's OSC 7501 record (`kind permission`, `msg`).
+fn permission_daemon() -> FakeDaemon {
+    let before = "⏺ Canberra\n\n❯ ";
+    let mut daemon = dialog_daemon(&[(1, before), (2, PERMISSION_CLAUDE_2_1_321)]);
+    daemon.extra = json!({"program_status": [{
+        "app": "claude-code", "id": "", "kind": "permission", "state": "blocked",
+        "msg": "approve Bash: touch /tmp/bench5-perm-cmuxtui-o",
+        "updated_at_ms": u64::MAX.to_string(),
+    }]});
+    daemon
+}
+
+/// W6-C (bench round 5 orchestration row 4): a send that stops on a dialog
+/// has no reply (the screen text was no answer), and says what the dialog
+/// asks: its kind and message, its options with the keys that pick each,
+/// and the keys that deny it. The CLI exits 4, as a blocked `agent start`.
+#[test]
+fn w6bc_a_blocked_send_has_no_reply_and_a_structured_dialog() {
+    let daemon = permission_daemon();
+    let message = "Run the shell command `touch /tmp/bench5-perm-cmuxtui-o` now.";
+    let receipt = send::run(&daemon, None, &quick(message)).expect("sent");
+    assert_eq!(receipt["state"], "blocked", "{receipt}");
+    assert!(receipt["reply"].is_null(), "a dialog is no reply: {receipt}");
+    assert!(receipt["reply_source"].is_null(), "{receipt}");
+    let dialog = &receipt["dialog"];
+    assert_eq!(dialog["kind"], "permission", "{receipt}");
+    assert_eq!(dialog["msg"], "approve Bash: touch /tmp/bench5-perm-cmuxtui-o", "{receipt}");
+    let options = dialog["options"].as_array().cloned().unwrap_or_default();
+    assert_eq!(options.len(), 4, "{receipt}");
+    assert_eq!(options[0]["label"], "Yes", "{receipt}");
+    assert_eq!(options[0]["keys"], json!(["enter"]), "{receipt}");
+    assert_eq!(options[3]["label"], "No", "{receipt}");
+    assert_eq!(options[3]["keys"], json!(["down", "down", "down", "enter"]), "{receipt}");
+    assert_eq!(dialog["deny_keys"], json!(["escape"]), "{receipt}");
+    let reason = receipt["reason"].as_str().unwrap_or_default();
+    assert!(reason.contains("keys escape"), "{reason}");
+    assert_eq!(super::send_exit_code(&receipt, false), 4, "{receipt}");
+}
+
+/// W6-C: a send refused because the agent already waits on a dialog exits
+/// 4 too, and its error carries the same dialog object.
+#[test]
+fn w6bc_a_send_refused_at_a_dialog_exits_4_with_the_dialog() {
+    let screen = " Do you want to proceed?\n ❯ 1. Yes\n   2. No";
+    let daemon = FakeDaemon::new(snapshot(), &[(1, screen)]);
+    let request =
+        SendRequest { target: "term_c0dec000000000000000000000000004".into(), ..quick("yes") };
+    let failure = send::run(&daemon, None, &request).expect_err("refused");
+    assert_eq!(failure.exit, 4, "{:?}", failure.failure.error);
+    let dialog = &failure.failure.error["details"]["dialog"];
+    assert!(dialog["kind"].is_string(), "{dialog}");
+    assert_eq!(dialog["options"][1]["label"], "No", "{dialog}");
+    assert_eq!(dialog["deny_keys"], json!(["down", "enter"]), "{dialog}");
+    // W6-BC review: the message (all that human mode prints) names the
+    // dialog's kind, what it asks and the keys that deny it, and never
+    // points at JSON fields that human mode does not show.
+    let message = failure.failure.error["message"].as_str().unwrap_or_default();
+    let kind = dialog["kind"].as_str().unwrap_or("<no kind>");
+    assert!(message.contains(kind), "{message}");
+    assert!(message.contains("Do you want to proceed?"), "{message}");
+    assert!(message.contains("keys down enter"), "{message}");
+    assert!(message.contains("--force"), "{message}");
+    assert!(!message.contains("deny_keys") && !message.contains('`'), "{message}");
 }
