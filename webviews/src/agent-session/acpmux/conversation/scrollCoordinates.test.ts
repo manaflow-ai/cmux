@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   clearScrollOrigin,
+  hostScrollOrigin,
   layoutScrollTop,
   physicalScrollTop,
   retainScrollOrigin,
@@ -96,4 +97,44 @@ test("large clamp residuals reset and coordinates do not leak between scrollers"
   expect(writeAnchorScrollTop(first.node, 2_000)).toBe(0);
   expect(scrollOrigin(first.node)).toBe(0);
   expect(first.css.has(SCROLL_ORIGIN_PROPERTY)).toBe(false);
+});
+
+test("the origin is written on its host, never on the scroller, and an unchanged origin writes nothing", () => {
+  const { node, css } = quantizedNode();
+  const hostCss = new Map<string, string>();
+  let hostWrites = 0;
+  const host = {
+    style: {
+      setProperty: (name: string, value: string | null) => {
+        hostWrites += 1;
+        hostCss.set(name, value ?? "");
+      },
+      removeProperty: (name: string) => {
+        hostWrites += 1;
+        const old = hostCss.get(name) ?? "";
+        hostCss.delete(name);
+        return old;
+      },
+    },
+  };
+  writeAnchorScrollTop(node, 100.25);
+  expect(css.get(SCROLL_ORIGIN_PROPERTY)).toBe("-0.25px");
+  // Hosting moves the origin already kept onto the host.
+  hostScrollOrigin(node, host);
+  expect(css.has(SCROLL_ORIGIN_PROPERTY)).toBe(false);
+  expect(hostCss.get(SCROLL_ORIGIN_PROPERTY)).toBe("-0.25px");
+  hostWrites = 0;
+  // The same residual again (each page landing's anchor write) leaves the style as it was.
+  retainScrollOrigin(node, 100.25);
+  expect(hostWrites).toBe(0);
+  writeAnchorScrollTop(node, 200.75);
+  expect(hostCss.get(SCROLL_ORIGIN_PROPERTY)).toBe("0.25px");
+  expect(css.has(SCROLL_ORIGIN_PROPERTY)).toBe(false);
+  clearScrollOrigin(node);
+  expect(hostCss.has(SCROLL_ORIGIN_PROPERTY)).toBe(false);
+  hostWrites = 0;
+  // Nothing kept: a clear writes nothing.
+  clearScrollOrigin(node);
+  expect(hostWrites).toBe(0);
+  expect(scrollOrigin(node)).toBe(0);
 });

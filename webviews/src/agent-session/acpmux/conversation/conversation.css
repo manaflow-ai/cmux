@@ -6597,6 +6597,14 @@ a.cv-sha:focus-visible {
    there should be no fade. But then as you scroll down, like gradually, there's more and more of a
    fade"). The reach and the mask that reads it do not inherit, so a scroll's new reach restyles the
    scroller and none of its rows. */
+/* The sub-pixel origin a scroll anchor write keeps (scrollCoordinates.ts), set on the thread that
+   reads it. It does not inherit: a new origin at each page landing restyles the thread alone, not
+   every element of every mounted row under it. */
+@property --acpmux-scroll-origin {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
 @property --acpmux-fade-top-reach {
   syntax: "<number>";
   inherits: false;

@@ -7,6 +7,28 @@ export type ScrollCoordinateNode = {
 const origins = new WeakMap<ScrollCoordinateNode, number>();
 export const SCROLL_ORIGIN_PROPERTY = "--acpmux-scroll-origin";
 
+type OriginHost = { style: Pick<CSSStyleDeclaration, "setProperty" | "removeProperty"> };
+const hosts = new WeakMap<ScrollCoordinateNode, OriginHost>();
+
+/// Where `node`'s origin is written: the one element that reads it (the transcript's thread), not the
+/// scroller. The property does not inherit (conversation.css @property), so a new origin restyles that
+/// element alone. Written on the scroller, an inherited property, every page landing's anchor write
+/// restyled each element of every mounted row (about 1,600 in a long chat) before the frame could
+/// paint (Leo, 2026-11-11: "scrolling up is slow and it layout shift and everythng lag").
+export function hostScrollOrigin(node: ScrollCoordinateNode, host: OriginHost | null): void {
+  const was = hosts.get(node);
+  if (was === host) return;
+  const origin = origins.get(node);
+  (was ?? node).style.removeProperty(SCROLL_ORIGIN_PROPERTY);
+  if (host) hosts.set(node, host);
+  else hosts.delete(node);
+  if (origin !== undefined) (host ?? node).style.setProperty(SCROLL_ORIGIN_PROPERTY, `${origin}px`);
+}
+
+function originHost(node: ScrollCoordinateNode): OriginHost {
+  return hosts.get(node) ?? node;
+}
+
 export function scrollOrigin(node: ScrollCoordinateNode): number {
   return origins.get(node) ?? 0;
 }
@@ -23,8 +45,8 @@ export function physicalScrollTop(node: ScrollCoordinateNode, logicalTop: number
 
 /** Reset on an intentional navigation/session/follow handoff, before its target is written. */
 export function clearScrollOrigin(node: ScrollCoordinateNode): void {
-  origins.delete(node);
-  node.style.removeProperty(SCROLL_ORIGIN_PROPERTY);
+  if (!origins.delete(node)) return;
+  originHost(node).style.removeProperty(SCROLL_ORIGIN_PROPERTY);
 }
 
 /**
@@ -46,8 +68,9 @@ export function retainScrollOrigin(node: ScrollCoordinateNode, desiredLogicalTop
   }
   if (residual === 0) clearScrollOrigin(node);
   else {
+    if (origins.get(node) === residual) return residual;
     origins.set(node, residual);
-    node.style.setProperty(SCROLL_ORIGIN_PROPERTY, `${residual}px`);
+    originHost(node).style.setProperty(SCROLL_ORIGIN_PROPERTY, `${residual}px`);
   }
   return residual;
 }

@@ -52,14 +52,14 @@ import {
 } from "./model";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
-import { animateScroll, MOTION_SCROLL_EVENT, scrollRunning, stopScroll } from "./threadMinimap/scrollMotion";
+import { animateScroll, MOTION_SCROLL_EVENT, stopScroll, scrollRunning } from "./threadMinimap/scrollMotion";
 import { holdMomentum, installMomentumHold } from "./threadMinimap/momentumHold";
 import {
   JUMP_CURVE,
   jumpDuration,
   jumpGlideStart,
-  railBottomShadowReach,
   transcriptFadeReach,
+  railBottomShadowReach,
 } from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
@@ -70,6 +70,7 @@ import { fadesBelow, preserveScrollAnchorTop, scrollAnchorBase } from "./convers
 import { attachUserScrollIntent, userScrollIntent } from "./conversation/userScroll";
 import {
   clearScrollOrigin,
+  hostScrollOrigin,
   layoutScrollTop,
   physicalScrollTop,
   retainScrollOrigin,
@@ -80,10 +81,10 @@ import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type TailGlide } from "./conversation/tailGlide";
 import { finishCarry, notePinPass, pinLiveLine, refreshPinned } from "./conversation/pinnedLiveLine";
 import {
-  ARRIVAL_EASE,
-  arrivalStepMs,
   createFollowChase,
   type FollowChase,
+  ARRIVAL_EASE,
+  arrivalStepMs,
   sendMotionMs,
 } from "./conversation/followChase";
 import { shareFrameBudget, type FrameBudget } from "./conversation/frameBudget";
@@ -3141,6 +3142,11 @@ function TranscriptView({
     flushSync(roomTaken);
   }, []);
   const thread = useRef<HTMLDivElement>(null);
+  // The scroll origin is written on the thread, its one reader (scrollCoordinates.ts `hostScrollOrigin`):
+  // first among this view's layout effects, so every write of this commit lands there. O(1) a commit.
+  useLayoutEffect(() => {
+    if (ref.current) hostScrollOrigin(ref.current, thread.current);
+  });
   /// A turn's end folds its work in one motion (turnEndFold.ts): the rows drawn when it ended are
   /// read here, in the render that ends it, before its rows replace them; the fold plays once they
   /// are placed (the layout effect after the placement pass). It reads in render because the
@@ -6208,6 +6214,14 @@ function TranscriptView({
   };
   // Jump to latest remains shown once the reader is far behind, avoiding flicker near the threshold.
   const below = layout.totalHeight - height - (renderScroll.top - origin);
+  // Rows are placed under the room held for older history (ConversationLayout.origin) by the thread,
+  // never one by one: that room changes as pages land and as the reader rises while room is owed
+  // (conversation/olderReserve.ts), a frame at a time, and placing each row under it rewrote the top
+  // of every mounted row, and rendered each, on every such frame (Leo, 2026-11-11: "scrolling up is
+  // slow and it layout shift and everythng lag"). Now such a frame moves one element.
+  const roomAbove = layout.origin ?? 0;
+  const threadRoom = Math.floor(roomAbove);
+  const threadRoomFraction = roomAbove - threadRoom;
   // A fold the reader closed at the very bottom keeps the view at its end on each of its frames
   // (`beginBottomStackFold`; an open there grows down and stops following): a render mid-fold that
   // lays out ahead of that pin (a call that joins the group) is not the reader falling behind, and
@@ -6410,7 +6424,13 @@ function TranscriptView({
               <div
                 ref={thread}
                 className="acpmux-thread"
-                style={{ top: `calc(${lift + topInset}px + var(--acpmux-scroll-origin, 0px))` }}
+                // The room held above the rows for older history (`threadRoom`) moves the thread, not
+                // each row: its whole pixels in `top`, the fraction a payment leaves in the margin, as
+                // the rows split theirs (RowFrame) since WebKit drops fractional bits of large offsets.
+                style={{
+                  top: `calc(${lift + topInset + threadRoom}px + var(--acpmux-scroll-origin, 0px))`,
+                  marginTop: threadRoomFraction || undefined,
+                }}
                 onPointerOver={(event) => pointAt(event.target)}
                 onPointerLeave={() => pointAt(null)}
               >
@@ -6450,7 +6470,7 @@ function TranscriptView({
                         lastTurn={row.lastTurn === true}
                         index={absoluteIndex}
                         setSize={canLoadOlder ? -1 : rows.length}
-                        top={layout.geometry.topAt(absoluteIndex)}
+                        top={layout.geometry.topAt(absoluteIndex) - roomAbove}
                         gapBelow={absoluteIndex + 1 < rows.length ? layout.geometry.gapAt(absoluteIndex + 1) : 0}
                         rowWidth={scaledRowWidth}
                         expanded={isExpanded}
