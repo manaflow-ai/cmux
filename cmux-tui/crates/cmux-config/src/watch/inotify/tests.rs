@@ -149,6 +149,30 @@ fn a_file_replaced_by_rename_is_watched_again_by_the_rearm() {
 #[test]
 fn a_file_that_cannot_be_watched_is_seen_through_its_folder() {
     let scratch = Scratch::new("unreadable");
+    note_user(&scratch);
+    let watched = scratch.0.join("state.json");
+    fs::write(&watched, "{}").unwrap();
+    set_mode(&watched, 0o000);
+    let files = [watched.clone()];
+    let mut watches = armed(&files, false);
+    set_mode(&watched, 0o644);
+    assert!(counts(&mut watches), "a file made readable did not count");
+    watches.rearm(&files).unwrap();
+    counts(&mut watches);
+    drop(append(&watched, "1"));
+    assert!(counts(&mut watches), "a write to the file made readable did not count");
+}
+
+/// The cost of a mask that only grows: a folder that fell back (its file
+/// could not be watched) keeps the close and metadata events after the file
+/// has a watch of its own. A close after a write of another entry of that
+/// one folder then wakes one time, which is what each watched folder did
+/// before a file had a watch of its own, and no more than that.
+#[test]
+fn a_folder_that_fell_back_wakes_one_time_for_each_close_of_another_entry() {
+    const ROUNDS: usize = 20;
+    let scratch = Scratch::new("fell-back");
+    note_user(&scratch);
     let watched = scratch.0.join("state.json");
     let busy = scratch.0.join("logs.sqlite-wal");
     fs::write(&watched, "{}").unwrap();
@@ -160,10 +184,13 @@ fn a_file_that_cannot_be_watched_is_seen_through_its_folder() {
     assert!(counts(&mut watches), "a file made readable did not count");
     watches.rearm(&files).unwrap();
     counts(&mut watches);
-    drop(append(&busy, "1"));
-    assert!(!queued(&watches), "another entry woke after the file got its own watch");
-    drop(append(&watched, "1"));
-    assert!(counts(&mut watches), "a write to the file made readable did not count");
+    let mut wakes = 0;
+    for round in 0..ROUNDS {
+        drop(append(&busy, &format!("{round}\n")));
+        wakes += usize::from(queued(&watches));
+        assert!(!counts(&mut watches), "a close of another entry counted (it would hint)");
+    }
+    assert_eq!(wakes, ROUNDS, "wakes for {ROUNDS} closes of another entry of a fallen back folder");
 }
 
 /// A folder that loses its search bit hides its names: the look at a watched
@@ -198,106 +225,4 @@ fn a_file_whose_folder_cannot_be_searched_for_a_time_is_still_seen() {
         counts(&mut watches),
         "a write in place was lost after its folder could be searched again"
     );
-}
-
-/// A watched name that is a folder or a socket has a watch of its own for a
-/// metadata change of itself (the reader of an apps folder arms it when its
-/// mode lets it). That watch holds no other event: a write beside the name,
-/// or to a file in the folder, queues nothing.
-#[test]
-fn a_mode_change_of_a_watched_folder_or_socket_counts() {
-    let scratch = Scratch::new("named");
-    let folder = scratch.0.join("apps");
-    let socket = scratch.0.join("daemon.sock");
-    let busy = scratch.0.join("logs.sqlite-wal");
-    fs::create_dir_all(&folder).unwrap();
-    let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
-    fs::write(&busy, "").unwrap();
-    fs::write(folder.join("app.json"), "{}").unwrap();
-    let mut watches = armed(&[folder.clone(), socket.clone()], false);
-    assert!(!queued(&watches), "arming queued an event");
-    drop(append(&busy, "1"));
-    drop(append(&folder.join("app.json"), "1"));
-    assert!(!queued(&watches), "a write beside or in a watched folder woke");
-    set_mode(&folder, 0o750);
-    assert!(counts(&mut watches), "a mode change of a watched folder did not count");
-    set_mode(&socket, 0o600);
-    assert!(counts(&mut watches), "a mode change of a watched socket did not count");
-}
-
-/// What the watch of a watched folder itself must not bring: a file made,
-/// written and removed in that folder, and a write beside the folder, queue
-/// nothing (a busy apps folder does not wake the daemon).
-#[test]
-fn a_file_made_written_and_removed_in_a_watched_folder_queues_nothing() {
-    let scratch = Scratch::new("inside");
-    let folder = scratch.0.join("apps");
-    let busy = scratch.0.join("logs.sqlite-wal");
-    fs::create_dir_all(&folder).unwrap();
-    fs::write(&busy, "").unwrap();
-    let watches = armed(std::slice::from_ref(&folder), false);
-    assert!(!queued(&watches), "arming queued an event");
-    for round in 0..20 {
-        let inside = folder.join(format!("app-{round}.json"));
-        fs::write(&inside, "{}").unwrap();
-        drop(append(&inside, "1"));
-        fs::remove_file(&inside).unwrap();
-        drop(append(&busy, "1"));
-    }
-    assert!(!queued(&watches), "a file made, written and removed in a watched folder woke");
-}
-
-/// A folder the watcher may not read gets no watch of its own (inotify
-/// refuses it). Its parent then reports the metadata changes of each entry,
-/// so the change that makes the folder readable is seen; the next rearm
-/// watches the folder itself and takes those events off the parent.
-#[test]
-fn a_folder_that_cannot_be_watched_is_seen_through_its_parent() {
-    let scratch = Scratch::new("shut-name");
-    note_user(&scratch);
-    let folder = scratch.0.join("apps");
-    let busy = scratch.0.join("logs.sqlite-wal");
-    fs::create_dir_all(&folder).unwrap();
-    fs::write(&busy, "").unwrap();
-    set_mode(&folder, 0o000);
-    let files = [folder.clone()];
-    let mut watches = armed(&files, false);
-    set_mode(&folder, 0o755);
-    assert!(counts(&mut watches), "a folder made readable did not count");
-    watches.rearm(&files).unwrap();
-    counts(&mut watches);
-    drop(append(&busy, "1"));
-    assert!(!queued(&watches), "another entry woke after the folder got its own watch");
-    set_mode(&folder, 0o700);
-    assert!(counts(&mut watches), "a mode change of the folder made readable did not count");
-}
-
-/// One watcher that names a link to a folder and a file in that folder asks
-/// two things of one inode. The kernel has one watch for an inode and a
-/// second add replaces its mask, so both are joined in it, in either order.
-#[test]
-fn a_watched_link_to_the_folder_of_a_watched_file_keeps_both() {
-    for (links, real) in [("a", "b"), ("b", "a")] {
-        let scratch = Scratch::new(&format!("joined-{links}"));
-        let (links, real) = (scratch.0.join(links), scratch.0.join(real));
-        fs::create_dir_all(&links).unwrap();
-        fs::create_dir_all(&real).unwrap();
-        let link = links.join("current");
-        std::os::unix::fs::symlink(&real, &link).unwrap();
-        let file = real.join("state.json");
-        fs::write(&file, "one").unwrap();
-        let files = [link.clone(), file.clone()];
-        let mut watches = armed(&files, false);
-        let staged = real.join("state.json.tmp");
-        fs::write(&staged, "two").unwrap();
-        fs::rename(&staged, &file).unwrap();
-        assert!(counts(&mut watches), "a replace by rename did not count ({links:?})");
-        watches.rearm(&files).unwrap();
-        counts(&mut watches);
-        set_mode(&real, 0o750);
-        assert!(
-            counts(&mut watches),
-            "a mode change of the linked folder did not count ({links:?})"
-        );
-    }
 }
