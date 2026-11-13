@@ -1,4 +1,5 @@
 import { pageAttention } from "./attention";
+import { publishReadThrough } from "./conversation/readThroughState";
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
 import { stuckAttention } from "./loopEpisode";
 import { externalAccessFromRequest } from "./permissions/externalAccess";
@@ -2270,10 +2271,12 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       if (!unchanged && this.current > (this.order.get(id) ?? Infinity)) this.noteChange(id, this.current);
     }
     // Every row an event made carries that event's seq, the record that began it (a producer's own
-    // seq, a turn footer's, stays): the seen cursor counts rows by it (jumpControl.ts).
+    // seq, a turn footer's, stays): the seen cursor counts rows by it (jumpControl.ts). A turn paged
+    // in from the agent's own transcript sorts at a negative seq and is in no log: it keeps none, so
+    // no fork or edit goes through it (agent-pane-native-history.test.ts).
     if (row.seq === undefined && !this.local.has(id)) {
       const first = this.order.get(id);
-      if (first !== undefined && Number.isInteger(first)) row = { ...row, seq: first };
+      if (first !== undefined && Number.isInteger(first) && first >= 0) row = { ...row, seq: first };
     }
     // A row an event of a background turn made is that turn's, whoever updates it later. A prompt
     // never is: it starts a turn of its own (acpmux ends the background turn before it).
@@ -4046,7 +4049,9 @@ export class AcpmuxDirectClient {
         this.sessions,
         this.host.newSession || this.missingSession !== undefined,
       );
-      if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
+      // The attach places "New since you looked" for an open (`takeReadThrough`); a reconnect's list
+      // is nothing the reader did, so it places none (transcript-delivery-property.test.ts).
+      if (this.selectedSessionId) this.markSeen(this.selectedSessionId, false);
       this.seedListedSummary();
       // A reconnect to the same session keeps its transcript; the attach page holds only the newest events.
       const sessionId = this.selectedSessionId;
@@ -5741,9 +5746,12 @@ export class AcpmuxDirectClient {
   private seenSent?: { sessionId: string; seq: number; at: number };
   private seenTimer?: ReturnType<typeof setTimeout>;
 
-  /// The seen cursor the snapshot carries, for the chat on screen.
+  /// The seen cursor the snapshot carries, for the chat on screen: where the attach put it. The
+  /// reader's moves after go to the transcript alone (conversation/readThroughState.ts), so they
+  /// never make a snapshot that differs from the last only by the cursor (a pane render each).
+  private snapshotThrough?: { sessionId: string; seq: number };
   private readThroughNow(): number | undefined {
-    const cursor = this.readCursor;
+    const cursor = this.snapshotThrough;
     return cursor && cursor.sessionId === this.selectedSessionId ? cursor.seq : undefined;
   }
 
@@ -5755,8 +5763,11 @@ export class AcpmuxDirectClient {
     const seq = Math.max(kept ?? -1, local ?? -1);
     const keptHere = local !== undefined && this.readCursor?.kept === true;
     this.readCursor = { sessionId, seq: seq >= 0 ? seq : lastSeq, kept: kept !== undefined || keptHere };
-    // A reconnect's attach keeps the line where the open put it: it stays while the reader reads.
-    this.placeUnseenSince(sessionId, local === undefined);
+    this.snapshotThrough = { sessionId, seq: this.readCursor.seq };
+    publishReadThrough(sessionId, this.readCursor.seq);
+    // A reconnect's attach keeps the line where the open put it, and adds none: it stays while the
+    // reader reads, and a dropped socket is nothing the reader did (transcript-delivery-property.test.ts).
+    if (local === undefined) this.placeUnseenSince(sessionId);
   }
 
   /// The transcript's newest row in view, by the rule that never skips an unseen row above the view
@@ -5783,7 +5794,9 @@ export class AcpmuxDirectClient {
     }
     if (visible?.sessionId !== sessionId || visible.seq <= cursor.seq) return;
     this.readCursor = { sessionId, seq: visible.seq, kept: true };
-    this.emit();
+    // Only the transcript hears it (conversation/readThroughState.ts): a reply streaming in view
+    // moves the cursor as its rows come, and a snapshot for each move re-rendered the whole pane.
+    publishReadThrough(sessionId, visible.seq);
     this.sendSeen();
   };
 
@@ -5811,7 +5824,7 @@ export class AcpmuxDirectClient {
           answer.readThrough > now.seq
         ) {
           this.readCursor = { sessionId: cursor.sessionId, seq: answer.readThrough, kept: true };
-          this.emit();
+          publishReadThrough(cursor.sessionId, answer.readThrough);
         }
       },
       () => {
@@ -5990,10 +6003,10 @@ export class AcpmuxDirectClient {
   /// to it by hand after stepping away (`attentionChanged`). Turns that ended since the person last
   /// left it or stepped away put "New since you looked" after what they had seen; it stays until
   /// the next return moves it or another chat is selected, so it never goes while the reader is on it.
-  private markSeen(sessionId: string): void {
+  private markSeen(sessionId: string, placeLine = true): void {
     // "New since you looked" goes above the first row after the reader's seen cursor
     // (`placeUnseenSince`), not where the sidebar's count says they left.
-    this.placeUnseenSince(sessionId, false);
+    if (placeLine) this.placeUnseenSince(sessionId, false);
     this.sessions = this.sessions.map((session) =>
       session.sessionId === sessionId && (session.unread === true || session.unreadTurns)
         ? { ...session, unread: false, unreadTurns: 0 }

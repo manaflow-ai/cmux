@@ -8,6 +8,7 @@ import React, {
   useReducer,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
@@ -178,6 +179,7 @@ import { SubagentOfRow } from "./subagents/SubagentGroup";
 import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { noteSendFromLatest, playSendMorph } from "./conversation/sendMorph";
 import { UnreadBanner, sinceDone } from "./conversation/SinceDivider";
+import { readThroughOf, subscribeReadThrough } from "./conversation/readThroughState";
 import {
   emptyUnseenScan,
   firstUnseen,
@@ -5606,7 +5608,13 @@ function TranscriptView({
   // Per frame: amortized O(1) for the first unseen row, O(log n) for the rows in view.
   const sinceIndex = sinceKey !== undefined ? indexOfRow(rows, SINCE_DIVIDER, sinceHint) : -1;
   const sinceRow = sinceIndex >= 0 ? rows[sinceIndex] : undefined;
-  const unseenIndex = jumpButton ? firstUnseen(rows, readThrough, unseenScan, promptAuthor) : -1;
+  // The cursor as the client last moved it (conversation/readThroughState.ts), never behind the
+  // snapshot's: it moves without a pane render. No cursor from the pane: nothing is unseen.
+  const readThroughNow = useCallback(() => readThroughOf(sessionId), [sessionId]);
+  const movedThrough = useSyncExternalStore(subscribeReadThrough, readThroughNow, readThroughNow);
+  const through =
+    readThrough === undefined || movedThrough === undefined ? readThrough : Math.max(readThrough, movedThrough);
+  const unseenIndex = jumpButton ? firstUnseen(rows, through, unseenScan, promptAuthor) : -1;
   // The reader went to the latest message (`caughtUp`), read once per render.
   const caught = caughtUp.current;
   // The rows the reader sees, in layout px: rows draw THREAD_TOP under their layout tops, and the
@@ -5646,7 +5654,7 @@ function TranscriptView({
   // What is in view is seen once the reader attends (the client decides that): reported when it
   // changes, never past an unseen row above the view unless the reader went to the latest (`caughtUp`).
   const seenCandidate =
-    jumpButton && readThrough !== undefined
+    jumpButton && through !== undefined
       ? seenThrough(rows, inView, caught ? -1 : unseenIndex, promptAuthor)
       : undefined;
   const seenReport = useRef(onSeenThrough);

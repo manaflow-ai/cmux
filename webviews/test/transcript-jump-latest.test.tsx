@@ -407,22 +407,24 @@ test("a keyboard jump hands focus to the composer instead of losing it with the 
 });
 
 // Jump up (jumpUp.experiment.ts): off by default, Jump to latest stands alone (two up arrows read as
-// one too many); its `on` arm stacks Jump up on it as before (#40326).
+// one too many). Its `on` arm turns the one control up while an unseen row lies above the view
+// (jumpControl.ts): never a second disc beside Jump to latest.
 test("Jump up draws only under its on arm; off, Jump to latest stands alone", async () => {
+  // Every row carries its record's seq; the reader saw the first three turns (readThrough), the
+  // transcript opens at the latest message, so the first unseen row lies above the view.
+  const seen = turnView(turns, new Set()).map((each, index) => ({ ...each, seq: index + 1 }));
   const draw = async (arm: "on" | "off" | undefined) => {
     if (arm) globalThis.cmuxExperiments = { "jump-up": arm };
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
       await act(async () =>
         root.render(
-          <VirtualTranscript
-            rows={turnView(turns, new Set())}
-            jumpButton
-            onToggleActivity={() => {}}
-            expanded={new Set()}
-          />,
+          <VirtualTranscript rows={seen} readThrough={9} jumpButton onToggleActivity={() => {}} expanded={new Set()} />,
         ),
       );
+      await act(async () => {
+        await nextFrame();
+      });
       return {
         up: dom.window.document.querySelector(".acpmux-jump-up") !== null,
         latest: dom.window.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)") !== null,
@@ -434,5 +436,5 @@ test("Jump up draws only under its on arm; off, Jump to latest stands alone", as
   };
   expect(await draw(undefined)).toEqual({ up: false, latest: true });
   expect(await draw("off")).toEqual({ up: false, latest: true });
-  expect(await draw("on")).toEqual({ up: true, latest: true });
+  expect(await draw("on")).toEqual({ up: true, latest: false });
 });
