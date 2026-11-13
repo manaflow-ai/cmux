@@ -411,19 +411,26 @@ impl Engine {
     ) -> Result<Value, Failure> {
         match call {
             "runs.create" | "runs.start" => self.create(args),
+            // Both hold the call while the Run goes on: the account is read again before the
+            // answer, so a switch or a sign-out during the wait answers that refusal, never the
+            // Run's snapshot (#39022 review at 48eb7046, F1).
             "runs.wait" => {
                 let id = id_arg(args)?;
                 self.owned(id)?;
                 let held = optional_int(args, "timeoutMs").unwrap_or(WAIT_LIMIT_MS);
-                self.wait(
+                let snapshot = self.wait(
                     id,
                     Duration::from_millis(u64::try_from(held.clamp(0, WAIT_LIMIT_MS)).unwrap_or(0)),
-                )
+                )?;
+                self.owned(id)?;
+                Ok(snapshot)
             }
             "runs.cancel" => {
                 let id = id_arg(args)?;
                 self.owned(id)?;
-                self.cancel(id)
+                let snapshot = self.cancel(id)?;
+                self.owned(id)?;
+                Ok(snapshot)
             }
             "runs.sandbox" => self.sandbox(args),
             other => Err(Failure::Transport(format!("no cloud api call {other:?}"))),
