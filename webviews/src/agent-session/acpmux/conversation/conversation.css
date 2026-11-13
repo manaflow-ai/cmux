@@ -7926,3 +7926,5 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   overflow-wrap: anywhere;
   color: var(--cv-text-muted);
 }
+
+/* Vehicle only (never merges): this line changes no rule. */
