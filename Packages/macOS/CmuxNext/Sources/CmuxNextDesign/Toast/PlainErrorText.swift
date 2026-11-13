@@ -5,7 +5,8 @@ import Foundation
 /// print "Error Domain=… Code=…"); a log keeps the raw error. Pure.
 ///
 /// Leo, 2026-11-12: "we want good error states. We don't want busted errors."
-public nonisolated enum PlainErrorText {
+public nonisolated struct PlainErrorText {
+    public nonisolated init() {}
     /// One kind of failure a person can act on.
     public nonisolated enum Kind: Sendable, Equatable {
         case offline, timedOut, unreachable, secureConnection, noSpace, readOnly, permission, notFound, exists

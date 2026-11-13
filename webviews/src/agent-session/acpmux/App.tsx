@@ -385,7 +385,7 @@ import {
   interruptedResumeRunner,
   type InterruptedResumeState,
 } from "./conversation/resumeInterrupted";
-import { retryFailedPrompt, sendUntilTaken } from "./conversation/turnRetry";
+import { sendUntilTaken, retryFailedPrompt } from "./conversation/turnRetry";
 import {
   TurnActionsContext,
   chatLoginCommand,
@@ -631,6 +631,7 @@ import {
 } from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
+import { HarnessUpdatesContext, useHarnessUpdateList } from "./harnessUpdateList";
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { createPaneToasts, paneNotices } from "./paneToasts";
 import { ToastLayer } from "./ToastLayer";
@@ -2274,11 +2275,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // read once the pane's direct client connects (a restored pane connects after its first render),
   // and again when a Log In comes back.
   const [signedOut, setSignedOut] = useState<Record<string, string>>({});
+  // The same rows, for Harness updates available (harnessUpdateList.ts): every outdated agent CLI.
+  const [healthRows, setHealthRows] = useState<readonly unknown[]>([]);
   const signedOutRechecked = useRef(0);
   useEffect(() => {
     const client = directClient.current;
     if (!connected || !client || !agentLocal) {
       setSignedOut({});
+      setHealthRows([]);
       return;
     }
     let live = true;
@@ -2287,12 +2291,30 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     signedOutRechecked.current = healthRecheck;
     void Promise.resolve()
       .then(() => client.harnessHealthRows(refresh ? { refresh: true } : {}))
-      .then((rows) => live && setSignedOut(signedOutHarnesses(rows)))
+      .then((rows) => {
+        if (!live) return;
+        setSignedOut(signedOutHarnesses(rows));
+        setHealthRows(rows);
+      })
       .catch(() => undefined);
     return () => {
       live = false;
     };
   }, [connected, agentLocal, healthRecheck, catalogSource]);
+  // Every outdated agent CLI on this Mac for the model menus (Leo 2026-11-12, ask-3fdf0982ec), the
+  // chat's own through its offer (Restart Chat follows it), any other updated in place.
+  const harnessName = useCallback(
+    (id: string) => agentName(id, catalog.find((entry) => entry.id === id)?.name),
+    [catalog],
+  );
+  const harnessUpdates = useHarnessUpdateList({
+    rows: healthRows,
+    offer: updateOffer,
+    own: healthHarness,
+    nameFor: harnessName,
+    native: callNative,
+    onUpdated: recheckHealth,
+  });
   // The forum's current rules on this Mac (hq#2570), pinned above the composer: read when the pane
   // connects or opens a chat, and at each turn's start and end, when the chat's agent is told the
   // rules it has not read yet. A chat on another machine or in the cloud gets none.
@@ -2968,7 +2990,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [previewHost, setPreviewHost] = useState(false);
   const quick = surface === "quick";
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
-  const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
+  const lastTurns = useRef<{ sessionId: string | undefined; turns: TurnView; subagents: SubagentRows } | undefined>(
+    undefined,
+  );
+  const supersededReplyIds = useMemo(
+    () => (snapshot.supersededRows?.length ? new Set(snapshot.supersededRows) : undefined),
+    [snapshot.supersededRows],
+  );
   /// Debug Settings `agent.sessionStatus`: a running turn's activity line under its todo list.
   const sessionStatus = useSessionStatus();
   const turnRowsShown = useMemo(() => {
@@ -2982,7 +3010,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // The tray takes the running groups out of the rows, so the live line's wait is counted first.
     const trayAgents = subagentTray ? trayWaitAgents(startedRows) : 0;
     return acpmuxPerf.timed("app.rows", () => {
-      const last = lastTurns.current;
+      const last = lastTurns.current?.sessionId === shownSessionId ? lastTurns.current : undefined;
       if (heldCalls.current.session !== shownSessionId)
         heldCalls.current = { session: shownSessionId, keys: new Set() };
       // Null while the view follows the latest row: what was held out goes back in there. The view
@@ -3009,6 +3037,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             waitingSteers: snapshot.waitingSteers,
             messageBreaks,
             trayAgents,
+            supersededReplyIds,
           },
           last?.turns,
         );
@@ -3072,7 +3101,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // for turn boundaries, retries and queue actions; this is a display-only projection.
       const displayRows = projectInboxRows(turns.rows, last?.turns.rows, turns.reusedRows);
       const subagents = subagentRowsFrom(displayRows, folds, last?.subagents);
-      lastTurns.current = { turns, subagents };
+      lastTurns.current = { sessionId: shownSessionId, turns, subagents };
       // After the turns: a live turn's status reads its last row, the call's included.
       return withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks);
     });
@@ -3088,6 +3117,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sessionStatus,
     snapshot.summary?.family,
     snapshot.waitingSteers,
+    supersededReplyIds,
     messageBreaks,
     chatShellRuns,
     panelAsks,
@@ -3101,12 +3131,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // answered, said anything after, or dismissed. Leo, 2026-11-06, on a question another agent's
   // message pushed out of reach: "perhaps persistent at the bottom".
   const waitingAskRows = useMemo(
-    () =>
-      childRows || chatPresentation === "messages" || !lastTurns.current
-        ? NO_ROWS
-        : waitingAsks(lastTurns.current.turns),
+    () => {
+      const last = lastTurns.current;
+      if (childRows || chatPresentation === "messages" || !last || last.sessionId !== shownSessionId) return NO_ROWS;
+      return waitingAsks(last.turns);
+    },
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the view turnRowsShown shaped, read from its ref
-    [turnRowsShown, childRows, chatPresentation],
+    [turnRowsShown, childRows, chatPresentation, shownSessionId],
   );
   const [askDismissals, setAskDismissals] = useState(() => ({
     sessionId: shownSessionId,
@@ -3172,8 +3203,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [planInHat, earlierPlanRow],
   );
   const transcriptRows = useMemo(() => {
-    const steers =
-      childRows || chatPresentation === "messages" ? NO_ROWS : (lastTurns.current?.turns.pending ?? NO_ROWS);
+    const last = lastTurns.current;
+    let steers: readonly AcpmuxRow[] = NO_ROWS;
+    if (!childRows && chatPresentation !== "messages" && last && last.sessionId === shownSessionId)
+      steers = last.turns.pending ?? NO_ROWS;
     // A guest's prompt is a person's, never another session's message: it draws on its own, held
     // with its Approve and Decline in view (conversation/QueuedMessageCard.tsx), never folded into
     // the group.
@@ -3196,6 +3229,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     btwNotes,
     btwSnapshot,
     snapshot.sessionId,
+    shownSessionId,
   ]);
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
   // offers Trust folder while the folder is not trusted, and its Retry waits while the folder's
@@ -12715,7 +12749,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const hostLine = restartingAcpmux ? (
     hostWaitOrError
   ) : (
-    <HostRecoveringLine relinkingSince={relinkingSince} restoring={hostRestoring} otherwise={hostWaitOrError} />
+    <HostRecoveringLine
+      relinkingSince={relinkingSince}
+      restoring={hostRestoring}
+      failureShown={hostErrorSaid}
+      otherwise={hostWaitOrError}
+    />
   );
   // A pending Fork Conversation and its Cancel, in the dock and in Quick Chat alike: Quick Chat's
   // menu forks too (review of #36979).
@@ -13801,11 +13840,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     <SignInContext.Provider value={signIn}>
       <ChatAccountsContext.Provider value={chatAccounts}>
         <UpdateOfferContext.Provider value={updateOffer}>
-          <AgentProgressContext.Provider value={progressStore}>
-            <OpenBackgroundTasks.Provider value={quick ? undefined : openBackgroundTask}>
-              <NoticeSlot>{pane}</NoticeSlot>
-            </OpenBackgroundTasks.Provider>
-          </AgentProgressContext.Provider>
+          <HarnessUpdatesContext.Provider value={harnessUpdates}>
+            <AgentProgressContext.Provider value={progressStore}>
+              <OpenBackgroundTasks.Provider value={quick ? undefined : openBackgroundTask}>
+                <NoticeSlot>{pane}</NoticeSlot>
+              </OpenBackgroundTasks.Provider>
+            </AgentProgressContext.Provider>
+          </HarnessUpdatesContext.Provider>
         </UpdateOfferContext.Provider>
       </ChatAccountsContext.Provider>
     </SignInContext.Provider>
