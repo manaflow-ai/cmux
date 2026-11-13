@@ -15477,133 +15477,133 @@
         }
       }
     },
-    "apps.store.disconnected.needsNewer" : {
+    "apps.store.disconnected.noAppHost" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Needs a newer cmux"
+            "value" : "Apps can’t run in this build of cmux"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "يحتاج إلى إصدار أحدث من cmux"
+            "value" : "لا يمكن تشغيل التطبيقات في هذا الإصدار من cmux"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Potreban je noviji cmux"
+            "value" : "Aplikacije se ne mogu pokretati u ovoj verziji cmuxa"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kræver en nyere cmux"
+            "value" : "Apps kan ikke køre i denne version af cmux"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Benötigt ein neueres cmux"
+            "value" : "Apps können in diesem cmux-Build nicht laufen"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Necesita un cmux más reciente"
+            "value" : "Las apps no pueden ejecutarse en esta versión de cmux"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nécessite une version plus récente de cmux"
+            "value" : "Les apps ne peuvent pas s’exécuter dans cette version de cmux"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Serve un cmux più recente"
+            "value" : "Le app non possono essere eseguite in questa build di cmux"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "新しい cmux が必要です"
+            "value" : "この cmux のビルドではアプリを実行できません"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ត្រូវការ cmux ថ្មីជាងនេះ"
+            "value" : "កម្មវិធីមិនអាចដំណើរការក្នុងកំណែ cmux នេះបានទេ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "최신 cmux가 필요합니다"
+            "value" : "이 cmux 빌드에서는 앱을 실행할 수 없습니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Krever en nyere cmux"
+            "value" : "Apper kan ikke kjøre i denne versjonen av cmux"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Wymaga nowszego cmux"
+            "value" : "Aplikacje nie mogą działać w tej wersji cmux"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Precisa de um cmux mais recente"
+            "value" : "Os apps não podem ser executados nesta versão do cmux"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Нужен более новый cmux"
+            "value" : "В этой сборке cmux приложения не запускаются"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ต้องใช้ cmux เวอร์ชันใหม่กว่า"
+            "value" : "แอปทำงานในบิลด์ cmux นี้ไม่ได้"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Daha yeni bir cmux gerekiyor"
+            "value" : "Uygulamalar bu cmux sürümünde çalışamaz"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Потрібен новіший cmux"
+            "value" : "У цій збірці cmux застосунки не запускаються"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Cần cmux mới hơn"
+            "value" : "Ứng dụng không chạy được trong bản cmux này"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "需要更新版本的 cmux"
+            "value" : "此版本的 cmux 无法运行应用"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "需要更新版本的 cmux"
+            "value" : "此版本的 cmux 無法執行 App"
           }
         }
       }
