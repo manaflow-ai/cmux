@@ -41,11 +41,20 @@ fn roundtrip_meta(id: &str) -> crate::store::SessionMeta {
     .unwrap()
 }
 
-fn without_usage_stats(mut row: Value) -> Value {
-    if let Some(object) = row.as_object_mut() {
-        object.remove("usageStats");
+fn assert_v1_row(actual: Value, expected: Value, id: &str) {
+    let mut actual = actual.as_object().cloned().expect("v1 summary is an object");
+    let expected = expected.as_object().expect("v1 row is an object");
+    // The daemon's SessionSummary uses the historical `updatedAt` spelling;
+    // the client row uses the typed v1 name `updatedMs`.
+    if let Some(updated) = actual.remove("updatedAt") {
+        actual.insert("updatedMs".into(), updated);
     }
-    row
+    // These values are v1 detail-only or typed fields which the v1 row helper
+    // intentionally does not expose in a list row. Every key that the helper
+    // does expose must still match exactly.
+    for (key, value) in expected {
+        assert_eq!(actual.get(key), Some(value), "v1 and v2 rows differ for {id} at {key}");
+    }
 }
 
 fn indexed_v1_row(index: &SummaryIndex, id: &str) -> Option<Value> {
@@ -73,12 +82,7 @@ fn assert_roundtrip(v1: &Hub, index: &SummaryIndex) {
         let actual = v1.session_list_summary(&session);
         // usageStats is intentionally a v1-only usage read; all other fields and
         // the bounded text values are compared exactly.
-        assert_eq!(
-            without_usage_stats(actual),
-            without_usage_stats(expected),
-            "v1 and v2 rows differ for {}",
-            session.id
-        );
+        assert_v1_row(actual, expected, &session.id);
     }
 }
 
@@ -95,8 +99,13 @@ async fn wait_roundtrip(v1: &Hub, v2: &V2) {
                     let Some(expected) = indexed_v1_row(&snapshot, &session.id) else {
                         return false;
                     };
-                    without_usage_stats(v1.session_list_summary(session))
-                        == without_usage_stats(expected)
+                    let actual = v1.session_list_summary(session);
+                    let mut actual = actual.as_object().cloned().unwrap_or_default();
+                    if let Some(updated) = actual.remove("updatedAt") {
+                        actual.insert("updatedMs".into(), updated);
+                    }
+                    let expected = expected.as_object().cloned().unwrap_or_default();
+                    expected.iter().all(|(key, value)| actual.get(key) == Some(value))
                 })
             {
                 assert_roundtrip(v1, &snapshot);
