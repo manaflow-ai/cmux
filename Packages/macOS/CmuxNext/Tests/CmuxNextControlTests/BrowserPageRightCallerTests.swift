@@ -88,6 +88,21 @@ import Testing
         #expect(executor.last?.besideCaller == false)
     }
 
+    /// Agents with one name (the CLI's default) in two places each keep the tab they opened there.
+    @Test func twoAgentsWithOneNameKeepOneTabEach() async throws {
+        let suite = BrowserPageRightTests()
+        let (router, executor) = suite.install(Self.snapshot())
+        let worker = try await suite.right(router, ["agent": "agent", "url": "https://example.com/", "caller": Self.worker]).get()
+        let chief = try await suite.right(router, ["agent": "agent", "url": "https://cmux.com/", "caller": ["home_chat": true]]).get()
+        #expect(chief["workspace"] == "ws_home")
+        #expect(chief["tab"] != worker["tab"])
+        #expect(executor.count == 2)
+        let again = try await suite.right(router, ["agent": "agent", "url": "https://example.com/docs", "caller": Self.worker]).get()
+        #expect(again["tab"] == worker["tab"], "the worker lost its own tab to the other agent's: \(again)")
+        #expect(again["created"] == false)
+        #expect(executor.count == 2)
+    }
+
     @Test func anAgentTheTopologyDoesNotShowGetsNoColumn() async throws {
         let suite = BrowserPageRightTests()
         let (router, executor) = suite.install(Self.snapshot())

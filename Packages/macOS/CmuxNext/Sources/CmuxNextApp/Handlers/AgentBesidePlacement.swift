@@ -197,6 +197,8 @@ enum AgentBesidePlacement {
                 guard case .tab(let id) = decision, let id else { return nil }
                 return source?.workspace?.panes[LayoutPaneID(rawValue: id)]
             }()
+            // A terminal too narrow to split keeps the tab behind it, so the agent that runs there stays in view: nothing moves, and its strip lists the tab now.
+            if destination == nil, case .tab = decision, invocation.callerIsTerminalAgent { return nil }
             moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 switch decision {
                 case .splitRight:
@@ -222,8 +224,8 @@ enum AgentBesidePlacement {
             }
             guard moved else { return "beside-caller: the move into the right pane failed (see the app log)" }
             if let clicked { focus(surface, returningTo: from, awayFrom: away, in: clicked, generation: intent, services: services) }
-            if case .tab = decision, let right = destination ?? source, destination != nil || !invocation.callerIsTerminalAgent,
-               !(personActed() && right.workspace?.focusedPane === right) { // a terminal too narrow to split keeps the tab behind it: its agent stays in view
+            if case .tab = decision, let right = destination ?? source,
+               !(personActed() && right.workspace?.focusedPane === right) {
                 right.selectWhenReportedKeepingFocus(surface: surface)
             }
             if case .splitRight = decision { await revealMoved(tab.id, from: anchor, services: services) }

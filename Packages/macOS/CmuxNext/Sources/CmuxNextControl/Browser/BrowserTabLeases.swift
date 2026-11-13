@@ -5,7 +5,9 @@ import Foundation
 ///
 /// A lease names its agent and lapses `ttl` after the agent last resolved
 /// the tab, so an agent that stopped without `release` frees it. Each agent
-/// also remembers the tab it opened, which it gets back first.
+/// also remembers the tabs it opened, and gets back the newest of them among the
+/// tabs of its column first: agents with one name in two workspaces (each has its
+/// own column) keep one tab each.
 actor BrowserTabLeases {
     private struct Lease {
         var agent: String
@@ -13,7 +15,9 @@ actor BrowserTabLeases {
     }
 
     private var leases: [String: Lease] = [:]
-    private var opened: [String: String] = [:]
+    private var opened: [String: [String]] = [:]
+    /// How many opened tabs an agent's name remembers.
+    private static let openedLimit = 32
     /// The tab each agent's work shows in Home's right column (one per agent).
     private var homeMirrors: [String: String] = [:]
     private let ttl: Duration
@@ -28,10 +32,9 @@ actor BrowserTabLeases {
         self.now = now
     }
 
-    /// The tab `agent` opened, if it still names one of `tabs`.
+    /// The newest tab `agent` opened that still names one of `tabs`.
     func openedTab(of agent: String, among tabs: Set<String>) -> String? {
-        guard let tab = opened[agent], tabs.contains(tab) else { return nil }
-        return tab
+        opened[agent]?.last { tabs.contains($0) }
     }
 
     /// A tab of `tabs` on which `agent` holds a live lease (the first in `tabs` order).
@@ -52,7 +55,7 @@ actor BrowserTabLeases {
         var expires = instant + (lasting ?? ttl)
         if let lease = leases[tab], lease.agent == agent, lease.expires > expires { expires = lease.expires }
         leases[tab] = Lease(agent: agent, expires: expires)
-        if isOwn { opened[agent] = tab }
+        if isOwn { opened[agent] = Array(((opened[agent] ?? []).filter { $0 != tab } + [tab]).suffix(Self.openedLimit)) }
         return nil
     }
 

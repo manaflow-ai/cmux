@@ -23,7 +23,8 @@ import Testing
 
     static func catalog() -> ControlCatalog {
         ControlCatalog(actions: [
-            action("openBrowser", ["tab"], arguments: ["url"]), action("tab.focus", ["tab"]), action("file.open", ["pane"], arguments: ["path"]),
+            action("openBrowser", ["tab"], arguments: ["url"]), action("tab.focus", ["tab"]),
+            action("file.open", ["pane"], arguments: ["path", "where"]),
             action("newSurface", ["tab"], arguments: ["cwd"]), action("splitRight", ["pane"]), action("renameTab", ["tab"]),
             action("renameWorkspace", ["workspace"]), action("closeTab", ["tab"]), action("commandPalette", []),
             action("newTab", ["workspace"]), action("newTab.default", ["tab"], arguments: ["cwd"]),
@@ -185,6 +186,13 @@ import Testing
         #expect(plainExecutor.all.first?.besideCaller == false)
         #expect(shell["placement"] == "caller_terminal")
         #expect(shell["pane_id"] == "pane-agent")
+    }
+
+    /// Open in the editor app opens nothing in cmux, so the run names no pane (a pane no window shows would refuse it).
+    @Test func aFileForTheEditorAppIsNotPlaced() async throws {
+        let request = try await run("file.open", Self.snapshot(), args: ["path": "/tmp/a.txt", "where": "editor"])
+        #expect(request.target == nil)
+        #expect(!request.besideCaller)
     }
 
     @Test func openSplitFromAnAgentTerminalGoesBesideItNotIntoItsOwnPane() async throws {

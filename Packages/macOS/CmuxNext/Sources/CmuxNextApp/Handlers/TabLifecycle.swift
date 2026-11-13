@@ -26,7 +26,7 @@ enum TabLifecycle {
         let cwd = invocation["cwd"]?.stringValue
         // `--keep`: the terminal outlives its tab (a background terminal made on purpose).
         let keep = invocation["keep"]?.boolValue == true ? true : nil
-        if let agent = invocation.besideAgent, let beside = ctx.services.paneController(for: focused) { return beside.newTerminalTab(cwd: cwd, keep: keep, placementOwner: true, then: AgentBesidePlacement.placed(agent, in: beside, then: nil)) } // an agent's terminal beside it (ControlCallerPlacement): selected in its column or moved into a new one, focus kept
+        if let agent = invocation.besideAgent, ctx.services.daemon(for: focused).store.pinnedDock(holding: focused.handle) == nil, let beside = ctx.services.paneController(for: focused) { return beside.newTerminalTab(cwd: cwd, keep: keep, placementOwner: true, then: AgentBesidePlacement.placed(agent, in: beside, then: nil)) } // an agent's terminal beside it (ControlCallerPlacement): selected in its column or moved into a new one, focus kept; Home's dock places its own (below)
         let opensWorkspace = NewTerminalWorkspaceSetting.resolves(
             setting: ctx.services.settings?.snapshot.newTerminalOpensWorkspace ?? NewTerminalWorkspaceSetting.fallback,
             toggled: invocation["toggleWorkspace"]?.boolValue == true

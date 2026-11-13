@@ -50,6 +50,8 @@ extension ControlRouter {
     /// topology does not show is another session's, and its run is left as it is.
     static func placeAtCaller(_ request: inout ControlActionRequest, action: ControlActionInfo, topology: ControlTopology) throws {
         guard request.target == nil, let caller = request.caller else { return }
+        // Open in the editor app opens nothing in cmux: there is no place to choose.
+        if action.id == "file.open", request.arguments["where"] == .string("editor") { return }
         let opens = besideCallerActions[action.id] != nil
         let kind = action.targets.first { callerTargetKinds.contains($0) }
         guard opens || kind != nil else { return }
