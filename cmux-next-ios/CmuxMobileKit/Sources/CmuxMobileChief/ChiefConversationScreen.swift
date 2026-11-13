@@ -89,6 +89,9 @@ public struct ChiefConversationScreen: View {
             // The conversation draws one store; a new backend (Try Again, a new link) makes a
             // new store, so the open screen is rebuilt on it instead of waiting on the old one.
             .id(ObjectIdentifier(session.store))
+            // Focus carries only to a screen rebuilt in place; one that never
+            // showed leaves none for the next visit (its text stays).
+            .onDisappear { session.dropCarriedComposerFocus() }
             .ignoresSafeArea()
             .toolbar(.hidden, for: .navigationBar)
             .navigationBarBackButtonHidden()
@@ -141,6 +144,10 @@ struct ChiefConversationController: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> ChiefConversationContainer {
         let conversation = ConversationViewController(store: session.store, options: .chief,
                                                       keyboard: context.environment.mobileKeyboardFrameTracker)
+        // A screen rebuilt in place (a new store) takes over the old one's
+        // composer now, before either appears or disappears: SwiftUI may show
+        // the new one before the old one leaves.
+        if let previous = link.container { previous.handOffComposer() }
         let container = ChiefConversationContainer(conversation: conversation, session: session)
         // Home's compose focuses the composer once: a container rebuilt on a
         // new store (Try Again) opens without the keyboard.
@@ -225,6 +232,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         conversation.store.addObserver { [weak self] _ in
             guard let self, self.isViewLoaded else { return }
             self.updateAvailability()
+            // A send clears the field from code, which posts no text change.
+            if !self.slashSuggestions.isHidden { self.updateSlashSuggestions() }
             // The conversation becomes known on connect (or the store moves to another
             // Chief): that chat's own colours apply then.
             if self.chatColorsKey != self.appliedChatColorsKey { self.applyChatColors() }
@@ -233,8 +242,10 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
             if self.view.window != nil { self.conversation.setBackUnreadCount(self.backUnreadCount) }
         }
         installSendGate()
+        observeSceneActivation()
         observeAvailability()
         installPageMenu()
+        installSlashSuggestions()
     }
 
     // MARK: Chief unavailable (full verify D2, D3)
@@ -272,7 +283,10 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         holdUnsentMessage()
     }
 
-    private var composerTextView: UITextView? {
+    /// The composer's `/` list (ChiefSlashSuggestionsView.swift).
+    let slashSuggestions = ChiefSlashSuggestionsView()
+
+    var composerTextView: UITextView? {
         conversation.view.firstSubview { $0.accessibilityIdentifier == "conversation.composer.text" } as? UITextView
     }
 
@@ -376,11 +390,9 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
 
     // MARK: Chief's questions
 
-    /// The bar under the header while Chief asks (``ChiefQuestionBar``).
+    /// The bar under the header: a failed turn, Chief unavailable, the Mac away (``ChiefQuestionBar``).
     lazy var questionBar: UIHostingController<ChiefQuestionBar> = {
-        var bar = ChiefQuestionBar(session: session) { [weak self] question in
-            self?.presentQuestion(question.id)
-        }
+        var bar = ChiefQuestionBar(session: session)
         bar.resized = { [weak self] in self?.view.setNeedsLayout() }
         bar.askCloudChief = { [weak self] in self?.askCloudChief() }
         bar.fading = { [weak self] out, duration in
@@ -452,6 +464,12 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         }
     }
 
+    /// The bottom of Chief's question bar while it shows, else 0: the `/` list stays below it.
+    var slashCeilingBelowQuestionBar: CGFloat {
+        let bar = questionBar.view.frame
+        return bar.height > 0 && !questionBar.view.isHidden ? bar.maxY : 0
+    }
+
     // MARK: Chief's streaming reply
 
     /// The streaming reply bubble and status line (``ChiefLiveBubble``),
@@ -509,20 +527,6 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         liveBubbleBottom?.isActive = false
         bottom.isActive = true
         liveBubbleBottom = bottom
-    }
-
-    public func presentQuestion(_ id: String) {
-        guard presentedViewController == nil, conversation.presentedViewController == nil else { return }
-        view.endEditing(true)
-        let host = UIHostingController(rootView: ChiefQuestionSheet(session: session, questionID: id))
-        host.modalPresentationStyle = .pageSheet
-        host.sheetPresentationController?.detents = [.medium(), .large()]
-        host.sheetPresentationController?.prefersGrabberVisible = true
-        // At accessibility sizes the card does not fit half a screen.
-        if traitCollection.preferredContentSizeCategory.isAccessibilityCategory {
-            host.sheetPresentationController?.selectedDetentIdentifier = .large
-        }
-        present(host, animated: true)
     }
 
     private var headerAvatar: String?
@@ -614,6 +618,69 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         isCovered = false
+        restoreCarriedComposer()
+    }
+
+    // MARK: Composer across screens and app switches
+
+    /// This screen was replaced in place; its composer went to the new one.
+    private var handedOffComposer = false
+    /// The carried field had the keyboard: focus it once on screen.
+    private var focusesCarriedComposer = false
+    /// The field had the keyboard when the scene left the foreground.
+    private var composerFocusedWhenSceneLeft = false
+
+    /// Gives the unsent text and focus to the screen replacing this one.
+    func handOffComposer() {
+        guard !handedOffComposer, isViewLoaded else { return }
+        handedOffComposer = true
+        let focused = composerTextView?.isFirstResponder == true || composerFocusedWhenSceneLeft
+        session.carryComposerText(composerTextView?.text ?? "", focused: focused)
+    }
+
+    /// The text written on the screen this one replaces (or the last visit's),
+    /// in the field before the screen shows, so a reopened Chief opens with it
+    /// instead of filling it in after the push settles.
+    private func restoreCarriedComposer() {
+        guard let carried = session.takeCarriedComposer() else { return }
+        if let text = carried.text, let field = composerTextView, field.text.isEmpty {
+            field.text = text
+            field.delegate?.textViewDidChange?(field)
+        }
+        if carried.focused { focusesCarriedComposer = true }
+    }
+
+    /// Back in the foreground the field gets its keyboard again if it had it
+    /// when the app left, whatever hid it meanwhile. Selector observers end
+    /// with the screen.
+    private func observeSceneActivation() {
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(sceneWillDeactivate(_:)), name: UIScene.willDeactivateNotification, object: nil)
+        center.addObserver(self, selector: #selector(sceneDidActivate(_:)), name: UIScene.didActivateNotification, object: nil)
+    }
+
+    @objc private func sceneWillDeactivate(_ note: Notification) {
+        guard let scene = note.object as? UIScene, scene === view.window?.windowScene else { return }
+        composerFocusedWhenSceneLeft = composerTextView?.isFirstResponder == true
+    }
+
+    @objc private func sceneDidActivate(_ note: Notification) {
+        guard let scene = note.object as? UIScene, scene === view.window?.windowScene else { return }
+        let refocus = composerFocusedWhenSceneLeft
+        composerFocusedWhenSceneLeft = false
+        guard refocus, canFocusComposer, composerTextView?.isFirstResponder == false else { return }
+        focusComposer()
+    }
+
+    /// On screen, in front, with nothing presented over it (here or by an
+    /// ancestor, such as a sheet from Home).
+    private var canFocusComposer: Bool {
+        guard let window = view.window, !isCovered, !handedOffComposer,
+              presentedViewController == nil, conversation.presentedViewController == nil else { return false }
+        var top = window.rootViewController
+        while let presented = top?.presentedViewController { top = presented }
+        guard let top else { return false }
+        return top === self || view.isDescendant(of: top.view)
     }
 
     public override func viewDidLayoutSubviews() {
@@ -621,6 +688,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         if view.window != nil, !isCovered { enableEdgePop() }
         layoutQuestionBar()
         anchorLiveBubble()
+        // The keyboard moved the field: the list follows it.
+        if !slashSuggestions.isHidden { updateSlashSuggestions() }
     }
 
     /// The back swipe from the left edge, as in Messages. On iOS 26 and later
@@ -690,15 +759,16 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         enableEdgePop()
         Self.shown = self
         session.isVisible = true
-        // Text written on the screen this one replaced (Try Again rebuilt it on a new store).
-        if let carried = session.takeCarriedComposerText(), let field = composerTextView, field.text.isEmpty {
-            field.text = carried
-            field.delegate?.textViewDidChange?(field)
-        }
         session.markSeen()
-        if focusesComposerOnAppear {
+        if focusesComposerOnAppear || focusesCarriedComposer {
             focusesComposerOnAppear = false
-            if presentedViewController == nil { focusComposer() }
+            focusesCarriedComposer = false
+            if view.window?.windowScene?.activationState == .foregroundActive {
+                if presentedViewController == nil { focusComposer() }
+            } else {
+                // Rebuilt while the app comes back: focus once the scene is active.
+                composerFocusedWhenSceneLeft = true
+            }
         }
         #if DEBUG
         ChiefDemoHook.shared.container = self
@@ -719,8 +789,9 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     public override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         isCovered = true
-        // Unsent text goes with the session to a rebuilt screen (it reads it on appear).
-        session.carryComposerText(composerTextView?.text ?? "")
+        // Unsent text goes with the session to the next screen (it reads it
+        // before appearing); a screen replaced in place already handed it off.
+        if !handedOffComposer { session.carryComposerText(composerTextView?.text ?? "") }
         // Hand the recognizers back to their own delegates for the next screen.
         for recognizer in popRecognizers where recognizer.delegate === self {
             recognizer.delegate = previousPopDelegates[ObjectIdentifier(recognizer)]?.value

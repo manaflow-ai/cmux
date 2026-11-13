@@ -21,18 +21,22 @@ test("a hung Codex reply is a failure that names the step", () => {
   expect(row.why).toStartWith("reply: no reply within 300 s");
 });
 
-test("a signed-out Cursor passes only by failing fast with its sign-in error", () => {
-  const c = cell("cursor-signed-out");
-  expect(judge(c, [pass("start agent (cursor)"), fail("reply", 2100, "acp wait exit 1: Authentication required")], 1).verdict).toBe("pass");
+test("a signed-out agent passes only by failing fast with its sign-in error", () => {
+  const c = cell("gemini-signed-out");
+  expect(judge(c, [pass("start agent (gemini)"), fail("reply", 2100, "acp wait exit 1: Authentication required")], 1).verdict).toBe("pass");
   // Not installed is not signed out.
-  const missing = judge(c, [fail("start agent (cursor)", 1193, 'unknown harness "cursor"')], 1);
+  const missing = judge(c, [fail("start agent (gemini)", 1193, 'unknown harness "gemini"')], 1);
   expect(missing.verdict).toBe("fail");
   expect(missing.why).toContain("unknown harness");
   // A hang is not a refusal, nor is a refusal that took too long.
-  expect(judge(c, [pass("start agent (cursor)"), fail("reply", 120_000, "no reply within 120 s; last: ")], 1).verdict).toBe("fail");
-  expect(judge(c, [pass("start agent (cursor)"), fail("reply", 90_000, "Authentication required")], 1).verdict).toBe("fail");
+  expect(judge(c, [pass("start agent (gemini)"), fail("reply", 120_000, "no reply within 120 s; last: ")], 1).verdict).toBe("fail");
+  expect(judge(c, [pass("start agent (gemini)"), fail("reply", 90_000, "Authentication required")], 1).verdict).toBe("fail");
   // A reply where a refusal belongs is a failure too.
-  expect(judge(c, [pass("start agent (cursor)"), pass("reply", 900, "Earth")], 0).verdict).toBe("fail");
+  expect(judge(c, [pass("start agent (gemini)"), pass("reply", 900, "Earth")], 0).verdict).toBe("fail");
+});
+
+test("no cell needs an account Leo does not have", () => {
+  expect(CELLS.some((c) => c.agent === "cursor" || c.agent === "grok")).toBe(false);
 });
 
 test("the table has one row per cell and escapes pipes", () => {
@@ -40,4 +44,16 @@ test("the table has one row per cell and escapes pipes", () => {
   const md = table(rows);
   expect(md.split("\n")).toHaveLength(3);
   expect(md).toContain("a \\| b");
+});
+
+test("OpenCode on Zen runs every turn; signed-out Gemini passes only by refusing fast", () => {
+  const steps = [pass("create machine", 5507), pass("reply", 2849, "pong"), pass("turn 2 (same session)", 2862), pass("pause", 1687), pass("resume", 1267), pass("turn after resume", 4118)];
+  expect(judge(cell("opencode-zen"), steps, 0).verdict).toBe("pass");
+  expect(cell("opencode-zen").args).toContain("--lifecycle");
+  for (const id of ["gemini-signed-out"]) {
+    const c = cell(id);
+    expect(judge(c, [pass(`start agent (${c.agent})`), fail("reply", 900, "acp wait exit 1: Authentication required")], 1).verdict).toBe("pass");
+    expect(judge(c, [fail(`start agent (${c.agent})`, 1193, `unknown harness "${c.agent}"`)], 1).verdict).toBe("fail");
+    expect(judge(c, [pass(`start agent (${c.agent})`), fail("reply", 120_000, "no reply within 120 s; last: ")], 1).verdict).toBe("fail");
+  }
 });

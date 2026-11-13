@@ -141,9 +141,10 @@ public final class ChiefSession {
 
     public init(backend: any ConversationBackend, identity: ChiefIdentity = .standard,
                 preferences: ChiefPreferences = ChiefPreferences(), outbox: ChiefOutbox? = nil,
-                transcripts: ConversationTranscriptCache? = nil,
+                transcripts: ConversationTranscriptCache? = nil, transcriptKey: String? = nil,
                 clock: any Clock<Duration> = ContinuousClock()) {
         self.transcripts = transcripts
+        fixedTranscriptKey = transcriptKey
         self.identity = identity
         self.clock = clock
         avatar = identity.avatar
@@ -154,7 +155,9 @@ public final class ChiefSession {
         outboxTarget = Self.target(of: backend, macID: nil, previous: nil)
         store = ConversationStore(backend: backend)
         control = (backend as? ChiefDaemonBackend)?.control
-        store.useTranscriptCache(transcripts, key: transcriptKey)
+        // `self.`: the `transcriptKey` parameter is only the fixed key; the property falls back
+        // to the outbox target (a Chief made on its backend, such as the mock at launch).
+        store.useTranscriptCache(transcripts, key: self.transcriptKey)
         refreshOutbox()
         ChiefAlerts.shared.install()
         attach()
@@ -181,6 +184,7 @@ public final class ChiefSession {
     /// The kept transcript's key: the Chief the outbox writes to. DEBUG's mock Chief (no Mac,
     /// no Cloud) keeps its own, so simulator runs show the same behavior.
     private var transcriptKey: String? {
+        if let fixedTranscriptKey { return fixedTranscriptKey }
         if let outboxTarget { return outboxTarget }
         #if DEBUG
         if backend is ChiefMockBackend { return "mock" }
@@ -188,10 +192,15 @@ public final class ChiefSession {
         return nil
     }
 
-    /// Every Chief conversation's newest messages, kept on this phone (Messages-style): a
-    /// store built again after the app comes back, or on a relaunch, shows them at once.
-    public static let transcripts = ConversationTranscriptCache.inApplicationSupport("cmux-mobile-chief-transcripts")
+    /// Every Chief conversation's history, kept on this phone in SQLite per account (CMUX-24): a
+    /// store built again after the app comes back, or on a relaunch, shows the newest messages at
+    /// once, and with no network the reader scrolls the whole synced history.
+    public static let transcripts = ConversationTranscriptCache.inApplicationSupport(
+        "cmux-mobile-chief-history", replacing: ["cmux-mobile-chief-transcripts"])
     private let transcripts: ConversationTranscriptCache?
+    /// The kept transcript's key when the session names it (a conversation of a Mac's Home list,
+    /// which is not that Mac's Chief): nil keys it by ``outboxTarget``.
+    private let fixedTranscriptKey: String?
 
     /// Sign-out: every kept Chief conversation leaves this phone, and this session's store stops
     /// showing and keeping them (a store made by sign-out's own backend swap showed them already).
@@ -249,7 +258,50 @@ public final class ChiefSession {
         store.useTranscriptCache(transcripts, key: transcriptKey)
         refreshOutbox()
         attach()
+        syncHistory()
     }
+
+    /// Reads this Chief's whole history into the phone (``ChiefHistorySync``), while signed in
+    /// and talking to the Mac's Chief or a Cloud Chief: offline and DEBUG mock backends have no
+    /// history of their own, and a Mac-away replica holds only the newest messages.
+    public func syncHistory() {
+        guard let historySync, let transcripts, let key = outboxTarget else { return }
+        let backend = backend
+        let pageSize: Int
+        switch backend {
+        case is ChiefCloudBackend: pageSize = 200
+        case is ChiefDaemonBackend: pageSize = ConversationStore.macPageSize
+        default: return
+        }
+        historySync.sync(key, cache: transcripts, pageSize: pageSize) { before, limit in
+            try await backend.history(beforeSeq: before, limit: limit)
+        }
+    }
+
+    /// Syncs this account's Chief histories (set by ``ChiefSources`` while signed in).
+    @ObservationIgnored var historySync: ChiefHistorySync?
+
+    /// The phone's Chief history (``transcripts``), for ``ChiefSources``' other Cloud Chiefs.
+    var transcriptCache: ConversationTranscriptCache? { transcripts }
+
+    /// The account whose kept history this Chief reads and writes from now on (nil: signed
+    /// out). The previous account's rows on screen go at once; the new account's show.
+    func useTranscriptAccount(_ account: String?) {
+        guard let transcripts else { return }
+        // The cache is shared (the Mac and Cloud sessions): it may already serve `account`,
+        // but this session's store still holds what it bound before.
+        transcripts.activate(account: account)
+        guard boundAccount != .some(account) else { return }
+        let first = boundAccount == nil
+        boundAccount = .some(account)
+        store.discardKeptTranscript()
+        // A store with the server's rows talks to the previous account's backend: it keeps
+        // nothing more (the next backend's store reads this account's history).
+        if first || !store.hasLoadedNewest { store.useTranscriptCache(transcripts, key: transcriptKey) }
+    }
+
+    /// The account this session's store was last bound to (nil: never bound).
+    @ObservationIgnored private var boundAccount: String??
 
     /// The Chief `backend` talks to (``outboxTarget``). An offline backend
     /// keeps the Chief that was open: what is written meanwhile is for it.
@@ -273,10 +325,10 @@ public final class ChiefSession {
     /// The failed message whose Try Again was sent (its bar goes away).
     private var retriedFailureID: String?
 
-    /// What the bar over the conversation shows: the open question first,
-    /// else Try Again for a failed newest turn not tried again yet.
+    /// What the bar over the conversation shows: why Chief is unavailable,
+    /// else Try Again for a failed newest turn not tried again yet, else the
+    /// Mac away. Open questions get no bar (see ``ChiefBarItem``).
     public var barItem: ChiefBarItem? {
-        if let question = openQuestion { return .question(question) }
         // The Mac's Chief refused or is missing (D2): say why, instead of
         // the conversation's endless first-load spinner.
         if !isConnected, let status { return .unavailable(reason: status, retrying: isReconnecting) }
@@ -299,18 +351,34 @@ public final class ChiefSession {
         reconnect()
     }
 
-    /// Composer text of a Chief screen that went away, for the screen that replaces it.
-    private var carriedComposerText: String?
-
-    /// The leaving screen's unsent text (empty clears it).
-    public func carryComposerText(_ text: String) {
-        carriedComposerText = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+    /// The composer of a Chief screen that went away, for the screen that replaces it.
+    public struct CarriedComposer: Equatable, Sendable {
+        /// Unsent text, nil when there was none.
+        public var text: String?
+        /// The field had the keyboard: a screen rebuilt in place (a new
+        /// store after a reconnect) keeps it, as if nothing was rebuilt.
+        public var focused: Bool
     }
 
-    /// The carried text, once.
-    public func takeCarriedComposerText() -> String? {
-        defer { carriedComposerText = nil }
-        return carriedComposerText
+    private var carriedComposer: CarriedComposer?
+
+    /// The leaving screen's unsent text (empty clears it) and whether its field was focused.
+    public func carryComposerText(_ text: String, focused: Bool = false) {
+        let kept = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+        carriedComposer = kept == nil && !focused ? nil : CarriedComposer(text: kept, focused: focused)
+    }
+
+    /// Keeps the carried text but not its focus (the Chief route left).
+    public func dropCarriedComposerFocus() {
+        guard var carried = carriedComposer, carried.focused else { return }
+        carried.focused = false
+        carriedComposer = carried.text == nil ? nil : carried
+    }
+
+    /// The carried composer, once.
+    public func takeCarriedComposer() -> CarriedComposer? {
+        defer { carriedComposer = nil }
+        return carriedComposer
     }
 
     /// The coordinator's try ended (connected, refused or replaced): Try Again is offered again.
@@ -507,6 +575,9 @@ public final class ChiefSession {
 
     /// The raw error of the newest failed engine read (diagnostics only).
     public private(set) var engineError: (any Error)?
+
+    /// An engine read for the composer's `/` list runs (``loadSlashSkillsIfNeeded()``).
+    @ObservationIgnored var slashSkillsLoading = false
 
     /// The waits between engine reads while one keeps failing: 2, 4, 8,
     /// 16, then every 30 s.

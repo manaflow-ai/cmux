@@ -31,6 +31,8 @@ final class SpaceSwitchBench {
     let controller: WindowController
     let rooms: [ProfileID]
     let keysByRoom: [ProfileID: [String]]
+    /// The snapshot the store shows: a test changes a copy and applies it (a pane that comes or goes).
+    let tree: DaemonTree
 
     /// - Parameters:
     ///   - total: workspaces in the window, split evenly across `spaces` rooms.
@@ -62,6 +64,7 @@ final class SpaceSwitchBench {
             pins: keys.enumerated().map { WorkspacePin(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: $1), profile: rooms[$0 % spaces]) },
             workspaces: keys.enumerated().map { PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: $1), index: $0) })
         store.apply(snapshot: tree)
+        self.tree = tree
         let frame = NSRect(x: 200, y: 200, width: 1100, height: 720)
         if registered {
             services.windows.ordersWindowsIn = false
@@ -153,6 +156,19 @@ final class SpaceSwitchBench {
         counters["spins"] = spins
         return Sample(cpuMs: (cpu1 - cpu0) * 1_000, wallMs: (drawn - wall0) * 1_000, syncMs: (sync - wall0) * 1_000,
                       drawMs: (drawn - shown) * 1_000, counters: counters)
+    }
+
+    /// One switch to `room` and every main-actor turn it starts (the observation hops of the sidebar's passes, the
+    /// row flushes), then the sidebar's counters of all of it: the work one switch costs, not only its own turn.
+    func settledSwitch(to room: ProfileID) async throws -> [String: Int] {
+        _ = SidebarView.perfCounters(reset: true)
+        services.windows.switchProfile(room, in: state)
+        guard shows(room) else { throw BenchError.neverShown(room.rawValue) }
+        for _ in 0..<16 {
+            drain()
+            await Task.yield()
+        }
+        return SidebarView.perfCounters(reset: true).filter { !$0.key.contains("@") }
     }
 
     /// `rounds` switches back and forth between the first two rooms (after one warm-up each way).

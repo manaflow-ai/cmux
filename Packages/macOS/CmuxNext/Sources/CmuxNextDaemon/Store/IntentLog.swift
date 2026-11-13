@@ -12,6 +12,7 @@ enum IntentUndo: Equatable {
     case screenColor(screen: ScreenID, color: String?)
     case screenIcon(screen: ScreenID, icon: String?)
     case screenPinned(screen: ScreenID, pinned: Bool)
+    case dividerVisible(screen: ScreenID, split: SplitID, visible: Bool)
     case workspaceName(key: WorkspaceKey, name: String)
     case workspaceColor(key: WorkspaceKey, color: String?)
     /// The workspace's daemon-order index and group before the apply.
@@ -92,6 +93,8 @@ struct PendingIntent {
     /// A script batch's intent held back by its ``StoreStage``: in the log (ordered with the rest)
     /// but not shown, and never due, until the stage commits.
     var held = false
+    /// The slow request log's clock when the intent was shown (``SlowRequestLog/uptime``); 0: no log.
+    var shownAt: UInt64 = 0
 }
 
 /// The ordered log of pending intents. Pure bookkeeping: the store applies
@@ -121,10 +124,11 @@ struct IntentLog {
 
     /// Appends a new intent. False when the transaction is already pending
     /// or already settled (an id is never reused).
-    mutating func append(_ intent: Intent, transaction: ClientTransactionID, held: Bool = false) -> Bool {
+    mutating func append(_ intent: Intent, transaction: ClientTransactionID, held: Bool = false, shownAt: UInt64 = 0) -> Bool {
         guard !contains(transaction), !wasSettled(transaction) else { return false }
         var entry = PendingIntent(transaction: transaction, kind: intent)
         entry.held = held
+        entry.shownAt = shownAt
         entries.append(entry)
         return true
     }

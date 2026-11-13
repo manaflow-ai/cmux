@@ -19,7 +19,7 @@ extension AgentTabStore {
     /// An empty workspace's New action (and a person's new workspace) opens on
     /// the New Tab page, where the kind is picked; no temporary shell appears.
     func openFirstPage(in workspace: WorkspaceModel, on daemon: DaemonService, services: AppServices) async throws -> SurfaceID? {
-        try await openFirstPage(workspace: workspace.handle, cwd: daemon.defaultCwd, on: daemon)
+        try await openFirstPage(workspace: workspace.handle, cwd: NewTerminalStart.defaultFolder(on: daemon), on: daemon)
     }
 
     /// The same, for a workspace this app just created (not mirrored yet),
@@ -271,7 +271,7 @@ extension AgentTabStore {
         // else a split below, never a third column. A lone chat, Home's dock and an offline daemon keep their split's route (false).
         tabs.openToolScoped = { [weak services] chat, kind, cwd in
             guard let services, let (_, pane) = services.locateTab(chat.key, onMachine: chat.machine), let source = services.paneController(for: pane) else { return false }
-            switch ChatColumnPlacement.resolve(from: source, services: services) { case .dockChat, .besideDock: return false; case .here, .tab: break }
+            switch ChatColumnPlacement.resolve(from: source, services: services) { case .dockChat, .besideDock: return false; case .here, .tab: if kind == .terminal, services.linkOpener.terminalSplitsAtOnce(from: source) { return false } }
             // As their splits did: a browser keeps its address bar focused through the move; with Ghostty's
             // `split-inherit-working-directory = false` (the header passes no folder) a terminal starts in the home folder.
             let start = cwd ?? NewTerminalStart.uninherited(.split, services: services, daemon: source.daemon, besides: nil)
@@ -381,7 +381,17 @@ extension AgentTabStore {
             guard let services, let session = services.machines.session(key.machine) else {
                 return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine)
             }
-            return await CloudMachineShare.shareWithMe(session, cloud: services.cloud)
+            let socket = await services.machines.local.connection?.endpoint?.socketPath
+            guard let refused = await CloudCLICall(cli: services.bundledCLI).shareChatWithMe(machine: session.machineID, signedIn: services.cloud.auth,
+                                                                                             socket: socket) else {
+                // The link's teammate answer moves only on a new carrier dial (each connection is one): a round trip on a fresh one before Retry reads it (#40218).
+                if let (tab, _) = services.locateTab(key.key, onMachine: key.machine), let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal {
+                    let client = AgentSessionAttachClient(surface: tab.surface.rawValue, endpoint: AgentTabRemoteHost.endpoint(on: daemon))
+                    _ = try? await client.folders(); await client.close()
+                }
+                return .shared
+            }
+            return .refused(code: refused.code, message: refused.code == "not_signed_in" ? CloudStrings.signInFirst : refused.message)
         }
         tabs.shareOp = { [weak services] key, op, session in guard let services else { return nil }; return await AgentShareActions.pane(op, session: session, tab: key, host: services) }
         tabs.remoteHostScoped = { [weak services, weak tabs] key in
@@ -417,6 +427,9 @@ extension AgentTabStore {
             // A chat on one of the account's Cloud machines names each turn's hand-off, behind Labs,
             // once the machine list loaded for the account signed in now (never a previous team's).
             host.cloudHandoffs = host.cloudMachineID != nil && CloudHandoffTurnOpener.refusal(services) == nil
+            if host.cloudMachineID != nil, services.cloudTurnRewindHost.offered {
+                host.cloudTurnRewind = { [weak services] session in await services?.cloudTurnRewindHost.rows(chat: key.key, session: session) ?? [] }
+            }
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
             // trust only on the Cloud API's owner answer on the link the call goes over, checked as
             // it is sent, through any daemon (the app link's own answer).
@@ -570,7 +583,7 @@ extension AgentTabStore {
             tabs?.localHostName = name
             return AgentPaneModel.rememberLocalMachineName(AgentTabStore.displayName(name) ?? name)
         }
-        tabs.onPageBuilt = { [weak services] key in services?.cache.hibernation?.agentPages?.pageBuilt(key) }
+        tabs.onPageBuilt = { [weak services, weak tabs] key in services?.cache.hibernation?.agentPages?.pageBuilt(key); services?.paneOwedWork.hand(to: tabs?.views.values.map { $0 } ?? []) } // a pane made now takes what its chat owes
         tabs.onCollectingPages = { [weak services] held in services?.cache.hibernation?.agentPages?.holdAwake(held) }
         services.madeAgentTabs = tabs
         return tabs
@@ -615,6 +628,7 @@ extension AgentTabStore {
         } else {
             tryAnotherApproach = nil
         }
+        cloudTurnRewind = services.cloudTurnRewindHost
         guard Self.cloudCredentialTransferIsAvailable(isSignedIn: services.cloud.auth.isSignedIn) else {
             cloudCredentialTransfer = nil
             return

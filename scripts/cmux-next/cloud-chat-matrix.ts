@@ -6,7 +6,7 @@
  * or a Cursor subscription".
  *
  *   bun scripts/cmux-next/cloud-chat-matrix.ts --backend prod --credentials ~/.secrets/cmuxterm-prod.env
- *   bun scripts/cmux-next/cloud-chat-matrix.ts --cells codex-chatgpt-stub,cursor-signed-out --out /tmp/matrix
+ *   bun scripts/cmux-next/cloud-chat-matrix.ts --cells codex-chatgpt-stub,gemini-signed-out --out /tmp/matrix
  *   bun scripts/cmux-next/cloud-chat-matrix.ts --list
  *
  * Cells run one after another, never at once: journeys on one account at the same time collide on its
@@ -24,7 +24,8 @@
  * when no cell failed.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -71,14 +72,25 @@ export const CELLS: Cell[] = [
     args: ["--agent", "codex", "--gateway", "$CMUX_BIN"],
     needs: { env: "CMUX_BIN", why: "a cmux CLI for `cmux inference setup --gateway-machine`" },
   },
+  // Lane cloud-grok-gemini-opencode. Under each Cloud cell, acp-agent-contract.py proves the agent's own ACP
+  // with no account (first, follow-up, session/load resume; the signed-out refusal).
   {
-    id: "cursor-signed-out",
-    agent: "cursor",
-    signIn: "none: must fail fast with Cursor's sign-in error",
-    proof: "expect",
-    args: ["--agent", "cursor", "--skip", "lifecycle", "--chat-timeout", "120"],
-    expect: { step: "reply", error: /authenticat|not (?:logged|signed) in|log ?in|sign ?in/i, withinMs: 60_000 },
+    id: "opencode-zen",
+    agent: "opencode",
+    signIn: "none: OpenCode's free Zen models",
+    proof: "live",
+    args: ["--agent", "opencode", "--lifecycle"],
   },
+  {
+    id: "gemini-signed-out",
+    agent: "gemini",
+    signIn: "none: must fail fast with Gemini CLI's sign-in error",
+    proof: "expect",
+    args: ["--agent", "gemini", "--skip", "lifecycle", "--chat-timeout", "120"],
+    expect: { step: "reply", error: /authenticat|auth.?required|not (?:logged|signed) in|log ?in|sign ?in|api key/i, withinMs: 60_000 },
+  },
+  // No Cursor, Grok (SuperGrok, xAI key) or third-party provider-key cells: Leo has none of those accounts (Leo,
+  // 2026-11-10: "I only have ChatGPT and Google ... Or else I ask the company to get me basic accounts later").
 ];
 
 /** The steps a row reports, with their latencies. */
@@ -141,7 +153,9 @@ export function main(argv: string[]): number {
     return 2;
   }
   const cells = want ? CELLS.filter((c) => want.includes(c.id)) : CELLS;
-  const out = path.resolve(argValue("--out", argv) ?? `/tmp/cloud-chat-matrix-${Date.now().toString(36)}`);
+  // The default is a folder mkdtemp makes, never a guessable /tmp name another account could make first.
+  const given = argValue("--out", argv);
+  const out = given ? path.resolve(given) : mkdtempSync(path.join(os.tmpdir(), "cloud-chat-matrix-"));
   mkdirSync(out, { recursive: true });
   // Everything but this script's own flags goes to every journey (--backend, --credentials, --team, --cmux).
   const own = new Set(["--cells", "--out"]);

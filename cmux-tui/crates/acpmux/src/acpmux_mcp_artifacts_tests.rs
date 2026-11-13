@@ -464,9 +464,10 @@ async fn reads_over_16_mib_stream_complete_files_and_keep_unicode_pagination() {
     assert!(!std::path::Path::new(&path).exists(), "downloads follow client lifetime");
 }
 
-#[tokio::test]
-async fn saves_75_mib_and_300_files_as_staged_blobs_before_one_commit() {
-    let size = 256 << 10;
+/// Saves 300 files of `size` bytes each (300 is past the legacy API's 256 files) through
+/// `artifact_save` and checks the requests: one staged blob upload per file, each carrying that
+/// file's bytes, then one commit that names the blobs and holds no file content.
+async fn saves_300_files_as_staged_blobs(size: usize) {
     let count = 300;
     let id = "01J8Z7Q4M6N2K5P8R3T1V9W0X2";
     let mut answers =
@@ -486,6 +487,7 @@ async fn saves_75_mib_and_300_files_as_staged_blobs_before_one_commit() {
     let (base, server) = fixture(answers).await;
     let args = json!({"title": "Large dataset", "kind": "other", "files":
         (0..count).map(|i| json!({"name": format!("data-{i}.txt"), "text": "x".repeat(size)})).collect::<Vec<_>>()});
+    // A hang guard: the save never answering fails here instead of at nextest's limit.
     let result = tokio::time::timeout(
         Duration::from_secs(120),
         call(&client(&base), "artifact_save", &args),
@@ -505,7 +507,27 @@ async fn saves_75_mib_and_300_files_as_staged_blobs_before_one_commit() {
     let body: Value = serde_json::from_slice(&manifest.body).unwrap();
     assert_eq!(body["files"].as_array().unwrap().len(), count);
     assert!(body["files"].as_array().unwrap().iter().all(|f| f.get("contentBase64").is_none()));
-    assert!(manifest.body.len() < 64 << 10, "75 MiB content never enters the commit request");
+    assert!(manifest.body.len() < 64 << 10, "file content never enters the commit request");
+}
+
+/// 300 files of 16 KiB (4.7 MiB): each goes up as its own staged blob, and the commit is under
+/// 64 KiB, less than the base64 of three of the files, so it carries none of their content. The
+/// modern save stages every file whatever its size, so this is the same path as 75 MiB; that
+/// size runs on its own as `saves_75_mib_and_300_files_as_staged_blobs_before_one_commit`.
+#[tokio::test]
+async fn saves_300_files_as_staged_blobs_before_one_commit() {
+    saves_300_files_as_staged_blobs(16 << 10).await;
+}
+
+/// The same at 256 KiB a file, 75 MiB in all, past the legacy API's 24 MiB per request. A debug
+/// build took 54 s alone on an idle 8-core CI runner and ran past nextest's 120 s hang guard
+/// beside other work (3 of 3 loaded lib runs), so it is a check for its own run:
+/// `cargo test -p acpmux --lib acpmux_mcp::artifacts::tests::saves_75_mib_and_300_files_as_staged_blobs_before_one_commit -- --ignored --exact --test-threads=1 --nocapture`.
+/// The default run keeps `saves_300_files_as_staged_blobs_before_one_commit`.
+#[tokio::test]
+#[ignore = "own run, one test at a time: 75 MiB through a debug build, past the hang guard under load"]
+async fn saves_75_mib_and_300_files_as_staged_blobs_before_one_commit() {
+    saves_300_files_as_staged_blobs(256 << 10).await;
 }
 
 #[tokio::test]
