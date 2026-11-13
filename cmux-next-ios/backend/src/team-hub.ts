@@ -19,6 +19,26 @@ export interface Attachment {
   teamId: string
   /** Set before the hub closes a socket that a newer connection of the same device replaced. */
   replaced?: boolean
+  /** When the socket was accepted (ms): proof the device was awake then, before its first ping. */
+  connectedAt?: number
+}
+
+/**
+ * The application ping a signaling client sends beside its WebSocket pings (PROTOCOL.md "Signaling
+ * WebSocket"), answered by the runtime without waking the hub. Its time is how the hub knows a device is
+ * awake: a Mac that sleeps keeps its socket half open (and so "online") but stops pinging.
+ */
+export const APP_PING = "ping"
+export const APP_PONG = "pong"
+
+/** Whether a Mac's signaling socket is open, and when it last proved the Mac awake (ping or connect). */
+export interface MacLiveness {
+  readonly connected: boolean
+  /** The newest of the last application ping and the socket's connect time (ms); null when connected by a
+   *  client that never pings and the connect time is unknown. */
+  readonly lastAliveAt: number | null
+  /** Whether the socket ever sent an application ping (a host that predates them never does). */
+  readonly pings: boolean
 }
 
 /** A sealed reply for a Mac (PROTOCOL.md "Reply mailbox"): the hub never holds a key that opens it. */
@@ -137,6 +157,8 @@ export class TeamHub extends DurableObject<Env> {
     super(ctx, env)
     this.sql = ctx.storage.sql
     this.schema()
+    // Answered by the runtime, without waking the hub; getWebSocketAutoResponseTimestamp records it.
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(APP_PING, APP_PONG))
   }
 
   /** The tables (again after `retireTeamHub` deleted them: the constructor does not rerun while the object stays in memory). */
@@ -374,6 +396,17 @@ export class TeamHub extends DurableObject<Env> {
     return this.macList(teamId)
   }
 
+  /** Whether one of the owner's Macs is connected and when it last proved it is awake (connectivity alerts). */
+  async macLiveness(ownerKey: string, deviceId: string): Promise<MacLiveness> {
+    this.bind(ownerKey)
+    const ws = this.open(deviceId)
+    if (!ws || this.attach(ws).kind !== "mac") return { connected: false, lastAliveAt: null, pings: false }
+    const pinged = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? null
+    const connected = this.attach(ws).connectedAt ?? null
+    const lastAliveAt = pinged === null ? connected : connected === null ? pinged : Math.max(pinged, connected)
+    return { connected: true, lastAliveAt, pings: pinged !== null }
+  }
+
   // ---- Reply mailbox (PROTOCOL.md "Sealed pushes and the reply mailbox") ------------------------------
 
   /** Drops rows past `keep_until` (lazily, on every mailbox call and Mac connect). */
@@ -523,7 +556,7 @@ export class TeamHub extends DurableObject<Env> {
     const pair = new WebSocketPair()
     const [client, server] = [pair[0], pair[1]]
     this.ctx.acceptWebSocket(server, [att.deviceId])
-    this.setAttach(server, att)
+    this.setAttach(server, { ...att, connectedAt: Date.now() })
     this.live.set(att.deviceId, server)
     if (att.kind === "mac") {
       this.sql.exec(

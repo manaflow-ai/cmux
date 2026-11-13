@@ -83,8 +83,9 @@ public struct ConnectivityIncidentDetector: Sendable {
 
     public enum Output: Sendable, Equatable {
         /// Check whether the phone reaches the internet and the cmux service, then call
-        /// ``reachability(macID:internet:service:at:)``.
-        case check(macID: String)
+        /// ``reachability(macID:checkID:internet:service:at:)`` with this `id`: an answer to a check
+        /// that a later one replaced (the stretch restarted) is ignored.
+        case check(macID: String, id: Int)
         case report(Incident)
     }
 
@@ -95,6 +96,7 @@ public struct ConnectivityIncidentDetector: Sendable {
     private var lastWake: Date?
     private var lastNetworkChange: Date?
     private var macs: [String: Track] = [:]
+    private var lastCheckID = 0
     private let makeID: @Sendable () -> String
 
     private struct Track: Sendable {
@@ -115,8 +117,13 @@ public struct ConnectivityIncidentDetector: Sendable {
 
         enum Check: Sendable, Equatable {
             case none
-            case pending
+            case pending(id: Int)
             case phoneOffline(Date)
+        }
+
+        var isPending: Bool {
+            if case .pending = check { return true }
+            return false
         }
 
         var isTrying: Bool {
@@ -223,9 +230,9 @@ public struct ConnectivityIncidentDetector: Sendable {
         return evaluate(macID, at: date)
     }
 
-    /// What the check asked for by ``Output/check(macID:)`` found.
-    public mutating func reachability(macID: String, internet: Bool, service: Bool, at date: Date) -> [Output] {
-        guard var track = macs[macID], track.check == .pending else { return [] }
+    /// What the check asked for by ``Output/check(macID:id:)`` found.
+    public mutating func reachability(macID: String, checkID: Int, internet: Bool, service: Bool, at date: Date) -> [Output] {
+        guard var track = macs[macID], track.check == .pending(id: checkID) else { return [] }
         if !internet {
             // The phone itself is offline: not a cmux incident. Its stretch starts again from now, so
             // a Mac reported later was unreachable while the phone's internet worked.
@@ -284,8 +291,9 @@ public struct ConnectivityIncidentDetector: Sendable {
             && track.downSince.map { date.timeIntervalSince($0) >= rules.unreachableAfter } == true
         let unstableDue = track.unstable == nil && unstableWindowStart(track, at: date) != nil
         if (unreachableDue || unstableDue), track.check == .none {
-            track.check = .pending
-            out.append(.check(macID: macID))
+            lastCheckID += 1
+            track.check = .pending(id: lastCheckID)
+            out.append(.check(macID: macID, id: lastCheckID))
         }
         macs[macID] = track
         return out

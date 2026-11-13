@@ -1,14 +1,18 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "./env.ts"
+import type { MacLiveness } from "./team-hub.ts"
 
 /**
  * Connectivity alerts (PROTOCOL.md "Connectivity incidents"): a cmux team member's phone reports a major
- * connectivity incident (a Mac it could not reach for 30 s while everything else said it should, or a link
- * that kept dropping), and the cmux team's Slack channel hears about it once, with its end edited in.
+ * connectivity incident (a Mac it could not reach while everything said it should, or a link that kept
+ * dropping), and the cmux team's Slack channel hears about it once, with its end edited in.
  *
  * Who is heard is decided here, never by the phone: the reporter's verified Stack email must be on a team
- * domain, and agent or service accounts and simulators go to the test channel (or nowhere). The phone only
- * decides what is major, by rules it can see (CmuxMobileLive ConnectivityIncidentDetector).
+ * domain; agent or service accounts, simulators, Debug builds and developer network simulations go to the
+ * test channel (or nowhere). Whether the Mac was awake is decided here too, from its signaling socket's
+ * application pings (TeamHub.macLiveness): a Mac that sleeps keeps its socket half open, so presence says
+ * "online" while nothing can reach it, and that is not a cmux incident. The phone decides what is major by
+ * rules it can see (CmuxMobileLive ConnectivityIncidentDetector).
  */
 
 /** The cmux team's email domains (ConnectivityAudience.teamDomains on the phone; keep the two equal). */
@@ -18,8 +22,9 @@ export const TEAM_DOMAINS = ["manaflow.ai", "cmux.com", "manaflow.com"] as const
 const DEFAULT_EXCLUDED = ["cmux-agent-development@manaflow.ai"]
 const EXCLUDED_PREFIXES = ["cmux-agent-"]
 
+export type TestReason = "simulator" | "agent_account" | "debug_build" | "network_simulation"
 /** Where a verified reporter's incidents go. */
-export type Audience = { route: "team" } | { route: "test"; why: "simulator" | "agent_account" } | { route: "refuse"; why: "not_team" | "unverified" }
+export type Audience = { route: "team" } | { route: "test"; why: TestReason } | { route: "refuse"; why: "not_team" | "unverified" }
 
 /** Whether `email`'s domain is a team domain, exactly or as a subdomain (look-alikes are not). */
 export const isTeamEmail = (email: string): boolean => {
@@ -30,14 +35,21 @@ export const isTeamEmail = (email: string): boolean => {
 }
 
 /** Where a report from this account and build goes. `excluded` is the env's extra list (comma-separated). */
-export const audienceOf = (email: string | null, verified: boolean, simulator: boolean, excluded = ""): Audience => {
+export const audienceOf = (
+  email: string | null,
+  verified: boolean,
+  build: { readonly simulator: boolean; readonly config: string; readonly simulations?: ReadonlyArray<string> },
+  excluded = ""
+): Audience => {
   if (!email || !isTeamEmail(email)) return { route: "refuse", why: "not_team" }
   if (!verified) return { route: "refuse", why: "unverified" }
   const lower = email.trim().toLowerCase()
   const local = lower.slice(0, lower.lastIndexOf("@"))
   const list = [...DEFAULT_EXCLUDED, ...excluded.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean)]
   if (list.includes(lower) || EXCLUDED_PREFIXES.some((p) => local.startsWith(p))) return { route: "test", why: "agent_account" }
-  if (simulator) return { route: "test", why: "simulator" }
+  if (build.simulator) return { route: "test", why: "simulator" }
+  if (build.simulations?.length) return { route: "test", why: "network_simulation" }
+  if (build.config === "Debug") return { route: "test", why: "debug_build" }
   return { route: "team" }
 }
 
@@ -85,33 +97,33 @@ const SIMULATIONS = new Set(["relay_only", "block_udp"])
 
 export class ReportError extends Error {}
 
-const text = (v: unknown, field: string, max: number, required = true): string | undefined => {
-  if (v === undefined || v === null) {
-    if (required) throw new ReportError(`${field} is required`)
-    return undefined
-  }
-  if (typeof v !== "string" || !v.trim()) throw new ReportError(`${field} must be a non-empty string`)
-  // Slack control characters are escaped at render; length is bounded here.
+/** A required identifying string. */
+const required = (v: unknown, field: string, max: number): string => {
+  if (typeof v !== "string" || !v.trim()) throw new ReportError(`${field} is required`)
   return v.trim().slice(0, max)
 }
+/** A descriptive string: anything unusable is left out (or `fallback`), never a reason to lose the report. */
+const descriptive = (v: unknown, max: number, fallback?: string): string | undefined =>
+  typeof v === "string" && v.trim() ? v.trim().slice(0, max) : fallback
 const date = (v: unknown, field: string): string => {
-  const s = text(v, field, 40)!
+  const s = required(v, field, 40)
   if (Number.isNaN(Date.parse(s))) throw new ReportError(`${field} must be an ISO 8601 date`)
   return new Date(Date.parse(s)).toISOString()
 }
-const count = (v: unknown, field: string, max: number): number | undefined => {
-  if (v === undefined || v === null) return undefined
-  if (typeof v !== "number" || !Number.isFinite(v) || v < 0) throw new ReportError(`${field} must be a non-negative number`)
-  return Math.min(Math.round(v), max)
-}
+const count = (v: unknown, max: number): number | undefined =>
+  typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.min(Math.round(v), max) : undefined
 const obj = (v: unknown, field: string): Record<string, unknown> => {
   if (typeof v !== "object" || v === null || Array.isArray(v)) throw new ReportError(`${field} must be an object`)
   return v as Record<string, unknown>
 }
 
-/** The report in `body`, or a ReportError naming what is wrong. */
+/**
+ * The report in `body`, or a ReportError naming what is wrong. Only what identifies and times the incident
+ * is required; a descriptive field that is empty or malformed is left out, so an odd Mac name or a phone
+ * that sends a new word never loses an alert.
+ */
 export const parseReport = (body: Record<string, unknown>): IncidentReport => {
-  const id = text(body.id, "id", 64)!
+  const id = required(body.id, "id", 64)
   if (!ID.test(id)) throw new ReportError("id must be 8-64 letters, digits or dashes")
   const kind = body.kind as IncidentKind
   if (!KINDS.has(kind)) throw new ReportError("kind must be mac_unreachable or link_unstable")
@@ -124,21 +136,20 @@ export const parseReport = (body: Record<string, unknown>): IncidentReport => {
   }
   const mac = obj(body.mac, "mac")
   const app = obj(body.app, "app")
-  const device = obj(body.device, "device")
-  const durationMs = count(body.durationMs, "durationMs", 30 * 86_400_000)
-  if (durationMs === undefined) throw new ReportError("durationMs is required")
-  const transport = text(body.transport, "transport", 32, false)
-  const network = text(body.network, "network", 32, false)
-  if (transport !== undefined && !WORD.test(transport)) throw new ReportError("transport must be one word")
-  if (network !== undefined && !WORD.test(network)) throw new ReportError("network must be one word")
-  if (body.serviceReachable !== undefined && typeof body.serviceReachable !== "boolean") throw new ReportError("serviceReachable must be a boolean")
+  const device = typeof body.device === "object" && body.device !== null ? (body.device as Record<string, unknown>) : {}
+  const durationMs = count(body.durationMs, 30 * 86_400_000)
+  if (durationMs === undefined) throw new ReportError("durationMs must be a non-negative number")
   if (typeof app.simulator !== "boolean") throw new ReportError("app.simulator must be a boolean")
-  const simulations = body.simulations === undefined ? undefined : body.simulations
-  if (simulations !== undefined && (!Array.isArray(simulations) || !simulations.every((s) => typeof s === "string" && SIMULATIONS.has(s))))
-    throw new ReportError("simulations must list relay_only or block_udp")
-  const attempts = count(body.attempts, "attempts", 100_000)
-  const drops = count(body.drops, "drops", 100_000)
-  const lastError = text(body.lastError, "lastError", 300, false)
+  const word = (v: unknown) => {
+    const s = descriptive(v, 32)
+    return s !== undefined && WORD.test(s) ? s : undefined
+  }
+  const transport = word(body.transport)
+  const network = word(body.network)
+  const simulations = Array.isArray(body.simulations) ? body.simulations.filter((s): s is string => typeof s === "string" && SIMULATIONS.has(s)) : []
+  const attempts = count(body.attempts, 100_000)
+  const drops = count(body.drops, 100_000)
+  const lastError = descriptive(body.lastError, 300)
   return {
     id,
     kind,
@@ -147,60 +158,85 @@ export const parseReport = (body: Record<string, unknown>): IncidentReport => {
     startedAt: date(body.startedAt, "startedAt"),
     observedAt: date(body.observedAt, "observedAt"),
     durationMs,
-    mac: { id: text(mac.id, "mac.id", 64)!, name: text(mac.name, "mac.name", 80)! },
+    mac: { id: required(mac.id, "mac.id", 64), name: descriptive(mac.name, 80, "Unnamed Mac")! },
     ...(attempts !== undefined ? { attempts } : {}),
     ...(drops !== undefined ? { drops } : {}),
     ...(lastError !== undefined ? { lastError } : {}),
     ...(transport !== undefined ? { transport } : {}),
     ...(typeof body.serviceReachable === "boolean" ? { serviceReachable: body.serviceReachable } : {}),
     ...(network !== undefined ? { network } : {}),
-    app: { version: text(app.version, "app.version", 24)!, build: text(app.build, "app.build", 24)!, config: text(app.config, "app.config", 24)!, simulator: app.simulator },
-    device: { model: text(device.model, "device.model", 48)!, os: text(device.os, "device.os", 24)! },
-    ...(simulations?.length ? { simulations: simulations as Array<string> } : {})
+    app: {
+      version: descriptive(app.version, 24, "?")!,
+      build: descriptive(app.build, 24, "?")!,
+      config: descriptive(app.config, 24, "?")!,
+      simulator: app.simulator
+    },
+    device: { model: descriptive(device.model, 48, "unknown")!, os: descriptive(device.os, 24, "?")! },
+    ...(simulations.length ? { simulations } : {})
   }
 }
 
 // MARK: The desk (pure): what each report does to Slack
 
-/** Per-reporter and overall limits on new Slack threads, per sliding hour. */
+/** Per-reporter and overall limits on new Slack threads, per sliding hour and channel. */
 export const LIMITS = { perReporterPerHour: 5, overallPerHour: 20 } as const
-/** Reports of the same Mac outage from more teammates than one inside this window suggest the service. */
+/** Incidents kept per reporter (a phone gone wrong cannot fill the desk). */
+export const PER_REPORTER_STORED = 100
+/** Reports of a Mac outage from more teammates than one inside this window suggest the service. */
 export const CORRELATION_WINDOW_MS = 10 * 60_000
 /** How long an incident is remembered (so a late duplicate or end still finds its message). */
 export const RETENTION_MS = 7 * 86_400_000
+/** A Mac is awake when its socket pinged (or connected) this recently. Hosts ping every 15 s. */
+export const ALIVE_WITHIN_MS = 45_000
+/** A report delivered this long after the phone saw it cannot have its Mac's liveness checked now. */
+export const LATE_MS = 2 * 60_000
+/** A new incident for the same reporter, Mac and kind this soon after the last one goes in its thread. */
+export const THREAD_WINDOW_MS = 30 * 60_000
 
 export interface Reporter {
   readonly key: string
   readonly email: string
 }
 
+/** Why an incident was not posted. */
+export type Suppressed = "rate_limited" | "mac_asleep" | "mac_offline" | "mac_liveness_unknown"
+
 export interface Incident {
   readonly id: string
   readonly route: "team" | "test"
+  /** Why it is on the test route. */
+  readonly why?: TestReason
   readonly reporter: Reporter
+  /** The first state seen (the start, normally). */
   readonly report: IncidentReport
-  /** Every state seen, in arrival order (`open` first when it came). */
+  /** Every state seen, in arrival order. */
   readonly states: Array<IncidentState>
   readonly receivedAt: number
-  /** The Slack message, once posted. */
-  slack?: { channel: string; ts: string }
+  updatedAt: number
   /** Its post is queued (it may not be sent yet): later states edit that message rather than post again. */
   queued?: boolean
-  /** Set when this incident's start was not posted because a limit was reached. */
-  suppressed?: boolean
+  /** The Slack message, once posted. */
+  slack?: { channel: string; ts: string }
+  /** A later incident of the same reporter, Mac and kind: posted in this earlier incident's thread. */
+  parent?: string
+  suppressed?: Suppressed
 }
 
-export interface DeskState {
-  incidents: Record<string, Incident>
+export interface DeskMeta {
   /** New threads posted per route, by time (sliding-hour limits). */
   posted: Array<{ at: number; reporter: string; route: "team" | "test" }>
   /** Incidents not posted because of a limit, since the last post on that route. */
   suppressedSince: Record<"team" | "test", number>
 }
 
-export const emptyDesk = (): DeskState => ({ incidents: {}, posted: [], suppressedSince: { team: 0, test: 0 } })
+export interface DeskState {
+  incidents: Record<string, Incident>
+  meta: DeskMeta
+}
 
-/** One Slack call the desk wants made, in order. */
+export const emptyDesk = (): DeskState => ({ incidents: {}, meta: { posted: [], suppressedSince: { team: 0, test: 0 } } })
+
+/** One Slack call the desk wants made, in order. `incident` names the message it posts, edits or replies to. */
 export type SlackAction =
   | { kind: "post"; incident: string; route: "team" | "test"; text: string }
   | { kind: "update"; incident: string; text: string }
@@ -208,57 +244,131 @@ export type SlackAction =
 
 export interface DeskOutcome {
   readonly accepted: boolean
-  /** Why nothing was sent (duplicate, rate_limited, ...), for the response and the log. */
+  /** Why nothing was sent (duplicate, rate_limited, mac_asleep, ...), for the response and the log. */
   readonly note?: string
   readonly actions: ReadonlyArray<SlackAction>
+  /** Incidents written or deleted (the storage keys to update). */
+  readonly changed: ReadonlyArray<string>
+  readonly removed: ReadonlyArray<string>
 }
 
 const HOUR = 3_600_000
 
+/** What the desk knows about the reported Mac when the report arrives. */
+export type MacCheck = { readonly liveness: MacLiveness | null }
+
+/**
+ * Whether an incident's start may be posted: the cmux service failing the phone always may; otherwise the Mac
+ * must have proved it was awake (a ping or a connect) within ALIVE_WITHIN_MS. A report too late to check is
+ * posted (it was queued because the service could not be reached, which is ours).
+ */
+export const startVerdict = (report: IncidentReport, check: MacCheck, now: number): Suppressed | undefined => {
+  if (report.serviceReachable === false) return undefined
+  if (now - Date.parse(report.observedAt) > LATE_MS) return undefined
+  const live = check.liveness
+  if (!live || !live.connected) return "mac_offline"
+  if (live.lastAliveAt !== null && now - live.lastAliveAt <= ALIVE_WITHIN_MS) return undefined
+  return live.pings ? "mac_asleep" : "mac_liveness_unknown"
+}
+
 /**
  * Applies one verified report to the desk at `now`. Idempotent per (incident, state): a resend of a state
- * already seen changes nothing. An end of an incident whose start was never posted (it arrived after an
- * app relaunch, or the start hit a limit) still posts one message, so a major outage is never lost.
+ * already seen changes nothing. An end of an incident whose start was held back by a limit is posted whole
+ * once allowed, so a major outage is never lost to a limit; an end of an incident whose Mac was asleep stays
+ * quiet with it.
  */
-export const applyReport = (desk: DeskState, report: IncidentReport, reporter: Reporter, route: "team" | "test", now: number): DeskOutcome => {
-  desk.posted = desk.posted.filter((p) => now - p.at < HOUR)
-  for (const [id, incident] of Object.entries(desk.incidents)) if (now - incident.receivedAt > RETENTION_MS) delete desk.incidents[id]
+export const applyReport = (desk: DeskState, report: IncidentReport, reporter: Reporter, audience: { route: "team" | "test"; why?: TestReason }, check: MacCheck, now: number): DeskOutcome => {
+  const removed: Array<string> = []
+  desk.meta.posted = desk.meta.posted.filter((p) => now - p.at < HOUR)
+  for (const [id, incident] of Object.entries(desk.incidents))
+    if (now - incident.updatedAt > RETENTION_MS) {
+      delete desk.incidents[id]
+      removed.push(id)
+    }
+  const done = (o: Omit<DeskOutcome, "removed">): DeskOutcome => ({ ...o, removed })
 
   const known = desk.incidents[report.id]
-  if (known && known.reporter.key !== reporter.key) return { accepted: false, note: "foreign_incident", actions: [] }
-  if (known?.states.includes(report.state)) return { accepted: true, note: "duplicate", actions: [] }
-  // An incident ends once: a second ending (resolved after ended, or the other way) is a duplicate too.
-  if (known && report.state !== "open" && known.states.some((s) => s !== "open")) return { accepted: true, note: "duplicate", actions: [] }
-  // A start that arrives after its end (the phone's queue never reorders, but be safe) adds nothing.
-  if (known && report.state === "open") return { accepted: true, note: "duplicate", actions: [] }
+  if (known && known.reporter.key !== reporter.key) return done({ accepted: false, note: "foreign_incident", actions: [], changed: [] })
+  if (known?.states.includes(report.state)) return done({ accepted: true, note: "duplicate", actions: [], changed: [] })
+  // An incident ends once, and a start after its end adds nothing.
+  if (known && (report.state === "open" || known.states.some((s) => s !== "open"))) return done({ accepted: true, note: "duplicate", actions: [], changed: [] })
 
   if (known) {
     known.states.push(report.state)
+    known.updatedAt = now
     if (known.queued) {
-      return { accepted: true, actions: [{ kind: "update", incident: known.id, text: render(known, report, desk, now, route) }, { kind: "reply", incident: known.id, text: endLine(report) }] }
+      const end = endLine(report)
+      // A thread child only replies in its parent's thread; a top message is edited and gets the reply.
+      const actions: Array<SlackAction> = known.parent
+        ? [{ kind: "reply", incident: known.parent, text: `${headline(known, report)}\n${end}` }]
+        : [
+            { kind: "update", incident: known.id, text: render(known, report, desk, now) },
+            { kind: "reply", incident: known.id, text: end }
+          ]
+      return done({ accepted: true, actions, changed: [known.id] })
     }
-    // Its start was never posted (a limit): post the whole incident now, if the limits allow.
-    return postNew(desk, known, report, route, now)
+    // Its Mac was asleep or offline when it started: its end is not news either.
+    if (known.suppressed !== "rate_limited") return done({ accepted: true, note: known.suppressed, actions: [], changed: [known.id] })
+    return done({ ...postNew(desk, known, report, now), changed: [known.id] })
   }
 
-  const incident: Incident = { id: report.id, route, reporter, report, states: [report.state], receivedAt: now }
+  if (Object.values(desk.incidents).filter((i) => i.reporter.key === reporter.key).length >= PER_REPORTER_STORED)
+    return done({ accepted: true, note: "reporter_cap", actions: [], changed: [] })
+  const incident: Incident = {
+    id: report.id,
+    route: audience.route,
+    ...(audience.why ? { why: audience.why } : {}),
+    reporter,
+    report,
+    states: [report.state],
+    receivedAt: now,
+    updatedAt: now
+  }
   desk.incidents[report.id] = incident
-  return postNew(desk, incident, report, route, now)
+  // A start (or an end whose start was lost) is posted only for a Mac that was awake.
+  const verdict = startVerdict(report, check, now)
+  if (verdict) {
+    incident.suppressed = verdict
+    return done({ accepted: true, note: verdict, actions: [], changed: [report.id] })
+  }
+  return done({ ...postNew(desk, incident, report, now), changed: [report.id] })
 }
 
-const postNew = (desk: DeskState, incident: Incident, report: IncidentReport, route: "team" | "test", now: number): DeskOutcome => {
-  const mine = desk.posted.filter((p) => p.route === route && p.reporter === incident.reporter.key).length
-  const all = desk.posted.filter((p) => p.route === route).length
+const postNew = (desk: DeskState, incident: Incident, report: IncidentReport, now: number): Omit<DeskOutcome, "changed" | "removed"> => {
+  const route = incident.route
+  // The same person, Mac and kind again soon after (the app came back, still unreachable): its thread.
+  const parent = Object.values(desk.incidents)
+    .filter(
+      (i) =>
+        i.id !== incident.id &&
+        !i.parent &&
+        i.queued &&
+        i.route === route &&
+        i.reporter.key === incident.reporter.key &&
+        i.report.mac.id === report.mac.id &&
+        i.report.kind === report.kind &&
+        now - i.updatedAt <= THREAD_WINDOW_MS
+    )
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+  if (parent) {
+    incident.parent = parent.id
+    incident.queued = true
+    incident.suppressed = undefined
+    parent.updatedAt = now
+    return { accepted: true, actions: [{ kind: "reply", incident: parent.id, text: `Again: ${render(incident, report, desk, now)}` }] }
+  }
+  const mine = desk.meta.posted.filter((p) => p.route === route && p.reporter === incident.reporter.key).length
+  const all = desk.meta.posted.filter((p) => p.route === route).length
   if (mine >= LIMITS.perReporterPerHour || all >= LIMITS.overallPerHour) {
-    incident.suppressed = true
-    desk.suppressedSince[route] += 1
+    incident.suppressed = "rate_limited"
+    desk.meta.suppressedSince[route] += 1
     return { accepted: true, note: "rate_limited", actions: [] }
   }
-  incident.suppressed = false
+  incident.suppressed = undefined
   incident.queued = true
-  desk.posted.push({ at: now, reporter: incident.reporter.key, route })
-  const text = render(incident, report, desk, now, route)
-  desk.suppressedSince[route] = 0
+  desk.meta.posted.push({ at: now, reporter: incident.reporter.key, route })
+  const text = render(incident, report, desk, now)
+  desk.meta.suppressedSince[route] = 0
   return { accepted: true, actions: [{ kind: "post", incident: incident.id, route, text }] }
 }
 
@@ -286,7 +396,14 @@ const END_WORDS: Record<EndReason, string> = {
   app_relaunched: "the app was closed before it reconnected"
 }
 
-const TRANSPORTS: Record<string, string> = { wireguard: "WireGuard", wireGuard: "WireGuard", webrtc: "WebRTC", webRTC: "WebRTC" }
+const TEST_WORDS: Record<TestReason, string> = {
+  simulator: "simulator build",
+  agent_account: "agent or service account",
+  debug_build: "Debug build",
+  network_simulation: "developer network simulation on"
+}
+
+const TRANSPORTS: Record<string, string> = { wireguard: "WireGuard", webrtc: "WebRTC" }
 
 /** Other reporters with a Mac outage that started near this one: a sign the service, not the Mac. */
 const othersAffected = (desk: DeskState, incident: Incident): number => {
@@ -294,6 +411,7 @@ const othersAffected = (desk: DeskState, incident: Incident): number => {
   const start = Date.parse(incident.report.startedAt)
   for (const other of Object.values(desk.incidents)) {
     if (other.reporter.key === incident.reporter.key || other.route !== incident.route || other.report.kind !== "mac_unreachable") continue
+    if (other.suppressed && other.suppressed !== "rate_limited") continue
     if (Math.abs(Date.parse(other.report.startedAt) - start) <= CORRELATION_WINDOW_MS) reporters.add(other.reporter.key)
   }
   return reporters.size
@@ -319,8 +437,8 @@ const headline = (incident: Incident, report: IncidentReport): string => {
   }
 }
 
-/** The whole message for `incident` in its newest state. */
-export const render = (incident: Incident, report: IncidentReport, desk: DeskState, now: number, route: "team" | "test"): string => {
+/** The whole message for `incident` in the state `report` describes. */
+export const render = (incident: Incident, report: IncidentReport, desk: DeskState, now: number): string => {
   const lines = [headline(incident, report)]
   if (report.kind === "mac_unreachable" && report.serviceReachable === false)
     lines.push("• :warning: The phone could not reach the cmux service either (the internet worked): likely a cmux service outage")
@@ -339,10 +457,10 @@ export const render = (incident: Incident, report: IncidentReport, desk: DeskSta
   lines.push(`• ${where.join(" · ")}`)
   if (report.simulations?.length) lines.push(`• Developer network simulation on: ${report.simulations.join(", ")}`)
   const late = now - Date.parse(report.observedAt)
-  if (late > 2 * 60_000) lines.push(`• Delivered ${duration(late)} late (the phone queued it)`)
-  const suppressed = desk.suppressedSince[route]
+  if (late > LATE_MS) lines.push(`• Delivered ${duration(late)} late (the phone queued it)`)
+  const suppressed = desk.meta.suppressedSince[incident.route]
   if (report.state === "open" && suppressed > 0) lines.push(`• ${suppressed} more incident${suppressed === 1 ? "" : "s"} in the last hour were not posted (rate limit)`)
-  if (incident.route === "test") lines.push(`• _Test route: ${incident.report.app.simulator ? "simulator build" : "agent or service account"}_`)
+  if (incident.route === "test") lines.push(`• _Test route: ${TEST_WORDS[incident.why ?? "agent_account"]}_`)
   lines.push(`_Incident \`${incident.id.slice(0, 8)}\` · started <!date^${Math.floor(Date.parse(report.startedAt) / 1000)}^{date_short_pretty} {time_secs}|${report.startedAt}> · Mac \`${esc(report.mac.id.slice(0, 8))}\`_`)
   return lines.join("\n")
 }
@@ -380,51 +498,74 @@ export const slackCaller =
     return (await res.json()) as { ok: boolean; ts?: string; channel?: string; error?: string }
   }
 
-/** Slack errors a retry cannot fix: the action is dropped (and logged) instead of retried forever. */
-const PERMANENT = new Set(["channel_not_found", "not_in_channel", "invalid_auth", "account_inactive", "token_revoked", "missing_scope", "is_archived", "msg_too_long", "no_text", "cant_update_message", "message_not_found"])
+/**
+ * Whether a failed Slack call can pass with time: Slack or the network down, or rate limiting. Anything else
+ * (a bad channel, a revoked token, an error Slack adds later) is dropped and logged rather than retried, so
+ * one bad call never holds up every alert behind it.
+ */
+export const retryable = (error: string | undefined): boolean =>
+  !!error && (error.startsWith("network:") || /^http_5\d\d$/.test(error) || ["ratelimited", "internal_error", "fatal_error", "service_unavailable", "request_timeout"].includes(error))
 
 // MARK: The Durable Object
 
 /** Retry delays for a Slack call that failed for a reason that can pass (seconds; the last repeats). */
 const RETRY_S = [5, 30, 120, 600, 1800]
+/** A call still failing after this many tries or this long is dropped (and logged). */
+const MAX_TRIES = 12
+const MAX_AGE_MS = 86_400_000
 
 interface Outbox {
   action: SlackAction
   tries: number
+  at: number
 }
 
 /**
- * The one desk (named "desk"): keeps every incident for a week, the hourly counts, and an outbox of Slack
- * calls. A report is stored before it is answered, and its Slack calls run in order from the outbox; a call
- * that fails for a passing reason (Slack down, rate limited) is retried by alarm, so an accepted report is
- * never lost to a Slack hiccup.
+ * The one desk (named "desk"): each incident under its own key for a week, the hourly counts, and an
+ * ordered outbox of Slack calls. A report is stored before it is answered, and its Slack calls run in order
+ * after the answer; one that fails for a passing reason (Slack down, rate limited) is retried by alarm, so an
+ * accepted report is never lost to a Slack hiccup.
  */
 export class ConnectivityAlertDesk extends DurableObject<Env> {
   /** Test only: replaces the Slack call (ENVIRONMENT=test). */
   static testSlack: SlackCall | undefined
 
-  private async load(): Promise<{ desk: DeskState; outbox: Array<Outbox> }> {
-    const desk = (await this.ctx.storage.get<DeskState>("desk")) ?? emptyDesk()
-    const outbox = (await this.ctx.storage.get<Array<Outbox>>("outbox")) ?? []
-    return { desk, outbox }
+  private async loadDesk(): Promise<DeskState> {
+    const meta = (await this.ctx.storage.get<DeskMeta>("meta")) ?? emptyDesk().meta
+    const incidents: Record<string, Incident> = {}
+    for (const [key, incident] of await this.ctx.storage.list<Incident>({ prefix: "inc:" })) incidents[key.slice(4)] = incident
+    return { incidents, meta }
   }
 
-  /** Applies a verified report; its Slack calls are queued before this returns, then sent. */
-  async report(report: IncidentReport, reporter: Reporter, route: "team" | "test"): Promise<{ accepted: boolean; note?: string; queued: number }> {
-    const { desk, outbox } = await this.load()
-    const outcome = applyReport(desk, report, reporter, route, Date.now())
-    for (const action of outcome.actions) outbox.push({ action, tries: 0 })
-    await this.ctx.storage.put({ desk, outbox })
-    if (outcome.note) console.log(JSON.stringify({ msg: "connectivity report", note: outcome.note, kind: report.kind, state: report.state, route }))
-    // A Slack call waiting out its backoff is retried by the alarm, not sooner by the next report.
+  private async outbox(): Promise<Array<Outbox>> {
+    return (await this.ctx.storage.get<Array<Outbox>>("outbox")) ?? []
+  }
+
+  /** Applies a verified report; its Slack calls are queued before this returns and sent after. */
+  async report(report: IncidentReport, reporter: Reporter, audience: { route: "team" | "test"; why?: TestReason }, check: MacCheck): Promise<{ accepted: boolean; note?: string; queued: number }> {
+    const desk = await this.loadDesk()
+    const outcome = applyReport(desk, report, reporter, audience, check, Date.now())
+    const outbox = await this.outbox()
+    for (const action of outcome.actions) outbox.push({ action, tries: 0, at: Date.now() })
+    const writes: Record<string, unknown> = { meta: desk.meta, outbox }
+    for (const id of outcome.changed) if (desk.incidents[id]) writes[`inc:${id}`] = desk.incidents[id]
+    await this.ctx.storage.put(writes)
+    if (outcome.removed.length) await this.ctx.storage.delete(outcome.removed.map((id) => `inc:${id}`))
+    console.log(JSON.stringify({ msg: "connectivity report", kind: report.kind, state: report.state, route: audience.route, note: outcome.note ?? "posted", queued: outcome.actions.length }))
+    // After the answer: a slow Slack must not make the phone's request time out and resend.
     const retryAt = (await this.ctx.storage.get<number>("retryAt")) ?? 0
-    if (outbox.length && retryAt <= Date.now()) await this.drain()
+    if (outbox.length && retryAt <= Date.now()) this.ctx.waitUntil(this.drain())
     return { accepted: outcome.accepted, ...(outcome.note ? { note: outcome.note } : {}), queued: outcome.actions.length }
   }
 
-  /** Test only: the desk as stored. */
+  /** Test only: the desk and outbox as stored. */
   async snapshot(): Promise<{ desk: DeskState; outbox: Array<Outbox> }> {
-    return this.load()
+    return { desk: await this.loadDesk(), outbox: await this.outbox() }
+  }
+
+  /** Test only: waits for a drain in flight. */
+  async settled(): Promise<void> {
+    await this.draining
   }
 
   async alarm(): Promise<void> {
@@ -432,55 +573,63 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
     await this.drain()
   }
 
-  private draining = false
+  private draining: Promise<void> | undefined
+
+  private drain(): Promise<void> {
+    this.draining ??= this.drainOnce().finally(() => {
+      this.draining = undefined
+    })
+    return this.draining
+  }
 
   /**
    * Sends the outbox in order; stops at the first passing failure and sets an alarm for its retry. Reports
    * can arrive while a Slack call is in flight, so after each call the state is read again and only the
    * delivered head (and its message id) is changed.
    */
-  private async drain(): Promise<void> {
-    if (this.draining) return
-    this.draining = true
-    try {
-      const config = slackConfig(this.env)
-      const call = ConnectivityAlertDesk.testSlack ?? (config ? slackCaller(config.token) : undefined)
-      for (;;) {
-        const before = await this.load()
-        const next = before.outbox[0]
-        if (!next) return
-        if (!call) {
-          console.log(JSON.stringify({ msg: "connectivity alert not sent: Slack is not configured", kind: next.action.kind }))
-          await this.ctx.storage.setAlarm(Date.now() + 600_000)
-          return
-        }
-        const result = await this.send(next.action, before.desk, config, call).catch((e) => ({ ok: false as const, error: `network: ${String(e).slice(0, 80)}` }))
-        const { desk, outbox } = await this.load()
-        if (result.ok || PERMANENT.has(result.error ?? "")) {
-          if (!result.ok) console.log(JSON.stringify({ msg: "connectivity alert dropped", kind: next.action.kind, error: result.error }))
-          const incident = desk.incidents[next.action.incident]
-          if (result.ok && result.posted && incident) incident.slack = result.posted
-          outbox.shift()
-          await this.ctx.storage.put({ desk, outbox })
-          continue
-        }
-        outbox[0]!.tries += 1
-        const tries = outbox[0]!.tries
-        await this.ctx.storage.put({ outbox })
-        const wait = RETRY_S[Math.min(tries - 1, RETRY_S.length - 1)]!
-        console.log(JSON.stringify({ msg: "connectivity alert retry", kind: next.action.kind, error: result.error, tries, waitS: wait }))
-        await this.ctx.storage.put("retryAt", Date.now() + wait * 1000)
-        await this.ctx.storage.setAlarm(Date.now() + wait * 1000)
+  private async drainOnce(): Promise<void> {
+    const config = slackConfig(this.env)
+    const call = ConnectivityAlertDesk.testSlack ?? (config ? slackCaller(config.token) : undefined)
+    for (;;) {
+      const head = (await this.outbox())[0]
+      if (!head) return
+      if (!call) {
+        console.log(JSON.stringify({ msg: "connectivity alert not sent: Slack is not configured", kind: head.action.kind }))
+        await this.ctx.storage.setAlarm(Date.now() + 600_000)
         return
       }
-    } finally {
-      this.draining = false
+      const incident = await this.ctx.storage.get<Incident>(`inc:${head.action.incident}`)
+      const result = await this.send(head.action, incident, config, call).catch((e) => ({ ok: false as const, error: `network: ${String(e).slice(0, 80)}` }))
+      const outbox = await this.outbox()
+      const giveUp = !result.ok && (!retryable(result.error) || head.tries + 1 >= MAX_TRIES || Date.now() - head.at > MAX_AGE_MS)
+      if (result.ok || giveUp) {
+        if (giveUp) console.log(JSON.stringify({ msg: "connectivity alert dropped", kind: head.action.kind, error: result.error, tries: head.tries + 1 }))
+        outbox.shift()
+        const writes: Record<string, unknown> = { outbox }
+        if (result.ok && "posted" in result && result.posted) {
+          const fresh = await this.ctx.storage.get<Incident>(`inc:${head.action.incident}`)
+          if (fresh) writes[`inc:${head.action.incident}`] = { ...fresh, slack: result.posted }
+        }
+        await this.ctx.storage.put(writes)
+        continue
+      }
+      outbox[0]!.tries += 1
+      const tries = outbox[0]!.tries
+      const wait = RETRY_S[Math.min(tries - 1, RETRY_S.length - 1)]!
+      await this.ctx.storage.put({ outbox, retryAt: Date.now() + wait * 1000 })
+      console.log(JSON.stringify({ msg: "connectivity alert retry", kind: head.action.kind, error: result.error, tries, waitS: wait }))
+      await this.ctx.storage.setAlarm(Date.now() + wait * 1000)
+      return
     }
   }
 
   /** One Slack call; a post returns the message it made. */
-  private async send(action: SlackAction, desk: DeskState, config: SlackConfig | undefined, call: SlackCall): Promise<{ ok: boolean; error?: string; posted?: { channel: string; ts: string } }> {
-    const incident = desk.incidents[action.incident]
+  private async send(
+    action: SlackAction,
+    incident: Incident | undefined,
+    config: SlackConfig | undefined,
+    call: SlackCall
+  ): Promise<{ ok: boolean; error?: string; posted?: { channel: string; ts: string } }> {
     if (!incident) return { ok: true }
     switch (action.kind) {
       case "post": {

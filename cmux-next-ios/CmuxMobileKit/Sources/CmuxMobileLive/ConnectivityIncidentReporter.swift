@@ -163,6 +163,8 @@ public final class ConnectivityIncidentReporter {
     public var simulations: [String] = []
     private var tickTask: Task<Void, Never>?
     private var flushTask: Task<Void, Never>?
+    /// The one wait for the outbox head's backoff.
+    private var retryTask: Task<Void, Never>?
     private var lastSave: Date = .distantPast
     public static let tickInterval: Duration = .seconds(5)
 
@@ -224,9 +226,10 @@ public final class ConnectivityIncidentReporter {
         }
     }
 
-    /// Sign-out: open incidents end now and their ends are sent while the token still works.
+    /// Sign-out (and the coordinator stopping): open incidents end now as `signed_out`.
     public func stop() {
         stopTicking()
+        retryTask?.cancel()
         handle(detector.appActive(false, at: now()).map { output in
             guard case .report(var incident) = output else { return output }
             incident.endReason = .signedOut
@@ -234,19 +237,40 @@ public final class ConnectivityIncidentReporter {
         })
     }
 
+    /// Before the account signs out, while its token still works: ends what is open and sends the
+    /// outbox, waiting at most `limit`. What is not sent by then stays in the account's file for its
+    /// next sign-in.
+    public func signOut(within limit: Duration = .seconds(3)) async {
+        stop()
+        guard let flush = flushTask else { return }
+        let clock = clock
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await flush.value }
+            group.addTask { try? await clock.sleep(for: limit) }
+            await group.next()
+            group.cancelAll()
+        }
+    }
+
     // MARK: Running the detector
 
+    /// Runs the detector's outputs. Only a team account checks (and so only it ever opens an
+    /// incident); the end of an incident already reported is always queued, even after the audience
+    /// changed, so no message stays "and counting".
     private func handle(_ outputs: [ConnectivityIncidentDetector.Output]) {
-        guard !outputs.isEmpty, isTeam() else { return }
+        guard !outputs.isEmpty else { return }
+        var queued = false
         for output in outputs {
             switch output {
-            case .check(let macID):
+            case .check(let macID, let checkID):
+                guard isTeam() else { continue }
                 let check = check
                 Task { [weak self] in
                     let result = await check()
                     guard let self else { return }
                     log.info("check for \(macID, privacy: .public): internet=\(result.internet) service=\(result.service)")
-                    self.handle(self.detector.reachability(macID: macID, internet: result.internet, service: result.service, at: self.now()))
+                    self.handle(self.detector.reachability(macID: macID, checkID: checkID, internet: result.internet,
+                                                           service: result.service, at: self.now()))
                 }
             case .report(let incident):
                 log.notice("incident \(incident.kind.rawValue, privacy: .public) \(incident.state.rawValue, privacy: .public) mac=\(incident.macID, privacy: .public) after \(Int(incident.duration))s")
@@ -255,8 +279,10 @@ public final class ConnectivityIncidentReporter {
                     "duration_s": .number(incident.duration.rounded()), "mac_id": .text(incident.macID),
                 ])
                 outbox.enqueue(incident, simulations: simulations, at: now())
+                queued = true
             }
         }
+        guard queued else { return }
         save()
         flush()
     }
@@ -294,7 +320,8 @@ public final class ConnectivityIncidentReporter {
             do {
                 try await send(entry.incident, entry.simulations, app)
                 result = .sent
-            } catch let failure as LiveAPI.Failure where [400, 403, 404, 409, 413].contains(failure.status) {
+            } catch let failure as LiveAPI.Failure where [400, 403, 409, 413].contains(failure.status) {
+                // A 404 is not here: a service that predates the route (a rollout) takes it later.
                 log.error("incident report refused: \(failure.code, privacy: .public)")
                 result = .refused
             } catch {
@@ -308,7 +335,8 @@ public final class ConnectivityIncidentReporter {
         if let retryAt = outbox.retryAt {
             let wait = max(retryAt.timeIntervalSince(now()), 0.1)
             let clock = clock
-            Task { [weak self] in
+            retryTask?.cancel()
+            retryTask = Task { [weak self] in
                 do { try await clock.sleep(for: .milliseconds(Int(wait * 1000))) } catch { return }
                 self?.flush()
             }

@@ -388,10 +388,21 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       console.log(JSON.stringify({ msg: "connectivity report: user lookup failed", error: String(e) }))
       throw new HttpError(502, "user_unavailable", "could not look up the account; retry later")
     }
-    const audience = audienceOf(who.email, who.verified, report.app.simulator, env.CONNECTIVITY_ALERT_EXCLUDED_EMAILS)
+    const audience = audienceOf(who.email, who.verified, { ...report.app, ...(report.simulations ? { simulations: report.simulations } : {}) }, env.CONNECTIVITY_ALERT_EXCLUDED_EMAILS)
     if (audience.route === "refuse") return fail(403, audience.why === "unverified" ? "email_unverified" : "not_team", "connectivity reports are for the cmux team")
+    // Whether the Mac is awake: its socket lives in the caller's own hub (v1 links only reach the caller's
+    // own Macs), so another user's Mac id finds nothing there.
+    const liveness = await t
+      .span("hub", userHub(env, caller).macLiveness(me, report.mac.id.toLowerCase()))
+      .catch((e) => {
+        console.log(JSON.stringify({ msg: "connectivity report: liveness unavailable", error: String(e) }))
+        return null
+      })
     const desk = env.CONNECTIVITY_ALERT_DESK.get(env.CONNECTIVITY_ALERT_DESK.idFromName("desk"))
-    const r = await t.span("desk", desk.report(report, { key: me, email: who.email! }, audience.route))
+    const r = await t.span(
+      "desk",
+      desk.report(report, { key: me, email: who.email! }, audience.route === "test" ? { route: "test", why: audience.why } : { route: "team" }, { liveness })
+    )
     if (!r.accepted) return fail(409, "conflict", "this incident id belongs to another account")
     return json({ accepted: true, route: audience.route, ...(r.note ? { note: r.note } : {}) }, 202)
   }

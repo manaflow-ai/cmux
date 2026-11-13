@@ -29,6 +29,12 @@ import Testing
     static let trying = Detector.LinkState.trying(transport: "wireguard", reason: nil, newDial: true)
     static func failing(_ reason: String) -> Detector.LinkState { .trying(transport: "wireguard", reason: reason, newDial: false) }
 
+    /// The id of the check `outputs` ask for on `m1`, if any.
+    func checkID(_ outputs: [Detector.Output]) -> Int? {
+        for output in outputs { if case .check("m1", let id) = output { return id } }
+        return nil
+    }
+
     func reports(_ outputs: [Detector.Output]) -> [Detector.Incident] {
         outputs.compactMap { if case .report(let incident) = $0 { incident } else { nil } }
     }
@@ -44,8 +50,8 @@ import Testing
             out += d.link(macID: "m1", name: "Studio", Self.failing("dial timed out"), at: at(now))
             let tick = d.tick(at: at(now))
             out += tick
-            if tick.contains(.check(macID: "m1")) {
-                out += d.reachability(macID: "m1", internet: internet, service: service, at: at(now))
+            if let id = checkID(tick) {
+                out += d.reachability(macID: "m1", checkID: id, internet: internet, service: service, at: at(now))
             }
         }
         return out
@@ -54,7 +60,7 @@ import Testing
     @Test func aMacUnreachableFor30sIsReportedOnceThenResolvedOnReconnect() throws {
         var d = detector()
         let early = unreachable(&d, to: 45)
-        #expect(!early.contains(.check(macID: "m1")))
+        #expect(checkID(early) == nil)
         let out = unreachable(&d, from: 45, to: 60)
         let open = try #require(reports(out).first)
         #expect(open.kind == .macUnreachable)
@@ -89,7 +95,7 @@ import Testing
         // The phone's own internet is down (captive portal): nothing reported however long.
         let offline = unreachable(&d, to: 120, internet: false, service: false)
         #expect(reports(offline).isEmpty)
-        #expect(offline.contains(.check(macID: "m1")))
+        #expect(checkID(offline) != nil)
         // The internet comes back; the Mac connects soon after: a phone outage, not a cmux one.
         var d2 = detector()
         _ = unreachable(&d2, to: 120, internet: false)
@@ -133,7 +139,7 @@ import Testing
         let at625 = d.tick(at: at(625))
         #expect(at625.isEmpty)
         let at630 = d.tick(at: at(630))
-        #expect(at630 == [.check(macID: "m1")])
+        #expect(at630.count == 1 && checkID(at630) != nil)
         // The same for a phone without a network.
         var n = detector()
         _ = n.link(macID: "m1", name: "Studio", Self.trying, at: at(0))
@@ -151,7 +157,7 @@ import Testing
         let at50 = d.tick(at: at(50))
         #expect(at50.isEmpty)
         let at55 = d.tick(at: at(55))
-        #expect(at55 == [.check(macID: "m1")])
+        #expect(at55.count == 1 && checkID(at55) != nil)
     }
 
     @Test(arguments: [
@@ -206,8 +212,11 @@ import Testing
         let second = drop(&d, at: 120)
         #expect(second.isEmpty)
         let third = drop(&d, at: 200)
-        #expect(third.contains(.check(macID: "m1")))
-        let checked = reports(d.reachability(macID: "m1", internet: true, service: true, at: at(201)))
+        let thirdCheck = try #require(checkID(third))
+        // An answer to another (older) check is ignored.
+        let stale = d.reachability(macID: "m1", checkID: thirdCheck - 1, internet: true, service: true, at: at(201))
+        #expect(stale.isEmpty)
+        let checked = reports(d.reachability(macID: "m1", checkID: thirdCheck, internet: true, service: true, at: at(201)))
         let open = try #require(checked.first)
         #expect(open.kind == .linkUnstable)
         #expect(open.drops == 3)
@@ -225,7 +234,7 @@ import Testing
         _ = drop(&d, at: 900)
         _ = drop(&d, at: 950)
         let cooled = drop(&d, at: 1000)
-        #expect(!cooled.contains(.check(macID: "m1")))
+        #expect(checkID(cooled) == nil)
     }
 
     @Test func dropsSpreadOverMoreThanFiveMinutesAreNot() {
@@ -256,14 +265,14 @@ import Testing
         #expect(out.isEmpty)
     }
 
-    @Test func dropsWhileThePhoneIsOfflineAreNotAnIncident() {
+    @Test func dropsWhileThePhoneIsOfflineAreNotAnIncident() throws {
         var d = detector()
         _ = connected(&d, at: 20)
         _ = drop(&d, at: 60)
         _ = drop(&d, at: 100)
         let third = drop(&d, at: 140)
-        #expect(third.contains(.check(macID: "m1")))
-        let offline = reports(d.reachability(macID: "m1", internet: false, service: false, at: at(141)))
+        let thirdCheck = try #require(checkID(third))
+        let offline = reports(d.reachability(macID: "m1", checkID: thirdCheck, internet: false, service: false, at: at(141)))
         #expect(offline.isEmpty)
         let later = reports(d.tick(at: at(160)))
         #expect(later.isEmpty)
@@ -348,9 +357,15 @@ import Testing
         func advance(_ seconds: TimeInterval) { lock.withLock { value = value.addingTimeInterval(seconds) } }
     }
 
-    func reporter(team: Bool, sent: Sent, now: Now, file: URL? = nil, internet: Bool = true) -> ConnectivityIncidentReporter {
+    final class Flag: @unchecked Sendable {
+        var value: Bool
+        init(_ value: Bool) { self.value = value }
+    }
+
+    func reporter(team: Bool, sent: Sent, now: Now, file: URL? = nil, internet: Bool = true, teamFlag: Flag? = nil) -> ConnectivityIncidentReporter {
         let app = ConnectivityIncidentApp(version: "1.2.0", build: "7", config: "TestFlight", simulator: false, model: "iPhone17,4", os: "27.2")
-        return ConnectivityIncidentReporter(file: file, app: app, now: { now.get() }, isTeam: { team },
+        let flag = teamFlag ?? Flag(team)
+        return ConnectivityIncidentReporter(file: file, app: app, now: { now.get() }, isTeam: { flag.value },
                                             check: { (internet, true) },
                                             send: { incident, simulations, _ in try sent.add(incident, simulations) })
     }
@@ -429,6 +444,31 @@ import Testing
         await settle { r.pending.isEmpty }
         #expect(r.pending.isEmpty)
         #expect(sent.all.isEmpty)
+    }
+
+    @Test func anIncidentAlreadyReportedStillEndsAfterTheAudienceChanged() async {
+        let sent = Sent()
+        let now = Now()
+        let team = Flag(true)
+        let r = reporter(team: true, sent: sent, now: now, teamFlag: team)
+        await driveOutage(r, now: now, seconds: 40)
+        await settle { sent.all.count == 1 }
+        // Sign-out sets the audience to everyone before the coordinator stops.
+        team.value = false
+        r.link(macID: "m1", name: "Studio", .notWanted(.signedOut))
+        await settle { sent.all.count == 2 }
+        #expect(sent.all.map(\.0.state) == [.open, .ended])
+        #expect(sent.all.last?.0.endReason == .signedOut)
+    }
+
+    @Test func signOutSendsTheEndsBeforeItReturns() async {
+        let sent = Sent()
+        let now = Now()
+        let r = reporter(team: true, sent: sent, now: now)
+        await driveOutage(r, now: now, seconds: 40)
+        await settle { sent.all.count == 1 }
+        await r.signOut()
+        #expect(sent.all.map(\.0.state) == [.open, .ended])
     }
 
     @Test func signOutEndsOpenIncidentsAsSignedOut() async {

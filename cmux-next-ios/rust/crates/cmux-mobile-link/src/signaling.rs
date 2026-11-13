@@ -285,6 +285,19 @@ pub enum SignalingError {
 pub const KEEPALIVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
 pub const KEEPALIVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(40);
 
+/// The application ping sent beside each WebSocket ping (PROTOCOL.md "Signaling WebSocket"). The
+/// service answers it with `pong` without waking the device's hub, and keeps its time: a Mac that
+/// sleeps leaves its socket half open (still "online"), and these pings stopping is how the
+/// service tells it is asleep (connectivity alerts never page the team for a sleeping Mac). A
+/// WebSocket ping is answered by the runtime and seen by nobody, so it cannot do that.
+pub const APP_PING: &str = "ping";
+
+/// What one keepalive tick sends: the WebSocket ping (its pong proves the path) and the
+/// application ping (its time proves the device awake to the service).
+pub(crate) fn keepalive_signals() -> [Signal; 2] {
+    [Signal::Ping, Signal::Text(APP_PING.to_owned())]
+}
+
 struct Shared {
     device_id: String,
     /// Counts inbound frames (any kind); `probe` waits for it to move.
@@ -399,7 +412,9 @@ impl SignalingClient {
                             pinger.close();
                             break "signaling keepalive timed out".to_owned();
                         }
-                        let _ = pinger.push_signal(Signal::Ping);
+                        for signal in keepalive_signals() {
+                            let _ = pinger.push_signal(signal);
+                        }
                         continue;
                     }
                 };
@@ -603,6 +618,14 @@ impl Shared {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_keepalive_tick_sends_the_websocket_ping_and_the_application_ping() {
+        use crate::send_queue::Signal;
+        assert_eq!(super::keepalive_signals(), [Signal::Ping, Signal::Text("ping".to_owned())]);
+        // The service's answer is not a signaling message; the reader ignores it.
+        assert!(serde_json::from_str::<super::SignalMessage>("pong").is_err());
+    }
+
     use super::*;
 
     #[test]

@@ -920,7 +920,12 @@ Nothing here changes the wire; it is how a phone keeps a dial short.
   (and opens it at launch and on foreground, before any Mac is asked for);
   a dial reuses it. Signaling sockets send a WebSocket ping every 15 s and
   close after 40 s without any inbound frame, so a kept socket is never a
-  dead TCP connection. A reused socket that does not answer a ping within
+  dead TCP connection. Since 0.15.0 each keepalive also sends the text frame
+  `ping`, which the hub answers with `pong` without waking (a hibernation
+  auto-response) and whose time it keeps: it tells a Mac that is awake from
+  one that slept with its socket half open ("Connectivity incidents"). An
+  older Worker answers `ping` with a `bad_request` error frame; both are
+  ignored by the reader. A reused socket that does not answer a ping within
   2.5 s while a dial runs is replaced and the dial redone.
 - `GET /v1/ice` is cached for half its `ttl` (60 s when it lists no TURN
   server) by the phone and by `cmux-mobile-host`, which refreshes it in the
@@ -1580,7 +1585,7 @@ Each incident is reported `open`, then exactly once more: `resolved` (the Mac re
 stayed up 10 minutes) or `ended` with `endReason` (`app_backgrounded`, `network_lost`, `mac_offline`,
 `link_closed`, `signed_out`, `app_relaunched`). Reports wait in a file in Application Support and are sent
 in order, each retried (5 s, 30 s, 2 min, 10 min, then every 30 min) until the service accepts it or
-refuses it with a 4xx; a report older than a week is dropped. A launch ends what the last one left open
+refuses it with a 400, 403, 409 or 413 (a 404, a service that predates the route, is retried); a report older than a week is dropped. Only a team account checks; the end of an incident already reported is always sent, even after the audience changed, and sign-out sends the ends (as `signed_out`) before the token goes. A launch ends what the last one left open
 as `app_relaunched`, at the time it was last seen.
 
 ### The report
@@ -1596,14 +1601,27 @@ as `app_relaunched`, at the time it was last seen.
 ### What the service does (`src/connectivity-alerts.ts`)
 
 - Looks up the caller's primary email in Stack (never from the body). Unverified or not on a team domain:
-  `403`. Agent and service accounts (`cmux-agent-*@…`, `CONNECTIVITY_ALERT_EXCLUDED_EMAILS`) and simulator
-  builds go to the test channel (`CONNECTIVITY_ALERT_TEST_CHANNEL`; dropped when unset); real team phones
-  to `CONNECTIVITY_ALERT_CHANNEL`.
-- One Durable Object (`ConnectivityAlertDesk`) stores the report before answering and keeps an ordered
-  outbox of Slack calls, retried by alarm when Slack fails for a passing reason. A start posts one message;
-  its end edits that message and replies in its thread. A resend of a state already seen is a no-op.
+  `403`. Agent and service accounts (`cmux-agent-*@…`, `CONNECTIVITY_ALERT_EXCLUDED_EMAILS`), simulator
+  builds, Debug builds and reports with a developer network simulation on go to the test channel
+  (`CONNECTIVITY_ALERT_TEST_CHANNEL`; dropped when unset); real team phones on shipping builds to
+  `CONNECTIVITY_ALERT_CHANNEL`.
+- Asks the caller's own hub whether the Mac is awake (`TeamHub.macLiveness`): its signaling socket is open
+  and it sent an application `ping` (or connected) within the last 45 s. A Mac that sleeps keeps its socket
+  half open, so presence still says online, but its pings stop: such an incident (`mac_asleep`), one whose
+  Mac is not connected (`mac_offline`), and one whose Mac's host predates the pings and connected long ago
+  (`mac_liveness_unknown`) are kept but never posted, start or end. Exceptions: a phone that could not
+  reach the cmux service (`serviceReachable:false`) is always posted, and a report delivered more than two
+  minutes late cannot be checked and is posted.
+- One Durable Object (`ConnectivityAlertDesk`) stores each incident under its own key for a week (at most 100
+  per reporter) before answering, and keeps an ordered outbox of Slack calls sent after the answer. A start
+  posts one message; its end edits that message and replies in its thread. A resend of a state already seen
+  is a no-op. The same reporter's next incident for the same Mac and kind within 30 minutes (the app came
+  back and the Mac is still unreachable) goes in the first one's thread, not a new message.
+- Slack calls that fail for a reason that can pass (network, `ratelimited`, a 5xx) are retried by alarm
+  (5 s, 30 s, 2 min, 10 min, then every 30 min; given up after 12 tries or a day). Any other Slack error
+  drops that call (logged), so one bad call never holds up the alerts behind it.
 - At most 5 new messages per reporter and 20 overall per hour per channel; held-back incidents are counted
   in the next post, and an end whose start was held back is posted whole later. A Mac outage that two or
   more teammates hit within 10 minutes is flagged as likely service-side; a phone that could not reach the
   service is flagged as a likely service outage.
-
+- 10 reports a minute per user (`INCIDENT_LIMIT`).
