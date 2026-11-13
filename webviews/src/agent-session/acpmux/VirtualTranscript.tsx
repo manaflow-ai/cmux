@@ -5376,13 +5376,34 @@ function TranscriptView({
       // (summary/heldWhileScrolling.ts).
       noteReaderScroll();
       followTrace.input();
-      // The reader takes the view: whatever still glides (a send's rise, a chase, the rows under a
-      // change) ends where the rows lay out, at once, and nothing of it plays again when the view
-      // follows again. A chase the input held and then played on when a wheel at the bottom left the
-      // view followed was the "little readjustment" after the reader's own scroll (Leo, 2026-11-09:
-      // "when i scroll down now there's a little readjustment sometimes that shold never happen").
-      stopFollowMotion();
-      freezeGrowthRise.current();
+      if (slimFollow) {
+        // The slim arm (the product's): whatever still glides (a send's rise, a chase, the rows under
+        // a change) ends where the rows lay out, at once, and nothing of it plays again when the view
+        // follows again. A chase the input held and then played on when a wheel at the bottom left
+        // the view followed was the "little readjustment" after the reader's own scroll (Leo,
+        // 2026-11-09: "when i scroll down now there's a little readjustment sometimes that shold never
+        // happen"). The composer growth's rise freezes into the chase first (followChase.carry), so
+        // the stop ends that part too and nothing stays drawn off the layout.
+        freezeGrowthRise.current();
+        stopFollowMotion();
+      } else {
+        // The other arms: a glide still easing lands where it lays out, and the chase holds where it
+        // is drawn, so nothing moves but the reader's own scroll (a snap home moved the rows a frame
+        // before the scroll, streaming-parked-still.test.ts). Followed again, it goes on home.
+        followGlide.current?.stop();
+        // Input that leaves the view followed (a wheel or key at the bottom scrolls nothing, and no
+        // layout pass may come after) goes on home on the next frame instead of staying drawn away.
+        // The rows under a change gliding to their place hold where they are drawn too (tailGlide.ts),
+        // and play on with the chase.
+        tailGlide.current?.hold();
+        freezeGrowthRise.current();
+        followChase.current?.hold(() => {
+          const followed = followingRef.current && jumpTarget.current === undefined;
+          if (followed) tailGlide.current?.resume();
+          return followed;
+        });
+        chaseAnchor.current = undefined;
+      }
       // Release the follow intent synchronously when a reader starts moving up. The browser can
       // deliver the input before its scroll event; a streamed snapshot in that gap must not pin
       // the view back to the bottom. Capture the event so nested rows cannot commit first.

@@ -23,7 +23,8 @@
 /// <reference types="bun" />
 import fs from "node:fs";
 import path from "node:path";
-import { chromium, webkit, type Browser } from "playwright";
+import type { Browser } from "playwright";
+import { chromium, webkit } from "./browsers";
 import { createServer } from "vite";
 import { warmViteServer } from "../test/support/warmDevServer";
 import { installPaintedFrames } from "../test/support/paintedFrames";
@@ -196,14 +197,7 @@ if (import.meta.main) {
       const isChromium = engine === "chromium";
       let browser: Browser;
       try {
-        browser = isChromium
-          ? await chromium.launch({
-              ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-                ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-                : { channel: "chrome" }),
-              headless: true,
-            })
-          : await webkit.launch({ headless: true });
+        browser = isChromium ? await chromium.launch({ headless: true }) : await webkit.launch({ headless: true });
       } catch (error) {
         failed += 1;
         console.log(
