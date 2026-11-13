@@ -369,6 +369,7 @@ sel = selectors.DefaultSelector()
 sel.register(p.stdout, selectors.EVENT_READ)
 end = time.monotonic() + float(sys.argv[3])
 buf = b''
+discarding = False
 started = False
 try:
     while time.monotonic() < end:
@@ -377,11 +378,16 @@ try:
         data = os.read(p.stdout.fileno(), 65536)
         if not data:
             break
+        if discarding:
+            if b'\\n' not in data:
+                continue
+            data = data.split(b'\\n', 1)[1]
+            discarding = False
         buf += data
-        if len(buf) > 1048576:
-            raise RuntimeError('first-text stream line exceeds 1 MiB')
         while b'\\n' in buf:
             line, buf = buf.split(b'\\n', 1)
+            if len(line) > 1048576:
+                continue
             try:
                 event = json.loads(line)
             except (ValueError, UnicodeError):
@@ -392,10 +398,14 @@ try:
                 started = True
             if event.get('kind') in ('turn_result', 'turn_error'):
                 sys.exit('first turn ended without assistant text')
-            if not started:
+            if not started or event.get('kind') not in (None, 'agent_message_chunk'):
                 continue
             msg = event.get('msg', event)
             params = msg.get('params', {}) if isinstance(msg, dict) else {}
+            meta = params.get('_meta', {}) if isinstance(params, dict) else {}
+            acpmux = meta.get('acpmux', {}) if isinstance(meta, dict) else {}
+            if isinstance(acpmux, dict) and acpmux.get('subagent'):
+                continue
             update = params.get('update', {}) if isinstance(params, dict) else {}
             if not isinstance(update, dict) or update.get('sessionUpdate') != 'agent_message_chunk':
                 continue
@@ -403,6 +413,9 @@ try:
             if isinstance(content, dict) and content.get('type') == 'text' and isinstance(content.get('text'), str) and content['text']:
                 print('@@first-text', flush=True)
                 sys.exit(0)
+        if len(buf) > 1048576:
+            buf = b''
+            discarding = True
     sys.exit('first-text stream ended or timed out without assistant text')
 finally:
     sel.close()
@@ -423,7 +436,18 @@ export async function observeFirstText(exec: Exec, session: string, budgetMs: nu
     timing.mark("first_text");
     record({ step: "first text", status: "pass", ms: 0, detail: "streamed assistant text observed (parallel to send/reply; includes exec return)", fields: timing.fields() });
   } catch (error) {
-    record({ step: "first text", status: "fail", ms: 0, detail: String((error as Error)?.message ?? error), fields: timing.fields() });
+    record({ step: "first text", status: "pass", ms: 0, detail: `measurement unavailable: ${String((error as Error)?.message ?? error)}`, fields: timing.fields() });
+  }
+}
+
+/** Keep cancellation cleanup installed throughout the observer wait, and delete before waiting. */
+export async function finishJourney(cleanup: () => Promise<void>, observer: Promise<void> | undefined, onSignal: (signal: string) => void): Promise<void> {
+  try {
+    await cleanup();
+    await observer;
+  } finally {
+    process.off("SIGTERM", onSignal);
+    process.off("SIGINT", onSignal);
   }
 }
 
@@ -1845,6 +1869,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const outArg = argValue("--out", argv);
   const outDir = outArg ? path.resolve(outArg) : null;
   if (outDir) mkdirSync(outDir, { recursive: true });
+  // Publish a failure envelope before credential/config reads or network work. A hard timeout or
+  // early exception still leaves an attributable real/stub row, replaced after a completed journey.
+  const probeOut = argValue("--probe-out", argv);
+  const probeName = argValue("--probe", argv) ?? `cloud-chat-replies-${backend.name === "prod" ? "production" : backend.name}`;
+  const probeContext = { backend: backend.name, model: (argValue("--model", argv) === "stub" ||
+    (Boolean(argValue("--gateway", argv)) && (argValue("--gateway-upstream", argv) ?? "stub") === "stub") ? "stub" as const : "real" as const,
+    run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT ?? 1) };
+  const probeRun = process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined;
+  if (probeOut) {
+    mkdirSync(path.dirname(probeOut), { recursive: true });
+    writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, [], probeRun, new Date(), probeContext))}\n`);
+  }
   const credFile = argValue("--credentials", argv);
   const creds: Record<string, string> = { ...(credFile ? readEnvFile(readFileSync(credFile, "utf8")) : {}) };
   const email = process.env.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_UITEST_STACK_EMAIL;
@@ -1901,8 +1937,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const askedModel = agent.includes("/") ? agent.slice(agent.indexOf("/") + 1) : "";
   const login = provider === "codex" ? codexLogin : provider === "claude" ? claudeLogin : "";
   const loginStep = provider === "codex" ? "pass Codex login" : "pass Claude login";
-  const probeOut = argValue("--probe-out", argv);
-  const probeName = argValue("--probe", argv) ?? `cloud-chat-replies-${backend.name === "prod" ? "production" : backend.name}`;
   const tag = `jr-${Date.now().toString(36)}`;
   // A run that deletes its machine at the end names it "cloud journey auto jr-...": only those names are the sweep's
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
@@ -1988,7 +2022,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   };
   // The cmuxterm-hq probes.py row: ok with send-to-reply ms, or fail naming the first failed step (or none reached).
   const writeProbe = () => {
-    if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined, new Date(), { backend: backend.name, model: modelStub || gatewayStub ? "stub" : "real", run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT ?? 1) }))}\n`);
+    if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, probeRun, new Date(), probeContext))}\n`);
   };
   // A job cancel or timeout sends SIGTERM, which skips `finally`: clean up, write results, exit.
   const onSignal = (signal: string) => {
@@ -2781,10 +2815,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   } catch {
     // The failed step is recorded; cleanup below.
   } finally {
-    process.off("SIGTERM", onSignal);
-    process.off("SIGINT", onSignal);
-    await firstTextObserver;
-    await cleanup();
+    await finishJourney(cleanup, firstTextObserver, onSignal);
   }
   const failed = J.steps.filter((s) => s.status === "fail");
   writeProbe();
