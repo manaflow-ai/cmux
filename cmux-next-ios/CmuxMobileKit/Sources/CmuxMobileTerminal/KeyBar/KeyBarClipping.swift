@@ -1,3 +1,4 @@
+import CmuxMobileDesign
 import CoreGraphics
 
 /// Which keys of the key row's scroller are really on screen.
@@ -31,13 +32,14 @@ public struct KeyBarClipping: Sendable {
 /// The key row's leading fade (classic cmux iOS's edge fade): keys dissolve
 /// over `width` points as they reach the pinned keys. At rest nothing fades;
 /// the edge's alpha falls to 0 as the row scrolls its first `width` points.
+/// The same fade as every horizontal key row's (`ScrollEdgeFade`).
 public struct KeyRowFade: Sendable {
-    public static let width: CGFloat = 24
+    public static let width: CGFloat = ScrollEdgeFade.width
 
     public init() {}
 
     public func leadingEdgeAlpha(scrolled: CGFloat) -> Double {
-        Double(1 - min(1, max(0, scrolled / Self.width)))
+        ScrollEdgeFade().edgeAlpha(hidden: scrolled)
     }
 }
 

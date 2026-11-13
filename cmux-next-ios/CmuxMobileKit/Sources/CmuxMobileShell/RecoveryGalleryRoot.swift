@@ -1,4 +1,5 @@
 #if DEBUG && os(iOS)
+import CmuxMobileBrowserStream
 import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileTerminal
@@ -22,7 +23,9 @@ import SwiftUI
 /// - `chiefoff`: Home's "Chief Is Off" card (the Cloud Chief's brain is off, as every new
 ///   account's is): A, the one Home shows, in its four states (off, turning on, failed,
 ///   unavailable on this account), then the variants it was picked from, B and C;
-/// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots.
+/// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots;
+/// - `streamkeys`, `streamkeys-before`, `streamkeys-keyboard[-before]`: a streamed page's key bar
+///   and its edge fade (`StreamKeyBarGallery`: rows, rows with the fade off, above the keyboard).
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
@@ -55,6 +58,14 @@ public struct RecoveryGalleryRoot: View {
                 chiefOff
             case "signedout":
                 signedOut
+            case "streamkeys":
+                StreamKeyBarGallery(scene: "rows")
+            case "streamkeys-before":
+                StreamKeyBarGallery(scene: "before")
+            case "streamkeys-keyboard":
+                StreamKeyBarGallery(scene: "keyboard")
+            case "streamkeys-keyboard-before":
+                StreamKeyBarGallery(scene: "keyboard-before")
             case "cloudmachines":
                 NavigationStack { CloudMachinesScreen(model: .gallery(), openChats: {}) }
             default:
