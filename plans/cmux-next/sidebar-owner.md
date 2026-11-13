@@ -2177,3 +2177,7 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   `SidebarPaneGapTests.twoToneDrawsTheSidebarLineBesideTheCard`, `TwoToneWindowStyleTests`, `SidebarHoverCardSizeTests`.
   Sidebar-Look: Leo 2026-11-12, "in two-tone mode, it, like, the one between the sidebar and the transcript disappears
   for some reason" and "the hover previews for the sidebar are still just too big".
+- 2026-11-12 (ask-818bf85ca4, the flush tab row's corners): the hover card rows, their disclosure fill and the drag
+  ghost round on the rows' and tabs' curve (`Metrics.tabCornerCurve`, circular by default) instead of a hard-coded
+  continuous one, so every 8 pt row corner in and beside the sidebar is one shape. Leo, verbatim: "all corners
+  looking good". Sidebar-Look: the hover card rows and the drag ghost round as the rows do.

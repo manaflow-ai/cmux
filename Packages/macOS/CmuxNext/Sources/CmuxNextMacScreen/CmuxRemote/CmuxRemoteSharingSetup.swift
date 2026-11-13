@@ -40,7 +40,7 @@ struct CmuxRemoteSharingSetup {
                     await center.present(spec, in: .window(window)).button
                 }
                 return .success(["shared": .bool(shared)])
-            } catch { return .failure(ActionWorkFailure(String(describing: error))) }
+            } catch { return .failure(ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))) }
         })
     }
 

@@ -132,3 +132,23 @@ test("a compaction at a run's edge, or between two turns' runs, folds nothing", 
   ];
   expect(turnView(edge, new Set(), { agentFamily: "claude" }).some((r) => r.kind === "messageRun")).toBe(false);
 });
+
+for (const [name, fields] of [
+  ["image", { images: [{ id: "chart", name: "chart.png", mimeType: "image/png" }] }],
+  [
+    "inline file",
+    { inlineParts: [{ kind: "file", name: "report.pdf", uri: "file:///tmp/report.pdf", mimeType: "application/pdf" }] },
+  ],
+] satisfies [string, Partial<AcpmuxRow>][]) {
+  test(`an assistant ${name} with no text remains visible between opened command runs`, () => {
+    const attachment = row("assistant", { id: "attachment", text: "", ...fields });
+    for (const agentFamily of ["codex", "claude"]) {
+      const view = turnView(turn([attachment]), new Set(["worked-prompt"]), { agentFamily });
+      expect(view.find((entry) => entry.id === attachment.id)).toMatchObject(fields);
+      expect(runLines(view)).toHaveLength(2);
+      const ids = view.map((entry) => entry.id);
+      expect(ids.indexOf("attachment")).toBeGreaterThan(ids.indexOf("run-1"));
+      expect(ids.indexOf("attachment")).toBeLessThan(ids.indexOf("run-2"));
+    }
+  });
+}

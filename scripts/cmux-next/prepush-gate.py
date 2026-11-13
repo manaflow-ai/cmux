@@ -500,6 +500,29 @@ def log(message: str) -> None:
     print(message, file=sys.stderr)
 
 
+TOOL_INT_MAX_DIGITS = 4300
+
+
+class ToolOutputNoVerdict(ValueError):
+    """A numeric field from checker output was too large or malformed to parse safely."""
+
+
+def parse_tool_int(raw: str, context: str) -> int:
+    """Parse a decimal integer from tool output, refusing unbounded or malformed text."""
+    text = str(raw).strip()
+    digits = text[1:] if text[:1] in "+-" else text
+    if not digits or not digits.isascii() or not digits.isdecimal():
+        raise ToolOutputNoVerdict(f"{context}: expected a decimal integer, got {text[:80]!r}")
+    if len(digits) > TOOL_INT_MAX_DIGITS:
+        raise ToolOutputNoVerdict(f"{context}: integer has {len(digits)} digits (limit {TOOL_INT_MAX_DIGITS})")
+    return int(text)
+
+
+def absolute(path: Path) -> Path:
+    """Anchor a path before a checker launch changes its working directory, preserving symlinks."""
+    return Path(os.path.abspath(path))
+
+
 def load_sibling(name: str, filename: str):
     """The module FILENAME beside this file (scripts/cmux-next in a checkout; the hook folder for the installed copy)."""
     spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(filename))
@@ -862,7 +885,8 @@ def normalize(text: str, tree: Path) -> str:
     roots = [tree, tree / PKG, tree / PKG / "Sources", tree / PKG / "Tests", tree / "Packages"]
 
     def keyed(match: re.Match) -> str:
-        line = source_line(tree, roots, match.group("path"), int(match.group("line")))
+        line = source_line(tree, roots, match.group("path"),
+                           parse_tool_int(match.group("line"), "finding line"))
         return f"{match.group('path')}:«{line}»" if line is not None else match.group("path")
     parts = []
     last = 0
@@ -1141,8 +1165,9 @@ def resolve_rustfmt(env: dict[str, str], cwd: Path) -> Path | None:
     when there is none. rustfmt() runs exactly this file, so "is it there" and "what runs" are one lookup (#41945
     review: the probe read PATH=. and an empty entry from the gate's own folder while rustfmt ran in cmux-tui/), and
     a test that mocks the run mocks this too, with no real install."""
+    cwd = absolute(cwd)
     for folder in env.get("PATH", os.defpath).split(os.pathsep):
-        candidate = (cwd / folder) / "rustfmt"  # an absolute folder replaces CWD; "" and "." are CWD
+        candidate = absolute((cwd / folder) / "rustfmt")  # an absolute folder replaces CWD; "" and "." are CWD
         if candidate.is_file():
             return candidate
     return None
@@ -1156,6 +1181,7 @@ def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
     cmux-tui/), never installed for this check; with no rustfmt on PATH, or rustup's own answer that the pinned
     toolchain or its rustfmt is not installed, the layer warns and finds nothing; a rustfmt that will not start is no
     verdict. The tip's `cargo fmt --all --check` (cmux-tui-rust-check.sh fmt) stays the backstop."""
+    repo, config, tree = absolute(repo), absolute(config), absolute(tree)
     present = [p for p in rust if (tree / p).is_file()]
     if not present or not config.is_file():
         return ""
@@ -1279,7 +1305,7 @@ def _ratchet_rows(text: str, keys: tuple[int, ...], count: int) -> dict[tuple[st
         parts = line.split("\t")
         if line.startswith("#") or len(parts) <= max(*keys, count) or not parts[count].isdigit():
             continue
-        rows[tuple(parts[i] for i in keys)] = int(parts[count])
+        rows[tuple(parts[i] for i in keys)] = parse_tool_int(parts[count], "ratchet count")
     return rows
 
 
@@ -1635,6 +1661,7 @@ def unread_findings(code: int, lines: list[str], finding: re.Pattern[str]) -> st
 # its findings. Only these are dropped before the findings are read; any other `ui font:` line is output the gate did
 # not parse (#41945 review, F2: `ui font: could not read ...` with exit 0 was dropped and read as a clean run).
 UI_FONT_SUMMARY = re.compile(r"ui font: (?:ok|\d+ finding\(s\)\.(?: .*)?)")
+UI_FONT_COUNT = re.compile(r"ui font: (?:(?:ok)|(?P<count>\d+) finding\(s\)\.(?: .*)?)")
 
 
 # One line of a checker's `--inputs` answer: a repository path, a file (`a/b.json`) or a folder (`a/b/`), in plain
@@ -1698,8 +1725,16 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
 
         def findings(*args: str) -> tuple[list[str], str | None]:
             code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], Path(tmp), timeout=600)
+            summaries = [line.strip() for line in out.splitlines() if UI_FONT_SUMMARY.fullmatch(line.strip())]
             lines = [line for line in out.splitlines()
                      if line.strip() and not UI_FONT_SUMMARY.fullmatch(line.strip())]
+            count = UI_FONT_COUNT.fullmatch(summaries[-1]).group("count") if summaries else None
+            count = 0 if summaries and count is None and summaries[-1] == "ui font: ok" else (
+                parse_tool_int(count, "ui font summary count") if count is not None else None)
+            if code in (0, 1) and (len(summaries) != 1 or count is None or (code == 0 and count != 0)
+                                   or (code == 1 and count == 0)):
+                reason = f"summary disagrees with exit {code}: {summaries[-1] if summaries else 'missing'}"
+                return lines, reason
             # Its verdicts exit 0 or 1; anything else, a traceback or a timeout is no verdict, and so is an exit 1 that
             # prints no finding (only its `ui font:` summary), and output that is not its findings (#41888 review).
             # Its INPUTS guard stop is not a finding either; it refuses on its own below.
@@ -1865,7 +1900,7 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
             name = line[6:] if line.startswith("+++ b/") else ""
         elif line.startswith("@@"):
             match = re.search(r"\+(\d+)", line)
-            number = int(match.group(1)) if match else 0
+            number = parse_tool_int(match.group(1), "diff hunk line") if match else 0
         elif line.startswith("+") and name:
             text = line[1:]
             if CONFLICT_OPEN.match(text) or CONFLICT_CLOSE.match(text):
@@ -3012,7 +3047,7 @@ def stale_hook_warning(repo: Path, trusted_scripts: Path) -> None:
             i = nl + 1
             if len(header) < 3 or header[1] not in (b"blob", b"tree"):
                 continue
-            size = int(header[2])
+            size = parse_tool_int(header[2].decode(errors="replace"), "git cat-file size")
             theirs = out[i:i + size]
             i += size + 1
             if header[1] == b"tree":
@@ -3135,7 +3170,8 @@ def advisory_arch(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], list
         sites = [m for m in (ARCH_SITE.match(line) for line in lines[1:]) if m]
         for m in sites:
             found.append(AdvisoryFinding(ADVISORY_ARCH, _repo_path(repo, m.group("path")),
-                                         int(m.group("line")) if m.group("line") else None, f"[{row}]",
+                                         parse_tool_int(m.group("line"), "arch advisory line") if m.group("line") else None,
+                                         f"[{row}]",
                                          f"{title}: {m.group('text').strip()}"))
         if not sites:
             found.append(AdvisoryFinding(ADVISORY_ARCH, None, None, f"[{row}]", text))
@@ -3173,7 +3209,7 @@ def _record_findings(layer: str, repo: Path, found: list[tuple[str, list[str]]])
             first = str(record).splitlines()[0] if str(record) else ""
             at = LOCATION.match(first)
             if at:
-                path, line = at.group("path"), int(at.group("line"))
+                path, line = at.group("path"), parse_tool_int(at.group("line"), "advisory finding line")
             else:
                 path, line = (first.partition(": ")[0] or None), None
             out.append(AdvisoryFinding(layer, _repo_path(repo, path) if path else None, line, name, str(record)))
@@ -3332,7 +3368,7 @@ def advisory_finish(started, summary: str | None, seconds: float) -> None:
                    "unchanged.", flush=True)
 
 
-def main(argv: list[str] | None = None) -> int:
+def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", default=None)
     parser.add_argument("--base")
@@ -3527,6 +3563,14 @@ def main(argv: list[str] | None = None) -> int:
     return 1
 
 
+def main(argv: list[str] | None = None) -> int:
+    try:
+        return _main(argv)
+    except ToolOutputNoVerdict as error:
+        print(f"prepush-gate: no verdict: {error}")
+        return 1
+
+
 GATE_LIMIT_SECONDS = 600.0  # a whole gate takes under a minute; a hang (a786, a796, a808: 28-30 min) refuses here
 
 
@@ -3540,7 +3584,7 @@ def _descendants(pid: int) -> list[int]:
     for row in rows.splitlines():
         parts = row.split()
         if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
-            kids[int(parts[1])].append(int(parts[0]))
+            kids[parse_tool_int(parts[1], "process parent PID")].append(parse_tool_int(parts[0], "process PID"))
     out, todo = [], [pid]
     while todo:
         for kid in kids.get(todo.pop(), []):

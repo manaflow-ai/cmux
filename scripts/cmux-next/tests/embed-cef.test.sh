@@ -6,7 +6,8 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/scripts" "$TMP/build/app.app/Contents/Frameworks"
-cp "$ROOT/scripts/cmux-next/embed-cef.sh" "$ROOT/scripts/cmux-next/cef-locale-allowlist.sh" "$ROOT/scripts/cmux-next/bundle-ublock.sh" "$TMP/scripts/"
+cp "$ROOT/scripts/cmux-next/embed-cef.sh" "$ROOT/scripts/cmux-next/cef-locale-allowlist.sh" "$ROOT/scripts/cmux-next/bundle-ublock.sh" \
+  "$ROOT/scripts/cmux-next/cef-pak-drop.py" "$TMP/scripts/"
 cat > "$TMP/scripts/ensure-cef.sh" <<'STUB'
 #!/usr/bin/env bash
 echo "stub ensure-cef args=[$*]" >&2
@@ -34,6 +35,18 @@ else
   dist="$TMP/dist"; fw="$dist/Chromium Embedded Framework.framework"
   mkdir -p "$fw/Libraries" "$fw/Resources" "$TMP/cache" "$TMP/bin"
   : > "$fw/Chromium Embedded Framework"
+  # resources.pak (format 5) with one intro sound and one other resource; the
+  # artifact's header names the sound, so the embedded pak keeps only the other.
+  mkdir -p "$dist/include"
+  printf '#define IDR_INTRO_SOUND_LOGO_FLAC 7\n' > "$dist/include/cef_pack_resources.h"
+  /usr/bin/python3 -c 'import struct, sys
+data = [(7, b"fLaC-sound"), (8, b"kept")]
+off = 12 + 6 * 3
+out = struct.pack("<IB3xHH", 5, 1, 2, 0)
+for rid, body in data:
+    out += struct.pack("<HI", rid, off); off += len(body)
+out += struct.pack("<HI", 0, off) + b"".join(b for _, b in data)
+open(sys.argv[1], "wb").write(out)' "$fw/Resources/resources.pak"
   printf 'static int hidden_helper(int x) { return x * 3; }\nint vk_icdGetInstanceProcAddr(int x) { return hidden_helper(x); }\n' > "$TMP/lib.c"
   if [[ "$(uname)" == Darwin ]]; then
     cc -g -dynamiclib -o "$fw/Libraries/libvk_swiftshader.dylib" "$TMP/lib.c"
@@ -59,6 +72,10 @@ STUB
     PRODUCT_NAME=app PRODUCT_BUNDLE_IDENTIFIER=test.app DERIVED_FILE_DIR="$TMP/derived" CMUX_NEXT_SKIP_UBLOCK=1 \
     /bin/bash "$TMP/scripts/embed-cef.sh" 2>&1) || { printf 'embed-cef.sh failed:\n%s\n' "$out" >&2; exit 1; }
   lib="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Libraries/libvk_swiftshader.dylib"
+  pak="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources/resources.pak"
+  if grep -q 'fLaC-sound' "$pak" || ! grep -q kept "$pak"; then
+    echo 'embedded resources.pak still has the intro sound, or lost the other resource' >&2; exit 1
+  fi
   syms=$(nm -a "$lib")
   grep -qE ' T _?vk_icdGetInstanceProcAddr$' <<<"$syms" || { printf 'the exported symbol is gone:\n%s\n' "$syms" >&2; exit 1; }
   # Apple's strip leaves one marker stab (radr://5614542) that says the file was stripped.

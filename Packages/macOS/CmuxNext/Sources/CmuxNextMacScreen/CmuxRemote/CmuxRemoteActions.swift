@@ -37,7 +37,7 @@ extension CmuxRemoteActionEnvironment {
             _ = registry.bindEffect(id, unavailable: { remote.started ? nil : CmuxRemoteStrings.unavailable }, effect: { _ in
                 // action-wait-allow: the request runs in cmux Remote, another process; it shows its own prompt or restarts a worker.
                 .waiting(.externalProcess) {
-                    do { _ = try await remote.call(method, params) } catch { return ActionWorkFailure(String(describing: error)) }
+                    do { _ = try await remote.call(method, params) } catch { return ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error)) }
                     return nil
                 }
             })
@@ -69,7 +69,7 @@ extension CmuxRemoteActionEnvironment {
             environment.screenHost.stopSession(reason: .hostStopped, immediately: true)
             return .applied(result: {
                 do { try await environment.screenHost.setSharing(false) }
-                catch { return .failure(ActionWorkFailure(String(describing: error))) }
+                catch { return .failure(ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))) }
                 return .success([:])
             })
         })
