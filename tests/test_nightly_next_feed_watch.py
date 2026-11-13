@@ -901,6 +901,29 @@ class UnstartedRunTests(unittest.TestCase):
                 if head == other:
                     self.assertEqual(gh.compared, [f"/compare/{self.TIP}...{other}"])
 
+    def test_a_started_nightly_next_push_build_of_an_older_commit_holds_the_dispatch(self):
+        """ask-4f5b99b22b: nightly-next pushes share one concurrency group, so a dispatch beside an older
+        commit's running push build only got the run waiting on that group cancelled. A dispatch, a
+        resume and a stuck push run still do not hold it."""
+        running = [live_job("mac_build_done", status="in_progress", conclusion=None, completed_at=None)]
+        stuck = [live_job("queued_deltas", created_at=at(0.5), started_at=at(0.5))]
+        older = "d" * 40
+        for changes, jobs, blocks in (({}, running, True),
+                                      ({"event": "workflow_dispatch"}, running, False),
+                                      ({"display_title": "Resume nightly-next run 1 attempt 1"}, running, False),
+                                      ({"run_minutes_ago": 30}, stuck, False)):
+            with self.subTest(changes=changes, started=jobs is running):
+                minutes = changes.pop("run_minutes_ago", 2)
+                run = dict(self.live(run_minutes_ago=minutes, status="in_progress"), head_sha=older, **changes)
+                gh = self.Flows(self, {("nightly.yml", "nightly-next"): [run]}, jobs, compare={older: "behind"})
+                answer = watch.starvation_dispatch(
+                    gh, NOW, feed=NOW - dt.timedelta(minutes=45), published_sha="", branch="feat-cmux-next",
+                    workflow="nightly-next-tick.yml", ref="main", minutes=watch.NEXT_STARVATION_MINUTES,
+                    active_workflows=watch.next_delivery_workflows(""),
+                    carries=lambda run, tip, landed: watch.next_holds_dispatch(gh, run, tip, landed))
+                self.assertEqual(answer.startswith("running "), blocks, answer)
+        self.assertIn("carries=lambda run, tip, landed: next_holds_dispatch(", SCRIPT.read_text(encoding="utf-8"))
+
     def test_cmux_next_is_dispatched_after_twenty_minutes(self):
         """The rolling rule: 20 minutes, checked every 10, so the tip is asked for within 30."""
         self.assertEqual(watch.NEXT_STARVATION_MINUTES, 20.0)
