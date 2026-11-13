@@ -158,10 +158,10 @@ fn longest(value: &mut Value) -> Option<&mut String> {
         Value::Object(values) => values
             .iter_mut()
             .filter_map(|(key, value)| {
-                if shrinkable(key) {
-                    if let Value::String(text) = value {
-                        return (text.chars().count() > 1).then_some(text);
-                    }
+                if shrinkable(key)
+                    && let Value::String(text) = value
+                {
+                    return (text.chars().count() > 1).then_some(text);
                 }
                 longest(value)
             })
@@ -307,7 +307,8 @@ mod tests {
         meta["lastPrompt"] = Value::from("p".repeat(100_000));
         meta["preview"] = Value::from("v".repeat(100_000));
         if secret {
-            meta["title"] = Value::from(format!("token ghp_{}", "a".repeat(36)));
+            meta["title"] =
+                Value::from(format!("token gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234"));
         }
         store.save(&serde_json::from_value(meta).unwrap()).unwrap();
         let hub = Hub::new(config, store);
