@@ -47,6 +47,9 @@ pub struct AttachParams {
     pub session_id: String,
     /// Wait for restart-time log restoration before answering; false serves the page immediately.
     pub wait_logs: Option<bool>,
+    /// Answer from the chat's settled view first (`settled-attach-v1`,
+    /// `server/requests/settled_attach.rs`): a read, falling back to a plain page.
+    pub settled: Option<bool>,
     pub kinds: Option<EventKinds>,
     /// Send every matching record as `_acpmux/event`; else the agent's
     /// updates arrive as ACP `session/update` and acpmux's own as
