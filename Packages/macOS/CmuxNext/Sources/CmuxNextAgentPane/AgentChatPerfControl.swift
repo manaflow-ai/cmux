@@ -71,7 +71,9 @@ public struct AgentChatPerfControl: Sendable {
         // A hidden page the app froze runs no script, and any call would thaw it first: measuring
         // must not wake it, and a frozen page has no frames to report.
         guard !view.pageIsFrozen else { throw ControlError(code: "unavailable", message: Text.pageAsleep) }
-        let result = try await view.callPageScript(script, arguments: ["seconds": seconds])
+        // The capture awaits for `seconds` on purpose: Chromium's DevTools call would give up after
+        // its 5 s default, so it gets the capture's length and a margin (the control's own limit is +15 s).
+        let result = try await view.callPageScript(script, arguments: ["seconds": seconds], timeout: .seconds(seconds + 10))
         guard let text = result as? String, case .object(var report)? = try? JSONValue.parse(Data(text.utf8)) else {
             throw ControlError(code: "unavailable", message: Text.noCapture)
         }

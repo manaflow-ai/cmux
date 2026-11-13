@@ -51,5 +51,71 @@
         "**/*.swiftmodule"
       ]
     }
+  },
+  "pull_request": {
+    "about": "The budget of one change (scripts/cmux-next/bundle-size-pr.py, workflow cmux-next-size-budget.yml): a pull request that grows the shipped files plus the built web bundles by more than threshold_bytes, or links a new crate into a shipped Rust binary, fails unless its body has a line `size: <reason>`. tree_paths are committed paths the app copies in (Assets.xcassets is source that actool compiles into Resources/Assets.car: a stand-in for the car's growth); web_outputs are build-web-bundles.sh outputs (relative to --out-root); rust lists each shipped binary's lockfile and root packages. Attribution and cuts: cmuxterm-hq docs/perf/bundle-size.md.",
+    "threshold_bytes": 102400,
+    "tree_paths": [
+      "Resources",
+      "Packages/macOS/CmuxNext/Sources/*/Resources",
+      "Packages/macOS/*/Sources/*/Resources",
+      "Assets.xcassets"
+    ],
+    "web_outputs": [
+      "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane",
+      "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages",
+      "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity",
+      "Resources/markdown-viewer/webviews-app",
+      "Native/OptChat/optchat-chief/inspector"
+    ],
+    "rust": [
+      {
+        "lockfile": "cmux-tui/Cargo.lock",
+        "roots": [
+          "acpmux",
+          "cmux-tui",
+          "cmux-browser-host",
+          "cmux-cloud-cli",
+          "cmux-app-host",
+          "cmux-holder"
+        ]
+      },
+      {
+        "lockfile": "cmux-tui/crates/cmux-app-ffi/Cargo.lock",
+        "roots": [
+          "cmux-app-ffi"
+        ]
+      },
+      {
+        "lockfile": "cmux-tui/crates/cmux-remote-browser-host/Cargo.lock",
+        "roots": [
+          "cmux-remote-browser-host"
+        ]
+      },
+      {
+        "lockfile": "cmux-next-ios/rust/Cargo.lock",
+        "roots": [
+          "cmux-mobile-host"
+        ]
+      },
+      {
+        "lockfile": "Native/OptChat/optchat-chief/Cargo.lock",
+        "roots": [
+          "optchat-chief"
+        ]
+      },
+      {
+        "lockfile": "Native/DiffSidecar/Cargo.lock",
+        "roots": [
+          "cmux-diff-sidecar"
+        ]
+      },
+      {
+        "lockfile": "cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.lock",
+        "roots": [
+          "cmux-agent-screen-detection"
+        ]
+      }
+    ]
   }
 }

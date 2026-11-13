@@ -45,6 +45,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use cmux_json::JsonGet as _;
 use cmux_server_core::install_key::{InstallKey, SystemRandom};
 use cmux_server_core::pairing::native::mesh_proof;
 use ring::rand::SecureRandom as _;
@@ -133,10 +134,6 @@ fn wg_key_text(value: &str) -> bool {
         && STANDARD.decode(value).is_ok_and(|bytes| bytes.len() == 32)
 }
 
-fn text<'a>(value: &'a Value, name: &str) -> Option<&'a str> {
-    value.get(name)?.as_str().filter(|s| !s.is_empty())
-}
-
 /// A non-empty route list whose every entry is safe in the config.
 fn routes(value: &Value) -> Option<Vec<String>> {
     let routes: Vec<String> = value
@@ -157,15 +154,20 @@ impl DeviceTunnel {
     pub(crate) fn from_attach(body: &Value) -> Option<Self> {
         let config = body.get("client_config").filter(|c| c.is_object())?;
         let tunnel = Self {
-            tunnel_id: text(body, "tunnel_id")?.to_owned(),
-            device_id: text(body, "device_id").filter(|d| d.starts_with("dev_"))?.to_owned(),
-            mesh_id: text(body, "mesh_id")?.to_owned(),
-            address_v4: text(body, "address_v4").map(str::to_owned),
-            server_public_key: text(body, "server_public_key")
+            tunnel_id: body.get_nonempty_str("tunnel_id")?.to_owned(),
+            device_id: body
+                .get_nonempty_str("device_id")
+                .filter(|d| d.starts_with("dev_"))?
+                .to_owned(),
+            mesh_id: body.get_nonempty_str("mesh_id")?.to_owned(),
+            address_v4: body.get_nonempty_str("address_v4").map(str::to_owned),
+            server_public_key: body
+                .get_nonempty_str("server_public_key")
                 .filter(|k| wg_key_text(k))?
                 .to_owned(),
-            endpoint: text(config, "endpoint").filter(|e| config_safe(e))?.to_owned(),
-            interface_address: text(config, "interface_address")
+            endpoint: config.get_nonempty_str("endpoint").filter(|e| config_safe(e))?.to_owned(),
+            interface_address: config
+                .get_nonempty_str("interface_address")
                 .filter(|a| config_safe(a))?
                 .to_owned(),
             allowed_ips: routes(config.get("allowed_ips")?)?,
@@ -173,7 +175,8 @@ impl DeviceTunnel {
             persistent_keepalive_seconds: small(config, "persistent_keepalive_seconds", 0, 3600)?,
             // An origin that is not a bare https one (or loopback http) is
             // ignored: the derived origin serves instead.
-            vm_api_origin: text(body, "vm_api_origin")
+            vm_api_origin: body
+                .get_nonempty_str("vm_api_origin")
                 .and_then(|origin| crate::cli::secure_cloud_origin(origin).ok()),
         };
         Some(tunnel)
@@ -185,21 +188,25 @@ impl DeviceTunnel {
     /// read has no `allowedIps`. `None` when the read names another device
     /// or a field is not safe.
     pub(crate) fn refreshed(&self, body: &Value) -> Option<Self> {
-        if text(body, "deviceId") != Some(self.device_id.as_str()) {
+        if body.get_nonempty_str("deviceId") != Some(self.device_id.as_str()) {
             return None;
         }
-        let host = text(body, "endpointHost").filter(|h| config_safe(h))?;
+        let host = body.get_nonempty_str("endpointHost").filter(|h| config_safe(h))?;
         let port = small(body, "endpointPort", 1, 65535)?;
         let endpoint =
             if host.contains(':') { format!("[{host}]:{port}") } else { format!("{host}:{port}") };
         Some(Self {
-            tunnel_id: text(body, "id")?.to_owned(),
+            tunnel_id: body.get_nonempty_str("id")?.to_owned(),
             device_id: self.device_id.clone(),
-            mesh_id: text(body, "meshId")?.to_owned(),
-            address_v4: text(body, "meshAddress").map(str::to_owned),
-            server_public_key: text(body, "serverPublicKey").filter(|k| wg_key_text(k))?.to_owned(),
+            mesh_id: body.get_nonempty_str("meshId")?.to_owned(),
+            address_v4: body.get_nonempty_str("meshAddress").map(str::to_owned),
+            server_public_key: body
+                .get_nonempty_str("serverPublicKey")
+                .filter(|k| wg_key_text(k))?
+                .to_owned(),
             endpoint,
-            interface_address: text(body, "interfaceAddress")
+            interface_address: body
+                .get_nonempty_str("interfaceAddress")
                 .filter(|a| config_safe(a))?
                 .to_owned(),
             allowed_ips: match body.get("allowedIps").filter(|ips| !ips.is_null()) {
@@ -558,7 +565,7 @@ async fn attach(plan: &TunnelPlan, identity: &TunnelIdentity) -> Result<DeviceTu
     if status != 200 {
         return Err(attach_miss(status, &body));
     }
-    let Some(mesh) = text(&body, "mesh_id") else {
+    let Some(mesh) = body.get_nonempty_str("mesh_id") else {
         return Err(Miss::NoMesh(NO_MESH.into()));
     };
     let wg = identity.wg_public();
@@ -573,7 +580,7 @@ async fn attach(plan: &TunnelPlan, identity: &TunnelIdentity) -> Result<DeviceTu
     if status != 200 {
         return Err(attach_miss(status, &body));
     }
-    if text(&body, "client_public_key").is_some_and(|key| key != wg) {
+    if body.get_nonempty_str("client_public_key").is_some_and(|key| key != wg) {
         return Err(Miss::Reattach("attach answered another key".into()));
     }
     DeviceTunnel::from_attach(&body).ok_or_else(|| Miss::Fatal("attach answered no tunnel".into()))

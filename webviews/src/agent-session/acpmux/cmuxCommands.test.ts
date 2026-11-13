@@ -22,6 +22,7 @@ test("status is available before harness commands and stays cmux-owned", () => {
     "cd",
     "resume",
     "login",
+    "customize",
     "compact",
     // Not advertised by this harness: cmux's passthrough fallback, after the harness's own.
     "clear",
@@ -145,4 +146,31 @@ test("a Claude skill named like a cmux command stays in the list, and mid-prompt
   expect(
     slashMatches(commands, { query: "pla", length: 4, leading: false }).map((match) => match.command.source),
   ).toEqual(["skill"]);
+});
+
+test("/customize is cmux's own everywhere but a Cloud chat, whose machine is not this one", () => {
+  const command = composerCommand("/customize make the sidebar compact", "claude");
+  expect(command).toMatchObject({ kind: "cmux", command: { action: "customize" }, args: "make the sidebar compact" });
+  if (command?.kind !== "cmux") throw new Error("not cmux's");
+  const state = {
+    summary: true,
+    forkable: false,
+    sideAvailable: false,
+    canContinue: false,
+    sideSessions: false,
+    session: true,
+    isSideSession: false,
+    targets: [],
+  };
+  expect(cmuxCommandRefusal(command.command, command.args, state)).toBeUndefined();
+  expect(cmuxCommandRefusal(command.command, command.args, { ...state, inCloud: true })).toBe(
+    "composer.cmuxCustomizeHere",
+  );
+  // New Tab with Cloud picked: no chat exists yet, so there is no host to read (`inCloud` is
+  // false), and the chat this starts is not on this machine.
+  const newTab = { ...state, summary: false, session: false, newTab: true, inCloud: false };
+  expect(cmuxCommandRefusal(command.command, command.args, newTab)).toBeUndefined();
+  expect(cmuxCommandRefusal(command.command, command.args, { ...newTab, startsElsewhere: true })).toBe(
+    "composer.cmuxCustomizeHere",
+  );
 });

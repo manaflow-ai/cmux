@@ -21,7 +21,7 @@ open_right() {
   local where r
   where=$(right_pane)
   if [ "$where" = split ]; then
-    r=$(j pane "$me_pane" split --right --viewport-width 0.5)
+    r=$(j pane "$me_pane" split --right --fit)
   else
     r=$(j tab create terminal --pane "${where#new-tab }")
   fi

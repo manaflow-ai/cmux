@@ -60,12 +60,20 @@ from urllib.request import urlopen
 
 # Each line of `gh run view --log` or of the job-logs endpoint starts with its time.
 STAMP = re.compile(r"^(?:[^\t]*\t[^\t]*\t)?﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
+# Every line boundary of a log: exactly what str.splitlines() splits on (\r\n is \r then \n), the split every reader
+# of lines uses (test_reds.py's log_lines, lines_of and unjudged; failed_steps_log.py's lines_of and step_owners). No
+# escape spans one. test_reds.py and failed_steps_log.py each hold this block, byte for byte: readers elsewhere load
+# test_reds.py alone, and failed_steps_log.py is vendored whole. tests/test_base_red_excuse.py's SingleSourceLogReader
+# fails when the two differ.
+LINE_BOUNDARIES = "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"
 # A terminal escape: a CSI sequence (colour, cursor) or an OSC one (a hyperlink, a title), as base_red_excuse reads them.
-# An OSC ends at its FIRST terminator (BEL or ST, `ESC \\`), another escape or the line's end, whichever comes first:
+# An OSC ends at its FIRST terminator (BEL or ST, `ESC \\`), another escape or a line boundary, whichever comes first:
 # a body that ran to the log's last ST deleted every line between two titles, a new failure with them, and the judge
-# excused it (cmux#41382's review F1). One opened on a line and closed on a later one is cut at each line's end, its
-# stray BEL or ST removed on its own, so no escape spans a line: its title text stays, never a failure line goes.
-ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b\n]*(?:\x07|\x1b\\)?|\\)|\x07")
+# excused it (cmux#41382's review F1); one that ran across a bare CR deleted the failure line splitlines() puts after
+# it (#41390's review F1). One opened on a line and closed on a later one is cut at each line's end, its stray BEL or
+# ST removed on its own, so no escape spans a line: its title text stays, never a failure line goes. A CSI's bytes
+# (0x20-0x7E) hold no boundary.
+ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b" + LINE_BOUNDARIES + r"]*(?:\x07|\x1b\\)?|\\)|\x07")
 
 FAILED = (
     # Swift Testing: `name()`, or a display name (`@Test("A capped plan …")` prints `✘ Test "A capped plan …"`).
