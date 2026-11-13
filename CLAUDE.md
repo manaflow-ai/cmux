@@ -264,8 +264,8 @@ nightly-only labels). This applies to humans, Leo and every agent:
 - Keep branches current locally with `scripts/merge-main.sh`; follow
   [the merge-main guide](docs/ci/merge-main.md) and never force-push over its merge.
 - `gh pr merge` saying "base branch policy prohibits the merge" means the token lacks the `workflow`
-  scope or GitHub timed out, not a rule: run `gh auth refresh -h github.com -s workflow`, or merge with
-  `gh api -X PUT repos/OWNER/REPO/pulls/N/merge -f merge_method=squash -f sha=SHA`, which names the cause. Never `--admin`.
+  scope or GitHub timed out, not a rule: run `gh auth refresh -h github.com -s workflow` and retry once. If
+  GitHub still refuses, say so on the PR and stop. Never `--admin` or the API merge path.
 - A first implementation pass ends with passed scoped verification and an open PR;
   do not watch CI or run speculative reviews by default.
 - Never hand-edit or hand-merge generated files (`settings-schema.json`,
@@ -292,7 +292,8 @@ nightly-only labels). This applies to humans, Leo and every agent:
   user-visible high-tier behavior behind a default-off setting; revert with
   `gh-merge-green --revert` if it breaks nightly-next and the fix misses the next cut. Agents never
   add `risk:human-ok` or `risk:waived`.
-- Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
+- Before opening a PR and before merging, check it against "In a cmux PR: what review keeps catching" in the private
+  [before-you-ship checklist](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/before-you-ship.md),
   the mistakes our review history keeps catching.
 - Before designing a change or fixing a bug, read [design-lessons.md](docs/cmux-next/design-lessons.md):
   the causes our fix history keeps repeating, each with its rule and cost.
@@ -302,7 +303,7 @@ nightly-only labels). This applies to humans, Leo and every agent:
   its review from a different model or a person. Disclose skipped verification on the PR.
   `main` is nightly: fix forward, do not revert.
 - On either branch, a PR merges when its independent review (above) passes and it causes no
-  red of its own; base reds, flakes and pending checks don't hold it. Don't wait for a person.
+  red of its own; base reds and flakes don't hold it, a check still running does. Don't wait for a person.
   Ship risky user-visible behavior behind a setting or Debug toggle and fix a bad default in the
   next nightly. Only the `risk:high` tier, the take-back hold (above), a `HOLD:` line or hold label, and
   merge freezes hold a reviewed PR. On `main`, `gh-merge-green` still waits for the checks it requires; never get around it
@@ -321,7 +322,7 @@ nightly-only labels). This applies to humans, Leo and every agent:
   results. Gallery captures and full webview sweeps are advisory
   ([check progression](docs/contributor-verification.md#pr-check-progression)).
 - **Into `feat-cmux-next`, a PR lands when it is reviewed and causes no red of its own.** Base
-  findings (above), flakes and pending checks never hold it; fixes found later go in follow-ups.
+  findings (above) and flakes never hold it, but nothing lands while its checks still run; fixes found later go in follow-ups.
   When your review passes (and the risk tier's evidence is in the description), merge it
   yourself with a squash pinned to the reviewed head
   (`gh pr merge N --squash --match-head-commit <full head sha>`). A `HOLD:` line in the description or a hold label keeps a reviewed PR from
@@ -332,7 +333,9 @@ nightly-only labels). This applies to humans, Leo and every agent:
   and merge only on exit 0 (1 is frozen, 2 is unknown, which counts as frozen). Don't wait for, rerun or fix base
   reds in your PR; a red it causes keeps it out until you fix it. Don't merge with
   `gh-merge-green` here (`--revert` still works), and never with `--admin`.
-- **Into `main`, the normal merge path is `gh-merge-green`** and main's rulesets. It refuses a PR
+- **Agents don't merge into `main`.** `merge_hold` refuses a PR into `main` unless Leo approved it by name
+  at its exact head (or it only changes CI data files, or a core-team member wrote it); that PR merges through
+  `gh-merge-green` and main's rulesets. `gh-merge-green` refuses a PR
   that touches a path an open `merge-freeze` issue freezes, or when the freeze state can't be read;
   only the freeze owner's `freeze-ok` label lets that PR through ([merge freezes](docs/ci/merge-freeze.md)).
 
