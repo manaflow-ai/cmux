@@ -25,7 +25,29 @@ export function holdFirstPaint(
   );
   const gate = Promise.race([settled, limit]).finally(() => clearTimeout(timer));
   target[PAINT_AFTER_NAME] = gate;
+  void gate.then(() => {
+    shown = true;
+    for (const listener of shownListeners.splice(0)) listener();
+  });
   return gate;
+}
+
+let shown = false;
+const shownListeners: (() => void)[] = [];
+
+/** Calls `listener` once the page's first frame report is released (at once if it already was): from
+    then on the reader sees the page, so a change after it is one they watch happen. A pooled page's
+    report is released only after the host's claim. */
+export function whenPageShown(listener: () => void): () => void {
+  if (shown) {
+    listener();
+    return () => undefined;
+  }
+  shownListeners.push(listener);
+  return () => {
+    const index = shownListeners.indexOf(listener);
+    if (index >= 0) shownListeners.splice(index, 1);
+  };
 }
 
 /** Where a pooled page leaves its first screen for the host's claim (`holdPaintUntil`). */

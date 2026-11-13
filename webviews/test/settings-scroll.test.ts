@@ -112,6 +112,18 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
     // frames in a row show the same rows at the same places.
     await page.evaluate(async () => {
       await document.fonts.ready;
+      // A category picked after the first fades in with a small slide (layout.css settings-enter):
+      // while it plays, a row's offsetTop is measured from its sliding section. Wait for it, so the
+      // rows are watched at rest, not mid-entrance.
+      const finite = () =>
+        document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          );
+      for (let moving = finite(); moving.length > 0; moving = finite())
+        await Promise.allSettled(moving.map((animation) => animation.finished));
       const state = window as unknown as { wheels: number };
       state.wheels = 0;
       addEventListener("wheel", () => (state.wheels += 1), { capture: true, passive: true });
@@ -123,7 +135,7 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
         let same = 0;
         window.cmuxAfterPaint(() => {
           const now = layout();
-          same = now === last ? same + 1 : 0;
+          same = now === last && finite().length === 0 ? same + 1 : 0;
           last = now;
           if (same < 2) return true;
           resolve();

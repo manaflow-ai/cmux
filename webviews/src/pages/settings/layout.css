@@ -1021,6 +1021,12 @@
   animation: settings-enter var(--motion-in) var(--motion-ease) backwards;
 }
 
+/* The category the page opens on draws still (SettingsApp `data-section-switched`): the open's
+   first shown frame is the settled page, never a fade or a 4 px slide (settings-open-frames). */
+.settings:not([data-section-switched]) .section {
+  animation: none;
+}
+
 /* Inline override notes, MDM locks and section badges arrive, not appear. */
 .row-note,
 .row-managed,

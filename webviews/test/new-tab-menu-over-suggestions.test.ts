@@ -81,18 +81,25 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
         const rows = [...menu.querySelectorAll<HTMLElement>(rowSelector)];
         const overlapping = rows.flatMap((row) => {
           const box = row.getBoundingClientRect();
-          // Columns scroll independently: only the part of a row inside its column is painted.
-          const column = row.closest(".acpmux-cols-list")?.getBoundingClientRect();
+          // Columns scroll independently: only the part of a row inside its column's scroller is
+          // painted. The effort levels scroll inside .acpmux-cols-tune-scroll, between the Reasoning
+          // heading and Fast (#41212), so a level row's painted part ends above Fast.
+          const column = row.closest(".acpmux-cols-tune-scroll, .acpmux-cols-list")?.getBoundingClientRect();
           const top = Math.max(box.top, column?.top ?? box.top, suggestions.top);
           const bottom = Math.min(box.bottom, column?.bottom ?? box.bottom, suggestions.bottom);
           const left = Math.max(box.left, column?.left ?? box.left, suggestions.left);
           const right = Math.min(box.right, column?.right ?? box.right, suggestions.right);
           return bottom > top && right > left ? [{ row, x: (left + right) / 2, y: (top + bottom) / 2 }] : [];
         });
+        // A press must reach the menu, never a suggestion (Leo 10-15). Where only a sliver of a row's
+        // edge lies over the suggestions, its neighbour's box can share that sliver: the press still
+        // lands on the menu.
         const misses = overlapping
           .map(({ row, x, y }) => {
             const hit = document.elementFromPoint(x, y);
-            return row.contains(hit) ? null : `${row.textContent?.trim().slice(0, 24)} -> ${hit?.className}`;
+            return menu.contains(hit)
+              ? null
+              : `${row.textContent?.trim().slice(0, 24)} -> ${hit?.className} (${hit?.textContent?.trim().slice(0, 24)})`;
           })
           .filter(Boolean);
         return { overlapping: overlapping.length, misses };
