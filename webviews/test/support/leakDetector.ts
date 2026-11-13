@@ -32,8 +32,9 @@
 //
 // Failures name what was left and where. Module state and timers are a ratchet, since most files
 // leave a cache or counter behind today: test/support/leak-baseline.json lists what each file leaves,
-// and a file fails only when it leaves more than its baseline, naming the new items. A file that
-// leaves fewer prints a line asking to lower its baseline (`bun scripts/leak-baseline.ts FILE`, which
+// and a file fails when it leaves any item its baseline does not list, naming each (compared by
+// identity, so a fixed leak never pays for a new one). A listed item the file no longer leaves is
+// named as stale, asking to lower its baseline (`bun scripts/leak-baseline.ts FILE`, which
 // can only lower counts; raising one is a hand edit to the JSON). Each process prints its total
 // (`agent-session leaks: N (baseline B) in F test files`). What a file leaves can depend on the files
 // run before it in one process; such items carry " (with other files)" in the baseline and count
@@ -87,8 +88,16 @@ function isContainer(value: unknown): value is Map<unknown, unknown> | Set<unkno
   return value instanceof Map || value instanceof Set || Array.isArray(value);
 }
 
+/// The key an array's length is recorded under among its entries (never an index).
+const LENGTH = Symbol("length");
+
+/// A container's entries: a Map's or Set's, or an array's own elements by index and its length, so
+/// `arr.length = 10` on an empty array (all holes, no element) still reads as a change.
 function containerEntries(value: Map<unknown, unknown> | Set<unknown> | unknown[]): Entries {
-  return Array.isArray(value) ? value.map((item, index) => [index, item]) : entriesOf(value);
+  if (!Array.isArray(value)) return entriesOf(value);
+  const entries: Entries = Object.keys(value).map((key) => [Number(key), value[Number(key)]]);
+  entries.push([LENGTH, value.length]);
+  return entries;
 }
 
 /// Own property keys a class constructor always has; its statics are the rest.
@@ -107,7 +116,6 @@ function shapeOf(value: object): Shape {
     props.set(key, descriptor);
     if ("value" in descriptor && isContainer(descriptor.value)) inner.set(key, containerEntries(descriptor.value));
   }
-  if (Array.isArray(value)) props.delete("length");
   return { props, inner };
 }
 
@@ -138,6 +146,8 @@ function restoreShape(value: object, shape: Shape): void {
     if (!shape.props.has(key)) Reflect.deleteProperty(target, key);
   }
   for (const [key, descriptor] of shape.props) {
+    // An array's length goes back after its elements (defining an element can lengthen it).
+    if (Array.isArray(value) && key === "length") continue;
     try {
       Object.defineProperty(value, key, descriptor);
     } catch {
@@ -154,9 +164,13 @@ function restoreShape(value: object, shape: Shape): void {
       for (const [k] of entries) container.add(k);
     } else if (Array.isArray(container)) {
       container.length = 0;
-      for (const [, v] of entries) container.push(v);
+      for (const [k, v] of entries) if (k !== LENGTH) container[k as number] = v;
+      const length = entries.find(([k]) => k === LENGTH);
+      if (length) container.length = length[1] as number;
     }
   }
+  const length = Array.isArray(value) ? shape.props.get("length") : undefined;
+  if (length && "value" in length) (value as unknown[]).length = length.value as number;
 }
 
 function contentsOf(value: unknown): Contents {
@@ -591,14 +605,15 @@ function leakedGlobals(start: FileStart): string[] {
 // --- The ratchet: each file's reset state and pending timers against leak-baseline.json. ---
 
 /// leak-baseline.json: for each checked test file, the module state and timers it leaves behind
-/// today (as drained above). A file may leave no more than its baseline; scripts/leak-baseline.ts
+/// today (as drained above). A file may leave only items its baseline lists; scripts/leak-baseline.ts
 /// can only lower it, so raising one is a hand edit that shows in review.
 ///
 /// What a file leaves depends on what ran before it in the same process (a store an earlier file
 /// loaded holds that file's loaded value), so an item the file leaves only after the other
 /// agent-session files (`bun test src/agent-session/`) carries WITH_OTHERS. Run alone, as CI runs
 /// each file, a file is held to its other items only.
-const BASELINE_PATH = new URL("./leak-baseline.json", import.meta.url).pathname;
+// CMUX_TEST_LEAKS_BASELINE names another baseline file (test/leak-detector-probes.test.ts).
+const BASELINE_PATH = process.env.CMUX_TEST_LEAKS_BASELINE || new URL("./leak-baseline.json", import.meta.url).pathname;
 export const WITH_OTHERS = " (with other files)";
 let baseline: Record<string, string[]> | undefined;
 function baselineOf(name: string): string[] {
@@ -670,15 +685,19 @@ function checkFile(path: string): void {
   }
   const failing = mode === "strict" ? [...leaks, ...drained] : leaks;
   if (mode !== "strict") {
-    if (drained.length > allowed.length) {
-      const known = new Set(allowed);
+    // By identity, never by count: a baseline leak fixed while a new one appears keeps the count,
+    // and the new one must still fail the file, by name.
+    const known = new Set(allowed);
+    const added = drained.filter((item) => !known.has(item));
+    if (added.length)
       failing.push(
-        `${drained.length} module state and timer leaks, baseline ${allowed.length} (test/support/leak-baseline.json); new:`,
-        ...drained.filter((item) => !known.has(item)).map((item) => `  ${item}`),
+        `${added.length} module state and timer leaks not in its baseline (test/support/leak-baseline.json):`,
+        ...added.map((item) => `  ${item}`),
       );
-    } else if (drained.length < allowed.length)
+    const left = new Set(drained);
+    for (const item of allowed.filter((listed) => !left.has(listed)))
       console.error(
-        `leak baseline: ${name} leaves ${drained.length}, below its baseline ${allowed.length}: lower the baseline to ${drained.length} (bun scripts/leak-baseline.ts ${name})`,
+        `leak baseline: ${name} no longer leaves ${item}: lower the baseline (bun scripts/leak-baseline.ts ${name})`,
       );
   }
   if (failing.length === 0) return;

@@ -23,16 +23,19 @@ git -C "$repo" init -q
 git -C "$repo" add -A
 
 # Fake bun: records its arguments; steady passes, flaky fails its first run only, broken always fails.
+# With $STATE/leaks, each run prints the leak detector's per-process total as bun's exit hook does:
+# steady 1, flaky 4 on its failed first run and 1 alone, broken 2 on each of its runs.
 cat > "$WORK/bin/bun" <<'EOF'
 #!/usr/bin/env bash
 echo "$*" >> "$STATE/calls"
 file="${*: -1}"
+leaks() { [ -f "$STATE/leaks" ] && echo "agent-session leaks: $1 (baseline $1) in 1 test files"; return 0; }
 case "$file" in
-  *steady*) echo "(pass) steady"; exit 0 ;;
+  *steady*) echo "(pass) steady"; leaks 1; exit 0 ;;
   *flaky*)
-    if [ -f "$STATE/flaky-ran" ]; then echo "(pass) flaky alone"; exit 0; fi
-    touch "$STATE/flaky-ran"; echo "(fail) flaky beside others"; exit 1 ;;
-  *broken*) echo "(fail) broken"; exit 1 ;;
+    if [ -f "$STATE/flaky-ran" ]; then echo "(pass) flaky alone"; leaks 1; exit 0; fi
+    touch "$STATE/flaky-ran"; echo "(fail) flaky beside others"; leaks 4; exit 1 ;;
+  *broken*) echo "(fail) broken"; leaks 2; exit 1 ;;
 esac
 EOF
 chmod +x "$WORK/bin/bun"
@@ -43,8 +46,14 @@ run() {
 }
 
 status=0
+touch "$WORK/state/leaks"
 run env > "$WORK/out" 2>&1 || status=$?
+rm -f "$WORK/state/leaks"
 [ "$status" -ne 0 ] || fail "a file that fails alone too must fail the lane"
+# The leak total counts each file once, from its last attempt: broken's log holds both of its runs
+# (first run and retry), and summing every total in it counted broken twice (6 in 4 files).
+grep -qxF "agent-session leaks: 4 (baseline 4) in 3 test files" "$WORK/out" ||
+  fail "the leak total must count each file's last attempt once: $(grep '^agent-session leaks' "$WORK/out")"
 grep -q "1 failed or timed out" "$WORK/out" || fail "only broken fails: $(grep '###' "$WORK/out")"
 grep -qE "^  test/flaky.test.ts \(first run: FAIL\)$" "$WORK/out" || fail "flaky must be listed as passing only alone"
 grep -q -- "--- retry, alone ---" "$WORK/out" || fail "broken's log must carry its first run and its retry"

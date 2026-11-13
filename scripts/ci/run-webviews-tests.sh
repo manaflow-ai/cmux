@@ -668,13 +668,21 @@ if [ -s "$results/retry-passed" ]; then
 fi
 # The leak ratchet (webviews/test/support/leakDetector.ts) prints one total per bun process, so one
 # per file here: the run's total is their sum, and its "lower the baseline" lines are listed with it.
+# A retried file's log holds two attempts (`--- retry, alone ---`, or `--- first failure retained ---`
+# when the retry was cut short); only the attempt its verdict stands on, the part after the last such
+# marker, counts, so a file is never counted twice.
+final_attempt() {
+  awk '/^--- (retry, alone|first failure retained) ---$/ { kept = ""; next } { kept = kept $0 "\n" }
+    END { printf "%s", kept }' "$1" 2> /dev/null || true
+}
 leak_logs=()
 while read -r _ _ log; do leak_logs+=("$log"); done < "$results/summary"
 if [ "${#leak_logs[@]}" -gt 0 ]; then
-  grep -h '^agent-session leaks: ' "${leak_logs[@]}" 2> /dev/null |
+  for log in "${leak_logs[@]}"; do final_attempt "$log"; done > "$results/leak-final-attempts"
+  grep '^agent-session leaks: ' "$results/leak-final-attempts" |
     awk '{ leaks += $3; sub(/\)/, "", $5); base += $5; files += $7 }
       END { if (files) printf "agent-session leaks: %d (baseline %d) in %d test files\n", leaks, base, files }' || true
-  grep -h '^leak baseline: ' "${leak_logs[@]}" 2> /dev/null | sort -u || true
+  grep '^leak baseline: ' "$results/leak-final-attempts" | sort -u || true
 fi
 while read -r result file _; do
   [ "$result" = PASS ] || echo "$result $file (limit $(file_limit "$file" "$timeout_seconds")s)"
