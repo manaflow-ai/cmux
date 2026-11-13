@@ -50,13 +50,19 @@ function lineHeightOf(element: Element): number {
 /// run of its own text (never a chip's label) whose box sits inside that band. Undefined when the
 /// line holds no text (chips alone).
 function textMiddleOnLine(block: HTMLElement, top: number, bottom: number): number | undefined {
-  const walker = document.createTreeWalker(block, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+  const nodeFilter = block.ownerDocument.defaultView?.NodeFilter;
+  const showElement = nodeFilter?.SHOW_ELEMENT ?? 1;
+  const showText = nodeFilter?.SHOW_TEXT ?? 4;
+  const filterAccept = nodeFilter?.FILTER_ACCEPT ?? 1;
+  const filterReject = nodeFilter?.FILTER_REJECT ?? 2;
+  const filterSkip = nodeFilter?.FILTER_SKIP ?? 3;
+  const walker = block.ownerDocument.createTreeWalker(block, showElement | showText, {
     acceptNode: (node) =>
-      node.nodeType === Node.ELEMENT_NODE
+      node.nodeType === 1
         ? (node as Element).hasAttribute("data-inline-attachment")
-          ? NodeFilter.FILTER_REJECT
-          : NodeFilter.FILTER_SKIP
-        : NodeFilter.FILTER_ACCEPT,
+          ? filterReject
+          : filterSkip
+        : filterAccept,
   });
   const range = document.createRange();
   for (let text = walker.nextNode(); text; text = walker.nextNode()) {
