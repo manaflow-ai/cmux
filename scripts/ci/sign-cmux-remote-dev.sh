@@ -28,7 +28,14 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 ditto -x -k "$zip" "$work"
 app="$work/cmux Remote (dev).app"
-[[ -d "$app" ]] || { echo "error: $zip has no cmux Remote (dev).app" >&2; exit 1; }
+[[ ! -L "$app" && -d "$app" ]] || { echo "error: $zip has no regular cmux Remote (dev).app" >&2; exit 1; }
+
+# Do not let an archive symlink escape the extracted app during signing or
+# provenance inspection. Keep the marker outside the app so it cannot affect
+# the bundle that is later re-zipped.
+symlinks_marker="$work/symlinks.marker"
+find "$app" -type l -print > "$symlinks_marker"
+[[ ! -s "$symlinks_marker" ]] || { echo "error: cmux Remote must not contain symlinks" >&2; exit 1; }
 
 plist() { /usr/libexec/PlistBuddy -c "Print :$1" "$app/Contents/Info.plist"; }
 [[ "$(plist CFBundleIdentifier)" == com.cmuxterm.remote.dev ]] ||
@@ -55,7 +62,9 @@ for dylib in "$framework_dir"/*.dylib; do
 done
 [[ "$framework_count" == 2 && -f "$framework_dir/libWebRTC.dylib" && -f "$framework_dir/libcua_driver_sdk.dylib" ]] ||
   { echo "error: Remote Frameworks must contain exactly libWebRTC.dylib and libcua_driver_sdk.dylib" >&2; exit 1; }
-if find "$app" -type d -name '*.framework' -print | head -1 | grep -q .; then
+frameworks_marker="$work/frameworks.marker"
+find "$app" -type d -name '*.framework' -print > "$frameworks_marker"
+if [[ -s "$frameworks_marker" ]]; then
   echo "error: cmux Remote must not contain nested frameworks" >&2
   exit 1
 fi

@@ -62,6 +62,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      pull-requests: read
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
     steps:
@@ -76,7 +77,7 @@ jobs:
           sparse-checkout: scripts/ci/presign-r2-url.py
           sparse-checkout-cone-mode: false
 
-      # The input may name any commit; only one on feat-cmux-next is built.
+      # The input may name an ancestor or an exact open PR head for feat-cmux-next.
       - name: Require a feat-cmux-next commit and read its SDK pin
         id: resolve
         env:
@@ -88,8 +89,38 @@ jobs:
           sha="$(gh api "repos/$GH_REPO/commits/$WANT" --jq .sha)"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::cannot resolve $WANT" >&2; exit 1; }
           status="$(gh api "repos/$GH_REPO/compare/$sha...feat-cmux-next" --jq .status)"
-          [[ "$status" == ahead || "$status" == identical ]] ||
-            { echo "::error::$sha is not on feat-cmux-next ($status)" >&2; exit 1; }
+          if [[ "$status" != ahead && "$status" != identical ]]; then
+            # A feature PR's head is intentionally not an ancestor until that PR
+            # merges. Accept only the exact open PR head for this repository and
+            # base, then read its pin as data. This keeps the ancestry guard while
+            # allowing the release route to validate the final feature artifact.
+            gh api "repos/$GH_REPO/commits/$sha/pulls?per_page=100" > "$RUNNER_TEMP/associated-prs.json"
+            pr_number="$(python3 -I - "$RUNNER_TEMP/associated-prs.json" "$GH_REPO" "$sha" <<'PY'
+          import json, sys
+          path, repo, sha = sys.argv[1:]
+          pulls = json.load(open(path, encoding="utf-8"))
+          for pull in pulls:
+              base = pull.get("base") or {}
+              base_repo = base.get("repo") or {}
+              head = pull.get("head") or {}
+              head_repo = head.get("repo") or {}
+              if (
+                  pull.get("state") == "open"
+                  and base_repo.get("full_name") == repo
+                  and base.get("ref") == "feat-cmux-next"
+                  and head.get("sha") == sha
+                  and head_repo.get("full_name") == repo
+              ):
+                  print(pull.get("number", ""))
+                  break
+          PY
+            )"
+            [[ "$pr_number" =~ ^[0-9]+$ ]] || {
+              echo "::error::$sha is not an open exact-head PR into feat-cmux-next ($status)" >&2
+              exit 1
+            }
+            echo "Resolved unmerged feat-cmux-next PR #$pr_number at exact head $sha" >> "$GITHUB_STEP_SUMMARY"
+          fi
           gh api -H 'Accept: application/vnd.github.raw+json' \
             "repos/$GH_REPO/contents/scripts/cmux-next/cua-driver-sdk.pin.json?ref=$sha" > "$RUNNER_TEMP/sdk-pin.json"
           # The pin is data: a content-addressed key in the cmux-cef bucket, nothing else.
