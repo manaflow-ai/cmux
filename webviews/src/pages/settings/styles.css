@@ -2315,3 +2315,133 @@ button.menu-disclosure {
   display: flex;
   gap: 4px;
 }
+
+/* Settings > Models (ModelsCard.tsx): three groups, each title with its help and an optional + on the
+   trailing edge; connection rows with a grip, the provider's mark, a switch and an overflow menu. */
+.models {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.models-lead {
+  margin: 0;
+}
+
+.models-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.models-header .group-title,
+.models-header .row-help {
+  margin: 0;
+}
+
+.models-add,
+.models-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  padding-inline: 4px;
+}
+
+.models-connection[data-dragging] {
+  opacity: 0.5;
+}
+
+.models-connection .row-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.models-grip {
+  display: inline-flex;
+  flex: none;
+  color: var(--soft-text);
+  cursor: grab;
+}
+
+.models-grip:not([draggable="true"]) {
+  visibility: hidden;
+}
+
+.models-chatgpt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.models-sheet {
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 16px;
+  color: var(--text);
+}
+
+.models-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.models-sheet-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.models-sheet-header h2 {
+  margin: 0;
+  font-size: var(--text-content);
+  font-weight: var(--weight-emphasis);
+}
+
+.models-sheet-group .group-title {
+  margin: 0 0 4px;
+}
+
+.models-sheet-choices {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.models-sheet-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+
+.models-sheet-choice:hover,
+.models-sheet-choice:focus-visible {
+  background: var(--input-bg);
+}
+
+.models-sheet-choice-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.models-sheet-choice-text small {
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+}

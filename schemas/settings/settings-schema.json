@@ -1423,6 +1423,29 @@
 
         ],
         "groups" : [
+
+        ],
+        "id" : "models",
+        "lead" : [
+          "models"
+        ],
+        "symbol" : "cpu",
+        "title" : {
+          "key" : "settings.category.models",
+          "text" : "Models"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
           {
             "key" : "settings.group.chiefChat",
             "rows" : [
@@ -2130,6 +2153,7 @@
       {
         "categories" : [
           "agents",
+          "models",
           "chief"
         ],
         "id" : "ai",
