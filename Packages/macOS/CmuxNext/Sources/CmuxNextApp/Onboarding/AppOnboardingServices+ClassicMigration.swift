@@ -62,11 +62,13 @@ extension AppOnboardingServices {
     ///   tree: a New Tab page workspace, closed when the migration brought workspaces
     ///   into its window, or Home, which stays.
     func migrateClassicAtLaunch(firstWorkspace: String?) async {
-        guard classicMigrationRunsAtLaunch else { return }
+        guard classicMigrationRunsAtLaunch else { return owner.setup.classicSettled() }
         do {
-            let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace,
-                                                   confirmation: confirmClassicImport)
-            guard let notice = outcome.opened.isEmpty ? outcome.notice : owner.classicImportNotice else { return }
+            // While the Set Up cmux card shows, its cmux Classic row asks; otherwise the dialog. A No there reads on the row.
+            let outcome = try await owner.setup.classicMigration(seam: owner.classicMigrationConfirmation, dialog: confirmClassicImport, imported: { !$0.opened.isEmpty }) {
+                try await migrateClassic(.automatic, firstWorkspace: firstWorkspace, confirmation: $0)
+            }
+            guard owner.setup.classicAnswer != .declined, let notice = outcome.opened.isEmpty ? outcome.notice : owner.classicImportNotice else { return }
             ClassicImportStrings.toast(notice, in: services.windows.active?.window)
         } catch {
             services.daemon.logger.error("classic migration failed: \(String(describing: error), privacy: .public)")
@@ -480,19 +482,10 @@ extension AppOnboardingServices {
         }
     }
 
-    /// Whether the classic app that saves `source` is open and may still save: it holds the lock beside
-    /// its control socket (``ClassicRunningProbe/lockPaths(channel:home:)``), or its launch sentinel and a
-    /// recent save say so. A non-blocking `flock`, no process scan (plans/cmux-next/pty-holder.md).
+    /// Whether the classic app that saves `source` is open and may still save (``ClassicRunningProbe/isOpen(_:lockHeld:stateRoot:)``):
+    /// a non-blocking `flock` and its launch sentinel, no process scan (plans/cmux-next/pty-holder.md).
     private func classicIsRunning(_ source: ClassicMigrationSource?) -> Bool {
-        if let seam = owner.classicRunning { return seam() }
-        guard let source else { return false }
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        for path in ClassicRunningProbe.lockPaths(channel: source.bundleID, home: home) {
-            if owner.classicLockHeld?(path) ?? ClassicRunningProbe.isLockHeld(path) { return true }
-        }
-        let root = owner.classicStateRoot ?? ClassicRunningProbe.defaultStateRoot(
-            home: FileManager.default.homeDirectoryForCurrentUser, environment: ProcessInfo.processInfo.environment)
-        return ClassicRunningProbe(stateRoot: root).isRunning(source, now: Date().timeIntervalSince1970)
+        owner.classicRunning?() ?? ClassicRunningProbe.isOpen(source, lockHeld: owner.classicLockHeld, stateRoot: owner.classicStateRoot)
     }
 
     /// `frame` when some screen shows most of it, else nil (the window opens at the default place).

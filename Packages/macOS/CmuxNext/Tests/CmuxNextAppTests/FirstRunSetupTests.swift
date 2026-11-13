@@ -283,6 +283,249 @@ import Testing
         #expect(FirstRunSetup(defaults: defaults).historyDone)
     }
 
+    /// Classic stable's save (no workspaces: the row's count is the plan's), as the launch's migration asks it.
+    private static let plan = ClassicImportPlan(
+        source: ClassicMigrationSource(path: "/s/session-com.cmuxterm.app.json", bundleID: "com.cmuxterm.app", size: 10,
+                                       modifiedAt: 1_793_000_000, createdAt: 1_793_000_000),
+        migration: ClassicMigrationPlan())
+    private static let quiet = SetupCardEnvironment(account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in },
+                                                    openAgents: {}, historySources: { false }, importHistory: { false })
+
+    /// The launch's migration through the card (``FirstRunSetup/classicMigration(seam:dialog:screenReader:_:)``): it asks the plan
+    /// once `ask` resumes, and returns the answer; `dialog` counts the dialog's asks.
+    /// `screenReader` is VoiceOver when it asks; with `holds`, the import waits after the answer until `finish()`
+    /// (failing when `fails`), as a real import's backup and workspaces take a moment.
+    @MainActor private final class LaunchRun {
+        struct ImportFailed: Error {}
+        var dialogs = 0
+        var gate: CheckedContinuation<Void, Never>?
+        var gated = false
+        var held: CheckedContinuation<Void, Never>?
+        var holds = false
+        var fails = false
+        var madeNothing = false
+
+        func start(_ setup: FirstRunSetup, seam: (@MainActor (ClassicImportPlan) async -> ClassicImportAnswer)? = nil,
+                   screenReader: Bool = false) -> Task<ClassicImportAnswer?, Never> {
+            Task { @MainActor in
+                try? await setup.classicMigration(seam: seam, dialog: { [self] _ in dialogs += 1; return .declined },
+                                                  screenReader: { screenReader }, imported: { [self] _ in !madeNothing }) { confirm in
+                    await withCheckedContinuation { gate = $0; gated = true }
+                    let answer = await confirm(FirstRunSetupTests.plan)
+                    if holds { await withCheckedContinuation { held = $0 } }
+                    if fails { throw ImportFailed() }
+                    return answer
+                }
+            }
+        }
+
+        func ask() {
+            gate?.resume()
+            gate = nil
+        }
+
+        func finish() {
+            held?.resume()
+            held = nil
+        }
+    }
+
+    /// A Classic user's first run is the same card: the launch's classic import asks on its cmux Classic row (the
+    /// app, its save time, whether it is open, what Import also does), and the row's own click answers it, Import
+    /// or Skip (a No the migration keeps); the row then reads the answer and no dialog asked.
+    @Test func theLaunchsClassicImportAsksOnTheCardsClassicRow() async throws {
+        for (kind, answer, wire) in [("importClassic", ClassicImportAnswer.accepted, "imported"), ("declineClassic", .declined, "declined")] {
+            let setup = FirstRunSetup(defaults: try defaults())
+            #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+            let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: Self.quiet)
+            defer { provider.stop() }
+            let run = LaunchRun()
+            let launch = run.start(setup)
+            await until { run.gated }
+            #expect(provider.state["classic"] == .null, "no row before the migration asks")
+            run.ask()
+            await until { setup.classic != nil }
+            let row = try #require(provider.state["classic"]?.objectValue)
+            #expect(row["workspaces"] == .number(0) && row["app"] == .string("cmux") && row["savedAt"] == .number(1_793_000_000_000))
+            #expect(row["running"] == .bool(false) && row["resumes"] == .bool(false) && row["answered"] == nil)
+
+            // Only the person's own click answers it.
+            await #expect(throws: PageError.self) {
+                try await provider.call("cmux.setup.run", params: ["action": ["kind": .string(kind)]],
+                                        context: PageCallContext(page: PageDescriptor.setupCard.id, userGesture: false))
+            }
+            #expect(setup.classicAnswer == nil)
+            _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": .string(kind)]], context: click(1))
+            #expect(await launch.value == answer)
+            #expect(run.dialogs == 0)
+            #expect(provider.state["classic"]?.objectValue?["answered"] == .string(wire))
+        }
+    }
+
+    /// The card never ends before the launch's migration decided whether it asks, nor while it asks; Hide leaves the
+    /// ask unanswered (only Skip is a No, so the next launch asks again), and with the card gone the dialog asks.
+    @Test func theCardWaitsForTheClassicAnswerAndHideLeavesItUnanswered() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        setup.historyAnswered()
+        let agent = OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .signedIn)
+        let provider = SetupCardPageProvider(setup: setup, agents: MockAgentSignInSource(agents: [agent]), environment: Self.quiet)
+        defer { provider.stop() }
+        await until { provider.agents.loaded && provider.state["cli"] == .string("installed") }
+        #expect(provider.allDone, "every row done with no migration running")
+
+        let run = LaunchRun()
+        let launch = run.start(setup)
+        await until { run.gated }
+        #expect(!provider.allDone, "the migration has not decided yet")
+        run.ask()
+        await until { setup.classic != nil }
+        #expect(!provider.allDone, "the cmux Classic row still asks")
+        _ = try await provider.call("cmux.setup.hide", params: [:], context: click(1))
+        #expect(await launch.value == .unanswered, "Hide is no answer: only Skip is a No")
+        #expect(!setup.shows && run.dialogs == 0)
+
+        let after = LaunchRun()
+        let again = after.start(setup)
+        await until { after.gated }
+        after.ask()
+        #expect(await again.value == .declined && after.dialogs == 1, "with no card, the launch asks with its dialog")
+    }
+
+    /// A card that shows but is drawn nowhere (its page could not be made, or its window closed mid-ask) never holds
+    /// the migration: with no card drawn the dialog asks at once, and the last card closing hands an ask to it.
+    @Test func withNoCardDrawnTheDialogAsks() async throws {
+        let setup = FirstRunSetup(defaults: try defaults(), cardWait: .milliseconds(50))
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        let none = LaunchRun()
+        let first = none.start(setup)
+        await until { none.gated }
+        none.ask()
+        #expect(await first.value == .declined && none.dialogs == 1 && setup.classic == nil, "no card drawn in time: the dialog")
+
+        let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: Self.quiet)
+        let closing = LaunchRun()
+        let second = closing.start(setup)
+        await until { closing.gated }
+        closing.ask()
+        await until { setup.classic != nil }
+        provider.stop()
+        provider.stop()
+        #expect(await second.value == .declined && closing.dialogs == 1, "the card closed mid-ask: the dialog")
+        #expect(setup.classic == nil && setup.shows)
+    }
+
+    /// Import says Imported only once the migration brought the workspaces: Importing while it runs (the card does
+    /// not end), and Not imported when it failed, so a failed import never keeps a checkmark.
+    @Test func theClassicRowSaysImportedOnlyWhenTheImportFinished() async throws {
+        for (fails, wire) in [(false, "imported"), (true, "failed")] {
+            let setup = FirstRunSetup(defaults: try defaults())
+            #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+            setup.historyAnswered()
+            let agent = OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .signedIn)
+            let provider = SetupCardPageProvider(setup: setup, agents: MockAgentSignInSource(agents: [agent]), environment: Self.quiet)
+            defer { provider.stop() }
+            await until { provider.agents.loaded && provider.state["cli"] == .string("installed") }
+            let run = LaunchRun()
+            (run.holds, run.fails) = (true, fails)
+            let launch = run.start(setup)
+            await until { run.gated }
+            run.ask()
+            await until { setup.classic != nil }
+            _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": .string("importClassic")]], context: click(1))
+            await until { run.held != nil }
+            #expect(provider.state["classic"]?.objectValue?["answered"] == .string("importing"))
+            #expect(!provider.allDone, "the card stays while the import runs")
+            run.finish()
+            #expect(await launch.value == (fails ? nil : .accepted))
+            #expect(provider.state["classic"]?.objectValue?["answered"] == .string(wire))
+            #expect(provider.allDone, "answered and finished either way")
+        }
+    }
+
+    /// With VoiceOver on, the import asks with its dialog even on a card an earlier launch left pending: VoiceOver
+    /// cannot press the card's WebKit buttons.
+    @Test func withVoiceOverAPendingCardLeavesTheAskToTheDialog() async throws {
+        let store = try defaults()
+        #expect(FirstRunSetup(defaults: store).begin(isFirstRun: true, replacedKeys: Self.replaced))
+        let relaunched = FirstRunSetup(defaults: store)
+        #expect(relaunched.route(isFirstRun: false, replacedKeys: Self.replaced, screenReader: true) == .cardOwns && relaunched.shows)
+        let provider = SetupCardPageProvider(setup: relaunched, agents: nil, environment: Self.quiet)
+        defer { provider.stop() }
+        let run = LaunchRun()
+        let launch = run.start(relaunched, screenReader: true)
+        await until { run.gated }
+        run.ask()
+        #expect(await launch.value == .declined && run.dialogs == 1 && relaunched.classic == nil)
+    }
+
+    /// A cold launch draws the card once Home's chat starts, which can be after the migration asks: the ask waits for
+    /// that card and shows on its row, and the dialog never asks.
+    @Test func aCardDrawnAfterTheAskStartedStillAsksOnItsRow() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        #expect(setup.route(isFirstRun: true, replacedKeys: Self.replaced) == .startCard)
+        let run = LaunchRun()
+        let launch = run.start(setup)
+        await until { run.gated }
+        run.ask()
+        await until { setup.classic != nil }
+        let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: Self.quiet)
+        defer { provider.stop() }
+        #expect(provider.state["classic"]?.objectValue?["workspaces"] == .number(0))
+        _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": .string("declineClassic")]], context: click(1))
+        #expect(await launch.value == .declined && run.dialogs == 0)
+    }
+
+    /// An import that returns having made nothing (every workspace failed without throwing) is not Imported.
+    @Test func anImportThatMadeNothingIsNotImported() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: Self.quiet)
+        defer { provider.stop() }
+        let run = LaunchRun()
+        run.madeNothing = true
+        let launch = run.start(setup)
+        await until { run.gated }
+        run.ask()
+        await until { setup.classic != nil }
+        _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": .string("importClassic")]], context: click(1))
+        #expect(await launch.value == .accepted)
+        #expect(setup.classicImported == false && provider.state["classic"]?.objectValue?["answered"] == .string("failed"))
+    }
+
+    /// A browser-only import still says what Import also does (it loads the saved pages).
+    @Test func aBrowserOnlyImportSaysItLoadsPages() {
+        #expect(FirstRunSetup.ClassicOffer(workspaces: 1, app: "cmux", savedAt: 0, running: false, browserTabs: 2).resumes)
+        #expect(!FirstRunSetup.ClassicOffer(workspaces: 1, app: "cmux", savedAt: 0, running: false).resumes)
+    }
+
+    /// A Classic user whose other rows are all done: the launch's route makes the card wait for the migration before
+    /// any card is drawn, so a card's first snapshot cannot end it before the cmux Classic row asks.
+    @Test func theRouteMakesTheCardWaitForTheMigrationBeforeItIsDrawn() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        #expect(setup.route(isFirstRun: true, replacedKeys: Self.replaced) == .startCard)
+        #expect(setup.awaitsClassic)
+        setup.historyAnswered()
+        let agent = OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .signedIn)
+        let provider = SetupCardPageProvider(setup: setup, agents: MockAgentSignInSource(agents: [agent]), environment: Self.quiet)
+        defer { provider.stop() }
+        await until { provider.agents.loaded && provider.state["cli"] == .string("installed") }
+        #expect(!provider.allDone && setup.shows, "drawn before the migration asked: it waits")
+        setup.classicSettled()
+        #expect(provider.allDone, "no migration at launch: every row done")
+    }
+
+    /// A test's answer (`classicMigrationConfirmation`) wins over the card's row.
+    @Test func aTestsAnswerWinsOverTheCard() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        let run = LaunchRun()
+        let launch = run.start(setup, seam: { _ in .accepted })
+        await until { run.gated }
+        run.ask()
+        #expect(await launch.value == .accepted && setup.classic == nil && run.dialogs == 0)
+    }
+
     private func until(_ done: () -> Bool) async {
         let deadline = ContinuousClock.now + .seconds(5)
         // test-only: waits for the provider's one async read, bounded by the deadline

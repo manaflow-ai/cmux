@@ -1,15 +1,26 @@
 // l10n-allow-file: gallery fixtures (sample setup states), not shipped UI.
 // "Set Up cmux" on Home (goal next-first-run-setup): the card in each look, on a stage shaped like
 // Home's chat column with the composer under it, in three states: a fresh Mac (nothing installed), a
-// Mac with classic cmux's session, and one row left.
+// Mac with classic cmux's session, and one row left; and the cmux Classic row's own states (the launch's
+// classic import asks there: still open, answered).
 import { componentEntry } from "../../../../gallery/format";
 import { cardStrings } from "../strings";
 import { SetupCard, type SetupLook } from "./SetupCard";
 import type { SetupState } from "./setupModel";
 
 const strings = cardStrings();
+// A fixed save time, so the stills do not change from run to run.
+const savedAt = new Date(2026, 10, 5, 22, 26).getTime();
 
-type Fixture = "fresh" | "classic" | "mostlyDone" | "installing" | "unverified";
+type Fixture =
+  | "fresh"
+  | "classic"
+  | "classicOpen"
+  | "classicDeclined"
+  | "classicImporting"
+  | "mostlyDone"
+  | "installing"
+  | "unverified";
 
 const FIXTURES: Record<Fixture, SetupState> = {
   fresh: {
@@ -29,7 +40,34 @@ const FIXTURES: Record<Fixture, SetupState> = {
     history: { done: false },
     account: { signedIn: false },
     cli: "other",
-    classic: { workspaces: 27, saved: "1 minute ago" },
+    classic: { workspaces: 27, app: "cmux", savedAt, resumes: true },
+  },
+  classicOpen: {
+    agents: [
+      { id: "claude", name: "Claude Code", state: "missing" },
+      { id: "codex", name: "Codex", state: "missing" },
+    ],
+    account: { signedIn: false },
+    cli: "other",
+    classic: { workspaces: 27, app: "cmux NIGHTLY", savedAt, running: true },
+  },
+  classicDeclined: {
+    agents: [
+      { id: "claude", name: "Claude Code", state: "signedOut" },
+      { id: "codex", name: "Codex", state: "missing" },
+    ],
+    account: { signedIn: false },
+    cli: "other",
+    classic: { workspaces: 27, app: "cmux", savedAt, resumes: true, answered: "declined" },
+  },
+  classicImporting: {
+    agents: [
+      { id: "claude", name: "Claude Code", state: "signedOut" },
+      { id: "codex", name: "Codex", state: "missing" },
+    ],
+    account: { signedIn: false },
+    cli: "other",
+    classic: { workspaces: 27, app: "cmux", savedAt, resumes: true, answered: "importing" },
   },
   mostlyDone: {
     agents: [
@@ -38,7 +76,7 @@ const FIXTURES: Record<Fixture, SetupState> = {
     ],
     account: { signedIn: true, email: "you@example.com" },
     cli: "missing",
-    classic: { workspaces: 27, saved: "1 minute ago", answered: "imported" },
+    classic: { workspaces: 27, app: "cmux", savedAt, answered: "imported" },
   },
   installing: {
     agents: [
@@ -123,7 +161,25 @@ export default componentEntry<Props>({
     ...variants("rows", {
       fresh:
         "Recommended (ships): every row in one card, a Settings list. Everything visible at once, one card, nothing hidden behind earlier steps.",
+      classic:
+        "Ships: a Classic user's first run is this same card; the launch's classic import asks on its cmux Classic row (app, save time, what Import also does), not in a dialog beside it.",
     }),
+    "rows-classic-open": {
+      note: "The classic app that saved is still open: the row says this is its autosave and to quit it first, as the import dialog did.",
+      props: { look: "rows", fixture: "classicOpen" },
+    },
+    "rows-classic-declined": {
+      note: "Skip is a No the migration keeps: the row says where to import later, and its slot swaps to the done mark in place.",
+      props: { look: "rows", fixture: "classicDeclined" },
+    },
+    "rows-classic-importing": {
+      note: "After Import, the row reads Importing with its busy mark until the import finishes: Imported never shows before the workspaces exist.",
+      props: { look: "rows", fixture: "classicImporting" },
+    },
+    "checklist-classic-open": {
+      note: "The checklist look with the still-open classic app's row, for comparison.",
+      props: { look: "checklist", fixture: "classicOpen" },
+    },
     ...variants("checklist", {
       fresh: "A checklist on the chat column over the composer, no card: readiness before the first prompt.",
     }),
