@@ -164,7 +164,10 @@ impl Iterator for SnapshotRows {
         if self.failed || self.offset >= self.snapshot.head.data_end {
             return None;
         }
-        match self.snapshot.piece(self.offset, self.ordinal, PAGE_BYTES) {
+        // Hydration and compaction stream only a small decoded batch. Reading
+        // a full 256 KiB page of tiny records would retain thousands of heap
+        // allocations between writer batches, even when every row is cold.
+        match self.snapshot.rows_at(self.offset, self.ordinal, 64, 32 * 1024) {
             Ok(piece) if piece.next_offset > self.offset => {
                 self.offset = piece.next_offset;
                 self.ordinal += piece.rows.len() as u64;

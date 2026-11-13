@@ -27,8 +27,10 @@ fn fixture(count: usize, filter_fixture: bool, with_tail: bool) -> (TempDir, Sum
     let mut index = SummaryIndex::new();
     for n in 0..count {
         let state = if filter_fixture && n % 100 == 0 { "running" } else { "closed" };
-        index =
-            index.apply((n + 1) as u64, summary(format!("row-{n:05}"), (count - n) as u64, state));
+        // Fixed-width timestamps keep the on-disk row shape the same on both
+        // sides; these rows are still older than the hot cutoff.
+        index = index
+            .apply((n + 1) as u64, summary(format!("row-{n:05}"), 1_000_000 - n as u64, state));
     }
     SortedSnapshot::write(dir.path().join("index.snap"), &index).expect("write fixture");
     if with_tail {
@@ -197,10 +199,15 @@ fn make_disk_index(dir: &std::path::Path, index: &SummaryIndex) -> SummaryIndex 
         index.edition(),
     )
 }
-fn measure_page(index: &SummaryIndex, key: &SortKey, filter: Option<&ListFilter>) -> (u128, usize) {
+fn measure_page(
+    index: &SummaryIndex,
+    key: &SortKey,
+    limit: usize,
+    filter: Option<&ListFilter>,
+) -> (u128, usize) {
     let start = std::time::Instant::now();
     let page = index
-        .read_page(Some(key), ReadSide::After, false, PAGE_ROWS, 256 * 1024, filter)
+        .read_page(Some(key), ReadSide::After, false, limit, 256 * 1024, filter)
         .expect("bounded page");
     (start.elapsed().as_nanos().max(1), page.bytes_read)
 }
@@ -278,6 +285,10 @@ fn pr05b_startup_pages_and_hot_index_gate() {
         SortKey::of(&god_index.get("row-05642").unwrap()),
         SortKey::of(&god_index.get("row-10999").unwrap()),
     ];
+    // The small middle fixture has nine remaining rows. Ask both sides for
+    // the same candidate count instead of timing nine rows against twenty.
+    let page_limits: Vec<_> =
+        small_keys.iter().map(|key| small_index.after(Some(key), PAGE_ROWS).len().max(1)).collect();
     let mut small_page: [Vec<u128>; 3] =
         std::array::from_fn(|_| Vec::with_capacity(ROUNDS * SAMPLES));
     let mut god_page: [Vec<u128>; 3] =
@@ -291,8 +302,9 @@ fn pr05b_startup_pages_and_hot_index_gate() {
             for (position, (small_key, god_key)) in
                 small_keys.iter().zip(god_keys.iter()).enumerate()
             {
-                let (s_ns, s_read) = measure_page(&small_disk, small_key, None);
-                let (g_ns, g_read) = measure_page(&god_disk, god_key, None);
+                let limit = page_limits[position];
+                let (s_ns, s_read) = measure_page(&small_disk, small_key, limit, None);
+                let (g_ns, g_read) = measure_page(&god_disk, god_key, limit, None);
                 small_page[position].push(s_ns);
                 god_page[position].push(g_ns);
                 small_bytes[position].push(s_read as u128);
@@ -325,8 +337,10 @@ fn pr05b_startup_pages_and_hot_index_gate() {
             for (position, (small_key, god_key)) in
                 small_keys.iter().zip(god_keys.iter()).enumerate()
             {
-                small_filter[position].push(measure_page(&small_disk, small_key, Some(&filter)).0);
-                god_filter[position].push(measure_page(&god_disk, god_key, Some(&filter)).0);
+                let limit = page_limits[position];
+                small_filter[position]
+                    .push(measure_page(&small_disk, small_key, limit, Some(&filter)).0);
+                god_filter[position].push(measure_page(&god_disk, god_key, limit, Some(&filter)).0);
             }
         }
     }

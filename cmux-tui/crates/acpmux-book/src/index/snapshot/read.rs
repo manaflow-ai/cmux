@@ -34,11 +34,17 @@ impl DiskSnapshot {
         // A page needs only the requested candidate rows. The seek has
         // already located one record, so size the single physical read from
         // that record's frame length instead of consuming the whole 256 KiB
-        // response budget for every request. A later page may reread the
-        // bounded piece when a row is larger than this estimate.
+        // response budget for every request. Backward/around reads must also
+        // fit an unknown preceding frame; its size can exceed the anchor's.
+        let minimum = match side {
+            ReadSide::After => 0,
+            ReadSide::Before | ReadSide::Around => {
+                crate::index::MAX_INDEX_RECORD_BYTES + TRAILER_BYTES
+            }
+        };
         let physical_bytes = position
             .record_len
-            .map(|length| length.saturating_mul(limit).min(max_bytes))
+            .map(|length| length.saturating_mul(limit).max(minimum).min(max_bytes))
             .filter(|bytes| *bytes > 0)
             .unwrap_or(max_bytes);
         let (start, end) = match side {
@@ -99,10 +105,8 @@ impl DiskSnapshot {
         {
             return Err(page_bound());
         }
-        // `bytes_read` is the one bounded page read. Sparse seek reads are
-        // reported by the seek API and do not inflate the per-page payload
-        // measurement.
-        Ok(self.finish_piece(rows, first_ordinal, next_offset, bytes.len()))
+        // Count the complete request, including locating the bounded piece.
+        Ok(self.finish_piece(rows, first_ordinal, next_offset, position.bytes_read + bytes.len()))
     }
 
     pub fn first_rows(&self, rows: usize, max_bytes: usize) -> io::Result<SnapshotPiece> {
