@@ -229,7 +229,9 @@ fn mux(
         "failover" | "forked" | "fork_start_failed" | "host_notice" | "policy_unenforced"
         | "recap" | "stopping" | "stopped" | "exited" => {
             let mut row = state.row(RowKind::Notice, out)?;
-            debug_assert!(!row.field("notice", kind));
+            if row.field("notice", kind) {
+                state.cut_fields = state.cut_fields.saturating_add(1);
+            }
             out.row(&row);
             if let Some(raw) = msg.text.or(msg.error).or(msg.reason).or(msg.detail) {
                 out.body(row.id, BodyField::Content, false, raw);
@@ -324,7 +326,9 @@ fn agent(
             } else {
                 state.row(RowKind::Notice, out)?
             };
-            debug_assert!(!row.field("notice", "compaction"));
+            if row.field("notice", "compaction") {
+                state.cut_fields = state.cut_fields.saturating_add(1);
+            }
             let status = if !u.state.is_empty() {
                 u.state.as_ref()
             } else if !u.status.is_empty() {

@@ -1,11 +1,21 @@
 //! Opaque versioned state, independent of the log's record/checkpoint layout.
-use super::{Error, MAX_QUEUE_ENTRIES, MAX_STATE_BYTES, State, VERSION};
+use super::{Error, MAX_QUEUE_ENTRIES, MAX_STATE_BYTES, MAX_TRANSLATOR_BYTES, State, VERSION};
 use bincode::Options;
 impl State {
     pub fn checkpoint(&self) -> Result<Vec<u8>, Error> {
         let bytes = codec().serialize(&(VERSION, self)).map_err(|_| Error::CheckpointInvalid)?;
         if bytes.len() > MAX_STATE_BYTES {
             return Err(Error::StateTooLarge { bytes: bytes.len() });
+        }
+        if self.queue.len().saturating_mul(32) > MAX_STATE_BYTES - MAX_TRANSLATOR_BYTES {
+            return Err(Error::StateTooLarge { bytes: bytes.len() });
+        }
+        let mut translator = self.clone();
+        translator.queue.clear();
+        let translator_bytes =
+            codec().serialize(&(VERSION, &translator)).map_err(|_| Error::CheckpointInvalid)?;
+        if translator_bytes.len() > MAX_TRANSLATOR_BYTES {
+            return Err(Error::StateTooLarge { bytes: translator_bytes.len() });
         }
         Ok(bytes)
     }
@@ -36,6 +46,16 @@ impl State {
                     || s.facts.runs.iter().any(|r| r.0 == 0 || r.0 > r.1 || r.1 > state.last_id)
             })
         {
+            return Err(Error::CheckpointInvalid);
+        }
+        if state.queue.len().saturating_mul(32) > MAX_STATE_BYTES - MAX_TRANSLATOR_BYTES {
+            return Err(Error::CheckpointInvalid);
+        }
+        let mut translator = state.clone();
+        translator.queue.clear();
+        let translator_bytes =
+            codec().serialize(&(VERSION, &translator)).map_err(|_| Error::CheckpointInvalid)?;
+        if translator_bytes.len() > MAX_TRANSLATOR_BYTES {
             return Err(Error::CheckpointInvalid);
         }
         if state.turn.is_some_and(|id| id == 0 || id > state.last_id)

@@ -44,7 +44,7 @@ fn v1_corpus() -> Vec<String> {
     ].iter().map(|body|format!("{{\"seq\":0,\"at\":1000,{body},\"cold\":\"{padding}\"}}\n")).collect()
 }
 fn line_at(harness: Harness, lines: &[String], n: usize) -> String {
-    if harness == Harness::Claude && n > 0 && n % 1000 == 0 {
+    if harness == Harness::Claude && n > 0 && n.is_multiple_of(1000) {
         return format!(
             "{{\"type\":\"user\",\"message\":{{\"content\":[{{\"type\":\"tool_result\",\"tool_use_id\":\"blob\",\"content\":\"{}\"}}]}}}}\n",
             "b".repeat(5 * 1024 * 1024)
@@ -58,7 +58,7 @@ fn line_at(harness: Harness, lines: &[String], n: usize) -> String {
     }
 }
 fn sample_line_at(harness: Harness, lines: &[String], n: usize) -> String {
-    if harness == Harness::Claude && n > 0 && n % 1000 == 0 {
+    if harness == Harness::Claude && n > 0 && n.is_multiple_of(1000) {
         return lines[n % lines.len()].clone();
     }
     line_at(harness, lines, n)
@@ -78,8 +78,8 @@ fn full_state() -> State {
     }
     state
 }
-fn full_state_p95(harness: Harness, lines: &[String], start: usize) -> u128 {
-    let mut state = full_state();
+fn full_state_p95(harness: Harness, lines: &[String], start: usize, queue: bool) -> u128 {
+    let mut state = if queue { full_state() } else { State::default() };
     let mut samples = Vec::with_capacity(200);
     for n in start..start + 200 {
         let line = sample_line_at(harness, lines, n);
@@ -127,6 +127,15 @@ fn measure_child() {
         black_box(t(&mut state, harness, line.as_bytes()).unwrap());
     }
     assert_eq!(state.open_rows().count(), 0);
+    for row in state.stored_rows() {
+        assert_ne!(row.fields.get("state").map(String::as_str), Some("queued"));
+        if matches!(row.kind, RowKind::Text | RowKind::Thinking) {
+            assert!(row.fields.contains_key("messageId"));
+        }
+        if row.kind == RowKind::Tool {
+            assert!(row.fields.contains_key("callId"));
+        }
+    }
     let checkpoint = state.checkpoint().unwrap();
     let mut all = Vec::new();
     let mut best = u128::MAX;
@@ -162,9 +171,10 @@ fn measure_child() {
         cold_all.extend(cold);
     }
     let peak = rss();
-    let full = full_state_p95(harness, &lines, cursor);
+    let full = full_state_p95(harness, &lines, cursor, true);
+    let queue_empty = full_state_p95(harness, &lines, cursor, false);
     println!(
-        "MEASURE {count} {bytes} {best} {} {cold_best} {} {peak} {} {full}",
+        "MEASURE {count} {bytes} {best} {} {cold_best} {} {peak} {} {full} {queue_empty}",
         p95(&mut all),
         p95(&mut cold_all),
         checkpoint.len()
@@ -215,9 +225,10 @@ fn god_vs_small() {
         }
         assert!(god[6] * 1024 < 64_000_000);
         assert!(god[7] <= small[7] + 64, "only varint counter widths may grow with history");
-        if harness == "claude" {
-            if let Ok(path) = std::env::var("V2_GATE_OUT") {
-                let lines = [
+        if harness == "claude"
+            && let Ok(path) = std::env::var("V2_GATE_OUT")
+        {
+            let lines = [
                     format!(
                         "{{\"name\":\"v2.pr02.translate_line\",\"small_p95\":{},\"god_p95\":{},\"unit\":\"ns\"}}\n",
                         small[2], god[3]
@@ -232,17 +243,16 @@ fn god_vs_small() {
                     ),
                     format!(
                         "{{\"name\":\"v2.pr02b.translate_line_queue_full\",\"small_p95\":{},\"god_p95\":{},\"unit\":\"ns\"}}\n",
-                        small[8], god[8]
+                        small[9], god[8]
                     ),
                 ]
                 .join("");
-                std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(path)
-                    .and_then(|mut file| std::io::Write::write_all(&mut file, lines.as_bytes()))
-                    .unwrap();
-            }
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .and_then(|mut file| std::io::Write::write_all(&mut file, lines.as_bytes()))
+                .unwrap();
         }
     }
 }

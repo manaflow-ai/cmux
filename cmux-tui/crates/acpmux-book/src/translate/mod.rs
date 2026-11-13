@@ -16,7 +16,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub const VERSION: u32 = 5;
-pub const MAX_STATE_BYTES: usize = 96 * 1024;
+pub const MAX_STATE_BYTES: usize = 64 * 1024;
+pub const MAX_TRANSLATOR_BYTES: usize = 32 * 1024;
 const MAX_QUEUE_ENTRIES: usize = 1024;
 const MAX_KEY_BYTES: usize = 256;
 
@@ -360,6 +361,10 @@ impl State {
             fields: BTreeMap::new(),
         })
     }
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "queue entry fields mirror the fixed raw record layout"
+    )]
     fn queue_add(
         &mut self,
         id: &str,
@@ -374,6 +379,11 @@ impl State {
             return;
         }
         let hash = prompt_hash(id);
+        if self.settled_prompts.contains(&hash)
+            || self.prompts.get(&hash).is_some_and(|prompt| prompt.read)
+        {
+            return;
+        }
         let entry = QueueEntry::new(hash, at_ms, held, place, span, text_len);
         if let Some(old) = self.queue.get(&hash).copied() {
             if old == entry {
@@ -622,7 +632,9 @@ impl State {
                     prompt.row.turn = self.turn;
                 }
                 prompt.read = true;
-                debug_assert!(!prompt.row.field("state", "sent"));
+                if prompt.row.field("state", "sent") {
+                    self.cut_fields = self.cut_fields.saturating_add(1);
+                }
                 prompt.row.fields.insert("steer".into(), "true".into());
                 out.row(&prompt.row);
                 if !prompt.has_body {
@@ -642,7 +654,9 @@ impl State {
             }
             let mut row = self.row(RowKind::User, out)?;
             row.turn = self.turn;
-            debug_assert!(!row.field("state", "sent"));
+            if row.field("state", "sent") {
+                self.cut_fields = self.cut_fields.saturating_add(1);
+            }
             row.fields.insert("steer".into(), "true".into());
             out.row(&row);
             out.raw_body(row.id, BodyField::Content, false, entry.place, u64::from(entry.span));
@@ -663,7 +677,10 @@ impl State {
                 prompt.row.turn = self.turn;
             }
             prompt.read = true;
-            debug_assert!(!prompt.row.field("state", "sent"));
+            self.fold.extra(prompt.row.id);
+            if prompt.row.field("state", "sent") {
+                self.cut_fields = self.cut_fields.saturating_add(1);
+            }
             prompt.row.fields.insert("steer".into(), "true".into());
             out.row(&prompt.row);
             // A v1 read can precede both queued and echo. It has no body to settle yet.
@@ -690,9 +707,7 @@ impl State {
         }
         let already_read = self.prompts.get(&hash).is_some_and(|p| p.read);
         let steer = steer || already_read;
-        if !steer {
-            self.queue_remove(prompt_key, out);
-        }
+        self.queue_remove(prompt_key, out);
         if steer {
             if !already_read {
                 self.mark_steer();
@@ -703,7 +718,9 @@ impl State {
         }
         let prior = self.prompts.remove(&hash);
         let mut row = if let Some(p) = prior { p.row } else { self.row(RowKind::User, out)? };
-        debug_assert!(!row.field("state", "sent"));
+        if row.field("state", "sent") {
+            self.cut_fields = self.cut_fields.saturating_add(1);
+        }
         if notice {
             row.fields.insert("notice".into(), "true".into());
         }
@@ -788,7 +805,9 @@ impl State {
             let mut row =
                 self.row(if thinking { RowKind::Thinking } else { RowKind::Text }, out)?;
             row.group = group;
-            debug_assert!(!row.field("messageId", key));
+            if row.field("messageId", key) {
+                self.cut_fields = self.cut_fields.saturating_add(1);
+            }
             out.row(&row);
             row.fields.clear();
             let mut facts = fold::Reply::default();
@@ -915,9 +934,13 @@ impl State {
             row.fields.insert("insideLine".into(), "true".into());
         }
         if let Some(marker) = stream.block.fence_marker() {
-            debug_assert!(!row.field("fence", &marker));
+            if row.field("fence", &marker) {
+                self.cut_fields = self.cut_fields.saturating_add(1);
+            }
         }
-        debug_assert!(!row.field("messageId", &stream.message));
+        if row.field("messageId", &stream.message) {
+            self.cut_fields = self.cut_fields.saturating_add(1);
+        }
         out.row(&row);
         row.fields.clear();
         stream.row = row;
@@ -1021,7 +1044,9 @@ impl State {
         } else {
             // Background rows after a settled turn live outside that group.
             let mut row = self.row(RowKind::Sub, out)?;
-            debug_assert!(!row.field("book", key));
+            if row.field("book", key) {
+                self.cut_fields = self.cut_fields.saturating_add(1);
+            }
             row
         };
         if !status.is_empty() && row.field("status", status) {
@@ -1062,7 +1087,9 @@ impl State {
         } else {
             let mut row = self.row(RowKind::Tool, out)?;
             row.group = self.group.as_ref().map(|g| g.id);
-            debug_assert!(!row.field("callId", key));
+            if row.field("callId", key) {
+                self.cut_fields = self.cut_fields.saturating_add(1);
+            }
             if let Some(group) = &mut self.group {
                 let n = group.fields.get("calls").and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
                 group.fields.insert("calls".into(), n.saturating_add(1).to_string());

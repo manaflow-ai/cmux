@@ -910,6 +910,21 @@ fn read_before_text_survives_another_turn_and_nonsteer_echo() {
 }
 
 #[test]
+fn read_before_late_text_is_in_the_settled_turn_out() {
+    let lines = [
+        mux(1, "user_message", r#"{"text":"first","turnId":"t1"}"#),
+        mux(2, "steer_read", r#"{"promptId":"s","turnId":"t1"}"#),
+        mux(3, "turn_result", r#"{"turnId":"t1"}"#),
+        mux(4, "user_message", r#"{"text":"next","turnId":"t2"}"#),
+        mux(5, "user_message", r#"{"text":"late","promptId":"s","turnId":"t1"}"#),
+    ];
+    let (_, mirror) = replay(&lines);
+    let steer = mirror.reply("late");
+    assert!(mirror.visible(steer));
+    assert_eq!(steer.turn, Some(mirror.reply("first").id));
+}
+
+#[test]
 fn session_exit_settles_live_bodies_and_hides_a_textless_steer() {
     let (_, m) = replay(&[
         mux(1, "user_message", r#"{"text":"q"}"#),
@@ -1070,6 +1085,25 @@ fn queued_entries_are_idempotent_bounded_and_raw() {
 }
 
 #[test]
+fn queue_entries_are_removed_when_read_before_or_after_queue_record() {
+    let mut state = State::default();
+    let first = mux(1, "user_message", r#"{"text":"first","turnId":"t1"}"#);
+    translate(&mut state, Harness::V1, 1, 1, first.as_bytes()).unwrap();
+    let read = mux(2, "steer_read", r#"{"promptId":"late"}"#);
+    translate(&mut state, Harness::V1, 2, 1, read.as_bytes()).unwrap();
+    let queued = mux(3, "queued", r#"{"text":"late","promptId":"late"}"#);
+    translate(&mut state, Harness::V1, 3, 1, queued.as_bytes()).unwrap();
+    assert!(state.queue.is_empty());
+    let echo = mux(4, "user_message", r#"{"text":"late","promptId":"late","steer":true}"#);
+    translate(&mut state, Harness::V1, 4, 1, echo.as_bytes()).unwrap();
+    let end = mux(5, "turn_result", r#"{"turnId":"t1"}"#);
+    translate(&mut state, Harness::V1, 5, 1, end.as_bytes()).unwrap();
+    let queued_again = mux(6, "queued", r#"{"text":"late","promptId":"late"}"#);
+    translate(&mut state, Harness::V1, 6, 1, queued_again.as_bytes()).unwrap();
+    assert!(state.queue.is_empty());
+}
+
+#[test]
 fn queue_cap_counts_the_1025th_entry_without_holding_it() {
     let mut state = State::default();
     t(&mut state, Harness::V1, mux(1, "user_message", r#"{"text":"first"}"#).as_bytes()).unwrap();
@@ -1079,7 +1113,37 @@ fn queue_cap_counts_the_1025th_entry_without_holding_it() {
     }
     assert_eq!(state.queue.len(), 1024);
     assert_eq!(state.counters().queue_overflowed, 1);
-    assert!(state.checkpoint().unwrap().len() < 96 * 1024);
+    assert!(state.checkpoint().unwrap().len() <= 64 * 1024);
+}
+
+#[test]
+fn queue_split_replay_preserves_places_and_state() {
+    let lines = [
+        mux(1, "user_message", r#"{"text":"q","turnId":"t"}"#),
+        mux(2, "queued", r#"{"text":"wait","promptId":"w"}"#),
+        mux(3, "queue_paused", r#"{"held":["w"]}"#),
+        mux(4, "queue_resumed", r#"{"promptIds":["w"]}"#),
+        mux(5, "steer_read", r#"{"promptId":"w","turnId":"t"}"#),
+        mux(6, "user_message", r#"{"text":"answer","promptId":"w","steer":true}"#),
+        mux(7, "turn_result", r#"{"turnId":"t"}"#),
+    ];
+    let mut whole = State::default();
+    for (place, line) in lines.iter().enumerate() {
+        translate(&mut whole, Harness::V1, place as u64, line.len() as u64, line.as_bytes())
+            .unwrap();
+    }
+    let mut split = State::default();
+    for (place, line) in lines.iter().take(3).enumerate() {
+        translate(&mut split, Harness::V1, place as u64, line.len() as u64, line.as_bytes())
+            .unwrap();
+    }
+    split = State::restore(&split.checkpoint().unwrap()).unwrap();
+    for (place, line) in lines.iter().skip(3).enumerate() {
+        translate(&mut split, Harness::V1, (place + 3) as u64, line.len() as u64, line.as_bytes())
+            .unwrap();
+    }
+    assert_eq!(whole.queue, split.queue);
+    assert_eq!(whole.last_row_id(), split.last_row_id());
 }
 
 #[test]
