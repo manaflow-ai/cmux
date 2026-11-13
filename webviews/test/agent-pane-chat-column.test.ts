@@ -658,6 +658,9 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       }),
     });
     await thoughtToggle(page).waitFor({ state: "attached" });
+    // The thought's line was drawn before the call came, so nothing new mounts that the view would
+    // settle on: watch the frames the call's arrival draws before reading them.
+    await page.waitForFunction(() => ((window as any).__frames?.length ?? 0) > 5);
     const tops = (await stop(page)).map((frame) => frame.top);
     expect(await thoughtToggle(page).getAttribute("aria-expanded")).toBe("false");
     expect(tops.length).toBeGreaterThan(5);
