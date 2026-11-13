@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import AppKit
 import AVFoundation
 import CmuxNextComputerUse
 import CoreMedia
 import CoreVideo
 import Darwin
 import Foundation
+import ImageIO
 import os
 @testable import CmuxNextMacScreen
 import Testing
@@ -113,6 +115,45 @@ import VideoToolbox
         #expect(ComputerUsePreviewPresenter.streamLongSide(expanded: false, cardPoints: 400, backingScale: 2) == 800)
     }
 
+    /// No empty card: a card or the expanded view shows only once a picture came, and never while
+    /// the window is private; the chip a person hid it to shows without one.
+    @Test func nothingShowsBeforeAPicture() {
+        #expect(ComputerUsePreviewPresenter.overlayHidden(blocked: false, pictured: false, presentation: .card))
+        #expect(ComputerUsePreviewPresenter.overlayHidden(blocked: false, pictured: false, presentation: .expanded))
+        #expect(!ComputerUsePreviewPresenter.overlayHidden(blocked: false, pictured: true, presentation: .card))
+        #expect(ComputerUsePreviewPresenter.overlayHidden(blocked: true, pictured: true, presentation: .card))
+        #expect(!ComputerUsePreviewPresenter.overlayHidden(blocked: false, pictured: false, presentation: .hidden))
+        #expect(ComputerUsePreviewPresenter.overlayHidden(blocked: true, pictured: false, presentation: .hidden))
+    }
+
+    /// Only plain Escape closes the expanded view; a chord with Command, Option, Control or Shift
+    /// goes on to the surface.
+    @Test func onlyPlainEscapeClosesTheExpandedView() {
+        #expect(ComputerUsePreviewPresenter.closesExpandedView(keyCode: 53, modifiers: []))
+        #expect(ComputerUsePreviewPresenter.closesExpandedView(keyCode: 53, modifiers: [.function, .capsLock]))
+        for chord: NSEvent.ModifierFlags in [.command, .option, .control, .shift] {
+            #expect(!ComputerUsePreviewPresenter.closesExpandedView(keyCode: 53, modifiers: chord))
+        }
+        #expect(!ComputerUsePreviewPresenter.closesExpandedView(keyCode: 36, modifiers: []))
+    }
+
+    /// A still shows in whichever view holds the picture: the card, or the expanded view while
+    /// expanded (round-4 review: the expanded view was an empty box on the stills path).
+    @Test func aStillShowsInTheViewThatHoldsThePicture() throws {
+        let overlay = ComputerUsePreviewOverlay(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        overlay.present(.card)
+        let source = try #require(CGImageSourceCreateWithData(try jpeg(width: 40, height: 20) as CFData, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        overlay.show(still: image)
+        #expect(overlay.showsStill == (thumbnail: true, expanded: false))
+        overlay.present(.expanded)
+        #expect(overlay.showsStill == (thumbnail: false, expanded: true))
+        overlay.present(.card)
+        #expect(overlay.showsStill == (thumbnail: true, expanded: false))
+        overlay.show(still: nil)
+        #expect(overlay.showsStill == (thumbnail: false, expanded: false))
+    }
+
     // MARK: The wire
 
     @Test func statusesParseAndAnUnknownStateIsSkipped() {
@@ -137,23 +178,28 @@ import VideoToolbox
         #expect(ComputerUsePreviewWire.frame(Data([0, 0, 0, 0, 0, 0, 0, 0, 1])) == nil)
     }
 
-    /// The reader turns the channel's messages into events in order, skips a kind it does not know
-    /// (a newer cmux Remote's) and an unknown state, and says when the channel closes.
+    /// The reader turns the channel's messages into outputs in order, skips a kind it does not know
+    /// (a newer cmux Remote's), an unknown state and a still that does not decode, and says when the
+    /// channel closes. Stills are decoded on the reader's thread into one slot: two before the main
+    /// queue takes one tell it once, and it gets the newest.
     @Test func theReaderDeliversStatusesStillsAndTheClose() throws {
         let (ours, theirs) = try socketPair()
-        let jpeg = Data([0xFF, 0xD8, 0xFF, 0xD9])
         var bytes = message(0x53, Data(#"{"state":"streaming","width":640,"height":400}"#.utf8))
         bytes += message(0x5A, Data([1, 2, 3]))
         bytes += message(0x53, Data(#"{"state":"warp"}"#.utf8))
-        bytes += message(0x4A, jpeg)
+        bytes += message(0x4A, Data([0xFF, 0xD8, 0xFF, 0xD9])) // not a picture: dropped
+        bytes += message(0x4A, try jpeg(width: 40, height: 20))
+        bytes += message(0x4A, try jpeg(width: 64, height: 32))
         bytes += message(0x53, Data(#"{"state":"blocked"}"#.utf8))
         #expect(bytes.withUnsafeBytes { write(theirs, $0.baseAddress, $0.count) } == bytes.count)
         close(theirs)
         let seen = Collected()
-        ComputerUsePreviewStream.read(ours) { seen.add($0) }
+        let stills = ComputerUsePreviewStillSlot()
+        ComputerUsePreviewStream.read(ours, stills: stills) { seen.add($0) }
         close(ours)
-        #expect(seen.events == [.status(ComputerUsePreviewStatus(state: .streaming, width: 640, height: 400)), .still(jpeg),
-                                .status(ComputerUsePreviewStatus(state: .blocked)), .closed])
+        #expect(seen.kinds == ["status", "still", "status", "closed"])
+        #expect(stills.take()?.width == 64, "the newest still waits")
+        #expect(stills.take() == nil)
     }
 
     /// A payload past the wire's limit ends the stream instead of allocating it.
@@ -165,7 +211,7 @@ import VideoToolbox
         ComputerUsePreviewStream.read(ours) { seen.add($0) }
         close(theirs)
         close(ours)
-        #expect(seen.events == [.closed])
+        #expect(seen.kinds == ["closed"])
     }
 
     /// Parameter sets and a frame on the wire become one ready sample, delivered after the status
@@ -189,11 +235,12 @@ import VideoToolbox
         #expect(CMSampleBufferGetPresentationTimeStamp(sample) == CMTime(value: 33_333, timescale: 1_000_000))
         var events: [ComputerUsePreviewStream.Event] = []
         let stream = ComputerUsePreviewStream(session: "chat-1", longSide: 800) { events.append($0) }
-        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .streaming))))
+        stream.receive(.status(ComputerUsePreviewStatus(state: .streaming)))
         stream.receive(.sample(sample))
         #expect(stream.displayLayer.sampleBufferRenderer.status != .failed)
+        #expect(events == [.status(ComputerUsePreviewStatus(state: .streaming)), .pictured], "the first frame says there is a picture")
         events.removeAll()
-        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .blocked))))
+        stream.receive(.status(ComputerUsePreviewStatus(state: .blocked)))
         #expect(events == [.status(ComputerUsePreviewStatus(state: .blocked))])
     }
 
@@ -227,23 +274,27 @@ import VideoToolbox
 
     /// After `blocked` the picture stays off: stills are refused, and a later paused or no_window
     /// status does not bring them back; only `streaming` or `still` does.
-    @Test func afterBlockedNoStillShowsUntilTheWindowMayShowAgain() {
+    @Test func afterBlockedNoStillShowsUntilTheWindowMayShowAgain() throws {
         var events: [ComputerUsePreviewStream.Event] = []
         let stream = ComputerUsePreviewStream(session: "chat-1", longSide: 800) { events.append($0) }
-        let jpeg = Data([0xFF, 0xD8, 0xFF, 0xD9])
-        stream.receive(.event(.still(jpeg)))
+        let jpeg = try jpeg(width: 40, height: 20)
+        func still() {
+            if stream.stills.put(jpeg: jpeg) { stream.receive(.stillReady) }
+        }
+        func stills() -> Int { events.filter { if case .still = $0 { true } else { false } }.count }
+        still()
         #expect(events.isEmpty, "no still before the worker says one may show")
-        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .still))))
-        stream.receive(.event(.still(jpeg)))
-        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .blocked))))
-        stream.receive(.event(.still(jpeg)))
-        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .paused))))
-        stream.receive(.event(.still(jpeg)))
-        #expect(events == [.status(ComputerUsePreviewStatus(state: .still)), .still(jpeg),
-                           .status(ComputerUsePreviewStatus(state: .blocked)), .status(ComputerUsePreviewStatus(state: .paused))])
-        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .streaming))))
-        stream.receive(.event(.still(jpeg)))
-        #expect(events.suffix(2) == [.status(ComputerUsePreviewStatus(state: .streaming)), .still(jpeg)])
+        stream.receive(.status(ComputerUsePreviewStatus(state: .still)))
+        still()
+        #expect(stills() == 1)
+        stream.receive(.status(ComputerUsePreviewStatus(state: .blocked)))
+        still()
+        stream.receive(.status(ComputerUsePreviewStatus(state: .paused)))
+        still()
+        #expect(stills() == 1, "none after blocked, nor after a later paused")
+        stream.receive(.status(ComputerUsePreviewStatus(state: .streaming)))
+        still()
+        #expect(stills() == 2, "streaming again lets stills show")
     }
 
     /// Frames show only while the worker says `streaming`: after `blocked` (or any other status)
@@ -256,31 +307,32 @@ import VideoToolbox
         let stream = ComputerUsePreviewStream(session: "chat-1", longSide: 800) { events.append($0) }
         stream.receive(.sample(sample))
         #expect(stream.framesShown == 0, "a frame before any status is not shown")
-        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .streaming))))
+        stream.receive(.status(ComputerUsePreviewStatus(state: .streaming)))
         stream.receive(.sample(sample))
         #expect(stream.framesShown == 1)
-        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .blocked))))
+        stream.receive(.status(ComputerUsePreviewStatus(state: .blocked)))
         stream.receive(.sample(sample))
-        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .paused))))
+        stream.receive(.status(ComputerUsePreviewStatus(state: .paused)))
         stream.receive(.sample(sample))
         #expect(stream.framesShown == 1, "no frame after blocked, nor after a later paused")
-        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .streaming))))
+        stream.receive(.status(ComputerUsePreviewStatus(state: .streaming)))
         stream.receive(.sample(sample))
         #expect(stream.framesShown == 2, "streaming again shows frames again")
-        #expect(events.count == 4)
-        stream.receive(.event(.closed))
+        #expect(events.filter { $0 == .pictured }.count == 2, "a picture after the start, and again after blocked")
+        stream.receive(.closed)
         #expect(events.last == .closed)
     }
 
     /// Nothing reaches the presenter after `stop()`: no late frame, still or close of the old
     /// channel (a close would schedule a reopen of a stream nobody wants).
-    @Test func nothingIsDeliveredAfterStop() {
+    @Test func nothingIsDeliveredAfterStop() throws {
         var events: [ComputerUsePreviewStream.Event] = []
         let stream = ComputerUsePreviewStream(session: "chat-1", longSide: 800) { events.append($0) }
-        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .streaming))))
+        stream.receive(.status(ComputerUsePreviewStatus(state: .streaming)))
         stream.stop()
-        stream.receive(.event(.still(Data([1]))))
-        stream.receive(.event(.closed))
+        _ = stream.stills.put(jpeg: try jpeg(width: 4, height: 4))
+        stream.receive(.stillReady)
+        stream.receive(.closed)
         #expect(events == [.status(ComputerUsePreviewStatus(state: .streaming))])
     }
 
@@ -323,9 +375,6 @@ import VideoToolbox
         private let lock = OSAllocatedUnfairLock<[ComputerUsePreviewStream.Output]>(initialState: [])
         var outputs: [ComputerUsePreviewStream.Output] { lock.withLock { $0 } }
         func add(_ output: ComputerUsePreviewStream.Output) { lock.withLock { $0.append(output) } }
-        var events: [ComputerUsePreviewStream.Event] {
-            outputs.compactMap { if case .event(let event) = $0 { event } else { nil } }
-        }
         var samples: [CMSampleBuffer] {
             outputs.compactMap { if case .sample(let sample) = $0 { sample } else { nil } }
         }
@@ -333,12 +382,26 @@ import VideoToolbox
             outputs.map {
                 switch $0 {
                 case .sample: "sample"
-                case .event(.closed): "closed"
-                case .event(.still): "still"
-                case .event(.status): "status"
+                case .closed: "closed"
+                case .stillReady: "still"
+                case .status: "status"
                 }
             }
         }
+    }
+
+    /// A real JPEG of a gray `width` x `height` picture.
+    private func jpeg(width: Int, height: Int) throws -> Data {
+        let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        context.setFillColor(gray: 0.5, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let image = try #require(context.makeImage())
+        let data = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        #expect(CGImageDestinationFinalize(destination))
+        return data as Data
     }
 
     private func message(_ kind: UInt8, _ payload: Data) -> Data {

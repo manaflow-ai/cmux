@@ -104,6 +104,9 @@ public enum ComputerUsePreviewRequest: Sendable, Equatable {
     case hideEverywhere
     case show
     case moved(ComputerUsePreviewLayout.Corner)
+    /// The grip moves: the card takes this long side now; the stream follows on ``resized(_:)``.
+    case resizing(CGFloat)
+    /// The resize ended at this long side.
     case resized(CGFloat)
 }
 
@@ -171,10 +174,16 @@ public final class ComputerUsePreviewThumbnail: NSView {
         needsLayout = true
     }
 
-    /// Shows a JPEG still in place of the video (nil: the video shows).
-    public func show(still data: Data?) {
-        still.contents = data.flatMap { NSImage(data: $0) }.flatMap { $0.cgImage(forProposedRect: nil, context: nil, hints: nil) }
+    /// Shows a still in place of the video (nil: the video shows).
+    public func show(still image: CGImage?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        still.contents = image
+        CATransaction.commit()
     }
+
+    /// A still is shown (tests).
+    var showsStill: Bool { still.contents != nil }
 
     public override func layout() {
         super.layout()
@@ -310,7 +319,7 @@ public final class ComputerUsePreviewThumbnail: NSView {
             let grows: CGFloat = corner == .topRight || corner == .bottomRight ? -1 : 1
             longSide = min(max(resizeStart.side + grows * dx, ComputerUsePreviewLayout.minimumLongSide), ComputerUsePreviewLayout.maximumLongSide)
             dragged = true
-            onRequest(.resized(longSide))
+            onRequest(.resizing(longSide))
             return
         }
         guard let dragStart else { return }
@@ -325,7 +334,10 @@ public final class ComputerUsePreviewThumbnail: NSView {
             dragStart = nil
             resizeStart = nil
         }
-        if resizeStart != nil { return }
+        if resizeStart != nil {
+            if dragged { onRequest(.resized(longSide)) } // the stream's size follows once, at the end
+            return
+        }
         guard dragged, let superview else { return onRequest(.expand) }
         let center = CGPoint(x: frame.midX, y: frame.midY)
         onRequest(.moved(ComputerUsePreviewLayout.Corner.nearest(to: center, in: superview.bounds.size)))
@@ -368,11 +380,13 @@ public final class ComputerUsePreviewExpanded: NSView {
     public var aspect: CGFloat = 16.0 / 10.0 { didSet { needsLayout = true } }
     private let scrim = NSView()
     private let picture = NSView()
+    private let still = CALayer()
     private weak var video: AVSampleBufferDisplayLayer?
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        still.contentsGravity = .resizeAspect
         scrim.wantsLayer = true
         scrim.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.38).cgColor
         addSubview(scrim)
@@ -381,6 +395,7 @@ public final class ComputerUsePreviewExpanded: NSView {
         picture.layer?.cornerCurve = .continuous
         picture.layer?.masksToBounds = true
         picture.shadow = NSShadow()
+        picture.layer?.addSublayer(still)
         addSubview(picture)
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
@@ -397,9 +412,20 @@ public final class ComputerUsePreviewExpanded: NSView {
     public func attach(video layer: AVSampleBufferDisplayLayer?) {
         if let video, video.superlayer === picture.layer { video.removeFromSuperlayer() }
         video = layer
-        if let layer { picture.layer?.addSublayer(layer) }
+        if let layer { picture.layer?.insertSublayer(layer, below: still) }
         needsLayout = true
     }
+
+    /// Shows a still in place of the video (nil: the video shows).
+    public func show(still image: CGImage?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        still.contents = image
+        CATransaction.commit()
+    }
+
+    /// A still is shown (tests).
+    var showsStill: Bool { still.contents != nil }
 
     public override func layout() {
         super.layout()
@@ -409,6 +435,7 @@ public final class ComputerUsePreviewExpanded: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         video?.frame = picture.bounds
+        still.frame = picture.bounds
         CATransaction.commit()
     }
 

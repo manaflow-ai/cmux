@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 public import AVFoundation
 import CoreMedia
+public import CoreGraphics
 import Darwin
 public import Foundation
+import ImageIO
 import CmuxNextCompat
 import CmuxNextWakeups
 import os
@@ -17,20 +19,25 @@ private let previewLogger = Logger(subsystem: "com.cmuxterm.app.next", category:
 /// capture, so nothing is captured while nobody watches.
 @MainActor
 public final class ComputerUsePreviewStream {
-    /// What the stream says besides its frames.
-    public enum Event: Sendable, Equatable {
+    /// What the stream says besides its frames (on the main actor).
+    public enum Event: Equatable {
         /// The worker's state: streaming (its picture size and app), a still stands in, the window
         /// is gone or private, or the stream paused.
         case status(ComputerUsePreviewStatus)
-        /// A JPEG still (the fallback when no stream starts).
-        case still(Data)
+        /// The first video frame since the stream (re)started is in the layer: there is a picture.
+        case pictured
+        /// A still (the fallback when no stream runs), decoded off the main thread.
+        case still(CGImage)
         /// The channel closed.
         case closed
     }
 
-    /// What the reader hands the main queue: an event, or a frame ready to enqueue.
+    /// What the reader hands the main queue: a status, word that a decoded still waits in
+    /// ``stills``, the close, or a frame ready to enqueue.
     enum Output: Sendable {
-        case event(Event)
+        case status(ComputerUsePreviewStatus)
+        case stillReady
+        case closed
         case sample(CMSampleBuffer)
     }
 
@@ -55,6 +62,10 @@ public final class ComputerUsePreviewStream {
     private var acceptsFrames = false
     /// Frames enqueued into the layer so far (tests).
     private(set) var framesShown = 0
+    /// A frame is in the layer since the last (re)start, `blocked` or close.
+    private var hasPicture = false
+    /// The latest decoded still waiting for the main queue (the reader replaces an older one).
+    let stills = ComputerUsePreviewStillSlot()
 
     /// The most frames waiting for the main queue; past it the reader drops frames until a keyframe.
     nonisolated static let maximumPendingSamples = 3
@@ -94,9 +105,9 @@ public final class ComputerUsePreviewStream {
                     let line = try? JSONSerialization.data(withJSONObject: ["session": session, "long_side": side.withLock { $0 }])
                     if let line { _ = RemoteSocket.writeAll(socket, line + Data([0x0A])) }
                 }
-                let deliver = self.deliverer(), pending = self.pending, ask = self.askKeyframe
+                let deliver = self.deliverer(), pending = self.pending, ask = self.askKeyframe, stills = self.stills
                 let reader = Thread {
-                    Self.read(socket, backlog: { pending.withLock { $0 } }, askKeyframe: ask, deliver)
+                    Self.read(socket, backlog: { pending.withLock { $0 } }, askKeyframe: ask, stills: stills, deliver)
                     // Only this thread closes the socket, after its last read and after the control
                     // queue's writes (none starts once the socket is cleared): `stop` only shuts it
                     // down, so the descriptor number is never reused under a read or write in flight.
@@ -109,7 +120,7 @@ public final class ComputerUsePreviewStream {
                 reader.start()
             } catch {
                 previewLogger.notice("Computer Use preview: no channel: \(String(describing: error), privacy: .public)")
-                self?.receive(.event(.closed))
+                self?.receive(.closed)
             }
         }
     }
@@ -125,18 +136,11 @@ public final class ComputerUsePreviewStream {
         if changed { send(Data("L \(longSide)\n".utf8)) }
     }
 
-    /// The `K` line for the reader thread: at most one per 300 ms (cmux Remote throttles too).
+    /// The `K` line for the reader thread, once each time it starts dropping (cmux Remote forces
+    /// at most one keyframe per 300 ms however often it is asked).
     private var askKeyframe: @Sendable () -> Void {
-        let lastAsk = OSAllocatedUnfairLock<ContinuousClock.Instant?>(initialState: nil), control = control, state = state
-        return {
-            let now = ContinuousClock.now
-            let due = lastAsk.withLock { last -> Bool in
-                if let last, now - last < .milliseconds(300) { return false }
-                last = now
-                return true
-            }
-            if due { Self.write(PreviewChannelLine.keyframeRequest, on: control, state: state) }
-        }
+        let control = control, state = state
+        return { Self.write(PreviewChannelLine.keyframeRequest, on: control, state: state) }
     }
 
     /// Writes one app line on the control queue, to the channel's socket while it is open.
@@ -185,28 +189,36 @@ public final class ComputerUsePreviewStream {
             if renderer.status == .failed { renderer.flush() }
             renderer.enqueue(sample)
             framesShown += 1
-        case .event(let event):
-            switch event {
-            case .status(let status):
-                acceptsFrames = status.state == .streaming
-                switch status.state {
-                case .blocked:
-                    renderer.flush(removingDisplayedImage: true, completionHandler: nil)
-                    acceptsStills = false
-                case .streaming, .still:
-                    acceptsStills = true
-                case .noWindow, .paused:
-                    break
-                }
-            case .still:
-                guard acceptsStills else { return }
-            case .closed:
-                // The channel ended: its last picture does not linger while a new one opens.
-                renderer.flush(removingDisplayedImage: true, completionHandler: nil)
-                acceptsFrames = false
-                acceptsStills = false
+            if !hasPicture {
+                hasPicture = true
+                onEvent(.pictured)
             }
-            onEvent(event)
+        case .status(let status):
+            acceptsFrames = status.state == .streaming
+            switch status.state {
+            case .blocked:
+                renderer.flush(removingDisplayedImage: true, completionHandler: nil)
+                acceptsStills = false
+                hasPicture = false
+                _ = stills.take()
+            case .streaming, .still:
+                acceptsStills = true
+            case .noWindow, .paused:
+                break
+            }
+            onEvent(.status(status))
+        case .stillReady:
+            // The newest still only; none while the window may not show.
+            guard let image = stills.take(), acceptsStills else { return }
+            onEvent(.still(image))
+        case .closed:
+            // The channel ended: its last picture does not linger while a new one opens.
+            renderer.flush(removingDisplayedImage: true, completionHandler: nil)
+            acceptsFrames = false
+            acceptsStills = false
+            hasPicture = false
+            _ = stills.take()
+            onEvent(.closed)
         }
     }
 
@@ -219,7 +231,10 @@ public final class ComputerUsePreviewStream {
     /// so the decoder never gets a frame whose reference it lost.
     /// `askKeyframe` runs once each time the reader starts dropping: it asks cmux Remote for a
     /// keyframe, so the picture resumes at once instead of at the next scheduled one.
+    /// A still is decoded here, off the main thread, into `stills`, which keeps only the newest:
+    /// the main queue hears of it once however many come before it takes it.
     nonisolated static func read(_ socket: Int32, backlog: () -> Int = { 0 }, askKeyframe: () -> Void = {},
+                                 stills: ComputerUsePreviewStillSlot = ComputerUsePreviewStillSlot(),
                                  _ deliver: @Sendable (Output) -> Void) {
         var header = [UInt8](repeating: 0, count: 5)
         var format: CMVideoFormatDescription?
@@ -233,7 +248,7 @@ public final class ComputerUsePreviewStream {
             switch header[0] {
             case ComputerUsePreviewWire.status:
                 if let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                   let status = ComputerUsePreviewStatus(object) { deliver(.event(.status(status))) }
+                   let status = ComputerUsePreviewStatus(object) { deliver(.status(status)) }
             case ComputerUsePreviewWire.parameterSets:
                 if let sets = ComputerUsePreviewWire.parameterSets(data) { format = Self.format(sps: sets.sps, pps: sets.pps) }
             case ComputerUsePreviewWire.frame:
@@ -247,12 +262,12 @@ public final class ComputerUsePreviewStream {
                     deliver(.sample(sample))
                 }
             case ComputerUsePreviewWire.still:
-                deliver(.event(.still(data)))
+                if stills.put(jpeg: data) { deliver(.stillReady) }
             default:
                 break
             }
         }
-        deliver(.event(.closed))
+        deliver(.closed)
     }
 
     private nonisolated static func readExactly(_ socket: Int32, _ buffer: inout [UInt8], count: Int) -> Bool {
@@ -313,6 +328,34 @@ public final class ComputerUsePreviewStream {
                                  Unmanaged.passUnretained(kCFBooleanTrue).toOpaque())
         }
         return sample
+    }
+}
+
+/// The newest decoded still of a preview stream, between its reader thread and the main queue:
+/// one slot, so a slow main thread never queues stills (a newer one replaces the one waiting).
+public nonisolated final class ComputerUsePreviewStillSlot: Sendable {
+    private let image = OSAllocatedUnfairLock<CGImage?>(uncheckedState: nil)
+
+    public init() {}
+
+    /// Decodes `jpeg` on the calling thread (the reader's) and keeps it; true when the slot was
+    /// empty, so the main queue should be told. A payload that does not decode is dropped.
+    func put(jpeg: Data) -> Bool {
+        guard let source = CGImageSourceCreateWithData(jpeg as CFData, nil),
+              let decoded = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+        else { return false }
+        return image.withLockUnchecked { slot in
+            defer { slot = decoded }
+            return slot == nil
+        }
+    }
+
+    /// The still waiting, taken out of the slot.
+    func take() -> CGImage? {
+        image.withLockUnchecked { slot in
+            defer { slot = nil }
+            return slot
+        }
     }
 }
 

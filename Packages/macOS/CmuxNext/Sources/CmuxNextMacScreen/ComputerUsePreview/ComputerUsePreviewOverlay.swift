@@ -25,7 +25,11 @@ public final class ComputerUsePreviewOverlay: NSView {
         }
     }
     private weak var video: AVSampleBufferDisplayLayer?
+    /// The still shown in place of the video, nil while the video shows.
+    private var still: CGImage?
     private var entered = false
+    /// The card's entrance played (the first time the overlay showed a picture).
+    private var revealed = false
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
@@ -52,13 +56,28 @@ public final class ComputerUsePreviewOverlay: NSView {
         place(video: layer)
     }
 
-    /// A still in place of the video (nil: the video).
-    public func show(still data: Data?) { thumbnail.show(still: data) }
+    /// A still in place of the video (nil: the video), in whichever view holds the picture.
+    public func show(still image: CGImage?) {
+        still = image
+        placeStill()
+    }
 
-    /// Shows `presentation`: the thumbnail, the expanded view or the chip.
+    /// The overlay shows from now on, with the card's entrance the first time: the presenter calls
+    /// it once there is a picture (a frame or a still), so no empty card ever appears.
+    public func reveal() {
+        isHidden = false
+        guard !revealed else { return }
+        revealed = true
+        if presentation == .card { thumbnail.playEntrance() }
+    }
+
+    /// The thumbnail and the expanded view show a still (tests).
+    var showsStill: (thumbnail: Bool, expanded: Bool) { (thumbnail.showsStill, expanded.showsStill) }
+
+    /// Shows `presentation`: the thumbnail, the expanded view or the chip. The card's entrance
+    /// plays in ``reveal()``, once there is a picture.
     public func present(_ presentation: ComputerUsePreviewPresentation) {
         guard presentation != self.presentation || !entered else { return }
-        let first = !entered
         entered = true
         self.presentation = presentation
         expanded.removeFromSuperview()
@@ -66,7 +85,6 @@ public final class ComputerUsePreviewOverlay: NSView {
         switch presentation {
         case .card:
             thumbnail.isHidden = false
-            if first { thumbnail.playEntrance() }
         case .expanded:
             thumbnail.isHidden = false
             expanded.frame = bounds
@@ -77,6 +95,7 @@ public final class ComputerUsePreviewOverlay: NSView {
             addSubview(chip)
         }
         if let video { place(video: video) }
+        placeStill()
         needsLayout = true
     }
 
@@ -90,8 +109,15 @@ public final class ComputerUsePreviewOverlay: NSView {
     /// The agent finished or stopped: the completion effect, then `done`.
     public func complete(_ done: @escaping @MainActor @Sendable () -> Void) {
         expanded.removeFromSuperview()
-        guard !thumbnail.isHidden else { return done() }
+        guard !isHidden, !thumbnail.isHidden else { return done() }
         thumbnail.playCompletion(done)
+    }
+
+    /// The still goes where the picture is: the expanded view while expanded, else the thumbnail.
+    private func placeStill() {
+        let expandedHolds = presentation == .expanded
+        expanded.show(still: expandedHolds ? still : nil)
+        thumbnail.show(still: expandedHolds ? nil : still)
     }
 
     private func place(video layer: AVSampleBufferDisplayLayer) {
