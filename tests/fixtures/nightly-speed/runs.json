@@ -1,0 +1,65 @@
+{
+"total_count": 5,
+"workflow_runs": [
+{
+"id": 43207975450,
+"run_attempt": 1,
+"event": "workflow_dispatch",
+"status": "in_progress",
+"conclusion": null,
+"head_sha": "9ad6c743d0ec55425c95b0fbe80acb5f9da90d0e",
+"head_branch": "nightly-next",
+"display_title": "Sign nightly-next run 43204558700 attempt 1",
+"created_at": "2026-11-12T11:18:13Z",
+"updated_at": "2026-11-12T11:19:43Z"
+},
+{
+"id": 43198322667,
+"run_attempt": 1,
+"event": "workflow_dispatch",
+"status": "completed",
+"conclusion": "failure",
+"head_sha": "a348eca932a18644c237fb038c8ad3fa5bbfa94b",
+"head_branch": "nightly-next",
+"display_title": "Sign nightly-next run 43194649321 attempt 1",
+"created_at": "2026-11-12T10:12:40Z",
+"updated_at": "2026-11-12T10:44:06Z"
+},
+{
+"id": 43194746628,
+"run_attempt": 1,
+"event": "workflow_dispatch",
+"status": "completed",
+"conclusion": "cancelled",
+"head_sha": "eb9f64c566e936da3c5550349877ef45ade5de66",
+"head_branch": "nightly-next",
+"display_title": "Sign nightly-next run 43188926960 attempt 1",
+"created_at": "2026-11-12T09:48:37Z",
+"updated_at": "2026-11-12T10:12:45Z"
+},
+{
+"id": 43189297315,
+"run_attempt": 1,
+"event": "workflow_dispatch",
+"status": "completed",
+"conclusion": "success",
+"head_sha": "622575d8659410e9731adeba38a8499d5c16b02e",
+"head_branch": "nightly-next",
+"display_title": "Sign nightly-next run 43185474901 attempt 1",
+"created_at": "2026-11-12T09:11:43Z",
+"updated_at": "2026-11-12T10:12:53Z"
+},
+{
+"id": 43185474901,
+"run_attempt": 1,
+"event": "push",
+"status": "completed",
+"conclusion": "success",
+"head_sha": "9dc6d10f0e15393120e1e9a56882cde1121a9d87",
+"head_branch": "nightly-next",
+"display_title": "acpmux: a withdraw waits for its retraction notice's own accept, neve\u2026",
+"created_at": "2026-11-12T08:44:49Z",
+"updated_at": "2026-11-12T09:11:49Z"
+}
+]
+}
