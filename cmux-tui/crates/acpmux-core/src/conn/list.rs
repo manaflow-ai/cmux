@@ -87,9 +87,13 @@ impl Source for HubSource {
             .lock()
             .map_err(|_| ConnError::InvalidRequest("list source poisoned".into()))?;
         let held = Arc::new(Held::default());
+        // The anchor selects only the initial viewport. Every later resume
+        // has no anchor; if retained history is insufficient it opens the head.
+        let mut resumed = sub.clone();
+        resumed.anchor = None;
         let join = self.scope.spawn(pump(
             self.hub.clone(),
-            sub.clone(),
+            resumed,
             sink,
             delivery.receiver,
             delivery.mode,
@@ -212,8 +216,6 @@ async fn pump(
     loop {
         if resume.has_changed().unwrap_or(false) {
             held.paused.store(false, Ordering::Release);
-            // Keep the original viewport anchor for a fresh window if the
-            // cursor has fallen outside retained history. It does not affect replay.
             sub.cursor = Some(*resume.borrow_and_update());
             sub.edition = Some(0);
             let Ok(delivery) = open(&hub, &sub) else {

@@ -30,11 +30,11 @@ an actor on another runtime thread can offer between its locks. The detector is
 `ordinary_reply_consumes_reserve_before_another_thread_offers`, which offers in
 that interval and requires the frame to fit without dropping its subscription.
 
-A delivery cursor and a viewport anchor have different lifetimes. Advancing or
-replacing the cursor must preserve the anchor needed when retained history is
-insufficient. The detector is
-`expired_list_resume_and_live_lag_keep_the_original_anchor`: both credit-driven
-resume and live lag must return the anchored rows at the new exact cursor.
+A delivery cursor and an initial viewport anchor have different lifetimes.
+The anchor selects the first window; resumes carry no anchor. When retained
+history is insufficient, a resume returns the head of the list view at its new
+exact cursor. The detector is `expired_list_resume_and_live_lag_open_the_head`,
+covering both credit-driven resume and live lag after an anchored subscription.
 
 Returning a transport from an I/O task changes its drop lifetime. A v1 writer
 must still drop its half when its last line finishes, even while request handlers

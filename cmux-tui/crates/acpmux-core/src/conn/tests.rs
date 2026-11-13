@@ -924,7 +924,7 @@ fn ordinary_reply_consumes_reserve_before_another_thread_offers() {
 }
 
 #[tokio::test]
-async fn expired_list_resume_and_live_lag_keep_the_original_anchor() {
+async fn expired_list_resume_and_live_lag_open_the_head() {
     let (mut client, task, hub, mut writer, source) = list_pair();
     for n in 0..20 {
         let mut row = Summary::new(format!("row-{n}"));
@@ -941,8 +941,8 @@ async fn expired_list_resume_and_live_lag_keep_the_original_anchor() {
     )
     .await;
     let initial: Window<Summary> = receive(&mut client).await.decode_json().unwrap();
-    let expected: Vec<_> = initial.rows.iter().map(|row| row.chat_id.clone()).collect();
-    assert_eq!(expected.len(), 3);
+    let anchored: Vec<_> = initial.rows.iter().map(|row| row.chat_id.clone()).collect();
+    assert_eq!(anchored.len(), 3);
     let mut cursor = initial.cursor;
     for credit_resume in [true, false] {
         // No await lets the source consume this burst. It exceeds retention,
@@ -956,6 +956,9 @@ async fn expired_list_resume_and_live_lag_keep_the_original_anchor() {
         let frame = receive(&mut client).await;
         assert_eq!(frame.kind, FrameKind::Window);
         let window: Window<Summary> = frame.decode_json().unwrap();
+        let expected: Vec<_> =
+            hub.snapshot().page(0, 3).iter().map(|row| row.chat_id.clone()).collect();
+        assert_ne!(expected, anchored);
         assert_eq!(window.rows.iter().map(|row| row.chat_id.clone()).collect::<Vec<_>>(), expected);
         assert_eq!(window.cursor, hub.snapshot().seq());
         assert!(window.cursor > cursor);
