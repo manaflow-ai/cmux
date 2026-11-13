@@ -4050,7 +4050,22 @@ jobs:
 
       - *select-xcode
       - *select-xcode-sdk
+      # download-artifact reads the blob over one stream: 7m06s here (run 43300596948), while the job holds the whole
+      # signing Mac. The ranged read (download-run-artifact.py) checks the artifact's sha256 digest; the action
+      # download stays as the fallback.
+      # An unsigned resume builds an older tree, so the signing control's copy goes first.
+      - name: Download prepared app (parallel)
+        id: prepared-app-parallel
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREPARED_APP_ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+        run: |
+          s=.nightly-signing-control/scripts/ci/download-run-artifact.py; [ -f "$s" ] || s=scripts/ci/download-run-artifact.py
+          python3 "$s" --name "$PREPARED_APP_ARTIFACT" --out prepared-app --connections 32
+
       - name: Download prepared app
+        if: steps.prepared-app-parallel.outcome != 'success'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -5673,6 +5688,8 @@ jobs:
       pull-requests: read
       attestations: write
       id-token: write
+      # download-run-artifact.py lists this run's artifacts with github.token.
+      actions: read
     # rc/** branches share one release. Serialize its mutable aliases and feeds
     # by channel, even when workflow-level groups have different branch names.
     # nightly-next takes a group of its own run and the R2 lease below instead:
@@ -5872,7 +5889,19 @@ jobs:
         # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
         run: if [ -f .publish-tooling/scripts/ci/gh_budget_wait.sh ]; then bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install; fi
 
+      # download-artifact reads the blob over one stream: 8m20s here (run 43300596948), while the job holds the whole
+      # signing Mac. The ranged read (download-run-artifact.py) checks the artifact's sha256 digest; the action
+      # download stays as the fallback.
+      - name: Download nightly variant artifacts (parallel)
+        id: variants-parallel
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VARIANT_PATTERN: ${{ steps.source.outputs.variant_pattern }}
+        run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --pattern "$VARIANT_PATTERN" --out nightly-out --connections 32
+
       - name: Download nightly variant artifacts
+        if: steps.variants-parallel.outcome != 'success'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: ${{ steps.source.outputs.variant_pattern }}
@@ -6526,7 +6555,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/dsyms-find-attempt.sh
 
+      # download-artifact reads the blob over one stream: 4m20s here (run 43300596948), while the job holds the whole
+      # signing Mac. The ranged read (download-run-artifact.py) checks the artifact's sha256 digest; the action
+      # download stays as the fallback.
+      - name: Download the published build's dSYMs from the run that compiled it (parallel)
+        id: dsyms-parallel
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DSYMS_ARTIFACT: ${{ steps.producer.outputs.artifact }}
+          DSYMS_RUN: ${{ steps.producer.outputs.run }}
+        run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --artifact-id "$DSYMS_ARTIFACT" --run-id "$DSYMS_RUN" --out "$RUNNER_TEMP/published-dsyms/dSYMs" --connections 32
+
       - name: Download the published build's dSYMs from the run that compiled it
+        if: steps.dsyms-parallel.outcome != 'success'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           artifact-ids: ${{ steps.producer.outputs.artifact }}
@@ -6632,7 +6674,17 @@ jobs:
       - name: Select Xcode
         run: ./.publish-tooling/scripts/select-ci-xcode.sh
       - *select-xcode-sdk
+      # download-artifact's one stream; the ranged read checks the sha256 digest, the action is the fallback.
+      - name: Download published variant (parallel)
+        id: variant-parallel
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ needs.published-build.outputs.source_run || github.run_id }}
+        run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --name "cmux-nightly-variant-$NIGHTLY_VARIANT" --run-id "$SOURCE_RUN" --out "$RUNNER_TEMP/nightly-delta/input" --connections 32
+
       - name: Download published variant
+        if: steps.variant-parallel.outcome != 'success'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           run-id: ${{ needs.published-build.outputs.source_run || github.run_id }}
@@ -6756,6 +6808,8 @@ jobs:
             scripts/ci/r2_cas.py
             scripts/ci/upload-r2-object.py
             scripts/ci/signing-runner-claim.sh
+            scripts/ci/download-run-artifact.py
+            scripts/ci/deadline_http.py
           sparse-checkout-cone-mode: false
 
       # The build ref may predate the hook list.
@@ -6769,7 +6823,19 @@ jobs:
 
       - *select-xcode
       - *select-xcode-sdk
+      # download-artifact reads the blob over one stream: 5m57s here (run 43318988406), while the job holds the whole
+      # signing Mac. The ranged read (download-run-artifact.py) checks the artifact's sha256 digest; the action
+      # download stays as the fallback.
+      - name: Download published variant (parallel)
+        id: variant-parallel
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ needs.published-build.outputs.source_run || github.run_id }}
+        run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --name "cmux-nightly-variant-$NIGHTLY_VARIANT" --run-id "$SOURCE_RUN" --out nightly-delta/input --connections 32
+
       - name: Download published variant
+        if: steps.variant-parallel.outcome != 'success'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           # From the run that published (the dispatched run's published-build names it).
