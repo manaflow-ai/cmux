@@ -582,7 +582,7 @@ extension LiveCoordinator {
         // team switch, Retry) is gone, and a cached terminal page must reattach on the new one.
         let machineID = owner.macID
         let terminal = DaemonTerminalSession(surface: surface, terminalID: terminalID, programName: program, clientInfo: info, open: { [weak self] in
-            guard let link = await self?.sessions[machineID]?.servedLink else {
+            guard let link = await self?.currentServedLink(machineID) else {
                 throw LinkError(code: "no-link", message: "Not connected to the Mac")
             }
             let channel = try await link.openChannel(service: "daemon", args: [:])
@@ -590,7 +590,7 @@ extension LiveCoordinator {
         }, openInput: { [weak self] in
             // Keystrokes ride the link's input lane (PROTOCOL.md "Lanes"), another stream that
             // can overtake `auth`: it opens only once pairing passed (review m6).
-            guard let self, let owner = self.sessions[machineID] else {
+            guard let self, let owner = await self.currentSession(machineID) else {
                 throw LinkError(code: "no-link", message: "Not connected to the Mac")
             }
             let link = try await self.pairedLink(owner)
@@ -605,6 +605,12 @@ extension LiveCoordinator {
         if owner.link.target == nil { touch(owner.macID) }
         return terminal
     }
+
+    /// The session that holds `machineID` now (a terminal's channels open through it).
+    func currentSession(_ machineID: String) -> MacSession? { sessions[machineID] }
+
+    /// The served link of the session that holds `machineID` now.
+    func currentServedLink(_ machineID: String) -> (any MacLink)? { sessions[machineID]?.servedLink }
 
     /// Whether the phone holds (or is opening) a link to the Mac.
     public func isLinked(macID: String) -> Bool {
