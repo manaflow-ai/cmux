@@ -197,6 +197,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_post_merge_checks.py
 
+      - name: Validate the step table and the pull request job budget
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_step_table.py
+
       - name: Validate the CI timing readout
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_timing_readout.py
