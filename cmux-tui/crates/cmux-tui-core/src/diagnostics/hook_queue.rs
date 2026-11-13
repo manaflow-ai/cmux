@@ -332,9 +332,14 @@ fn add_count_in(file: File, events: u64) -> io::Result<()> {
 /// The count in `file` under a shared lock taken now; `None` when a writer
 /// holds it. Never waits on a request thread: a writer holds this lock for
 /// microseconds, and a busy moment reports 0.
+/// The lock is unlocked before the file closes: a child another daemon thread
+/// forked meanwhile shares the open file until it execs, and a close alone
+/// would leave the lock held in that copy.
 fn shared_count(file: File) -> Option<u64> {
     file.try_lock_shared().ok()?;
-    read_count(&file)
+    let count = read_count(&file);
+    let _ = file.unlock();
+    count
 }
 
 fn read_count(mut file: &File) -> Option<u64> {

@@ -675,10 +675,20 @@ mod ports {
     use super::*;
 
     /// This process's lock, then the file lock every session host's
-    /// allocation for the repository takes (released when it closes).
+    /// allocation for the repository takes. The drop unlocks the file before
+    /// it closes (a child another thread forked meanwhile shares it until it
+    /// execs), then lets go of this process's lock.
     struct Lock {
         _guard: std::sync::MutexGuard<'static, ()>,
-        _file: Option<File>,
+        file: Option<File>,
+    }
+
+    impl Drop for Lock {
+        fn drop(&mut self) {
+            if let Some(file) = &self.file {
+                let _ = file.unlock();
+            }
+        }
     }
 
     fn lock(path: &Path) -> Lock {
@@ -699,7 +709,7 @@ mod ports {
                 libc::flock(file.as_raw_fd(), libc::LOCK_EX);
             }
         }
-        Lock { _guard: guard, _file: file }
+        Lock { _guard: guard, file }
     }
 
     /// The repository's port list, in its shared git folder (`git_dir` is a
