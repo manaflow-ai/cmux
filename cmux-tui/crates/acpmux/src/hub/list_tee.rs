@@ -62,9 +62,10 @@ impl TeeState {
     fn origin(&self, id: &str, state: OriginState, since: u64) {
         let mut origins = self.origins.lock().unwrap_or_else(|e| e.into_inner());
         let queue = origins.entry(id.to_owned()).or_default();
-        if state == OriginState::Removed
-            || queue.back().is_some_and(|(state, _)| *state == OriginState::Removed)
-        {
+        if state == OriginState::Removed {
+            queue.clear();
+            queue.push_back((state, since));
+        } else if queue.back().is_some_and(|(state, _)| *state == OriginState::Removed) {
             // `removed` is a lifecycle cut. Preserve it ahead of the latest
             // record so a rapid remove/reconnect cannot collapse the cut.
             queue.push_back((state, since));
@@ -225,7 +226,7 @@ fn submit_remote_id(v1: &Hub, v2: &V2, peer: &str, id: &str) {
 async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
     v1.wait_store().await;
     let _ = v2.hub.wait_hydrated().await;
-    let mut peer_names = HashSet::new();
+    let mut peer_names: HashSet<String> = v1.config.read().await.peers.keys().cloned().collect();
     for peer in v1.peers() {
         let Some(name) = peer.get("name").and_then(Value::as_str) else { continue };
         let Some(handle) = v1.peer_by_name(name) else { continue };
@@ -348,10 +349,8 @@ impl acpmux_core::hub::PageProvider for V1PageProvider {
             };
         }
         let rows = self.hub.remote_sessions.snapshot();
-        let row = rows
-            .of_peer(&key.origin)
-            .find(|row| row.1.receipt.mux_session_id.as_str() == key.chat_id.as_ref());
-        row.map(|row| summary_from_remote(&key.origin, &row.1.summary).map(Arc::new).map(Some))
+        rows.find_live_mux(&key.origin, &key.chat_id)
+            .map(|row| summary_from_remote(&key.origin, &row.summary).map(Arc::new).map(Some))
             .unwrap_or(Ok(None))
     }
 }

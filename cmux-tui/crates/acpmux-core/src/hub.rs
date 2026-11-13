@@ -142,7 +142,8 @@ impl UpdateQueue {
                     slot.push_back(update);
                 } else if let UpdateKey::Origin(_) = &key {
                     let slot = pending.controls.entry(key).or_default();
-                    if slot.back().is_some_and(|update| matches!(update, PendingUpdate::Origin { record } if record.state == OriginState::Removed)) {
+                    if slot.front().is_some_and(|update| matches!(update, PendingUpdate::Origin { record } if record.state == OriginState::Removed)) {
+                        slot.truncate(1);
                         slot.push_back(update);
                     } else {
                         slot.clear();
