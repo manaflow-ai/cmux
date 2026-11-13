@@ -4,6 +4,7 @@
 // acpmux refuses with `queue.not_author` (ComposerQueue.tsx).
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
 import { resetKeptTailsForTests } from "./tailCache";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -21,7 +22,8 @@ beforeAll(() => {
 // Each test is a fresh page on the mock's one chat, whose journal starts over: a tail an earlier
 // test's client kept of that chat id would stand in front of it (session ids are never reused in the app).
 beforeEach(() => resetKeptTailsForTests());
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];

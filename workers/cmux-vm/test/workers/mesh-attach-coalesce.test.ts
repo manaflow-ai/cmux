@@ -8,8 +8,10 @@
  * so it covers every attach whose member row was written before it read; those
  * attaches answer once it lands, without an apply of their own.
  */
-import { Effect, Layer } from "effect";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Duration, Effect, Layer, TestClock, TestContext } from "effect";
+import { type AuditEntry, AuditStore } from "../../src/db/stores.ts";
+import { timedAttach } from "../../src/handlers/mesh.ts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TenantId } from "../../src/lib/ids.ts";
 import { memoryLimitsLayer, TenantLimits, type TenantLimitsService } from "../../src/limits/service.ts";
 import { ALL_SCOPES, bearer } from "../support/endpoints.ts";
@@ -103,4 +105,69 @@ describe("concurrent mesh attaches", () => {
     // Every attach that answered 200 was reachable when it answered: none was let through by the failed apply.
     for (const answer of answers) if (answer.status === 200) expect(answer.covered).toBe(true);
   }, 60_000);
+});
+
+describe("the mesh_vm_attach line", () => {
+  it("stamps the handler's entry before the caller gate, the rate limit and the mesh ownership read", async () => {
+    const { key, meshId } = await meshWithDevice();
+    const vm = h.addVm(TEAM);
+    const lines: Array<Record<string, string>> = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+      if (typeof line !== "string" || !line.startsWith("{")) return;
+      const parsed = record(JSON.parse(line));
+      if (parsed["event"] === "mesh_vm_attach") lines.push(Object.fromEntries(Object.entries(parsed).map(([k, v]) => [k, String(v)])));
+    });
+    const before = Date.now();
+    const answer = await h.request(`/v1/meshes/${meshId}/vms/${vm.vmId}`, bearer(key), { method: "PUT" });
+    const after = Date.now();
+    spy.mockRestore();
+    expect(answer.status).toBe(200);
+    expect(lines).toHaveLength(1);
+    const line = lines[0]!;
+    // entered_at is the handler's first stamp: the pre-timer work (gate, rate limit, mesh ownership) is preMs, which
+    // totalMs never counts; the audit write after the attach is auditMs, inside totalMs.
+    const entered = Number(line["enteredAt"]);
+    expect(entered).toBeGreaterThanOrEqual(before);
+    expect(entered).toBeLessThanOrEqual(after);
+    for (const field of ["preMs", "gateMs", "rateMs", "ownsMeshMs", "auditMs", "totalMs"]) expect(Number(line[field])).toBeGreaterThanOrEqual(0);
+    // The apply's compile splits into its one read and the mesh's size (one VM, one device here).
+    expect(Number(line["readMs"])).toBeLessThanOrEqual(Number(line["compileMs"]));
+    expect(line).toMatchObject({ members: "1", devices: "1" });
+    expect(Number(line["preMs"])).toBeGreaterThanOrEqual(Number(line["ownsMeshMs"]));
+    expect(entered + Number(line["preMs"]) + Number(line["totalMs"])).toBeLessThanOrEqual(after);
+    expect(Number(line["auditMs"])).toBeLessThanOrEqual(Number(line["totalMs"]));
+  }, 60_000);
+
+  // On a fake clock: the audit append advances it 40 ms and the attach 100 ms, so the line names exactly both.
+  const auditing = (ms: number) => Layer.succeed(AuditStore, { append: () => TestClock.adjust(Duration.millis(ms)) });
+  const entry: AuditEntry = { tenantId: TenantId.make(TEAM), actor: "key:test", ownerActor: null, action: "mesh.vm.attach", cmuxId: null, outcome: "ok", at: new Date(0) };
+  const logged = async (attach: (begin: Effect.Effect<number>) => Effect.Effect<unknown, unknown, AuditStore>) => {
+    const lines: Array<Record<string, unknown>> = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+      if (typeof line === "string" && line.startsWith("{")) lines.push(record(JSON.parse(line)));
+    });
+    const phases: Record<string, string> = { preMs: "5" };
+    await Effect.runPromise(timedAttach(phases, attach).pipe(Effect.either, Effect.provide(Layer.merge(auditing(40), TestContext.TestContext))));
+    spy.mockRestore();
+    return lines.filter((line) => line["event"] === "mesh_vm_attach");
+  };
+  const append = Effect.flatMap(AuditStore, (store) => store.append(entry));
+
+  it("times the audit write as auditMs and counts it in totalMs", async () => {
+    const lines = await logged((begin) => Effect.gen(function* () {
+      yield* begin;
+      yield* TestClock.adjust(Duration.millis(100));
+      yield* append;
+    }));
+    expect(lines).toEqual([{ event: "mesh_vm_attach", preMs: "5", auditMs: "40", totalMs: "140" }]);
+  });
+
+  it("times a refused attach's audit write too, and logs nothing for one refused before it began", async () => {
+    const refused = await logged((begin) => Effect.gen(function* () {
+      yield* begin;
+      yield* Effect.flatMap(append, () => Effect.fail("conflict"));
+    }));
+    expect(refused).toEqual([{ event: "mesh_vm_attach", preMs: "5", auditMs: "40", totalMs: "40" }]);
+    expect(await logged(() => Effect.fail("gate"))).toEqual([]);
+  });
 });

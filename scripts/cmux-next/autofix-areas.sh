@@ -43,8 +43,6 @@ area apphost 'cmux-tui/spec/resource-operations-v2\.json|backend/catalog/cloud-o
 # The namespace lint reads the package and iOS app sources.
 area ratchets 'Packages/|ios/cmux/|scripts/lint-ios-package-conventions\.sh|scripts/lint_swift_namespaces\.py|scripts/lint-namespace-types-ratchet\.txt|scripts/lint-namespace-types-baseline\.txt|scripts/lint-ios-package-conventions-baseline\.txt'
 area cloud 'backend/catalog/cloud-operations\.json|backend/packages/protocol/(scripts/export-(rust-)?client\.ts|src/automation-caps\.ts)|clients/ts/cloud/|cmux-tui/crates/cmux-cloud-wire/src/generated/'
-# The display suite list (base-autofix.sh's display_suites.py --fix) reads every package's test sources.
-area displays 'Packages/.*/Tests/|scripts/ci/display_suites\.py$|scripts/ci/display-suites\.txt$'
 area webviews 'webviews/'
 area ghostty 'ghostty$|scripts/ghosttykit-checksums\.txt'
 area fmt 'cmux-tui/|Native/OptChat/'

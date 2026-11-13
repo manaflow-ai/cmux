@@ -16,6 +16,7 @@
 // same page, and the chat goes on growing between drops. Every frame of every client is read; the
 // test fails if the newest reply on screen ever goes back, even once.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
@@ -31,7 +32,8 @@ beforeAll(() => {
   scope.document = dom.window.document;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   if (saved.had) Object.assign(scope, { window: saved.window, document: saved.document });
   else {
     delete scope.window;
