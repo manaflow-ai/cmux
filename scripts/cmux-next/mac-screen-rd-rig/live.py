@@ -15,7 +15,7 @@ logs what arrives, and records window snapshots of the viewer for a video. --rel
 the session with the viewer's Relay Only on. The source readiness JSON must be fresh for this run;
 the adapter invokes cmux-rd's common presented observer only after it matches the selected pane's
 window, approved hub session/scope, viewport geometry, and an explicit transport marker
-(`rd_wg/1`, `rd_link/1`, or `webrtc`). A generic `path` never proves transport. Missing proof or
+(`rd_wg`, `link`, or `webrtc`). A generic `path` never proves transport. Missing proof or
 an incomplete observer receipt leaves `comparison_ready=false`. Writes DIR/result.json and the
 pulled files.
 """
@@ -56,6 +56,12 @@ def log(step, ok, **detail):
 def ssh(host, command, timeout=120):
     r = subprocess.run(["ssh", "-o", "BatchMode=yes", host, command], capture_output=True, text=True, timeout=timeout)
     return r.stdout.strip()
+
+
+def ssh_background(host, command):
+    """Start one remote command whose lifetime is owned by this rig process."""
+    return subprocess.Popen(["ssh", "-o", "BatchMode=yes", host, command],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
 
 def mini(host, *args, timeout=120):
@@ -167,7 +173,10 @@ def pane_attestation(row, host_id):
     DEBUG getter, so this adapter never turns a generic path into an rd/1 claim.
     """
     errors = []
-    if row.get("window_attestation") is not True or not row.get("window_pid") or not row.get("window_id"):
+    window_pid = row.get("window_pid")
+    window_id = row.get("window_id")
+    if (row.get("window_attestation") is not True or type(window_pid) is not int or window_pid <= 0 or
+            type(window_id) is not int or window_id <= 0):
         errors.append("selected pane has no valid window attestation")
     if not isinstance(row.get("content_rect_points"), dict) or row.get("geometry_origin") != "bottom-left":
         errors.append("selected pane has no AppKit bottom-left content geometry")
@@ -179,18 +188,36 @@ def pane_attestation(row, host_id):
         errors.append("selected pane is not the approved full-control scope")
     if row.get("phase") != "connected" or row.get("has_frame") is not True:
         errors.append("selected pane is not connected with a frame")
-    if row.get("transport") not in {"rd_wg/1", "rd_link/1", "webrtc"}:
-        errors.append("selected transport attestation is missing or invalid")
+    if row.get("transport") not in {"rd_wg", "link", "webrtc"}:
+        errors.append("selected validated transport carrier is missing or invalid")
+    if row.get("window_on_primary_display") is not True:
+        errors.append("selected pane is not proven to be on the primary display")
+    if not rect_inside(row.get("window_frame_points"), row.get("primary_screen_frame_points")):
+        errors.append("selected window is not wholly inside the primary display")
     return {"ok": not errors, "errors": errors,
-            "window_pid": row.get("window_pid"), "window_id": row.get("window_id"),
+            "window_pid": window_pid, "window_id": window_id,
             "window_frame_points": row.get("window_frame_points"),
             "content_rect_points": row.get("content_rect_points"),
             "screen_frame_points": row.get("screen_frame_points"),
+            "primary_screen_frame_points": row.get("primary_screen_frame_points"),
+            "window_display_id": row.get("window_display_id"),
+            "primary_display_id": row.get("primary_display_id"),
+            "window_on_primary_display": row.get("window_on_primary_display"),
             "geometry_coordinate_space": row.get("geometry_coordinate_space"),
             "geometry_origin": row.get("geometry_origin"),
             "host_device": row.get("host_device"), "hub_session": row.get("hub_session"),
             "session_scope": row.get("session_scope"), "transport": row.get("transport"),
             "path_diagnostic": row.get("path")}
+
+
+def rect_inside(inner, outer):
+    if not isinstance(inner, dict) or not isinstance(outer, dict):
+        return False
+    vals = tuple(inner.get(k) for k in ("x", "y", "width", "height")) + tuple(outer.get(k) for k in ("x", "y", "width", "height"))
+    if not all(type(v) in (int, float) and math.isfinite(v) for v in vals):
+        return False
+    ix, iy, iw, ih, ox, oy, ow, oh = vals
+    return min(iw, ih, ow, oh) > 0 and ox <= ix and oy <= iy and ix + iw <= ox + ow and iy + ih <= oy + oh
 
 
 def geometry_matches(received, expected, screen):
@@ -203,7 +230,9 @@ def geometry_matches(received, expected, screen):
     if not isinstance(screen, dict):
         return False
     sx, sy, sw, sh = (screen.get(k) for k in ("x", "y", "width", "height"))
-    if not all(type(v) in (int, float) and math.isfinite(v) for v in (*expected, sx, sy, sw, sh)):
+    if not all(type(v) in (int, float) and math.isfinite(v) for v in (*received, *expected, sx, sy, sw, sh)):
+        return False
+    if min(sw, sh, received[2], received[3], expected[2], expected[3]) <= 0:
         return False
     # CGWindow bounds use a top-left origin; AppKit uses a bottom-left origin.
     expected[1] = sy + sh - expected[1] - expected[3]
@@ -251,7 +280,33 @@ def observe_pane(row, host_id):
                         "--cell-size", str(int(source["cell_size"])), "--expected-nonce", source["nonce"],
                         "--start-file", start_file, "--duration-s", "1", "--interval-ms", "500"]
         command = " ".join([observer_cmd[0]] + [shlex.quote(part) for part in observer_cmd[1:]])
-        raw = ssh(o.viewer, command, timeout=30)
+        if not o.motion:
+            evidence["observer"] = {"error": "source/start trigger is required; pass --motion MARKER_BIN"}
+            return evidence
+        observer = ssh_background(o.viewer, command)
+        # The passive observer waits for a caller-created start signal. Start
+        # the owned source marker only after the observer has entered capture.
+        time.sleep(0.25)
+        motion_command = f"~/.local/bin/cmux new-workspace --name {shlex.quote(f'rd-rig motion {o.tag}')} " \
+                         f"--command {shlex.quote(o.motion + ' --motion')} --focus false"
+        started = ssh(o.host, motion_command)
+        if "OK workspace" not in started:
+            observer.terminate()
+            observer.wait(timeout=5)
+            evidence["observer"] = {"error": "source/start trigger failed", "trigger_reply": started}
+            return evidence
+        signaled = ssh(o.viewer, f"touch {shlex.quote(start_file)} && printf READY", timeout=10)
+        if signaled != "READY":
+            observer.terminate()
+            observer.wait(timeout=5)
+            evidence["observer"] = {"error": "observer start signal could not be created", "signal_reply": signaled}
+            return evidence
+        try:
+            raw, err = observer.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            observer.terminate()
+            raw, err = observer.communicate(timeout=5)
+            raw = raw or err or "observer timed out waiting for a presented marker"
         try:
             receipt = json.loads(raw.splitlines()[-1])
         except (ValueError, IndexError):
@@ -263,7 +318,7 @@ def observe_pane(row, host_id):
                  receipt.get("nonce_observed") is True and receipt.get("expected_nonce") == source["nonce"] and
                  type(receipt.get("pid")) is int and receipt["pid"] == int(pane["window_pid"]) and
                  type(receipt.get("window")) is int and receipt["window"] == int(pane["window_id"]) and
-                 geometry_matches(receipt.get("window_geometry_points"), pane.get("window_frame_points"), pane.get("screen_frame_points")) and
+                 geometry_matches(receipt.get("window_geometry_points"), pane.get("window_frame_points"), pane.get("primary_screen_frame_points")) and
                  type(receipt.get("first_changed_marker_ms")) in (int, float) and
                  math.isfinite(receipt["first_changed_marker_ms"]))
         evidence["comparison_ready"] = valid
@@ -291,12 +346,6 @@ result["comparison_ready"] = bool(readiness.get("comparison_ready"))
 log("pane/source observer is bound", result["comparison_ready"], **readiness)
 if not result["comparison_ready"]:
     log("comparison measurement blocked", False, reason="missing same-session pane, transport, or fresh source nonce")
-
-motion = None
-if o.motion:
-    ssh(o.host, f"~/.local/bin/cmux new-workspace --name {shlex.quote('rd-rig motion')} "
-                f"--command {shlex.quote(o.motion + ' --motion')} --focus false")
-    time.sleep(3)  # the marker window's first frames
 
 frames_job = None
 if o.input:

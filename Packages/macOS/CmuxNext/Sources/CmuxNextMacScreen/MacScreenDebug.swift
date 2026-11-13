@@ -120,6 +120,15 @@ extension MacScreenPages {
                 "width": .number(Double(rect.width)), "height": .number(Double(rect.height))]
     }
 
+    private static func displayID(_ screen: NSScreen?) -> CGDirectDisplayID? {
+        guard let number = screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
+        return CGDirectDisplayID(number.uint32Value)
+    }
+
+    private static func contains(_ outer: NSRect, _ inner: NSRect) -> Bool {
+        outer.width > 0 && outer.height > 0 && inner.width > 0 && inner.height > 0 && outer.contains(inner)
+    }
+
     private func row(_ tab: MacScreenTab) -> JSONValue {
         var row: [String: JSONValue] = ["tab": .string(tab.key), "url": .string(tab.record.url.absoluteString),
                                         "route": route(for: tab.key).map(JSONValue.string) ?? .null,
@@ -135,11 +144,23 @@ extension MacScreenPages {
         row["video_frame"] = .string(NSStringFromRect(pane.view.debugVideoFrame))
         if let window = pane.view.window, window.windowNumber > 0 {
             let windowContent = pane.view.convert(pane.view.debugVideoFrame, to: nil)
+            let windowScreen = window.screen
+            let primaryScreen = NSScreen.screens.first { Self.displayID($0) == CGMainDisplayID() }
             row["window_pid"] = .number(Double(ProcessInfo.processInfo.processIdentifier))
             row["window_id"] = .number(Double(window.windowNumber))
             row["window_frame_points"] = Self.points(window.frame)
             row["content_rect_points"] = Self.points(window.convertToScreen(windowContent))
-            row["screen_frame_points"] = Self.points(window.screen?.frame)
+            row["screen_frame_points"] = Self.points(windowScreen?.frame)
+            row["primary_screen_frame_points"] = Self.points(primaryScreen?.frame)
+            if let primaryScreen, let windowDisplay = Self.displayID(windowScreen), let primaryDisplay = Self.displayID(primaryScreen) {
+                row["window_display_id"] = .number(Double(windowDisplay))
+                row["primary_display_id"] = .number(Double(primaryDisplay))
+                row["window_on_primary_display"] = .bool(windowDisplay == primaryDisplay && Self.contains(primaryScreen.frame, window.frame))
+            } else {
+                row["window_display_id"] = .null
+                row["primary_display_id"] = .null
+                row["window_on_primary_display"] = .bool(false)
+            }
             row["geometry_coordinate_space"] = .string("screen points (AppKit, bottom-left origin)")
             row["geometry_origin"] = .string("bottom-left")
             row["window_attestation"] = .bool(true)
@@ -149,6 +170,10 @@ extension MacScreenPages {
             row["window_frame_points"] = .null
             row["content_rect_points"] = .null
             row["screen_frame_points"] = .null
+            row["primary_screen_frame_points"] = .null
+            row["window_display_id"] = .null
+            row["primary_display_id"] = .null
+            row["window_on_primary_display"] = .bool(false)
             row["geometry_coordinate_space"] = .string("screen points (AppKit, bottom-left origin)")
             row["geometry_origin"] = .string("bottom-left")
             row["window_attestation"] = .bool(false)
