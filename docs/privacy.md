@@ -96,8 +96,6 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `fonts.gstatic.com` | connects | fonts an agent's rendered page may load |
 | `www.linkedin.com` | connects | the LinkedIn integration, only when an agent uses it in your signed-in browser |
 | `app.notion.com` | connects | the Notion integration, only when an agent uses it in your signed-in browser |
-| `api.open-meteo.com` | connects | weather on the new tab page, when shown |
-| `geocoding-api.open-meteo.com` | connects | weather on the new tab page, when shown |
 | `api.openai.com` | connects | the OpenAI API: voice calls on iPhone, and when you use an OpenAI key |
 | `app.slack.com` | connects | the Slack integration, only when an agent uses it in your signed-in browser |
 | `api.stack-auth.com` | connects | the sign-in service |
@@ -235,6 +233,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | Host | Kind | What for |
 |---|---|---|
 | `x.ai` | identifier | an xAI tool method name, not a host |
+| `customize.io` | identifier | the error code `cmux customize` prints when a file read or write fails, not a host |
 | `netlify.app` | identifier | a shared hosting domain, so sites under it are told apart |
 | `ngrok-free.app` | identifier | a shared hosting domain, so sites under it are told apart |
 | `vercel.app` | identifier | a shared hosting domain, so sites under it are told apart |
@@ -308,6 +307,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 |---|---|---|
 | `task.ai` | not-a-host | a symbol or icon name |
 | `argument.app` | not-a-host | a localized string key |
+| `toast.detail.io` | not-a-host | a localized string key |
 | `cmux.app` | not-a-host | a file name |
 | `cmux-ios-com.cmux.app` | not-a-host | a URL scheme or bundle id |
 | `debug.crash.app` | not-a-host | a method, area or resource kind name |

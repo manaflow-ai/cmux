@@ -59,10 +59,3 @@ final class PageInfoIconButton: NSButton {
         }
     }
 }
-
-extension NSLayoutConstraint {
-    func withPriority(_ priority: NSLayoutConstraint.Priority) -> NSLayoutConstraint {
-        self.priority = priority
-        return self
-    }
-}
