@@ -15,7 +15,7 @@
 # reports, and exits non-zero only when it could not measure at all (3: no grant; 4: no target ran;
 # 5: no target measured a window).
 set -uo pipefail
-targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token="" input_frame_now=0 prebuilt="" tools_only=0
+targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token="" input_frame_now=0 prebuilt="" tools_only=0 scene_marker=0
 presented_observer=0 presented_pid="" presented_window="" presented_marker_origin="" presented_cell_size="" presented_input_point="" presented_display=main presented_timeout_ms=1000 presented_seed=1
 for arg in "$@"; do
   case "$arg" in
@@ -34,6 +34,9 @@ for arg in "$@"; do
     prebuilt=*) prebuilt="${arg#prebuilt=}" ;;
     # tools-only=1: build the rd tools for prebuilt= into artifacts/screen-stream-eval/tools.tar.gz, and stop.
     tools-only=*) tools_only="${arg#tools-only=}" ;;
+    # Apple always requires a fresh source marker. Other displayed viewers may
+    # opt into the same source layout; legacy decode probes keep their layout.
+    scene-marker=*) scene_marker="${arg#scene-marker=}" ;;
     # presented-observer=1: run cmux-rd observe on the viewer's visible window; the
     # remaining values are capture-pixel geometry owned by that viewer step.
     presented-observer=*) presented_observer="${arg#presented-observer=}" ;;
@@ -61,6 +64,7 @@ for arg in "$@"; do
   case "$arg" in prebuilt=*) forward+=("prebuilt=$prebuilt") ;; *) forward+=("$arg") ;; esac
 done
 [[ "$tools_only" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: tools-only= is 0 or 1" >&2; exit 2; }
+[[ "$scene_marker" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: scene-marker= is 0 or 1" >&2; exit 2; }
 [[ "$presented_observer" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: presented-observer= is 0 or 1" >&2; exit 2; }
 if [[ "$presented_observer" == 1 ]]; then
   [[ "$presented_pid" =~ ^[1-9][0-9]*$ && "$presented_window" =~ ^[1-9][0-9]*$ ]] || {
@@ -191,7 +195,7 @@ targets = {}
 for name in names:
     path = out / name / "target.json"
     targets[name] = json.loads(path.read_text()) if path.exists() else empty_target([blocked or "did not run"])
-results = {"schema": "cmux.screen-stream-eval/1", "run": run, "scenarios": ["idle", "typing", "scroll", "ocr"], "targets": targets}
+results = {"schema": "cmux.screen-stream-eval/2", "run": run, "scenarios": ["idle", "typing", "scroll", "ocr"], "targets": targets}
 (out / "results.json").write_text(json.dumps(results, indent=2, sort_keys=True) + "\n")
 EOF
   python3 -I "$here/eval.py" summary "$out/results.json" "$out/summary.md"
@@ -360,6 +364,7 @@ with_offsets() {
 ran=0
 IFS=',' read -r -a names <<<"$targets"
 for name in "${names[@]}"; do
+  unset EVAL_SCENE_NONCE EVAL_SCENE_GEOMETRY
   script="$here/targets/$name.sh"
   dir="$out/$name"
   mkdir -p "$dir"
@@ -421,6 +426,14 @@ for name in "${names[@]}"; do
     echo "SCREEN-STREAM-EVAL-STAGE $name window $rep/$repeats"
     go="$EVAL_STATE/go" stop="$EVAL_STATE/stop"
     rm -f "$go" "$stop" "$dir/host-$rep.png"
+    unset EVAL_SCENE_NONCE EVAL_SCENE_GEOMETRY
+    if [[ "$scene_marker" == 1 || "$name" == apple-high || "$name" == apple-standard ]]; then
+      nonce=$(python3 -I -c 'import secrets; print(secrets.token_hex(16))') || {
+        err "window $rep: could not create fresh source nonce"
+        continue
+      }
+      export EVAL_SCENE_NONCE="$nonce" EVAL_SCENE_GEOMETRY="$dir/source-scene-$rep.json"
+    fi
     "$EVAL_BIN/screen-eval-scene" "$go" "$stop" "$dir/phases-$rep.jsonl" "$dir/host-$rep.png" "$dir/truth.txt" >"$EVAL_STATE/scene.log" 2>&1 &
     scene=$!
     pids+=("$scene")
@@ -432,14 +445,19 @@ for name in "${names[@]}"; do
       with_offsets "$raw" bash "$script" window-report "$raw" "$dir/window-$rep.json" || err "window $rep: no report"
     else
       err "host did not start for window $rep: $why"
-      touch "$go" # lets the scene run out its timeline instead of waiting 120 s for GO
+      # STOP cancels the scene's readiness wait without ever authorizing GO.
+      touch "$stop"
     fi
     touch "$stop"
     wait "$scene" || err "scene $rep exited $? ($(tail -1 "$EVAL_STATE/scene.log"))"
     bash "$script" host-stop
 
     echo "SCREEN-STREAM-EVAL-STAGE $name ocr $rep/$repeats"
-    if [[ -s "$dir/host-$rep.png" && -s "$dir/viewer-frame-$rep" ]]; then
+    if [[ -n "${EVAL_SCENE_NONCE:-}" ]]; then
+      # The common marker reserves a region above the text. Full-window OCR
+      # would include it and Apple chrome; calibrated pixel crops are required.
+      printf '{"cer":null,"comparison_ready":false,"reason":"common source marker requires calibrated host/viewer OCR crops"}\n' >"$dir/ocr-$rep.json"
+    elif [[ -s "$dir/host-$rep.png" && -s "$dir/viewer-frame-$rep" ]]; then
       "$EVAL_BIN/screen-eval-ocr" "$dir/host-$rep.png" "$dir/viewer-frame-$rep" "$dir/truth.txt" >"$dir/ocr-$rep.json" || err "ocr $rep failed"
     else
       err "ocr $rep: missing $( [[ -s "$dir/host-$rep.png" ]] || echo 'host screenshot ')$( [[ -s "$dir/viewer-frame-$rep" ]] || echo 'viewer frame')"

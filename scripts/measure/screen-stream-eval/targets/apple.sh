@@ -80,6 +80,52 @@ json.dump({"host": sys.argv[2], "mode": sys.argv[3], "quality": sys.argv[4],
 PY
 }
 
+verify_scene_ready() {
+  local raw=$1 start="$EVAL_STATE/readiness-start"
+  [[ "${EVAL_SCENE_NONCE:-}" =~ ^[0-9a-f]{32}$ ]] || {
+    echo "apple-$mode: missing fresh source nonce; next: run the host half of screen-stream-eval.sh" >&2
+    return 1
+  }
+  for var in EVAL_PRESENTED_OBSERVER_BIN EVAL_PRESENTED_OBSERVER_PID EVAL_PRESENTED_OBSERVER_WINDOW \
+    EVAL_PRESENTED_MARKER_ORIGIN EVAL_PRESENTED_CELL_SIZE; do
+    [[ -n "${!var:-}" ]] || {
+      echo "apple-$mode: source readiness requires $var; next: configure presented-observer=1 on the viewer" >&2
+      return 1
+    }
+  done
+  [[ -x "$EVAL_PRESENTED_OBSERVER_BIN" ]] || {
+    echo "apple-$mode: observer unavailable; next: supply prebuilt cmux-rd with nonce observation support" >&2
+    return 1
+  }
+  : >"$start" || return 1
+  "$EVAL_PRESENTED_OBSERVER_BIN" observe --mode passive \
+    --pid "$viewer_pid" --window "$window_id" --display "${EVAL_PRESENTED_DISPLAY:-main}" \
+    --marker-origin "$EVAL_PRESENTED_MARKER_ORIGIN" --cell-size "$EVAL_PRESENTED_CELL_SIZE" \
+    --expected-nonce "$EVAL_SCENE_NONCE" --start-file "$start" --duration-s 1 --interval-ms 500 \
+    >"$raw.readiness-observer.json" || {
+      echo "apple-$mode: source readiness observer failed; next: verify the authorized remote scene and marker geometry" >&2
+      return 1
+    }
+  python3 -I - "$raw.readiness-observer.json" "$raw.readiness.json" \
+    "$EVAL_SCENE_NONCE" "$viewer_pid" "$window_id" "$host" "$mode" <<'PY' || return 1
+import json, math, sys
+receipt = json.load(open(sys.argv[1]))
+changed = receipt.get("first_changed_marker_ms")
+valid = (receipt.get("schema") == "cmux.presented-marker-series/2"
+         and receipt.get("complete") is True
+         and receipt.get("host_identity_verified") is True
+         and receipt.get("nonce_observed") is True
+         and receipt.get("expected_nonce") == sys.argv[3]
+         and type(receipt.get("pid")) is int and receipt["pid"] == int(sys.argv[4])
+         and type(receipt.get("window")) is int and receipt["window"] == int(sys.argv[5])
+         and type(changed) in (int, float) and math.isfinite(changed) and changed >= 0)
+if not valid:
+    raise SystemExit("Apple source readiness was not proven; next: check the requested host, selected window, and fresh marker")
+json.dump({"requested_host": sys.argv[6], "quality_profile": sys.argv[7],
+           "expected_nonce": sys.argv[3], "observer": receipt}, open(sys.argv[2], "w"))
+PY
+}
+
 case "$verb" in
   build)
     screen_sharing_app >/dev/null || { echo "apple-$mode: Screen Sharing.app is unavailable" >&2; exit 1; }
@@ -178,7 +224,12 @@ PY
     ;;
   window-view)
     seconds=$1; snapshot=$2; go=$3; raw=$4
+    rm -f "$go" "$raw.readiness.json" "$raw.readiness-observer.json"
     connect || exit 1
+    verify_scene_ready "$raw" || exit 1
+    # Only a fresh nonce from the requested source in this exact selected
+    # window may start the workload. A screenshot alone proves neither.
+    touch "$go"
     # Capture only the remote Screen Sharing window. A full-display capture
     # would measure the local scene and is not evidence about Apple's stream.
     deadline=$((SECONDS + seconds))
@@ -206,10 +257,7 @@ PY
         hash=$(shasum -a 256 "$png" | awk '{print $1}')
         changed=0
         [[ "$seen_frame" == 1 && "$hash" != "$last_hash" ]] && changed=1
-        if [[ "$seen_frame" == 0 ]]; then
-          touch "$go"
-          seen_frame=1
-        fi
+        seen_frame=1
         if [[ -z "$bucket_start_ms" ]]; then bucket_start_ms=$now; fi
         # Screen Sharing.app's PNG screenshot is a local observation, not the
         # VNC transport payload. Keep kbps explicitly unavailable.
@@ -229,13 +277,12 @@ PY
     if (( bucket_frames > 0 )); then
       rows+=("{\"unix_ms\":$now,\"duration_ms\":$((now - bucket_start_ms)),\"bytes\":null,\"frames\":null,\"sampled_changes\":$bucket_frames}")
     fi
-    [[ -e "$go" ]] || touch "$go"
     cpu=null
     if (( cpu_count > 0 )); then
       cpu=$(awk -v sum="$cpu_sum" -v count="$cpu_count" 'BEGIN { printf "%.3f", sum / count }')
     fi
-    printf '{"series":[%s],"extra":{"first_frame_ms":%s,"cpu_pct":%s,"mode":"%s","viewer":"Screen Sharing.app","bytes_method":"Screen Sharing.app transport bytes are not exposed"}}\n' \
-      "$(IFS=,; echo "${rows[*]-}")" "${first_ms:-null}" "${cpu:-null}" "$mode" >"$raw"
+    printf '{"series":[%s],"extra":{"first_frame_ms":%s,"cpu_pct":%s,"mode":"%s","viewer":"Screen Sharing.app","bytes_method":"Screen Sharing.app transport bytes are not exposed","readiness":%s}}\n' \
+      "$(IFS=,; echo "${rows[*]-}")" "${first_ms:-null}" "${cpu:-null}" "$mode" "$(cat "$raw.readiness.json")" >"$raw"
     ;;
   window-report)
     raw=$1; out=$2
@@ -247,6 +294,7 @@ series = [{**row, "unix_ms": round(row["unix_ms"] + offset)} for row in (raw.get
 extra = raw.get("extra") or {}
 json.dump({"series": series, "extra": {"first_frame_ms": extra.get("first_frame_ms"),
                                          "cpu_pct": extra.get("cpu_pct"),
+                                         "readiness": extra.get("readiness"),
                                          "mode": extra.get("mode"), "viewer": extra.get("viewer")}}, open(sys.argv[2], "w"))
 PY
     ;;

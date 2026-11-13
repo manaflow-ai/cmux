@@ -102,10 +102,10 @@ Today's targets:
   same host and sample the displayed connection for OCR and viewer CPU. They
   request Standard + Full Quality and Standard + Adaptive Quality respectively;
   neither is Apple's separate High Performance connection type. Connection
-  identity, readiness and the selected setting still need GUI validation.
-  The current adapter does not observe presented markers, decoded-frame
-  readiness or VNC payload bytes, so key/pointer latency, first-frame
-  latency, decoded FPS, and transport kbps remain explicitly unavailable. The
+  setup still requires an authorized connection. The adapter selects and checks
+  the quality menu item, then requires a fresh source nonce in the selected window
+  before its window workload starts. VNC payload bytes, decoded FPS and session
+  time to first frame remain unavailable. The
   target records sampled screenshot changes separately as `sampled_fps`; this
   is a normalized observation rate, not decoded transport FPS. The target
   selects Full Quality for `apple-high` and Adaptive Quality for
@@ -115,7 +115,7 @@ Today's targets:
   Select Standard during connection setup on the dedicated viewer. Apple
   targets require a second Mac and explicit `targets=`; the daily loopback
   defaults remain `rd,webrtc`.
-  A managed GUI step may pass `presented-observer=1` with numeric
+  Apple window runs require `presented-observer=1` with numeric
   `presented-pid=PID`, `presented-window=CGWINDOW_ID`,
   `presented-marker-origin=X,Y`, `presented-cell-size=N` and
   `presented-input-point=X,Y` (all coordinates are viewer capture pixels), plus
@@ -127,6 +127,38 @@ Today's targets:
   latency claim. Each connection attempt reopens the documented View menu,
   verifies the selected check mark, binds the observed PID/window, and records
   `apple-connection.json` with the chosen quality profile and host.
+
+### Source readiness and the common marker
+
+Each Apple window repeat gets a fresh random 128-bit source nonce. The host passes it through the
+existing peer command, and the viewer clears any nonce left from another repeat. After selecting
+quality and binding the PID/window, the adapter runs `cmux-rd observe --mode passive` for one second
+with `--expected-nonce HEX32`. Only a complete `cmux.presented-marker-series/2` receipt with the
+expected nonce, verified host identity, matching PID/window and an advancing counter permits `GO`.
+A connecting window, wrong host, old screenshot, frozen marker, missing observer or failed quality
+selection cannot start the source workload. A failed host stops the scene before GO instead of
+starting it for cleanup. This is source-scene identity evidence within the existing trusted peer
+boundary; it neither authenticates a new Apple session nor changes hub approval or system grants.
+
+`scene-marker=1` opts other targets into the same source layout; Apple's targets always use it.
+The first row is the existing 20-cell marker (16 counter bits, LSB first, then guards 1,0,1,0).
+Eight rows below carry nonce words in the same layout: canonical hex bytes `001122...eeff` become
+little-endian words `0x1100, 0x3322, ..., 0xffee`. All nine rows persist throughout the repeat in
+a reserved strip above the text. The readiness counter advances at 10 Hz before GO; thereafter it
+advances only when a requested typing/scroll source frame is drawn. Idle does not animate. This
+adapter still reports screenshot changes separately; it does not claim passive presented FPS.
+
+`source-scene-N.json` records source layout in points, not viewer capture pixels. The selected
+window may scale, offset or crop those points; calibrate the actual capture's marker origin/cell
+size. Full-window OCR in this marker layout is unavailable until explicit matched host/viewer
+pixel crops are calibrated. The source and viewer PNGs are retained; absent calibration produces
+`comparison_ready:false` and null CER, never a full-window comparison. Legacy decode targets keep
+their previous source layout unless `scene-marker=1` is supplied.
+
+Prebuilt runs need the updated `screen-eval-scene` and a `cmux-rd` that supports nonce observation;
+`tools-only=1` packages both plus the window-ID helper. An older observer fails closed. Readiness
+uses a precreated start signal and does not start its clock before connecting, so session time to
+first frame remains null. No authenticated real-Mac comparison has been established by these tests.
 
 The existing `rd` and `webrtc` targets use their passive bench viewers and end
 at decode; those rows are not presentation comparisons with Apple. A common
@@ -149,7 +181,7 @@ appear under `targets.petal` in the same schema.
 
 ## Results
 
-`artifacts/screen-stream-eval/results.json` (schema `cmux.screen-stream-eval/1`, the docstring of
+`artifacts/screen-stream-eval/results.json` (schema `cmux.screen-stream-eval/2`, the docstring of
 `eval.py`) and `summary.md`. Each target also leaves its raw files under
 `artifacts/screen-stream-eval/NAME/`, on the worker: the latency JSON and, per repeat N, `window-N.json`, `phases-N.jsonl`,
 `host-N.png`, `viewer-frame-N`, `ocr-N.json`, and the logs, with pairing links redacted.

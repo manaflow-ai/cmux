@@ -27,6 +27,45 @@ guard args.count == 6 else {
 }
 let (goFile, stopFile, phasesFile, shotFile, truthFile) = (args[1], args[2], args[3], args[4], args[5])
 
+// The host chooses a fresh nonce per repeat. Byte pairs form little-endian
+// words: 001122...eeff paints 0x1100, 0x3322, ..., 0xffee, LSB first.
+let sceneNonce = ProcessInfo.processInfo.environment["EVAL_SCENE_NONCE"] ?? ""
+var nonceWords: [UInt16] = []
+if !sceneNonce.isEmpty {
+    let chars = Array(sceneNonce)
+    guard chars.count == 32, chars.allSatisfy({ "0123456789abcdef".contains($0) }) else {
+        FileHandle.standardError.write(Data("scene: source nonce must be 32 lowercase hex characters\n".utf8))
+        exit(2)
+    }
+    let bytes = stride(from: 0, to: 32, by: 2).compactMap { UInt8(String(chars[$0 ..< $0 + 2]), radix: 16) }
+    nonceWords = stride(from: 0, to: 16, by: 2).map { UInt16(bytes[$0]) | (UInt16(bytes[$0 + 1]) << 8) }
+}
+
+/// Counter plus eight static nonce rows, sharing the observer's 20-cell layout.
+/// A workload change requests a frame; only drawing it advances the counter.
+final class SourceMarkerView: NSView {
+    var cell: CGFloat = 16
+    var counter: UInt16 = 0
+    var pendingFrame = false
+    override var isFlipped: Bool { true }
+
+    func requestFrame() {
+        pendingFrame = true
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if pendingFrame { counter &+= 1; pendingFrame = false }
+        for (row, word) in ([counter] + nonceWords).enumerated() {
+            for column in 0 ..< 20 {
+                let white = column < 16 ? (word >> UInt16(column)) & 1 == 1 : [true, false, true, false][column - 16]
+                (white ? NSColor.white : NSColor.black).setFill()
+                NSRect(x: CGFloat(column) * cell, y: CGFloat(row) * cell, width: cell, height: cell).fill()
+            }
+        }
+    }
+}
+
 /// The phases in order, in seconds; the harness reads the same names from PHASES_JSONL.
 let timeline: [(String, Double)] = [("settle", 3), ("idle", 30), ("typing", 20), ("scroll", 20), ("ocr", 8)]
 
@@ -68,6 +107,7 @@ final class Scene: NSObject, NSApplicationDelegate {
     var window: NSWindow!
     var scroll: NSScrollView!
     var text: NSTextView!
+    var marker: SourceMarkerView?
     let burst = Array("    let typed = stream.encode(frame, at: latency) // a scripted typing burst ")
     var typedCount = 0
     var timer: Timer?
@@ -78,6 +118,45 @@ final class Scene: NSObject, NSApplicationDelegate {
         window.level = .screenSaver
         window.backgroundColor = .white
         scroll = NSScrollView(frame: NSRect(origin: .zero, size: screen.frame.size))
+        let content = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
+        if !nonceWords.isEmpty {
+            let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID ?? CGMainDisplayID()
+            let mode = CGDisplayCopyDisplayMode(id)
+            let pixelsWide = CGFloat(mode?.pixelWidth ?? Int(screen.frame.width))
+            let pixelsHigh = CGFloat(mode?.pixelHeight ?? Int(screen.frame.height))
+            let scale = min(3840 / pixelsWide, 2160 / pixelsHigh, 1)
+            let streamedWidth = CGFloat(Int((pixelsWide * scale).rounded()) & ~1)
+            let cell = 32 * screen.frame.width / streamedWidth
+            let topInset = screen.frame.maxY - screen.visibleFrame.maxY
+            let reserved = topInset + 9 * cell
+            guard reserved + 32 < screen.frame.height, 20 * cell <= screen.frame.width else {
+                FileHandle.standardError.write(Data("scene: display is too small for the source marker and text\n".utf8))
+                exit(2)
+            }
+            let marker = SourceMarkerView(frame: NSRect(x: 0, y: screen.frame.height - reserved, width: 20 * cell, height: 9 * cell))
+            marker.cell = cell
+            self.marker = marker
+            scroll.frame.size.height -= reserved
+            content.addSubview(marker)
+            // Points describe source layout only. Viewer capture pixels require
+            // separate calibration; SCK and screencapture need not share a scale.
+            let geometry: [String: Any] = [
+                "schema": "cmux.source-scene/1", "nonce": sceneNonce,
+                "display_size_points": [screen.frame.width, screen.frame.height],
+                "marker_origin_points": [0, topInset], "cell_size_points": cell,
+                "content_rect_points": [0, reserved, screen.frame.width, screen.frame.height - reserved],
+            ]
+            do {
+                let data = try JSONSerialization.data(withJSONObject: geometry, options: [.sortedKeys])
+                if let path = ProcessInfo.processInfo.environment["EVAL_SCENE_GEOMETRY"] {
+                    try data.write(to: URL(fileURLWithPath: path), options: [.atomic])
+                }
+                FileHandle.standardError.write(data + Data("\n".utf8))
+            } catch {
+                FileHandle.standardError.write(Data("scene: cannot record source geometry: \(error)\n".utf8))
+                exit(2)
+            }
+        }
         scroll.hasVerticalScroller = false
         scroll.drawsBackground = true
         scroll.backgroundColor = .white
@@ -93,7 +172,8 @@ final class Scene: NSObject, NSApplicationDelegate {
         text.isVerticallyResizable = true
         text.autoresizingMask = [.width]
         scroll.documentView = text
-        window.contentView = scroll
+        content.addSubview(scroll)
+        window.contentView = content
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         try? FileManager.default.removeItem(atPath: phasesFile)
@@ -102,12 +182,18 @@ final class Scene: NSObject, NSApplicationDelegate {
         // Bounded wait for the harness's GO_FILE (its viewer has its first frame): 120 s.
         let started = Date()
         Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { timer in
-            if FileManager.default.fileExists(atPath: goFile) {
+            if FileManager.default.fileExists(atPath: stopFile) {
+                timer.invalidate()
+                FileHandle.standardError.write(Data("scene: stopped before verified viewer readiness\n".utf8))
+                exit(3)
+            } else if FileManager.default.fileExists(atPath: goFile) {
                 timer.invalidate()
                 self.run(0)
             } else if Date().timeIntervalSince(started) > 120 {
                 FileHandle.standardError.write(Data("scene: no GO_FILE within 120 s\n".utf8))
                 exit(3)
+            } else {
+                self.marker?.requestFrame()
             }
         }
     }
@@ -123,6 +209,7 @@ final class Scene: NSObject, NSApplicationDelegate {
     func scrollTo(_ y: CGFloat) {
         scroll.contentView.scroll(to: NSPoint(x: 0, y: y))
         scroll.reflectScrolledClipView(scroll.contentView)
+        marker?.requestFrame()
     }
 
     /// Keeps the ocr screen until STOP_FILE (bounded: 120 s).
@@ -151,6 +238,7 @@ final class Scene: NSObject, NSApplicationDelegate {
                 let ch = String(self.burst[self.typedCount % self.burst.count])
                 self.text.textStorage?.replaceCharacters(in: NSRange(location: at + self.typedCount, length: 0), with: ch)
                 self.typedCount += 1
+                self.marker?.requestFrame()
             }
         case "scroll":
             var y: CGFloat = 0

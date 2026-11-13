@@ -137,8 +137,9 @@ git() { echo test-revision; }
                  root=str(root), here=str(root))
     assert result.returncode == 0, result.stderr
     with tarfile.open(out / "tools.tar.gz") as archive:
-        entry = archive.getmember("tools/screen-eval-window-id")
-        assert entry.isfile() and entry.mode & 0o111
+        for name in ("screen-eval-window-id", "screen-eval-scene", "cmux-rd"):
+            entry = archive.getmember(f"tools/{name}")
+            assert entry.isfile() and entry.mode & 0o111
 print("prebuilt copy, fail-closed profile, and executable archive regressions: ok")
 PY
 
