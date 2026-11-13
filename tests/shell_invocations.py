@@ -126,7 +126,7 @@ class Token(NamedTuple):
     dynamic: bool = False  # the word holds an expansion bash resolves at run time ($x, ${..}, $(..), `..`, <(..))
     subs: tuple[str, ...] = ()  # the scripts of its command and process substitutions
     plain: int = 0  # how many leading characters of text are unquoted, unescaped literals (an assignment's NAME=)
-    equal_unquoted: bool = False  # an unquoted `=` occurred in the word (including the assignment operator)
+    equal_unquoted: bool = False  # the assignment operator's `=` was an unquoted literal
     assignment_prefix_quoted: bool = False  # a quote or escape occurred before the assignment operator (fail closed)
 
 
@@ -339,6 +339,7 @@ def lex(text: str) -> Lexed:
     equal_seen = False
     equal_unquoted = False
     assignment_prefix_quoted = False
+    bracket_depth = 0
     i = 0
 
     def start_word(at: int) -> None:
@@ -352,7 +353,7 @@ def lex(text: str) -> Lexed:
 
     def end_word(at: int) -> None:
         nonlocal buf, subs, quoted, dynamic, in_word, expect_delimiter, plain, plain_open, equal_seen
-        nonlocal equal_unquoted, assignment_prefix_quoted
+        nonlocal equal_unquoted, assignment_prefix_quoted, bracket_depth
         if not in_word:
             return
         word = "".join(buf)
@@ -362,7 +363,7 @@ def lex(text: str) -> Lexed:
         tokens.append(Token("word", word, quoted, word_start, at, dynamic, tuple(subs), plain, equal_unquoted,
                             assignment_prefix_quoted))
         buf, subs, quoted, dynamic, in_word = [], [], False, False, False
-        plain, plain_open, equal_seen, equal_unquoted, assignment_prefix_quoted = 0, True, False, False, False
+        plain, plain_open, equal_seen, equal_unquoted, assignment_prefix_quoted, bracket_depth = 0, True, False, False, False, 0
 
     def command_starts() -> bool:
         """Whether a word here would be the first of a command (where `((` opens an arithmetic command)."""
@@ -438,8 +439,6 @@ def lex(text: str) -> Lexed:
             buf.append(text[i + 1])
             if not equal_seen:
                 assignment_prefix_quoted = True
-            if text[i + 1:i + 2] == "=" and not equal_seen and quoted_equal_is_operator():
-                equal_seen = True
             quoted = True
             plain_open = False
             i += 2
@@ -451,7 +450,7 @@ def lex(text: str) -> Lexed:
             buf.append(text[i + 1:close])
             if not equal_seen:
                 assignment_prefix_quoted = True
-            if not equal_seen and "=" in text[i + 1:close] and quoted_equal_is_operator():
+            if not equal_seen and not bracket_depth and "=" in text[i + 1:close]:
                 equal_seen = True
             quoted = True
             plain_open = False
@@ -477,15 +476,13 @@ def lex(text: str) -> Lexed:
                     if text[i + 1] == "\n":
                         i += 2
                         continue
-                    if text[i + 1] == "=" and not equal_seen and quoted_equal_is_operator():
-                        equal_seen = True
                 if text[i] in "$`":
                     after = expansion(i, True)
                     if after is None:
                         return Lexed(tokens, False, heredoc_subs)
                     i = after
                     continue
-                if text[i] == "=" and not equal_seen and quoted_equal_is_operator():
+                if text[i] == "=" and not equal_seen and not bracket_depth:
                     equal_seen = True
                 buf.append(text[i])
                 i += 1
@@ -541,7 +538,11 @@ def lex(text: str) -> Lexed:
         else:
             start_word(i)
             buf.append(c)
-            if c == "=" and not equal_seen:
+            if c == "[":
+                bracket_depth += 1
+            elif c == "]" and bracket_depth:
+                bracket_depth -= 1
+            elif c == "=" and not equal_seen and not bracket_depth:
                 equal_seen, equal_unquoted = True, True
             if plain_open:
                 plain += 1
@@ -934,7 +935,7 @@ def _unwrap(words: list[Token], index: int, wrapper: _Wrapper) -> tuple[int | No
                 return None, False
         i += 2 if taken else 1
     while i < len(words):
-        if _assignment_uncertain(words[i]):
+        if wrapper.assignments != "env" and _assignment_uncertain(words[i]):
             return None, False
         if not (wrapper.assignments == "env" and "=" in words[i].text
                 or wrapper.assignments == "bash" and _is_assignment(words[i])):
