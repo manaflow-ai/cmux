@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import json
 import struct
@@ -226,7 +227,6 @@ class CheckBundleNoticesTest(unittest.TestCase):
         "Contents/Resources/bin/cmux-diff-sidecar",
         "Contents/Resources/bin/cmux-mobile-host",
         "Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host",
-        "Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper*.app/Contents/MacOS/*",
         # Release merges Iroh.framework's Rust code (rustc 1.91.0) into the
         # app binary; Iroh.framework/Iroh is then a stub without Rust code.
         "Contents/MacOS/cmux",
@@ -249,6 +249,12 @@ class CheckBundleNoticesTest(unittest.TestCase):
         for path in self.ZIG_BINARIES:
             self.assertIn("zig-std", notices[path], path)
             self.assertIn(self.STD_SECTION, notices[path], path)
+        # A helper app that may run a copy of a Rust binary names that binary,
+        # whose entry needs rust-std, as copy_of.
+        for entry in bundle_map["entries"]:
+            if "copy_of" in entry:
+                self.assertIn(entry["copy_of"], self.RUST_BINARIES, entry["path"])
+                self.assertFalse(fnmatch.fnmatchcase(entry["copy_of"], entry["path"]), entry["path"])
 
     def std_app(self, rustc_commit: str) -> dict:
         sys.path.insert(0, str(ROOT / "cmux-tui/build-support/notices/toolchains"))
@@ -398,6 +404,51 @@ class CheckBundleNoticesTest(unittest.TestCase):
         # map still asked each for the host's rust-std notice.
         bundle_map = self.rb_host_app(thin_with_uuid(b"S" * 16))
         self.assertEqual(checker.check(self.app, bundle_map), [])
+
+    def test_rb_host_helpers_that_copy_the_host_need_its_rust_notices(self) -> None:
+        # The fallback of embed-remote-browser-host.sh: each helper is the host
+        # binary, signed under its own identifier (same LC_UUID, other bytes).
+        bundle_map = self.rb_host_app(thin_with_uuid(b"H" * 16, f"/rustc/{RUSTC_1_95}/library/std/src/lib.rs".encode()))
+        self.assertEqual(checker.check(self.app, bundle_map), [])
+        notices = self.app / "Contents/Resources/THIRD_PARTY_LICENSES.md"
+        notices.write_text(notices.read_text().replace("<!-- notices-section: rust-cmux-remote-browser-host -->\n", ""))
+        errors = checker.check(self.app, bundle_map)
+        for rel in (self.RB_HOST, *self.RB_HELPERS):
+            self.assertIn(f"{rel}: missing notice section:rust-cmux-remote-browser-host", errors)
+        self.assertEqual(len(errors), 6, errors)
+
+    def test_rb_host_helper_copy_whose_rustc_is_unreviewed_fails(self) -> None:
+        bundle_map = self.rb_host_app(thin_with_uuid(b"H" * 16, b"/rustc/" + b"c" * 40 + b"/library/std/src/lib.rs"))
+        errors = checker.check(self.app, bundle_map)
+        self.assertEqual(len(errors), 5, errors)
+        for rel, error in zip(sorted(self.RB_HELPERS), errors):
+            self.assertTrue(error.startswith(f"{rel}: missing notice rust-std"), error)
+
+    def test_rb_host_helper_that_is_no_copy_but_links_rust_std_fails(self) -> None:
+        bundle_map = self.rb_host_app(thin_with_uuid(b"S" * 16, f"/rustc/{RUSTC_1_95}/library/std/src/lib.rs".encode()))
+        errors = checker.check(self.app, bundle_map)
+        self.assertEqual(len(errors), 5, errors)
+        for error in errors:
+            self.assertIn("links the Rust standard library of rustc", error)
+
+    def test_rb_host_helper_without_an_lc_uuid_fails(self) -> None:
+        bundle_map = self.rb_host_app(THIN)
+        errors = checker.check(self.app, bundle_map)
+        self.assertEqual(len(errors), 5, errors)
+        for error in errors:
+            self.assertIn("cannot tell whether it is a copy of", error)
+
+    def test_macho_uuids_reads_every_slice_of_a_universal_binary(self) -> None:
+        arm, x86 = thin_with_uuid(b"A" * 16), thin_with_uuid(b"X" * 16)
+        fat = struct.pack(">II", 0xCAFEBABE, 2)
+        fat += struct.pack(">iiIII", 0x0100000C, 0, 64, len(arm), 0)
+        fat += struct.pack(">iiIII", 0x01000007, 3, 128, len(x86), 0)
+        fat = fat.ljust(64, b"\0") + arm.ljust(64, b"\0") + x86
+        path = self.app / "Contents/MacOS/app"
+        path.write_bytes(fat)
+        self.assertEqual(checker.macho_uuids(path), frozenset({b"A" * 16, b"X" * 16}))
+        path.write_bytes(THIN)
+        self.assertEqual(checker.macho_uuids(path), frozenset())
 
     def test_map_requirements_are_well_formed(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
