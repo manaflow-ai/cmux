@@ -93,4 +93,12 @@ extension DeepLink {
               url.host?.lowercased() == "settings" else { return nil }
         return url.path.lowercased() == "/background" ? "appearance.changeBackground" : nil
     }
+
+    /// The Settings page place a settings link opens: `cmux://settings/models/add` is Settings >
+    /// Models' Add a Connection (`#/settings/models?focus=models.add`). Nil for any other URL.
+    public static func settingsRoute(for url: URL, linkScheme: String) -> String? {
+        guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
+              url.host?.lowercased() == "settings" else { return nil }
+        return url.path.lowercased() == "/models/add" ? "#/settings/models?focus=models.add" : nil
+    }
 }

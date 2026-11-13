@@ -63,6 +63,8 @@ extension SettingsModels {
         // Only OpenAI's own sign-in page: the daemon's answer never opens anything else.
         guard let attempt = reply["attempt"]?.stringValue, !attempt.isEmpty,
               let url = reply["url"]?.stringValue.flatMap(URL.init(string:)), url.scheme == "https", url.host == "auth.openai.com" else {
+            // An attempt it did start ends here, with its callback listener.
+            if let attempt = reply["attempt"]?.stringValue, !attempt.isEmpty { await endAttempt(attempt, environment) }
             throw PageError(code: "cmux.models.chatgpt_bad_reply", message: "acpmux did not start a ChatGPT sign-in")
         }
         setChatGPT(attempt: attempt, error: nil)
@@ -126,16 +128,38 @@ extension SettingsModels {
     func addKey(provider: String, key: String, label: String?) async throws {
         guard Self.providers.contains(provider) else { throw PageError.invalidParams("addKey needs a known provider") }
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        // One line of printable characters, as a provider key is; the Keychain line must not break.
-        guard !key.isEmpty, key.utf8.count <= Self.keyLimit, key.unicodeScalars.allSatisfy({ $0.value >= 0x21 && $0.value <= 0x7E }) else {
-            throw PageError.invalidParams("addKey needs a key of printable characters with no spaces")
+        guard Self.isOneWord(key) else { throw PageError.invalidParams("addKey needs a key of printable characters with no spaces") }
+        try await addSecret(key, store: provider, method: .connectionsKeyAdd, params: ["provider": provider], label: label)
+    }
+
+    /// Add a Claude setup token (`claude setup-token`'s `sk-ant-oat…`, pasted after the terminal tab ran
+    /// it): into the Keychain first, then `connections/claude_token.add` with its reference only. The
+    /// pasted value itself is never trimmed into shape: a token with whitespace inside is refused.
+    func addClaudeToken(_ token: String, label: String?) async throws {
+        let token = token.trimmingCharacters(in: .newlines)
+        guard token.hasPrefix(Self.claudeTokenPrefix), Self.isOneWord(token) else {
+            throw PageError.invalidParams("addClaudeToken needs the sk-ant-oat token claude setup-token printed, with no spaces")
         }
+        try await addSecret(token, store: "claude-token", method: .claudeTokenAdd, params: [:], label: label)
+    }
+
+    nonisolated static let claudeTokenPrefix = "sk-ant-oat"
+
+    /// One line of printable characters with no spaces, as a key or token is; the Keychain line must not break.
+    nonisolated static func isOneWord(_ secret: String) -> Bool {
+        !secret.isEmpty && secret.utf8.count <= keyLimit && secret.unicodeScalars.allSatisfy { $0.value >= 0x21 && $0.value <= 0x7E }
+    }
+
+    /// SECRET into the Keychain (as STORE), then METHOD with its reference only; a refused add takes it back out.
+    private func addSecret(_ secret: String, store: String, method: AcpmuxHarnessMethod,
+                           params base: [String: any Sendable], label: String?) async throws {
         let environment = try requireDaemonEnvironment()
-        let reference = try await storeKey(key, provider: provider)
-        var params: [String: any Sendable] = ["provider": provider, "secret": reference]
+        let reference = try await storeKey(secret, provider: store)
+        var params = base
+        params["secret"] = reference
         if let label = label?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty { params["label"] = String(label.prefix(128)) }
         do {
-            let reply = try JSONValue.parse(try await daemon(environment, .connectionsKeyAdd, params))
+            let reply = try JSONValue.parse(try await daemon(environment, method, params))
             if reply["connections"] != nil { apply(reply) } else { await refresh() }
         } catch {
             await deleteKey(reference)
@@ -147,6 +171,9 @@ extension SettingsModels {
     func orgKey(agent: String, key: String?, kind: String?) async throws {
         guard TeamAgentKeys.agents.contains(agent) else { throw PageError.invalidParams("orgKey needs claude or codex") }
         guard let keys = teamAgentKeys, hasTeam else { throw PageError.unavailable("no team") }
+        // The team's keys answer nothing for a change they skip: say why here.
+        guard keys.canManage else { throw PageError(code: "cmux.models.auth.forbidden", message: TeamAgentKeys.copy("auth.forbidden")) }
+        guard !keys.busy else { throw PageError(code: "cmux.models.busy", message: "another change to the team's keys is still running") }
         if let key {
             let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
             await keys.save(agent: agent, kind: kind.flatMap { TeamAgentKeys.kinds.contains($0) ? $0 : nil } ?? Self.kind(of: trimmed), secret: trimmed)

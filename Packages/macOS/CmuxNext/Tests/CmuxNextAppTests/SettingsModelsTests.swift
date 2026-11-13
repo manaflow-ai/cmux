@@ -8,7 +8,7 @@ import Testing
 
 /// Settings > Models (cmux-tui/docs/model-connections.md): the page's state composed from acpmux's
 /// `_acpmux/connections`, each run's daemon call, a pasted API key reaching acpmux only as a Keychain
-/// reference, and Sign in with ChatGPT's wait loop from pending to done.
+/// reference, a Claude setup token the same way, and Sign in with ChatGPT's wait loop from pending to done.
 @MainActor struct SettingsModelsTests {
     struct Call: Sendable, Equatable {
         let method: String
@@ -38,6 +38,7 @@ import Testing
     }
 
     @MainActor final class Opened { var urls: [URL] = [] }
+    @MainActor final class Typed { var lines: [String] = [] }
 
     /// `models.spreadUsage` as the settings writer holds it.
     @MainActor final class Setting {
@@ -53,15 +54,20 @@ import Testing
         return Data("""
         {"connections":[
           {"id":"codex-login","kind":"codex-login","provider":"openai","families":["codex"],"label":"ChatGPT","email":null,
-           "plan":"plus","signed_in":true,"enabled":true,"default_for":["codex"],"serves_cloud":true},
+           "plan":"plus","signed_in":true,"enabled":true,"default_for":["codex"],"serves_cloud":false},
           {"id":"claude-login","kind":"claude-login","provider":"anthropic","families":["claude"],"label":"Claude","email":"c@d.e",
-           "plan":null,"signed_in":false,"enabled":false,"default_for":["claude"],"serves_cloud":true},
+           "plan":null,"signed_in":false,"enabled":false,"default_for":["claude"],"serves_cloud":false},
           {"id":"weird","kind":"not-a-kind","families":[]}\(chatgpt)
         ],"spread":\(spread),"order_explicit":false}
         """.utf8)
     }
 
-    private func make(daemon: Daemon, keys: Keys = Keys(), opened: Opened = Opened(),
+    nonisolated static let claudeToken = Data("""
+    {"connections":[{"id":"claude-token-1","kind":"claude-token","families":["claude"],"label":"Claude Code",
+      "signed_in":true,"enabled":true,"default_for":["claude"],"serves_cloud":true}],"spread":true}
+    """.utf8)
+
+    private func make(daemon: Daemon, keys: Keys = Keys(), opened: Opened = Opened(), harnesses: SettingsHarnesses? = nil,
                       spread: (read: @MainActor () -> Bool, write: @MainActor (Bool) async throws -> Void)? = nil) -> SettingsModels {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-models-\(UUID().uuidString)")
         let environment = AcpmuxEnvironment(executable: directory.appending(path: "acpmux"), home: directory,
@@ -79,6 +85,9 @@ import Testing
                 switch method {
                 case .connections, .connectionsSpreadSet, .connectionsOrderSet:
                     return Self.connections(plan: daemon.signedInPlan.withLock { $0 }, spread: flat["on"].map { $0 == "true" } ?? true)
+                case .claudeTokenAdd:
+                    if daemon.refuseKeyAdd.withLock({ $0 }) { throw AcpmuxRPCError(code: -32602, name: "connections.bad_secret", message: "refused") }
+                    return Self.claudeToken
                 case .connectionsKeyAdd:
                     if daemon.refuseKeyAdd.withLock({ $0 }) { throw AcpmuxRPCError(code: -32602, name: "connections.bad_secret", message: "refused") }
                     return Self.connections(plan: false)
@@ -94,6 +103,7 @@ import Testing
             },
             keys: keys,
             openURL: { opened.urls.append($0) },
+            harnesses: harnesses,
             spreadSetting: spread?.read,
             writeSpreadSetting: spread?.write)
     }
@@ -114,10 +124,12 @@ import Testing
         #expect(rows.map { $0["id"]?.stringValue } == ["codex-login", "claude-login"])
         #expect(rows[0] == [
             "id": "codex-login", "kind": "codex-login", "provider": "openai", "families": ["codex"], "label": "ChatGPT",
-            "email": .null, "plan": "plus", "signedIn": true, "enabled": true, "defaultFor": ["codex"],
+            "email": .null, "plan": "plus", "signedIn": true, "enabled": true, "defaultFor": ["codex"], "servesCloud": false,
         ])
         #expect(rows[1]["signedIn"] == .bool(false))
         #expect(rows[1]["serves_cloud"] == nil)
+        // Revision 2: no team gateway on the page.
+        #expect(state["organization"]?["gateway"] == nil)
         // No team: no organization connections and no members policy.
         #expect(state["organization"]?["team"] == .null)
         #expect(state["organization"]?["keys"] == .array([]))
@@ -233,10 +245,58 @@ import Testing
         #expect(KeychainModelKeyStore.quoted(#"a"b\c"#) == #""a\"b\\c""#)
     }
 
-    @Test func theGatewayAnswerMapsToTheCardsShape() {
-        #expect(SettingsModels.gateway(["ok": true, "gateway": ["mode": "gateway", "machine": "vm_1", "online": true, "kind": "x"]])
-            == ["mode": "gateway", "machine": "vm_1", "online": true])
-        #expect(SettingsModels.gateway(["ok": true, "gateway": ["mode": "personal"]]) == ["mode": "off", "machine": .null, "online": false])
-        #expect(SettingsModels.gateway(["ok": false, "error": ["code": "auth.forbidden"]]) == nil)
+    @Test func addClaudeTokenPassesOnlyTheKeychainReference() async throws {
+        let daemon = Daemon()
+        let keys = Keys()
+        let models = make(daemon: daemon, keys: keys)
+        let token = "sk-ant-oat01-THE-RAW-TOKEN-0123456789"
+        _ = try await models.run(["action": "addClaudeToken", "token": .string(token + "\n"), "label": "Max"], context: click)
+        #expect(keys.stored.withLock { $0 } == ["keychain:cmux-model-key/claude-token-test": token])
+        let add = try #require(daemon.calls.withLock { $0 }.first { $0.method == "_acpmux/connections/claude_token.add" })
+        #expect(add.params == ["secret": "keychain:cmux-model-key/claude-token-test", "label": "Max"])
+        #expect(!daemon.calls.withLock { $0 }.contains { $0.params.values.contains { $0.contains("THE-RAW-TOKEN") } })
+        #expect(!models.state.compactText.contains("THE-RAW-TOKEN"))
+        // acpmux's answer shows at once: a claude-token connection of Anthropic that serves Cloud.
+        let row = try #require(models.state["personal"]?["connections"]?.arrayValue?.first)
+        #expect(row["kind"] == "claude-token")
+        #expect(row["provider"] == "anthropic")
+        #expect(row["servesCloud"] == .bool(true))
+    }
+
+    @Test func aClaudeTokenNeedsItsPrefixAndNoWhitespace() async throws {
+        let daemon = Daemon()
+        let keys = Keys()
+        let models = make(daemon: daemon, keys: keys)
+        for token in ["sk-ant-api03-not-a-setup-token", "sk-ant-oat01-two words", "sk-ant-oat01-a\tb", " sk-ant-oat01-lead", ""] {
+            await #expect(throws: PageError.self) {
+                _ = try await models.run(["action": "addClaudeToken", "token": .string(token)], context: click)
+            }
+        }
+        #expect(keys.stored.withLock { $0 }.isEmpty)
+        #expect(daemon.calls.withLock { $0 }.isEmpty)
+        // A refused add takes the Keychain item back out.
+        daemon.refuseKeyAdd.withLock { $0 = true }
+        await #expect(throws: PageError.self) {
+            _ = try await models.run(["action": "addClaudeToken", "token": "sk-ant-oat01-abc"], context: click)
+        }
+        #expect(keys.deleted.withLock { $0 } == ["keychain:cmux-model-key/claude-token-test"])
+    }
+
+    @Test func claudeSetupTokenOpensATerminalTabRunningIt() async throws {
+        let daemon = Daemon()
+        let typed = Typed()
+        let harnesses = SettingsHarnesses(environment: { nil }, openTerminal: { line in typed.lines.append(line); return true })
+        let models = make(daemon: daemon, harnesses: harnesses)
+        _ = try await models.run(["action": "claudeSetupToken"], context: click)
+        #expect(typed.lines == ["claude setup-token"])
+        // Only from the person's own gesture.
+        let script = PageCallContext(page: "cmux.settings", origin: "page", confirmed: false, opid: "op", userGesture: false, gestureEvent: nil)
+        await #expect(throws: PageError.self) { _ = try await models.run(["action": "claudeSetupToken"], context: script) }
+        #expect(typed.lines.count == 1)
+    }
+
+    @Test func orgKeyNeedsAnExplicitKeyOrNull() async throws {
+        let models = make(daemon: Daemon())
+        await #expect(throws: PageError.self) { _ = try await models.run(["action": "orgKey", "agent": "claude"], context: click) }
     }
 }
