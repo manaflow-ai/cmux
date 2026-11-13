@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextPages
@@ -41,7 +42,7 @@ struct TerminalProgramLinkShowsTests {
         }
     }
 
-    /// Nothing on the right: the page opens in a new split there, never in the terminal's own pane.
+    /// Nothing on the right: the page opens in a new split there, never in the terminal's own pane, and the terminal keeps the keyboard.
     @Test func aProgramsLinkWithoutTheFocusSplitsRight() async throws {
         try await PinnedPageTests.withApp { services, _ in
             let store = services.daemon.store
@@ -49,6 +50,10 @@ struct TerminalProgramLinkShowsTests {
             let model = try #require(store.workspaces.first?.screens.first?.panes.first)
             let pane = try #require(services.paneController(for: model))
             let source = try #require(model.tabs.first?.id)
+            // Wide enough that halving the terminal keeps both halves over the width floors (RightColumnPlacement).
+            services.windows.active?.window?.setFrame(NSRect(x: 0, y: 0, width: 1800, height: 900), display: true)
+            try await PinnedPageTests.until({ (LinkOpener.width(of: pane) ?? 0) >= 2 * RightColumnPlacement.minimumChatWidth },
+                                            report: { "the terminal's pane did not widen: \(LinkOpener.width(of: pane) ?? -1)" })
             PaneHandlers.focus(pane.layoutPaneID, in: content)
             try await PinnedPageTests.until({ content.focusedPane === pane })
             services.linkOpener.placement = { .splitRight }
@@ -61,6 +66,8 @@ struct TerminalProgramLinkShowsTests {
             try await PinnedPageTests.until({ shown()?.stripModel.selectedID?.rawValue == tab },
                                             report: { "the program's page is not shown in a new split on the right: " + Self.describe(content) })
             #expect(!pane.pane.tabs.contains { $0.id == tab }, "the program's page stayed in the terminal's pane: \(Self.describe(content))")
+            try await PinnedPageTests.until({ content.focusedPane === pane },
+                                            report: { "the program's page took the keyboard from its terminal: " + Self.describe(content) })
         }
     }
 
