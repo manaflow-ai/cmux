@@ -276,6 +276,33 @@ class OneJob(unittest.TestCase):
         ns.write_issue(st2, "o/hq", "t", ".", run=gh2)
         self.assertNotIn(43189297315, [u["sign_run"] for u in ns.parse_history(gh2.written)["unpublished"]])
 
+    def test_a_rerun_of_a_run_older_than_the_oldest_record_is_read(self):
+        # The only record (the one-job build of 11-13) is newer than the sign run that failed on 11-12. A rerun keeps
+        # that run's created_at; its run_started_at is the rerun's.
+        def api(runs, **more):
+            return {"workflows/nightly.yml/runs": {"workflow_runs": [one_job_run()] + runs}, **more}
+        failed = [{**r, "conclusion": "failure"} if r["id"] == 43189297315 else r for r in RUNS]
+        gh = FakeGh(api=api(failed, **{"runs/43300000001/attempts/1/jobs": {"jobs": one_job_jobs()}}))
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual(st["new"], ["4330000000101"])
+        self.assertIn(43189297315, [u["sign_run"] for u in st["unpublished"]])
+        body = ns.issue_body(st["records"], st["unpublished"], ".", run=gh)
+        rerun = [{**r, "run_attempt": 2, "run_started_at": "2026-11-13T02:00:00Z"} if r["id"] == 43189297315 else r
+                 for r in RUNS]
+        gh2 = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": body}],
+                     api=api(rerun, **{"runs/43189297315/attempts/2/jobs": {"jobs": SIGN_JOBS},
+                                       "runs/43185474901/attempts/1/jobs": {"jobs": PUSH_JOBS}}))
+        st2 = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh2)
+        self.assertEqual(st2["new"], ["4318547490101"], "the rerun is read though its run was created before the history")
+        rec = next(r for r in st2["records"] if r["sign_run"] == 43189297315)
+        self.assertEqual((rec["sign_attempt"], rec["sign_started"]), (2, "2026-11-13T02:00:00Z"))
+        # The rerun's record does not move the history's start back to its run's created_at: nothing older is re-read.
+        body = ns.issue_body(st2["records"], st2["unpublished"], ".", run=gh2)
+        gh3 = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": body}], api=api(rerun))
+        st3 = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh3)
+        self.assertEqual((st3["new"], st3["new_unpublished"]), ([], []))
+        self.assertEqual(len([c for c in gh3.calls if c[0][:2] == ["gh", "api"]]), 1)
+
     def test_a_rerun_that_publishes_nothing_again_is_read_once_per_attempt(self):
         def record(attempt, body=None):
             runs = [{**one_job_run(), "run_attempt": attempt}]
@@ -491,6 +518,60 @@ class Issue(unittest.TestCase):
             body = f"{ns.ISSUE_MARK}\n<!-- nightly-speed-history-z: {z} -->\n{plain}\n"
             self.assertEqual(ns.parse_history(body), {"records": [], "unpublished": []}, z[:20])
         self.assertEqual(ns.parse_history(cut), {"records": [], "unpublished": []})
+
+    @staticmethod
+    def packed(doc):
+        z = base64.b64encode(zlib.compress(json.dumps(doc).encode("utf-8"), 9)).decode("ascii")
+        return f"{ns.ISSUE_MARK}\n<!-- nightly-speed-history-z: {z} -->\n"
+
+    def test_valid_json_of_another_shape_is_no_history(self):
+        empty = {"records": [], "unpublished": []}
+        for doc in ({"records": 1}, {"records": "abc"}, {"records": {"a": 1}}, {"records": [1, "a", None, [2]]},
+                    {"unpublished": 7}, {"records": None, "unpublished": {"sign_run": 1}}, 5, "text", None):
+            self.assertEqual(ns.parse_history(self.packed(doc)), empty, doc)
+        deep = base64.b64encode(zlib.compress(b"[" * 200000, 9)).decode("ascii")
+        self.assertEqual(ns.parse_history(f"<!-- nightly-speed-history-z: {deep} -->"), empty, "nested past the parser")
+        # record goes on with an empty history instead of raising.
+        gh = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": self.packed({"records": 1})}],
+                    api={"workflows/nightly.yml/runs": {"workflow_runs": RUNS},
+                         "runs/43189297315/attempts/1/jobs": {"jobs": SIGN_JOBS},
+                         "runs/43185474901/attempts/1/jobs": {"jobs": PUSH_JOBS}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual(st["new"], ["4318547490101"])
+
+    def test_a_stored_record_of_another_shape_is_no_record(self):
+        good = fixture_record()
+        self.assertTrue(ns.sound_record(json.loads(json.dumps(good))), "what build_record writes is sound")
+        changes = ({"stages": 1}, {"stages": {"c_build": "9"}}, {"merge_to_feed": "85"}, {"merge_to_feed": 10 ** 400},
+                   {"merge_to_feed": float("nan")}, {"merge_to_feed": True}, {"sha": "--output=/tmp/x"}, {"sha": 5},
+                   {"feed_at": 7}, {"build": None}, {"hosts": {"cmux15": [1, 2]}}, {"hosts": {"cmux15": [1, 2, "3", 4]}},
+                   {"jobs": [["a"]]}, {"jobs": {"a": 1}}, {"runners": []}, {"sign_created": 3}, {"sign_run": "1"},
+                   {"sign_run": True}, {"sign_run": 0})
+        bad = [{**good, "sign_run": 2 + i, **change} for i, change in enumerate(changes)]
+        unp = [{"sign_run": 5, "held_min": "x"}, {"sign_run": 6, "created_at": 3}, {"sign_run": 7, "attempt": "2"},
+               {"sign_run": [8]}, {"sign_run": 9}]
+        hist = ns.parse_history(self.packed({"records": bad + [good], "unpublished": unp}))
+        self.assertEqual([r["sign_run"] for r in hist["records"]], [good["sign_run"]])
+        self.assertEqual([u["sign_run"] for u in hist["unpublished"]], [9])
+        # What is left is judged and written without raising.
+        self.assertLessEqual(len(ns.issue_body(hist["records"], hist["unpublished"], ".", run=FakeGh())), ns.BODY_LIMIT)
+
+    def test_trimming_records_keeps_the_unpublished_lines(self):
+        unp = [ns.unpublished_line({**one_job_run(100 + i), "conclusion": "cancelled", "run_attempt": 2})
+               for i in range(ns.UNPUBLISHED_KEEP)]
+        body = ns.issue_body(self.records(ns.HISTORY_KEEP, pad=3000), unp, ".", run=FakeGh())
+        self.assertLessEqual(len(body), ns.BODY_LIMIT)
+        hist = ns.parse_history(body)
+        self.assertTrue(0 < len(hist["records"]) < ns.HISTORY_KEEP, len(hist["records"]))
+        self.assertEqual(hist["unpublished"], unp, "a dropped record takes no unpublished line with it")
+        # Lines alone too large for the body: the oldest go, the newest stay.
+        rnd = random.Random(3)
+        huge = [{**u, "conclusion": "%x" % rnd.getrandbits(8000)} for u in unp]
+        body = ns.issue_body([], huge, ".", run=FakeGh())
+        self.assertLessEqual(len(body), ns.BODY_LIMIT)
+        kept = ns.parse_history(body)["unpublished"]
+        self.assertTrue(0 < len(kept) < len(huge), len(kept))
+        self.assertEqual(kept[-1], huge[-1])
 
     def test_records_too_large_for_the_floor_still_fit(self):
         recs = self.records(ns.HISTORY_KEEP, pad=3000)

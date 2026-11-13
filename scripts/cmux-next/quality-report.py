@@ -624,11 +624,16 @@ def gh_speed_history(repo: str = HQ_REPO, run: Callable = subprocess.run) -> Dic
         else:
             m = SPEED_HISTORY_RE.search(body)
             doc = json.loads(m.group(1)) if m else None
-    except (ValueError, zlib.error):
+    except (ValueError, zlib.error, RecursionError):
         doc = None
-    if not isinstance(doc, dict):
+    if not isinstance(doc, dict) or not isinstance(doc.get("records"), list):
         raise SourceError("the speed issue has no readable history")
     return doc
+
+
+def speed_num(v: Any) -> bool:
+    """A number of minutes (nightly_speed.py is_num): no bool, NaN, infinity, or integer too large for a float."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and -1e9 < v < 1e9
 
 
 def quantile(values: List[float], p: float) -> Optional[float]:
@@ -646,16 +651,19 @@ def nightly_speed(doc: Any, why: Optional[str], since: dt.datetime) -> Dict[str,
     """Nightlies whose feed upload is in the window, against the budget."""
     empty = {"source": None, "published": 0, "p50_min": None, "p95_min": None, "over_budget": None,
              "budget_min": SPEED_BUDGET_MIN, "largest_stage": None, "largest_stage_p50_min": None}
-    if not isinstance(doc, dict):
+    # The document is text in an issue: valid JSON of another shape is no history and a value of another type is
+    # skipped, never an exception in the report.
+    if not isinstance(doc, dict) or not isinstance(doc.get("records"), list):
         return {**empty, "why": why or "no speed history"}
-    budget = doc.get("budget_min") if isinstance(doc.get("budget_min"), (int, float)) else SPEED_BUDGET_MIN
-    recs = [r for r in doc.get("records") or [] if isinstance(r, dict) and (parse_time(r.get("feed_at")) or since) > since]
-    mtf = [r["merge_to_feed"] for r in recs if isinstance(r.get("merge_to_feed"), (int, float))]
+    budget = doc.get("budget_min") if speed_num(doc.get("budget_min")) else SPEED_BUDGET_MIN
+    recs = [r for r in doc["records"] if isinstance(r, dict) and isinstance(r.get("feed_at"), str)
+            and (parse_time(r["feed_at"]) or since) > since]
+    mtf = [r["merge_to_feed"] for r in recs if speed_num(r.get("merge_to_feed"))]
     # The top-level stages only (a step inside a stage, or a job wall, would double count).
-    top = doc.get("top_stages") or []
+    top = [k for k in doc.get("top_stages") or [] if isinstance(k, str)] if isinstance(doc.get("top_stages"), list) else []
     p50s = {}
     for k in top:
-        vals = [r["stages"][k] for r in recs if isinstance((r.get("stages") or {}).get(k), (int, float))]
+        vals = [r["stages"][k] for r in recs if isinstance(r.get("stages"), dict) and speed_num(r["stages"].get(k))]
         if vals:
             p50s[k] = quantile(vals, 0.5)
     largest = max(p50s, key=lambda k: p50s[k]) if p50s else None

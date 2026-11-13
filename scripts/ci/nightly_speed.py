@@ -49,6 +49,8 @@ for each completed sign run not yet recorded (the newest --newest) the two jobs 
 run's attempt: nothing more when nothing is new. A sign run that did not publish (failed, or cancelled when a newer
 one replaced it) costs no read past the list: it is one line with its conclusion and the minutes it was open in the
 sign group (created -> completed), the waste account. Such a run is read again when it is re-run (a higher attempt).
+A run that started before the oldest record is not read; "started" is its newest attempt's (run_started_at), since a
+rerun keeps the run's created_at.
 
 `check` judges the newest record. Over budget: merge_to_feed over BUDGET_MIN. A stage is slow when it is over
 SLOW_RATIO (1.5) x its median over the TRAILING (20) records before it AND at least SLOW_FLOOR_MIN (1 min) over
@@ -67,7 +69,9 @@ nightlies, the unpublished sign runs, and the history as a hidden comment that `
 its JSON document, zlib-compressed and base64 on one line (HISTORY_Z_RE; the plain JSON of HISTORY_RE, the first
 form, is still read). It holds the newest HISTORY_KEEP records with the body under BODY_LIMIT: when it is over, the
 oldest records go down to TRAILING + BISECT_AFTER, then every record's per-job detail, then older records below that
-floor, so the issue can always be written. It re-reads the issue right
+floor, and the unpublished lines only when no record is left, so the issue can always be written. What is read back
+is checked (sound_record, sound_unpublished): the issue is editable text, so valid JSON of another shape is an empty
+history and a record of another shape is dropped, never an exception. It re-reads the issue right
 before writing and merges its history, so a failed read in `record` never drops history. In budget, the same issue
 says so. Nothing here gates a nightly: nightly-speed.yml is its own workflow and nothing needs it.
 
@@ -126,6 +130,7 @@ BUILD_STEP = "Build nightly app (Release)"
 NOTARIZE_STEP = "Notarize app ticket through final DMG"
 HOOK_STEP = "Set up runner"
 SIGN_RE = re.compile(r"^Sign nightly-next run (\d+) attempt (\d+)$")
+SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 # A one-job nightly's steps are its stages. One under this many minutes is left out of the record (the history is
 # one issue body), and a slow one still shows in the job's own wall.
 STEP_FLOOR_MIN = 0.2
@@ -350,7 +355,7 @@ def build_record(sign: Dict[str, Any], push: Dict[str, Any], sign_jobs: List[Dic
         "build": f"{push_run}{push_attempt:02d}", "sha": push.get("head_sha"),
         "push_run": push_run, "push_attempt": push_attempt,
         "sign_run": sign.get("id"), "sign_attempt": sign.get("run_attempt") or 1,
-        "sign_created": sign.get("created_at"), "pushed_at": push.get("created_at"),
+        "sign_created": sign.get("created_at"), "sign_started": started(sign), "pushed_at": push.get("created_at"),
         "landed_at": iso(landed), "feed_at": iso(feed),
         "merge_to_feed": minutes(landed, feed), "push_to_feed": minutes(p_created, feed),
         "stages": {k: v for k, v in stages.items() if v is not None},
@@ -358,6 +363,11 @@ def build_record(sign: Dict[str, Any], push: Dict[str, Any], sign_jobs: List[Dic
                     (("build", pub if one_job else build), ("sign", signer), ("publish", pub)) if j},
         "hosts": host_sums(lines), "jobs": lines,
     }, None
+
+
+def started(run_obj: Dict[str, Any]) -> str:
+    """When a run's newest attempt started (run_started_at moves on a rerun, created_at does not)."""
+    return run_obj.get("run_started_at") or run_obj.get("created_at") or ""
 
 
 def unpublished_line(sign: Dict[str, Any], why: Optional[str] = None) -> Dict[str, Any]:
@@ -380,17 +390,57 @@ def history_json(body: str) -> Any:
             return {} if inflate.unconsumed_tail or not inflate.eof else json.loads(raw)
         m = HISTORY_RE.search(body or "")
         return json.loads(m.group(1)) if m else {}
-    except (ValueError, zlib.error):
+    except (ValueError, zlib.error, RecursionError):
         return {}
 
 
+def is_num(v: Any) -> bool:
+    """A number of minutes or a count: no bool, NaN, infinity, or integer too large for float arithmetic."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and -1e9 < v < 1e9
+
+
+def sound_record(r: Any) -> bool:
+    """A stored record in the shape build_record writes. The issue is text anyone with write access can edit, valid
+    JSON of another shape would raise in check, and a sha reaches git as an argument: anything else is no record."""
+    if not isinstance(r, dict):
+        return False
+
+    def opt(key: str, ok: Callable[[Any], bool]) -> bool:
+        return r.get(key) is None or ok(r[key])
+
+    def text(v: Any) -> bool:
+        return isinstance(v, str)
+
+    return (type(r.get("sign_run")) is int and r["sign_run"] > 0 and text(r.get("feed_at")) and bool(r["feed_at"])
+            and text(r.get("build")) and opt("sha", lambda v: text(v) and bool(SHA_RE.match(v)))
+            and all(opt(k, text) for k in ("sign_created", "sign_started", "landed_at", "pushed_at"))
+            and all(opt(k, is_num) for k in ("merge_to_feed", "push_to_feed"))
+            and opt("stages", lambda v: isinstance(v, dict) and all(is_num(x) for x in v.values()))
+            and opt("runners", lambda v: isinstance(v, dict) and all(x is None or text(x) for x in v.values()))
+            and opt("hosts", lambda v: isinstance(v, dict) and all(
+                isinstance(x, list) and len(x) == 4 and all(is_num(n) for n in x) for x in v.values()))
+            and opt("jobs", lambda v: isinstance(v, list) and all(
+                isinstance(j, list) and len(j) == 4 and text(j[0]) and text(j[1])
+                and all(n is None or is_num(n) for n in j[2:]) for j in v)))
+
+
+def sound_unpublished(u: Any) -> bool:
+    """A stored unpublished line in the shape unpublished_line writes."""
+    return (isinstance(u, dict) and type(u.get("sign_run")) is int and u["sign_run"] > 0
+            and (u.get("attempt") is None or type(u["attempt"]) is int)
+            and (u.get("created_at") is None or isinstance(u["created_at"], str))
+            and (u.get("held_min") is None or is_num(u["held_min"])))
+
+
 def parse_history(body: str) -> Dict[str, Any]:
+    """The records and unpublished lines of the issue's history that are sound; never raises on what the body holds."""
     doc = history_json(body)
-    if not isinstance(doc, dict):
-        doc = {}
-    recs = [r for r in doc.get("records") or [] if isinstance(r, dict) and r.get("sign_run") and r.get("feed_at")]
-    unp = [u for u in doc.get("unpublished") or [] if isinstance(u, dict) and u.get("sign_run")]
-    return {"records": recs, "unpublished": unp}
+
+    def rows(key: str, sound: Callable[[Any], bool]) -> List[Dict[str, Any]]:
+        v = doc.get(key) if isinstance(doc, dict) else None
+        return [x for x in v if sound(x)] if isinstance(v, list) else []
+
+    return {"records": rows("records", sound_record), "unpublished": rows("unpublished", sound_unpublished)}
 
 
 def merge(old: List[Dict[str, Any]], new: List[Dict[str, Any]], order: str, keep: int) -> List[Dict[str, Any]]:
@@ -438,7 +488,9 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
     def known(r: Dict[str, Any]) -> bool:
         return r.get("id") in recorded or (r.get("id"), r.get("run_attempt") or 1) in seen
 
-    oldest = min((r.get("sign_created") or "" for r in hist["records"]), default="")
+    # Nothing that started before the oldest record is read: it fell off the history. A rerun keeps its run's
+    # created_at, so the time is the newest attempt's start, or a rerun of an old run would never be read.
+    oldest = min((r.get("sign_started") or r.get("sign_created") or "" for r in hist["records"]), default="")
     state: Dict[str, Any] = {"schema": SCHEMA, "records": hist["records"], "unpublished": hist["unpublished"],
                              "new": [], "new_unpublished": [], "history_why": history_why, "why": None}
     try:
@@ -449,15 +501,15 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
         return state
     by_id = {r.get("id"): r for r in runs}
     signs = [r for r in runs if SIGN_RE.match(r.get("display_title") or "") and r.get("status") == "completed"
-             and not known(r) and (r.get("created_at") or "") >= oldest]
+             and not known(r) and started(r) >= oldest]
     # A one-job nightly: a push run that succeeded and that no sign run names. With the two-run pipeline a push run
     # that succeeded has dispatched its sign run before it ends (48 of 48 on 2026-11-11 and 12; the superseded ones
     # are cancelled), so none is read here for nothing. One listed before its sign run is forgotten once that run is.
     signed = {int(SIGN_RE.match(r["display_title"]).group(1)) for r in runs if SIGN_RE.match(r.get("display_title") or "")}
     signs += [r for r in runs if r.get("event") == "push" and not SIGN_RE.match(r.get("display_title") or "")
               and r.get("status") == "completed" and r.get("conclusion") == "success" and r.get("id") not in signed
-              and not known(r) and (r.get("created_at") or "") >= oldest]
-    signs.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+              and not known(r) and started(r) >= oldest]
+    signs.sort(key=started, reverse=True)
     landed = landing_times(git_dir, base_ref, run) if signs else {}
     new_recs, new_unp, whys = [], [], []
     for sign in signs[:newest]:
@@ -745,10 +797,11 @@ def history_comment(records: List[Dict[str, Any]], unpublished: List[Dict[str, A
 def issue_body(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]], git_dir: str,
                run: Callable = subprocess.run) -> str:
     """The issue body, the oldest records dropped until it fits BODY_LIMIT, down to TRAILING + BISECT_AFTER; past that
-    floor every record's per-job detail goes, then the oldest records again, so it is never over the limit."""
+    floor every record's per-job detail goes, then the oldest records again, and only with no record left the oldest
+    unpublished lines (a line is 150 bytes; it is never dropped to make room for a record), so it is never over."""
     floor = TRAILING + BISECT_AFTER
     while len(records) > floor and len(history_comment(records, unpublished)) > BODY_LIMIT - VISIBLE_RESERVE:
-        records, unpublished = records[1:], unpublished[1:]
+        records = records[1:]
     jobs_keep = JOBS_KEEP
     while True:
         c = check(records, git_dir, run)
@@ -763,13 +816,14 @@ def issue_body(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]],
                       f"{u.get('conclusion')} | {num(u.get('held_min'))} |" for u in unp]
             lines.append("")
         body = "\n".join(lines) + f"\n{history_comment(records, unpublished, jobs_keep)}\n"
-        if len(body) <= BODY_LIMIT or not records:
+        if len(body) <= BODY_LIMIT or not (records or unpublished):
             return body
         if len(records) <= floor and jobs_keep:
             jobs_keep = 0
-            continue
-        records = records[1:]
-        unpublished = unpublished[1:]
+        elif records:
+            records = records[1:]
+        else:
+            unpublished = unpublished[1:]
 
 
 def write_issue(state: Dict[str, Any], hq_repo: str, token: Optional[str], git_dir: str,

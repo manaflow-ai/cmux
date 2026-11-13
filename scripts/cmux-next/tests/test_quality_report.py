@@ -548,6 +548,25 @@ class NightlySpeed(unittest.TestCase):
             with self.assertRaises(qr.SourceError):
                 reader(f"{qr.SPEED_MARK}\n<!-- nightly-speed-history-z: {bad} -->\n" + self.body(self.DOC))()
 
+    def test_valid_json_of_another_shape_is_no_history_and_an_odd_value_is_skipped(self):
+        def reader(doc):
+            z = base64.b64encode(zlib.compress(json.dumps(doc).encode(), 9)).decode()
+            issues = [{"number": 3, "title": qr.SPEED_TITLE, "body": f"{qr.SPEED_MARK}\n<!-- nightly-speed-history-z: {z} -->\n"}]
+            return lambda: qr.gh_speed_history(run=lambda cmd, **k: subprocess.CompletedProcess(cmd, 0, json.dumps(issues), ""))
+        for doc in ({"records": 1}, {"records": {"a": 1}}, {"records": None}, {"budget_min": 30}, [1], 5):
+            with self.assertRaises(qr.SourceError, msg=doc):
+                reader(doc)()
+            self.assertEqual(qr.nightly_speed(doc, None, SINCE)["why"], "no speed history", doc)
+        odd = [1, None, {"feed_at": 5, "merge_to_feed": 1.0}, {"feed_at": "2026-11-10T08:00:00Z", "merge_to_feed": "20", "stages": 3},
+               {"feed_at": "2026-11-10T08:00:00Z", "merge_to_feed": 10 ** 400, "stages": {"promote": True, "g_sign": "8"}}]
+        doc = {**self.DOC, "budget_min": "30", "records": odd + self.DOC["records"]}
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [], speed_history=reader(doc))
+        sp = r["nightly_speed"]
+        self.assertEqual((sp["published"], sp["p50_min"], sp["p95_min"], sp["over_budget"], sp["budget_min"]),
+                         (6, 104.0, 146.3, 2, 30.0))
+        self.assertEqual((sp["largest_stage"], sp["largest_stage_p50_min"]), ("g_sign", 20))
+        self.assertIsNone(qr.nightly_speed({**doc, "top_stages": "promote"}, None, SINCE)["largest_stage"])
+
 
 if __name__ == "__main__":
     unittest.main()
