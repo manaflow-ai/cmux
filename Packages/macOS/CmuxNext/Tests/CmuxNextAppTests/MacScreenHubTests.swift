@@ -38,7 +38,7 @@ private final class CallLog {
 
 private let hostID = "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff"
 
-private final class MachineDevicesURLProtocol: URLProtocol, @unchecked Sendable {
+nonisolated private final class MachineDevicesURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var body = #"{"devices":[]}"#
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -112,7 +112,7 @@ struct MacScreenDeviceRecordTests {
     @Test func machineRowsResolveHubDevicesAndFallBackHome() async throws {
         let deviceID = "6f1c2a4e-0d3b-4c5a-9e7f-112233445566"
         MachineDevicesURLProtocol.body = #"{"devices":[{"id":"6f1c2a4e-0d3b-4c5a-9e7f-112233445566","name":"Air Blue","platform":"macos","online":true}]}"#
-        let identity = DeviceIdentity.software()
+        let identity = DeviceIdentity(deviceID: UUID(), keys: TestDeviceKeys())
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MachineDevicesURLProtocol.self]
         let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
