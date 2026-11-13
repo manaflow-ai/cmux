@@ -24,6 +24,11 @@ class ScreenShareNetemCliTests(unittest.TestCase):
         durations = args.drop_seconds if args.drop_seconds is not None else [args.blip_s]
         self.assertEqual(durations, [2.0])
 
+    def test_drop_budget_keeps_bench_alive_for_recovery(self):
+        self.assertEqual(netem.sample_budget(20, None), 20)
+        self.assertEqual(netem.sample_budget(20, 10), 30)
+        self.assertEqual(netem.sample_budget(20, 60), 80)
+
 
 if __name__ == "__main__":
     unittest.main()
