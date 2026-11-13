@@ -226,8 +226,29 @@ const LIVE_FLOW_STEPS = 2;
 /// The thread's class while a live drag flows its rows (conversation.css): the rows sit in normal
 /// flow from their placed range, and the browser rewraps them at each width.
 const FLOW_CLASS = "acpmux-thread--flow";
-/// With FLOW_CLASS while the view follows the latest row: the rows are anchored at its bottom.
+/// With FLOW_CLASS while the view follows the latest row: the rows hang from the end of a box that
+/// ends where the latest row rests, under a strut as tall as the room above a chat that fits.
 const FLOW_END_CLASS = "acpmux-thread--flow-end";
+/// The thread's two lengths while its rows flow (conversation.css): in a view that follows, `end` is
+/// the box's height and `start` the most its top strut takes; in any other, `start` is the padding
+/// above the first mounted row.
+const FLOW_VARS = { start: "--acpmux-flow-start", end: "--acpmux-flow-end" } as const;
+/// The flow lengths last written on a thread (`writeFlow`): undefined for one that is not set.
+type FlowWritten = { node: HTMLElement; start?: string; end?: string };
+/// Sets one flow length on `node` (undefined removes it), unless it is the value last written there:
+/// a frame of a drag that places the rows as the frame before it did writes no style at all.
+function writeFlow(
+  live: { wrote?: FlowWritten },
+  node: HTMLElement,
+  name: keyof typeof FLOW_VARS,
+  value: string | undefined,
+): void {
+  if (live.wrote?.node !== node) live.wrote = { node };
+  if (live.wrote[name] === value) return;
+  live.wrote[name] = value;
+  if (value === undefined) node.style.removeProperty(FLOW_VARS[name]);
+  else node.style.setProperty(FLOW_VARS[name], value);
+}
 /// The last measured transcript box on this page: a transcript mounting again starts from it.
 const lastTranscriptBox = { height: 600, width: 760 };
 
@@ -1806,6 +1827,8 @@ function TranscriptView({
     /// and the thread's padding that keeps it there (`holdFlow`).
     /// `top` is the scroll offset `at` was read at: a scroll by the reader moves the row with it.
     hold?: { row: HTMLElement; at: number; pad: number; first: number; top: number };
+    /// The flow lengths as last written on the thread (`writeFlow`).
+    wrote?: FlowWritten;
   }>({
     at: Number.NEGATIVE_INFINITY,
     live: false,
@@ -2410,11 +2433,15 @@ function TranscriptView({
       return changes ? current.with(changes) : current;
     });
   }, []);
-  /// Where a flowing drag's rows hang from (`FLOW_CLASS`): the latest mounted row's placed bottom
-  /// while the view follows it down a chat taller than the view, else the first mounted row's
-  /// placed top, with `holdFlow` keeping the row the reader looks at where it shows. A chat the
-  /// view holds whole (scrolled to 0) hangs from its top too: from its bottom, rows that grew as it
-  /// narrowed went up past the thread's top, where nothing can scroll to them (#41170 F1). Set again
+  /// Where a flowing drag's rows hang from (`FLOW_CLASS`). A view that follows the latest row shows
+  /// what it shows once the width holds: the rows hang from the end of a box that ends where the
+  /// latest row rests when the chat fills the view, and a strut above them takes the box's free
+  /// room first, up to the room above the first row of a chat the view holds whole. So a chat that
+  /// fits keeps its first row in place (#41170 F1), one that stops fitting goes up from its end, as
+  /// the scroll to the end then shows it, and one that starts fitting comes down to its top and no
+  /// further. The strut is for the chat's first row only: with older rows unmounted above, the rows
+  /// hang from the end. Any other view hangs from the first mounted row's placed top, with
+  /// `holdFlow` keeping the row the reader looks at where it shows. Set again
   /// by every commit while the rows flow, so a row that arrives or mounts during the drag moves the
   /// anchor with it. A placement over a live resize's partial estimate flows too: its mounted rows
   /// sit where it placed them, and the settle places every row again (#41170 F2). False when the
@@ -2429,13 +2456,23 @@ function TranscriptView({
     const mounted = threadNode.querySelectorAll<HTMLElement>(":scope > .acpmux-row");
     if (mounted.length !== placed.last - placed.first) return false;
     const geometry = placed.layout.geometry;
-    const end = followingRef.current && scroller.scrollTop > 0;
+    const end = followingRef.current;
+    // Read before a length is written below, where it was read to choose the anchor.
+    const scrolled = end ? scroller.scrollTop : 0;
     const live = liveResize.current;
     if (end) {
       live.hold = undefined;
       const at = geometry.topAt(placed.last - 1) + geometry.heightAt(placed.last - 1);
-      threadNode.style.setProperty("--acpmux-flow-end", `${THREAD_TOP + at}px`);
-      threadNode.style.removeProperty("--acpmux-flow-start");
+      // The room under the latest row at rest, taken from the scroll content's own height (100%: the
+      // taller of the placed height and the view). Over a chat taller than the view that is the
+      // latest row's placed bottom; over one that fits, the same room above the view's lower edge.
+      const under = latestLayout.current.layout.totalHeight - THREAD_TOP - at;
+      writeFlow(live, threadNode, "end", `calc(100% - ${under}px)`);
+      // The first row's place when the view holds the whole chat, in the thread's coordinates at
+      // this scroll offset. No such place while older rows are unmounted above the first mounted
+      // one: the strut then gets the box's own length, which leaves the rows at its end.
+      const whole = placed.first === 0 ? geometry.topAt(0) + scrolled : at;
+      writeFlow(live, threadNode, "start", `${THREAD_TOP + whole}px`);
     } else {
       // The same mounted rows under the same held row keep the padding `holdFlow` gave them.
       if (live.hold?.row.isConnected && live.hold.first === placed.first && threadNode.classList.contains(FLOW_CLASS))
@@ -2454,8 +2491,8 @@ function TranscriptView({
       }
       const pad = THREAD_TOP + geometry.topAt(placed.first);
       if (live.hold) Object.assign(live.hold, { pad, first: placed.first });
-      threadNode.style.setProperty("--acpmux-flow-start", `${pad}px`);
-      threadNode.style.removeProperty("--acpmux-flow-end");
+      writeFlow(live, threadNode, "start", `${pad}px`);
+      writeFlow(live, threadNode, "end", undefined);
     }
     threadNode.classList.toggle(FLOW_END_CLASS, end);
     return true;
@@ -2480,7 +2517,7 @@ function TranscriptView({
     const pad = Math.max(0, hold.pad - shift);
     if (pad === hold.pad) return;
     hold.pad = pad;
-    threadNode.style.setProperty("--acpmux-flow-start", `${pad}px`);
+    writeFlow(liveResize.current, threadNode, "start", `${pad}px`);
   }, []);
   // A live drag's rows go into normal flow from where they were placed, so the browser rewraps
   // them at each width in its own layout pass, with no React pass and no height read (Leo,
@@ -2548,8 +2585,9 @@ function TranscriptView({
       live.hold = undefined;
       const threadNode = thread.current;
       threadNode?.classList.remove(FLOW_CLASS, FLOW_END_CLASS);
-      threadNode?.style.removeProperty("--acpmux-flow-end");
-      threadNode?.style.removeProperty("--acpmux-flow-start");
+      threadNode?.style.removeProperty(FLOW_VARS.end);
+      threadNode?.style.removeProperty(FLOW_VARS.start);
+      live.wrote = undefined;
       if (inCommit) {
         readAfterSettle.current = true;
         setFlowWidth(undefined);
