@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43442531831",
+  "recorded_at": "2026-11-13T14:37:04Z",
+  "reason": "cmux-tui 42ec2fe24d00 changes the image's cmux-tui (pinned 5f583df218e6)",
+  "dry_run": false,
+  "cmux_tui": "42ec2fe24d006d0c450f1d0544b7b071cebfe871",
+  "fixes": [
+    {
+      "sha": "42ec2fe24d006d0c450f1d0544b7b071cebfe871",
+      "mergedAt": "2026-11-13T05:57:11-08:00",
+      "subject": "acpmux tests: the bounded-wait detector counts std::mem::drop and reads raw-string #[path] (#42023, #41842 review) (#42081)"
+    },
+    {
+      "sha": "c7e6e20f4c942432072d9fbc48c0e881dadb0759",
+      "mergedAt": "2026-11-13T05:50:30-08:00",
+      "subject": "Agent chats show one \"While you were away\" card, and stop repeating it (#41637)"
+    },
+    {
+      "sha": "987a5c0aff46ece3a2fe5693f816369acdbda276",
+      "mergedAt": "2026-11-13T05:45:58-08:00",
+      "subject": "agent service v2 PR 5b: the index on disk and the list pages (#42364)"
+    },
+    {
+      "sha": "380b645e29570ce6a0134c8e036b35e65976f528",
+      "mergedAt": "2026-11-13T05:39:29-08:00",
+      "subject": "cmux-remote: a device's redial of its pending invitation takes over its request instead of being refused (#42575)"
+    },
+    {
+      "sha": "78475966aeee448599b4832c78d35a43e2bf2641",
+      "mergedAt": "2026-11-13T05:36:41-08:00",
+      "subject": "acpmux tests: a drain ends only on a drop before its loop, and test modules' child files are read (#41961 review) (#42023)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-13T14:37:04Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
