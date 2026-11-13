@@ -387,12 +387,24 @@ fn last_message(m: &SessionMeta) -> Option<crate::protocol::session::LastMessage
 /// `default_policy`), so sessions on different harnesses compare; the
 /// harness's mode is only named in `detail`. Host isolation is never
 /// claimed, and no sandbox is inferred from a mode name.
-pub(super) fn enforcement(m: &SessionMeta, default_policy: Option<PermissionPolicy>) -> Value {
-    let policy = m
+pub(super) fn enforcement(
+    m: &SessionMeta,
+    default_policy: Option<PermissionPolicy>,
+    full_access_off: bool,
+) -> Value {
+    let mut policy = m
         .permission_policy
         .clone()
         .or_else(|| default_policy.map(|p| p.to_string()))
         .unwrap_or_else(|| "unknown".into());
+    // The policy it runs, not the one stored: while MDM or a team policy forces full access off,
+    // an approve-all answers as ask (`Hub::effective_policy_under`). A caller that copies this
+    // policy to a new session (`cli/mesh_control.rs`) then copies ask, never the uncapped grant.
+    let capped = full_access_off
+        && policy.parse().is_ok_and(super::full_access_bound::policy_is_full_access);
+    if capped {
+        policy = PermissionPolicy::Ask.to_string();
+    }
     let mode = m.modes.as_ref().and_then(|x| x.get("currentModeId")).and_then(Value::as_str);
     let harness = m.family.as_deref().unwrap_or(&m.harness);
     json!({
@@ -400,12 +412,24 @@ pub(super) fn enforcement(m: &SessionMeta, default_policy: Option<PermissionPoli
         "label": "native_policy",
         "isolation": "unverified",
         "detail": format!(
-            "{harness} mode {}; acpmux policy {policy}{}; host isolation unverified",
+            "{harness} mode {}; acpmux policy {policy}{}{}; host isolation unverified",
             mode.unwrap_or("unknown"),
-            if m.permission_policy.is_none() { " (the daemon default)" } else { "" }
+            if m.permission_policy.is_none() { " (the daemon default)" } else { "" },
+            if full_access_off { FULL_ACCESS_OFF_NOTE } else { "" },
         ),
     })
 }
+
+/// The words `enforcement.detail` carries while full access is off on this machine (MDM or a
+/// team policy): a mode that skips every approval does not run here, and an approve-all answers
+/// as ask. `cli/mesh_control.rs` reads it so a start never copies full access the starter lacks.
+pub(crate) const FULL_ACCESS_OFF_NOTE: &str = " (full access is off on this machine)";
+
+/// Listed at initialize by a daemon whose `_acpmux/info` `enforcement.policy` is the effective
+/// policy, capped to ask while full access is off, with [`FULL_ACCESS_OFF_NOTE`] in the detail.
+/// An older daemon reports the stored policy uncapped, so `cli/mesh_control.rs` copies a
+/// starter's policy only from a daemon that lists this.
+pub(crate) const EFFECTIVE_POLICY_FEATURE: &str = "effectivePolicy";
 
 impl Hub {
     // ------------------------------------------------------------- views
@@ -413,7 +437,8 @@ impl Hub {
     /// `enforcement` with the daemon's default policy (unknown only while
     /// the configuration is being written).
     pub(super) fn session_enforcement(&self, m: &SessionMeta) -> Value {
-        enforcement(m, self.config.try_read().ok().map(|c| c.permission_policy))
+        let off = self.mdm_snapshot().off;
+        enforcement(m, self.config.try_read().ok().map(|c| c.permission_policy), off)
     }
 
     /// The session whose agent started this one, as the chat lists fold it (`spawnedBy`): its
@@ -1109,5 +1134,39 @@ mod time_breakdown_tests {
         assert!(session.time_breakdown.lock().unwrap().initialized);
         assert_eq!(summary["timeBreakdown"]["totalMs"], 250);
         assert_eq!(summary["timeBreakdown"]["totalTokens"], 12);
+    }
+}
+
+#[cfg(test)]
+mod enforcement_cap_tests {
+    use super::*;
+
+    fn meta(policy: Option<&str>, mode: &str) -> SessionMeta {
+        serde_json::from_value(json!({"schema": crate::store::META_SCHEMA, "id": "s1",
+            "name": "s1", "harness": "claude", "family": "claude", "harnessArgv": ["claude"],
+            "cwd": "/w", "status": "idle", "createdAt": 1, "updatedAt": 1,
+            "permissionPolicy": policy, "modes": {"currentModeId": mode}}))
+        .unwrap()
+    }
+
+    /// Review F1 (#41877): with full access off, `enforcement.policy` is the policy the session
+    /// runs (ask), not its stored approve-all, and `detail` says full access is off.
+    #[test]
+    fn enforcement_reports_the_capped_policy_while_full_access_is_off() {
+        let grant = meta(Some("approve-all"), "default");
+        let on = enforcement(&grant, Some(PermissionPolicy::Ask), false);
+        assert_eq!(on["policy"], "approve-all");
+        assert!(!on["detail"].as_str().unwrap().contains(FULL_ACCESS_OFF_NOTE));
+        let off = enforcement(&grant, Some(PermissionPolicy::Ask), true);
+        assert_eq!(off["policy"], "ask");
+        assert!(off["detail"].as_str().unwrap().contains(FULL_ACCESS_OFF_NOTE));
+        // A default approve-all is capped the same way; a narrower policy is left as it is.
+        let default = meta(None, "bypassPermissions");
+        assert_eq!(
+            enforcement(&default, Some(PermissionPolicy::ApproveAll), true)["policy"],
+            "ask"
+        );
+        let edits = meta(Some("approve-edits"), "default");
+        assert_eq!(enforcement(&edits, None, true)["policy"], "approve-edits");
     }
 }

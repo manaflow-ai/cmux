@@ -1,5 +1,13 @@
 //! Explicit mesh lifecycle commands. They enqueue once and show a receipt; the daemon's
 //! shared mesh client owns authentication, transport and execution status.
+//!
+//! A start always names its permission policy. With no `--policy` it takes the policy the
+//! starter runs under (the session this shell runs in, `ACPMUX_SESSION_ID`): its own, else the
+//! daemon default it follows, and approve-all when it runs in a mode that skips every approval.
+//! Run outside a session, it is refused and names the flag. A start with none got the remote
+//! daemon's default, `ask`, and sat on its first tool call with nobody shown the prompt: eight
+//! lanes on a GCP host waited over an hour that way (2026-11-12). The owner's side refuses a
+//! start with no policy too (`server/mesh_relay.rs`).
 
 use crate::cli::command::SessionCmd;
 use crate::rpc::method;
@@ -58,9 +66,62 @@ fn target(key: &str, id: bool) -> Value {
     }
 }
 
-fn request(command: SessionCmd) -> Result<Value> {
+/// The policy a start names when `--policy` is left out: the starter's effective one, from its
+/// `_acpmux/info` (`info`). `enforcement.policy` is the policy it runs, capped to ask while full
+/// access is off on its machine (`hub/views.rs` `enforcement`); the stored `policy` is read only
+/// from an info that has no `enforcement`. A starter with a policy of its own (`policy` set) sends
+/// that policy whatever its mode: the policy gate holds it in a full-access mode too, so ask,
+/// approve-reads or approve-edits under `bypassPermissions` stays that restriction. Only a starter
+/// that follows the daemon default (`policy` null) in a mode that skips every approval
+/// (`hub/start_mode.rs` `FULL_ACCESS_MODES`) sends approve-all, unless full access is off there or
+/// the policy denies (deny-all, review): then the stricter one is sent. `None` when `info` names
+/// none.
+///
+/// `effective` says the daemon lists [`crate::hub::views::EFFECTIVE_POLICY_FEATURE`]. An older
+/// daemon reports a stored approve-all uncapped while it enforces ask, so from it nothing looser
+/// than ask is copied: deny-all and review stay, anything else is sent as ask.
+pub(crate) fn starter_policy(info: &Value, effective: bool) -> Option<String> {
+    use crate::config::PermissionPolicy;
+    let policy = info
+        .pointer("/enforcement/policy")
+        .and_then(Value::as_str)
+        .or_else(|| info.get("policy").and_then(Value::as_str))
+        .and_then(|p| p.parse::<PermissionPolicy>().ok());
+    if !effective {
+        return Some(match policy {
+            Some(p @ (PermissionPolicy::DenyAll | PermissionPolicy::Review)) => p.to_string(),
+            _ => PermissionPolicy::Ask.to_string(),
+        });
+    }
+    let full_access_off = info
+        .pointer("/enforcement/detail")
+        .and_then(Value::as_str)
+        .is_some_and(|d| d.contains(crate::hub::views::FULL_ACCESS_OFF_NOTE));
+    let mode = info.get("currentModeId").and_then(Value::as_str);
+    let full_access_mode =
+        mode.is_some_and(|m| crate::hub::start_mode::FULL_ACCESS_MODES.contains(&m));
+    // A policy of its own (`policy`, null while it follows the daemon default) is a restriction
+    // the policy gate holds even in a full-access mode (#38809), so it is copied as it is.
+    let follows_default = info.get("policy").is_none_or(Value::is_null);
+    let denies = matches!(policy, Some(PermissionPolicy::DenyAll | PermissionPolicy::Review));
+    if full_access_mode && follows_default && !full_access_off && !denies {
+        return Some(PermissionPolicy::ApproveAll.to_string());
+    }
+    policy.map(|p| p.to_string())
+}
+
+/// The refusal for a start that names no policy and runs in no session to take one from.
+const NO_POLICY: &str = "mesh start needs --policy (ask, approve-reads, approve-edits, \
+     approve-all, deny-all or review): run outside a session, it has no starter's policy to \
+     take, and a session started with none waits on its first tool call for a person who is \
+     not shown it";
+
+fn request(command: SessionCmd, inherited: Option<String>) -> Result<Value> {
     let (op, to, params, key) = match command {
-        SessionCmd::Start(args) => {
+        SessionCmd::Start(mut args) => {
+            if args.policy.is_none() {
+                args.policy = Some(inherited.ok_or_else(|| anyhow::anyhow!(NO_POLICY))?);
+            }
             let mut meta = json!({"name": args.name});
             if let Some(model) = args.model {
                 let (harness, model) = crate::cli::orchestrate::split_target(&model);
@@ -109,9 +170,29 @@ fn request(command: SessionCmd) -> Result<Value> {
 }
 
 pub async fn run(command: SessionCmd, json_out: bool) -> Result<()> {
-    let request = request(command)?;
     // The daemon keeps its token. The CLI uses only its normal local socket.
     let client = crate::daemon::connect(true).await?;
+    let inherited = match &command {
+        SessionCmd::Start(args) if args.policy.is_none() => {
+            match std::env::var("ACPMUX_SESSION_ID").ok().filter(|id| !id.trim().is_empty()) {
+                Some(id) => {
+                    let info = client
+                        .request(method::MUX_INFO, json!({"sessionId": id, "waitLogs": false}))
+                        .await?;
+                    let effective =
+                        client.daemon_lists(crate::hub::views::EFFECTIVE_POLICY_FEATURE);
+                    let policy = starter_policy(&info, effective);
+                    if let Some(p) = &policy {
+                        eprintln!("mesh start: no --policy given; taking this session's: {p}");
+                    }
+                    policy
+                }
+                None => None,
+            }
+        }
+        _ => None,
+    };
+    let request = request(command, inherited)?;
     let reply = match client.request(method::MUX_MESH_CONTROL, request.clone()).await {
         Ok(reply) => reply,
         Err(error) => {
@@ -159,7 +240,117 @@ mod tests {
         let Command::Session(command) = flatten(command) else {
             panic!("mesh command flattened away")
         };
-        request(command).unwrap()
+        request(command, None).unwrap()
+    }
+
+    fn start_without_policy(inherited: Option<&str>) -> Result<Value> {
+        let command = Cli::try_parse_from([
+            "acpmux",
+            "session",
+            "start",
+            "lane",
+            "--machine",
+            "worker",
+            "-m",
+            "claude",
+        ])
+        .unwrap()
+        .command
+        .unwrap();
+        let Command::Session(command) = flatten(command) else { panic!("flattened away") };
+        request(command, inherited.map(str::to_owned))
+    }
+
+    /// 2026-11-12: eight mesh-started lanes sat over an hour on their first permission prompt
+    /// (the remote default, ask) on a GCP host. A start with no --policy takes the starter's,
+    /// and with no starter it is refused, never sent policy-less.
+    #[test]
+    fn a_start_without_policy_takes_the_starters_or_is_refused() {
+        let start = start_without_policy(Some("approve-all")).unwrap();
+        assert_eq!(start["params"]["_meta"]["acpmux"]["policy"], "approve-all");
+        let refused = start_without_policy(None).unwrap_err().to_string();
+        assert!(refused.contains("--policy"), "{refused}");
+    }
+
+    #[test]
+    fn the_starters_policy_counts_its_mode() {
+        // The helper that started the stuck lanes: daemon default ask, in bypassPermissions.
+        let bypass = json!({"policy": null, "currentModeId": "bypassPermissions",
+                            "enforcement": {"policy": "ask"}});
+        assert_eq!(starter_policy(&bypass, true).as_deref(), Some("approve-all"));
+        let own = json!({"policy": "approve-edits", "currentModeId": "default",
+                         "enforcement": {"policy": "approve-edits"}});
+        assert_eq!(starter_policy(&own, true).as_deref(), Some("approve-edits"));
+        let default = json!({"policy": null, "currentModeId": "default",
+                             "enforcement": {"policy": "deny-all"}});
+        assert_eq!(starter_policy(&default, true).as_deref(), Some("deny-all"));
+        assert_eq!(starter_policy(&json!({"policy": "bogus"}), true), None);
+        assert_eq!(starter_policy(&json!({}), true), None);
+    }
+
+    /// Review P1 (#41877): a starter with its own restriction (ask, approve-reads, approve-edits)
+    /// may run in a full-access mode, because the policy gate still holds that policy there
+    /// (#38809). A start copies the restriction; it never makes up approve-all from the mode,
+    /// which would hand the remote session unrestricted tool execution.
+    #[test]
+    fn an_explicit_policy_in_a_full_access_mode_is_kept() {
+        for mode in crate::hub::start_mode::FULL_ACCESS_MODES {
+            for own in ["ask", "approve-reads", "approve-edits"] {
+                let info = json!({"policy": own, "currentModeId": mode,
+                    "enforcement": {"policy": own,
+                                    "detail": format!("claude mode {mode}; acpmux policy {own}")}});
+                assert_eq!(starter_policy(&info, true).as_deref(), Some(own), "{mode} {own}");
+            }
+            let all = json!({"policy": "approve-all", "currentModeId": mode,
+                             "enforcement": {"policy": "approve-all"}});
+            assert_eq!(starter_policy(&all, true).as_deref(), Some("approve-all"), "{mode}");
+            // Following the daemon default (no policy of its own), the mode still counts.
+            let default = json!({"policy": null, "currentModeId": mode,
+                "enforcement": {"policy": "ask",
+                    "detail": format!("claude mode {mode}; acpmux policy ask (the daemon default)")}});
+            assert_eq!(starter_policy(&default, true).as_deref(), Some("approve-all"), "{mode}");
+            let absent = json!({"currentModeId": mode, "enforcement": {"policy": "ask"}});
+            assert_eq!(starter_policy(&absent, true).as_deref(), Some("approve-all"), "{mode}");
+        }
+    }
+
+    /// Review F1 (#41877): with full access off (MDM or a team policy) a stored approve-all runs
+    /// as ask, and a mode that skips approvals does not run; the start sends the stricter policy.
+    #[test]
+    fn full_access_off_sends_the_capped_policy() {
+        let off = crate::hub::views::FULL_ACCESS_OFF_NOTE;
+        let capped = json!({"policy": "approve-all", "currentModeId": "default",
+            "enforcement": {"policy": "ask",
+                            "detail": format!("claude mode default; acpmux policy ask{off}")}});
+        assert_eq!(starter_policy(&capped, true).as_deref(), Some("ask"));
+        let bypass_capped = json!({"policy": null, "currentModeId": "bypassPermissions",
+            "enforcement": {"policy": "ask",
+                            "detail": format!("claude mode bypassPermissions; acpmux policy ask{off}")}});
+        assert_eq!(starter_policy(&bypass_capped, true).as_deref(), Some("ask"));
+        // A policy that denies stays stricter than a full-access mode.
+        let deny = json!({"currentModeId": "bypassPermissions",
+                          "enforcement": {"policy": "deny-all", "detail": ""}});
+        assert_eq!(starter_policy(&deny, true).as_deref(), Some("deny-all"));
+    }
+
+    /// Review F1 (#41877, second round): a daemon on base code (no `effectivePolicy` at
+    /// initialize) answers info with the stored approve-all and no cap note even while it
+    /// enforces ask under the MDM cap. From it nothing looser than ask is copied.
+    #[test]
+    fn a_daemon_without_effective_policy_gets_ask() {
+        let base_daemon = json!({"policy": "approve-all", "currentModeId": "default",
+            "enforcement": {"policy": "approve-all",
+                            "detail": "claude mode default; acpmux policy approve-all"}});
+        assert_eq!(starter_policy(&base_daemon, false).as_deref(), Some("ask"));
+        let bypass = json!({"policy": null, "currentModeId": "bypassPermissions",
+                            "enforcement": {"policy": "ask"}});
+        assert_eq!(starter_policy(&bypass, false).as_deref(), Some("ask"));
+        let edits = json!({"policy": "approve-edits", "enforcement": {"policy": "approve-edits"}});
+        assert_eq!(starter_policy(&edits, false).as_deref(), Some("ask"));
+        // Stricter than ask stays.
+        let deny = json!({"policy": "deny-all", "enforcement": {"policy": "deny-all"}});
+        assert_eq!(starter_policy(&deny, false).as_deref(), Some("deny-all"));
+        assert_eq!(starter_policy(&json!({}), false).as_deref(), Some("ask"));
     }
 
     #[test]
