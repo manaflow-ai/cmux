@@ -35,8 +35,9 @@ if (unknown?.length) {
 
 /// Rows known to grow, each with its handoff: they still print and still fail their row on the cron, but the bench
 /// exits 1 only for a failure not listed here or a listed one that passes (fixed: take it off this list).
+/// tool-output-stream/god is off the list: it passes (64 KB/op against its 267 KB band on the perf cron since
+/// 2026-11-12 and in run 43370377084), and a listed row that passes exits 1, which failed every web-ui-growth part.
 const KNOWN: Record<string, string> = {
-  "tool-output-stream/god": "manaflow-ai/cmuxterm-hq#8951",
   "reconnect-mid-stream/god": "manaflow-ai/cmuxterm-hq#8951",
 };
 
