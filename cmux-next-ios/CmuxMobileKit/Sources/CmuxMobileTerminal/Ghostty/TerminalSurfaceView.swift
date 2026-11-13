@@ -35,6 +35,14 @@ final class TerminalSurfaceView: UIView {
     /// before it returns (D6), so a write delivered while this is set is
     /// theirs; any other write is Ghostty's own, which prediction never sees.
     var isEncodingUserInput = false
+    /// Set for the whole of `perform` (key releases and preedit too): a
+    /// write delivered while this is clear is Ghostty's reply to a terminal
+    /// query (a cursor, device, focus or mouse report), not a key.
+    var isPerformingInput = false
+    /// The terminal's foreground program on the Mac (`process-info`), nil
+    /// while not known: whether a drag on the alternate screen pages it with
+    /// cursor keys (``TerminalPanRoute``).
+    var foregroundProgram: String?
     /// The person typed, pressed a key or pasted (before the bytes go out).
     var onUserInput: (() -> Void)?
     var onEvent: ((TerminalSurfaceEvent) -> Void)?

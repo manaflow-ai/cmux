@@ -12,7 +12,9 @@ public import CmuxNextLayout
 ///   wider / taller and Left / Up narrower / shorter (niri's column width +/-; Lawrence 2026-11-07: "ctrl shift hjkl is
 ///   still unintuitive to me, with regards to splits and columns"). A strip column trades width with the next column
 ///   across its right edge, or the previous one across its left edge for the last column; the columns after them and
-///   the strip's camera stay. One column alone gets wider or narrower on its own; a dock moves its inner edge.
+///   the strip's camera stay. The last column with nothing to trade (beside a full-width column) gets wider or narrower
+///   on its own and the camera keeps it at the window's edge. One column alone gets wider or narrower on its own; a
+///   dock moves its inner edge.
 /// Between 2026-11-08 and 2026-11-11 splits grew or shrank the focused pane too, so H on the right pane of a split moved
 /// the divider right. A press steps from the size the screen shows and stops at the size it can show (`shown`): one
 /// equal step, the part step that reaches a pane's minimum or the edge of the strip the window shows, or no change at
@@ -87,7 +89,16 @@ public nonisolated enum PaneResize {
         // last column, which grows across its left edge.
         let isFar = index + 1 < strip.count
         let (left, right) = isFar ? (strip[index], strip[index + 1]) : (strip[index - 1], strip[index])
-        return shown?.trade(left, right, by: isFar ? grow : -grow, in: layout).map { .columnTrade(left.id, $0.left, right.id, $0.right) }
+        guard let shown else { return nil }
+        if let widths = shown.trade(left, right, by: isFar ? grow : -grow, in: layout) {
+            return .columnTrade(left.id, widths.left, right.id, widths.right)
+        }
+        // The last column narrowing beside a column at its widest share (a full-width screen): the trade has no width
+        // to give it, so the last column narrows on its own. The strip keeps it at the window's right edge, so its left
+        // edge, the divider a person sees, still moves right (the camera moves). A column at its own minimum stays
+        // refused: the trade above already stopped there.
+        guard !isFar, grow < 0, stepped(left.width, by: -grow, within: range, shown: shown.width(of: left)) == nil else { return nil }
+        return stepped(column.width, by: grow, within: range, shown: shown.width(of: column)).map { .columnWidth(column.id, $0) }
     }
 
     /// `value` moved by `delta` inside `range` cut to `shown`, from where the screen shows it: a value past what the

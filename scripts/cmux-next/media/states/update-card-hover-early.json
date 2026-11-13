@@ -1,0 +1,51 @@
+{
+ "title": "The Update Ready card 0.2 s after the pointer came onto it (Lawrence 2026-11-12, msg 30807: \"hovering on update should wait longer before opening the card to the right\"). A real tracking-area enter at the card's Restart to Update button, then the shot. Before: the What's New popup is already open. After: nothing yet (it opens after a 500 ms rest; see update-card-hover-rested.json). Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/update-card-hover-early.json --mac (any commit: the state is read from this file).",
+ "launch_args": [
+  "--skip-onboarding"
+ ],
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "A fixed window size, so every capture frames the card the same",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      160,
+      85,
+      1280,
+      820
+     ]
+    }
+   },
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "A staged nightly: the Update Ready card",
+   "rpc": {
+    "method": "debug.updater",
+    "params": {
+     "action": "stage",
+     "version": "1.0.0-nightly.3932981759301",
+     "changes": 3
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "0.2 s after the pointer came onto the card",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.sidebar.update.install"
+    }
+   },
+   "wait": 0.2
+  }
+ ]
+}

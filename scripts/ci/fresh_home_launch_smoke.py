@@ -34,20 +34,19 @@ Chromium profile whose cookies are kept in sync, and that profile's `Cookies`
 database with rows. It passes when the app stays up SEEDED-SECONDS (default 10)
 with Home rendered and no crash, and the app's cookie sync saved its baseline
 of the seeded store with at least one site (the proof that it opened and read
-it). A build whose sync
-never reads the store (it has none, or its format moved on) is "not-run" for
-this arm, said in the log and in report.json's `arms`; it is never a pass of
-it and never a failure. A crash of the seeded arm fails the run as a crash of
-the first does. In the seeded arm a crash report counts only when it is of
-that launch: one of a process that died before the seeded launch started (the
-first arm's app or a helper of it, a crash while it quit, written seconds
-later), one that names the first arm's process, or one of another copy of the
-app is logged and kept under --out's not-counted/, never counted. Without
---arms only the empty home is launched, as before.
+it). A build whose sync never reads the store (it has none, or its format
+moved on) is "not-run" for this arm, and a seed that could not be made is
+"cannot-run", said in the log and in report.json's `arms`: never a pass of it,
+never a failure, and the first arm's exit code stands. A crash of the seeded
+arm fails the run as a crash of the first does. In each arm a crash report
+counts only when it is of that launch (not_of_launch); another is kept under
+--out's not-counted/. Without --arms only the empty home is launched.
 
-Usage: fresh_home_launch_smoke.py (--app APP | --dmg DMG) [--seconds S]
-           [--startup-timeout S] [--out DIR] [--arms empty[,seeded]]
-           [--seeded-seconds S]
+--daemon (the publish gate only): a build with a dead daemon (cmux-tui) shows Home and takes no key. So each
+arm asks the app when its watch ends: a daemon failure, or a daemon that is not connected then and
+DAEMON_REREAD_SECONDS later, fails the launch (report.json's `daemon_down`). The daemon's socket is the account's,
+by session, not the home's (DaemonLauncher.swift runtimeBase): "connected" counts only with a daemon of this
+launch's app copy (app_daemons), else the read is not judged and is no pass.
 
 --dmg copies the app out of the DMG (mounted read-only, detached at once);
 --app copies it too. Every process the run starts runs from its private root
@@ -63,8 +62,7 @@ Exit 0: passed. 1: the app crashed, exited or never rendered Home (in either
 arm; report.json's `arm` names the one the report describes). 2: usage.
 3: the smoke could not run (no app, no GUI session, a signing keychain still
 present). A publish gate treats anything but 0 as a failure: a build that was
-never launched is never published. A seeded arm that could not be made or did
-not reach the cookie sync changes no exit code: the first arm's verdict stands.
+never launched is never published.
 """
 from __future__ import annotations
 
@@ -108,16 +106,22 @@ FIRST_RUN_MARK = "first_run.history_import_shown"
 # Chromium profile's cookies and keeps them in sync (seed_cookie_sync_home), launched from ROOT/SEEDED.
 EMPTY, SEEDED = "empty", "seeded"
 ARMS = (EMPTY, SEEDED)
+# Both arms match a crash report to their launch by the process that it names (not_of_launch), so a caller can
+# give the account's real DiagnosticReports folder, which has the reports of every launch on the host.
+CRASH_FILTER = "pid"
 # The seeded arm's verdict when it launched nothing or the app never read the seeded store.
 NOT_RUN = "not-run"
-# Where --out keeps the crash reports the seeded arm found and did not count (not_of_launch says why in the log).
+# Where --out keeps the crash reports that an arm found and did not count (the log says why).
 NOT_COUNTED = "not-counted"
 # The seeded arm's bounds, so both arms fit in one attempt of the publish gate (launch-smoke-gate.sh, 240 s):
 # how long Home may take to render in it, and how long after launch the sync may take to read the store.
 SEEDED_STARTUP_LIMIT = 45.0
+DAEMON_REREAD_SECONDS = 5.0
 SEEDED_SCAN_WAIT = 30.0
-# The seeded source: the key the app gives a Chrome profile named Default (ImportSourceRecord.sourceKey).
-SEED_BROWSER, SEED_PROFILE = "chrome", "Default"
+# The seeded source (ImportSourceRecord.sourceKey is BROWSER/PROFILE). The browser is made up, in no row of the
+# app's browser table (browser-sources.json): the app has a Keychain item name ("Chrome Safe Storage") only for a
+# browser of that table, so it has none to ask for here, whatever a build does with the seeded cookies.
+SEED_BROWSER, SEED_PROFILE = "cmuxLaunchSmoke", "Default"
 # Made-up sites (RFC 2606 names) and how many cookies each has.
 SEED_HOSTS = tuple(f"{sub}example.{tld}" for tld in ("com", "org", "net") for sub in (".", "www.", "app.", "login."))
 SEED_COOKIES_PER_HOST = 20
@@ -159,8 +163,11 @@ def seed_cookie_sync_home(home: Path, bundle_id: str, now: float | None = None) 
 
     The store is not in a browser's own folder, so the app's browser detection finds no browser in this home. No
     baseline is written (BrowserImport/cookie-sync/ stays empty): the sync's first scan then saves its own and
-    reports nothing changed, so the app never asks the Keychain for a browser's key. Returns what the run checks
-    afterwards: the source's key, the baseline folder, and the hosts and rows written.
+    reports nothing changed, so the app imports nothing and never asks the Keychain for a browser's key. That is
+    the app's code of today. SEED_BROWSER holds it for a build that imports at its first scan: with no Keychain
+    item name and no cookie reader (CookieImporter.read) it reads no key and saves no baseline, so the arm is
+    not-run, never a Keychain dialog on the host. Returns what the run checks afterwards: the source's key, the
+    baseline folder, and the hosts and rows written.
     """
     import sqlite3  # here, so a Python without it is this arm's cannot-run only
 
@@ -404,7 +411,7 @@ class DefaultsAside:
         return False
 
 
-def snapshot(socket_path: Path, timeout: float = 5.0) -> dict | None:
+def snapshot(socket_path: Path, timeout: float = 5.0, request: int = 1) -> dict | None:
     """snapshot.get over the release control socket (newline-delimited JSON), None while it does not answer."""
     if not socket_path.exists():
         return None
@@ -412,7 +419,7 @@ def snapshot(socket_path: Path, timeout: float = 5.0) -> dict | None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
             sock.settimeout(timeout)
             sock.connect(str(socket_path))
-            sock.sendall(b'{"id": 1, "method": "snapshot.get", "params": {}}\n')
+            sock.sendall(b'{"id": %d, "method": "snapshot.get", "params": {}}\n' % request)
             buffer = b""
             while b"\n" not in buffer:
                 chunk = sock.recv(1 << 20)
@@ -424,6 +431,57 @@ def snapshot(socket_path: Path, timeout: float = 5.0) -> dict | None:
         return None
     result = reply.get("result")
     return result if isinstance(result, dict) else None
+
+
+def app_daemons(app: Path) -> tuple[list[str], list[str]]:
+    """This user's app daemons (cmux-tui --headless --session cmux-app...; a Chief's is cmux-chief-...): the
+    sessions of those whose program is below APP (this launch's), and the others of such a session (of each app
+    session when this launch has none) as "pid N PROGRAM (SESSION)"."""
+    own, others = [], []
+    for pid, args in user_processes():
+        session = re.search(r" --session (cmux-app\S*)", args)
+        if session and " --headless" in args:
+            if args.startswith((f"{app}/", f"{os.path.realpath(app)}/")):
+                own.append(session[1])
+            else:
+                others.append((session[1], f"pid {pid} {args.partition(' --')[0]} ({session[1]})"))
+    return own, [text for session, text in others if not own or session in own]
+
+
+def daemon_at_end(socket_path: Path, app: Path) -> list[dict]:
+    """The app's daemon_state and daemon_failure (snapshot.get topology): one read, and when it is not clean one
+    more DAEMON_REREAD_SECONDS later (a reconnect in work). None (no answer, no field) is not judged, as is
+    "connected" with no daemon of this launch (`of_launch` False: no pass). Each read is said in the log."""
+    reads: list[dict] = []
+    for request in (2, 3):
+        snap = snapshot(socket_path, request=request)
+        topology = (snap or {}).get("topology") or {}
+        state = topology.get("daemon_state")
+        reads.append({"state": state if isinstance(state, str) else None,
+                      "failure": str(topology.get("daemon_failure") or "")[:300] or None})
+        if state == "connected" and not app_daemons(app)[0]:
+            reads[-1]["of_launch"] = False
+        log("daemon: " + ("not judged (not of this launch)" if "of_launch" in reads[-1] else reads[-1]["state"]
+                          or f"not judged ({'no field' if snap else 'no answer'})"))
+        if request == 3 or (reads[0]["state"] in (None, "connected") and not reads[0]["failure"]):
+            break
+        time.sleep(float(os.environ.get("CMUX_FRESH_SMOKE_DAEMON_REREAD_SECONDS", DAEMON_REREAD_SECONDS)))
+    return reads
+
+
+def daemon_down(reads: list[dict] | None, app: Path) -> str | None:
+    """Why READS fail the launch: the last tells a daemon failure, or both are not connected; with the live app
+    daemons of other launches, a possible cause."""
+    if reads and reads[-1]["failure"]:
+        why = f"the app's daemon (cmux-tui) failed: {reads[-1]['failure']}"
+    elif reads and len(reads) == 2 and all(read["state"] not in (None, "connected") for read in reads):
+        why = (f"the app's daemon (cmux-tui) was not connected when the watch ended ({reads[0]['state']}) "
+               f"and at the next read ({reads[1]['state']})")
+    else:
+        return None
+    own, others = app_daemons(app)
+    return (f"{why}; daemons of {' or '.join(sorted(set(own))) or 'an app session'} that are not of this launch: "
+            f"{', '.join(others[:3]) or 'none'}")
 
 
 def visible_windows(snap: dict | None) -> int:
@@ -535,11 +593,11 @@ def crash_report_process(path: Path) -> dict | None:
 REPORT_TIME = re.compile(r"(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)(\.\d+)? ([+-]\d{4})")
 
 
-def crash_report_time(path: Path) -> tuple[float, float] | None:
-    """When the process of a crash report died, as (epoch seconds, how many seconds later it can have been), or
-    None when the report does not say. An .ips body has `captureTime` and a .crash has a `Date/Time:` line, both
-    exact; an .ips header has `timestamp`, which macOS writes to the whole second (`12:34:56.00`), and it is all
-    there is while the body is not written in full."""
+def report_stamps(path: Path, body_key: str, header_key: str | None, line: str) -> tuple[float, float] | None:
+    """A time a crash report gives, as (epoch seconds, how many seconds later it can have been), or None when the
+    report does not say: the .ips body's BODY_KEY, else its header's HEADER_KEY (macOS writes that one to the
+    whole second, `12:34:56.00`, and it is all there is while the body is not written in full), else a .crash
+    file's LINE."""
     try:
         text = path.read_text(errors="replace")
     except OSError:
@@ -547,16 +605,17 @@ def crash_report_time(path: Path) -> tuple[float, float] | None:
     head, _, rest = text.partition("\n")
     stamps: list[tuple[object, float]] = []
     try:
-        stamps.append((json.loads(rest).get("captureTime"), 0.0))
+        stamps.append((json.loads(rest).get(body_key), 0.0))
     except (ValueError, AttributeError):
         pass
-    try:
-        stamps.append((json.loads(head).get("timestamp"), 1.0))
-    except (ValueError, AttributeError):
-        pass
-    line = re.search(r"^Date/Time:\s+(\S.*?)\s*$", text[:8000], re.MULTILINE)
-    if line:
-        stamps.append((line.group(1), 0.0))
+    if header_key is not None:
+        try:
+            stamps.append((json.loads(head).get(header_key), 1.0))
+        except (ValueError, AttributeError):
+            pass
+    found = re.search(rf"^{re.escape(line)}\s+(\S.*?)\s*$", text[:8000], re.MULTILINE)
+    if found:
+        stamps.append((found.group(1), 0.0))
     for stamp, slack in stamps:
         found = REPORT_TIME.fullmatch(stamp) if isinstance(stamp, str) else None
         if found is None:
@@ -569,7 +628,40 @@ def crash_report_time(path: Path) -> tuple[float, float] | None:
     return None
 
 
-def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], started: float | None = None) -> str | None:
+def crash_report_time(path: Path) -> tuple[float, float] | None:
+    """When the process of a crash report died (report_stamps' form): the .ips body's `captureTime`, else its
+    header's `timestamp`, else a .crash file's `Date/Time:` line."""
+    return report_stamps(path, "captureTime", "timestamp", "Date/Time:")
+
+
+def crash_report_launch_time(path: Path) -> float | None:
+    """When the process of a crash report was started (epoch seconds), or None when the report does not say: the
+    .ips body's `procLaunch`, else a .crash file's `Launch Time:` line."""
+    stamp = report_stamps(path, "procLaunch", None, "Launch Time:")
+    return None if stamp is None else stamp[0]
+
+
+NO_PROCESS = "it names no process"
+NO_PROCESS_REREAD_SECONDS = 3.0
+# How long after a launch's app ENDED its crash report is looked for as evidence, the verdict's wait included. A
+# build's first report took macOS more than the verdict's 10 s in 4 of 5 crashes on fleet hosts (2026-11-11).
+EVIDENCE_REPORT_WAIT = 30.0
+
+
+def hidden_path_in(where: str, app: Path) -> bool:
+    """WHERE is a path as macOS writes it in a crash report for a program under /tmp (where each run's root is),
+    with the folders above the app copy as one `*` (`/tmp/*/NAME.app/Contents/MacOS/NAME`: the real report in
+    tests/fixtures/launch-smoke), and what follows the `*` is a file of the app copy APP: the copy's own name,
+    then a path inside it. The hidden folders can be those of another run's copy with the same name."""
+    for head in ("/tmp/*/", "/private/tmp/*/"):
+        if where.startswith(head):
+            rest = where[len(head):].split("/")
+            return len(rest) > 1 and rest[0] == app.name and ".." not in rest and app.joinpath(*rest[1:]).is_file()
+    return False
+
+
+def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], started: float | None = None,
+                  own: Path | None = None, *, ended: bool = False) -> str | None:
     """Why the crash report at PATH is not of the launch with PID of the app copy APP, or None when it is or can
     be. crash_reports matches by the executable's name and the file's time alone, and ReportCrash writes a report
     some seconds after its process died: so a report of an EARLIER launch of this run (its app crashed while it
@@ -578,38 +670,68 @@ def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], star
     and before which this launch had no process: a report of a process that died before it is never this
     launch's. That time is the only thing that tells an earlier launch's orphaned helper (its parent is pid 1,
     its path is in the same app copy) from this launch's. After it, a report counts when it names this launch or
-    a child of it, or another process of this run's app copy that is not of an earlier launch; one that names
-    neither a time nor a pid counts, as every report did before."""
+    a child of it, or another process of this run's app copy that is not of an earlier launch. macOS hides the
+    folders of a path under /tmp (hidden_path_in), so for such a process the full path never matches a real
+    report: what is left of the path must be a file of this run's copy, and the report must say that its process
+    was started after STARTED (the same name of another run's copy on this host is then the one thing that this
+    cannot tell apart; a copy of another build has another name). One that names no
+    process (a format this tool does not know, or a report read while macOS writes it) says nothing of whose it
+    is: it counts only when this launch's app ENDED in the watched time, as evidence beside that end, and is no
+    crash alone. OWN is a folder that only this launch writes
+    (its part of the run's private root, with its HOME): a process whose program is there is of this launch too,
+    as a detached daemon that the app put in its home is."""
     died = crash_report_time(path) if started is not None else None
     if died is not None and died[0] + died[1] < started:
         return (f"its process died at {datetime.fromtimestamp(died[0], timezone.utc):%H:%M:%S}Z, "
                 f"{started - died[0]:.1f}s before this launch started")
+    # Nor is one of a process that was started before it: every process of this launch starts after STARTED. This
+    # does not depend on when macOS takes the time of death, and it also covers a process of an earlier launch
+    # that the run did not find and stop.
+    born = crash_report_launch_time(path) if started is not None else None
+    if born is not None and born < started:
+        return (f"its process was started at {datetime.fromtimestamp(born, timezone.utc):%H:%M:%S}Z, "
+                f"{started - born:.1f}s before this launch started")
     who = crash_report_process(path)
-    if who is None or pid in (who["pid"], who["parent"]):
+    if who is None:
+        return None if ended else f"{NO_PROCESS}, and this launch's app did not end"
+    if pid in (who["pid"], who["parent"]):
         return None
     if who["pid"] in earlier or who["parent"] in earlier:
         return f"it is of pid {who['pid']}, this run's earlier launch"
     if who["path"] is None:
         return f"it is of pid {who['pid']}, not this launch (pid {pid}), and names no path"
-    if not os.path.realpath(who["path"]).startswith(os.path.realpath(app) + os.sep):
-        return f"it is of pid {who['pid']} at {who['path']}, not this run's copy of the app"
-    return None
+    try:
+        real = os.path.realpath(who["path"])
+        if any(real.startswith(os.path.realpath(tree) + os.sep) for tree in (app, own) if tree is not None):
+            return None
+        hidden = hidden_path_in(who["path"], app)
+    except (OSError, ValueError) as error:  # a name too long for a file, a NUL
+        return f"it is of pid {who['pid']}, and its path cannot be read ({type(error).__name__})"
+    if hidden:
+        if born is not None:  # and not before STARTED: that report was refused above
+            return None
+        return (f"it is of pid {who['pid']} at {who['path']}: the folder of that path is hidden, and "
+                + ("the report does not say when its process was started" if started is not None
+                   else "no start time of this launch was given"))
+    return (f"it is of pid {who['pid']} at {who['path']}, not this run's copy of the app"
+            + ("" if own is None else " and not this launch's files"))
 
 
-def pids_under(root: Path) -> list[int]:
-    """This user's processes whose command line names the run's private root, never by name."""
-    real = os.path.realpath(root)
+def user_processes() -> list[tuple[int, str]]:
+    """(pid, command line) of this user's other processes."""
     try:
         out = subprocess.run(["ps", "-ww", "-o", "pid=", "-o", "args=", "-U", str(os.getuid())],
                              capture_output=True, text=True, timeout=30).stdout
     except (OSError, subprocess.SubprocessError):
         return []
-    pids = []
-    for line in out.splitlines():
-        pid, _, args = line.strip().partition(" ")
-        if pid.isdigit() and int(pid) != os.getpid() and (f"{root}/" in args or f"{real}/" in args):
-            pids.append(int(pid))
-    return pids
+    pairs = [line.strip().partition(" ") for line in out.splitlines()]
+    return [(int(pid), args.strip()) for pid, _, args in pairs if pid.isdigit() and int(pid) != os.getpid()]
+
+
+def pids_under(root: Path) -> list[int]:
+    """This user's processes whose command line names the run's private root, never by name."""
+    real = os.path.realpath(root)
+    return [pid for pid, args in user_processes() if f"{root}/" in args or f"{real}/" in args]
 
 
 # Where a cmux NEXT terminal host records itself under the run's HOME: <id>.json names its host_pid. A build from
@@ -716,11 +838,14 @@ def screenshot(out: Path) -> str | None:
 
 
 def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_path: Path,
-          seconds: float, startup_timeout: float, seed: dict | None = None, scan_wait: float = 0.0) -> dict:
+          seconds: float, startup_timeout: float, seed: dict | None = None, scan_wait: float = 0.0,
+          daemon: bool = False) -> dict:
     """Until SECONDS have passed with Home rendered (or STARTUP_TIMEOUT without it), or the app exits.
 
     SEED (the seeded arm): the callers' READY does not apply, and once Home rendered the watch also goes on until
-    the app's cookie sync saved its baseline of the seeded store, at most SCAN_WAIT seconds after launch."""
+    the app's cookie sync saved its baseline of the seeded store, at most SCAN_WAIT seconds after launch.
+
+    DAEMON: with Home rendered and the app up, daemon_at_end; not with a caller's READY, which is not Home."""
     os.set_blocking(marks_fd, False)
     started = time.monotonic()
     snap, rendered_at, status, scan, scanned_at = None, None, None, None, None
@@ -755,8 +880,12 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
                 if seed is None or scan is not None or rendered_at is None or elapsed >= scan_wait:
                     break
             time.sleep(0.25)
-    seen = {"snapshot": snap, "rendered_at": rendered_at, "exit": status,
-            "seconds_up": round(time.monotonic() - started, 1)}
+    reads, app = None, Path(process.args[0]).parents[2]  # the launch's app copy
+    if daemon and status is None and rendered_at is not None and ready is None:
+        reads = daemon_at_end(socket_path, app)
+        status = process.poll()
+    seen = {"snapshot": snap, "rendered_at": rendered_at, "exit": status, "daemon": reads,
+            "daemon_down": daemon_down(reads, app), "seconds_up": round(time.monotonic() - started, 1)}
     if seed is not None:
         seen["cookie_sync"] = {**seed, "scanned_at": scanned_at, "scanned_hosts": (scan or {}).get("hosts")}
     return seen
@@ -798,9 +927,83 @@ def awaited_crash_reports(diagnostics: Path, executable: str, since: float, exit
     return crashes
 
 
-def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict, seen: dict) -> None:
+def launch_crash_reports(diagnostics: Path, executable: str, since: float, exited: bool, pid: int, app: Path,
+                         earlier: frozenset[int], started: float, own: Path) -> tuple[list[Path], dict[Path, str]]:
+    """The crash reports of the launch with PID of the app copy APP, whose own files are under OWN
+    (awaited_crash_reports), and the reports that the name and the file's time matched but that are not its, each
+    with why (not_of_launch)."""
+    try:
+        return reports_of_launch(diagnostics, executable, since, exited, pid, app, earlier, started, own)
+    except Exception as error:  # noqa: BLE001
+        if not exited:
+            raise
+        # The app ENDED: that is the verdict, with no report. A cannot-run here would let a crashed build pass.
+        log(f"warning: this launch's crash reports could not be read: {type(error).__name__}: {error}")
+        return [], {}
+
+
+def reports_of_launch(diagnostics: Path, executable: str, since: float, exited: bool, pid: int, app: Path,
+                      earlier: frozenset[int], started: float, own: Path) -> tuple[list[Path], dict[Path, str]]:
+    not_counted: dict[Path, str] = {}
+
+    def skip(found: Path) -> str | None:
+        why = not_of_launch(found, pid, app, earlier, started, own, ended=exited)
+        if why is None:
+            not_counted.pop(found, None)
+        else:
+            not_counted[found] = why
+        return why
+
+    crashes = awaited_crash_reports(diagnostics, executable, since, exited, skip)
+    # A report that was read while macOS wrote it names its process a moment later: read again until each
+    # report names one (or counts), for NO_PROCESS_REREAD_SECONDS at most (one of a format without a pid never does).
+    deadline = time.monotonic() + NO_PROCESS_REREAD_SECONDS
+    while (not crashes and time.monotonic() < deadline
+           and any(why.startswith(NO_PROCESS) for why in not_counted.values())):
+        time.sleep(0.5)
+        crashes = awaited_crash_reports(diagnostics, executable, since, False, skip)
+    return crashes, {found: not_counted[found] for found in sorted(not_counted) if found not in crashes}
+
+
+def late_crash_reports(diagnostics: Path, executable: str, since: float, pid: int, app: Path, earlier: frozenset[int],
+                       started: float, own: Path, asked: float, out: Path | None) -> list[str]:
+    """EVIDENCE ONLY, for a launch that failed because its app ENDED and that had no crash report in the verdict's
+    wait: the reports that name this launch (not_of_launch; one that names no process yet is read again), looked
+    for once, then until EVIDENCE_REPORT_WAIT seconds after ASKED (the monotonic time at which the verdict's wait
+    began), kept in OUT and shown. A caller runs this LAST, after the verdict is in the report and the failure is
+    in the log (a watchdog can cut the run here), so the time the log read took is not added. What is found is in
+    no field that a caller reads for a verdict."""
+    deadline = asked + float(os.environ.get("CMUX_FRESH_SMOKE_CRASH_EVIDENCE_WAIT_SECONDS", EVIDENCE_REPORT_WAIT))
+    while True:
+        found = [path for path in crash_reports(diagnostics, executable, since)
+                 if not_of_launch(path, pid, app, earlier, started, own) is None]
+        if found or time.monotonic() >= deadline:
+            break
+        time.sleep(1)
+    for path in found:
+        if out is not None:
+            shutil.copyfile(path, out / path.name)
+        log(f"--- {path.name} (first 6000 bytes)\n{path.read_text(errors='replace')[:6000]}")
+    return [str(path) for path in found]
+
+
+def keep_not_counted(out: Path, others: list[Path]) -> None:
+    """Reports that were found and not counted, kept under OUT/not-counted: not beside the counted ones, where a
+    caller shows each report as this run's crash. The folder gets OUT's mode, so the account that made OUT (a CI
+    runner, when the launch runs as the console user) can remove it."""
+    for found in others:
+        folder = out / NOT_COUNTED
+        if not folder.is_dir():
+            folder.mkdir()
+            folder.chmod(out.stat().st_mode & 0o777)
+        shutil.copyfile(found, folder / found.name)
+
+
+def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict, seen: dict,
+                  failed: Callable[[], None]) -> None:
     """Launches the app copy once more, from the home seed_cookie_sync_home makes under ROOT/SEEDED, and puts
-    the arm's verdict in ARM (what report.json's `arms` keeps) and what the watch saw in SEEN."""
+    the arm's verdict in ARM (what report.json's `arms` keeps) and what the watch saw in SEEN. FAILED is called
+    when the arm's verdict is a failure, before its evidence is waited for."""
     app, bundle_id, executable = launch["app"], launch["bundle_id"], launch["executable"]
     sub = root / SEEDED
     sub.mkdir()
@@ -827,7 +1030,7 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
                 startup = min(max(args.seeded_seconds, args.startup_timeout), SEEDED_STARTUP_LIMIT)
                 scan_wait = float(os.environ.get("CMUX_FRESH_SMOKE_SEEDED_SCAN_WAIT_SECONDS", SEEDED_SCAN_WAIT))
                 seen.update(watch(process, marks_read, marks_path, socket_path, args.seeded_seconds, startup,
-                                  seed=seed, scan_wait=max(args.seeded_seconds, scan_wait)))
+                                  seed=seed, scan_wait=max(args.seeded_seconds, scan_wait), daemon=args.daemon))
             finally:
                 stop_child(process)
                 stop(own_pids(root))
@@ -838,19 +1041,13 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
     status, elapsed = seen["exit"], seen["seconds_up"]
 
     # Only this launch's crash reports count here: the first arm's processes were stopped a moment ago, and a
-    # report of one (a crash while it quit) would otherwise make this arm a crash of a healthy app.
-    not_counted: dict[Path, str] = {}
-
-    def skip(found: Path) -> str | None:
-        why = not_of_launch(found, process.pid, app, launch["earlier"], launch["earlier_stopped"])
-        if why is None:
-            not_counted.pop(found, None)
-        else:
-            not_counted[found] = why
-        return why
-
-    crashes = awaited_crash_reports(launch["diagnostics"], executable, launched_wall, status is not None, skip)
-    others = sorted(found for found in not_counted if found not in crashes)
+    # report of one (a crash while it quit) would otherwise make this arm a crash of a healthy app. The first arm
+    # gave the defaults lock back, so another run of a copy with this name can have launched since: this launch
+    # had no process before LAUNCHED_WALL either.
+    asked, began = time.monotonic(), max(launch["earlier_stopped"], launched_wall)
+    crashes, not_counted = launch_crash_reports(launch["diagnostics"], executable, launched_wall, status is not None,
+                                                process.pid, app, launch["earlier"], began, sub)
+    others = list(not_counted)
     for found in others:
         log(f"note: crash report {found.name} is not counted for the seeded launch: {not_counted[found]}")
     exceptions = sorted((sub / "h").rglob("run.exception"))
@@ -868,15 +1065,20 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
     if seen["rendered_at"] is None and status is None:
         failures.append(f"Home did not render within {elapsed:.0f}s (visible windows {visible_windows(seen['snapshot'])}, "
                         f"{RENDER_MARK} {'seen' if RENDER_MARK in seen['marks'] else 'missing'})")
+    if seen["daemon_down"]:
+        failures.append(seen["daemon_down"])
     arm.update({key: seen[key] for key in ("exit", "seconds_up", "rendered_at", "crash_reports", "run_exceptions",
-                                           "cookie_sync")})
+                                           "cookie_sync", "daemon", "daemon_down")})
+    arm["crash_reports_late"] = seen["crash_reports_late"] = []
     if failures:
         seen["failures"] = [f"seeded home: {failure}" for failure in failures]
         arm.update(verdict="fail", failures=seen["failures"])
+        failed()
     elif seen["cookie_sync"]["scanned_at"] is None:
         arm.update(verdict=NOT_RUN, reason=f"the app stayed up {elapsed:.0f}s with Home rendered, but its cookie sync "
-                   "did not read the seeded store (a build with no cookie sync, or one whose import store this tool "
-                   "does not make)")
+                   "did not read the seeded store (a build with no cookie sync, one whose import store this tool "
+                   "does not make, or one that imports cookies at its first scan: the seed's browser cannot be "
+                   "imported)")
     elif not seen["cookie_sync"]["scanned_hosts"]:
         # A baseline of no site: the sync opened the store and kept none of its rows, so this was not a launch
         # with "a cookie store with rows".
@@ -889,12 +1091,13 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
         if launch["out"] is not None:
             for found in [*crashes, *exceptions]:
                 shutil.copyfile(found, launch["out"] / found.name)
-            # Not beside the counted ones: a caller shows each report at the top of --out as this run's crash.
-            for found in others:
-                (launch["out"] / NOT_COUNTED).mkdir(exist_ok=True)
-                shutil.copyfile(found, launch["out"] / NOT_COUNTED / found.name)
+            keep_not_counted(launch["out"], others)
         if failures:
             explain(process.pid, launched_wall, sub / "app.log", crashes, exceptions, seen["failures"], seen)
+        if status is not None and not crashes:
+            arm["crash_reports_late"] = seen["crash_reports_late"] = late_crash_reports(
+                launch["diagnostics"], executable, launched_wall, process.pid, app, launch["earlier"], began, sub,
+                asked, launch["out"])
     except Exception as error:  # noqa: BLE001 - evidence only
         log(f"warning: the seeded launch's evidence is not complete: {type(error).__name__}: {error}")
         for failure in seen.get("failures", []):
@@ -916,10 +1119,23 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
     # The first arm stopped its app and every process of its run before it returned, so none of them died later
     # than now, and the seeded launch has no process yet.
     launch["earlier"], launch["earlier_stopped"] = frozenset({report["pid"]}), time.time()
+
+    def failed() -> None:
+        """The report describes the seeded launch: at its verdict, so that a run cut in the evidence has it."""
+        for key in ("exit", "seconds_up", "rendered_at", "snapshot", "marks", "home_tab", "crash_reports",
+                    "crash_reports_late", "run_exceptions", "failures", "system_log_errors", "cookie_sync",
+                    "daemon", "daemon_down"):
+            report.pop(key, None)
+            if key in seen:
+                report[key] = seen[key]
+        report.update(pid=arm["pid"], verdict="fail", arm=SEEDED,
+                      crash_reports_not_counted=arm.get("crash_reports_not_counted", []))
+
     try:
-        launch_seeded(args, root, launch, arm, seen)
+        launch_seeded(args, root, launch, arm, seen, failed)
     except Exception as error:  # noqa: BLE001 - whatever stops this arm short of a verdict never fails the run
-        arm.update(verdict="cannot-run", reason=f"{type(error).__name__}: {error}"[:500])
+        if arm["verdict"] != "fail":  # a failure that the arm found stands, whatever its evidence then did
+            arm.update(verdict="cannot-run", reason=f"{type(error).__name__}: {error}"[:500])
     arm["wall_seconds"] = round(time.monotonic() - started, 1)
     if arm["verdict"] == "pass":
         log(f"==> seeded-home arm OK: up {arm['seconds_up']:.0f}s, Home at {arm['rendered_at']:.1f}s, the cookie sync "
@@ -929,12 +1145,7 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
         log(f"==> seeded-home arm {'NOT RUN' if arm['verdict'] == NOT_RUN else 'CANNOT RUN'}: {arm['reason']}; "
             "the first arm's verdict stands")
         return status
-    for key in ("exit", "seconds_up", "rendered_at", "snapshot", "marks", "home_tab", "crash_reports",
-                "run_exceptions", "failures", "system_log_errors", "cookie_sync"):
-        report.pop(key, None)
-        if key in seen:
-            report[key] = seen[key]
-    report.update(pid=arm["pid"], verdict="fail", arm=SEEDED)
+    failed()  # again: with what the evidence added
     return FAIL
 
 
@@ -975,7 +1186,7 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
         os.close(marks_write)
         try:
             seen = watch(process, marks_read, marks_path, socket_path, args.seconds,
-                         max(args.seconds, args.startup_timeout))
+                         max(args.seconds, args.startup_timeout), daemon=args.daemon)
         finally:
             os.close(marks_read)
         report.update(seen)
@@ -988,13 +1199,26 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
             journey_failures = list(AFTER_RENDER(process, socket_path, env, app, out, report) or [])
         stop_child(process)
         stop(own_pids(root))
-    crashes = awaited_crash_reports(diagnostics, executable, launched_wall, seen["exit"] is not None)
+    # Only this launch's crash reports count. The name and the file's time also match a crash of ANOTHER launch
+    # on this host in the same seconds: every fleet build's executable has one name, so another tagged build that
+    # crashed there made a healthy launch a crash. The report says whose it is (not_of_launch).
+    # ROOT: while this arm runs, all that is under the run's private root is this launch's.
+    asked = time.monotonic()
+    crashes, not_counted = launch_crash_reports(diagnostics, executable, launched_wall, seen["exit"] is not None,
+                                                process.pid, app, frozenset(), launched_wall, root)
+    for found, why in not_counted.items():
+        log(f"note: crash report {found.name} is not counted for this launch: {why}")
     exceptions = sorted((root / "h").rglob("run.exception"))
     report["crash_reports"] = [str(path) for path in crashes]
+    report["crash_reports_not_counted"] = [str(path) for path in not_counted]
     report["run_exceptions"] = [str(path) for path in exceptions]
     if out is not None:
         for path in [*crashes, *exceptions]:
             shutil.copyfile(path, out / path.name)
+        try:
+            keep_not_counted(out, list(not_counted))
+        except OSError as error:  # evidence only: never the verdict
+            log(f"warning: a crash report that was not counted could not be kept: {error}")
     failures = list(journey_failures)
     status, elapsed = seen["exit"], seen["seconds_up"]
     if status is not None:
@@ -1009,12 +1233,23 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
                         f"Home tab {'selected' if report['home_tab'] else 'not selected'}, "
                         f"{RENDER_MARK} {'seen' if RENDER_MARK in report['marks'] else 'missing'}, "
                         f"{FIRST_RUN_MARK} {'seen' if FIRST_RUN_MARK in report['marks'] else 'missing'})")
+    if seen["daemon_down"]:
+        failures.append(seen["daemon_down"])
     if not failures:
         report["verdict"] = "pass"
         log(f"==> fresh-home launch smoke OK: up {elapsed:.0f}s, Home at {seen['rendered_at']:.1f}s, no crash")
         return PASS
-    explain(report["pid"], launched_wall, root / "app.log", crashes, exceptions, failures, report)
-    report["verdict"], report["failures"] = "fail", failures
+    # The verdict stands before the evidence is kept: a run that is cut in the log read or the wait below keeps it.
+    report.update(verdict="fail", failures=failures, crash_reports_late=[])
+    try:
+        explain(report["pid"], launched_wall, root / "app.log", crashes, exceptions, failures, report)
+        if status is not None and not crashes:
+            report["crash_reports_late"] = late_crash_reports(diagnostics, executable, launched_wall, process.pid, app,
+                                                              frozenset(), launched_wall, root, asked, out)
+    except Exception as error:  # noqa: BLE001 - evidence only: never the verdict
+        log(f"warning: this launch's evidence is not complete: {type(error).__name__}: {error}")
+        for failure in failures:
+            log(f"FAIL: {failure}")
     return FAIL
 
 
@@ -1038,6 +1273,8 @@ def main(argv: list[str] | None = None) -> int:
                              "imported cookies are kept in sync")
     parser.add_argument("--seeded-seconds", type=float, default=10.0,
                         help="how long the app must stay up in the seeded arm")
+    parser.add_argument("--daemon", action="store_true",
+                        help="also fail a launch whose daemon is not connected when the watch ends")
     args = parser.parse_args(argv)
     # Evidence stays readable by the runner account when this runs as the console user (a sudo hop).
     os.umask(0o022)

@@ -4,7 +4,8 @@
  * PREFILL_NODE_DEPS went from 16.4 s to 4.9 s.
  *
  * Bounded twice: the cache is emptied first and then holds only what one install of PREFILL_NODE_DEPS (and their
- * dependencies) puts in it, and the bake step fails when the result is over NPM_CACHE_CAP_MB.
+ * dependencies) puts in it, and the bake step fails when the result is over NPM_CACHE_CAP_MB. install-census.ts adds at
+ * most MAX_MEASURED names to the list.
  * No package code runs: the install passes --ignore-scripts, so no lifecycle script of any (transitive) package
  * executes in the image build; npm only downloads and verifies tarballs into the content-addressed cache, which a
  * person's own install checks against the registry's integrity hashes as it would any download. The versions are what the registry resolves
@@ -13,9 +14,24 @@
  */
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
 import { sq } from "./lock";
+import prefillDeps from "./prefill-deps.json";
 
-/** A web app's usual first installs; unpinned, as a person's new project resolves them. */
-export const PREFILL_NODE_DEPS = ["react", "react-dom", "vite", "typescript", "@types/react", "@types/node", "eslint", "prettier", "zod", "vitest"] as const;
+/** An npm registry name (`react`, `@types/node`): lowercase, no path, URL or version. */
+export const NPM_NAME = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
+
+/**
+ * What the npm cache is filled with, unpinned, as a person's new project resolves them (prefill-deps.json):
+ * `base`, a web app's usual first installs, then `measured`, the packages agents installed most on machines
+ * whose Usage Patterns count installs (install-census.ts writes it from those counts).
+ */
+export function prefillNodeDeps(lists: { base: readonly string[]; measured: readonly string[] } = prefillDeps.npm): string[] {
+  const names = [...new Set([...lists.base, ...lists.measured])];
+  const bad = names.filter((name) => !NPM_NAME.test(name));
+  if (bad.length > 0) throw new Error(`prefill-deps.json names that are not npm registry names: ${bad.join(", ")}`);
+  return names;
+}
+
+export const PREFILL_NODE_DEPS: readonly string[] = prefillNodeDeps();
 
 /** The cache directory npm uses for the work user, the one directory clean.py keeps. */
 export const NPM_CACHE_DIR = `${DEVBOX_WORK_HOME}/.npm/_cacache`;

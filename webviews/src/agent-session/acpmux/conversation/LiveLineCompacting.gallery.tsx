@@ -143,7 +143,7 @@ export default componentEntry<Props>({
     },
     left: {
       props: { phase: "compacting" },
-      note: 'Ended: "Conversation compacted · context 412k → 18k" in the transcript, the line on Thinking with the turn\'s clock and tokens.',
+      note: 'Ended: "Conversation compacted · context 412k → 18k" in the transcript, the line on Thinking with the turn\'s clock and no token count.',
       play: async (ctx) => {
         await finish(ctx);
         await settled(ctx);

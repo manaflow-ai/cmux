@@ -28,11 +28,15 @@ ASC = ROOT / "scripts/ci/asc_developer_id_app.py"
 LINT = ROOT / "scripts/lint-feature-flags.py"
 CONTINUE = ROOT / "scripts/cmux-next/continue-nightly-next.sh"
 
-# The rows named in the review (cmux#41805 F1): a non-number, an empty string, out of range.
-REFUSED_ROWS = ("abc", "", "99999999999999999999")
+# The rows named in the reviews: a non-number, an empty string, out of range (cmux#41805 F1), and a
+# newline in the value, which must not split the one-line error (cmux#41820 F1).
+REFUSED_ROWS = ("abc", "", "99999999999999999999", "4133980800\nX", "\n")
 REFUSED = REFUSED_ROWS + ("1e9", "-1", " 4133980800", "4133980800 ", "4133980800.5", "+5", "0x10",
-                          "253402300800", "١٢٣")
-ACCEPTED = ("0", "4133980800", "253402300799", "000000000042")
+                          "253402300800", "000253402300800", "١٢٣", "4133980800\n", "0" * 5000 + "x",
+                          "9" * 5000)
+# Leading zeros are the same second (cmux#41820 F2): 13 and more digits once they are counted.
+ACCEPTED = ("0", "4133980800", "253402300799", "000000000042", "0000000000000", "00004133980800",
+            "0" * 5000 + "253402300799")
 
 
 def load_module():
@@ -49,17 +53,27 @@ def environment(value: str) -> dict[str, str]:
 
 
 def message(value: str) -> str:
+    """The Python callers' line: the value as repr quotes it."""
     return f"CMUX_NOW_EPOCH={value!r} is not an epoch"
+
+
+def bash_message(value: str) -> str:
+    """continue-nightly-next.sh's line: the value as bash's printf %q quotes it."""
+    quoted = subprocess.run(["bash", "-c", 'printf %q "$1"', "_", value], capture_output=True, text=True,
+                            check=True).stdout
+    return f"CMUX_NOW_EPOCH={quoted} is not an epoch"
 
 
 class ScriptsRefuseAMalformedClock(unittest.TestCase):
     """Each caller, run as CI runs it, exits 2 with the one line and no traceback."""
 
-    def assert_refused(self, run: subprocess.CompletedProcess, value: str, where: str) -> None:
+    def assert_refused(self, run: subprocess.CompletedProcess, value: str, where: str, line: str = "") -> None:
         said = run.stdout + run.stderr
         self.assertNotIn("Traceback", said, f"{where} with CMUX_NOW_EPOCH={value!r}: {said}")
         self.assertEqual(run.returncode, 2, f"{where} with CMUX_NOW_EPOCH={value!r}: {said}")
-        self.assertIn(message(value), run.stderr, f"{where} with CMUX_NOW_EPOCH={value!r}: {said}")
+        self.assertIn(line or message(value), run.stderr, f"{where} with CMUX_NOW_EPOCH={value!r}: {said}")
+        # One line: a newline in the value is quoted, never printed raw.
+        self.assertEqual(said.count("\n"), 1, f"{where} with CMUX_NOW_EPOCH={value!r} must print one line: {said!r}")
 
     def test_asc_developer_id_app(self):
         for value in REFUSED_ROWS:
@@ -81,7 +95,7 @@ class ScriptsRefuseAMalformedClock(unittest.TestCase):
         for value in REFUSED_ROWS:
             with self.subTest(value=value):
                 run, calls = run_continue(value)
-                self.assert_refused(run, value, "continue-nightly-next.sh")
+                self.assert_refused(run, value, "continue-nightly-next.sh", bash_message(value))
                 self.assertEqual(calls, "", "a refused clock must stop before any GitHub call")
 
 
@@ -106,8 +120,8 @@ class OneRule(unittest.TestCase):
 
     def test_accepted_values_name_their_second(self):
         for value in ACCEPTED:
-            with self.subTest(value=value):
-                self.assertEqual(int(self.clock.parse(value).timestamp()), int(value))
+            with self.subTest(value=value[-20:]):
+                self.assertEqual(int(self.clock.parse(value).timestamp()), int(value.lstrip("0") or "0"))
         self.assertEqual(self.clock.parse("4133980800"), dt.datetime(2101, 1, 1, tzinfo=dt.timezone.utc))
 
     def test_refused_values_raise_the_one_line(self):
@@ -140,7 +154,8 @@ class OneRule(unittest.TestCase):
                 self.assertNotIn("Traceback", run.stderr)
                 self.assertEqual(run.returncode, 0 if python_accepts else 2, run.stdout + run.stderr)
                 if not python_accepts:
-                    self.assertIn(message(value), run.stderr)
+                    self.assertIn(bash_message(value), run.stderr)
+                    self.assertEqual(run.stderr.count("\n"), 1, repr(run.stderr))
 
 
 if __name__ == "__main__":

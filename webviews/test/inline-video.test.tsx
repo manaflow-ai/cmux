@@ -395,6 +395,29 @@ describe("the inline player", () => {
     expect(large.dataset.played).toBe("sound");
   });
 
+  // Leo, 2026-11-12: "I need to be able to, like, click outside of the video and have that exit as
+  // well, but right now it's not doing that. It works for attachments like pictures though."
+  test("a click beside the expanded video closes it, as beside an image", async () => {
+    const { container } = await mount();
+    await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__expand")!.click());
+    const stage = dom!.window.document.querySelector<HTMLElement>(".cv-media-stage")!;
+    const large = stage.querySelector<HTMLVideoElement>("video")!;
+    const press = (down: Element, up: Element, detail = 1) =>
+      act(async () => {
+        down.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, detail }));
+        up.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true, detail }));
+      });
+    // The second click of the double click that opened it, on the video itself, and a scrub that
+    // began on it and ended beside it: still open.
+    await press(stage, stage, 2);
+    await press(large, large);
+    await press(large, stage);
+    expect(dom!.window.document.querySelector(".cv-media-stage")).not.toBeNull();
+    // Beside it: closed.
+    await press(stage, stage);
+    expect(dom!.window.document.querySelector(".cv-media-stage")).toBeNull();
+  });
+
   test("closing the expanded player hands its position back to the inline player", async () => {
     const { container, video } = await mount();
     video.pause = () => {
