@@ -414,6 +414,113 @@ async fn saved_peer_cache_waits_for_remote_reconciliation() {
 }
 
 #[tokio::test]
+async fn start_saved_peers_loads_a_cache_file_before_opening_remote_reconciliation() {
+    use crate::config::{Config, PeerConfig, StoreMode};
+
+    let dir = cmux_unix_socket::short_test_dir("acpmux-v2-saved-peer-start");
+    let peers_dir = dir.path().join("peers");
+    std::fs::create_dir_all(&peers_dir).unwrap();
+    std::fs::write(
+        peers_dir.join("saved.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "lastSeen": 7,
+            "sessions": [{
+                "sessionId": "cached",
+                "name": "cached",
+                "status": "running",
+                "updatedAt": 5,
+                "sessionReceipt": {
+                    "hostId": "saved",
+                    "muxSessionId": "cached",
+                    "agentSessionId": null,
+                    "generation": 1
+                }
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Local;
+    config.peers.insert(
+        "saved".into(),
+        PeerConfig {
+            link_host: None,
+            wireguard: None,
+            url: "ws://127.0.0.1:9/saved".into(),
+            token: None,
+            peer_token: None,
+            vm_boundary: false,
+            github_broker: false,
+        },
+    );
+    let store = crate::store::open(&config.store, dir.path()).unwrap();
+    let v1 = Hub::new(config, store);
+    let state = Arc::new(TeeState::default());
+    v1.install_v2_tee(Arc::new(TeeHandle { state: state.clone() }));
+
+    v1.start_saved_peers().await;
+
+    assert!(state.remote_ready.load(Ordering::Acquire));
+    let rows = v1.remote_sessions();
+    assert_eq!(rows.len(), 1, "the cache row was not loaded: {rows:?}");
+    assert_eq!(rows[0]["sessionId"], "cached");
+    assert_eq!(rows[0]["stale"], true);
+    if let Some(peer) = v1.peer_by_name("saved") {
+        peer.stop();
+    }
+}
+
+#[tokio::test]
+async fn shutdown_before_saved_peers_start_does_not_open_remote_reconciliation() {
+    use crate::config::{Config, PeerConfig, StoreMode};
+
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Memory;
+    config.peers.insert(
+        "saved".into(),
+        PeerConfig {
+            link_host: None,
+            wireguard: None,
+            url: "ws://127.0.0.1:9/saved".into(),
+            token: None,
+            peer_token: None,
+            vm_boundary: false,
+            github_broker: false,
+        },
+    );
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let v1 = Hub::new(config, store);
+    let state = Arc::new(TeeState::default());
+    v1.install_v2_tee(Arc::new(TeeHandle { state: state.clone() }));
+    v1.begin_shutdown();
+
+    v1.start_saved_peers().await;
+
+    assert!(!state.remote_ready.load(Ordering::Acquire));
+    assert!(v1.peers.lock().unwrap().is_empty());
+}
+
+#[test]
+fn an_unreachable_peer_without_rows_emits_no_stale_mark() {
+    let v1 = memory_hub();
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let peer = crate::peer::Peer::new("empty", "ws://127.0.0.1:9/empty", None, None, tx);
+    let generation = peer.generation;
+    peer.seed_last_seen(Some(crate::store::now_ms().saturating_sub(40_000)));
+    v1.peers.lock().unwrap().insert("empty".into(), peer);
+    let state = Arc::new(TeeState::default());
+    v1.install_v2_tee(Arc::new(TeeHandle { state: state.clone() }));
+
+    v1.mark_peer_unreachable("empty", generation);
+
+    assert!(!state.has_pending());
+    assert!(state.take_origins(1).is_empty());
+    assert!(state.take_remote(1).is_empty());
+}
+
+#[tokio::test]
 async fn attending_a_chat_updates_the_tee_unread_count_through_seen() {
     use acpmux_core::hub::ListItem;
     let v1 = memory_hub();
