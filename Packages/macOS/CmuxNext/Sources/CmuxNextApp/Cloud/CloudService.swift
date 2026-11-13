@@ -56,7 +56,7 @@ final class CloudService {
     /// The owner's model credentials for Cloud chats and their refresh (``CloudAgentCredentials``); read wired in AgentTabs+Wiring.
     @ObservationIgnored let agentCredentials = CloudAgentCredentials()
     @ObservationIgnored let gateway: PersonalGateway // this Mac answers its person's Cloud machines' model calls (``PersonalGateway``)
-    @ObservationIgnored let setup = CloudSetup() // Cloud first use: whether a connection serves the picker's model (CloudStartChat.wireSetup)
+    @ObservationIgnored let setup = CloudSetup() // Cloud first use: whether a connection serves the picker's model (served by CloudSetup.serve)
     @ObservationIgnored private let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
     var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits, makesRoom: true) }

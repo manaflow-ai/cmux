@@ -1,5 +1,6 @@
 import CmuxNextAgentLanes
 import Foundation
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
@@ -150,7 +151,9 @@ final class AgentPageChats {
         tabs.pageChats.cloudStart = CloudStartChat.runner(tabs, services: services)
         tabs.pageChats.cloudSignIn = { [weak services] in await services?.cloud.auth.signInEndedOnCancel() ?? false }
         tabs.pageChats.cloudSignedIn = { [weak services] in services?.cloud.auth.isSignedIn ?? false }
-        CloudStartChat.wireSetup(services)
+        services.cloud.setup.serve(environment: { [weak services] in services.flatMap(QuitAgents.environment) }, agentKeys: services.accounts.agentKeys,
+                                   openTerminal: { [weak services] line in services?.inFrontPane { $0.newTerminalTab(typing: line + "\r") } ?? false },
+                                   openSettings: { [weak services] route in _ = try? services?.settingsWindow.show(section: nil, route: route) })
         tabs.pageChats.cloudSetUp = { [weak services] action, family in await services?.cloud.setup.setUp(action, family: family) ?? false }
         tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
         tabs.pageChats.cloudReservation = { [weak services] request in

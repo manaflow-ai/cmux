@@ -111,6 +111,21 @@ struct CloudSetupTests {
         #expect(await ready.value)
     }
 
+    /// The reader watches the connections only while a card waits.
+    @Test func theConnectionsAreWatchedOnlyWhileACardWaits() async {
+        let connections = Connections(.init(personal: [], organization: []))
+        let rule = setup(connections)
+        var watched: [Bool] = []
+        rule.watching = { watched.append($0) }
+        let wait = Task { await rule.waitUntilServed(family: "codex") }
+        while connections.reads < 1 { await Task.yield() }
+        #expect(watched == [true])
+        connections.snapshot.personal = [.init(id: "chatgpt-plan:1", families: ["codex"])]
+        rule.connectionsChanged()
+        #expect(await wait.value)
+        #expect(watched == [true, false])
+    }
+
     /// The page withdrew (it left Cloud, or Not now): the wait ends with no connection.
     @Test func aCancelledWaitEnds() async {
         let connections = Connections(.init(personal: [], organization: []))
