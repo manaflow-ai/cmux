@@ -719,19 +719,34 @@ async fn a_cut_terminate_still_kills_an_agent_that_ignores_sigterm() {
     let grace = super::shutdown::SHUTDOWN_GRACE;
     let cut = tokio::time::timeout(Duration::from_millis(300), child.terminate(grace)).await;
     assert!(cut.is_err(), "the agent that ignores SIGTERM ended inside the cut");
-    let by = tokio::time::Instant::now() + Duration::from_secs(1);
-    while child.is_alive().await {
-        assert!(tokio::time::Instant::now() < by, "the agent outlived its cut terminate");
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    let group = child.pid.expect("a direct agent's pid") as i32;
+    until_group_gone(group, "the agent's group outlived its cut terminate").await;
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Waits up to a second for every process of the agent's group `group` to be gone (no
+/// signal reaches the group): the agent's own process, and any it started under it.
+#[cfg(unix)]
+async fn until_group_gone(group: i32, what: &str) {
+    let by = tokio::time::Instant::now() + Duration::from_secs(1);
+    loop {
+        let gone = unsafe { libc::killpg(group, 0) } != 0
+            && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+        if gone {
+            return;
+        }
+        assert!(tokio::time::Instant::now() < by, "{what}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 /// Quit Everything's ends do not wait behind the peer notice loop's last cache write, which may
 /// take its whole bound (`OWNED_TASKS_CLOSE`), longer than the daemon's 750 ms restart cutoff:
-/// a cleanup cut there sent no agent its end (Codex review of #42296).
-#[tokio::test]
+/// a cleanup cut there sent no agent its end (Codex review of #42296). On the daemon's
+/// multi-thread runtime, as the cache write blocks its thread.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn quit_everything_ends_its_agents_beside_a_slow_peer_cache_write() {
     let dir = std::env::temp_dir().join(format!("acpmux-quit-peer-{}", uuid::Uuid::now_v7()));
     let hub = hub_in(&dir);
@@ -748,11 +763,8 @@ async fn quit_everything_ends_its_agents_beside_a_slow_peer_cache_write() {
     hub.end_agents_at_shutdown(Default::default()).unwrap();
     // The daemon's restart cutoff: SHUTDOWN_BUDGET less the writers' 250 ms.
     let _ = tokio::time::timeout(Duration::from_millis(750), hub.shutdown_for_handoff(false)).await;
-    let by = tokio::time::Instant::now() + Duration::from_secs(1);
-    while child.is_alive().await {
-        assert!(tokio::time::Instant::now() < by, "Quit Everything left its agent running");
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    let group = child.pid.expect("a direct agent's pid") as i32;
+    until_group_gone(group, "Quit Everything left its agent running").await;
     hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
     let _ = std::fs::remove_dir_all(&dir);
 }
