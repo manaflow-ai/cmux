@@ -3,8 +3,8 @@
 These are the small cmux NEXT examples Leo described: real app state in a view you can copy,
 save, and watch reload. The source catalog is [`skills/cmux-customization/showcase.json`](../../skills/cmux-customization/showcase.json).
 
-Open **Settings → Customize → Examples** to see the same list. App samples have an **App Store**
-button; templates are copied into `~/.config/cmux/customize` and reload when `main.js` is saved.
+Open **Settings → Customize → Examples** to see the same list. App samples have an **Install**
+button; templates copy an install command into `~/.config/cmux/customize` and reload when `main.js` is saved.
 
 | Sample | What it shows | Source |
 | --- | --- | --- |
