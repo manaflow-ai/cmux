@@ -387,7 +387,9 @@ describe("the hub's application ping", () => {
     expect(live.connected).toBe(true)
     expect(live.pings).toBe(true)
     expect(live.lastPingAt).toBeGreaterThanOrEqual(before - 1000)
-    expect(await hub.macLiveness("tina", crypto.randomUUID())).toEqual({ connected: false, lastPingAt: null, pings: false, connectedAt: null })
+    expect(await hub.macLiveness("tina", crypto.randomUUID())).toEqual({ connected: false, lastPingAt: null, pings: false, connectedAt: null, connects: [] })
+    // The Mac's connects are kept: this one connected once.
+    expect((await hub.macLiveness("tina", macId)).connects).toHaveLength(1)
     // The Mac reconnects (it woke): its new socket has not pinged. For a moment before the reconnect, the
     // old socket's recorded ping speaks; for now, the new socket (no ping yet) does.
     const firstPing = live.lastPingAt!
