@@ -47,7 +47,7 @@ class FakeApp:
     """The app's socket and its CLI, as far as the switch matrix uses them. A workspace is a sidebar row with a
     name, an id and a page count; a new one goes below the others, so only a move that works puts it at the top."""
 
-    def __init__(self, refuse=(), record=True, lists=True, dead=(), deaf=()):
+    def __init__(self, refuse=(), record=True, lists=True, dead=(), deaf=(), top=0, items=True):
         self.rows = []
         self.selected = None
         self.refuse = set(refuse)   # actions that this app refuses whatever they name
@@ -55,6 +55,8 @@ class FakeApp:
         self.lists = lists          # False: the app's snapshot never lists a workspace that the CLI made
         self.dead = set(dead)       # "click": the app takes each click and switches nothing (the click hits no row)
         self.deaf = set(deaf)       # the inputs, counted from 1 over the run, that the app takes and that switch nothing
+        self.top = top              # the shown top items (Home, the App Store): Cmd-1.. counts them before the workspaces
+        self.items = items          # False: the app's sidebar report lists no layout item
         self.snapshots = 0          # snapshot.get calls
         self.refused = []           # (action, the id it named) of each error answer
         self.inputs = 0             # clicks and keys
@@ -81,6 +83,12 @@ class FakeApp:
         if self.recording:
             self.samples.append({"commit_ms": 5.0, "input_ms": 1.0, "from": self.selected, "to": row["id"], "pages": row["pages"]})
         self.selected = row["id"]
+
+    def numbered(self, number):
+        """What Cmd-number selects: the shown top items first, then the workspaces (the app's default numbering)."""
+        if number <= self.top:
+            return {"id": f"top item {number}", "pages": 0}
+        return self.rows[number - self.top - 1] if number - self.top <= len(self.rows) else None
 
     def not_found(self, action, ref):
         self.refused.append((action, ref))
@@ -124,9 +132,16 @@ class FakeApp:
                 self.find(self.selected)["pages"] += 1
             return {"action": name, "ran": True}
         if method == "debug.sidebar_rows":
-            return {"windows": [{"rows": [{"key": f"workspace({r['id']})", "title": r["name"], "selected": r["id"] == self.selected,
-                                           "window_frame": {"x": 10, "y": 100 + 30 * i, "width": 200, "height": 28}}
-                                          for i, r in enumerate(self.rows)]}]}
+            window = {"rows": [{"key": f"workspace({r['id']})", "title": r["name"], "selected": r["id"] == self.selected,
+                                "window_frame": {"x": 10, "y": 100 + 30 * i, "width": 200, "height": 28}}
+                               for i, r in enumerate(self.rows)]}
+            if self.items:
+                # As the app: each layout item of the shown sections; one that is not drawn has no frame.
+                frame = {"x": 10, "y": 40, "width": 200, "height": 28}
+                window["items"] = ([{"id": f"itm_top_{n}", "region": "top", "window_frame": frame} for n in range(self.top)]
+                                   + [{"id": "itm_not_drawn", "region": "top", "window_frame": None},
+                                      {"id": "itm_account", "region": "bottom", "window_frame": frame}])
+            return {"windows": [window]}
         if method == "snapshot.get":
             self.snapshots += 1
             return {"topology": {"workspaces": [{"id": r["id"], "name": r["name"]} for r in self.rows[: None if self.lists else 1]]}}
@@ -139,11 +154,11 @@ class FakeApp:
             return {}
         if method == "debug.key":
             self.inputs += 1
-            key, at = p.get("key"), next(i for i, r in enumerate(self.rows) if r["id"] == self.selected)
+            key, at = p.get("key"), next((i for i, r in enumerate(self.rows) if r["id"] == self.selected), 0)
             if self.inputs in self.deaf:
                 return {}
             if key.isdigit():
-                self.select(self.rows[int(key) - 1] if int(key) <= len(self.rows) else None)
+                self.select(self.numbered(int(key)))
             else:
                 self.select(self.rows[(at + (1 if key == "]" else -1)) % len(self.rows)])
             return {}
@@ -276,6 +291,58 @@ class DeadCellTests(unittest.TestCase):
         self.assertEqual(len(self.gate_rows(out)), 6 * 3)
 
 
+class CmdDigitNumberingTests(unittest.TestCase):
+    """Cmd-1.. counts the shown top items (Home, the App Store) before the workspaces, the app's default. The tool
+    sent Cmd-1/2 for the page pair and Cmd-3/4 for the terminal pair whatever the sidebar showed, so with top items
+    its cmd_digit cells switched another pair: each input switched, only the selection check saw it, and the check
+    was no part of the cell's mark (a bench Mac, 2026-11-13: terminal.cmd_digit, 10 of 10 checks wrong, 3 rows)."""
+
+    def run_with(self, app):
+        return SwitchMatrixRefTests.run_with(self, app)
+
+    def gate_rows(self, out):
+        return DeadCellTests.gate_rows(self, out)
+
+    def test_the_digit_of_a_workspace_counts_the_shown_top_items_before_it(self):
+        for top in (1, 2):
+            with self.subTest(top=top):
+                app = FakeApp(top=top)
+                out = self.run_with(app)
+                self.assertEqual([cell for cell in CELLS if "invalid" in out[cell]], [])
+                for cell in ("chromium.cmd_digit", "terminal.cmd_digit"):
+                    pair = {app.named(f"sw {'chromium' if cell.startswith('chromium') else 'term'} {x}")["id"] for x in "ab"}
+                    samples = out[cell]["app_samples"]
+                    outside = [s for s in samples if s["from"] not in pair or s["to"] not in pair]
+                    self.assertEqual((len(samples), len(outside)), (SWITCHES, 0), f"{cell}: switches, and those that left its pair")
+                self.assertEqual(len(self.gate_rows(out)), 6 * 3)
+                self.assertEqual(out.get("top_digits"), [top + 1, top + 2, top + 3, top + 4])
+
+    def test_a_cell_whose_selection_checks_fail_is_marked_and_gives_no_row_to_the_gate(self):
+        # The report lists no item, so the tool's digits are 2 too low: each key switches (the count rule passes)
+        # and each selection check finds a workspace that the cell does not name.
+        app = FakeApp(top=2, items=False)
+        out = self.run_with(app)
+        checks = SWITCHES // 4
+        for cell in ("chromium.cmd_digit", "terminal.cmd_digit"):
+            self.assertEqual(out[cell].get("invalid"), f"invalid: {checks} of {checks} selection checks found another workspace", cell)
+            self.assertEqual((out[cell]["switches"], out[cell]["app_switches"], out[cell]["wrong_selection_checks"]), (SWITCHES, SWITCHES, checks), cell)
+            self.assertNotIn("input_to_idle_ms", out[cell], cell)
+        rows = self.gate_rows(out)
+        self.assertEqual(len([r for r in rows if ".cmd_digit." in r]), 0, "the gate got rows from cells that switched another pair")
+        self.assertEqual(len(rows), 4 * 3)
+        self.assertEqual([cell for cell in CELLS if "invalid" in out[cell]], ["chromium.cmd_digit", "terminal.cmd_digit"])
+
+    def test_a_workspace_with_no_digit_marks_its_cell_and_sends_no_key(self):
+        # 6 top items: the page pair is Cmd-7 and Cmd-8; the terminal pair has no digit (Cmd-9 can be "the last").
+        app = FakeApp(top=6)
+        out = self.run_with(app)
+        self.assertEqual(app.inputs, 5 * SWITCHES, "keys were sent for a pair that has no digit")
+        self.assertEqual(out["terminal.cmd_digit"].get("invalid"), f"invalid: 0 of {SWITCHES} inputs switched")
+        self.assertEqual([cell for cell in CELLS if "invalid" in out[cell]], ["terminal.cmd_digit"])
+        self.assertEqual(out.get("top_digits"), [7, 8, None, None])
+        self.assertEqual(len(self.gate_rows(out)), 5 * 3)
+
+
 class StoppedRunKeepsItsRowsTests(unittest.TestCase):
     """A stop of the switch matrix is the end of the run (exit 1), not the loss of the rows the run measured: the
     size's entry holds the scenarios before the matrix and after it, and no switch row."""
@@ -329,6 +396,15 @@ class StoppedRunKeepsItsRowsTests(unittest.TestCase):
         self.assertIn("goToWorkspace sw term a", matrix["error"])
         self.assertIsNotNone(stop)
         self.assertEqual(app.inputs, 3 * SWITCHES)
+
+    def test_a_run_with_an_invalid_cell_runs_to_its_end_and_is_not_complete(self):
+        stop, results = self.run_main(FakeApp(dead={"click"}), "switch_matrix,drag")
+        self.assertIsNone(stop, "an invalid cell is a fact of the run, not a stop")
+        entry = results["sizes"]["0"]
+        self.assertEqual(entry["drag"]["moves"], 180, "the scenario after the switch matrix did not run")
+        self.assertEqual(len([k for k, v in entry["switch_matrix"].items() if isinstance(v, dict) and "invalid" in v]), 2)
+        self.assertEqual((entry["measurement_complete"], results["measurement_complete"]), (False, False),
+                         "a run with 2 invalid cells said that its measurement is complete")
 
     def test_a_run_with_no_stop_ends_as_before(self):
         stop, results = self.run_main(FakeApp(), "scroll,switch_matrix,drag")
