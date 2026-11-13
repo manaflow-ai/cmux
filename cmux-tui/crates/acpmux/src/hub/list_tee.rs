@@ -135,10 +135,94 @@ impl TeeState {
         ids
     }
 
+    #[cfg(test)]
+    fn record_walk_id_memory(&self, ids: &HashSet<String>) {
+        // `HashSet` uses hashbrown's power-of-two bucket table. `capacity()`
+        // is the number of elements admitted before a resize, not its bucket
+        // count, so round it up and include the control-group tail. `String`
+        // capacities are the owned heap bytes; lengths undercount reused
+        // allocations. This is a structural upper bound, not serialized data.
+        let buckets = ids
+            .capacity()
+            .checked_next_power_of_two()
+            .unwrap_or(ids.capacity())
+            .max(if ids.is_empty() { 0 } else { 8 });
+        let id_bytes = ids.iter().map(|id| id.capacity()).sum::<usize>().saturating_add(
+            buckets.saturating_mul(WALK_ID_STATE_BYTES).saturating_add(WALK_HASH_GROUP_BYTES),
+        );
+        self.walk_peak_id_bytes.fetch_max(id_bytes as u64, Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    fn record_walk_page_memory(&self, page_bytes: usize, cold_bytes: usize) {
+        self.walk_peak_page_bytes.fetch_max(page_bytes as u64, Ordering::Relaxed);
+        self.walk_peak_cold_bytes.fetch_max(cold_bytes as u64, Ordering::Relaxed);
+        self.walk_peak_page_total_bytes
+            .fetch_max(page_bytes.saturating_add(cold_bytes) as u64, Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    fn summary_owned_bytes(row: &Summary) -> usize {
+        let string_bytes = row.chat_id.capacity()
+            + row.title.capacity()
+            + row.harness.capacity()
+            + row.state.capacity()
+            + row.origin.capacity()
+            + row.workspace.as_ref().map_or(0, String::capacity)
+            + row.folder.as_ref().map_or(0, String::capacity);
+        let key_bytes =
+            |key: &RowKey| std::mem::size_of::<RowKey>() + key.origin.len() + key.chat_id.len();
+        let parent_bytes = row.parent.as_ref().map_or(0, key_bytes);
+        let fork_bytes = row.fork_of.as_ref().map_or(0, |fork| key_bytes(&fork.key));
+        let raw_bytes =
+            row.extra.get().len() + row.peer_form.as_ref().map_or(0, |peer| peer.get().len());
+        // The Arc header and the Summary's owned fields are allocated with the
+        // decoded cold row. Hot rows only charge their Arc slot in the page.
+        std::mem::size_of::<Summary>()
+            + 2 * std::mem::size_of::<usize>()
+            + string_bytes
+            + parent_bytes
+            + fork_bytes
+            + raw_bytes
+    }
+
+    #[cfg(test)]
+    fn walk_page_owned_bytes(page: &IndexPage) -> (usize, usize) {
+        let slots = page.rows.capacity().saturating_mul(std::mem::size_of::<Arc<Summary>>());
+        let cold_rows = if page.bytes_read > 0 {
+            page.rows.iter().map(|row| Self::summary_owned_bytes(row)).sum()
+        } else {
+            0
+        };
+        (slots, cold_rows)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn walk_peak_memory(&self) -> (u64, u64, u64, u64) {
+        (
+            self.walk_peak_page_bytes.load(Ordering::Relaxed),
+            self.walk_peak_cold_bytes.load(Ordering::Relaxed),
+            self.walk_peak_page_total_bytes.load(Ordering::Relaxed),
+            self.walk_peak_id_bytes.load(Ordering::Relaxed),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn load_and_mark_all_ns(&self) -> (u64, u64) {
+        (self.store_load_ns.load(Ordering::Relaxed), self.mark_all_ns.load(Ordering::Relaxed))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn walk_finished(&self) -> bool {
+        self.walk_done.load(Ordering::Acquire)
+    }
+
     fn take_remote(&self, limit: usize) -> Vec<(String, String)> {
         let mut pending = self.remote.lock().unwrap_or_else(|e| e.into_inner());
         let ids: Vec<_> = pending.iter().take(limit).cloned().collect();
-        for id in &ids { pending.remove(id); }
+        for id in &ids {
+            pending.remove(id);
+        }
         ids
     }
 
@@ -152,14 +236,15 @@ impl TeeState {
                 let Some((state, since)) = next else { break };
                 taken.push((id.clone(), state, since));
             }
-            if pending.get(&id).is_some_and(VecDeque::is_empty) { pending.remove(&id); }
-            if taken.len() >= limit { break; }
+            if pending.get(&id).is_some_and(VecDeque::is_empty) {
+                pending.remove(&id);
+            }
+            if taken.len() >= limit {
+                break;
+            }
         }
         taken
     }
-
-    #[cfg(test)]
-    fn record_walk_id_memory    }
 }
 
 /// One scheduled deadline per chat. A tag update replaces its old deadline;
