@@ -991,9 +991,14 @@ class BenchApp:
         if exit_code is None and self.process:
             report["main_thread"] = self.sample_main_thread()
         try:
-            report["log_tail"] = open(self.log_path, errors="replace").read()[-4000:]
+            text = open(self.log_path, errors="replace").read()
         except OSError:
-            report["log_tail"] = ""
+            text = ""
+        report["log_tail"] = text[-4000:]
+        # Chromium's abort writes its reason once, then more crash keys than the tail holds: keep the reason lines.
+        fatal = [line[:600] for line in text.splitlines() if "FATAL" in line or "Check failed" in line][-3:]
+        if fatal:
+            report["fatal"] = fatal
         return reason, report
 
     def wait_for_crash_report(self, exit_code, wait=10):
