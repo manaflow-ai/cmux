@@ -444,3 +444,28 @@ fn inner() {
         found.iter().map(|f| (f.test.as_str(), f.text.as_str())).collect();
     assert_eq!(named, [("inner", "g50 < 500.0")], "only the block's own spread fn is one");
 }
+
+// Review of cmux#42384, F1: a name a block binds from a spread fn's tuple is that block's alone, so
+// an assertion after the block on a plain value of the same name is no spread bound.
+#[test]
+fn spread_bounds_keeps_a_block_binding_to_its_block() {
+    let text = "#[test]
+fn after() {
+    {
+        fn spread(ms: &mut [f64]) -> (f64, f64, f64) {
+            ms.sort_by(f64::total_cmp);
+            (ms[0], ms[1], ms[2])
+        }
+        let (g50, _g95, _gmax) = spread(&mut [3.0, 2.0, 1.0]);
+        assert!(g50 < 500.0);
+    }
+    let g50 = 2.0_f64;
+    assert!(g50 < 5.0);
+}
+";
+    let found = spread_bounds("x.rs", text, &|_: &TestId| true, &FileTests::Loose)
+        .unwrap_or_else(|e| panic!("does not parse: {e}"));
+    let named: Vec<(&str, &str)> =
+        found.iter().map(|f| (f.test.as_str(), f.text.as_str())).collect();
+    assert_eq!(named, [("after", "g50 < 500.0")], "the block's binding ends with the block");
+}

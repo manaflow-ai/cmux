@@ -431,6 +431,41 @@ fn f() {
     dbg!({ type Hook = fn(); static INNER: std::sync::OnceLock<Hook> = std::sync::OnceLock::new(); });
 }
 type Hook = ();
+=== passes hub/watches.rs :: review of cmux#41693 F1: a serializer reads its own module's rename, not a later module's
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex as Lock;
+    static HOOK_TEST: Lock<()> = Lock::new(());
+}
+mod other {
+    use std::sync::RwLock as Lock;
+    static SHARED: Lock<u8> = Lock::new(0);
+}
+=== refused hub/watches.rs 5 no `static HOOK_TEST: Mutex<()>` :: review of cmux#41693 F1: a later module's Mutex rename makes no serializer of this module's RwLock
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+#[cfg(test)]
+mod tests {
+    use std::sync::RwLock as Lock;
+    static HOOK_TEST: Lock<()> = Lock::new(());
+}
+mod other {
+    use std::sync::Mutex as Lock;
+    static SHARED: Lock<u8> = Lock::new(0);
+}
+=== refused lib.rs 2 closure :: review of cmux#42384 F1: `self::` in a block names the module's alias, not the block's
+type Callback = fn();
+fn f() { dbg!({ type Callback = (); static CELL: std::sync::OnceLock<self::Callback> = std::sync::OnceLock::new(); }); }
 === chain refused :: generated chain 0000 (seed 41418)
 type L0<T, W = T> = (T, L1<Mutex<Option<(u8, bool)>>, W>);
 type L1<Future, String> = std::sync::OnceLock<(L2<Box<Future>>, RwLock<Option<String>>)>;
