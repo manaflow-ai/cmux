@@ -131,11 +131,11 @@ pub(super) fn decode(mut input: &[u8]) -> io::Result<LogRecord> {
         let id = take_string(&mut input, 256)?;
         let mut state = [0];
         input.read_exact(&mut state)?;
-        let state = match state[0] {
-            0 => OriginState::Connected,
-            1 => OriginState::Down,
-            2 => OriginState::Stale,
-            3 => OriginState::Removed,
+        let state = match state {
+            [0] => OriginState::Connected,
+            [1] => OriginState::Down,
+            [2] => OriginState::Stale,
+            [3] => OriginState::Removed,
             _ => return Err(invalid("origin state")),
         };
         let mut since = [0; 8];
@@ -143,7 +143,7 @@ pub(super) fn decode(mut input: &[u8]) -> io::Result<LogRecord> {
         let mut extra = None;
         let mut has_extra = [0];
         input.read_exact(&mut has_extra)?;
-        if has_extra[0] == 1 {
+        if has_extra == [1] {
             let mut len = [0; 2];
             input.read_exact(&mut len)?;
             let len = usize::from(u16::from_le_bytes(len));
@@ -160,7 +160,7 @@ pub(super) fn decode(mut input: &[u8]) -> io::Result<LogRecord> {
                 .map_err(|_| invalid("origin extra json"))?,
             );
             input = input.get(len..).ok_or_else(|| invalid("origin extra"))?;
-        } else if has_extra[0] != 0 {
+        } else if has_extra != [0] {
             return Err(invalid("origin extra flag"));
         }
         if !input.is_empty() {

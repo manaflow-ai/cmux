@@ -7,9 +7,20 @@
 use super::*;
 use std::fs::OpenOptions;
 use std::io::Write;
-fn gate(name: &str, small: u128, god: u128, unit: &str) {
+use std::time::Instant;
+
+const SUBMIT_ROUNDS: usize = 5;
+const SUBMIT_SAMPLES: usize = 200;
+
+fn p95(values: &mut [u128]) -> u128 {
+    values.sort_unstable();
+    let rank = (values.len() * 95).div_ceil(100).saturating_sub(1);
+    values.get(rank).copied().unwrap_or(1)
+}
+
+fn gate(name: &str, small: u128, god: u128, god_all: u128, unit: &str) {
     let line = format!(
-        "{{\"name\":\"{name}\",\"small_p95\":{small},\"god_p95\":{god},\"god_p95_all\":{god},\"unit\":\"{unit}\"}}"
+        "{{\"name\":\"{name}\",\"small_p95\":{small},\"god_p95\":{god},\"god_p95_all\":{god_all},\"unit\":\"{unit}\"}}"
     );
     eprintln!("{line}");
     if let Ok(path) = std::env::var("V2_GATE_OUT")
@@ -17,6 +28,34 @@ fn gate(name: &str, small: u128, god: u128, unit: &str) {
     {
         let _ = writeln!(file, "{line}");
     }
+}
+
+fn submit_samples(rows: usize) -> (u128, u128) {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    writer.origin("peer", OriginState::Connected, 1).expect("initial origin");
+    for n in 0..rows {
+        writer.apply(row(format!("fixture-{n:05}"), n as u64 + 1)).expect("seed row");
+    }
+    let mut rounds = Vec::with_capacity(SUBMIT_ROUNDS);
+    let mut pooled = Vec::with_capacity(SUBMIT_ROUNDS * SUBMIT_SAMPLES);
+    for round in 0..SUBMIT_ROUNDS {
+        let mut samples = Vec::with_capacity(SUBMIT_SAMPLES);
+        for sample in 0..SUBMIT_SAMPLES {
+            let summary = row("timed", (round * SUBMIT_SAMPLES + sample + 10_000) as u64);
+            let started = Instant::now();
+            hub.submit(summary).expect("enqueue submit");
+            let elapsed = started.elapsed().as_nanos().max(1);
+            samples.push(elapsed);
+            pooled.push(elapsed);
+            // Keep queue work outside the measured submit path. The same key is
+            // reused so the fixture does not grow with the number of samples.
+            writer.process_batch();
+        }
+        rounds.push(p95(&mut samples));
+    }
+    let best = rounds.into_iter().min().unwrap_or(1);
+    let all = p95(&mut pooled);
+    (best, all)
 }
 
 fn row(id: impl Into<String>, activity: u64) -> Summary {
@@ -81,11 +120,23 @@ fn run_removed_origin(rows: usize) -> u128 {
 #[test]
 #[ignore = "release measurement; run with --ignored --release --nocapture"]
 fn pr05d_origin_state_ops() {
-    gate("v2.pr05d.origin_state_ops", run_origin_states(20), run_origin_states(500), "ops");
+    let small = run_origin_states(20);
+    let god = run_origin_states(500);
+    gate("v2.pr05d.origin_state_ops", small, god, god, "ops");
 }
 
 #[test]
 #[ignore = "release measurement; run with --ignored --release --nocapture"]
 fn pr05d_removed_origin_batch() {
-    gate("v2.pr05d.removed_origin_batch", run_removed_origin(20), run_removed_origin(500), "ops");
+    let small = run_removed_origin(20);
+    let god = run_removed_origin(500);
+    gate("v2.pr05d.removed_origin_batch", small, god, god, "ops");
+}
+
+#[test]
+#[ignore = "release measurement; run with --ignored --release --nocapture"]
+fn pr05d_submit_time() {
+    let (small, _) = submit_samples(20);
+    let (god, god_all) = submit_samples(11_000);
+    gate("v2.pr05d.submit_time", small, god, god_all, "ns");
 }

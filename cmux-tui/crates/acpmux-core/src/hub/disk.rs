@@ -107,6 +107,7 @@ impl HubWriter {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(super) fn sync_batch(&mut self) -> Result<(), HubError> {
         self.sync_batch_limit(256)
     }
