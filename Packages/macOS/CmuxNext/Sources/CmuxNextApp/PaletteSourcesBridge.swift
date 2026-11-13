@@ -75,7 +75,10 @@ enum PaletteSourcesBridge {
         let spaces = SpaceAndPaneTargetSource(services: services, next: screens)
         let sections = SidebarSectionTargetSource(services: services, next: spaces)
         let groups = TabAndGroupTargetSource(services: services, next: PriorityChatTargetSource(chats: chats, next: sections))
-        var bookmarkTargets: any PaletteTargetSource = groups
+        let sidebarApps = RefreshingPaletteTargetSource(kind: .sidebarItem,
+            actions: Set(services.registry.descriptors.filter { $0.paletteTargetSource == "sidebarApps" }.map(\.id)),
+            next: groups, read: { sections.appTargets() })
+        var bookmarkTargets: any PaletteTargetSource = sidebarApps
         let bookmarkSources: [String?] = [nil, "bookmarks", "bookmarkFolders"]
         for source in bookmarkSources {
             let actions = Set(services.registry.descriptors.filter { $0.paletteTarget == .bookmark && $0.paletteTargetSource == source }.map(\.id))

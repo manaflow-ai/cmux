@@ -174,7 +174,9 @@ struct PaletteArgumentFlow {
     func adding(_ argument: ActionArgument, _ text: String, to collected: ActionInvocation) -> ActionInvocation? {
         if argument.name == Self.subjectSlot, case .target(let target)? = argument.parse(text) {
             var next = collected
-            next.target = target
+            // A shared subject source may include another target kind the action accepts
+            // (Hide App accepts either an app item or its section).
+            next.target = ActionTargetRef(parsing: text).flatMap { descriptor.targets.contains($0.kind) ? $0 : nil } ?? target
             return next
         }
         guard let value = argument.parse(text) else { return nil }

@@ -32,6 +32,20 @@ final class SidebarSectionTargetSource: PaletteTargetSource {
         }
     }
 
+    /// Hide App lists both item and section contributions that have an app owner.
+    func appTargets() -> [PaletteTargetOption] {
+        let doc = services.sidebarLayout.document
+        return [ActionTargetKind.sidebarItem, .sidebarSection].flatMap { kind in
+            targets(of: kind).compactMap { option in
+                let target = ActionTargetRef(kind: kind, id: option.id)
+                guard (try? SidebarSectionResolve.owningApp(target, in: doc, document: services.sidebarDoc.store)) != nil else { return nil }
+                var row = option
+                row.id = target.description
+                return row
+            }
+        }
+    }
+
     /// A section's own title; nil for an untitled one, whose listed label
     /// ("Workspaces", its first item) is not a name to rename from.
     func title(of target: ActionTargetRef) -> String? {

@@ -114,6 +114,19 @@ struct PaletteSubjectPickerTests {
         guard case .push = item.primary.effect.resolved() else { Issue.record("missing starting picker"); return }
     }
 
+    @Test func subjectPickerPreservesAnAlternativeAcceptedTargetKind() async throws {
+        let registry = ActionRegistry.standard(), targets = Targets()
+        var received: ActionTargetRef?
+        registry.bind("sidebar.item.hideApp", invoke: { received = $0.target })
+        targets.options = [PaletteTargetOption(id: "sidebar-section:app-section", title: "App section")]
+        let item = try row("sidebar.item.hideApp", registry: registry, targets: targets)
+        guard case .push(let page) = item.primary.effect.resolved() else { Issue.record("missing app picker"); return }
+        let choice = try #require(await page.providers.first?.items().first)
+        guard case .perform(let run) = choice.primary.effect.resolved() else { Issue.record("missing app action"); return }
+        run()
+        #expect(received == ActionTargetRef(kind: .sidebarSection, id: "app-section"))
+    }
+
     @Test func missingTargetSourceNeverAsksForAControlSocketID() throws {
         let descriptor = try #require(ActionCatalog.all.first { $0.id == "cloudOpenDesktop" })
         let flow = PaletteArgumentFlow(registry: .standard(), descriptor: descriptor, targets: nil)
