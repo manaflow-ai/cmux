@@ -9,7 +9,7 @@ import type { QuickFamily, QuickModel } from "./quickModelMenuModel";
 import { authText, type SessionAuth } from "./sessionAuth";
 import { translate } from "./i18n";
 import { settleReact } from "../../../test/support/domTeardown";
-import { modelMenuHeight, setModelMenuHeight } from "./modelMenuWidth";
+import { modelMenuHeight, modelMenuWidth, setModelMenuHeight, setModelMenuWidth } from "./modelMenuWidth";
 
 let QuickModelColumns: typeof import("./QuickModelColumns").QuickModelColumns;
 
@@ -26,6 +26,8 @@ function installDom(): HTMLElement {
   const requestAnimationFrame = (callback: FrameRequestCallback) =>
     setTimeout(() => callback(Date.now()), 0) as unknown as number;
   const cancelAnimationFrame = (handle: number) => clearTimeout(handle);
+  dom.window.requestAnimationFrame = requestAnimationFrame;
+  dom.window.cancelAnimationFrame = cancelAnimationFrame;
   for (const key of [
     "window",
     "document",
@@ -34,6 +36,7 @@ function installDom(): HTMLElement {
     "HTMLElement",
     "Element",
     "KeyboardEvent",
+    "MutationObserver",
     "getComputedStyle",
     "requestAnimationFrame",
     "cancelAnimationFrame",
@@ -48,6 +51,7 @@ function installDom(): HTMLElement {
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
     KeyboardEvent: dom.window.KeyboardEvent,
+    MutationObserver: dom.window.MutationObserver,
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     requestAnimationFrame,
     cancelAnimationFrame,
@@ -74,6 +78,7 @@ afterEach(async () => {
   }
   saved.clear();
   fakeLayout = undefined;
+  setModelMenuWidth(undefined);
 });
 
 async function settle() {
@@ -325,6 +330,41 @@ test("the models column is one plain list, Legacy models last, and Reasoning hea
   expect(fastSwitch().closest(".acpmux-cols-tune-foot")).not.toBeNull();
   expect(fastSwitch().closest(".acpmux-cols-tune-scroll")).toBeNull();
 });
+
+for (const [fontSize, room] of [
+  [13, 900],
+  [20, 900],
+  [20, 300],
+] as const) {
+  test(`a width drag keeps the scaled minimum within ${room}px of room at ${fontSize}px type`, async () => {
+    await openMenu();
+    const menu = popup();
+    menu.style.fontSize = `${fontSize}px`;
+    menu.style.setProperty("--acpmux-cols-min-width", "28.5em");
+    menu.getBoundingClientRect = () => ({ left: 5, right: 705, width: 700 }) as DOMRect;
+    menu.parentElement!.getBoundingClientRect = () => ({ left: 5 }) as DOMRect;
+    Object.defineProperty(dom!.window, "innerWidth", { value: room + 10 });
+    const grip = menu.querySelector<HTMLElement>(".acpmux-cols-resize")!;
+    const direction = grip.dataset.edge === "start" ? -1 : 1;
+    // The chip-aligned edge stays pinned; only the opposite edge moves.
+    if (direction === -1)
+      menu.getBoundingClientRect = () => ({ left: room - 695, right: room + 5, width: 700 }) as DOMRect;
+    await act(async () => {
+      grip.dispatchEvent(new dom!.window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 500 }));
+      grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientX: 500 - direction * 1000 }));
+      grip.dispatchEvent(new dom!.window.MouseEvent("pointerup", { clientX: 500 - direction * 1000 }));
+    });
+    const minimum = Math.min(room, Math.ceil(28.5 * fontSize));
+    expect(menu.style.width).toContain(`${minimum}px`);
+    expect(modelMenuWidth()).toBe(minimum);
+    expect(menu.style.minWidth).toBe("");
+    await click(document.querySelector<HTMLButtonElement>("button[data-menu='model']")!);
+    await click(document.querySelector<HTMLButtonElement>("button[data-menu='model']")!);
+    expect(popup().style.minWidth).toBe("");
+    await click(tab("Codex"));
+    expect(popup().style.minWidth).toBe("");
+  });
+}
 
 test("a kept height sizes the menu, and a double-click on the edge away from the chip goes back", async () => {
   setModelMenuHeight(300);
