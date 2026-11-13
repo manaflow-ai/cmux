@@ -82,6 +82,11 @@ path = "tests/test_car_guards.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cargo_lock_new_versions.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/cmux-next/cargo-lock-new-versions.py and the pre-push gate's Cargo.lock new-crate-versions check; run python3 tests/test_cargo_lock_new_versions.py yourself after changing either (about a second, no build)."
+
+[[test]]
 path = "tests/test_cargo_locks_explain.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/cmux-next/cargo-locks.py explain and the CI wrappers that hand it cargo's output (fake cargo, no build), and lists every cargo --locked wrapper; run python3 -m unittest tests/test_cargo_locks_explain.py yourself after changing cargo-locks.py or a wrapper that runs cargo with --locked (about 10 s)."
