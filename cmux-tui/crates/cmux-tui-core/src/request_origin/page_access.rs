@@ -136,6 +136,8 @@ const fn access(operation: Op) -> Access {
         // Conductor's database and worktrees, read by the app's Import from Conductor.
         | Op::ConductorImportPlan
         | Op::ConductorImportRecord
+        // Another browser's bookmarks, history and tabs, read for the app's browser import.
+        | Op::BrowserImportRead
         // A Cloud machine's files and commands (server/cloud_api.rs).
         | Op::CloudMachineIo => Access::Denied(Denied::FileSystem),
         // A browser profile's visited pages: never a page's to read or delete.

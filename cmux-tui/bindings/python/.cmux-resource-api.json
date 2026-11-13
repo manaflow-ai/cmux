@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "12f2cd254e9e98777ef14dfd5afd566db44f74218a52410953ee649c783b8cd2",
+  "catalog_sha256": "3599db24e37186c34a1749889a90d2b848025f0112901a752028fcb5f23244f5",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -93,6 +93,9 @@
     },
     "browser.viewer.resize": {
       "class": "connection_control"
+    },
+    "browser_import.read": {
+      "class": "read"
     },
     "chief.continue": {
       "class": "mutation"

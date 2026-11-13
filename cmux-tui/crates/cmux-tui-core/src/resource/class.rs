@@ -117,6 +117,7 @@ impl ResourceOperation {
                 | Self::StashList
                 | Self::ClassicImportPlan
                 | Self::ConductorImportPlan
+                | Self::BrowserImportRead
                 | Self::CloudVmFirewallList
                 | Self::CloudVmFirewallGet
                 | Self::CloudVmNetworks

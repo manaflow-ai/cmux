@@ -12,9 +12,11 @@
 //! at its page's bytes ([`bounded`]), and a follow builds the rows that changed. A request never
 //! waits for its turn and is never refused for its cost; it costs its own page.
 
+use super::list_tee::TeeHandle;
 use super::session_pages::PageRow;
 use super::*;
 use cmux_json::JsonSet as _;
+use std::collections::HashSet;
 use std::ops::Range;
 
 /// The hub's event channel. Every send is a change some list shows.
@@ -39,6 +41,7 @@ pub(crate) struct Events {
     reaching: std::sync::Mutex<Vec<(String, Option<String>)>>,
     /// This run's id for list positions: a cursor of another run is no cursor here.
     epoch: String,
+    tee: std::sync::OnceLock<Arc<TeeHandle>>,
 }
 
 impl Events {
@@ -50,6 +53,17 @@ impl Events {
             untold: Default::default(),
             reaching: Default::default(),
             epoch: super::row_log::new_epoch(),
+            tee: Default::default(),
+        }
+    }
+
+    pub(crate) fn install_tee(&self, tee: Arc<TeeHandle>) {
+        let _ = self.tee.set(tee);
+    }
+
+    fn mark_tee(&self, id: &str) {
+        if let Some(tee) = self.tee.get() {
+            tee.mark(id);
         }
     }
 
@@ -119,6 +133,12 @@ impl Events {
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         debug_assert!(event.remote.is_none(), "a peer's event goes through Events::send_remote");
         self.all_rows_stale();
+        if event.remote.is_none()
+            && (crate::server::session_change_kind(&event.record.kind).is_some()
+                || event.record.kind == "purged")
+        {
+            self.mark_tee(&event.session_id);
+        }
         self.stamped(event)
     }
 
@@ -160,6 +180,12 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         session.summary_gen.fetch_add(1, Ordering::SeqCst);
+        if event.remote.is_none()
+            && (crate::server::session_change_kind(&event.record.kind).is_some()
+                || event.record.kind == "purged")
+        {
+            self.mark_tee(&session.id);
+        }
         if super::row_log::row_change(&event).is_none() {
             self.stamp_own(&session.id);
         }
@@ -171,6 +197,7 @@ impl Events {
     pub(super) fn row_changed(&self, session: &Session) {
         self.stamp_own(&session.id);
         session.summary_gen.fetch_add(1, Ordering::SeqCst);
+        self.mark_tee(&session.id);
     }
 
     /// Every closed row's cached bytes go stale (a session came that may be another's parent).
@@ -182,9 +209,16 @@ impl Events {
     /// closed row goes stale, and no cursor from before it can be followed (`RowLog::barrier`), so
     /// each reconnecting client reads the first page again. Before, a follow after it was empty
     /// and the client kept the rows as they were (review of #41865 at 316f5ca).
-    pub(super) fn changed(&self) {
+    pub(super) fn changed(&self, session: Option<&Session>) {
         self.all_rows_stale();
         self.rows.lock().unwrap_or_else(|e| e.into_inner()).barrier();
+        if let Some(tee) = self.tee.get() {
+            if let Some(session) = session {
+                tee.mark(&session.id);
+            } else {
+                tee.mark_all();
+            }
+        }
     }
 }
 

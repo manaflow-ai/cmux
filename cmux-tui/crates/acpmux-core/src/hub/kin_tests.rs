@@ -8,6 +8,8 @@ fn page(filter: ListFilter) -> Page {
         stream: "list".into(),
         before: None,
         after: None,
+        keys: None,
+        view: None,
         max_bytes: crate::wire::MAX_PAGE_BYTES as u32,
         filter: Some(filter),
     }

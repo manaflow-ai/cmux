@@ -29,6 +29,7 @@ This evaluates each publishing job's `if` with GitHub's expression rules for
 a feat-cmux-next push and for other refs, and walks its `needs`.
 """
 
+import json
 import os
 import re
 import sys
@@ -268,7 +269,10 @@ def main():
         _check("build-windows" not in all_needs(all_jobs, name), f"{name} does not wait for build-windows")
     _check(all_jobs["build"]["with"].get("include_windows") is False,
            "the macOS and Linux build call builds no Windows target")
-    windows_with = all_jobs["build-windows"]["with"]
+    # build-windows reads what it builds from the keyed profile file (cmux-tui-build-profiles.json).
+    profile_ref = "${{ fromJSON(needs.tree-preflight.outputs.build_profiles).windows.%s }}"
+    windows_profile = json.loads(Path(ROOT, "scripts/cmux-next/cmux-tui-build-profiles.json").read_text(encoding="utf-8"))["windows"]
+    windows_with = {k: windows_profile[k] if v == profile_ref % k else v for k, v in all_jobs["build-windows"]["with"].items()}
     _check(windows_with.get("include_windows") is True and windows_with.get("target_set") == "windows",
            "build-windows builds only the Windows target")
     windows_publishers = publishers(all_jobs, windows=True)
