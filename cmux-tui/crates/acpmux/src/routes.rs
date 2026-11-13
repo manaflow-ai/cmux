@@ -17,7 +17,7 @@
 //! in [`SCRUBBED`] is removed from the profile env AND from the environment the
 //! harness inherits (agent.rs reads [`UNSET_KEY`]), then the route sets its own.
 //! So switching from route A to route B never leaks A's key into B's process.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -810,6 +810,10 @@ pub struct Bindings {
     /// Spread usage across my subscriptions (`_acpmux/connections/spread.set`); absent: on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spread: Option<bool>,
+    /// Connections with no route file of their own that are turned off (`claude-login`;
+    /// `_acpmux/account/set`). A route's own switch is its file's `disabled`.
+    #[serde(default, rename = "disabled_connections", skip_serializing_if = "BTreeSet::is_empty")]
+    pub disabled_connections: BTreeSet<String>,
 }
 
 static BINDINGS_LOCK: Mutex<()> = Mutex::new(());
