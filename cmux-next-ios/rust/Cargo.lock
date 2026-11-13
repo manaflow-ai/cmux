@@ -509,7 +509,6 @@ dependencies = [
 name = "cmux-mobile-link"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "async-trait",
  "base64 0.22.1",
  "bytes",
@@ -546,8 +545,6 @@ version = "0.1.0"
 dependencies = [
  "cmux-mobile-host",
  "cmux-mobile-link",
- "cmux-rd-core",
- "cmux-rd-engine",
  "cmux-rd-ffi",
  "cmux-rd-proto",
  "cmux-terminal-prediction",
