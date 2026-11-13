@@ -44,10 +44,28 @@ struct NotificationSoundLengthTests {
 
     @Test func aFilePathMatchesByPathOrByItsFileName() {
         var sounds = NotificationSoundPreferences()
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
         sounds.lengths = ["~/Sounds/bell.m4a": 3, "Chime": 1]
         #expect(sounds.length(for: "~/Sounds/bell.m4a") == 3)
+        #expect(sounds.length(for: "\(home)/Sounds/bell.m4a") == 3, "~ and the home folder name the same file")
         #expect(sounds.length(for: "/Users/me/Library/Sounds/Chime.aiff") == 1)
         #expect(sounds.length(for: "/tmp/other.wav") == nil)
+    }
+
+    @Test func aNameMatchesIgnoringCaseAndAnAudioExtension() {
+        var sounds = NotificationSoundPreferences()
+        sounds.lengths = ["Glass.aiff": 2, "my.sound": 4]
+        #expect(sounds.length(for: "glass") == 2, "an entry written with its extension or another case still matches")
+        #expect(sounds.length(for: "/System/Library/Sounds/Glass.aiff") == 2)
+        #expect(sounds.length(for: "My.Sound") == 4, "a dot in a name is not an extension")
+        #expect(sounds.length(for: "My") == nil)
+    }
+
+    @Test func aPathEntryWinsOverANameEntryForThatFile() {
+        var sounds = NotificationSoundPreferences()
+        sounds.lengths = ["Chime": 1, "/Users/me/Sounds/Chime.wav": 5]
+        #expect(sounds.length(for: "/Users/me/Sounds/Chime.wav") == 5)
+        #expect(sounds.length(for: "/Library/Sounds/Chime.aiff") == 1)
     }
 
     @Test func aSoundStopsAtItsLengthOnlyWhenItsFileIsLonger() {

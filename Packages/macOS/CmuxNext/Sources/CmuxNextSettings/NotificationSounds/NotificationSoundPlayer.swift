@@ -9,6 +9,8 @@ public final class NotificationSoundPlayer: NotificationSoundPlaying {
     private var sounds: [String: NSSound] = [:]
     /// One stop deadline per sound name, replaced when that sound starts again.
     private var stops: [String: DemandTimer] = [:]
+    /// Each sound's play count, so a stop meant for an earlier play never cuts a newer one short.
+    private var plays: [String: UInt64] = [:]
     private let clock: any Clock<Duration>
     /// How long a sound plays, in seconds; nil plays its file to its end. The gate reads the
     /// person's `notifications.sounds` (``NotificationSoundPreferences/length(for:)``).
@@ -31,13 +33,20 @@ public final class NotificationSoundPlayer: NotificationSoundPlaying {
         sound.stop()
         sound.volume = Float(min(max(volume, 0), 1))
         sound.play()
+        let play = (plays[name] ?? 0) &+ 1
+        plays[name] = play
         guard let stop = Self.stopAfter(length: length(name), duration: sound.duration) else {
             stops[name]?.cancel()
             return
         }
         let timer = stops[name] ?? DemandTimer(owner: "notifications.soundLength", clock: clock)
         stops[name] = timer
-        timer.schedule(after: stop) { @MainActor [weak self] in self?.sounds[name]?.stop() }
+        // The deadline is claimed off the main actor before it hops here, so a replay in between
+        // must not be stopped by the earlier play's deadline.
+        timer.schedule(after: stop) { @MainActor [weak self] in
+            guard let self, self.plays[name] == play else { return }
+            self.sounds[name]?.stop()
+        }
     }
 
     /// When to stop a sound of `duration` seconds that plays for `length` seconds: nil when it ends

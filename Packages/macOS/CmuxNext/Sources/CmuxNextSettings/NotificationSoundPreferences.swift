@@ -44,12 +44,39 @@ public nonisolated struct NotificationSoundPreferences: Hashable, Sendable {
     public init() {}
 
     /// How long `sound` plays before cmux stops it, in seconds; nil plays the file to its end. The
-    /// sound's own entry in ``lengths`` wins (by name or path, then by file name without its
-    /// extension), then ``maxSeconds``. A file shorter than the length ends on its own.
+    /// sound's own entry in ``lengths`` wins, then ``maxSeconds``. A file shorter than the length
+    /// ends on its own.
+    ///
+    /// An entry names a sound the way the person writes it: an entry with a path (`~/…`, `/…`) matches
+    /// that file first; otherwise a sound matches by name, ignoring case and an audio extension, so
+    /// `"glass"`, `"Glass.aiff"` and `"/System/Library/Sounds/Glass.aiff"` all name Glass.
     public func length(for sound: String) -> Double? {
-        let file = ((sound as NSString).lastPathComponent as NSString).deletingPathExtension
-        if let own = lengths[sound] ?? lengths[file] { return own > 0 ? own : nil }
+        let wanted = SoundKey(sound)
+        var byName: Double?
+        for (key, seconds) in lengths.sorted(by: { $0.key < $1.key }) {
+            let entry = SoundKey(key)
+            if let path = entry.path, path == wanted.path { return seconds > 0 ? seconds : nil }
+            if byName == nil, entry.stem == wanted.stem { byName = seconds }
+        }
+        if let own = byName { return own > 0 ? own : nil }
         return maxSeconds > 0 ? maxSeconds : nil
+    }
+
+    /// A sound name or path as ``length(for:)`` compares it: its expanded path, if it is one, and its
+    /// name without an audio extension, lowercased.
+    nonisolated private struct SoundKey {
+        let path: String?
+        let stem: String
+
+        init(_ raw: String) {
+            let text = raw.trimmingCharacters(in: .whitespaces)
+            let isPath = text.hasPrefix("/") || text.hasPrefix("~")
+            path = isPath ? ((text as NSString).expandingTildeInPath as NSString).standardizingPath : nil
+            let name = isPath ? (text as NSString).lastPathComponent : text
+            let ext = (name as NSString).pathExtension.lowercased()
+            let bare = NotificationSoundLibrary.extensions.contains(ext) ? (name as NSString).deletingPathExtension : name
+            stem = bare.lowercased()
+        }
     }
 
     /// The levels that apply to `scope`, most specific first: the agent kind, the workspace, then
