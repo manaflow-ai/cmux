@@ -1643,6 +1643,10 @@ jobs:
             # must still match tests: a run that passed none is red.
             status=0
             cargo test "${members[@]}" --locked cmux_next_ 2>&1 | tee "$RUNNER_TEMP/cmux-next-tests.txt" || status=$?
+            # A stale Cargo.lock: named with its fix (cargo-locks.py explain), never retried.
+            if [[ "$status" -ne 0 ]] && python3 ../scripts/cmux-next/cargo-locks.py explain "$RUNNER_TEMP/cmux-next-tests.txt"; then
+              exit "$status"
+            fi
             if [[ "$status" -eq 0 ]]; then
               if grep -qE 'test result: ok\. [1-9][0-9]* passed' "$RUNNER_TEMP/cmux-next-tests.txt"; then
                 break
