@@ -1623,7 +1623,7 @@
   line-height: 16px;
   letter-spacing: var(--text-caption--letter-spacing);
 }
-.acpmux-env-popover .acpmux-env-icon:is([data-kind="add"], [data-kind="another"], [data-kind="server"], [data-kind="gear"]) { color: var(--agent-muted); }
+.acpmux-env-popover .acpmux-env-icon:is([data-kind="add"], [data-kind="another"], [data-kind="server"], [data-kind="gear"], [data-kind="devices"]) { color: var(--agent-muted); }
 /* The Cloud chip's hairline over its setup rows (New Cloud Machine…, Open Cloud…). */
 .acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-divider]) { position: relative; margin-top: 9px; }
 .acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-divider])::before {
@@ -1659,7 +1659,8 @@
   pointer-events: none;
   letter-spacing: var(--text-caption--letter-spacing);
 }
-.acpmux-env-row .acpmux-env-key {
+/* A machine's ⌥⌘ key, and Other devices' count of machines a chat can start on now: quiet, before the check or chevron. */
+.acpmux-env-row :is(.acpmux-env-key, .acpmux-env-count) {
   flex: none;
   margin-left: auto;
   padding: 0;
@@ -1671,7 +1672,7 @@
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-caption--letter-spacing);
 }
-.acpmux-env-row :is(.acpmux-env-key, .acpmux-team-tag) + .acpmux-location-check { margin-left: 6px; }
+.acpmux-env-row :is(.acpmux-env-key, .acpmux-env-count, .acpmux-team-tag) + .acpmux-location-check { margin-left: 6px; }
 .acpmux-location-row:not(.acpmux-env-row) .acpmux-team-tag + .acpmux-location-check { margin-left: 4px; }
 .acpmux-env-popover .acpmux-env-icon { flex: none; color: var(--agent-muted); }
 .acpmux-env-popover .acpmux-env-icon[data-kind="ssh"] { color: var(--agent-ansi-2, currentColor); }

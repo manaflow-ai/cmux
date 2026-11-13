@@ -464,7 +464,7 @@ const STRIP_NOTES: Record<StripArm, string> = {
   "cloud-toggle":
     'Arm 3 of 4 (ChatGPT Work): Project | Machine, and a cloud toggle at the strip\'s end whose menu asks "Where should this chat run?".',
   combined:
-    "Arm 4 of 4, the baseline before this: one control, This Mac and Cloud, the machines behind its right-click Machines….",
+    "Arm 4 of 4, the baseline before this: one control, This Mac, Cloud and Other devices (Austin, 2026-11-12), every machine behind its right-click Machines….",
 };
 /// ChatGPT Work's two rows' second lines, copied for the cloud-toggle arm only (rule 0 ships none).
 const chatgptRunDetails = {
@@ -586,6 +586,62 @@ const sleepVariants = {
       if (row.getAttribute("aria-disabled") === "true") throw new Error("the paused machine is greyed");
       if (!row.textContent?.includes("Paused")) throw new Error("the paused machine does not say Paused");
     },
+  },
+};
+
+// Other devices (Austin, 2026-11-12, after another product's "Run on" menu: "Cloud ✓", "Other
+// devices 1 ›"): a new chat's one control lists This Mac, Cloud and Other devices, with the count of
+// the person's machines a chat can start on now; the row opens them in place, each with its online
+// dot and how it connects, the ones still connecting greyed, then Add Machine….
+const otherDevicesMachines = {
+  ...stripMachines,
+  stripLayout: "combined" as const,
+  peers: ["studio-mini", "gpu-box", "laptop", "Cloud machine"],
+  peerKinds: { "studio-mini": "ssh", "gpu-box": "ssh", laptop: "ssh", "Cloud machine": "cloud" } as Record<
+    string,
+    "ssh" | "cloud"
+  >,
+  peerConnected: { "studio-mini": true, "gpu-box": true, laptop: false, "Cloud machine": true },
+  peerStates: {
+    "studio-mini": "connected",
+    "gpu-box": "connected",
+    laptop: "connecting",
+    "Cloud machine": "connected",
+  },
+};
+const openOtherDevices: Play = async (ctx) => {
+  await openCombined(ctx);
+  await ctx.click({ selector: '.acpmux-env-popover [data-action="otherDevices"]' });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover.acpmux-env-devices [role="option"]'));
+};
+const otherDevicesVariants = {
+  "other-devices-row": {
+    height: 260,
+    note: "A new chat's control open: This Mac, Cloud, then Other devices with 2 (studio-mini and gpu-box can take a chat; laptop is still connecting and the Cloud machine is Cloud's) and a chevron.",
+    props: otherDevicesMachines,
+    play: openCombined,
+  },
+  "other-devices-list": {
+    height: 320,
+    note: "Other devices open: its heading, the ready machines first with a green dot and SSH under the name, laptop greyed saying it is connecting, Add Machine… last. No Cloud machine.",
+    props: otherDevicesMachines,
+    play: openOtherDevices,
+  },
+  "other-devices-picked": {
+    height: 260,
+    note: "gpu-box picked from Other devices: the main list keeps it checked after This Mac, Other devices still offered.",
+    props: { ...otherDevicesMachines, ...onMachine("gpu-box") },
+    play: openCombined,
+  },
+  "other-devices-none": {
+    height: 260,
+    note: "No machine of the person's yet: Other devices still shows, with no count, and opens just Add Machine….",
+    props: {
+      ...otherDevicesMachines,
+      peers: ["Cloud machine"],
+      peerKinds: { "Cloud machine": "cloud" } as Record<string, "ssh" | "cloud">,
+    },
+    play: openOtherDevices,
   },
 };
 
@@ -1090,6 +1146,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     ...stripVariants("where-machine-always"),
     ...stripVariants("cloud-toggle"),
     ...stripVariants("combined"),
+    ...otherDevicesVariants,
     // One Cloud row, whatever the account state: Cloud while signed in or before the app's Cloud
     // reply, Sign in for Cloud in its place once the app said signed out (never both).
     "strip-where-signed-out": {

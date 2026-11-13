@@ -92,7 +92,8 @@ import { chatComputerId, ownMachineName, type ChatPlace } from "./chatMachine";
 ///   with its live dot); never for Cloud.
 /// - `cloud-toggle` (ChatGPT Work): Project | Machine (This Mac first), and a cloud toggle at the
 ///   strip's end asking "Where should this chat run?" (This Mac, Cloud).
-/// - `combined`: one control for both, This Mac and Cloud, the machines behind Machines….
+/// - `combined`: one control for both, This Mac, Cloud and Other devices (the person's own
+///   machines, Austin 2026-11-12), every machine behind Machines….
 /// A started chat always has the one combined control (its machine and its one move).
 export type StripLayout = "where-machine" | "where-machine-always" | "cloud-toggle" | "combined";
 
@@ -858,10 +859,10 @@ export function ComposerContext({
     (startedCloudFolder !== undefined && folderState === "cloudFresh"
       ? startedCloudFolder
       : folderState === "folder" && currentName
-      ? currentName
-      : folderState === "folder" && currentFolder
-        ? projectLabel(currentFolder)
-        : t(FOLDER_CHIP_LABELS[folderState])) + extraCount;
+        ? currentName
+        : folderState === "folder" && currentFolder
+          ? projectLabel(currentFolder)
+          : t(FOLDER_CHIP_LABELS[folderState])) + extraCount;
   const folderDetail =
     folderState === "cloudFresh" && startedCloudFolder === undefined ? t(FOLDERLESS_CLOUD_LABELS.detail) : undefined;
   // A saved environment on this Mac is This Mac's; one on an SSH machine is Remote's.
@@ -1112,6 +1113,8 @@ export function ComposerContext({
                   )
                 }
                 environments={moves && currentPickerComputer ? [currentPickerComputer] : pickerComputers}
+                // A new chat that can still choose its machine: Other devices after Cloud (Austin, 2026-11-12).
+                otherDevices={!readOnly && !moves}
                 {...(offload && onOffload ? { offload, onOffload } : {})}
                 {...(offload && offloadReasons?.[offload] ? { offloadReason: offloadReasons[offload] } : {})}
                 {...(moving && onMoveTo ? { moveTargets: moving, onMoveTo } : {})}
