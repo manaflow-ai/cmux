@@ -68,6 +68,26 @@ class ReportTests(unittest.TestCase):
                 self.assertTrue(any("video" in e for e in target["errors"]))
                 self.assertIsNone(target["fps"]["video"])
 
+    def test_ocr_calibration_metadata_and_every_repeat_readiness(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            self.video_run(folder, requested=False)
+            out = folder / "target.json"
+            for rep in (1, 2):
+                (folder / f"ocr-{rep}.json").write_text(json.dumps({
+                    "cer": 0.01 * rep, "comparison_ready": True,
+                    "crops": {"current_source_nonce": f"nonce-{rep}", "host_crop": [1, 2, 3, 4]}}))
+            report.target("apple-high", folder, out)
+            result = json.loads(out.read_text())
+            self.assertIs(result["ocr"]["comparison_ready"], True)
+            self.assertEqual(result["extra"]["repeats"][1]["ocr"]["crops"]["current_source_nonce"], "nonce-2")
+            self.assertEqual(result["ocr"]["crops"]["current_source_nonce"], "nonce-1")
+            for unready in ({"cer": None, "comparison_ready": False}, {"cer": 0.02},
+                            {"cer": None, "comparison_ready": True}):
+                (folder / "ocr-2.json").write_text(json.dumps(unready))
+                report.target("apple-high", folder, out)
+                self.assertIs(json.loads(out.read_text())["ocr"]["comparison_ready"], False)
+
     def test_buckets_crossing_phase_or_guard_are_discarded(self):
         phases = {"idle": {"start_unix_ms": 2000, "end_unix_ms": 6000}}
         rows = [
