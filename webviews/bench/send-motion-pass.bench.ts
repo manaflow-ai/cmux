@@ -795,9 +795,7 @@ if (import.meta.main) {
       report[engine] = rounds;
       const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor((values.length - 1) / 2)]!;
       const stat = (values: number[]) => ({ p50: median(values), p95: Math.max(...values) });
-      console.log(
-        `send-motion-pass: ${engine}, ${rounds.length} rounds, think ${THINK_MS} ms (p50 median, p95 worst)`,
-      );
+      console.log(`send-motion-pass: ${engine}, ${rounds.length} rounds, think ${THINK_MS} ms (p50 median, p95 worst)`);
       console.log(
         "round | jumps | slot resizes | box cls | user ms | live ms | thought ms | live heights | frame p95 ms",
       );

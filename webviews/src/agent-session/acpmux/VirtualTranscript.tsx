@@ -5718,7 +5718,7 @@ function TranscriptView({
       gutterRelease.current = undefined;
       gutter?.remove();
     };
-  }, [dropFoldRoom, landForReader, startBottomStack, stopBottomStackFold, stopFollowMotion, stopJump]);
+  }, [dropFoldRoom, landForReader, startBottomStack, stopBottomStackFold, slimFollow, stopFollowMotion, stopJump]);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
   // to its footer. Marked on the mounted rows, so a hover renders nothing.
   // The chat's one Retry (turns.ts retryTargetIn, retryPlacement): the reply footer of the person's
