@@ -161,12 +161,18 @@ pub(super) fn serves_cloud(kind: &str, provider: &str) -> bool {
 }
 
 fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
-    let default_for = facts
-        .families
-        .iter()
-        .filter(|f| accounts::is_default(b, f, &route.id, facts.builtin))
-        .cloned()
-        .collect();
+    // A connection turned off is nobody's default (account/set clears its bindings; a CLI login
+    // is the default by having none).
+    let default_for = if route.file.disabled {
+        Vec::new()
+    } else {
+        facts
+            .families
+            .iter()
+            .filter(|f| accounts::is_default(b, f, &route.id, facts.builtin))
+            .cloned()
+            .collect()
+    };
     let serves_cloud = serves_cloud(facts.kind, &facts.provider);
     Connection {
         id: route.id.clone(),
@@ -297,7 +303,7 @@ pub(super) fn list(dir: Option<&Path>, home: &Path, b: &Bindings) -> Vec<Connect
             notes: None,
             account_home: None,
             shadow_of: None,
-            disabled: false,
+            disabled: !accounts::claude_login_enabled(b),
             provider: None,
         },
         path: PathBuf::new(),
@@ -319,7 +325,9 @@ pub(super) fn list(dir: Option<&Path>, home: &Path, b: &Bindings) -> Vec<Connect
 /// default order (the picker's defaults, signed-in accounts, keys, the rest; stable).
 pub(super) fn ordered(mut list: Vec<Connection>, explicit: &[String]) -> Vec<Connection> {
     let group = |c: &Connection| {
-        if !c.default_for.is_empty() {
+        if !c.enabled {
+            4
+        } else if !c.default_for.is_empty() {
             0
         } else if c.kind != "api-key" && c.signed_in {
             1
@@ -480,6 +488,10 @@ pub(super) fn credential_plan(
     if !found.serves_cloud {
         return Err(RpcError::invalid_params(format!("{id} does not serve Cloud chats"))
             .with_data(json!({"reason": "connections.not_cloud", "id": id})));
+    }
+    if !found.enabled {
+        return Err(RpcError::invalid_params(format!("{id} is turned off"))
+            .with_data(json!({"reason": "connections.disabled", "id": id})));
     }
     let family = found.families.first().cloned().unwrap_or_default();
     let var = match (found.kind, found.provider.as_str()) {
@@ -853,6 +865,54 @@ mod tests {
 
     fn find<'a>(state: &'a Value, id: &str) -> &'a Value {
         state["connections"].as_array().unwrap().iter().find(|c| c["id"] == id).unwrap()
+    }
+
+    #[test]
+    fn every_connection_kind_turns_off_and_a_disabled_one_gets_no_credential() {
+        let d = dirs();
+        let token = secret_file(&d, "t", "sk-ant-oat01-x");
+        add_claude_token(Some(&d.routes), &d.home, &token, None).unwrap();
+        let plan = RouteFile {
+            name: Some("ChatGPT plan".into()),
+            kind: RouteKind::ChatgptPlan,
+            families: vec!["codex".into()],
+            anthropic_base_url: None,
+            openai_base_url: Some(chatgpt::RESOURCE.into()),
+            auth: None,
+            secret: None,
+            headers: Default::default(),
+            health_url: None,
+            fallback: vec![],
+            auto_fallback: false,
+            notes: None,
+            account_home: None,
+            shadow_of: None,
+            disabled: false,
+            provider: Some("openai".into()),
+        };
+        routes::add(Some(&d.routes), "chatgpt", &plan, false).unwrap();
+        for id in ["claude-token", "chatgpt", "claude-login"] {
+            let answer = accounts::set_for_test(Some(&d.routes), &d.home, id, Some(false));
+            assert_eq!(answer.unwrap()["enabled"], false, "{id}");
+            let s = state(Some(&d.routes), &d.home);
+            let c = find(&s, id);
+            assert_eq!(c["enabled"], false, "{id}");
+            assert_eq!(c["default_for"], json!([]), "{id} is nobody's default when off");
+            assert_eq!(
+                state_ids(&s).last().map(String::as_str),
+                Some(id),
+                "{id}: a turned-off connection sorts last"
+            );
+            if id != "claude-login" {
+                let e = credential_plan(Some(&d.routes), &d.home, id).unwrap_err();
+                assert_eq!(e.data.unwrap()["reason"], "connections.disabled", "{id}");
+            }
+            accounts::set_for_test(Some(&d.routes), &d.home, id, Some(true)).unwrap();
+            assert_eq!(find(&state(Some(&d.routes), &d.home), id)["enabled"], true, "{id}");
+        }
+        assert!(routes::bindings(&d.home).disabled_connections.is_empty());
+        // The switch of claude-login lives in the bindings, not a route file.
+        assert!(routes::find(Some(&d.routes), "claude-login").is_err());
     }
 
     #[test]
