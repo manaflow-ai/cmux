@@ -227,12 +227,18 @@
    sides (both apps); the cards' 12 radius (claude.ai 12). Was 8 by 12 with a 10 radius (38.75 tall).
    model.ts measures it. Its look is the glass rule below. */
 .cv-user__bubble {
-  --cv-bubble-pad-block: calc(2.5 * var(--grid-base));
-  --cv-bubble-pad-inline: calc(4 * var(--grid-base));
+  /* Codex's 10 px block padding, 16 at the sides and the 12 corner, at the chat's density text scale, so the
+     bubble keeps its proportions to its text at every density (Lucas 2026-11-13); model.ts userBubblePadding
+     mirrors it. */
+  /* The grid base already grows by the Interface Size scale (max(body, 14) / 14), so the bubble adds only what
+     the text scale has beyond it: below Default it shrinks with the text, above it the grid has already grown. */
+  --cv-bubble-scale: calc(var(--cmux-density-text-scale, 1) / var(--cmux-interface-scale, 1));
+  --cv-bubble-pad-block: calc(2.5 * var(--grid-base) * var(--cv-bubble-scale));
+  --cv-bubble-pad-inline: calc(4 * var(--grid-base) * var(--cv-bubble-scale));
   box-sizing: border-box;
   max-width: 70%;
   padding: var(--cv-bubble-pad-block) var(--cv-bubble-pad-inline);
-  border-radius: calc(3 * var(--grid-base));
+  border-radius: calc(3 * var(--grid-base) * var(--cv-bubble-scale));
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);

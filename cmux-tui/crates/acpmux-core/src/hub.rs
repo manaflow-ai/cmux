@@ -76,7 +76,7 @@ enum UpdateKey {
 #[derive(Default)]
 struct Pending {
     rows: HashMap<(RowKey, Source), PendingUpdate>,
-    controls: std::collections::BTreeMap<UpdateKey, PendingUpdate>,
+    controls: std::collections::BTreeMap<UpdateKey, std::collections::VecDeque<PendingUpdate>>,
 }
 
 impl Pending {
@@ -133,7 +133,27 @@ impl UpdateQueue {
                     REFUSED_ORIGINS.fetch_add(1, Ordering::Relaxed);
                     return Err(HubError::OriginLimit);
                 }
-                pending.controls.insert(key, update);
+                if let UpdateKey::Origin(origin) = &key
+                    && matches!(&update, PendingUpdate::Origin { record } if record.state == OriginState::Removed)
+                {
+                    pending.rows.retain(|(row, _), _| row.origin.as_ref() != origin.as_ref());
+                    let slot = pending.controls.entry(key).or_default();
+                    slot.clear();
+                    slot.push_back(update);
+                } else if let UpdateKey::Origin(_) = &key {
+                    let slot = pending.controls.entry(key).or_default();
+                    if slot.front().is_some_and(|update| matches!(update, PendingUpdate::Origin { record } if record.state == OriginState::Removed)) {
+                        slot.truncate(1);
+                        slot.push_back(update);
+                    } else {
+                        slot.clear();
+                        slot.push_back(update);
+                    }
+                } else {
+                    let slot = pending.controls.entry(key).or_default();
+                    slot.clear();
+                    slot.push_back(update);
+                }
             }
         }
         self.notify.notify_one();
@@ -155,8 +175,12 @@ impl UpdateQueue {
         let Ok(mut pending) = self.pending.lock() else { return Vec::new() };
         let mut batch = Vec::new();
         while batch.len() < limit {
-            let Some(control) = pending.controls.pop_first() else { break };
-            batch.push(control);
+            let Some((key, mut updates)) = pending.controls.pop_first() else { break };
+            let Some(update) = updates.pop_front() else { continue };
+            if !updates.is_empty() {
+                pending.controls.insert(key.clone(), updates);
+            }
+            batch.push((key, update));
         }
         let keys: Vec<_> = pending.rows.keys().take(limit - batch.len()).cloned().collect();
         batch.extend(keys.into_iter().filter_map(|key| {
@@ -806,6 +830,7 @@ impl Hub {
                 has_before: false,
                 has_after: false,
                 cold_unread: false,
+                deeper: Vec::new(),
                 before_key: None,
                 after_key: None,
                 missing,
@@ -866,6 +891,7 @@ impl Hub {
             has_before: page.has_before,
             has_after: page.has_after,
             cold_unread: page.cold_unread,
+            deeper: page.deeper.into_iter().map(wire_key).collect(),
             before_key: page.before_key.map(wire_key),
             after_key: page.after_key.map(wire_key),
             missing: Vec::new(),
@@ -941,8 +967,17 @@ impl HubWriter {
             )?;
             return Ok(event);
         }
-        self.check_source(source, &summary.origin)?;
         let current = self.published.load_full();
+        self.check_source(source, &summary.origin)?;
+        if summary.origin != "local"
+            && !self.origins.releasing
+            && self.origins.ended.contains_key(summary.origin.as_str())
+            && current
+                .origin(&summary.origin)
+                .is_some_and(|origin| origin.state == OriginState::Removed)
+        {
+            return Ok(SummaryEvent { seq: current.seq(), summary: Arc::new(summary) });
+        }
         // Latest wins even if an earlier version never reached the log.
         self.retry_log.remove(&key);
         if summary.origin != "local" && !summary.is_live() && current.get_row(&key).is_none() {
@@ -1032,6 +1067,16 @@ impl HubWriter {
             return Ok(false);
         }
         self.check_source(source, origin)?;
+        if !self.origins.releasing
+            && self.origins.ended.contains_key(origin)
+            && self
+                .published
+                .load()
+                .origin(origin)
+                .is_some_and(|record| record.state == OriginState::Removed)
+        {
+            return Ok(false);
+        }
         self.apply_remove(source, &key)
     }
 
