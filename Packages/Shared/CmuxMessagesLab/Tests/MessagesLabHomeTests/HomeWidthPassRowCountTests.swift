@@ -22,10 +22,16 @@ import Testing
 /// counts the rows each width step handed to measuring (`MessagesWindowView.widthRowsVisited`, a count of the view). What a person sees is
 /// checked too: every row on screen is at the transcript's width in every step, also after a scroll to the oldest row
 /// right after the drag, and when the width rests every loaded row is exact at that width.
+///
+/// The contract has two parts, and the suite reads both: a row on screen is at the transcript's width in EACH frame
+/// (a width step, a scroll in the drag, a change of the display scale, a scroll while a row fades), and ALL loaded
+/// rows are at that width, exact, after the width rests. A row no person can see may wait; a row on screen never.
 @MainActor @Suite(.serialized) struct HomeWidthPassRowCountTests {
     struct Drag {
         /// Rows handed to measuring, one entry per width step.
         var visited: [Int] = []
+        /// Width passes of each width step (every window view's count), and this view's passes near the viewport.
+        var passes: [Int] = [], nearPasses: [Int] = []
         /// Main-thread time of each width step (the pass, the layout and the Core Animation flush), ms.
         var ms: [Double] = []
         /// Rows on screen that were not at the transcript's width, summed over the steps.
@@ -37,43 +43,103 @@ import Testing
         var exactAtRest = false
     }
 
-    /// Rows on screen (the cells the list holds) whose width is not the transcript's.
+    /// Rows on screen (the cells the list holds) whose width is not the transcript's: the model's row of the cell, and
+    /// the row the cell itself last drew (`RowCell.spec`). A fading row (a ghost) is at its old place by design.
     static func shownAtOtherWidth(_ demo: MessagesWindowView) -> Int {
-        demo.collection.visibleCells
-            .compactMap { demo.collection.indexPath(for: $0) }
-            .compactMap { demo.model.rows[checked: $0.item] }
-            .filter { !$0.ghost && $0.spec.width != demo.bounds.width }
-            .count
+        demo.collection.visibleCells.filter { cell in
+            guard let row = demo.collection.indexPath(for: cell).flatMap({ demo.model.rows[checked: $0.item] }), !row.ghost else { return false }
+            if row.spec.width != demo.bounds.width { return true }
+            guard let drawn = (cell as? RowCell)?.spec, drawn.key == row.spec.key else { return false }
+            return drawn.width != demo.bounds.width
+        }.count
     }
 
-    /// A seeded transcript of `rows` rows in a 700 x 900 pt Home at its newest row, then 30 width steps of 4 pt, one
-    /// a frame (what a pane's key resize or a divider drag gives the Home), a scroll to the oldest row, and the rest.
-    func drag(rows: Int) async throws -> Drag {
+    /// Loaded rows (no ghost) at a width that is not the transcript's.
+    static func rowsAtOtherWidth(_ demo: MessagesWindowView) -> Int {
+        demo.model.rows.filter { !$0.ghost && $0.spec.width != demo.bounds.width }.count
+    }
+
+    /// A scroll of `dy` points the way AppKit makes it: the scroll view's clip view moves, and the bridge
+    /// (`TranscriptScrollView`) sets the list's offset and tells the window view (`userScrolled`). Negative: toward
+    /// the oldest row. Returns how far the list moved.
+    @discardableResult static func scroll(_ rig: HomeChatRig, _ demo: MessagesWindowView, by dy: CGFloat) -> CGFloat {
+        let scrollView = rig.view.controller.host.scrollView, clip = scrollView.contentView
+        let before = demo.collection.contentOffset.y
+        var to = clip.bounds
+        to.origin.y += dy
+        clip.scroll(to: clip.constrainBoundsRect(to).origin)
+        scrollView.reflectScrolledClipView(clip)
+        return demo.collection.contentOffset.y - before
+    }
+
+    /// The loaded row under the viewport's y `at` (points from the view's top) and that row's top there.
+    static func row(_ demo: MessagesWindowView, at y: CGFloat) -> (key: String, top: CGFloat)? {
+        for (i, row) in demo.model.rows.enumerated() where !row.ghost {
+            let top = demo.windowY(contentY: demo.layout.frame(for: i).minY)
+            if top <= y, y < top + row.spec.total { return (row.spec.key, top) }
+        }
+        return nil
+    }
+
+    /// Where the row `key` is in the viewport now.
+    static func top(_ demo: MessagesWindowView, of key: String) -> CGFloat? {
+        demo.model.index[key].map { demo.windowY(contentY: demo.layout.frame(for: $0).minY) }
+    }
+
+    /// A seeded transcript of `rows` rows in a 700 x 900 pt Home at its newest row, every row exact at 700 pt.
+    func seeded(rows: Int) async throws -> (rig: HomeChatRig, demo: MessagesWindowView) {
         let rig = try await HomeChatRig(history: 40, width: 700, height: 900)
-        defer { rig.stop() }
-        let seeded = await rig.store.debugSeed(HomeChatRig.conversation, rows: rows)
-        #expect(seeded, "the store took a seed of \(rows) rows")
-        let demo = try #require(rig.view.controller.demo)
+        let took = await rig.store.debugSeed(HomeChatRig.conversation, rows: rows)
+        #expect(took, "the store took a seed of \(rows) rows")
+        guard let demo = rig.view.controller.demo else { rig.stop(); throw Missing.view }
         for _ in 0..<2_000 where demo.model.liveCount < rows {
             rig.frame()
             try await Task.sleep(for: .milliseconds(1))
         }
-        try #require(demo.model.liveCount >= rows, "the Home shows the \(rows) seeded rows (it shows \(demo.model.liveCount))")
         // The rows at rest before the drag: exact at 700 pt (an estimated row waits for the off-main measure).
         for _ in 0..<20_000 where demo.model.rows.contains(where: { $0.spec.estimated }) {
             rig.frame()
             try await Task.sleep(for: .milliseconds(1))
         }
+        guard demo.model.liveCount >= rows, !demo.model.rows.contains(where: { $0.spec.estimated }) else {
+            Issue.record("the Home shows \(demo.model.liveCount) of \(rows) seeded rows, exact \(!demo.model.rows.contains(where: { $0.spec.estimated }))")
+            rig.stop()
+            throw Missing.seed
+        }
+        return (rig, demo)
+    }
+
+    enum Missing: Error { case view, seed }
+
+    /// Frames until every loaded row is exact at the transcript's width (the width rests: the off-main measure of
+    /// every loaded message, then the exact rows). False when that did not come.
+    func rest(_ rig: HomeChatRig, _ demo: MessagesWindowView) async throws -> Bool {
+        func exact() -> Bool { demo.model.rows.allSatisfy { $0.ghost || ($0.spec.width == demo.bounds.width && !$0.spec.estimated) } }
+        for _ in 0..<20_000 where !exact() {
+            rig.frame()
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        return exact()
+    }
+
+    /// A seeded transcript of `rows` rows in a 700 x 900 pt Home at its newest row, then 30 width steps of 4 pt, one
+    /// a frame (what a pane's key resize or a divider drag gives the Home), a scroll to the oldest row, and the rest.
+    func drag(rows: Int) async throws -> Drag {
+        let (rig, demo) = try await seeded(rows: rows)
+        defer { rig.stop() }
 
         var out = Drag()
         out.loadedRows = demo.model.liveCount
         var width: CGFloat = 700
         for _ in 0..<30 {
             width -= 4
-            let visited = demo.widthRowsVisited, t0 = CACurrentMediaTime()
+            let visited = demo.widthRowsVisited, passes = MessagesWindowView.widthPasses, near = demo.widthPassesNearViewport
+            let t0 = CACurrentMediaTime()
             rig.resize(width: width)
             out.ms.append((CACurrentMediaTime() - t0) * 1000)
             out.visited.append(demo.widthRowsVisited - visited)
+            out.passes.append(MessagesWindowView.widthPasses - passes)
+            out.nearPasses.append(demo.widthPassesNearViewport - near)
             out.shownAtOtherWidth += Self.shownAtOtherWidth(demo)
         }
         // The person scrolls to the oldest row at once (no turn of the main queue since the last step, so the exact
@@ -83,16 +149,14 @@ import Testing
         rig.frame()
         out.shownAtOtherWidthAfterScroll = Self.shownAtOtherWidth(demo)
         // The width rests: every loaded row is measured off main and the exact rows are installed.
-        func exact() -> Bool { demo.model.rows.allSatisfy { $0.ghost || ($0.spec.width == demo.bounds.width && !$0.spec.estimated) } }
-        for _ in 0..<20_000 where !exact() {
-            rig.frame()
-            try await Task.sleep(for: .milliseconds(1))
-        }
-        out.exactAtRest = exact()
+        out.exactAtRest = try await rest(rig, demo)
         let sorted = out.ms.sorted()
         func p(_ q: Double) -> Double { sorted.isEmpty ? 0 : sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * q).rounded()))] }
         print(String(format: "HOMEWIDTHPASS rows %d loaded %d visited per step min %d max %d step ms p50 %.2f p95 %.2f max %.2f",
                      rows, out.loadedRows, out.visited.min() ?? 0, out.visited.max() ?? 0, p(0.5), p(0.95), sorted.last ?? 0))
+        // The rig's width step sets the view's frame and the window's content size: the passes of one step are counted.
+        print("HOMEWIDTHPASS rows \(rows) width passes per step min \(out.passes.min() ?? 0) max \(out.passes.max() ?? 0)"
+              + ", of them near the viewport min \(out.nearPasses.min() ?? 0) max \(out.nearPasses.max() ?? 0)")
         return out
     }
 
@@ -114,6 +178,124 @@ import Testing
         #expect(d.shownAtOtherWidthAfterScroll == 0,
                 "\(d.shownAtOtherWidthAfterScroll) rows on screen were at another width after a scroll to the oldest row")
         #expect(d.exactAtRest, "when the width rests every loaded row is exact at the transcript's width")
+    }
+
+    /// A scroll of 3 screens DURING the width change (the lead's case, 2026-11-13): each row on screen is at the
+    /// transcript's width in that same frame, and the row under a fixed point of the viewport does not jump when the
+    /// far rows take their size at rest. The bar of the jump is half a device pixel (the bar of cmux#41446).
+    @Test func aScrollDuringTheWidthChangeShowsEveryRowAtTheTranscriptWidthAndNoJumpAtRest() async throws {
+        let (rig, demo) = try await seeded(rows: 500)
+        defer { rig.stop() }
+        var width: CGFloat = 700, shown = 0, scrolled: CGFloat = 0
+        for step in 0..<30 {
+            width -= 4
+            let scrolls = (10..<20).contains(step)
+            // In one frame the scroll comes before the width change, in the next one after it.
+            if scrolls, step % 2 == 0 { scrolled += Self.scroll(rig, demo, by: -270) }
+            rig.resize(width: width)
+            if scrolls, step % 2 == 1 {
+                scrolled += Self.scroll(rig, demo, by: -270)
+                rig.frame()
+            }
+            shown += Self.shownAtOtherWidth(demo)
+        }
+        try #require(scrolled <= -2_690, "the scroll went 3 screens toward the oldest row (it went \(scrolled) pt)")
+        #expect(shown == 0, "\(shown) rows on screen were at another width in a drag with a scroll")
+        // The far rows are still at their older widths: they take their size at rest.
+        let stale = Self.rowsAtOtherWidth(demo)
+        try #require(stale > 0, "rows far from the viewport wait for the rest (\(stale) at an older width)")
+        let fixed = demo.bounds.height / 2
+        let under = try #require(Self.row(demo, at: fixed), "a row is under the middle of the viewport")
+        let height = demo.layout.contentHeight
+        let rested = try await rest(rig, demo)
+        #expect(rested, "when the width rests every loaded row is exact at the transcript's width")
+        let after = try #require(Self.top(demo, of: under.key), "the row under the fixed point is still loaded")
+        let jump = abs(after - under.top) * demo.renderScale
+        print(String(format: "HOMEWIDTHPASS scroll in drag: scrolled %.0f pt, rows at an older width before the rest %d, content height %.1f -> %.1f pt, "
+                     + "jump of the row under the viewport's middle at the rest %.3f px (scale %.0f)",
+                     scrolled, stale, height, demo.layout.contentHeight, jump, demo.renderScale))
+        #expect(jump <= 0.5, "the row under the viewport's middle jumped \(jump) px when the far rows took their size")
+        #expect(Self.shownAtOtherWidth(demo) == 0)
+    }
+
+    /// A drag in a Home scrolled 3 screens up (the first visible row is the anchor, not the newest row): every row
+    /// on screen is at the transcript's width in each step, and the first visible row keeps its place.
+    @Test func aDragInAScrolledUpHomeKeepsTheFirstVisibleRowInPlace() async throws {
+        let (rig, demo) = try await seeded(rows: 500)
+        defer { rig.stop() }
+        let scrolled = Self.scroll(rig, demo, by: -2_700)
+        rig.frame()
+        try #require(scrolled <= -2_690, "the scroll went 3 screens toward the oldest row (it went \(scrolled) pt)")
+        var width: CGFloat = 700, shown = 0, worst: CGFloat = 0, visited: [Int] = []
+        for _ in 0..<30 {
+            width -= 4
+            let key = try #require(demo.firstVisibleKey), before = try #require(Self.top(demo, of: key))
+            let count = demo.widthRowsVisited
+            rig.resize(width: width)
+            visited.append(demo.widthRowsVisited - count)
+            shown += Self.shownAtOtherWidth(demo)
+            worst = max(worst, abs((Self.top(demo, of: key) ?? .infinity) - before) * demo.renderScale)
+        }
+        print(String(format: "HOMEWIDTHPASS scrolled-up drag: visited per step min %d max %d, first visible row moved at most %.3f px",
+                     visited.min() ?? 0, visited.max() ?? 0, worst))
+        #expect(shown == 0, "\(shown) rows on screen were at another width in a drag of a scrolled-up Home")
+        #expect(worst <= 0.5, "the first visible row moved \(worst) px in a width step")
+        #expect((visited.max() ?? 0) < demo.model.liveCount / 4, "a width step measured \(visited.max() ?? 0) of \(demo.model.liveCount) loaded rows")
+        let rested = try await rest(rig, demo)
+        #expect(rested, "when the width rests every loaded row is exact at the transcript's width")
+    }
+
+    /// The display scale changes (the window goes to another display, a zoom change) while rows far from the viewport
+    /// are still at an older width: the rows on screen stay at the transcript's width.
+    @Test func aScaleChangeBeforeTheRestKeepsEveryRowOnScreenAtTheTranscriptWidth() async throws {
+        let (rig, demo) = try await seeded(rows: 500)
+        defer { rig.stop() }
+        var width: CGFloat = 700
+        for _ in 0..<30 {
+            width -= 4
+            rig.resize(width: width)
+        }
+        try #require(Self.rowsAtOtherWidth(demo) > 0, "rows far from the viewport wait for the rest")
+        try #require(Self.shownAtOtherWidth(demo) == 0)
+        // The scale is also the process fallback (`Fixture.renderScale`): the suites after this one get it back.
+        let scale = demo.renderScale
+        defer { demo.setRenderScale(scale) }
+        demo.setRenderScale(scale == 2 ? 1 : 2)
+        let shown = Self.shownAtOtherWidth(demo), loaded = Self.rowsAtOtherWidth(demo)
+        print("HOMEWIDTHPASS scale change before the rest: rows on screen at another width \(shown), loaded rows at another width \(loaded)")
+        #expect(shown == 0, "\(shown) rows on screen were at another width after a scale change")
+        // A scale change measures every loaded row again (their heights end on the new device pixels): at this width.
+        #expect(loaded == 0, "\(loaded) loaded rows were measured at another width for the new scale")
+        let rested = try await rest(rig, demo)
+        #expect(rested, "when the width rests every loaded row is exact at the transcript's width")
+    }
+
+    /// A scroll while a row fades (the typing row that went away is a ghost for a moment), before the width rests:
+    /// the rows the scroll brings on screen are at the transcript's width.
+    @Test func aScrollWhileARowFadesShowsEveryRowAtTheTranscriptWidth() async throws {
+        let (rig, demo) = try await seeded(rows: 500)
+        defer { rig.stop() }
+        var width: CGFloat = 700
+        for _ in 0..<30 {
+            width -= 4
+            rig.resize(width: width)
+        }
+        // The Chief types and stops: the typing row that goes away fades (a ghost until the view's next cleanup).
+        rig.store.handle(.typing(HomeChatRig.conversation, rig.chief, on: true))
+        rig.frame()
+        rig.store.handle(.typing(HomeChatRig.conversation, rig.chief, on: false))
+        rig.frame()
+        try #require(demo.model.hasGhosts, "the typing row fades (a ghost is in the model)")
+        try #require(Self.rowsAtOtherWidth(demo) > 0, "rows far from the viewport wait for the rest")
+        // To the oldest row at once, as the first test does, with the ghost still in the model.
+        let scrolled = Self.scroll(rig, demo, by: -(demo.collection.contentOffset.y - demo.minOffset))
+        rig.frame()
+        try #require(scrolled < -2_700, "the scroll went to rows the drag did not measure (it went \(scrolled) pt)")
+        let shown = Self.shownAtOtherWidth(demo)
+        print("HOMEWIDTHPASS scroll while a row fades: scrolled \(scrolled) pt, ghosts \(demo.model.hasGhosts), rows on screen at another width \(shown)")
+        #expect(shown == 0, "\(shown) rows on screen were at another width after a scroll while a row faded")
+        let rested = try await rest(rig, demo)
+        #expect(rested, "when the width rests every loaded row is exact at the transcript's width")
     }
 }
 #endif

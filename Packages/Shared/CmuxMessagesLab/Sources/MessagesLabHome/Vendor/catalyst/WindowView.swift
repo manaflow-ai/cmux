@@ -615,6 +615,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// cmux: rows that width passes handed to measuring (bench and test evidence, HomeWidthPassRowCountTests): for a
     /// width change it follows the rows near the viewport, not the loaded rows.
     private(set) var widthRowsVisited = 0
+    /// cmux: this view's width passes that measured only the rows near the viewport (`widthPassNearViewport`; test
+    /// evidence: which tests of a width change go that way and which go through the pass over every loaded row).
+    private(set) var widthPassesNearViewport = 0
     /// cmux: a width pass near the viewport left rows outside it at an older width (`widthPassNearViewport`); false
     /// again once every row is at this view's width (a whole pass, or `measureWindow`'s exact rows).
     private(set) var staleWidthRows = false
@@ -811,6 +814,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         }
         guard model.remeasure(from: span.lowerBound, specs) else { return false }
         widthRowsVisited += specs.count
+        widthPassesNearViewport += 1
         collection.reloadData()
         staleWidthRows = staleWidthRows || specs.count < model.count
         if staleWidthRows || specs.contains(where: \.estimated) { measureWhenSettled() }
