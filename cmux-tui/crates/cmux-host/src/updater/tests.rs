@@ -2270,7 +2270,7 @@ impl first_ready::Io for FirstIo {
         self.reads += 1;
         (self.read)()
     }
-    fn download(&mut self, bin: &channel::Binary, to: &Path) -> Result<(), String> {
+    fn download(&mut self, bin: &Binary, to: &Path) -> Result<(), String> {
         let (_, bytes) =
             self.files.iter().find(|(sha, _)| *sha == bin.sha256).ok_or("no such file")?;
         fs::write(to, bytes).map_err(|e| e.to_string())
@@ -2431,7 +2431,7 @@ fn first_ready_cost_from_the_production_channel() {
                 role::now(),
             )
         }
-        fn download(&mut self, bin: &channel::Binary, to: &Path) -> Result<(), String> {
+        fn download(&mut self, bin: &Binary, to: &Path) -> Result<(), String> {
             role::fetch(&bin.url, bin.size, Some(to)).map(drop)
         }
         fn arm_guard(&mut self, _: &Pending) -> Result<(), String> {

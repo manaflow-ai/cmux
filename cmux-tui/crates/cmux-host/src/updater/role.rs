@@ -423,9 +423,9 @@ thread_local! {
     static WORKER_GENERATION: Cell<Option<u64>> = const { Cell::new(None) };
 }
 
-/// The deadline of the step this thread runs ([`within`]): a GET still running at
-/// it is killed.
 thread_local! {
+    /// The deadline of the step this thread runs ([`within`]): a GET still running
+    /// at it is killed.
     static DEADLINE: Cell<Option<Instant>> = const { Cell::new(None) };
 }
 
