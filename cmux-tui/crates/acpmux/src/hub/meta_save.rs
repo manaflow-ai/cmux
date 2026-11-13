@@ -81,6 +81,9 @@ struct WriterState {
     kept: u64,
     /// The target of the newest copy saved durable.
     synced: u64,
+    /// The last successful save, or the value read from the store before startup repairs.
+    /// Versions count commits, so alone they miss direct changes such as log catch-up.
+    saved: Option<SessionMeta>,
 }
 
 /// Whether a commit waits for its version to be durable.
@@ -91,6 +94,20 @@ pub(super) enum Wait {
 }
 
 impl MetaWriter {
+    pub(super) fn note_saved(&self, meta: SessionMeta) {
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).saved = Some(meta);
+    }
+
+    /// A writer in flight must get a later version even if memory matches the last save:
+    /// its older copy may differ from a change made and then taken back meanwhile.
+    /// Successful kept copies are synced by the final store flush, without another save.
+    pub(super) fn needs_flush(&self, session: &Session) -> bool {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.writing
+            || state.requested > state.durable
+            || !state.saved.as_ref().is_some_and(|saved| session.read_meta(|meta| meta == saved))
+    }
+
     /// Takes the next version for the change the caller just made, and commits it: as the
     /// writer, when none is at work; else it waits for the writer (`Wait::Durable`) or returns
     /// (`Wait::No`). `write` copies the metadata and writes the copy.
@@ -324,10 +341,17 @@ impl Hub {
 
     /// The commit of the change just made to `session`'s metadata (module text).
     fn commit_meta(&self, session: &Session, wait: Wait, keep: ShowAfter) -> Result<()> {
-        // A metadata change can affect another closed row too (for example a child's count in its
-        // parent). Mark every cached projection stale before the writer is scheduled; the next
-        // full build then observes the in-memory change even while this write is queued.
-        self.events.summary_generation.fetch_add(1, Ordering::SeqCst);
+        // Mark the cached rows the change may reach stale before the writer is scheduled; the
+        // next full build then observes the in-memory change even while this write is queued.
+        // Its own row always. Every row only when what other rows read of it changed (whether it
+        // is a listed parent, its lineage: `views::parent_print_of`); a child's count in its
+        // parent follows the status (`subsessions.generation`). Before, every commit (each turn's
+        // end, title and usage) rebuilt every closed row on the next list: ~3,000 of them.
+        let print = session.read_meta(super::views::parent_print_of);
+        if session.parent_print.swap(print, Ordering::SeqCst) != print {
+            self.events.summary_generation.fetch_add(1, Ordering::SeqCst);
+        }
+        session.summary_gen.fetch_add(1, Ordering::SeqCst);
         session.meta_writer.commit_as(wait, keep, &|keep| self.write_snapshot(session, keep))
     }
 
@@ -360,6 +384,9 @@ impl Hub {
             ShowAfter::Durable => self.store.save(&meta),
             ShowAfter::Written => self.store.save_kept(&meta),
         };
+        if saved.is_ok() {
+            session.meta_writer.note_saved(meta);
+        }
         // The purge ran between the check and the save: delete it again.
         if session.purged.load(Ordering::SeqCst)
             && let Err(e) = self.store.delete(&session.id)

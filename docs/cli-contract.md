@@ -86,6 +86,21 @@ names) with `tab`, `url`, `confirm` (the tab still asks for Connect),
 stream's state, mode and frame counts). It carries no credential and no
 screen content. Connect and Take over stay the person's clicks in the pane.
 
+`app chat perf --tab <tab> [--seconds <1-60>]` works with every build: the
+app's `agent.chat.perf` runs the chat page's own capture for that many
+seconds (default 5) and returns `{tab, seconds, duration_ms, measured,
+unmeasured_reason, visibility, frames, long_tasks, layout_shift, records}`:
+frame intervals (p50/p95/p99/max, frames over 33 and 50 ms), long animation
+frames (or long tasks) with their top scripts' invoker and URL, non-input
+layout shift, and for each record the selected chat receives, its time from
+arrival to the first painted frame and its apply time, by kind (`tool_call`,
+`tool_call_update`, `agent_message_chunk`, `other`, `all`). It never focuses,
+selects, shows or un-occludes the tab; a hidden or covered page draws no
+frames, so `measured` is false with `unmeasured_reason` `page_hidden` or
+`no_frames`. Nothing in the page measures outside a capture. A tab that is
+not an agent chat is `invalid_params`; a chat whose page this launch never
+made is `unavailable`.
+
 `app machines [--no-refresh]` works with every build: it reads the app's
 `machine.list`, the right sidebar's Machines section as the person sees it,
 `{machines: [{id, name, kind, isLocal, linkState, online, serverState,
@@ -149,9 +164,10 @@ English only). Results go to stdout and diagnostics to stderr.
 | Exit | Meaning |
 | --- | --- |
 | 0 | Success. |
-| 1 | Operation failure (the request ran and failed, or `screen wait` or `agents wait` timed out). |
+| 1 | Operation failure (the request ran and failed). |
 | 2 | Usage error (`usage.invalid`). |
 | 3 | Transport failure (no session or app socket, unreachable, broken reply). |
+| 124 | A wait timed out: `screen wait`, `process wait`, `wait --until`, `send --wait`, `run`, `agents wait`, `status wait`. Its result says `timed_out: true`. On a Cloud machine, a timed-out `process wait` exits 124 only for a caller that sets `CMUX_CALLER_READS_WAIT_124=1` (the current guest adapter does); for any other it still exits 0 and says `timed_out: true`, so an older adapter keeps working. |
 
 `cmux acp` keeps acpmux's own exit codes (for example `acp wait` exits 2 when a
 permission is waiting and 3 on timeout).
@@ -428,9 +444,14 @@ modifiers `ctrl`, `alt` (or `option`), `shift`; keys `enter`, `tab`, `backtab`,
 `home`, `end`, `pageup`, `pagedown`, `space`, `f1` to `f24`, or one character.
 Example: `cmux terminal current keys ctrl+c enter`.
 
-`screen wait` prints its result either way and exits 1 when the timeout passes
-without a match. `cmux agents wait` does the same: it prints its receipt
-(`matched: false`) and exits 1 when its timeout passes.
+Every wait prints its result either way, and a wait whose timeout passed says
+`timed_out: true` and exits 124, as timeout(1) does; exit 0 means the wait
+ended for its own reason. `screen wait` answers `matched: false`, `timed_out:
+true` and `waited_ms` when the timeout passes without a match. `process wait`
+answers `outcome` once the process ends (exit 0, whatever the process's own
+code), and `state: "pending"`, `timed_out: true` and `waited_ms` when it still
+runs at the timeout. `cmux agents wait` prints its receipt (`matched: false`,
+`timed_out: true`) and exits 124 when its timeout passes.
 
 `wait --until prompt` returns when the shell sits at its prompt (`extra.prompt`,
 from OSC 133 shell integration); `--until idle` when no plain command runs, no
@@ -458,9 +479,8 @@ turn finished and nobody has viewed the terminal yet, `working`, `idle`,
 Blocked agents sort first, then done, working, idle, unknown and ended.
 Listing never clears `done`; viewing the tab in a client does. `--json` prints
 `[{terminal, harness, status, state, title, workspace_id, workspace, cwd,
-updated_at_ms, age_ms, source}]`: `status` is the word above (`null` for an
-ended session) and `state` is a deprecated alias that has the same word
-(`ended` for an ended session).
+updated_at_ms, age_ms, source}]`: `status` is the word above (`ended` for an
+ended session) and `state` is a deprecated alias that has the same word.
 
 Each `list --agents` row also has `name` (the tab's name when it is an agent
 name, see `cmux agent start`), `tab_id`, `tab_name`, `pane_id` and
@@ -489,7 +509,9 @@ wait ended idle (`reply_source: "hook"`); else it is `output`
 (`reply_source: "screen"`). `status` is the word `list --agents` says for the same
 turn: `idle`, `done` (the turn finished and the terminal has an unread
 notification), `blocked`, `working` (the wait timed out) or `ended` (the
-program exited); `state` is the wait's own word (`idle`, `blocked`, `working`,
+program exited), from a session read after the wait (tried twice; when both
+reads fail, a finished turn says `unknown`, never an older read's word); `state`
+is the wait's own word (`idle`, `blocked`, `working`,
 `exited`). `--timeout` (default 5m) exits 124 with the output so far. A
 terminal whose agent waits on a dialog is refused (`agent.waiting_for_input`)
 unless `--force`, because the text would answer the dialog. The MCP tools
@@ -545,17 +567,23 @@ cmux agent plugin use --builtin
 chats created in its workspaces (`--all-sessions` for every session and every
 chat on the machine). Each row's `status` is the word `terminal list --agents`
 uses: `blocked`, `done` (idle with an unread notification), `working`, `idle`,
-`unknown`, or null for an ended session; `state` is a deprecated alias with
-the same word (`ended` for an ended session), and an acpmux chat's own status
-is `acp_status`. The CLI does not list an ended agent of a terminal that
-closed; `--state ended` shows those rows too. `--state` takes those words and
+`unknown`, or `ended` for an ended session (as in the `send` receipt; it was
+null); `state` is a deprecated alias with the same word, and an acpmux chat's
+own status is `acp_status`. A terminal that closed has no agent: the daemon
+deletes the agent record with the terminal, so no output lists it, `--state
+ended` included (the ended chat stays in `cmux history list --kind agent`).
+The CLI still leaves out an ended agent whose terminal the snapshot does not
+have (a daemon of an older build kept the records of closed terminals);
+`--state ended` shows those rows too, and the text output ends with a line
+that says how many rows it left out. `--state` takes those words and
 `ended` (`--state done` selected ended sessions before; that is `--state ended`
 now). It puts blocked agents first, then done, working, idle, unknown and
 ended (`--sort recent|none` for recency or the daemon's order). `agent report --state ended` reports a session
 that ended (`--state done` is an old alias of it), and its record says
 `ended`. `--json` stays
 a bare array of agents; `--json --counts` adds the counts by status, `ended` and
-`total` (`{"agents": [...], "counts": {...}}`).
+`total`, and `hidden_ended`, the ended agents it left out
+(`{"agents": [...], "counts": {...}, "hidden_ended": 0}`).
 
 Hook providers are `codex`, `claude` (also `claude-code`), `gemini`, `opencode`
 and `pi`. `hook emit` reads the native payload from stdin when

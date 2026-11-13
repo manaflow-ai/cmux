@@ -7,6 +7,7 @@
 // owner and the per-row refusals. Components read both through useSettingsState (context.ts).
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+import { userMessage } from "../shared/userMessage";
 import { AppearanceHistory, diff, type HistoryEntry, type TargetState } from "./appearanceHistory";
 import { type AppearancePreset, presetTargets } from "./appearancePresets";
 import {
@@ -37,8 +38,10 @@ import { rowsByKey } from "./schema";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { t } from "./strings";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
+import { readRecipe, readSetupReply, type ResolvedWorktreeRecipe, type WorktreeRecipe } from "../../worktreeRecipe";
 import {
   errorCode,
+  newIdempotencyKey,
   wireError,
   type AccountsRun,
   type AccountsState,
@@ -70,7 +73,29 @@ import {
   type SettingsStreams,
   type WireError,
   type WorkspaceBackground,
+  SETTINGS_SENTENCES,
 } from "./ops";
+
+/** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
+export type WorktreeProject = { path: string; name: string; saved?: WorktreeRecipe };
+
+/** `project.list`'s projects that are still on disk, as the card lists them. */
+export function readWorktreeProjects(value: unknown): WorktreeProject[] {
+  const list = (value as { projects?: unknown } | null)?.projects;
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((item): WorktreeProject[] => {
+    const project = item as { path?: unknown; name?: unknown; state?: unknown; overlay?: { worktree?: unknown } };
+    if (typeof project.path !== "string" || !project.path || project.state === "missing") return [];
+    const name = typeof project.name === "string" && project.name ? project.name : project.path;
+    const saved = project.overlay?.worktree;
+    return [{ path: project.path, name, ...(saved && typeof saved === "object" ? { saved: readRecipe(saved) } : {}) }];
+  });
+}
+
+/** A refusal that means this build has no route for the op (not a failure of the op itself). */
+export function isUnsupported(error: WireError): boolean {
+  return /(^|\.)(unknown_op|unsupported|operation\.unsupported)$/.test(error.code);
+}
 
 /** A refused write: `message` is a page string; `detail` is the owner's own (English) text. */
 export type RowError = { code: string; message: string; detail?: string };
@@ -91,6 +116,8 @@ export type SettingsState = {
   domains: Domains;
   /** Spaces, machines and browser profiles; null until read, or when the host has none. */
   host: HostLists | null;
+  /** The host lists' first read finished, with data or with an error (then `host` stays null). */
+  hostSettled: boolean;
   /** The Accounts part; null until read, or when the host has none. */
   accounts: AccountsState | null;
   /** The Harnesses part (Settings > Agents); null until read, or when the host has none. */
@@ -110,6 +137,8 @@ export type CacheView = {
   /** The scope's first read finished (data or error). */
   scopeSettled: boolean;
   host: HostData | undefined;
+  /** The host lists' first read finished (data or error). */
+  hostSettled?: boolean;
   accounts: AccountsData | undefined;
   harnesses?: HarnessesData | undefined;
   devices?: DevicesData | undefined;
@@ -153,6 +182,7 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     errors: ui.errors,
     domains: scope?.domains ?? emptyDomains,
     host: cache.host ?? null,
+    hostSettled: cache.host !== undefined || (cache.hostSettled ?? false),
     accounts: cache.accounts ?? null,
     harnesses: cache.harnesses ?? null,
     devices: cache.devices ?? null,
@@ -233,6 +263,14 @@ export class SettingsStore {
         this.queryClient.setQueriesData<ChannelsState | null>(
           { queryKey: [...settingsKeys.all, "channels"] },
           (state) => (state ? { ...state, machines } : state),
+        ),
+      ),
+      // A Switch or Go Back's stages (downloading, checking, restarting) move every channel's read,
+      // so the card shows where it is however it was started.
+      this.listen("cmux.settings.channels.switch.changed", (progress) =>
+        this.queryClient.setQueriesData<ChannelsState | null>(
+          { queryKey: [...settingsKeys.all, "channels"] },
+          (state) => (state ? { ...state, progress } : state),
         ),
       ),
       this.listen("cmux.page.command", (event) => {
@@ -611,7 +649,7 @@ export class SettingsStore {
   async runAccounts(run: AccountsRun): Promise<string | null> {
     const reply = await this.request("cmux.settings.accounts.run", run);
     await this.refreshAccounts();
-    if (!reply.ok) return reply.error.message;
+    if (!reply.ok) return userMessage(reply.error, SETTINGS_SENTENCES);
     return reply.value.error ?? null;
   }
 
@@ -631,21 +669,21 @@ export class SettingsStore {
   /** Settings > Updates' Go Back: the app restarts into the kept build; else the host's reason. */
   async channelsGoBack(ring: string, build: string): Promise<string | null> {
     const reply = await this.request("cmux.settings.channels.go_back", { ring, build });
-    return reply.ok ? null : reply.error.message;
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
   /** A build row's Switch in Settings > Updates' Channels card; answers the host's refusal, else
    * null (success quits the app into that build). */
   async channelsSwitchBuild(build: string): Promise<string | null> {
     const reply = await this.request("cmux.settings.channels.switch_build", { build });
-    return reply.ok ? null : reply.error.message;
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
   /** The Update button of a machine in Settings > Updates' row of other machines; answers the
    * host's refusal, else null (the row's push then shows it updating). */
   async channelsUpdateMachine(id: string): Promise<string | null> {
     const reply = await this.request("cmux.settings.channels.update_machine", { id });
-    return reply.ok ? null : reply.error.message;
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
   /** Settings > Agents' state; null when the host has no Agents part. */
@@ -694,13 +732,43 @@ export class SettingsStore {
     return reply.ok ? reply.value : null;
   }
 
+  /** Settings > Agents > Worktree Setup: the session host's projects with their saved recipes,
+   * or the host's refusal (a build whose page relay does not reach `project.list`). */
+  async worktreeProjects(): Promise<{ projects: WorktreeProject[]; error: string | null; unavailable: boolean }> {
+    const reply = await this.request("cmux.settings.worktree.list", { limit: 200 });
+    if (!reply.ok)
+      return {
+        projects: [],
+        error: userMessage(reply.error, SETTINGS_SENTENCES),
+        unavailable: isUnsupported(reply.error),
+      };
+    return { projects: readWorktreeProjects(reply.value), error: null, unavailable: false };
+  }
+
+  /** The recipe a new worktree of the project at `path` gets, and what each source says. */
+  async worktreeRecipe(path: string): Promise<{ recipe: ResolvedWorktreeRecipe | null; error: string | null }> {
+    const reply = await this.request("cmux.settings.worktree.read", { path });
+    if (!reply.ok) return { recipe: null, error: userMessage(reply.error, SETTINGS_SENTENCES) };
+    return { recipe: readSetupReply(reply.value)?.recipe ?? null, error: null };
+  }
+
+  /** Saves the project's own recipe (null clears it); the host's failure text, else null. */
+  async saveWorktreeRecipe(path: string, worktree: WorktreeRecipe | null): Promise<string | null> {
+    const reply = await this.request("cmux.settings.worktree.save", {
+      path,
+      worktree,
+      idempotency_key: newIdempotencyKey(),
+    });
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+  }
+
   /** One Cloud Environments gesture, then the fresh state; the host's failure text, else null. */
   async runEnvironments(
     run: CloudEnvironmentsRun,
   ): Promise<{ state: CloudEnvironmentsState | null; error: string | null }> {
     const reply = await this.request("cmux.settings.environments.run", run);
     const state = await this.environments();
-    if (!reply.ok) return { state, error: reply.error.message };
+    if (!reply.ok) return { state, error: userMessage(reply.error, SETTINGS_SENTENCES) };
     return { state, error: reply.value?.error ?? null };
   }
 
@@ -725,7 +793,7 @@ export class SettingsStore {
     let error: string | null = null;
     for (const id of ids) {
       const reply = await this.request("cmux.settings.shares.revoke", { share_id: id });
-      if (!reply.ok) error ??= reply.error.message;
+      if (!reply.ok) error ??= userMessage(reply.error, SETTINGS_SENTENCES);
     }
     return error;
   }
@@ -735,7 +803,7 @@ export class SettingsStore {
   async runDevices(run: DevicesRun): Promise<DevicesRunResult> {
     const reply = await this.request("cmux.settings.devices.run", run);
     await this.refreshDevices();
-    if (!reply.ok) return { error: reply.error.message, ok: false };
+    if (!reply.ok) return { error: userMessage(reply.error, SETTINGS_SENTENCES), ok: false };
     return reply.value ?? {};
   }
 
@@ -769,10 +837,12 @@ export class SettingsStore {
   /** The cache as the page composes it, read outside React (keyboard commands, tests). */
   cacheView(): CacheView {
     const scopeState = this.queryClient.getQueryState(settingsKeys.scope("user"));
+    const hostState = this.queryClient.getQueryState(settingsKeys.host);
     return {
       scope: this.queryClient.getQueryData<ScopeData>(settingsKeys.scope("user")),
       scopeSettled: scopeState !== undefined && scopeState.status !== "pending",
       host: this.queryClient.getQueryData<HostData>(settingsKeys.host),
+      hostSettled: hostState !== undefined && hostState.status !== "pending",
       accounts: this.queryClient.getQueryData<AccountsData>(settingsKeys.accounts),
       harnesses: this.queryClient.getQueryData<HarnessesData>(settingsKeys.harnesses),
       devices: this.queryClient.getQueryData<DevicesData>(settingsKeys.devices),
@@ -791,6 +861,7 @@ export class SettingsStore {
       last.cache.scope === cache.scope &&
       last.cache.scopeSettled === cache.scopeSettled &&
       last.cache.host === cache.host &&
+      last.cache.hostSettled === cache.hostSettled &&
       last.cache.accounts === cache.accounts &&
       last.cache.harnesses === cache.harnesses &&
       last.cache.devices === cache.devices &&

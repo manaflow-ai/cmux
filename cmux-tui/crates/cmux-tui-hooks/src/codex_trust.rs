@@ -567,52 +567,12 @@ pub(super) fn commit_codex_trust_state(write: &PreparedCodexTrustWrite) -> anyho
     }
 }
 
-/// The advisory lock every cmux writer of a codex config.toml takes for its
-/// read-modify-rename: this installer and the Cloud devbox shell-start merge
-/// (web/services/vms/images/devbox/agent-config.sh, which flocks the same
-/// file name in the same directory). Without it, two writers that each re-read
-/// before their rename can still drop the other's keys (the provider block or
-/// the hook trust state) in the window between read and rename.
-const CODEX_CONFIG_LOCK_FILE: &str = "config.toml.cmux-lock";
+/// The lock every cmux writer of a codex config.toml takes for its read-modify-rename
+/// (`cmux_tui_platform::codex_config_lock`): this installer, `acpmux desktop link` and the Cloud
+/// devbox shell-start merge.
+const CODEX_CONFIG_LOCK_FILE: &str = cmux_tui_platform::codex_config_lock::LOCK_FILE;
 
-/// How long the installer waits for another writer's lock. The shell-start
-/// holders keep it for one bounded read and rename and give up after 5 s, but
-/// a stopped or hung holder must not stall an install forever.
-const CODEX_CONFIG_LOCK_WAIT: Duration = Duration::from_secs(15);
-
-/// Returns once this process holds `lock_path` exclusively, or `None` when it
-/// cannot: a directory that refuses the lock file, a filesystem without flock,
-/// or a holder that keeps it past `CODEX_CONFIG_LOCK_WAIT`. The write then
-/// goes ahead unlocked, as before the lock existed, instead of failing or
-/// hanging the install; the commit's own re-read still guards that case.
-#[cfg(unix)]
-fn lock_codex_config(lock_path: &Path) -> Option<fs::File> {
-    use std::os::unix::fs::OpenOptionsExt as _;
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .custom_flags(libc::O_CLOEXEC)
-        .open(lock_path)
-        .ok()?;
-    let deadline = Instant::now() + CODEX_CONFIG_LOCK_WAIT;
-    loop {
-        match file.try_lock() {
-            Ok(()) => return Some(file),
-            Err(fs::TryLockError::WouldBlock) if Instant::now() < deadline => {
-                // Lock contention, not synchronization: flock has no
-                // wait-with-timeout, so poll at a short interval to a deadline.
-                std::thread::sleep(Duration::from_millis(25));
-            }
-            Err(_) => return None,
-        }
-    }
-}
-
-#[cfg(not(unix))]
-fn lock_codex_config(_lock_path: &Path) -> Option<fs::File> {
-    None
-}
+use cmux_tui_platform::codex_config_lock::lock as lock_codex_config;
 
 /// Captures a file's rollback snapshot (bytes and mode) before mutation.
 /// Only a genuine NotFound maps to None; any other read error fails the whole

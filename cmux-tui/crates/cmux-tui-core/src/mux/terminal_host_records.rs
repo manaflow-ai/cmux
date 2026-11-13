@@ -125,6 +125,51 @@ pub(super) fn terminal_host_record_liveness(
 /// discovery artifacts only when the process-start nonce positively proves
 /// this exact incarnation is dead. `false` means the live/ambiguous record is
 /// deliberately retained for a later retry.
+/// An end decided and asked for, whose wait comes later.
+#[cfg(any(unix, windows))]
+pub(super) enum HostEnd {
+    /// Finished: whether the host (or its stale record) is gone.
+    Done(bool),
+    /// The host was asked to end; the call waits for its exit receipt
+    /// (bounded as [`terminate_host_record`]) and says whether it ended.
+    Requested(Box<dyn FnOnce() -> bool>),
+}
+
+/// [`cleanup_terminal_host_record`] in two steps: what can be done at once
+/// (a dead host's stale record removed, a live host's end requested over
+/// its bounded handshake) is done here, and the wait for a live host's exit
+/// is left to the caller, so a lock held around this call is held only that
+/// long.
+#[cfg(any(unix, windows))]
+pub(super) fn request_terminal_host_end(
+    record: &crate::terminal_host_runtime::TerminalHostRecord,
+    record_path: &Path,
+) -> HostEnd {
+    match terminal_host_record_liveness(record_path, record) {
+        TerminalHostLiveness::Dead => {
+            HostEnd::Done(cleanup_terminal_host_record(record, record_path))
+        }
+        TerminalHostLiveness::Live | TerminalHostLiveness::Indeterminate => {
+            let Some(mut host) = pending_terminals::adopt_host_to_terminate(
+                record.clone(),
+                record_path.to_path_buf(),
+            ) else {
+                return HostEnd::Done(false);
+            };
+            if host.request_termination().is_err() {
+                host.disconnect();
+                return HostEnd::Done(false);
+            }
+            HostEnd::Requested(Box::new(move || {
+                let exit_path = host.exit_record_path();
+                let exit = host.wait_for_requested_exit();
+                host.disconnect();
+                exit.is_ok_and(|exit| acknowledge_exact_terminal_host_exit(&exit_path, &exit))
+            }))
+        }
+    }
+}
+
 #[cfg(any(unix, windows))]
 pub(super) fn cleanup_terminal_host_record(
     record: &crate::terminal_host_runtime::TerminalHostRecord,

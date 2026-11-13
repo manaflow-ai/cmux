@@ -1,4 +1,4 @@
-import type { Locale } from "@/i18n/routing";
+import { localeDirection, type Locale } from "@/i18n/routing";
 import {
   docsPathAvailableInChannel,
   type DocsChannel,
@@ -60,6 +60,31 @@ export function navItemContentLocale(item: NavLink, locale: string): Locale {
     return requestedLocale;
   }
   return item.contentLocales[0];
+}
+
+/**
+ * The language of a docs page's body when the reader's locale is `locale`. A page listed only
+ * for some locales (the English-only cmux-next and Base pages) serves its own text under any
+ * other locale that negotiation picks, so its body is in its first listed locale.
+ */
+export function docsContentLang(path: string, locale: string): Locale {
+  const item = flatNavItems(navItems).find((each) => each.href === path);
+  if (item?.locales && !item.locales.includes(locale as Locale)) return item.locales[0]!;
+  return locale as Locale;
+}
+
+/**
+ * The attributes `.docs-content` carries when its body is in `contentLang` rather than the
+ * reader's `locale`: the language, and the direction whenever it differs from the locale's,
+ * which the root element sets (English under Arabic is ltr, not the inherited rtl).
+ */
+export function docsContentLangAttributes(
+  contentLang: string,
+  locale: string,
+): { lang?: string; dir?: "ltr" | "rtl" } {
+  if (contentLang === locale) return {};
+  const dir = localeDirection(contentLang);
+  return dir === localeDirection(locale) ? { lang: contentLang } : { lang: contentLang, dir };
 }
 
 export function hasNavItemContent(item: NavLink, locale: string): boolean {
@@ -189,6 +214,7 @@ export const navItems: NavEntry[] = [
       { titleKey: "nextCli", href: "/docs/next/cli", locales: baseDocsLocales },
       { titleKey: "nextMcp", href: "/docs/next/mcp", locales: baseDocsLocales },
       { titleKey: "nextSettings", href: "/docs/next/settings", locales: baseDocsLocales },
+      { titleKey: "nextArchitecture", href: "/docs/next/architecture", locales: baseDocsLocales },
     ],
   },
   { titleKey: "changelog", href: "/docs/changelog" },

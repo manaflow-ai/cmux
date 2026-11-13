@@ -534,6 +534,108 @@ async fn hub_carrier_a_replaced_node_key_stops_the_carrier() {
     assert!(refused.contains("replaced"), "{refused}");
 }
 
+/// The carrier's own half of a rotation: it takes the new key with the key file in one step
+/// ([`HubCarrier::rekey`]), keeps serving and registers its slot again under that key. A peer
+/// is handed the new key here; peers learning a rotated key by themselves needs the platform
+/// to resolve a machine by id, so `machine_tunnel.rs` refuses a rotation while this carrier's
+/// registration lets any machine in (`machine.rotate_strands_peers`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_rotated_node_key_keeps_the_slot_under_the_new_key() {
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let route = format!("relay+ws://{relay_address}");
+    let target = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let target_address = target.local_addr().unwrap();
+    let reached = Arc::new(AtomicU64::new(0));
+    let seen = reached.clone();
+    tokio::spawn(async move {
+        while let Ok(_conn) = target.accept().await {
+            seen.fetch_add(1, Ordering::SeqCst);
+        }
+    });
+    let (key_a, old, new) = (random_key(), random_key(), random_key());
+    let timings = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        key_check: Duration::from_millis(50),
+    };
+    // The machine's node key file, as B's key check reads it.
+    let file = Arc::new(std::sync::Mutex::new(public(&old)));
+    let check = file.clone();
+    let tickets_b = Arc::new(FixedTickets {
+        relay: route.clone(),
+        peers: vec![public(&key_a)],
+        asked: AtomicU64::new(0),
+    });
+    let carrier_b = HubCarrier::with_key_check(
+        tickets_b.clone(),
+        old,
+        timings,
+        Arc::new(move |key: &[u8; 32]| {
+            *check.lock().unwrap() == base64::engine::general_purpose::STANDARD.encode(key)
+        }),
+    );
+    let serving = carrier_b.serve(target_address);
+    let carrier_a = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route,
+            peers: vec![public(&old), public(&new)],
+            asked: AtomicU64::new(0),
+        }),
+        key_a,
+        timings,
+    );
+    async fn reach(a: &HubCarrier, daemon: &str) -> Result<(), String> {
+        let mut last = String::new();
+        for _ in 0..40 {
+            match a.dial(daemon).await {
+                Ok(_) => return Ok(()),
+                Err(e) => last = e,
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        Err(last)
+    }
+    reach(&carrier_a, &public(&old)).await.expect("A reaches B under its first key");
+    // What a rekey reads to refuse stranding A: the machines B's registration lets in.
+    assert_eq!(carrier_b.registered_peers(), vec![public(&key_a)]);
+    let registered = tickets_b.asked.load(Ordering::SeqCst);
+
+    // The rekey: the file and the carrier take the new key together.
+    let written = file.clone();
+    let rotated = carrier_b.rekey(new, || {
+        *written.lock().unwrap() = public(&new);
+        Ok::<_, ()>(())
+    });
+    assert!(rotated.is_ok());
+    assert_eq!(carrier_b.public_key(), public(&new));
+    assert!(carrier_b.key_current(), "the rotated key is the machine's");
+    // Several key checks later B still serves, and it registered its slot again.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(!serving.is_finished(), "a rotation stopped the carrier");
+    assert!(tickets_b.asked.load(Ordering::SeqCst) > registered, "B never registered again");
+    let before = reached.load(Ordering::SeqCst);
+    reach(&carrier_a, &public(&new)).await.expect("A reaches B under its new key");
+    assert!(reached.load(Ordering::SeqCst) > before, "the circuit never reached B's listener");
+    assert!(carrier_a.dial(&public(&old)).await.is_err(), "B still answers as its old key");
+
+    // A failed write changes nothing: the carrier keeps the key the file has.
+    let refused = carrier_b.rekey(random_key(), || Err::<(), _>("no write"));
+    assert_eq!(refused, Err("no write"));
+    assert_eq!(carrier_b.public_key(), public(&new));
+    assert!(carrier_b.key_current());
+}
+
 /// What the tampering relay does to the next record A sends once armed.
 #[derive(Clone, Copy, Debug)]
 enum Tamper {

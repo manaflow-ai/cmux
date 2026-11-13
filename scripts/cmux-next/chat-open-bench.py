@@ -12,6 +12,10 @@ to the first frame the pane shows the chat's content, with every surface the pan
   reopen     a chat this app showed before, opened again in a new workspace
   subagent   a click on a subagent's line in its chat's transcript (`debug.agent_pane click`),
              which opens the subagent's pane (`chat.subagentPane`)
+  subagent_column  the third subagent clicked open from one chat: the first two (unmeasured) fill the right
+             column (a split right, then one below it), so this one opens as a tab in the column's lower pane,
+             as most of a working chat's subagent clicks do (Leo, 2026-11-05: "things just don't fucking open
+             up fast enough on the right. links. subagents. all")
   big        a chat of --turns turns (thousands), never opened before
   bloated    a chat whose log is mostly repeated tool_call_update records (--bloat calls x
              updates x KiB, every update re-sending the whole output), as long Codex and Claude
@@ -103,7 +107,7 @@ import bench_memory as bm  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
 from bench_power import wipe_state  # noqa: E402  (the tagged app's saved state under the real ~/Library)
 import chat_open_frames as cof  # noqa: E402
-from chat_open_summary import cell, invalid_reason, summarize  # noqa: E402
+from chat_open_summary import cell, invalid_reason, spare_pool, summarize  # noqa: E402
 import chat_open_seed_cache as seed_cache  # noqa: E402
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -158,7 +162,8 @@ CASES = [c.strip() for c in opts.cases.split(",") if c.strip()]
 CLICK_CASES = ("click", "click_again", "click_hover")
 # The click cases go first in a condition: each makes a sidebar row, and a row below the sidebar's fold can't be clicked.
 CASES = [c for c in CASES if c in CLICK_CASES] + [c for c in CASES if c not in CLICK_CASES]
-SUBAGENTS = opts.subagents or opts.runs + 1
+# subagent_column clicks three of one chat's subagents.
+SUBAGENTS = opts.subagents or max(opts.runs + 1, 3)
 # A new workspace goes last, so `workspace.selectLast` shows the one an open just made (the default
 # placement is the top of the list). Over --config: another placement would show the wrong workspace.
 # The tagged build's state folder (scripts/measure/chat-open.sh builds --tag, default "chatopen").
@@ -391,6 +396,8 @@ def seed(root):
             "click_again": [copy_chat(home, small, f"Click again {condition} {i}") for i in range(opts.runs)],
             "click_hover": [copy_chat(home, small, f"Click hover {condition} {i}") for i in range(opts.runs)],
             "subagent": [copy_chat(home, sub, f"Subagents {condition} {i}") for i in range(opts.runs)],
+            "subagent_column": [copy_chat(home, sub, f"Subagent column {condition} {i}") for i in range(opts.runs)]
+            if "subagent_column" in CASES else [],
             "big": [copy_chat(home, big, f"Big {condition} {i}") for i in range(opts.runs)] if big else [],
             "bloated": [copy_chat(home, bloated, f"Bloated {condition} {i}") for i in range(opts.runs)] if bloated else [],
         }
@@ -627,8 +634,8 @@ def why(record):
 
 
 # A subagent's line, by what opens it: its finished transcript line (SubagentDoneLine.tsx), then its running-tray
-# line (AgentLine.tsx). Enabled ones only: a line with nothing to open is disabled and its click opens nothing.
-SUBAGENT_LINES = ("button.cv-subagent-done:not([disabled])", "button.acpmux-agent-line__button:not([disabled])")
+# line (AgentLine.tsx). A finished line opens from its name chip alone; a line with nothing to open has no chip button.
+SUBAGENT_LINES = (".cv-subagent-done button.cv-agent-tag.is-open", "button.acpmux-agent-line__button:not([disabled])")
 NO_MATCH = "no visible element matches"
 
 
@@ -637,7 +644,7 @@ def subagent_task(k):
     return f"Audit area {k}: crashes, edge cases, slow paths"
 
 
-def click_subagent(run):
+def click_subagent(run, pane=None, skip=()):
     """Clicks a subagent line the chat shows, newest first. The click needs the line in the page,
     and which of the chat's subagent lines it renders depends on the build: a fixed name per open
     failed with "no visible element matches" for "Auditor 0" at one base and "Auditor 1" at
@@ -649,15 +656,19 @@ def click_subagent(run):
     By text, each subagent's name, then its task: a build that names a line by its task (the tray and a
     finished line read "Audit area 3: ..." since 2026-11-04) shows no element whose text is the name alone.
     Then by structure (`SUBAGENT_LINES`). When nothing matches, `probe` lists which of those selectors match
-    anything, so a failed run says what the page shows."""
+    anything, so a failed run says what the page shows.
+
+    `pane`: the chat's pane (a click's reply names it), once a subagent's pane has taken the focus. `skip`: the
+    subagents already clicked open, by index, so each click opens another one."""
     reply = None
-    texts = [text for k in range(SUBAGENTS - 1, -1, -1) for text in (f"Auditor {k}", subagent_task(k))]
-    for text in texts:
-        reply = run.rpc("debug.agent_pane", {"action": "click", "text": text}) or {}
+    target = {"pane": pane} if pane else {}
+    texts = [(k, text) for k in range(SUBAGENTS - 1, -1, -1) if k not in skip for text in (f"Auditor {k}", subagent_task(k))]
+    for k, text in texts:
+        reply = run.rpc("debug.agent_pane", {"action": "click", "text": text, **target}) or {}
         if reply.get("error") != NO_MATCH:
-            return {**reply, "subagent": text}
-    for selector in SUBAGENT_LINES:
-        reply = run.rpc("debug.agent_pane", {"action": "click", "selector": selector}) or {}
+            return {**reply, "subagent": text, "index": k}
+    for selector in () if skip else SUBAGENT_LINES:
+        reply = run.rpc("debug.agent_pane", {"action": "click", "selector": selector, **target}) or {}
         if reply.get("error") != NO_MATCH:
             return {**reply, "subagent": selector}
     return {**reply, "probe": subagent_probe(run)}
@@ -668,12 +679,12 @@ def click_subagent(run):
 GROUP_TOGGLE = 'button.cv-subagents[aria-expanded="false"]'
 
 
-def open_subagent_groups(run, limit=8):
-    """Opens each closed subagent group the chat shows, before the trace is armed (unmeasured), so the click finds
-    a subagent's line. Returns how many it opened."""
+def open_subagent_groups(run, limit=8, pane=None):
+    """Opens each closed subagent group the chat shows (in `pane`, else the focused one), before the trace is armed
+    (unmeasured), so the click finds a subagent's line. Returns how many it opened."""
     opened = 0
     for _ in range(limit):
-        reply = run.rpc("debug.agent_pane", {"action": "click", "selector": GROUP_TOGGLE}) or {}
+        reply = run.rpc("debug.agent_pane", {"action": "click", "selector": GROUP_TOGGLE, **({"pane": pane} if pane else {})}) or {}
         if reply.get("error"):
             break
         opened += 1
@@ -904,6 +915,22 @@ def measure_case(run, case, sessions, index):
         record = traced(run, lambda: click_subagent(run))
         record["opened_groups"] = groups
         return record
+    if case == "subagent_column":
+        # Through `debug.agent_pane open_subagent`, the hook a tray line's `chat.subagentPane` calls: a click on the
+        # chat's lines found none after the first split (the narrower pane drew them again, 2026-11-09).
+        settle_open(run, session)
+        chat = (run.rpc("debug.agent_pane", {"action": "chat_state"}) or {}).get("pane")
+        target = {"pane": chat} if chat else {}
+        before = []
+        for index in (1, 2):
+            before.append(run.rpc("debug.agent_pane", {"action": "open_subagent", "index": index, "focus": True, **target}) or {})
+            time.sleep(2)  # test script: its split (right, then below) lands
+        record = traced(run, lambda: run.rpc("debug.agent_pane", {"action": "open_subagent", "index": 3, "focus": True, **target}) or {})
+        record["before"] = before
+        marks = (record.get("trace") or {}).get("marks_ms") or record.get("marks_ms") or {}
+        # Its pane shows on the right at `pane_made`, and draws at `pane_painted` (the trace's marks, from the action).
+        record["pane_made_ms"], record["pane_painted_ms"] = marks.get("pane_made"), marks.get("pane_painted")
+        return record
     raise ValueError(case)
 
 
@@ -1078,6 +1105,12 @@ def markdown(results):
             cells.append(cof.cell(s) if case in CLICK_CASES else cell(s, case))
         lines.append(f"| {case} | " + " | ".join(cells) + " |")
     lines += ["", "load average per condition: " + ", ".join(f"{c} {v}" for c, v in results.get("load_avg", {}).items())]
+    # The prewarmed page each open found (adopted, or a cold page and why), so a spare every open refuses shows.
+    for condition, cases in (results.get("raw") or {}).items():
+        for case, records in (cases or {}).items():
+            pool = spare_pool(records) if isinstance(records, list) else None
+            if pool:
+                lines.append(f"spare pool, {case} {condition}: {pool}")
     for condition, cases in results.get("memory", {}).items():
         lines.append(f"memory per kept chat page ({condition}): " + ", ".join(
             f"{case} {m['per_kept_page_mb']} MB over {m['kept_pages']} pages" for case, m in cases.items()))

@@ -197,9 +197,7 @@ impl App {
         }
         // Composer.
         if hit(self.areas.composer) {
-            let running =
-                self.selected_session().and_then(|s| s.get("status").and_then(Value::as_str))
-                    == Some("running");
+            let running = self.turn_open();
             let mut items = vec![
                 item("Copy text", MenuAction::Composer(ComposerOp::CopyAll)),
                 item("Clear", MenuAction::Composer(ComposerOp::Clear)),

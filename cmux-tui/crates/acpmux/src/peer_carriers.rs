@@ -31,6 +31,10 @@ pub(super) const STAGGER: Duration = Duration::from_millis(250);
 /// The longest a probe's dial may take (a dead path's connect is cut off well before the
 /// link's own connect deadline; it is probed again on its recovery backoff).
 const PROBE_CONNECT: Duration = Duration::from_secs(10);
+/// A route that already carried this peer must get a fresh attempt after a
+/// freeze. Bound its transport dial and WebSocket upgrade together; the cold
+/// connect budget still accommodates a first handshake or a slow ssh login.
+const DIRECT_REDIAL_CONNECT: Duration = Duration::from_secs(4);
 
 pub(crate) trait Duplex: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Duplex for T {}
@@ -122,6 +126,21 @@ where
             () = tokio::time::sleep_until(next_at.unwrap_or(now)), if next_at.is_some() => {}
         }
     }
+}
+
+/// The log line of a cold connect of a peer with an ssh path (`has_ssh`) that `via`, another
+/// path, won: which path carries the link and why ssh does not (its failure class,
+/// `peer_ssh.rs`, never ssh's stderr; or that it had not answered first). None when ssh won
+/// or the peer has no ssh path.
+pub(super) fn backup_line(via: Via, has_ssh: bool, failed: &[(Via, String)]) -> Option<String> {
+    if via == Via::Ssh || !has_ssh {
+        return None;
+    }
+    let why = match failed.iter().find(|(failed, _)| *failed == Via::Ssh) {
+        Some((_, error)) => format!("ssh did not connect ({error})"),
+        None => "ssh had not connected first".to_owned(),
+    };
+    Some(format!("{why}; the link runs on the {} path", via.as_str()))
 }
 
 /// One line for a connect whose every path failed.
@@ -252,8 +271,26 @@ impl Peer {
     }
 
     /// The hub's last-known-good book (`peer_last_good.rs`).
+    /// It keeps the remote tokens an `ssh://` peer reads there too, and starts with those it
+    /// kept on an earlier run (`peer_kept_tokens.rs`) unless they disagree with a configured one.
     pub(crate) fn set_last_good(&self, book: Arc<crate::peer_last_good::LastGood>) {
+        if self.ssh_parts().is_some() {
+            self.read_tokens.back(book.clone(), &self.name, &self.url, |(token, peer)| {
+                self.token.as_ref().is_none_or(|t| t == token)
+                    && (self.peer_token.is_none() || self.peer_token == *peer)
+            });
+        }
         let _ = self.last_good.set(book);
+    }
+
+    /// Preparation may run concurrently; the registered peer owns token writes.
+    /// This only sets an atomic generation, so registration does no file I/O.
+    pub(crate) fn activate_read_tokens(&self) {
+        self.read_tokens.activate();
+    }
+
+    pub(crate) fn persist_read_tokens(&self) {
+        self.read_tokens.persist();
     }
 
     /// The paths this peer has, before any is dialed.
@@ -415,6 +452,9 @@ impl Peer {
             tracing::debug!(peer = %self.name, via = via.as_str(), "path unavailable: {error}");
             self.path_failed(*via);
         }
+        if let Some(line) = backup_line(via, self.ssh_parts().is_some(), &failed) {
+            tracing::info!(peer = %self.name, via = via.as_str(), carrier = via.carrier().as_str(), "{line}");
+        }
         Ok((via, opened))
     }
 
@@ -491,9 +531,16 @@ impl Peer {
             .await
             .map_err(|e| e.to_string())
         };
-        let (ws, _) = tokio::time::timeout(self.timings.connect, opening)
+        let deadline = if self.linked_once.load(Ordering::SeqCst)
+            && matches!(via, Via::Wireguard | Via::Link)
+        {
+            self.timings.connect.min(DIRECT_REDIAL_CONNECT)
+        } else {
+            self.timings.connect
+        };
+        let (ws, _) = tokio::time::timeout(deadline, opening)
             .await
-            .map_err(|_| connect_timed_out(self.timings.connect))??;
+            .map_err(|_| connect_timed_out(deadline))??;
         Ok(Opened {
             ws: OpenedWs::Boxed(Box::new(ws)),
             heard,
@@ -713,7 +760,7 @@ impl Peer {
 
     /// The probe of path `via`: while the link does not run on it, a WebSocket of its own,
     /// pinged each [`PROBE_EVERY`]; a dead one is dialed again on its recovery backoff.
-    async fn probe(self: Arc<Self>, via: Via) {
+    pub(super) async fn probe(self: Arc<Self>, via: Via) {
         let mut stopped = self.stop_changed.subscribe();
         loop {
             if *stopped.borrow() {
@@ -842,6 +889,8 @@ impl Peer {
                                 self.path_failed(via);
                                 break;
                             }
+                        } else {
+                            self.probe_frame(text.as_str());
                         }
                     }
                     Some(Ok(Frame::Close(_)) | Err(_)) | None => {

@@ -46,6 +46,14 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
 
     let mut command = Command::new(&codex);
     command.env("PATH", path_without_shims(&path, shim_dir.as_deref()));
+    crate::agent_terminal_identity::apply(|key, value| match value {
+        Some(value) => {
+            command.env(key, value);
+        }
+        None => {
+            command.env_remove(key);
+        }
+    });
     // The arguments as given, before the hooks are added (see claude_wrapper).
     command
         .env(crate::claude_wrapper::AGENT_ARGS_ENV, crate::claude_wrapper::agent_args_json(args));
@@ -162,7 +170,7 @@ pub(crate) fn install_shim(dir: &Path, executable: &Path) -> anyhow::Result<Path
     if current {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
     } else {
-        agent_hook_install::atomic_write(&path, script.as_bytes(), Some(0o700))?;
+        agent_hook_install::replace_rewritable_file(&path, script.as_bytes(), Some(0o700))?;
     }
     Ok(path)
 }

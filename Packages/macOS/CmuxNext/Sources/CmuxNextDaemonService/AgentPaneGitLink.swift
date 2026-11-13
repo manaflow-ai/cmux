@@ -29,6 +29,9 @@ public final class AgentPaneGitLink {
     /// This Mac's link: the Changes view's git writes run here only for a chat it reads.
     public var isLocal: Bool { daemon.isLocal }
 
+    /// Whether the session host answers `diff.comments.send`, as its last handshake said.
+    public var sendsDiffComments: Bool { daemon.identity?.supports(DaemonCapability.diffCommentsSend.rawValue) == true }
+
     /// The operation's result as JSON for the page. Throws an
     /// ``AgentPaneGitFailure``: the session host's resource error, or why
     /// the read got no answer (no connection, a timeout).
@@ -194,6 +197,8 @@ extension AgentPaneGitRequest {
             ["path": .string(cwd), "from": .string(from), "include_patch": .bool(includePatch)]
                 .merging(to.map { ["to": JSONValue.string($0)] } ?? [:]) { first, _ in first }
                 .merging(options.sessionHostParams) { first, _ in first }
+        case .worktreeSetup(let cwd, let since):
+            ["path": .string(cwd)].merging(since.map { ["since": JSONValue.string($0)] } ?? [:]) { first, _ in first }
         }
     }
 }
@@ -220,9 +225,10 @@ extension AgentPaneGitWrite {
             if includeUntracked { params["include_untracked"] = .bool(true) }
             if let expectedHead { params["expected_head"] = .string(expectedHead) }
             return params
-        case .push(_, let expectedHead, _):
+        case .push(_, let expectedHead, let setUpstream, _):
             var params: [String: JSONValue] = ["path": .string(cwd)]
             if let expectedHead { params["expected_head"] = .string(expectedHead) }
+            if setUpstream { params["set_upstream"] = .bool(true) }
             return params
         case .worktree(_, let name, _):
             var params: [String: JSONValue] = ["path": .string(cwd)]

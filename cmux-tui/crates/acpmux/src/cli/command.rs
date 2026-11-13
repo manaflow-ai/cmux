@@ -141,7 +141,8 @@ pub enum Command {
     Continue(crate::cli::handoff::ContinueArgs),
     /// Retry a session's failed last turn now, in the same session (a waiting retry fires).
     Retry(crate::cli::retry::RetryArgs),
-    /// One turn per turn: prompt preview, status, tools, tokens, wall time.
+    /// One turn per turn: prompt preview, status, tools, tokens, wall time, and how much of it
+    /// went to getting the prompt to the agent (START) and to the model's first output (MODEL).
     History {
         session: String,
         #[arg(long, short = 'n', default_value_t = 20)]
@@ -206,7 +207,9 @@ pub enum Command {
         #[arg(long, short = 'n', default_value_t = 1)]
         count: usize,
     },
-    /// List pending permission requests across sessions, and how to answer them.
+    /// List pending permission requests across sessions, and how to answer them, and the other
+    /// sessions' messages a chat's Claude Code holds (`heldMessages` in --json). acpmux keeps the
+    /// held messages in memory only: after a daemon restart they no longer show.
     Pending,
     /// Send a prompt and stream the reply until the turn ends.
     #[command(
@@ -274,6 +277,12 @@ pub enum Command {
         /// named without it; elsewhere `ACPMUX_FROM` names it.
         #[arg(long, value_name = "NAME")]
         from: Option<String>,
+        /// Prove a named sender (--from, ACPMUX_FROM, a notice's sender) is one this machine's
+        /// owner set up: read this host's sender token from PATH (`~/.acpmux/sender-token`) and
+        /// send it to the daemon, which then shows the sender as verified. ACPMUX_SENDER_TOKEN
+        /// gives the token itself. Never on the command line; a wrong one sends unverified.
+        #[arg(long, value_name = "PATH")]
+        sender_token_file: Option<PathBuf>,
         /// Replace your prompt still queued under KEY: a correction is never read after the
         /// order it corrects. Prints how many it replaced. A prompt whose turn started stays.
         #[arg(long, value_name = "KEY")]
@@ -417,6 +426,9 @@ pub enum Command {
     /// Wake a session with one message when others are done or blocked: add, ls, rm.
     #[command(subcommand)]
     Watch(crate::cli::watch::WatchCmd),
+    /// Give the Claude desktop app, Claude Code and Codex the cmux tools: link, unlink, status.
+    #[command(subcommand)]
+    Desktop(crate::cli::desktop::DesktopCmd),
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
@@ -469,10 +481,23 @@ pub enum Command {
     /// The agent's Cloud repository tools (list_repos and add_repo), only on Cloud machines.
     #[command(hide = true)]
     RepoMcp,
+    /// cmux's hosted MCP server with the signed-in person's tools (GitHub connectors, their own
+    /// remote MCP servers): an MCP stdio server agent_tools.rs registers (not for people).
+    #[command(hide = true)]
+    HostedMcp,
+    /// GitHub's own MCP server through the team's cmux GitHub connection, on a cmux Cloud
+    /// machine: an MCP stdio server agent_tools.rs registers (not for people).
+    #[command(hide = true)]
+    GithubMcp,
     /// The agent's tools to message other sessions and read them (send, ls, last, info): an
     /// MCP stdio server for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     AcpmuxMcp,
+    /// acpmux's own agent tool servers (secrets, offers, sub-sessions, forum, acpmux) in one
+    /// MCP stdio process for one agent session: `cmux mcp serve` runs it once per chat
+    /// (tools_mcp.rs; not for people).
+    #[command(hide = true)]
+    ToolsMcp,
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {
@@ -525,7 +550,11 @@ pub enum Command {
     #[command(hide = true)]
     RestartAgent { session: String },
     #[command(hide = true)]
-    ResumeQueue { session: String },
+    ResumeQueue {
+        session: String,
+        #[arg(long)]
+        open: bool,
+    },
     #[command(hide = true)]
     InboxDigest {
         session: String,
@@ -534,6 +563,26 @@ pub enum Command {
     },
     #[command(hide = true, alias = "rename-session")]
     Rename { session: String, new_name: String },
+    /// Give the session this shell runs in a stable name every machine that peers this one sends
+    /// to: a Claude Code session acpmux did not start (the Claude desktop app's Code tab, a
+    /// terminal `claude`). Run it from that session's own Bash tool: it delivers a one-time code
+    /// into the session's inbox, and the session finishes with `acpmux register NAME --code CODE`
+    /// (macOS: the daemon checks the process is Claude Code by its signature). A Codex desktop
+    /// thread does not register (nothing ties a shell to its thread); start Codex with acpmux. Then `acpmux send NAME ...` reaches it through the outbox (queued and tried again
+    /// while it is not running, `send --status`), and its own `acpmux send` goes out under NAME.
+    /// Run it again after the session restarts (a new process gets a new token). A brand-new
+    /// session registers after its first turn, once it has a transcript
+    #[command(
+        after_help = "Examples:\n  # From the desktop chat's Bash tool\n  acpmux register desktop-zoe\n  # Then, as the message it receives says\n  acpmux register desktop-zoe --code CODE\n  # From another machine\n  acpmux send --no-wait cosmic-gray/desktop-zoe 'Merged #812'"
+    )]
+    Register {
+        /// The name, e.g. desktop-zoe.
+        name: String,
+        /// The one-time code acpmux delivered into this session's inbox after a first
+        /// `acpmux register NAME`: the second step, run by the session that received it.
+        #[arg(long)]
+        code: Option<String>,
+    },
     #[command(hide = true)]
     DetachParent { session: String },
     #[command(hide = true)]
@@ -546,6 +595,13 @@ pub enum Command {
         /// Fork even when this host refuses new sessions (disk under its floor; max_lanes only warns).
         #[arg(long)]
         force_admit: bool,
+        /// Continue on another harness (a family or profile): the fork's agent gets the chat's
+        /// conversation with its first prompt.
+        #[arg(long)]
+        harness: Option<String>,
+        /// The model the fork starts on (with --harness).
+        #[arg(long, short, requires = "harness")]
+        model: Option<String>,
     },
     #[command(hide = true)]
     Set { session: String, assignment: String },
@@ -757,13 +813,19 @@ pub enum HarnessCmd {
         /// to localhost or 127.0.0.1).
         #[arg(long)]
         base_url: Option<String>,
-        /// anthropic-endpoint / openai-endpoint: the model id the endpoint serves.
+        /// anthropic-endpoint / openai-endpoint: a model id the endpoint serves; repeat it or
+        /// separate ids with commas for several (the first is the default). '*' adds every
+        /// model the endpoint lists at <base URL>/models.
         #[arg(long)]
-        model: Option<String>,
-        /// anthropic-endpoint / openai-endpoint: the Keychain item that holds the key
-        /// (default: cmux-harness/ID/KEY, which `cmux harness secret set ID KEY` writes).
-        #[arg(long)]
+        model: Vec<String>,
+        /// anthropic-endpoint / openai-endpoint: a Keychain item of your own that holds the key
+        /// (`service` or `service/account`; never cmux's own `cmux-harness` items).
+        #[arg(long, conflicts_with = "key")]
         keychain_item: Option<String>,
+        /// anthropic-endpoint / openai-endpoint: read the key (a hidden prompt, or stdin) and
+        /// store it in the Keychain for this endpoint only. Never on the command line.
+        #[arg(long)]
+        key: bool,
         /// anthropic-endpoint / openai-endpoint: the name the model picker shows.
         #[arg(long)]
         name: Option<String>,
@@ -867,8 +929,14 @@ pub enum HarnessCmd {
     /// doctor loop, examples, security rules).
     Guide,
     /// Move a profile file from your harness folder to a backup
-    /// (~/.acpmux/harness-backups); `restore` brings it back.
-    Remove { id: String },
+    /// (~/.acpmux/harness-backups); `restore` brings it back, its Keychain key included.
+    Remove {
+        id: String,
+        /// Also delete the endpoint's own Keychain items (`cmux-harness/<id>/...`); a later
+        /// `restore` then needs `cmux harness secret set` again.
+        #[arg(long)]
+        forget_key: bool,
+    },
     /// Move a backup that `remove` made back into your harness folder.
     Restore { backup: String },
 }
@@ -931,9 +999,15 @@ pub enum SessionCmd {
     /// Run the queued prompts a failed turn held. An agent or a script may resume a
     /// queue; only answering a permission or a question needs the cmux app. On a machine a
     /// person works at, a stopped chat first moves to a fleet machine, as `session move --machine
-    /// auto` does; when none takes it, it resumes here and says why.
+    /// auto` does; when none takes it, it resumes here and says why. A queue a daemon start
+    /// holds for a person (its folder is guarded: `hub/protected_hold.rs`) is named, with how to
+    /// release it; `--open` releases it as opening the chat in cmux does.
     Resume {
         session: String,
+        /// Open the chat as the cmux app does when a person clicks it, then resume: what a
+        /// daemon start held for a person (a guarded folder) runs now.
+        #[arg(long)]
+        open: bool,
         #[command(flatten)]
         mesh: crate::cli::mesh_control::RouteArgs,
     },
@@ -947,6 +1021,13 @@ pub enum SessionCmd {
         /// Fork even when this host refuses new sessions (disk under its floor; max_lanes only warns).
         #[arg(long)]
         force_admit: bool,
+        /// Continue on another harness (a family or profile): the fork's agent gets the chat's
+        /// conversation with its first prompt.
+        #[arg(long)]
+        harness: Option<String>,
+        /// The model the fork starts on (with --harness).
+        #[arg(long, short, requires = "harness")]
+        model: Option<String>,
     },
     /// Change mode, model, a config option, or the permission policy: key=value.
     Set {
@@ -1396,7 +1477,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
             SessionCmd::Detach { session } => Command::DetachParent { session },
-            SessionCmd::Resume { session, mesh } if !mesh.mesh => Command::ResumeQueue { session },
+            SessionCmd::Resume { session, open, mesh } if !mesh.mesh => {
+                Command::ResumeQueue { session, open }
+            }
             SessionCmd::Inbox { session, opts } if opts.digest || opts.dry_run => {
                 Command::InboxDigest { session, dry_run: opts.dry_run || !opts.digest }
             }
@@ -1404,8 +1487,8 @@ pub fn flatten(c: Command) -> Command {
             | SessionCmd::Receipt { .. }
             | SessionCmd::Stop { .. }
             | SessionCmd::Resume { .. }) => Command::Session(control),
-            SessionCmd::Fork { session, name, cwd, force_admit } => {
-                Command::Fork { session, name, cwd, force_admit }
+            SessionCmd::Fork { session, name, cwd, force_admit, harness, model } => {
+                Command::Fork { session, name, cwd, force_admit, harness, model }
             }
             SessionCmd::Set { session, assignment, team_address } => Command::Set {
                 session,

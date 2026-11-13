@@ -28,6 +28,17 @@ public final class FirstRunSetup {
     }
 
     @ObservationIgnored private let skipsOnboarding: Bool
+    @ObservationIgnored private var agentsModel: AgentsStepModel?
+
+    /// The card's agent installs and sign-ins, one for every card this launch: a card made again (another Home
+    /// conversation, a new window) shows an install already running, starts no second one, and the install's
+    /// sign-in still runs when it ends. `source` serves the first card's call.
+    public func agents(source: (any AgentSignInSource)?) -> AgentsStepModel {
+        if let agentsModel { return agentsModel }
+        let model = AgentsStepModel(source: source)
+        agentsModel = model
+        return model
+    }
 
     /// The chat history row is answered: its page showed, or the person dismissed it.
     public func historyAnswered() {

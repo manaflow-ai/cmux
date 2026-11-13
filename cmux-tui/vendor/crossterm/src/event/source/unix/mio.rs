@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, io, time::Duration};
+use std::{io, time::Duration, time::Instant};
 
 use mio::{unix::SourceFd, Events, Interest, Poll, Token};
 use signal_hook_mio::v1_0::Signals;
@@ -6,7 +6,7 @@ use signal_hook_mio::v1_0::Signals;
 #[cfg(feature = "event-stream")]
 use crate::event::sys::Waker;
 use crate::event::{
-    source::EventSource, sys::unix::parse::advance, timeout::PollTimeout, Event, InternalEvent,
+    source::EventSource, timeout::PollTimeout, Event, InputParser, InternalEvent,
 };
 use crate::terminal::sys::file_descriptor::{tty_fd, FileDesc};
 
@@ -24,7 +24,7 @@ const TTY_BUFFER_SIZE: usize = 1_024;
 pub(crate) struct UnixInternalEventSource {
     poll: Poll,
     events: Events,
-    parser: Parser,
+    parser: InputParser,
     tty_buffer: [u8; TTY_BUFFER_SIZE],
     tty_fd: FileDesc<'static>,
     signals: Signals,
@@ -54,7 +54,7 @@ impl UnixInternalEventSource {
         Ok(UnixInternalEventSource {
             poll,
             events: Events::with_capacity(3),
-            parser: Parser::default(),
+            parser: InputParser::default(),
             tty_buffer: [0u8; TTY_BUFFER_SIZE],
             tty_fd: input_fd,
             signals,
@@ -66,6 +66,9 @@ impl UnixInternalEventSource {
 
 impl EventSource for UnixInternalEventSource {
     fn try_read(&mut self, timeout: Option<Duration>) -> io::Result<Option<InternalEvent>> {
+        // cmux patch: held Alt+] digits become keys after a quiet time
+        // (`InputParser`), so the poll waits no longer than that.
+        self.parser.release_if_quiet(Instant::now());
         if let Some(event) = self.parser.next() {
             return Ok(Some(event));
         }
@@ -73,7 +76,8 @@ impl EventSource for UnixInternalEventSource {
         let timeout = PollTimeout::new(timeout);
 
         loop {
-            if let Err(e) = self.poll.poll(&mut self.events, timeout.leftover()) {
+            let wait = self.parser.wait_limit(timeout.leftover(), Instant::now());
+            if let Err(e) = self.poll.poll(&mut self.events, wait) {
                 // Mio will throw an interrupted error in case of cursor position retrieval. We need to retry until it succeeds.
                 // Previous versions of Mio (< 0.7) would automatically retry the poll call if it was interrupted (if EINTR was returned).
                 // https://docs.rs/mio/0.7.0/mio/struct.Poll.html#notes
@@ -85,8 +89,16 @@ impl EventSource for UnixInternalEventSource {
             };
 
             if self.events.is_empty() {
-                // No readiness events = timeout
-                return Ok(None);
+                // No readiness events = timeout: the caller's, or the held
+                // Alt+] digits' quiet time (cmux patch).
+                self.parser.release_if_quiet(Instant::now());
+                if let Some(event) = self.parser.next() {
+                    return Ok(Some(event));
+                }
+                if timeout.elapsed() {
+                    return Ok(None);
+                }
+                continue;
             }
 
             for token in self.events.iter().map(|x| x.token()) {
@@ -105,6 +117,7 @@ impl EventSource for UnixInternalEventSource {
                                     self.parser.advance(
                                         &self.tty_buffer[..read_count],
                                         read_count == TTY_BUFFER_SIZE,
+                                        Instant::now(),
                                     );
                                 }
                                 Err(e) => {
@@ -165,56 +178,5 @@ impl EventSource for UnixInternalEventSource {
     #[cfg(feature = "event-stream")]
     fn waker(&self) -> Waker {
         self.waker.clone()
-    }
-}
-
-//
-// Following `Parser` structure exists for two reasons:
-//
-//  * mimic anes Parser interface
-//  * move the advancing, parsing, ... stuff out of the `try_read` method
-//
-#[derive(Debug)]
-struct Parser {
-    buffer: Vec<u8>,
-    internal_events: VecDeque<InternalEvent>,
-}
-
-impl Default for Parser {
-    fn default() -> Self {
-        Parser {
-            // This buffer is used for -> 1 <- ANSI escape sequence. Are we
-            // aware of any ANSI escape sequence that is bigger? Can we make
-            // it smaller?
-            //
-            // Probably not worth spending more time on this as "there's a plan"
-            // to use the anes crate parser.
-            buffer: Vec::with_capacity(256),
-            // TTY_BUFFER_SIZE is 1_024 bytes. How many ANSI escape sequences can
-            // fit? What is an average sequence length? Let's guess here
-            // and say that the average ANSI escape sequence length is 8 bytes. Thus
-            // the buffer size should be 1024/8=128 to avoid additional allocations
-            // when processing large amounts of data.
-            //
-            // There's no need to make it bigger, because when you look at the `try_read`
-            // method implementation, all events are consumed before the next TTY_BUFFER
-            // is processed -> events pushed.
-            internal_events: VecDeque::with_capacity(128),
-        }
-    }
-}
-
-impl Parser {
-    fn advance(&mut self, buffer: &[u8], more: bool) {
-        // cmux patch: the shared parse loop (`parse::advance`).
-        advance(&mut self.buffer, buffer, more, &mut self.internal_events);
-    }
-}
-
-impl Iterator for Parser {
-    type Item = InternalEvent;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.internal_events.pop_front()
     }
 }

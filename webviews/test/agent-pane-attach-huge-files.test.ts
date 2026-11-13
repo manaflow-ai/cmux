@@ -171,7 +171,11 @@ await requireBrowserLane("agent-pane-attach-huge-files.test.ts", async () => {
   const SEND_MS = 5_000;
   /// After the ×, the page's heap (after a GC) is back within this of where it started.
   const HEAP_BACK = 64 * MB;
-  const TYPED = "hello while loading!";
+  /// Sixty keys, so the typing p95 is a percentile: with twenty, `quantile(keys, 0.95)` is the
+  /// slowest key, and one key a loaded runner delayed (a GC, another process) failed the row at 25.9
+  /// ms against a 26 ms limit, alone on the runner (run 43386568736). KEY_MAX_MS still bounds the
+  /// slowest key, so a real freeze fails either way.
+  const TYPED = "hello while loading! every key lands while the file attaches";
   // The editor itself, not an attachment atom placed in it (contenteditable="false").
   const PROMPT = '.acpmux-composer-prompt [contenteditable="true"]';
   setDefaultTimeout(900_000);
@@ -1141,7 +1145,7 @@ os.replace(path + ".part", path)
       }
       await step("focusing the prompt", prompt.click());
       await page.evaluate(() => ((window as unknown as BigWindow).__big.recording = true));
-      await step("typing 20 keys", page.keyboard.type(TYPED, { delay: 30 }));
+      await step(`typing ${TYPED.length} keys`, page.keyboard.type(TYPED, { delay: 30 }));
       await page.evaluate(() => ((window as unknown as BigWindow).__big.recording = false));
       await step(
         "the last key's frame",

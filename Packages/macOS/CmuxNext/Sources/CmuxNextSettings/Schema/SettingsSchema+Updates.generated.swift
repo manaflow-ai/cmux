@@ -166,11 +166,11 @@ nonisolated enum UpdateSettingsSchema {
                 UpdatesSettings.liveWebReloadPath,
                 section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.updates.liveWebReload", "Live Web Reload"),
-                help: SettingsText.keyed("settings.updates.liveWebReload.help", "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with."),
+                title: SettingsText.keyed("settings.updates.liveWebReload", "cmux Live"),
+                help: SettingsText.keyed("settings.updates.liveWebReload.help", "The switch that lets cmux live start and Edit cmux Live… show your own checkout's web UI in this app: each saved edit shows at once, with no build and no relaunch. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with. cmux live start --swift is the Swift path (Labs > Live Code)."),
                 kind: .toggle,
                 default: .bool(UpdatesSettings.liveWebReloadDefault),
-                keywords: ["web", "live", "hot reload", "reload", "dev server", "overlay", "edit", "web-dev"]
+                keywords: ["web", "live", "hot reload", "reload", "dev server", "overlay", "edit", "web-dev", "cmux live", "live web reload"]
             ),
             SettingDescriptor(
                 UpdatesSettings.installOnQuitPath,

@@ -27,7 +27,7 @@ import { sqlMeshStoreLayer } from "./db/mesh.ts";
 import { meshConfigLayer, parseMeshExperiment, parseReceiverPolicyLease } from "./mesh/config.ts";
 import { upstreamMeshLayer } from "./upstream/live-mesh.ts";
 import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/identity.ts";
-import { recordedVmIds, sweepableTunnelDevices } from "./db/orphans.ts";
+import { deletedVmIds, recordedVmIds, sweepableTunnelDevices } from "./db/orphans.ts";
 import { sweepOrphanTunnels, sweepOrphanVms } from "./upstream/orphan-sweep.ts";
 import { cronPlan } from "./cron-plan.ts";
 
@@ -66,6 +66,8 @@ export interface Env {
   readonly CMUX_VM_RECEIVER_POLICY_LEASE_MS?: string;
   /** Stack Auth webhook signing secret (whsec_...); optional, the webhook answers 503 without it (G1, cx-0op.6). */
   readonly STACK_WEBHOOK_SECRET?: string;
+  /** The commit this Worker was deployed from (scripts/deploy.sh `--var COMMIT_SHA:$GITHUB_SHA`); /healthz names it. */
+  readonly COMMIT_SHA?: string;
   /** Service keys (cx-b4h.13): JSON array of { id, sha256, scopes, labels, teams? }; hashes only. See src/auth/service-keys.ts. */
   readonly CMUX_VM_SERVICE_KEYS?: string;
   /** JSON object of service key id to extra scopes, limited to acl:read and acl:write. See src/auth/service-keys.ts. */
@@ -154,7 +156,7 @@ const unconfigured: Served = { handler: notConfigured, reap: () => Promise.resol
 
 /**
  * One cron run of the orphan sweeps (src/upstream/orphan-sweep.ts) this environment runs (src/cron-plan.ts): provider
- * VMs no ownership row records, and device tunnels nothing can use. Each is its own run, so a failure of one never
+ * VMs no ownership row protects, and device tunnels nothing can use. Each is its own run, so a failure of one never
  * skips the other.
  */
 const runOrphanSweep = async (env: Env) => {
@@ -181,14 +183,14 @@ const runOrphanSweep = async (env: Env) => {
   try {
     if (!plan.sweepVms) return;
     const report = await Effect.runPromise(
-      withRequestConnection(sweepOrphanVms(config, { nowMs: Date.now(), dryRun: false, recorded: recordedVmIds })).pipe(
+      withRequestConnection(sweepOrphanVms(config, { nowMs: Date.now(), dryRun: false, recorded: recordedVmIds, deletedRows: deletedVmIds })).pipe(
         Effect.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)),
       ),
     );
     if (report.orphans.length > 0 || !report.complete) {
       console.log(JSON.stringify({
         event: "cmux_vm_orphan_sweep", listed: report.listed, complete: report.complete, orphans: report.orphans.length,
-        deleted: report.deleted, failed: report.failed,
+        deleted_row: report.orphans.filter((vm) => vm.reason === "deleted_row").length, deleted: report.deleted, failed: report.failed,
       }));
     }
   } finally {
@@ -242,9 +244,22 @@ const served = (env: Env): Served => {
   return cached;
 };
 
+/**
+ * /healthz names the commit it serves in `x-cmux-commit`, so NOW's cloud_deploy_gate can pair the live Worker with a
+ * journey verdict on that same commit (cmuxterm-hq goals/cloud-deploy-checked.md). No commit set: no header.
+ */
+export const withCommit = (response: Response, env: Pick<Env, "COMMIT_SHA">): Response => {
+  const commit = env.COMMIT_SHA ?? "";
+  if (!/^[0-9a-f]{40}$/.test(commit)) return response;
+  const named = new Response(response.body, response);
+  named.headers.set("x-cmux-commit", commit);
+  return named;
+};
+
 export default {
-  fetch(request: Request, env: Env): Promise<Response> {
-    return served(env).handler(request);
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const response = await served(env).handler(request);
+    return new URL(request.url).pathname === "/healthz" ? withCommit(response, env) : response;
   },
   /** Cron (wrangler.jsonc triggers): the agent reaper and the orphan sweep. */
   scheduled(_controller: ScheduledController, env: Env, context: ExecutionContext): void {

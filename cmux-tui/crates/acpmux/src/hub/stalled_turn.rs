@@ -75,6 +75,7 @@ impl Hub {
             return;
         }
         self.note_harness_sandbox(session, update);
+        self.note_claim_run(session, update);
         // Release the detector before appending: summary readers hold meta before the
         // detector, while append takes meta to publish the record.
         let event = session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).observe(update);
@@ -124,6 +125,7 @@ impl Hub {
         *session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()) = None;
         session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).clear();
         self.reset_loop_detector(session);
+        self.reset_claim_runs(session);
         session.stalled_gen.fetch_add(1, Ordering::SeqCst);
     }
 
@@ -163,6 +165,7 @@ impl Hub {
         if heard_ms.is_none() {
             session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).clear();
             self.reset_loop_detector(session);
+            self.reset_claim_runs(session);
         }
         session.heard_at.store(at, Ordering::Relaxed);
         session.stalled_recheck.store(0, Ordering::Relaxed);
@@ -187,7 +190,8 @@ impl Hub {
             return None;
         }
         let period = stalled.as_nanos() as u64;
-        self.sessions()
+        // The live sessions, unsorted (`Hub::next_idle_deadline`): a closed one runs no turn.
+        self.live_session_handles()
             .iter()
             .filter(|s| Self::counted_turn(s).is_some())
             .map(|s| Self::stalled_due(s, period))
@@ -216,7 +220,7 @@ impl Hub {
         self.check_resume();
         let now = self.clock_now();
         let period = stalled.as_nanos() as u64;
-        for session in self.sessions() {
+        for session in self.live_session_handles() {
             // Read first: anything that moves the count after it bumps it (`stalled_gen`).
             let generation = session.stalled_gen.load(Ordering::SeqCst);
             let Some(turn) = Self::counted_turn(&session) else { continue };
@@ -340,6 +344,7 @@ mod loop_episode_tests {
             doing: Default::default(),
             notice: false,
             persons: false,
+            accepted: true,
         });
         hub.watch_stalled_turn(&session, None);
         let before = session.state_seq.load(Ordering::SeqCst);

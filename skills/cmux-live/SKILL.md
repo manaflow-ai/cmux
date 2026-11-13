@@ -32,7 +32,7 @@ state; React components hot reload in place.
 ```bash
 cmux live start                      # the checkout around the current folder
 cmux live start --worktree ~/src/wt  # another checkout (a worktree for one change)
-cmux live status                     # what cmux loads its web UI from
+cmux live status                     # what cmux loads its web UI from, and why
 cmux live stop                       # back to the web UI cmux shipped with
 ```
 
@@ -79,8 +79,9 @@ Swift outside function bodies still needs a build; edits inside them take a live
 
 ## When it does not change
 
-- `cmux live status` shows `web-dev.json` and the Live Web Reload setting. The switch is
-  `updates.liveWebReload` (on by default); `cmux settings set updates.liveWebReload true` turns it
+- `cmux live status` starts with what the app loads its web UI from and why (the cmux Live
+  setting, `web-dev.json`, whether its server answers with its token, when it stopped on its own),
+  then the details. The switch is Settings > General > cmux Live, `updates.liveWebReload` (on by default); `cmux settings set updates.liveWebReload true` turns it
   back on.
 - The dev server's log is in the status output's state folder (`dev-server.log`).
 - cmux loads only a dev server that proves it holds the token `start` wrote; one started some

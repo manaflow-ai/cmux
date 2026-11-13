@@ -114,7 +114,25 @@ public final class AgentsStepModel {
             loading = false
             loaded = true
             read = nil
+            finishInstall()
         }
+    }
+
+    /// The install whose read has not landed yet: the next read that lands (the install's own, or one
+    /// that superseded it, such as another card's focus refresh) ends it with the agent's Sign In.
+    @ObservationIgnored private var installAwaitingRead: String?
+
+    /// Ends ``installAwaitingRead`` from the read just shown: its Sign In runs when the agent is found,
+    /// else the failure stays beside its button.
+    private func finishInstall() {
+        guard let id = installAwaitingRead else { return }
+        installAwaitingRead = nil
+        // The installer finished but acpmux does not find the agent yet: say so beside the button.
+        guard agents.contains(where: { $0.id == id }) else {
+            return installs[id] = .failed("installed, but cmux does not find it yet; reopen cmux to look again")
+        }
+        installs[id] = nil
+        signIn(id)
     }
 
     private func show(_ fresh: [OnboardingAgent]) {
@@ -176,22 +194,19 @@ public final class AgentsStepModel {
                 installs[id] = .failed(failure)
                 return
             }
-            // The read after the install wins over any read in flight from before it.
+            // The read after the install wins over any read in flight from before it. A newer read (another
+            // card's focus refresh) may supersede this one; whichever lands first ends the install.
+            installAwaitingRead = id
             read?.cancel()
             read = nil
             generation += 1
             let mine = generation
             let fresh = await source?.agentSignIns(recheck: true) ?? []
-            guard mine == generation else { return installs[id] = nil }
+            guard mine == generation else { return }
             show(fresh)
             loading = false
             loaded = true
-            // The installer finished but acpmux does not find the agent yet: say so beside the button.
-            guard agents.contains(where: { $0.id == id }) else {
-                return installs[id] = .failed("installed, but cmux does not find it yet; reopen cmux to look again")
-            }
-            installs[id] = nil
-            signIn(id)
+            finishInstall()
         }
     }
 
