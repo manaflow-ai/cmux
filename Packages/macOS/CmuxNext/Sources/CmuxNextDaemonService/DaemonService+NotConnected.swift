@@ -17,6 +17,15 @@ extension DaemonService {
         }
     }
 
+    /// True while the first connection is on its way and nothing says yet that it is slow: the store still says
+    /// `.connecting`, the startup deadline has not passed (``startup``) and no restore is reported. A healthy start
+    /// is in this state for a moment, so a surface that waits for the first answer shows no "still loading" words
+    /// in it. A daemon that restores (its start can take minutes), failed, dropped or passed the deadline is not.
+    public var isStartingQuietly: Bool {
+        guard case .connecting = store.connectionState else { return false }
+        return startup == .connecting && !recovery.isRestoring
+    }
+
     /// `error` as text, then the failure that dropped this daemon connection: a dropped connection
     /// that asks again ends with only "connection ended", and the failure that dropped it (a dial
     /// refusal, a handshake) is the last startup error (Cloud's `link_ended_detail`, #32954).

@@ -90,3 +90,13 @@ public struct MachineAgentSessions: Sendable {
         }
     }
 }
+
+extension Sequence<MachineAgentSessions> {
+    /// The sessions of every machine, newest activity first, minus the ones that `hidden` hides (Clear History,
+    /// Remove from History).
+    public func sessions(minus hidden: HiddenHistory) -> [AgentSession] {
+        flatMap(\.sessions)
+            .filter { !hidden.hides($0.qualifiedID, activeAt: $0.lastActivityAt, kind: "agent") }
+            .sorted { $0.lastActivityAt > $1.lastActivityAt }
+    }
+}

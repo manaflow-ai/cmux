@@ -23,6 +23,7 @@ final class AgentHistorySource: VaultSessionSource {
     }
 
     var isComplete: Bool { services?.history.agents.isComplete ?? true }
+    var startsQuietly: Bool { services?.machines.local.isStartingQuietly ?? false }
 
     /// The daemon client's own wait between two reads of a list that is not complete.
     func waitForPending(afterReads reads: Int) async throws {

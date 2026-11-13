@@ -54,9 +54,7 @@ final class AgentHistory {
 
     /// Every known session, newest activity first, minus hidden ones.
     var sessions: [AgentSession] {
-        machines.values.flatMap(\.sessions)
-            .filter { !hidden.document.hides($0.qualifiedID, activeAt: $0.lastActivityAt, kind: "agent") }
-            .sorted { $0.lastActivityAt > $1.lastActivityAt }
+        machines.values.sessions(minus: hidden.document)
     }
 
     func session(id: String) -> AgentSession? {

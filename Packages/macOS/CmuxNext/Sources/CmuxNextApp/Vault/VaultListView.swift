@@ -29,7 +29,7 @@ struct VaultListView: View {
                 .disabled(vault.isLoading)
             }
             .padding(Metrics.panelInset)
-            if vault.isPartial {
+            if vault.showsNotCompleteMark {
                 Text(verbatim: HistoryAppStrings.stillLoading).font(Font(Typography.caption)).foregroundStyle(colors.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading).padding([.horizontal, .bottom], Metrics.panelInset)
             }
