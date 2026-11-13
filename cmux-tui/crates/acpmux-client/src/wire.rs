@@ -862,7 +862,7 @@ mod other_delta_tests {
         assert!(serde_json::from_value::<Sub>(unsupported).is_err());
 
         let ops = vec![
-            DeltaOp::<serde_json::Value>::Folder { seq: 4, row: row.clone() },
+            DeltaOp::<serde_json::Value>::Folder { seq: 4, row },
             DeltaOp::FolderGone { seq: 5, origin: "local".into(), folder: "/work".into() },
         ];
         let frame = delta_frame(&DeltaFrame {
