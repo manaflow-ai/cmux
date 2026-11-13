@@ -59,7 +59,15 @@ impl SummaryIndex {
         let mut disk_after = false;
         let mut bytes_read = 0;
         if let Some(disk) = self.disk() {
-            let piece = disk.read_piece(anchor, side, inclusive, limit, max_bytes)?;
+            // `max_bytes` is the encoded response budget, while a disk record
+            // also carries index framing and a trailer. Read one bounded
+            // physical piece with enough room to decode a record whose
+            // summary itself fits the response budget; selection below still
+            // enforces `max_bytes` on returned rows.
+            let physical_bytes = max_bytes
+                .saturating_add(super::MAX_INDEX_RECORD_BYTES)
+                .min(super::snapshot::PAGE_BYTES);
+            let piece = disk.read_piece(anchor, side, inclusive, limit, physical_bytes)?;
             bytes_read = piece.bytes_read;
             disk_before = piece.has_before;
             disk_after = piece.has_after;
