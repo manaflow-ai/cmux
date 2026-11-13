@@ -107,6 +107,9 @@ class DedicatedBuilder(unittest.TestCase):
         os.environ['GITHUB_OUTPUT'] = str(self.outputs)
         self.addCleanup(os.environ.pop, 'GITHUB_OUTPUT', None)
 
+    def kept_tree(self):
+        return self.home / state.STATE_ROOT / state.state_key(self.RUNNER)
+
     def git(self, *args):
         return subprocess.run(['git', '-C', str(self.workspace), '-c', 'user.name=t', '-c', 'user.email=t@t', *args],
                               check=True, capture_output=True, text=True).stdout
@@ -251,7 +254,7 @@ class DedicatedBuilder(unittest.TestCase):
         self.assertEqual(self.build()[0], 'mode=incremental')
 
     def test_a_malformed_kept_state_falls_back_to_a_clean_build(self):
-        state_file = self.home / state.STATE_ROOT / self.RUNNER
+        state_file = self.kept_tree()
         for text in ('null', '[]', '"x"', '{'):
             with self.subTest(text=text):
                 self.build()
@@ -263,7 +266,7 @@ class DedicatedBuilder(unittest.TestCase):
 
     def test_any_malformed_field_of_a_valid_checkpoint_makes_it_clean(self):
         self.build()
-        path = next((self.home / state.STATE_ROOT / self.RUNNER).glob(f'*/{state.INCREMENTAL_STATE}'))
+        path = next(self.kept_tree().glob(f'*/{state.INCREMENTAL_STATE}'))
         valid = json.loads(path.read_text())
         self.assertTrue(state.checkpoint_complete(valid))
         mutations = [('built', 'false'), ('built', 1), ('built', None), ('since_clean', 'many'),
@@ -272,7 +275,7 @@ class DedicatedBuilder(unittest.TestCase):
         for field, value in mutations:
             with self.subTest(field=field, value=value):
                 self.build()
-                path = next((self.home / state.STATE_ROOT / self.RUNNER).glob(f'*/{state.INCREMENTAL_STATE}'))
+                path = next(self.kept_tree().glob(f'*/{state.INCREMENTAL_STATE}'))
                 broken = json.loads(path.read_text())
                 if value is ...:
                     del broken[field]
@@ -311,7 +314,7 @@ class DedicatedBuilder(unittest.TestCase):
 
     def test_a_failed_checkpoint_write_never_fails_the_job_and_the_next_build_is_clean(self):
         self.build(finish=False)
-        derived = next((self.home / state.STATE_ROOT / self.RUNNER).glob('*/DerivedData'))
+        derived = next(self.kept_tree().glob('*/DerivedData'))
         (self.workspace / 'build-universal').symlink_to(derived, target_is_directory=True)
         original = Path.write_text
 
@@ -328,10 +331,10 @@ class DedicatedBuilder(unittest.TestCase):
     def test_mark_built_never_crashes_on_a_malformed_state(self):
         self.build(finish=False)
         (self.workspace / 'build-universal').symlink_to(
-            next((self.home / state.STATE_ROOT / self.RUNNER).glob('*/DerivedData')), target_is_directory=True)
+            next(self.kept_tree().glob('*/DerivedData')), target_is_directory=True)
         for text in ('null', '[]', '{'):
             with self.subTest(text=text):
-                next((self.home / state.STATE_ROOT / self.RUNNER).glob(f'*/{state.INCREMENTAL_STATE}')).write_text(text)
+                next(self.kept_tree().glob(f'*/{state.INCREMENTAL_STATE}')).write_text(text)
                 self.assertFalse(state.mark_built(self.workspace, self.home, self.RUNNER))
 
     def test_a_cef_or_ghosttykit_download_pin_change_makes_it_clean(self):
@@ -350,7 +353,7 @@ class DedicatedBuilder(unittest.TestCase):
     def test_another_identitys_derived_data_is_deleted(self):
         self.build(toolchain='Xcode 26.6')
         self.build(toolchain='Xcode 26.7')
-        kept = sorted(path.parent.name for path in (self.home / state.STATE_ROOT / self.RUNNER).glob('*/DerivedData'))
+        kept = sorted(path.parent.name for path in self.kept_tree().glob('*/DerivedData'))
         self.assertEqual(len(kept), 1)
 
     def test_a_workspace_that_is_not_a_git_checkout_builds_from_empty(self):
@@ -446,10 +449,37 @@ class FlaggedBuilder(DedicatedBuilder):
 
     def test_its_kept_root_is_its_users_alone(self):
         self.build()
-        for private in (self.home / state.STATE_ROOT, self.home / state.STATE_ROOT / self.RUNNER):
+        for private in (self.home / state.STATE_ROOT, self.kept_tree()):
             self.assertEqual(private.stat().st_mode & 0o777, 0o700, private)
 
-    def test_it_never_takes_the_macs_shared_host_build_root(self):
+    def test_both_signing_runners_of_the_mac_build_on_one_tree(self):
+        self.assertEqual(self.kept_tree().name, 'one-job')
+        self.assertEqual(self.build()[:2], ('mode=clean', False))
+        self.commit({'Sources/a.swift': 'let a = 2\n'})
+        self.RUNNER = 'cmux15-glaeda-1'
+        self.assertEqual(self.build()[:2], ('mode=incremental', True))
+
+    def test_a_live_holder_refuses_a_second_job(self):
+        tree = self.kept_tree()
+        tree.mkdir(parents=True)
+        (tree / state.ONE_JOB_LEASE).write_text(json.dumps({'tracking': 'other', 'run': '7', 'worker': 4242}))
+        with mock.patch.object(state, 'live_worker', return_value=True), self.assertRaises(SystemExit) as refused:
+            state.prepare(self.workspace, self.home, self.RUNNER, 'nightly-next', 'Xcode 26.6')
+        self.assertIn('held by run 7', str(refused.exception))
+        with mock.patch.object(state, 'live_worker', return_value=False):
+            self.assertTrue(state.prepare(self.workspace, self.home, self.RUNNER, 'nightly-next', 'Xcode 26.6'))
+
+    def test_only_the_holder_releases_the_tree(self):
+        with mock.patch.dict(os.environ, {'RUNNER_TRACKING_ID': 'mine'}):
+            self.build()
+            lease = self.kept_tree() / state.ONE_JOB_LEASE
+            self.assertEqual(json.loads(lease.read_text())['tracking'], 'mine')
+            with mock.patch.dict(os.environ, {'RUNNER_TRACKING_ID': 'other'}):
+                self.assertFalse(state.release_lease(self.home))
+            self.assertTrue(state.release_lease(self.home))
+            self.assertEqual(lease.read_text(), '')
+
+    def test_it_builds_from_one_fixed_source_path_not_the_workspace(self):
         env_file = self.root / 'github-env'
         env_file.write_text('')
         with mock.patch.dict(os.environ, {'GITHUB_ENV': str(env_file), 'GITHUB_WORKSPACE': str(self.workspace),
@@ -457,8 +487,18 @@ class FlaggedBuilder(DedicatedBuilder):
                 mock.patch.object(state.Path, 'home', return_value=self.home), \
                 mock.patch.object(state, 'toolchain_identity', return_value='Xcode 26.6'):
             self.assertEqual(state.main(['nightly_build_state.py', 'prepare', 'nightly-next']), 0)
-        self.assertNotIn('CMUX_NIGHTLY_HOST_BUILD_ROOT', env_file.read_text())
+        written = dict(line.split('=', 1) for line in env_file.read_text().splitlines())
+        host = self.home / 'Library/Caches/cmux-nightly-next/one-job/host'
+        self.assertEqual(written['CMUX_NIGHTLY_HOST_BUILD_ROOT'], '1')
+        self.assertEqual(written['CMUX_NIGHTLY_HOST_ROOT'], str(host))
+        self.assertNotIn(str(self.workspace), written['CMUX_NIGHTLY_HOST_ROOT'])
+        self.assertNotIn('/Users/Shared', written['CMUX_NIGHTLY_HOST_ROOT'])
         self.assertIn('CMUX_NEXT_NOTICES_CACHE=', env_file.read_text())
+        # app-host-build-root.sh builds in $CMUX_NIGHTLY_HOST_ROOT/src into its DerivedData.
+        script = (ROOT / 'scripts/ci/nightly-steps/app-host-build-root.sh').read_text()
+        self.assertIn('root="${CMUX_NIGHTLY_HOST_ROOT:-', script)
+        self.assertIn('build_root="$root/src"', script)
+        self.assertIn('derived_data="$root/DerivedData"', script)
 
 
 class HostBuildRoot(unittest.TestCase):

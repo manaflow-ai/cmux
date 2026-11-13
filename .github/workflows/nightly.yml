@@ -7136,7 +7136,7 @@ jobs:
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
-      # Warm per runner under $HOME, by flag (nightly_build_state.py); no shared compiler store or host root.
+      # Warm in one tree per Mac under $HOME, by flag (nightly_build_state.py); no shared compiler store or host root.
       CMUX_NIGHTLY_KEEP_STATE: "1"
       CMUX_CI_FLEET_CACHE_OFF: "1"
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
@@ -7226,7 +7226,6 @@ jobs:
       - *x38
       - *x39
       - *x40
-      - *x42
       - *x43
       - *x44
       - *x45
@@ -7255,6 +7254,10 @@ jobs:
         run: python3 scripts/ci/background_build.py join --state "$RUNNER_TEMP/nightly-helper-builds" webview-checks
       - *set-up-node
       - *x56
+      # Nothing a build script, a dependency or the app started may still run once a secret is present
+      # (refuse_stray_processes.py). Again before the publication secrets, after the steps that run the app.
+      - name: Refuse stray processes before secrets
+        run: python3 "$PUBLISH_TOOLING/ci/refuse_stray_processes.py"
       - *x57
       - *x58
       - *x59
@@ -7337,6 +7340,8 @@ jobs:
           CEF: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND == '1' }}
           SOURCE_ARCHIVE: ${{ vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' }}
         run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" source
+      - name: Refuse stray processes before secrets (publication)
+        run: python3 "$PUBLISH_TOOLING/ci/refuse_stray_processes.py"
       - *gh-app-token-write
       - *gh-app-install-tooling
       - *x80

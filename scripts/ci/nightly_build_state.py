@@ -147,13 +147,105 @@ def keeps_state(runner: str) -> bool:
 
 
 KEEP_STATE_FLAG = 'CMUX_NIGHTLY_KEEP_STATE'
+# nightly-next-one's kept tree, one per Mac: GitHub picks either signing runner of the Mac per run, and a tree per
+# runner would build cold twice and then be only as fresh as that runner's last run. One fixed name, never
+# <member>-glaeda[-K] (glaeda-disk removes trees of that pattern after 12 h idle).
+ONE_JOB_STATE = 'one-job'
+ONE_JOB_LEASE = 'build.lease'
 
 
 def flagged() -> bool:
-    """nightly-next-one sets CMUX_NIGHTLY_KEEP_STATE=1: its runner, its own macOS user, keeps an incremental
-    DerivedData, SourcePackages and compilation cache of its own under $HOME (0700), whatever the runner's name,
-    and never builds in the Mac's shared host build root."""
+    """nightly-next-one sets CMUX_NIGHTLY_KEEP_STATE=1: it keeps an incremental DerivedData, SourcePackages and
+    compilation cache in one tree per Mac, $HOME/Library/Caches/cmux-nightly-next/one-job (0700), whatever the
+    runner's name, and builds from one fixed source path in it (one_job_host_root), never the Mac's shared
+    host build root. The job holds glaeda's exclusive
+    whole-Mac claim, so one runs at a time; its lease (take_lease) refuses a second one all the same."""
     return os.environ.get(KEEP_STATE_FLAG) == '1'
+
+
+def state_key(runner: str) -> str:
+    return ONE_JOB_STATE if flagged() else runner
+
+
+def one_job_host_root(home: Path) -> Path:
+    """nightly-next-one's build root: src (the checkout cloned whole), DerivedData and SourcePackages at one path
+    on the Mac, inside its 0700 tree, never the Mac's shared /Users/Shared root."""
+    return home / STATE_ROOT / ONE_JOB_STATE / 'host'
+
+
+def worker_pid() -> int:
+    """This job's Runner.Worker: the nearest ancestor of this process by that name, 0 when there is none."""
+    pid = os.getpid()
+    for _ in range(64):
+        try:
+            out = subprocess.run(['ps', '-o', 'ppid=,command=', '-p', str(pid)], capture_output=True, text=True,
+                                 timeout=10, check=False).stdout.split(None, 1)
+        except (OSError, subprocess.TimeoutExpired):
+            return 0
+        if len(out) < 2 or not out[0].isdigit():
+            return 0
+        if os.path.basename(out[1].split(' ', 1)[0].strip()) == 'Runner.Worker':
+            return pid
+        pid = int(out[0])
+        if pid <= 1:
+            return 0
+    return 0
+
+
+def live_worker(pid: int) -> bool:
+    if pid <= 1:
+        return False
+    try:
+        command = subprocess.run(['ps', '-o', 'command=', '-p', str(pid)], capture_output=True, text=True,
+                                 timeout=10, check=False).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return True  # cannot tell: treat the holder as live
+    return os.path.basename(command.split(' ', 1)[0]) == 'Runner.Worker'
+
+
+def take_lease(state: Path) -> None:
+    """Hold the one-job tree for this job, under an flock of the lease file: refused while another live job
+    (its Runner.Worker still runs) holds it, so the tree is never shared concurrently. release_lease ends it."""
+    import fcntl
+    me = {'tracking': os.environ.get('RUNNER_TRACKING_ID', ''), 'run': os.environ.get('GITHUB_RUN_ID', ''),
+          'worker': worker_pid()}
+    with open(state / ONE_JOB_LEASE, 'a+', encoding='utf-8') as lease:
+        try:
+            fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SystemExit(f'::error title=nightly build state::{state} is being taken by another job right now; '
+                             'nightly-next-one never shares its kept tree')
+        lease.seek(0)
+        try:
+            holder = json.loads(lease.read() or '{}')
+        except ValueError:
+            holder = {}
+        if holder and holder.get('tracking') != me['tracking'] and live_worker(int(holder.get('worker') or 0)):
+            raise SystemExit(f'::error title=nightly build state::{state} is held by run {holder.get("run")} '
+                             f'(Runner.Worker {holder.get("worker")}); nightly-next-one never shares its kept tree')
+        if holder and holder.get('tracking') != me['tracking']:
+            print(f'Taking {state} from run {holder.get("run")}, whose job has ended')
+        lease.seek(0)
+        lease.truncate()
+        lease.write(json.dumps(me, sort_keys=True))
+
+
+def release_lease(home: Path) -> bool:
+    import fcntl
+    path = home / STATE_ROOT / ONE_JOB_STATE / ONE_JOB_LEASE
+    if not path.is_file():
+        return False
+    with open(path, 'r+', encoding='utf-8') as lease:
+        fcntl.flock(lease, fcntl.LOCK_EX)
+        try:
+            holder = json.loads(lease.read() or '{}')
+        except ValueError:
+            holder = {}
+        if holder.get('tracking') != os.environ.get('RUNNER_TRACKING_ID', ''):
+            return False
+        lease.seek(0)
+        lease.truncate()
+    return True
 
 
 def git(workspace: Path, *args: str) -> str:
@@ -293,7 +385,7 @@ def mark_built(workspace: Path, home: Path, runner: str) -> bool:
     if not (dedicated(runner) or flagged()) or not derived.is_symlink():
         return False
     state_file = derived.resolve().parent / INCREMENTAL_STATE
-    if (home / STATE_ROOT / runner).resolve() not in state_file.parents:
+    if (home / STATE_ROOT / state_key(runner)).resolve() not in state_file.parents:
         return False
     state = read_state(state_file)
     if not checkpoint_complete(state):
@@ -344,7 +436,7 @@ def tree_bytes(path: Path) -> int:
 
 def notices_cache(home: Path, runner: str) -> Path:
     """The kept notices crate sources, emptied once they pass the size bound."""
-    cache = home / STATE_ROOT / runner / NOTICES_CACHE
+    cache = home / STATE_ROOT / state_key(runner) / NOTICES_CACHE
     if cache.is_dir() and tree_bytes(cache) > NOTICES_CACHE_MAX_BYTES:
         remove(cache)
     # Keep only the crate sources fetch_crates.py writes (registry/ and git/),
@@ -367,11 +459,12 @@ def notices_cache(home: Path, runner: str) -> Path:
 def prepare(workspace: Path, home: Path, runner: str, track: str, toolchain: str) -> bool:
     if not (keeps_state(runner) or flagged()) or track != 'nightly-next':
         return False
-    runner_state = home / STATE_ROOT / runner
+    runner_state = home / STATE_ROOT / state_key(runner)
     if flagged():
         runner_state.mkdir(parents=True, exist_ok=True)
         for private in (home / STATE_ROOT, runner_state):
             private.chmod(0o700)
+        take_lease(runner_state)
     derived = workspace / 'build-universal'
     remove(derived)
     identity = hashlib.sha256(f'{workspace.resolve()}\n{toolchain}'.encode()).hexdigest()[:32]
@@ -477,7 +570,7 @@ def finish_host(root: Path, workspace: Path, home: Path, runner: str) -> None:
     derived = workspace / 'build-universal'
     if derived.is_symlink():
         slot = derived.resolve()
-        if (home / STATE_ROOT / runner).resolve() in slot.parents:
+        if (home / STATE_ROOT / state_key(runner)).resolve() in slot.parents:
             remove(slot.parent / INCREMENTAL_STATE)
             remove(slot)
     remove(derived)
@@ -505,7 +598,13 @@ def main(argv: list[str]) -> int:
                 if github_env:
                     with open(github_env, 'a', encoding='utf-8') as env:
                         env.write(f'CMUX_NEXT_NOTICES_CACHE={cache}\n')
-                        if dedicated(runner) and not flagged():
+                        if flagged():
+                            # The Release build runs from one fixed source path on the Mac, whichever signing
+                            # runner (each with its own workspace) took the job: Xcode's DerivedData and
+                            # compilation cache record absolute source paths (app-host-build-root.sh).
+                            env.write('CMUX_NIGHTLY_HOST_BUILD_ROOT=1\n')
+                            env.write(f'CMUX_NIGHTLY_HOST_ROOT={one_job_host_root(Path.home())}\n')
+                        elif dedicated(runner):
                             # The Release build step may take the host build root (app-host-build-root.sh).
                             env.write('CMUX_NIGHTLY_HOST_BUILD_ROOT=1\n')
         return 0
@@ -524,7 +623,12 @@ def main(argv: list[str]) -> int:
         if mark_built(workspace, Path.home(), os.environ.get('RUNNER_NAME', '')):
             print('NEXT Release build finished; the next build on this builder may build on its DerivedData')
         return 0
-    print('usage: nightly_build_state.py prepare TRACK | mark-built | prepare-host ROOT | finish-host ROOT', file=sys.stderr)
+    if len(argv) == 2 and argv[1] == 'release':
+        if release_lease(Path.home()):
+            print('nightly-next-one released its kept tree')
+        return 0
+    print('usage: nightly_build_state.py prepare TRACK | mark-built | release | prepare-host ROOT | finish-host ROOT',
+          file=sys.stderr)
     return 2
 
 

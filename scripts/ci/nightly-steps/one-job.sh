@@ -1,18 +1,24 @@
 #!/usr/bin/env bash
 # nightly.yml nightly-next-one: the hand-offs between the split jobs' steps, in one workspace (no artifacts).
-#   one-job.sh paths     before the build: the app path, and mktemp under $RUNNER_TEMP (this runner's user
-#                        writes only under its $HOME and $RUNNER_TEMP)
+#   one-job.sh paths     before the build: the app path, mktemp under $RUNNER_TEMP, and no keychain an ended
+#                        job left (the job holds the whole Mac, so a build.keychain-db now is a leftover)
 #   one-job.sh inputs    after the build: the build number, the Ghostty helper and license trees for prepare
 #   one-job.sh signed    after notarization: the verify steps read the signed app restored from its tarball
 #   one-job.sh final     the final DMG and appcast where verify-final-dmg.sh reads them
 #   one-job.sh source    publish-nightly's "Select the build to publish", for this job's own build only
-#   one-job.sh wipe      last: this job's temp files and copies; the workspace stays for the next warm build
+#   one-job.sh wipe      last: this job's temp files and copies, and its hold on the kept tree; the workspace
+#                        stays for the next warm build
 set -euo pipefail
 case "${1:-}" in
   paths)
     python3 -c 'import json, sys; sys.exit(json.loads(sys.argv[1]) != ["arm64"])' "$VARIANTS" \
       || { echo "nightly-next-one builds arm64 only, not $VARIANTS" >&2; exit 1; }
     { echo "CHANNEL_APP_PATH=build-universal/Build/Products/Release/$APP_NAME.app"; echo "TMPDIR=$RUNNER_TEMP"; } >> "$GITHUB_ENV"
+    leftover="$HOME/Library/Keychains/build.keychain-db"
+    if [ -e "$leftover" ]; then
+      echo "Deleting the signing keychain an ended job left: $leftover"
+      security delete-keychain "$leftover" 2>/dev/null || rm -f "$leftover"
+    fi
     ;;
   inputs)
     [[ "$BUILD" =~ ^[0-9]+$ ]] || { echo "no daemon build: $BUILD" >&2; exit 1; }
@@ -44,6 +50,7 @@ case "${1:-}" in
       find "$tmp" -mindepth 1 -maxdepth 1 ! -name '_*' -exec rm -rf {} +
     fi
     rm -rf signed signed-app-handoff final-dmg nightly-out tested cef-runtime
+    python3 "$(dirname "$0")/../nightly_build_state.py" release || true
     ;;
   *) echo "usage: one-job.sh paths|inputs|signed|final|source|wipe" >&2; exit 2 ;;
 esac

@@ -190,6 +190,42 @@ class NightlyNextOneJobTests(unittest.TestCase):
                      "daemon_build", "daemon_version", "feed_check", "refusal_reason", "feed_written"):
             self.assertIn(name, outputs)
 
+    # Build-time code and the app's own code share this job with the signing and publication secrets, so each set
+    # of secrets is fenced by a stray-process check, and nothing from the bundle runs while signing secrets exist.
+    STRAY_CHECKS = ("Refuse stray processes before secrets", "Refuse stray processes before secrets (publication)")
+    SIGNING_SECRET = re.compile(r"secrets\.(APPLE_|ASC_API_|SPARKLE_|NIGHTLY_SPARKLE_)")
+    PUBLICATION_SECRET = re.compile(r"secrets\.(CMUX_RELEASE_APP_|NIGHTLY_NEXT_R2_)|steps\.writer-token\.")
+    # The steps that execute the built app or a binary from its bundle (verify-signed-nightly's and
+    # verify-final-dmg-nightly's, which run without secrets in the split path).
+    BUNDLE_RUNNERS = (
+        "Verify version surfaces", "Verify bundled CLI commands run from the bundle alone",
+        "Verify signed diff sidecar protocol contract", "Verify signed app entitlements and the Computer Use helper ticket",
+        "Run bundled Ghostty theme picker helper regression", "Verify signed app SSH daemon contract",
+        "Verify final DMG artifact", "Launch smoke from a fresh home",
+    )
+
+    def test_stray_processes_are_refused_before_each_set_of_secrets(self) -> None:
+        steps = self.job.get("steps") or []
+        names = [s.get("name") for s in steps]
+        blobs = [yaml.safe_dump(s) for s in steps]
+        first, second = (names.index(n) for n in self.STRAY_CHECKS)
+        for index in (first, second):
+            self.assertIn("refuse_stray_processes.py", steps[index].get("run", ""))
+            self.assertNotIn("secrets.", blobs[index])
+        signing = [i for i, b in enumerate(blobs) if self.SIGNING_SECRET.search(b)]
+        publication = [i for i, b in enumerate(blobs) if self.PUBLICATION_SECRET.search(b)]
+        self.assertTrue(signing and publication)
+        self.assertEqual(min(signing), first + 1, "the first check sits right before the first signing secret")
+        self.assertEqual(min(publication), second + 1, "the second check sits right before the publication secrets")
+        self.assertLess(max(signing), second, "no signing secret after the publication check")
+
+        runners = [names.index(n) for n in self.BUNDLE_RUNNERS]
+        for index in runners:
+            # Nothing from the bundle runs while the signing secrets are in the job, and the publication check
+            # comes after the last of them, so nothing such a step left behind meets the publication secrets.
+            self.assertGreater(index, max(signing), names[index])
+            self.assertLess(index, second, names[index])
+
     def test_the_published_record_reads_the_one_job(self) -> None:
         needs = {
             "decide": {"result": "success", "outputs": {"track": "nightly-next"}},
