@@ -16,6 +16,7 @@ source, dest = map(pathlib.Path, sys.argv[1:])
 assert json.loads(source.read_text(encoding="utf-8")) == json.loads(dest.read_text(encoding="utf-8"))
 assert dest.read_text(encoding="utf-8") == '{"operations":{"one":{"class":"read"}},"unicode":"✓"}\n'
 assert dest.stat().st_size < source.stat().st_size
+assert dest.stat().st_mode & 0o777 == source.stat().st_mode & 0o777
 PY
 for source in \
   "$repo/cmux-tui/spec/resource-operations-v2.json" \

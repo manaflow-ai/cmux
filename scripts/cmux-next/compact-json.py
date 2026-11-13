@@ -16,6 +16,7 @@ def compact(source: Path, destination: Path) -> tuple[int, int]:
     destination.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=f".{destination.name}.", dir=destination.parent)
     try:
+        os.chmod(temporary, source.stat().st_mode & 0o777)
         with os.fdopen(fd, "wb") as handle:
             handle.write(encoded)
             handle.flush()
