@@ -15,7 +15,7 @@ use super::stage::{
     PUT_RECORDS_LIMIT, StageControl, StageOutcome, stage_registry, stage_registry_in,
 };
 use super::*;
-use crate::workspace_registry::wal_durability::WAL_SIZE_LIMIT_BYTES;
+use crate::workspace_registry::wal_durability::{WAL_SIZE_LIMIT_BYTES, WalRoom};
 
 const SESSION: &str = "floor-rebuild";
 
@@ -51,6 +51,36 @@ fn hook(mux: &Arc<crate::Mux>, terminal: &str, event: &str) {
     .unwrap();
     let key = format!("floor-{}", crate::workspace_registry::new_uuid_v4());
     mux.append_journal_ingress(&ingress, "test", &key).unwrap();
+}
+
+/// Hook records that a fixture writes before it waits for a checkpoint of
+/// the registry's log: about 12 MiB of frames.
+const HOOKS_BEFORE_A_CHECKPOINT: usize = 32;
+
+/// The syncer looks at the registry's log only when it is asked. In the
+/// daemon the reply to each request asks. The fixture appends its hooks with
+/// no request and no reply, so nothing asks, and the log holds each byte.
+/// So the fixture asks and waits, as the retention pass does
+/// (`wal_durability`, the module doc): the roster owner ends its work first
+/// (its commit after the look began would stay in the log), then the syncer
+/// copies each frame, and the next commit starts the log again from its
+/// first frame.
+fn checkpoint_the_log(mux: &crate::Mux) {
+    assert!(mux.settle_agent_roster_for_test());
+    let room = mux.registry_connection.checkpoint_and_wait(Duration::from_secs(30));
+    assert_eq!(room, WalRoom::Room, "the fixture: no room in the registry's log");
+}
+
+/// One hook for each event, with a wait for the log's checkpoint after each
+/// [`HOOKS_BEFORE_A_CHECKPOINT`] of them and at the end.
+fn hooks<'a>(mux: &Arc<crate::Mux>, terminal: &str, events: impl Iterator<Item = &'a str>) {
+    for (index, event) in events.enumerate() {
+        hook(mux, terminal, event);
+        if (index + 1).is_multiple_of(HOOKS_BEFORE_A_CHECKPOINT) {
+            checkpoint_the_log(mux);
+        }
+    }
+    checkpoint_the_log(mux);
 }
 
 /// The fixture's own writes left the registry's log (`-wal`) at or below the
@@ -132,9 +162,8 @@ fn fixture(label: &str, below: usize) -> Fixture {
     let mux = open(&root.0);
     let surface = mux.new_workspace(None, None).unwrap();
     let terminal = surface.terminal_public_id().cloned().unwrap().to_string();
-    for index in 0..below {
-        hook(&mux, &terminal, ["SessionStart", "UserPromptSubmit", "Stop"][index % 3]);
-    }
+    let old = (0..below).map(|index| ["SessionStart", "UserPromptSubmit", "Stop"][index % 3]);
+    hooks(&mux, &terminal, old);
     seal_all(&mux, "below");
     let floor = mux.workspace_registry.lock().unwrap().journal_segments_end().unwrap();
     hook(&mux, &terminal, "SessionStart");
@@ -399,9 +428,7 @@ fn a_second_rebuild_at_a_higher_floor_swaps_a_registry_that_a_swap_made() {
 
     // A full start on the first rebuilt registry, and a newer run on it.
     let mux = open(&root.0);
-    for index in 0..1_200 {
-        hook(&mux, terminal, ["UserPromptSubmit", "Stop"][index % 2]);
-    }
+    hooks(&mux, terminal, (0..1_200).map(|index| ["UserPromptSubmit", "Stop"][index % 2]));
     seal_all(&mux, "second_below");
     let second_floor = mux.workspace_registry.lock().unwrap().journal_segments_end().unwrap();
     for _ in 0..10 {
@@ -954,16 +981,12 @@ fn old_run_below_the_retention_floor(mux: &Arc<crate::Mux>) -> u64 {
     mux.stop_journal_maintenance();
     let surface = mux.new_workspace(None, None).unwrap();
     let terminal = surface.terminal_public_id().cloned().unwrap().to_string();
-    for index in 0..2_100 {
-        hook(mux, &terminal, ["SessionStart", "UserPromptSubmit", "Stop"][index % 3]);
-    }
+    let old = (0..2_100).map(|index| ["SessionStart", "UserPromptSubmit", "Stop"][index % 3]);
+    hooks(mux, &terminal, old);
     seal_all(mux, "below");
     let old_run = mux.workspace_registry.lock().unwrap().journal_segments_end().unwrap();
     for round in 0..20 {
-        for _ in 0..30 {
-            hook(mux, &terminal, "UserPromptSubmit");
-            hook(mux, &terminal, "Stop");
-        }
+        hooks(mux, &terminal, (0..60).map(|index| ["UserPromptSubmit", "Stop"][index % 2]));
         mux.create_journal_checkpoint("client_test", &format!("floor_join_checkpoint_{round}"))
             .unwrap();
     }
