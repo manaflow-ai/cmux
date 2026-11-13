@@ -1,14 +1,15 @@
 // Settings > Models (cmux-tui/docs/model-connections.md): which subscription or key each thread runs
 // on. Your connections lists this person's Mac logins, ChatGPT plan sign-ins and API keys in the order
 // a thread tries them (drag a row, or Move Up / Move Down in its menu), each with its routing switch,
-// plus Spread usage. Organization connections lists the team's gateway machine and shared keys, which
+// plus Spread usage. Organization connections lists the team's shared keys, which
 // every member's threads use after their own; owners and admins add, replace and remove the keys.
 // Members holds the team's policy for members' own connections, editable only by owners and admins.
 // Add a Connection (the "+", or `#/settings/models?focus=models.add`, which cmux://settings/models/add
-// opens) is a sheet with a search field: Subscriptions (ChatGPT through Continue with ChatGPT, Claude
-// Code through the existing Claude sign-in) and API keys (a password field and an optional label). A
-// pasted key lives only in the open form until it is sent, then is cleared; the app moves it into the
-// Keychain and the page never sees it again.
+// opens) is a sheet with a search field: Subscriptions (ChatGPT through Continue with ChatGPT; Claude
+// Code through `claude setup-token` in a cmux terminal tab and a paste field for the token it prints)
+// and API keys (a password field and an optional label). A pasted key or token lives only in the open
+// form until it is sent, then is cleared; the app moves it into the Keychain and the page never sees it
+// again. A Mac login Cloud threads cannot use (servesCloud false) says This Mac only (Revision 2).
 import { useEffect, useId, useRef, useState, type DragEvent } from "react";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { Button } from "../../../ui/Button";
@@ -41,7 +42,7 @@ const AGENT_NAMES: Record<"claude" | "codex", string> = { claude: "Claude", code
 
 /** The brand mark a connection shows (agentBrands.generated.ts names). */
 function markOf(connection: Pick<ModelConnection, "kind" | "provider">): string {
-  if (connection.kind === "claude-login") return "claude";
+  if (connection.kind === "claude-login" || connection.kind === "claude-token") return "claude";
   if (connection.kind === "codex-login" || connection.kind === "chatgpt-plan") return "openai";
   return (
     { anthropic: "anthropic", openai: "openai", openrouter: "openrouter", google: "gemini", xai: "grok" } as const
@@ -346,6 +347,11 @@ function ConnectionRow({
           <div className="row-help" data-connection-auth={connection.signedIn ? "signedIn" : "signedOut"}>
             {connectionAuthText(connection)}
           </div>
+          {!connection.servesCloud && (
+            <div className="row-help" data-connection-local="">
+              {t("settingsWindow.models.thisMacOnly")}
+            </div>
+          )}
           {plan && (
             <div className="row-help" data-chatgpt-plan="">
               {t("settingsWindow.models.chatgptPlan")}
@@ -423,7 +429,7 @@ function ConnectionRow({
 }
 
 function OrganizationSection({ models, busy, run }: { models: ModelsState; busy: boolean; run: Run }) {
-  const { team, canEdit, gateway, keys } = models.organization;
+  const { team, canEdit, keys } = models.organization;
   const [adding, setAdding] = useState(false);
   const unset = keys.find((key) => !key.set)?.agent ?? null;
   return (
@@ -444,37 +450,9 @@ function OrganizationSection({ models, busy, run }: { models: ModelsState; busy:
             <span className="row-help">{t("settingsWindow.models.org.noTeam")}</span>
           </div>
         )}
-        {team && !gateway && keys.every((key) => !key.set) && !adding && (
+        {team && keys.every((key) => !key.set) && !adding && (
           <div className="row" data-empty="">
             <span className="row-help">{t("settingsWindow.models.org.empty")}</span>
-          </div>
-        )}
-        {team && gateway && (
-          <div className="row" data-models-row="gateway">
-            <div className="row-main">
-              <span className="accounts-mark" aria-hidden="true">
-                <Icon name="server.rack" />
-              </span>
-              <div className="row-label">
-                <div className="row-title">{t("settingsWindow.models.org.gateway")}</div>
-                <div className="row-help">
-                  {gateway.mode === "off"
-                    ? t("settingsWindow.models.org.gatewayOff")
-                    : t(
-                        gateway.online
-                          ? "settingsWindow.models.org.gatewayOnline"
-                          : "settingsWindow.models.org.gatewayOffline",
-                        gateway.machine ?? team.name,
-                      )}
-                </div>
-              </div>
-              <span
-                className="accounts-status"
-                data-status={gateway.mode !== "off" && gateway.online ? "success" : "quiet"}
-              >
-                <span className="accounts-dot" aria-hidden="true" />
-              </span>
-            </div>
           </div>
         )}
         {team &&
@@ -874,23 +852,7 @@ function AddConnectionSheet({
             )}
           </div>
         )}
-        {picked?.kind === "claude" && (
-          <div className="accounts-form" data-models-way="claude">
-            <p className="row-help">{t("settingsWindow.models.claude.help")}</p>
-            <div className="accounts-buttons">
-              <Button
-                type="button"
-                className="button"
-                variant="solid"
-                data-models-action="connectClaude"
-                disabled={busy}
-                onClick={() => void run({ action: "connectClaude" }).then((ok) => ok && onClose())}
-              >
-                {t("settingsWindow.models.claude.signIn")}
-              </Button>
-            </div>
-          </div>
-        )}
+        {picked?.kind === "claude" && <ClaudeTokenForm busy={busy} run={run} onDone={onClose} />}
         {picked?.kind === "key" && <KeyForm provider={picked.provider} busy={busy} run={run} onDone={onClose} />}
       </div>
     </Dialog>
@@ -970,6 +932,105 @@ function KeyForm({
           className="button"
           onClick={() => {
             setKey("");
+            onDone();
+          }}
+        >
+          {t("settingsWindow.cancel")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/** Claude's setup token starts with this, and a pasted one has no whitespace in it. */
+const CLAUDE_TOKEN = /^sk-ant-oat\S*$/;
+
+/** Whether `token` reads as a Claude setup token (`claude setup-token` prints one). */
+export function isClaudeToken(token: string): boolean {
+  return CLAUDE_TOKEN.test(token);
+}
+
+/** Add a Connection > Claude Code: step 1 opens a cmux terminal tab running `claude setup-token`,
+ * step 2 takes the token it prints. The token leaves the page's state before it is sent. */
+function ClaudeTokenForm({ busy, run, onDone }: { busy: boolean; run: Run; onDone(): void }) {
+  const tokenId = useId();
+  const labelId = useId();
+  const [token, setToken] = useState("");
+  const [label, setLabel] = useState("");
+  const pasted = token.trim();
+  const valid = isClaudeToken(pasted);
+  const send = () => {
+    if (!valid || busy) return;
+    const named = label.trim();
+    setToken("");
+    void run(
+      named ? { action: "addClaudeToken", token: pasted, label: named } : { action: "addClaudeToken", token: pasted },
+    ).then((ok) => ok && onDone());
+  };
+  return (
+    <form
+      className="accounts-form"
+      data-models-way="claude"
+      data-models-claude-form=""
+      onSubmit={(event) => {
+        event.preventDefault();
+        send();
+      }}
+    >
+      <p className="row-help">{t("settingsWindow.models.claude.help")}</p>
+      <div className="row-title">{t("settingsWindow.models.claude.step1")}</div>
+      <div className="accounts-buttons">
+        <Button
+          type="button"
+          className="button"
+          data-models-action="claudeSetupToken"
+          disabled={busy}
+          onClick={() => void run({ action: "claudeSetupToken" })}
+        >
+          {t("settingsWindow.models.claude.openTerminal")}
+        </Button>
+      </div>
+      <label className="row-title" id={tokenId}>
+        {t("settingsWindow.models.claude.step2")}
+      </label>
+      <Input
+        className="field"
+        type="password"
+        aria-labelledby={tokenId}
+        autoComplete="off"
+        spellCheck={false}
+        maxLength={4096}
+        value={token}
+        disabled={busy}
+        onChange={(event) => setToken(event.target.value)}
+      />
+      {pasted !== "" && !valid && (
+        <p className="row-error" role="alert" data-claude-token-invalid="">
+          {t("settingsWindow.models.claude.invalid")}
+        </p>
+      )}
+      <label className="row-help" id={labelId}>
+        {t("settingsWindow.models.key.label")}
+      </label>
+      <Input
+        className="field"
+        aria-labelledby={labelId}
+        autoComplete="off"
+        maxLength={128}
+        placeholder="Claude Code"
+        value={label}
+        disabled={busy}
+        onChange={(event) => setLabel(event.target.value)}
+      />
+      <div className="accounts-buttons">
+        <Button type="submit" className="button" data-models-action="addClaudeToken" disabled={busy || !valid}>
+          {t("settingsWindow.models.claude.add")}
+        </Button>
+        <Button
+          type="button"
+          className="button"
+          onClick={() => {
+            setToken("");
             onDone();
           }}
         >

@@ -597,7 +597,13 @@ export type TeamAgentKeysState = {
 };
 
 /** Which way of paying for a model a Settings > Models connection is (cmux-tui/docs/model-connections.md). */
-export type ModelConnectionKind = "codex-login" | "claude-login" | "subscription" | "chatgpt-plan" | "api-key";
+export type ModelConnectionKind =
+  | "codex-login"
+  | "claude-login"
+  | "subscription"
+  | "chatgpt-plan"
+  | "claude-token"
+  | "api-key";
 
 /** A model provider a connection pays (product names, shown as they are). */
 export type ModelProvider = "openai" | "anthropic" | "openrouter" | "google" | "xai";
@@ -617,6 +623,8 @@ export type ModelConnection = {
   /** The routing switch: a disabled connection serves no thread. */
   enabled: boolean;
   defaultFor: string[];
+  /** False: only this Mac's own chats can use it (a Mac login Cloud threads cannot reach). */
+  servesCloud: boolean;
 };
 
 /** Settings > Models (`cmux.settings.models.state`): the person's connections, the organization's,
@@ -627,7 +635,6 @@ export type ModelsState = {
   organization: {
     team: { id: string; name: string } | null;
     canEdit: boolean;
-    gateway: { mode: "gateway" | "off"; machine: string | null; online: boolean } | null;
     keys: { agent: "claude" | "codex"; set: boolean; last4: string | null }[];
   };
   /** Null without a team. */
@@ -637,8 +644,9 @@ export type ModelsState = {
   chatgpt: { attempt: string | null; error: string | null };
 };
 
-/** One Settings > Models gesture. `addKey` and `orgKey` carry a pasted key once: the app moves it
- * into the Keychain and passes acpmux or the team only a reference. */
+/** One Settings > Models gesture. `addKey`, `addClaudeToken` and `orgKey` carry a pasted secret once:
+ * the app moves it into the Keychain and passes acpmux or the team only a reference.
+ * `claudeSetupToken` opens a cmux terminal tab running `claude setup-token`. */
 export type ModelsRun =
   | { action: "order"; ids: string[] }
   | { action: "spread"; on: boolean }
@@ -647,6 +655,8 @@ export type ModelsRun =
   | { action: "connectChatGPT"; id?: string }
   | { action: "cancelChatGPT" }
   | { action: "connectClaude" }
+  | { action: "claudeSetupToken" }
+  | { action: "addClaudeToken"; token: string; label?: string }
   | { action: "addKey"; provider: ModelProvider; key: string; label?: string }
   | { action: "orgKey"; agent: "claude" | "codex"; key: string | null }
   | { action: "members"; ownConnections?: boolean; chooseRunout?: boolean };
