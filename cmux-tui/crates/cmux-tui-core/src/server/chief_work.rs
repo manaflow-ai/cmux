@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use cmux_json::JsonGet as _;
 use serde_json::{Value, json};
 
 use super::agent_session_attach::agent_session_link::AcpmuxLink;
@@ -145,10 +146,6 @@ fn home_id(home: &Path) -> String {
     format!("{hash:08x}")
 }
 
-fn string<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
-    value.get(key).and_then(Value::as_str).filter(|v| !v.is_empty())
-}
-
 /// All reads share a deadline. A failed later page is an error, never an empty or partial
 /// success. The explicit truncation flag covers bounded inventory, not failed reads.
 fn inventory(
@@ -184,20 +181,20 @@ fn inventory(
     let mut truncated = owned.len() > MAX_SESSIONS;
     let mut sessions: Vec<&Value> = all
         .iter()
-        .filter(|s| string(s, "sessionId").is_some_and(|id| owned.contains(id)))
+        .filter(|s| s.get_nonempty_str("sessionId").is_some_and(|id| owned.contains(id)))
         .collect();
     // Read active sessions first; the source's newest-first order settles ties.
-    sessions.sort_by_key(|s| !matches!(string(s, "status"), Some("running" | "waiting")));
+    sessions.sort_by_key(|s| !matches!(s.get_nonempty_str("status"), Some("running" | "waiting")));
     sessions.truncate(MAX_SESSIONS);
     let agents: Vec<Value> = sessions
         .iter()
-        .filter(|s| string(s, "sessionId").is_some_and(|id| children.contains(id)))
+        .filter(|s| s.get_nonempty_str("sessionId").is_some_and(|id| children.contains(id)))
         .map(|s| agent(s))
         .collect();
     let mut tasks = Vec::new();
     let mut sessions = sessions.into_iter().peekable();
     while let Some(session) = sessions.next() {
-        let id = string(session, "sessionId").ok_or(UNAVAILABLE)?;
+        let id = session.get_nonempty_str("sessionId").ok_or(UNAVAILABLE)?;
         let mut cursor: Option<String> = None;
         let mut cursors = HashSet::new();
         loop {
@@ -208,7 +205,7 @@ fn inventory(
             let reply = ask("_acpmux/process/list", params)?;
             let rows = reply.get("processes").and_then(Value::as_array).ok_or(UNAVAILABLE)?;
             for row in rows {
-                if string(row, "sessionId") != Some(id) {
+                if row.get_nonempty_str("sessionId") != Some(id) {
                     return Err(UNAVAILABLE);
                 }
                 if tasks.len() < MAX_TASKS {
@@ -254,7 +251,7 @@ fn family(home: &str, sessions: &[Value]) -> (HashSet<String>, HashSet<String>) 
     let mut children = HashSet::new();
     let mut by_parent: HashMap<&str, Vec<&Value>> = HashMap::new();
     for session in sessions.iter().filter(|s| s.get("peer").is_none_or(Value::is_null)) {
-        let Some(id) = string(session, "sessionId") else { continue };
+        let Some(id) = session.get_nonempty_str("sessionId") else { continue };
         let chief = session.pointer("/tags/cmux.chief").and_then(Value::as_str);
         let parent = session.pointer("/tags/mux.parent").and_then(Value::as_str);
         if chief.is_some_and(|chief| chief != home)
@@ -268,8 +265,9 @@ fn family(home: &str, sessions: &[Value]) -> (HashSet<String>, HashSet<String>) 
                 children.insert(id.to_owned());
             }
         }
-        for parent in
-            ["parent", "startedBy", "spawnedBy"].into_iter().filter_map(|key| string(session, key))
+        for parent in ["parent", "startedBy", "spawnedBy"]
+            .into_iter()
+            .filter_map(|key| session.get_nonempty_str(key))
         {
             by_parent.entry(parent).or_default().push(session);
         }
@@ -277,7 +275,7 @@ fn family(home: &str, sessions: &[Value]) -> (HashSet<String>, HashSet<String>) 
     let mut queue: VecDeque<String> = owned.iter().cloned().collect();
     while let Some(parent) = queue.pop_front() {
         for session in by_parent.get(parent.as_str()).into_iter().flatten() {
-            let Some(id) = string(session, "sessionId") else { continue };
+            let Some(id) = session.get_nonempty_str("sessionId") else { continue };
             if owned.insert(id.to_owned()) {
                 children.insert(id.to_owned());
                 queue.push_back(id.to_owned());
@@ -288,24 +286,24 @@ fn family(home: &str, sessions: &[Value]) -> (HashSet<String>, HashSet<String>) 
 }
 
 fn agent(raw: &Value) -> Value {
-    let state = match string(raw, "state").or_else(|| string(raw, "status")) {
+    let state = match raw.get_nonempty_str("state").or_else(|| raw.get_nonempty_str("status")) {
         Some("running" | "stopping") => "working",
         Some("waiting") => "waiting",
         Some("stuck" | "disconnected" | "unreachable") => "failed",
-        _ if matches!(string(raw, "indicator"), Some("failed" | "lost"))
+        _ if matches!(raw.get_nonempty_str("indicator"), Some("failed" | "lost"))
             || raw.pointer("/lastTurn/status").and_then(Value::as_str) == Some("failed") =>
         {
             "failed"
         }
         _ => "idle",
     };
-    json!({"id": raw.get("sessionId"), "name": string(raw, "name").or_else(|| string(raw, "title")).unwrap_or("Agent"),
-        "state": state, "task": string(raw, "title").or_else(|| string(raw, "lastPrompt")),
+    json!({"id": raw.get("sessionId"), "name": raw.get_nonempty_str("name").or_else(|| raw.get_nonempty_str("title")).unwrap_or("Agent"),
+        "state": state, "task": raw.get_nonempty_str("title").or_else(|| raw.get_nonempty_str("lastPrompt")),
         "startedAt": raw.get("createdAt"), "updatedAt": raw.get("updatedAt")})
 }
 
 fn task(raw: &Value) -> Value {
-    let status = match string(raw, "state") {
+    let status = match raw.get_nonempty_str("state") {
         Some("running") => "running",
         Some("exited") if raw.get("exitCode").and_then(Value::as_i64).is_none_or(|c| c == 0) => {
             "done"

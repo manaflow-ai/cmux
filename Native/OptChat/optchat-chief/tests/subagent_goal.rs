@@ -71,6 +71,7 @@ fn subagent_goal_a_claude_subagent_starts_under_goal_on_opus() {
     let sp = spawner(&h, "claude", true, None);
     let started = spawn(&mut h, sp, "Fix the flaky test and land it.");
     assert!(started.contains("Started a1"), "{started}");
+    h.agents.wait_prompts(2);
     let inner = h.agents.inner.lock().unwrap();
     assert_eq!(
         inner.specs.last().and_then(|s| s.model.as_deref()),
@@ -94,6 +95,50 @@ fn subagent_goal_a_claude_subagent_starts_under_goal_on_opus() {
         "under Claude Code's condition cap: {} chars",
         goal.len()
     );
+}
+
+/// a1141's real spawn (2026-11-12): the task and `/goal` went out together and acpmux
+/// ran the short `/goal` first, so the session never saw its view or task. `/goal` now
+/// waits for the task turn to end: the session's first prompt always holds the task.
+#[test]
+fn subagent_goal_waits_for_the_task_turn_before_goal() {
+    let mut h = Harness::new(default_script());
+    h.agents.inner.lock().unwrap().hold = true;
+    let sp = spawner(&h, "claude", true, None);
+    spawn(&mut h, sp, "Copy the go file into done.");
+    std::thread::sleep(Duration::from_millis(200));
+    {
+        let inner = h.agents.inner.lock().unwrap();
+        assert_eq!(
+            inner.prompts.len(),
+            1,
+            "no /goal while the task turn runs: {:?}",
+            inner.prompts
+        );
+        let first = text(&inner.prompts[0]);
+        assert!(first.contains("Copy the go file into done."), "{first}");
+        assert!(!first.starts_with("/goal"), "{first}");
+    }
+    h.agents.release();
+    h.agents.wait_prompts(2);
+    let inner = h.agents.inner.lock().unwrap();
+    assert!(
+        text(&inner.prompts[1]).starts_with("/goal "),
+        "{:?}",
+        inner.prompts
+    );
+}
+
+/// A task turn the Chief stopped (or that failed) gets no `/goal` after it.
+#[test]
+fn subagent_goal_not_sent_after_a_cancelled_task_turn() {
+    let mut h = Harness::new(default_script());
+    h.agents.inner.lock().unwrap().answer = Some(json!({"stopReason": "cancelled"}));
+    let sp = spawner(&h, "claude", true, None);
+    spawn(&mut h, sp, "Copy the go file into done.");
+    std::thread::sleep(Duration::from_millis(300));
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(inner.prompts.len(), 1, "{:?}", inner.prompts);
 }
 
 #[test]
@@ -131,4 +176,37 @@ fn subagent_goal_setting_reads_on_unless_false() {
     assert!(on(Some(&json!({"chief": {"subagentGoal": true}}))));
     assert!(!on(Some(&json!({"chief": {"subagentGoal": false}}))));
     assert!(!on(Some(&json!({"chief.subagentGoal": false}))));
+}
+
+/// a1147's real spawn on build a8a0a78 (2026-11-12): the task came first, then
+/// Claude Code refused `/goal` ("can't run while hooks are restricted
+/// (disableAllHooks ...)"), because the subagent folder's project settings
+/// turned every hook off. A subagent's settings leave hooks on; the Chief's
+/// own turn folder keeps them off.
+#[test]
+fn subagent_goal_subagent_settings_leave_hooks_on() {
+    use optchat_chief::prompt::Tools;
+    use optchat_chief::session_dir::{SessionSetup, write, write_subagent};
+    let dir = tempfile::tempdir().unwrap();
+    let paths = optchat_chief::paths::Paths::new(&dir.path().join("mux"));
+    paths.create().unwrap();
+    let setup = SessionSetup {
+        exe: "/x/optchat-chief".into(),
+        env: Default::default(),
+        instructions: None,
+        tools: Tools::Mcp,
+        user_env: Default::default(),
+        profile_tool: false,
+        chiefs_tool: false,
+    };
+    write(&paths, &setup).unwrap();
+    write_subagent(&paths, &setup, "subagent").unwrap();
+    let read = |path: std::path::PathBuf| -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
+    };
+    for name in ["settings.json", "settings.local.json"] {
+        let sub = read(paths.subagent.join(".claude").join(name));
+        assert_eq!(sub["disableAllHooks"], json!(false), "{name}: {sub}");
+        assert!(sub.get("allowManagedHooksOnly").is_none(), "{name}: {sub}");
+    }
 }

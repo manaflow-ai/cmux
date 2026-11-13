@@ -188,9 +188,30 @@ public struct Metrics {
     /// whole gap at its trailing side, so the first pill starts on the
     /// chrome line.
     public static var tabBackgroundInset: CGFloat { scale(ChromeTunables.tabBackgroundInset.value) }
-    /// Inset of a tab's icon from its pill's leading edge.
+    /// Inset of a tab's icon from its pill's leading edge: a set `chrome.tabContentLeadingInset` (under
+    /// Compact tabs `chrome.compactTabContentLeadingInset`), else ``tabIconEvenLeadingInset``.
     public static var tabContentLeadingInset: CGFloat {
-        scale((compactTabs ? ChromeTunables.compactTabContentLeadingInset : ChromeTunables.tabContentLeadingInset).value)
+        let set = (compactTabs ? ChromeTunables.compactTabContentLeadingInset : ChromeTunables.tabContentLeadingInset).override
+        return set.map(scale) ?? tabIconEvenLeadingInset
+    }
+    /// The tab icon's inset that leaves its glyph as far from the pill's leading edge as from the
+    /// pill's top and bottom, at every tab height and icon size (``evenIconLeadingInset(rowHeight:iconSize:scale:)``).
+    /// Lawrence 2026-11-12: "space on left/top of tab is not even" (a fixed 8 pt put the terminal
+    /// glyph 10 pt from the edge and 8 pt from the top at Compact density).
+    public static var tabIconEvenLeadingInset: CGFloat { evenIconLeadingInset(rowHeight: tabHeight, iconSize: iconSize) }
+    /// The leading inset of an icon box `iconSize` square, centered in a row `rowHeight` tall, that
+    /// gives its ink the same gap to the row's leading edge as to its top and bottom: the box's own
+    /// vertical inset plus the icon grid's optical difference. The cmux pack draws on a 24 pt grid
+    /// whose glyphs keep 1.5 of 24 (a sixteenth of the box) more room above and below than beside
+    /// them (the terminal glyph's ink is 3.75 from its side, 5.25 from its top), so a box inset
+    /// equal on all sides reads tighter at the top. On `scale`'s pixel grid, never negative.
+    ///
+    /// ```swift
+    /// Metrics.evenIconLeadingInset(rowHeight: 24, iconSize: 14) // 6: ink 8.2 in, 8.1 from the top
+    /// ```
+    public static func evenIconLeadingInset(rowHeight: CGFloat, iconSize: CGFloat, scale: CGFloat = 2) -> CGFloat {
+        let pixels = max(scale, 1)
+        return max(0, (((rowHeight - iconSize) / 2 + iconSize / 16) * pixels).rounded() / pixels)
     }
     /// Where the first tab's icon starts in a pane's strip: the strip's leading padding (none under
     /// the flush corner) plus the icon's inset in its pill. The browser's back arrow starts its ink
@@ -392,12 +413,12 @@ public struct Typography {
 
     /// Tab titles, sidebar rows, palette results.
     public static var body: NSFont { system(.default, size: size(12, 13), weight: .regular) }
-    /// Tab titles: `appearance.metrics.tabFontSize` (times the interface scale when it is on), else Chrome's 12 pt at
-    /// every density, times the user's text scale (Chromium's `ChromeTypographyProvider` gives a tab label its default
-    /// 12 pt; Lawrence 2026-11-07: match Chrome's tab title size). Not the density's text size: a density with its own
-    /// `fontSize` (Default's 13 pt, #37274) would scale it to 12.5.
+    /// Tab titles use the density's body size less one point, times the user's text scale.
+    /// `appearance.metrics.tabFontSize` overrides that size, times the interface scale when enabled.
     public static var tabTitle: NSFont {
-        guard let points = DesignSettings.shared.overrides[.tabFontSize] else { return system(.default, size: 12 * scale, weight: .regular) }
+        guard let points = DesignSettings.shared.overrides[.tabFontSize] else {
+            return system(.default, size: (Metrics.tokens.bodySize - 1) * scale, weight: .regular)
+        }
         return system(.default, size: Metrics.scale(points), weight: .regular)
     }
     /// Selected or emphasized row titles.
