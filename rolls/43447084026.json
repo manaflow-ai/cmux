@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43447084026",
+  "recorded_at": "2026-11-13T15:08:37Z",
+  "reason": "cmux-tui 0d35ad2e4422 changes the image's cmux-tui (pinned bd4b0d85db23)",
+  "dry_run": false,
+  "cmux_tui": "0d35ad2e4422f3e8edf1c010a676272521c4832b",
+  "fixes": [
+    {
+      "sha": "0d35ad2e4422f3e8edf1c010a676272521c4832b",
+      "mergedAt": "2026-11-13T14:27:47Z",
+      "subject": "cmux-tui: a terminal's long-lived connections leave the 48-place lane, so hooks and typed commands are not refused behind them (#42552)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T15:08:37Z",
+    "snapshot_id": "sh-bc6c36d68e2c41248fa5d1d490cc4bf5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43447084026): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3790f086702fdd3e6dd4d77f239902a105ef632f",
+    "image": "cloud-native-auto-0d35ad2e-43447084026-1",
+    "revision": "ci-43447084026-1",
+    "at": "2026-11-13T15:08:37Z"
+  },
+  "rolled_back": false
+}
