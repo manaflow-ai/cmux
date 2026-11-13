@@ -189,6 +189,40 @@ class WaitForCountTests(unittest.TestCase):
             self.assertTrue(waits, script)
 
 
+class TypingTerminalTests(unittest.TestCase):
+    """cmux#24569 (bf98d955f70 on the bench Mac): the typing probe read setup typing null right after `workspace
+    create --focus`, and no key closed a frame record. It now waits for the terminal and checks a window shows it."""
+
+    TOPOLOGY = {"windows": [{"id": "win_1", "workspace": "ws_typing"}],
+                "workspaces": [{"id": "ws_home", "name": "Home", "screens": []},
+                               {"id": "ws_typing", "name": "typing", "screens": [{"panes": [
+                                   {"id": "pane_1", "tabs": [{"id": "tab_1", "kind": "terminal", "terminal": "term_1"}]}]}]}]}
+
+    def test_terminal_of_the_named_workspace(self):
+        self.assertEqual(bench_launch.named_terminal(self.TOPOLOGY, "typing"),
+                         {"workspace": "ws_typing", "pane": "pane_1", "terminal": "term_1"})
+
+    def test_workspace_listed_before_its_terminal_is_none(self):
+        topology = {"workspaces": [{"id": "ws_typing", "name": "typing", "screens": []}]}
+        self.assertIsNone(bench_launch.named_terminal(topology, "typing"))
+
+    def test_shown_reads_the_windows(self):
+        self.assertTrue(bench_launch.shown_in_window(self.TOPOLOGY, "ws_typing"))
+        self.assertFalse(bench_launch.shown_in_window({"windows": [{"workspace": "ws_home"}]}, "ws_typing"))
+
+    def test_typing_probe_shows_its_terminal_before_typing(self):
+        """The probe runs at import, so this reads its source: the typing setup goes through show_typing, which
+        waits on named_terminal and checks shown_in_window."""
+        import ast
+        tree = ast.parse((ROOT / "scripts/cmux-next/automation-typing-bench.py").read_text())
+        show = next((node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "show_typing"), None)
+        self.assertIsNotNone(show)
+        called = {getattr(node.func, "id", None) for node in ast.walk(show) if isinstance(node, ast.Call)}
+        self.assertTrue({"named_terminal", "shown_in_window"} <= called)
+        main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
+        self.assertIn("show_typing", {getattr(node.func, "id", None) for node in ast.walk(main) if isinstance(node, ast.Call)})
+
+
 class SidebarRowMismatchTests(unittest.TestCase):
     def test_short_list_names_the_failed_creates(self):
         report = {"sizes": {"999": {"rows_listed": 999, "create_failures": ["ws 0412"]}}}

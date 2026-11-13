@@ -226,6 +226,26 @@ def wait_for_count(read_count, target, settle=30.0, step=0.5, clock=time.monoton
     return now
 
 
+def named_terminal(topology, name):
+    """{workspace, pane, terminal} of the first terminal tab in the workspace named `name` in a `snapshot.get`
+    topology, else None (no such workspace yet, or its terminal is not published yet). `terminal` is the CLI's
+    terminal selector (the daemon's `term_...`), the ids are the public ones `action.run` targets take."""
+    for ws in (topology or {}).get("workspaces") or []:
+        if not isinstance(ws, dict) or (ws.get("name") or ws.get("title")) != name:
+            continue
+        for screen in ws.get("screens") or []:
+            for pane in screen.get("panes") or []:
+                for tab in pane.get("tabs") or []:
+                    if tab.get("kind") == "terminal":
+                        return {"workspace": ws.get("id"), "pane": pane.get("id"), "terminal": tab.get("terminal") or tab.get("id")}
+    return None
+
+
+def shown_in_window(topology, workspace_id):
+    """Whether a window of a `snapshot.get` topology shows `workspace_id` (its `windows[].workspace`)."""
+    return any(isinstance(w, dict) and w.get("workspace") == workspace_id for w in (topology or {}).get("windows") or [])
+
+
 def account_home():
     """The home the app resolves (`FileManager.homeDirectoryForCurrentUser`): the password database's."""
     try:

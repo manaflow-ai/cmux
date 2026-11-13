@@ -44,7 +44,7 @@ import argparse, csv, importlib.util, json, os, pathlib, random, statistics, sub
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from bench_launch import BenchApp, LaunchError, close_all_workspaces, wait_for_count  # noqa: E402
+from bench_launch import BenchApp, LaunchError, close_all_workspaces, named_terminal, shown_in_window, wait_for_count  # noqa: E402
 
 
 def load(name, file):
@@ -157,16 +157,25 @@ def workspace_count():
 
 
 def terminal_of(workspace_name):
-    for ws in topology().get("workspaces") or []:
-        if (ws.get("name") or ws.get("title")) != workspace_name:
-            continue
-        for screen in ws.get("screens") or []:
-            for pane in screen.get("panes") or []:
-                for tab in pane.get("tabs") or []:
-                    if tab.get("kind") == "terminal":
-                        # The CLI's terminal selector is the daemon's terminal id (`term_...`), not the tab id.
-                        return tab.get("terminal") or tab.get("id")
-    return None
+    # The CLI's terminal selector is the daemon's terminal id (`term_...`), not the tab id.
+    return (named_terminal(topology(), workspace_name) or {}).get("terminal")
+
+
+def show_typing():
+    """The typing terminal ({workspace, pane, terminal}, bench_launch.named_terminal) and whether a window shows it.
+
+    `workspace create` returns on the daemon's reply, before the published topology lists the workspace's terminal,
+    and nothing checked that a window showed it: workspace-scaling's typing probe read no terminal (setup typing
+    null) and no key of any phase closed a frame record at 1, 100 and 1000 workspaces (cmux#24569). As
+    typing-frame-bench's focus_terminal and sidebar-churn-typing do after their own `create --focus`, wait for the
+    terminal, then show its workspace and focus its pane; the shown check reads the topology's windows."""
+    target = wait(lambda: named_terminal(topology(), "typing"), 30)
+    if not target:
+        return None, False
+    rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": target["workspace"]}, "focus": True, "origin": "script"})
+    if target.get("pane"):
+        rpc("action.run", {"action": "pane.focus", "target": f"pane:{target['pane']}", "focus": True, "origin": "script"})
+    return target, bool(wait(lambda: shown_in_window(topology(), target["workspace"]), 10))
 
 
 def seed_empty_workspaces(count):
@@ -445,9 +454,15 @@ def main():
                 results["invalid"] = not_chromium
                 note(f"not measured: the browser agent's page is not Chromium: {not_chromium}")
                 return 2
-        cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec cat")
-        typing = terminal_of("typing")
-        results["setup"] = {"agent_terminals": len(tabs), "browser_tab": browser_tab, "typing": typing}
+        created = cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec cat")
+        target, shown = show_typing()
+        typing = (target or {}).get("terminal")
+        results["setup"] = {"agent_terminals": len(tabs), "browser_tab": browser_tab, "typing": typing, "typing_shown": shown}
+        if not shown:
+            # No key reaches a terminal no window shows: the phases would record zero frames and exit 0.
+            results["invalid"] = {"typing_terminal": target, "typing_shown": shown, "create_exit": created.returncode,
+                                  "create_stderr": (created.stderr or "")[-300:]}
+            return 2
         # The creates return before the published topology lists them (bench_launch.wait_for_count).
         actual_workspaces = wait_for_count(workspace_count, opts.workspace_count) if opts.workspace_count else workspace_count()
         results["setup"]["workspace_count"] = actual_workspaces
