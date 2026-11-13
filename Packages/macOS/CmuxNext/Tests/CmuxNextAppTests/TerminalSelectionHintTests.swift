@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import GhosttyNextKit
 import Testing
 
@@ -46,7 +47,7 @@ import Testing
     @Test func theHintIsAToastThePersonCanHideForGood() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: true)
-        defer { window.close() }
+        defer { window.closeAfterTest() }
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         window.contentView = view
         let store = CmuxToastNeverShowStore(defaults: UserDefaults(suiteName: "hint-\(UUID().uuidString)")!)
