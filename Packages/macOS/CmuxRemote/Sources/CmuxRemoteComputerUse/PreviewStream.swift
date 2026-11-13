@@ -328,23 +328,34 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
         starting = true
         keyframes.required = true
         let token = startToken, side = longSide, capture = capture
-        // task-owner: one stream start for this session; it reports back on `queue`.
+        // task-owner: one stream start for this session; it reports back on `queue`. It holds the
+        // session only between its awaits, so a session that ended is not kept alive by a slow start.
         Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self else { return }
             do {
                 let scWindow = try await capture.window(id)
-                let filter = SCContentFilter(desktopIndependentWindow: scWindow)
-                let scale = Double(filter.pointPixelScale)
-                let size = Self.evenSize(width: scWindow.frame.width * scale, height: scWindow.frame.height * scale, longSide: side)
-                let stream = SCStream(filter: filter, configuration: Self.configuration(size), delegate: self)
-                try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
-                try await stream.startCapture()
-                queue.async { self.streamStarted(stream, id: id, token: token, size: size, scale: scale) }
+                guard let made = try self?.makeStream(for: scWindow, longSide: side) else { return }
+                try await made.stream.startCapture()
+                guard let self else {
+                    try? await made.stream.stopCapture()
+                    return
+                }
+                queue.async { self.streamStarted(made.stream, id: id, token: token, size: made.size, scale: made.scale) }
             } catch {
                 logger.notice("Computer Use preview: no stream for window \(id, privacy: .public): \(String(describing: error), privacy: .public)")
+                guard let self else { return }
                 queue.async { self.streamFailed(id, token: token) }
             }
         }
+    }
+
+    /// The stream of `window` at `longSide` with this session as its output (not started).
+    private func makeStream(for window: SCWindow, longSide: Int) throws -> (stream: SCStream, size: (width: Int, height: Int), scale: Double) {
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        let scale = Double(filter.pointPixelScale)
+        let size = Self.evenSize(width: window.frame.width * scale, height: window.frame.height * scale, longSide: longSide)
+        let stream = SCStream(filter: filter, configuration: Self.configuration(size), delegate: self)
+        try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
+        return (stream, size, scale)
     }
 
     /// The even pixel size H.264 wants, at most `longSide` on its long side.
@@ -396,10 +407,15 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
     private func streamFailed(_ id: UInt32, token: Int) {
         if token == startToken { starting = false }
         guard !ended, window == id, token == startToken else { return }
+        noteStreamFailure()
+        sendStill()
+    }
+
+    /// One more failure of this window's stream: the next start waits 2 s, doubling up to 30 s.
+    private func noteStreamFailure() {
         startFailures += 1
         let wait = min(timing.retryBase * pow(2, Double(startFailures - 1)), timing.retryMax)
         nextStartAt = Date().addingTimeInterval(wait)
-        sendStill()
     }
 
     private func retryStreamIfDue() {
@@ -497,11 +513,15 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
                 = isEnded.withLock({ $0 }) ? nil : await capture.still(id, side)
             guard let self else { return }
             queue.async {
-                self.stillInFlight = false
                 // A deny-list edit, another window or a stream since the capture began: not sent.
-                guard case .success(let frame)? = result, self.stillMaySend(window: id) else { return }
+                guard case .success(let frame)? = result, self.stillMaySend(window: id) else {
+                    self.stillInFlight = false
+                    return
+                }
                 self.send(state: "still", extra: [:])
                 self.write(PreviewStreamWire.message(PreviewStreamWire.still, frame.jpeg))
+                // The next still waits until this one is written: a slow app never queues stills.
+                self.writes.async { [weak self] in self?.queue.async { self?.stillInFlight = false } }
             }
         }
     }
@@ -537,12 +557,17 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
         }
     }
 
+    /// The capture stopped on its own (the window went off screen, or ScreenCaptureKit failed): the
+    /// window stays, stills stand in, and the stream is tried again with the same backoff as a
+    /// failed start (2 s, doubling up to 30 s), never at once on every look.
     func stream(_ stream: SCStream, didStopWithError error: any Error) {
         queue.async {
-            guard stream === self.stream else { return }
-            self.stream = nil
-            self.window = nil
+            guard stream === self.stream, !self.ended else { return }
+            logger.notice("Computer Use preview: the stream stopped: \(String(describing: error), privacy: .public)")
+            self.tearDownStream()
+            self.noteStreamFailure()
             self.send(state: "paused")
+            self.sendStill()
         }
     }
 
