@@ -27,27 +27,59 @@
 //! again.
 
 use super::terminal_lane::TerminalLane;
+use std::collections::HashMap;
+use std::sync::{Mutex, PoisonError};
 
 #[derive(Default)]
 pub(super) struct LongConnections {
     lane: TerminalLane,
+    /// NEVER MERGE: of the lane, the connections that came in by `enter`, by
+    /// terminal. A claim on this branch does not count them.
+    early: Mutex<HashMap<u32, u64>>,
 }
 
 impl LongConnections {
     /// A long place for a connection of terminal `client`, under `limit` and
     /// within the terminal's fair share (`TerminalLane::claim`).
     pub(super) fn claim(&self, limit: u64, client: Option<u32>) -> Result<(), LongConnectionsFull> {
-        if self.lane.claim(limit, client) { Ok(()) } else { Err(LongConnectionsFull { limit }) }
+        // NEVER MERGE: the fault for the proof of the test. The claim's
+        // limit grows by the early connections, so it counts only the
+        // connections that claimed.
+        let early: u64 = self
+            .early
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .fold(0u64, |sum, held| sum.saturating_add(*held));
+        if self.lane.claim(limit.saturating_add(early), client) {
+            Ok(())
+        } else {
+            Err(LongConnectionsFull { limit })
+        }
     }
 
     /// A long place for a connection that holds its long work already
     /// (`ConnectionLease::join_terminal`): no bound applies, see
     /// `TerminalLane::enter`.
     pub(super) fn enter(&self, client: Option<u32>) {
+        if let Some(client) = client {
+            let mut early = self.early.lock().unwrap_or_else(PoisonError::into_inner);
+            let held = early.entry(client).or_insert(0);
+            *held = held.saturating_add(1);
+        }
         self.lane.enter(client);
     }
 
     pub(super) fn release(&self, client: Option<u32>) {
+        if let Some(client) = client {
+            let mut early = self.early.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(held) = early.get_mut(&client) {
+                *held = held.saturating_sub(1);
+                if *held == 0 {
+                    early.remove(&client);
+                }
+            }
+        }
         self.lane.release(client);
     }
 
