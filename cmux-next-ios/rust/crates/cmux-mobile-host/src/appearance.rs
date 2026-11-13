@@ -18,9 +18,8 @@
 //! The phone derives every chrome color from the theme itself (`ThemeTokens.derive`, the same
 //! code the Mac runs), so it computes the same palette offline from its cached copy.
 //!
-//! The terminal theme travels apart from the chrome's (`terminal`): the Mac's applied Ghostty
-//! config, serialized by Ghostty itself, cut to the keys in [`TERMINAL_KEYS`] (`key = value`
-//! lines). The phone loads exactly these lines into every terminal of this Mac, after resetting
+//! The terminal theme travels apart from the chrome's (`terminal`): the value of each key in
+//! [`TERMINAL_KEYS`] in the Mac's applied Ghostty config (`key = value` lines). The phone loads exactly these lines into every terminal of this Mac, after resetting
 //! each key, so its terminals show the Mac's terminal theme and nothing of their own. Lines with
 //! another key or an unexpected value are dropped here.
 

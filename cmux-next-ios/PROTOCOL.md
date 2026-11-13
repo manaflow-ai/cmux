@@ -783,7 +783,7 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   derives every chrome color itself (`ThemeTokens.derive`, the Mac's own code) and keeps
   the last frame, so it paints the same palette at launch and offline. Since 2026-11-13 a
   frame may also carry `"terminal": ["key = value", ...]`: the Mac's terminal theme, its
-  applied Ghostty config as Ghostty serializes it, cut to the terminal theme keys
+  applied Ghostty config's value for each terminal theme key
   (`appearance.rs` `TERMINAL_KEYS`: background, foreground, every palette entry, cursor,
   selection, bold, contrast, faint and cursor opacity, palette generation, blending,
   colorspace, search colors). hostd drops any other key and any value that is not a plain

@@ -98,32 +98,44 @@ extension GhosttyRuntime {
     ]
 
     /// The terminal theme of the config applied to every surface, as Ghostty config lines
-    /// (`key = value`, one per palette entry), for the iPhone. Ghostty writes them itself
-    /// (`ghostty_config_serialize`, every effective value), so they hold what this Mac's terminals
-    /// show: the light or dark variant now applied, `bold-color = bright`, cell-relative cursor and
-    /// selection colors, all 256 palette entries. Empty when libghostty has no config.
+    /// (`key = value`, one per palette entry), for the iPhone: what this Mac's terminals show, with
+    /// the light or dark variant now applied and all 256 palette entries. A key whose value the C
+    /// API cannot read (unset, a cell-relative cursor or selection color, `bold-color`) goes empty,
+    /// so the phone resets it to Ghostty's default. Empty when libghostty has no config.
     public var phoneTerminalThemeLines: [String] {
         guard let config else { return [] }
         return Self.phoneTerminalThemeLines(of: config)
     }
 
     static func phoneTerminalThemeLines(of config: ghostty_config_t) -> [String] {
-        let serialized = ghostty_config_serialize(config)
-        defer { ghostty_string_free(serialized) }
-        guard let pointer = serialized.ptr, serialized.len > 0 else { return [] }
-        let text = String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(serialized.len)), as: UTF8.self)
-        return phoneTerminalThemeLines(serialized: text)
-    }
-
-    /// The lines of `text` (a serialized Ghostty config) whose key is a terminal theme key.
-    nonisolated static func phoneTerminalThemeLines(serialized text: String) -> [String] {
-        text.split(whereSeparator: \.isNewline).compactMap { line in
-            guard let equals = line.firstIndex(of: "=") else { return nil }
-            let key = line[..<equals].trimmingCharacters(in: .whitespaces)
-            guard phoneTerminalThemeKeys.contains(key) else { return nil }
-            let value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
-            return value.isEmpty ? "\(key) =" : "\(key) = \(value)"
+        func hex(_ color: GhosttyThemeColors.RGB) -> String { String(format: "#%02x%02x%02x", color.r, color.g, color.b) }
+        guard let background = color(config, "background"), let foreground = color(config, "foreground") else { return [] }
+        var lines = ["background = \(hex(background))", "foreground = \(hex(foreground))"]
+        var palette = ghostty_config_palette_s()
+        if configGet(config, &palette, key: "palette") {
+            withUnsafeBytes(of: &palette.colors) { raw in
+                for (index, entry) in raw.bindMemory(to: ghostty_config_color_s.self).enumerated() {
+                    lines.append("palette = \(index)=\(hex(GhosttyThemeColors.RGB(r: entry.r, g: entry.g, b: entry.b)))")
+                }
+            }
         }
+        for key in ["cursor-color", "cursor-text", "selection-background", "selection-foreground", "bold-color",
+                    "search-background", "search-foreground", "search-selected-background", "search-selected-foreground"] {
+            lines.append(color(config, key).map { "\(key) = \(hex($0))" } ?? "\(key) =")
+        }
+        for key in ["cursor-opacity", "minimum-contrast", "faint-opacity"] {
+            var value: Double = 0
+            lines.append(configGet(config, &value, key: key) && value.isFinite ? "\(key) = \(value)" : "\(key) =")
+        }
+        for key in ["palette-generate", "palette-harmonious"] {
+            var value = false
+            lines.append(configGet(config, &value, key: key) ? "\(key) = \(value)" : "\(key) =")
+        }
+        for key in ["alpha-blending", "window-colorspace"] {
+            var value: UnsafePointer<CChar>?
+            lines.append(configGet(config, &value, key: key) ? value.map { "\(key) = \(String(cString: $0))" } ?? "\(key) =" : "\(key) =")
+        }
+        return lines
     }
 
     /// The iPhone terminal theme lines of a config made of `text`, for tests.

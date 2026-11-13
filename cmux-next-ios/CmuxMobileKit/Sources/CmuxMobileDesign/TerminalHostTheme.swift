@@ -1,8 +1,8 @@
 public import Foundation
 
 /// The terminal theme of the machine a terminal session runs on: the Ghostty config lines its Mac
-/// sends on the `appearance` service (`terminal`, the Mac's applied Ghostty config as Ghostty
-/// serializes it, cut to ``keys``; hostd `appearance.rs` keeps them safe). The phone's terminals
+/// sends on the `appearance` service (`terminal`: the value of each of ``keys`` in the Mac's
+/// applied Ghostty config; hostd `appearance.rs` keeps them safe). The phone's terminals
 /// take every theme value from here and none from the phone: ``configText`` resets each key before
 /// loading the Mac's lines, so a key the Mac leaves unset falls back to Ghostty's default.
 public struct CmuxMobileTerminalTheme: Equatable, Sendable {
