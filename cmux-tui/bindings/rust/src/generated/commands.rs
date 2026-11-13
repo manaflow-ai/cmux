@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde.
+// cmux-tui mux protocol 12, IR 4d732676139fc0d13bd9f38eb829fa33b966f408c1146e076a969a43a8135b5a.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -944,6 +944,58 @@ pub struct CloudSessionStatusRequest {
 
 #[rustfmt::skip]
 pub type CloudSessionStatusResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudSpareWarmRequest {
+    pub access_token: String,
+    pub account: String,
+    pub api: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub claimed: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub consent: Optional<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub dogfood: Option<bool>,
+    pub install_token: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub login_teams: Option<Vec<String>>,
+    pub platform: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub ready: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub setting: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stored_choice: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub team: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type CloudSpareWarmResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudSpareWarmConsentRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub consent: Optional<bool>,
+    pub generation: u64,
+}
+
+#[rustfmt::skip]
+pub type CloudSpareWarmConsentResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudStartChatReservationRequest {
+    pub access_token: String,
+    pub install_token: String,
+    pub release: bool,
+    pub request: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type CloudStartChatReservationResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4666,6 +4718,18 @@ impl CmuxClient {
 
     pub fn cloud_session_status(&mut self, request: CloudSessionStatusRequest) -> Result<CloudSessionStatusResult> {
         self.execute(&CLOUD_SESSION_STATUS_METADATA, &request)
+    }
+
+    pub fn cloud_spare_warm(&mut self, request: CloudSpareWarmRequest) -> Result<CloudSpareWarmResult> {
+        self.execute(&CLOUD_SPARE_WARM_METADATA, &request)
+    }
+
+    pub fn cloud_spare_warm_consent(&mut self, request: CloudSpareWarmConsentRequest) -> Result<CloudSpareWarmConsentResult> {
+        self.execute(&CLOUD_SPARE_WARM_CONSENT_METADATA, &request)
+    }
+
+    pub fn cloud_start_chat_reservation(&mut self, request: CloudStartChatReservationRequest) -> Result<CloudStartChatReservationResult> {
+        self.execute(&CLOUD_START_CHAT_RESERVATION_METADATA, &request)
     }
 
     pub fn conversation_agent_token(&mut self, request: ConversationAgentTokenRequest) -> Result<ConversationAgentTokenResult> {

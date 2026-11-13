@@ -48,10 +48,21 @@ public nonisolated struct CloudMoveCLI: Sendable {
     public let binary: URL
     /// How long one run may take; past it the run is killed and throws.
     public var timeout: Duration = .seconds(30 * 60)
+    /// The daemon's state root (`CMUX_TUI_STATE_DIR`; nil: cmux-tui's default), given only for the reads of the daemon's
+    /// spare-warm ledger (``startChatWaitCopy(machine:provider:)``, ``startChatLoginReceipt(machine:account:provider:)``),
+    /// so a tagged or per-build app's Send sees its warm copies and receipts. Other verbs run without it: their records
+    /// (link seed, sync, access, moves) stay in the folder they were always in.
+    public var stateDirectory: URL?
 
-    public init(binary: URL, timeout: Duration = .seconds(30 * 60)) {
+    public init(binary: URL, timeout: Duration = .seconds(30 * 60), stateDirectory: URL? = nil) {
         self.binary = binary
         self.timeout = timeout
+        self.stateDirectory = stateDirectory
+    }
+
+    /// A run's environment: this process's, on the daemon's state root; nil (inherited) without one.
+    var environment: [String: String]? {
+        stateDirectory.map { ProcessInfo.processInfo.environment.merging(["CMUX_TUI_STATE_DIR": $0.path]) { $1 } }
     }
 
     /// The error code of an answer that isn't a JSON line (a crash, a kill).
@@ -207,63 +218,6 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// `cmux link machine pin`: its output, the Linux build this client pins (``CloudLegacyPin/pin(answer:)``).
     public func machinePin() async -> Data? { try? await output(["verb": "machine-pin"]).stdout }
 
-    /// Rust validates reservation fields; the native app supplies only its trusted origin/team.
-    /// `install`: the install token, whose team Rust names the reservation in (the spare warm's, `install_team`).
-    public func startChatReservation(release: Bool, request: String, access: String, install: String? = nil) async throws -> Data {
-        struct Call: Encodable { var verb = "start-chat-reservation"; var release: Bool, request: String }
-        let read = try await run(Call(release: release, request: request), reading: "reservation", stdin: Data((access + "\n" + (install ?? "") + "\n").utf8))
-        return read.object ?? Data(#"{"ok":false,"error_code":"bad_answer"}"#.utf8)
-    }
-
-    /// The login copy a fresh spare warm asks for (``startChatWarmSpare(platform:account:access:install:)``): Rust's
-    /// `copy`, answered only for a machine the person owns, in the backend team it warmed.
-    public struct SpareWarm: Sendable, Equatable {
-        public var machineID: String
-        /// The account and the backend team (`team_…`, the install token's) the warm was asked for.
-        public var account: String
-        public var team: String
-
-        public init(machineID: String, account: String, team: String) {
-            (self.machineID, self.account, self.team) = (machineID, account, team)
-        }
-    }
-
-    /// How the App's login copy of a warm ended: installed (Rust keeps it as the start's login receipt), done otherwise
-    /// (or given up for good), or abandoned to an account or team switch.
-    public enum SpareWarmEnd: Sendable, Equatable { case installed(String), finished(String), abandoned(String) }
-
-    /// `cmux link start-chat warm-spare --request JSON`, the session `access` token then the `install` token on stdin:
-    /// the person's spare, warmed in the install token's team (Rust's `install_team`, the reservation's). Nil when there is nothing to copy: an answer from
-    /// the record, no spare, a machine they do not own, or a refusal. With `end`, it reports the copy's end instead:
-    /// a start waiting on it goes on, and an abandoned copy is answered again by Rust's next warm.
-    /// With `claimed`, it asks no warm: a reserve's or a claim's answer named that machine, and Rust answers the copy onto
-    /// it unless a copy onto it is already in flight or given (keyed per machine, cmux-tui `spare_warm`).
-    /// With `ready`, likewise no warm: the platform said that spare became ready, and Rust answers its copy the same way.
-    public func startChatWarmSpare(platform: URL, account: String, access: String, install: String, end: SpareWarmEnd? = nil,
-                                   claimed: String? = nil, ready: String? = nil) async -> SpareWarm? {
-        struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
-        let request = Self.spareWarmRequest(platform: platform, account: account, end: end, claimed: claimed, ready: ready)
-        guard let payload = try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]),
-              let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation",
-                                        stdin: Data((access + "\n" + install + "\n").utf8)),
-              let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any],
-              let copy = reply["copy"] as? [String: Any], let machineID = copy["machine"] as? String,
-              copy["account"] as? String == account, let team = copy["team"] as? String else { return nil }
-        return SpareWarm(machineID: machineID, account: account, team: team)
-    }
-
-    /// The `warm-spare` request: a warm, the end of its copy (`end`), or the copy a reserve's or claim's machine asks for (`claimed`).
-    static func spareWarmRequest(platform: URL, account: String, end: SpareWarmEnd?, claimed: String?, ready: String? = nil) -> [String: Any] {
-        var request: [String: Any] = ["platform": platform.absoluteString, "account": account]
-        switch end {
-        case .installed(let machine): request["installed"] = machine
-        case .finished(let machine): request["finished"] = machine
-        case .abandoned(let machine): request["abandoned"] = machine
-        case nil: request["claimed"] = claimed; request["ready"] = claimed == nil ? ready : nil
-        }
-        return request
-    }
-
     /// The defaults key of ``copiesLoginOnClaim(_:)``.
     public static let copyLoginOnClaimKey = "cmux.cloud.copyLoginOnClaim"
 
@@ -271,7 +225,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// On unless `cmux.cloud.copyLoginOnClaim` is NO (Leo, 2026-11-09: "at least frontload the stuff that we can check earlier").
     public static func copiesLoginOnClaim(_ defaults: UserDefaults) -> Bool { defaults.object(forKey: copyLoginOnClaimKey) as? Bool ?? true }
 
-    /// The machine a reservation answer (``startChatReservation(release:request:access:install:)``, read as an object) reserved; nil for a refusal.
+    /// The machine a reservation answer (the daemon's `cloud-start-chat-reservation`, read as an object) reserved; nil for a refusal.
     public static func reservedMachine(_ reply: [String: Any]) -> String? {
         guard reply["ok"] as? Bool == true, let machine = reply["machine"] as? String, !machine.isEmpty else { return nil }
         return machine
@@ -408,7 +362,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
     private func output<Call: Encodable>(_ call: Call, stdin: Data? = nil, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> ProcessResult {
         guard let invocation = CloudMoveCore().call("cli_invocation", call, as: Invocation.self) else { throw CloudMoveCLIUnanswered() }
         let limit = invocation.timeoutSeconds.map { Duration.seconds($0) } ?? max(timeout, .seconds(invocation.minTimeoutSeconds ?? 0))
-        return try await ProcessRunner.run(executable: binary, arguments: invocation.args, environment: nil, stdin: stdin,
+        return try await ProcessRunner.run(executable: binary, arguments: invocation.args, environment: environment, stdin: stdin,
                                            timeout: limit, stderrLine: stderrLine, clock: ContinuousClock())
     }
 

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde";
+pub const ir_sha256 = "4d732676139fc0d13bd9f38eb829fa33b966f408c1146e076a969a43a8135b5a";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -5192,6 +5192,84 @@ pub fn cloudSessionStatus(client: anytype, request: CloudSessionStatusRequest) !
             .authority = "local-admin",
             .since = 12,
             .capability = "cloud-conversations-v1",
+        },
+        request,
+    );
+}
+
+pub const CloudSpareWarmRequest = struct {
+    access_token: []const u8,
+    account: []const u8,
+    api: []const u8,
+    claimed: wire.Field([]const u8) = .absent,
+    consent: wire.Field(bool) = .absent,
+    dogfood: ?bool = null,
+    install_token: []const u8,
+    login_teams: ?[]const []const u8 = null,
+    platform: []const u8,
+    ready: wire.Field([]const u8) = .absent,
+    setting: wire.Field(bool) = .absent,
+    stored_choice: wire.Field([]const u8) = .absent,
+    team: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "dogfood",
+        "login_teams",
+    };
+};
+
+pub const CloudSpareWarmResult = JsonValue;
+
+pub fn cloudSpareWarm(client: anytype, request: CloudSpareWarmRequest) !wire.Decoded(CloudSpareWarmResult) {
+    return client.callTyped(
+        CloudSpareWarmResult,
+        .{
+            .name = "cloud-spare-warm",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-spare-warm-v1",
+        },
+        request,
+    );
+}
+
+pub const CloudSpareWarmConsentRequest = struct {
+    consent: wire.Field(bool) = .absent,
+    generation: u64,
+};
+
+pub const CloudSpareWarmConsentResult = JsonValue;
+
+pub fn cloudSpareWarmConsent(client: anytype, request: CloudSpareWarmConsentRequest) !wire.Decoded(CloudSpareWarmConsentResult) {
+    return client.callTyped(
+        CloudSpareWarmConsentResult,
+        .{
+            .name = "cloud-spare-warm-consent",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-spare-warm-v1",
+        },
+        request,
+    );
+}
+
+pub const CloudStartChatReservationRequest = struct {
+    access_token: []const u8,
+    install_token: []const u8,
+    release: bool,
+    request: wire.Nullable(JsonValue),
+};
+
+pub const CloudStartChatReservationResult = JsonValue;
+
+pub fn cloudStartChatReservation(client: anytype, request: CloudStartChatReservationRequest) !wire.Decoded(CloudStartChatReservationResult) {
+    return client.callTyped(
+        CloudStartChatReservationResult,
+        .{
+            .name = "cloud-start-chat-reservation",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-start-chat-reservation-v1",
         },
         request,
     );
@@ -12432,7 +12510,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 301;
+pub const command_count: usize = 304;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12500,6 +12578,9 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "cloud-session-clear", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-set", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-status", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
+    .{ .name = "cloud-spare-warm", .authority = "local-admin", .since = 12, .capability = "cloud-spare-warm-v1", .stream = null },
+    .{ .name = "cloud-spare-warm-consent", .authority = "local-admin", .since = 12, .capability = "cloud-spare-warm-v1", .stream = null },
+    .{ .name = "cloud-start-chat-reservation", .authority = "local-admin", .since = 12, .capability = "cloud-start-chat-reservation-v1", .stream = null },
     .{ .name = "conversation-agent-token", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-attachment-link", .authority = "local-admin", .since = 12, .capability = "ws-attachments-v1", .stream = null },
     .{ .name = "conversation-attachment-read", .authority = "local-admin", .since = 12, .capability = "local-attachments-v1", .stream = null },

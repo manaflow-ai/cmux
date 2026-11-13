@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde. */
+/* cmux-tui mux protocol 12, IR 4d732676139fc0d13bd9f38eb829fa33b966f408c1146e076a969a43a8135b5a. */
 
 
 import type * as T from "./types.js";
@@ -669,6 +669,43 @@ export interface CloudSessionStatusRequest extends CmuxRequestBase {
   cmd: "cloud-session-status";
 }
 export type CloudSessionStatusResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudSpareWarmRequest extends CmuxRequestBase {
+  cmd: "cloud-spare-warm";
+  "access_token": string;
+  "account": string;
+  "api": string;
+  "claimed"?: (string) | null;
+  "consent"?: (boolean) | null;
+  "dogfood"?: boolean;
+  "install_token": string;
+  "login_teams"?: Array<string>;
+  "platform": string;
+  "ready"?: (string) | null;
+  "setting"?: (boolean) | null;
+  "stored_choice"?: (string) | null;
+  "team"?: (string) | null;
+}
+export type CloudSpareWarmResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudSpareWarmConsentRequest extends CmuxRequestBase {
+  cmd: "cloud-spare-warm-consent";
+  "consent"?: (boolean) | null;
+  "generation": bigint;
+}
+export type CloudSpareWarmConsentResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudStartChatReservationRequest extends CmuxRequestBase {
+  cmd: "cloud-start-chat-reservation";
+  "access_token": string;
+  "install_token": string;
+  "release": boolean;
+  "request": (T.JsonValue) | null;
+}
+export type CloudStartChatReservationResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationAgentTokenRequest extends CmuxRequestBase {
@@ -3099,6 +3136,9 @@ export type CmuxRequest =
   | CloudSessionClearRequest
   | CloudSessionSetRequest
   | CloudSessionStatusRequest
+  | CloudSpareWarmRequest
+  | CloudSpareWarmConsentRequest
+  | CloudStartChatReservationRequest
   | ConversationAgentTokenRequest
   | ConversationAttachmentLinkRequest
   | ConversationAttachmentReadRequest
@@ -3863,6 +3903,30 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-spare-warm": {
+    request: CloudSpareWarmRequest;
+    result: CloudSpareWarmResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-spare-warm-v1";
+    stream: null;
+  };
+  "cloud-spare-warm-consent": {
+    request: CloudSpareWarmConsentRequest;
+    result: CloudSpareWarmConsentResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-spare-warm-v1";
+    stream: null;
+  };
+  "cloud-start-chat-reservation": {
+    request: CloudStartChatReservationRequest;
+    result: CloudStartChatReservationResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-start-chat-reservation-v1";
     stream: null;
   };
   "conversation-agent-token": {

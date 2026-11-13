@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde";
+inline constexpr std::string_view kProtocolIrSha256 = "4d732676139fc0d13bd9f38eb829fa33b966f408c1146e076a969a43a8135b5a";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -340,6 +340,9 @@ struct CloudSelfhostInfoRequest;
 struct CloudSessionClearRequest;
 struct CloudSessionSetRequest;
 struct CloudSessionStatusRequest;
+struct CloudSpareWarmRequest;
+struct CloudSpareWarmConsentRequest;
+struct CloudStartChatReservationRequest;
 struct ConversationAgentTokenRequest;
 struct ConversationAgentTokenResult;
 struct ConversationAttachmentLinkRequest;
@@ -2018,6 +2021,37 @@ struct CloudSessionSetRequest {
 
 struct CloudSessionStatusRequest {
     friend bool operator==(const CloudSessionStatusRequest&, const CloudSessionStatusRequest&) = default;
+};
+
+struct CloudSpareWarmConsentRequest {
+    Field<bool> consent{};
+    std::uint64_t generation{};
+    friend bool operator==(const CloudSpareWarmConsentRequest&, const CloudSpareWarmConsentRequest&) = default;
+};
+
+struct CloudSpareWarmRequest {
+    std::string access_token{};
+    std::string account{};
+    std::string api{};
+    Field<std::string> claimed{};
+    Field<bool> consent{};
+    std::optional<bool> dogfood{};
+    std::string install_token{};
+    std::optional<std::vector<std::string>> login_teams{};
+    std::string platform{};
+    Field<std::string> ready{};
+    Field<bool> setting{};
+    Field<std::string> stored_choice{};
+    Field<std::string> team{};
+    friend bool operator==(const CloudSpareWarmRequest&, const CloudSpareWarmRequest&) = default;
+};
+
+struct CloudStartChatReservationRequest {
+    std::string access_token{};
+    std::string install_token{};
+    bool release{};
+    std::optional<JsonValue> request{};
+    friend bool operator==(const CloudStartChatReservationRequest&, const CloudStartChatReservationRequest&) = default;
 };
 
 struct CloudSubscriptionStateEvent {
@@ -8485,6 +8519,24 @@ template <>
 struct Codec<CloudSessionStatusRequest> {
     static Result<Json> encode(const CloudSessionStatusRequest& value);
     static Result<CloudSessionStatusRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudSpareWarmRequest> {
+    static Result<Json> encode(const CloudSpareWarmRequest& value);
+    static Result<CloudSpareWarmRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudSpareWarmConsentRequest> {
+    static Result<Json> encode(const CloudSpareWarmConsentRequest& value);
+    static Result<CloudSpareWarmConsentRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudStartChatReservationRequest> {
+    static Result<Json> encode(const CloudStartChatReservationRequest& value);
+    static Result<CloudStartChatReservationRequest> decode(const Json& value);
 };
 
 template <>
