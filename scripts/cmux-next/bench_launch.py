@@ -183,6 +183,34 @@ def note(text):
     print(text, flush=True)
 
 
+def close_all_workspaces(read_ids, close_all, settle=30.0, step=0.5, clock=time.monotonic, sleep=time.sleep):
+    """Close every workspace a close path can close; return (the ids that stay, whether the close did its job).
+
+    The app always keeps its home workspace: no close path closes it (`home_not_closable`), and `snapshot.get`'s
+    topology lists it like any other workspace. A bench that waits for zero workspaces after `workspace
+    close-all-in-all-windows` therefore never gets there (cmux#24569: workspace-scaling's instant and typing probes
+    exited 1 and 2 at every size). The workspaces left once the count stops falling are the ones the bench cannot
+    close; it counts its topology without them. `read_ids()` lists the topology's workspace ids; `close_all()` runs
+    the close and returns its exit code.
+
+    With only the home workspace left the close is refused ("nothing to close", WorkspaceBulkClose): that is a done
+    close when it changed nothing and left at most the one home workspace; any other failure is not."""
+    before = sorted(read_ids())
+    code = close_all()
+    deadline = clock() + settle
+    last = sorted(read_ids())
+    stable = 0
+    while clock() < deadline:
+        sleep(step)  # bounded wait for the closes to land in the topology
+        now = sorted(read_ids())
+        stable = stable + 1 if now == last else 0
+        last = now
+        if stable >= 2:
+            break
+    done = code == 0 or (last == before and len(last) <= 1)
+    return frozenset(last), done
+
+
 def account_home():
     """The home the app resolves (`FileManager.homeDirectoryForCurrentUser`): the password database's."""
     try:
