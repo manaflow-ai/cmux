@@ -35,16 +35,27 @@ enum ComputerUsePreview {
         }
     }
 
-    /// The window a frame may show, decided before any capture: the session's own window, its owner
-    /// named by bundle id, and that app not blocked. Pure, so tests cover every refusal.
-    static func gate(window: (window: UInt32, pid: Int32?)?, owner: ComputerUseActivity.App?,
+    /// The window a session captured last, and the app that owned it when it did
+    /// (``ComputerUseActivityReporter/window(of:)``).
+    struct SessionWindow: Equatable, Sendable {
+        var window: UInt32
+        /// Nil when the window's owner could not be read at the capture.
+        var app: ComputerUseActivity.App?
+    }
+
+    /// The window a frame may show, decided before any capture: the session's own window (one it
+    /// captured itself), still owned by the same app (bundle id, and process when both are known),
+    /// that app named by bundle id and not blocked. Pure, so tests cover every refusal.
+    static func gate(window: SessionWindow?, owner: ComputerUseActivity.App?,
                      blocked: (_ id: String, _ name: String) -> Bool) -> Result<UInt32, Refusal> {
         guard let window else { return .failure(.noWindow) }
         guard let owner else { return .failure(.noWindow) }
         // A window whose app has no bundle id cannot be checked against the deny list: not shown.
         guard let id = owner.id, !id.isEmpty else { return .failure(.blocked) }
-        // The owner changed since the session worked there (a reused window id): not its window.
-        if let expected = window.pid, let pid = owner.pid, expected != pid { return .failure(.noWindow) }
+        // The app the session captured the window of must be known and be the owner now: a window
+        // id reused by another app, or a window the session never looked at, is not its window.
+        guard let expected = window.app?.id, expected == id else { return .failure(.noWindow) }
+        if let pid = window.app?.pid, let now = owner.pid, pid != now { return .failure(.noWindow) }
         guard !blocked(id, owner.name ?? id) else { return .failure(.blocked) }
         return .success(window.window)
     }

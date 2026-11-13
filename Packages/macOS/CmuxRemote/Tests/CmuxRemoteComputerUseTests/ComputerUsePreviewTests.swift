@@ -12,15 +12,59 @@ import VideoToolbox
     private typealias App = ComputerUseActivity.App
     private let textEdit = App(id: "com.apple.TextEdit", name: "TextEdit", pid: 42)
 
+    private func place(_ window: UInt32, _ app: App?) -> ComputerUsePreview.SessionWindow {
+        ComputerUsePreview.SessionWindow(window: window, app: app)
+    }
+
     @Test func onlyTheSessionsOwnAllowedWindowIsShown() {
         let allow: (String, String) -> Bool = { _, _ in false }
         // The session's window, its app allowed: that window.
-        #expect(ComputerUsePreview.gate(window: (9, 42), owner: textEdit, blocked: allow) == .success(9))
+        #expect(ComputerUsePreview.gate(window: place(9, textEdit), owner: textEdit, blocked: allow) == .success(9))
         // No window yet, or it is gone.
         #expect(ComputerUsePreview.gate(window: nil, owner: textEdit, blocked: allow) == .failure(.noWindow))
-        #expect(ComputerUsePreview.gate(window: (9, 42), owner: nil, blocked: allow) == .failure(.noWindow))
+        #expect(ComputerUsePreview.gate(window: place(9, textEdit), owner: nil, blocked: allow) == .failure(.noWindow))
         // Another process owns the window id now: not the session's window.
-        #expect(ComputerUsePreview.gate(window: (9, 41), owner: textEdit, blocked: allow) == .failure(.noWindow))
+        let relaunched = App(id: "com.apple.TextEdit", name: "TextEdit", pid: 41)
+        #expect(ComputerUsePreview.gate(window: place(9, textEdit), owner: relaunched, blocked: allow) == .failure(.noWindow))
+        // The pid is unknown on one side: the bundle id still has to match.
+        let noPid = App(id: "com.apple.TextEdit", name: "TextEdit")
+        #expect(ComputerUsePreview.gate(window: place(9, noPid), owner: textEdit, blocked: allow) == .success(9))
+    }
+
+    /// Defense in depth for agent B's terminal never showing agent A's window: the app the session
+    /// captured must be known and own the window now.
+    @Test func aWindowOfAnotherOrAnUnknownAppIsNotTheSessions() {
+        let allow: (String, String) -> Bool = { _, _ in false }
+        let mail = App(id: "com.apple.mail", name: "Mail", pid: 70)
+        #expect(ComputerUsePreview.gate(window: place(9, textEdit), owner: mail, blocked: allow) == .failure(.noWindow))
+        #expect(ComputerUsePreview.gate(window: place(9, nil), owner: mail, blocked: allow) == .failure(.noWindow))
+        #expect(ComputerUsePreview.gate(window: place(9, App(id: nil, name: "Mail")), owner: mail, blocked: allow) == .failure(.noWindow))
+    }
+
+    /// A slow app: at most three frames wait for the channel; then frames are dropped until a
+    /// keyframe that fits (asked for at once, and again if one had to be dropped), so the app never
+    /// gets a frame whose reference it lost.
+    @Test func aSlowReaderDropsFramesUntilAKeyframe() {
+        var backlog = PreviewFrameBacklog()
+        let first = [backlog.admit(keyframe: true, limit: 3), backlog.admit(keyframe: false, limit: 3), backlog.admit(keyframe: false, limit: 3)]
+        #expect(first == [true, true, true])
+        #expect(backlog.pending == 3 && !backlog.wantsKeyframe)
+        let fourth = backlog.admit(keyframe: false, limit: 3)
+        #expect(!fourth, "a fourth waiting frame is dropped")
+        let asked = backlog.takeKeyframeRequest(), askedAgain = backlog.takeKeyframeRequest()
+        #expect(backlog.dropping && asked && !askedAgain)
+        backlog.pending = 1
+        let delta = backlog.admit(keyframe: false, limit: 3)
+        #expect(!delta, "room again, but a delta frame still waits for a keyframe")
+        backlog.pending = 3
+        let tightKeyframe = backlog.admit(keyframe: true, limit: 3)
+        #expect(!tightKeyframe, "a keyframe that does not fit is dropped too")
+        let askedOnceMore = backlog.takeKeyframeRequest()
+        #expect(askedOnceMore, "and another is asked for")
+        backlog.pending = 2
+        let keyframe = backlog.admit(keyframe: true, limit: 3)
+        #expect(keyframe, "a keyframe that fits resumes the stream")
+        #expect(!backlog.dropping && backlog.pending == 3)
     }
 
     @Test func aBlockedOrUnnamedAppIsNeverShown() {
@@ -30,11 +74,11 @@ import VideoToolbox
             return id == "com.apple.Terminal"
         }
         let terminal = App(id: "com.apple.Terminal", name: "Terminal", pid: 5)
-        #expect(ComputerUsePreview.gate(window: (3, 5), owner: terminal, blocked: denied) == .failure(.blocked))
+        #expect(ComputerUsePreview.gate(window: place(3, terminal), owner: terminal, blocked: denied) == .failure(.blocked))
         #expect(asked == ["com.apple.Terminal"])
         // An app with no bundle id cannot be checked against the deny list: not shown, not asked.
         let anonymous = App(id: nil, name: "helper", pid: 6)
-        #expect(ComputerUsePreview.gate(window: (4, 6), owner: anonymous, blocked: denied) == .failure(.blocked))
+        #expect(ComputerUsePreview.gate(window: place(4, anonymous), owner: anonymous, blocked: denied) == .failure(.blocked))
         #expect(asked == ["com.apple.Terminal"])
     }
 

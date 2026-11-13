@@ -292,9 +292,29 @@ enum ApprovalAnswer: Int32, CaseIterable, Sendable {
     case never = 5
 }
 
-/// Where `capture` reads: `{"window":"<CGWindowID>"}` or `{"display":null|"<id>","exclude_pids":[N]}`.
+/// Where `capture` reads: `{"window":"<CGWindowID>"}` or `{"display":null|"<id>","exclude_pids":[N]}`,
+/// with `"session"` (the calling agent's session key) when the engine captures for an agent's call
+/// (``CaptureRequest``).
 /// `exclude_pids`: the processes (denied and protected apps) whose windows the compositor leaves out
 /// of a display capture, at every window level, so an agent never sees them.
+/// One `capture` callback: its target and the agent session it is for, nil when none was named.
+struct CaptureRequest: Equatable, Sendable {
+    var target: CaptureTarget
+    var session: String?
+
+    init(target: CaptureTarget, session: String? = nil) {
+        self.target = target
+        self.session = session
+    }
+
+    init?(json: Data) {
+        guard let target = CaptureTarget(json: json) else { return nil }
+        let object = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any]
+        let session = object?["session"] as? String
+        self.init(target: target, session: session?.isEmpty == false ? session : nil)
+    }
+}
+
 enum CaptureTarget: Equatable, Sendable {
     case window(UInt32)
     /// Nil: the main display.

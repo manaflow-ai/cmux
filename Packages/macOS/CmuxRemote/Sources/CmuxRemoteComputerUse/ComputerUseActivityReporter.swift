@@ -16,8 +16,14 @@ final class ComputerUseActivityReporter: Sendable {
     private struct SessionState: Sendable {
         var label = ""
         var app: App?
-        /// The window it worked in last (the capture before its action), for Show Window.
+        /// The window it worked in last (its own capture before its action): Show Window and the
+        /// live preview's window.
         var window: UInt32?
+        /// The app that owned ``window`` when the session captured it (the live preview refuses a
+        /// window whose owner is not this app any more).
+        var windowApp: App?
+        /// Its latest window capture, and when (its screenshot comes before its action).
+        var captured: (id: UInt32, at: Date)?
         /// When it acted last; a stopped session's refused calls do not count.
         var actedAt: Date?
         var stopped = false
@@ -29,8 +35,6 @@ final class ComputerUseActivityReporter: Sendable {
 
     private struct State: Sendable {
         var sessions: [String: SessionState] = [:]
-        /// The window of the latest window capture, and when (a screenshot comes before the action).
-        var capturedWindow: (id: UInt32, at: Date)?
         /// The app of each window resolved so far (a few entries; a window keeps its owner).
         var windowApps: [UInt32: App] = [:]
         /// The sessions the person stopped (kept when a session's cursor hides, so it shows again stopped).
@@ -53,11 +57,16 @@ final class ComputerUseActivityReporter: Sendable {
         self.windowApp = windowApp
     }
 
-    /// The engine captured `target` (`capture`'s JSON).
-    func noteCapture(_ target: CaptureTarget) {
-        guard case .window(let id) = target else { return }
+    /// The engine captured a window for a session (`capture`'s JSON names both). A capture that
+    /// names no session is no session's window: another agent's capture never counts as this one's.
+    func noteCapture(_ request: CaptureRequest) {
+        guard case .window(let id) = request.target, let session = request.session else { return }
         let now = clock()
-        state.withLock { $0.capturedWindow = (id, now) }
+        state.withLockUnchecked { state in
+            var entry = state.sessions[session] ?? SessionState(stopped: state.stopped.contains(session))
+            entry.captured = (id, now)
+            state.sessions[session] = entry
+        }
     }
 
     /// The engine asked the person about `question`'s app for its session.
@@ -89,13 +98,10 @@ final class ComputerUseActivityReporter: Sendable {
         }
         let now = clock()
         let given = (object["app"] as? [String: Any]).map { App(id: $0["id"] as? String, name: $0["name"] as? String) }
-        // The window captured within the last 2 s names the app, unless the event names one.
-        var window: UInt32?
-        if given == nil {
-            window = state.withLockUnchecked { state -> UInt32? in
-                guard let captured = state.capturedWindow, now.timeIntervalSince(captured.at) < 2 else { return nil }
-                return state.windowApps[captured.id] == nil ? captured.id : nil
-            }
+        // This session's own window capture within the last 2 s is the window it acts in.
+        let window = state.withLockUnchecked { state -> UInt32? in
+            guard let captured = state.sessions[session]?.captured, now.timeIntervalSince(captured.at) < 2 else { return nil }
+            return state.windowApps[captured.id] == nil ? captured.id : nil
         }
         // Outside the lock: one CGWindowList read for a window not seen before.
         let resolved = window.flatMap { id in windowApp(id).map { (id, $0) } }
@@ -112,13 +118,14 @@ final class ComputerUseActivityReporter: Sendable {
                 return nil
             }
             entry.actedAt = now
-            if let given {
-                entry.app = given
-            } else if let captured = state.capturedWindow, now.timeIntervalSince(captured.at) < 2,
-                      let app = state.windowApps[captured.id] {
-                entry.app = app
+            let recent = entry.captured.flatMap { now.timeIntervalSince($0.at) < 2 ? $0.id : nil }
+            let windowApp = recent.flatMap { state.windowApps[$0] }
+            // The app named on the event wins; else the app of the window this session captured.
+            if let given { entry.app = given } else if let windowApp { entry.app = windowApp }
+            if let recent {
+                entry.window = recent
+                entry.windowApp = windowApp
             }
-            if let captured = state.capturedWindow, now.timeIntervalSince(captured.at) < 2 { entry.window = captured.id }
             state.sessions[session] = entry
             return Self.due(&state, session, now: now, force: false)
         }
@@ -139,11 +146,12 @@ final class ComputerUseActivityReporter: Sendable {
         if let line { write(line) }
     }
 
-    /// The window `session` worked in last and its app's process (Show Window), nil when unknown.
-    func window(of session: String) -> (window: UInt32, pid: Int32?)? {
+    /// The window `session` worked in last (its own capture) and the app that owned it then, nil
+    /// when the session has captured no window.
+    func window(of session: String) -> ComputerUsePreview.SessionWindow? {
         state.withLockUnchecked { state in
             guard let entry = state.sessions[session], let window = entry.window else { return nil }
-            return (window, entry.app?.pid)
+            return ComputerUsePreview.SessionWindow(window: window, app: entry.windowApp)
         }
     }
 

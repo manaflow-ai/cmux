@@ -36,7 +36,7 @@ import Testing
     @Test func anActionSaysWhoActsOnWhichAppAtMostEveryHalfSecond() {
         let rig = Rig(windows: [42: .init(id: "com.apple.TextEdit", name: "TextEdit", pid: 501)])
         let reporter = rig.reporter()
-        reporter.noteCapture(.window(42))
+        reporter.noteCapture(CaptureRequest(target: .window(42), session: "s1"))
         reporter.noteCursor(cursor("look"))
         reporter.noteCursor(cursor("click"))
         rig.advance(0.2)
@@ -60,18 +60,48 @@ import Testing
     @Test func aNewAppOrAnAppTheEventNamesGoesAtOnce() {
         let rig = Rig(windows: [1: .init(id: "com.apple.Notes", name: "Notes"), 2: .init(id: "com.apple.Safari", name: "Safari")])
         let reporter = rig.reporter()
-        reporter.noteCapture(.window(1))
+        reporter.noteCapture(CaptureRequest(target: .window(1), session: "s1"))
         reporter.noteCursor(cursor("look"))
-        reporter.noteCapture(.window(2))
+        reporter.noteCapture(CaptureRequest(target: .window(2), session: "s1"))
         reporter.noteCursor(cursor("look"))
         #expect(rig.written.compactMap { ($0["app"] as? [String: Any])?["name"] as? String } == ["Notes", "Safari"])
         reporter.noteCursor(cursor("click", app: ["id": "com.example.Mail", "name": "Mail"]))
         #expect((rig.written.last?["app"] as? [String: Any])?["id"] as? String == "com.example.Mail")
         // A display capture names no app; an old window capture no longer does either.
         rig.advance(3)
-        reporter.noteCapture(.display(nil))
+        reporter.noteCapture(CaptureRequest(target: .display(nil), session: "s2"))
         reporter.noteCursor(cursor("click", session: "s2", label: "Codex"))
         #expect(rig.written.last?["app"] == nil && rig.written.last?["label"] as? String == "Codex")
+    }
+
+    /// Each session's window is the one it captured itself: agent B acting right after agent A's
+    /// screenshot never takes A's window (the live preview would stream A's window in B's terminal),
+    /// and a capture that names no session is nobody's.
+    @Test func aSessionsWindowIsOnlyOneItCapturedItself() {
+        let rig = Rig(windows: [7: .init(id: "com.apple.mail", name: "Mail", pid: 70), 8: .init(id: "com.apple.Notes", name: "Notes", pid: 80)])
+        let reporter = rig.reporter()
+        reporter.noteCapture(CaptureRequest(target: .window(7), session: "a"))
+        reporter.noteCursor(cursor("click", session: "b", label: "Codex"))
+        #expect(reporter.window(of: "b") == nil, "A's capture is not B's window")
+        #expect(rig.written.last?["app"] == nil)
+        reporter.noteCursor(cursor("click", session: "a"))
+        #expect(reporter.window(of: "a") == ComputerUsePreview.SessionWindow(window: 7, app: .init(id: "com.apple.mail", name: "Mail", pid: 70)))
+        reporter.noteCapture(CaptureRequest(target: .window(8)))
+        rig.advance(1)
+        reporter.noteCursor(cursor("click", session: "b", label: "Codex"))
+        #expect(reporter.window(of: "b") == nil, "a capture with no session is nobody's")
+        reporter.noteCapture(CaptureRequest(target: .window(8), session: "b"))
+        reporter.noteCursor(cursor("click", session: "b", label: "Codex"))
+        #expect(reporter.window(of: "b")?.window == 8)
+        #expect(reporter.window(of: "a")?.window == 7, "B's capture leaves A's window alone")
+    }
+
+    @Test func captureRequestsReadTheirSession() {
+        #expect(CaptureRequest(json: Data(#"{"window":"42","session":"terminal:t:9"}"#.utf8))
+            == CaptureRequest(target: .window(42), session: "terminal:t:9"))
+        #expect(CaptureRequest(json: Data(#"{"window":"42"}"#.utf8)) == CaptureRequest(target: .window(42)))
+        #expect(CaptureRequest(json: Data(#"{"window":"42","session":""}"#.utf8))?.session == nil)
+        #expect(CaptureRequest(json: Data(#"{"display":null,"exclude_pids":[3]}"#.utf8))?.target == .display(nil, excluding: [3]))
     }
 
     @Test func theHostKeepsTheLatestPerSessionAndForgetsEndedAndStaleOnes() {
@@ -110,10 +140,10 @@ import Testing
     @Test func aStoppedSessionSaysSoAtOnceAndItsRefusedCallsAreNoActions() {
         let rig = Rig(windows: [42: .init(id: "com.apple.TextEdit", name: "TextEdit", pid: 501)])
         let reporter = rig.reporter()
-        reporter.noteCapture(.window(42))
+        reporter.noteCapture(CaptureRequest(target: .window(42), session: "s1"))
         reporter.noteCursor(cursor("click"))
         #expect(rig.written.count == 1)
-        #expect(reporter.window(of: "s1")?.window == 42 && reporter.window(of: "s1")?.pid == 501)
+        #expect(reporter.window(of: "s1")?.window == 42 && reporter.window(of: "s1")?.app?.pid == 501)
         rig.advance(1)
         reporter.noteStopped("s1", true)
         #expect(rig.written.count == 2, "the stop goes at once")

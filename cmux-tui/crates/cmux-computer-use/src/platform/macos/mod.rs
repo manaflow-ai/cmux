@@ -541,6 +541,13 @@ impl Desktop for MacDesktop {
         }
     }
 
+    fn capture_for(&self, session: &str, target: &CaptureTarget) -> DResult<RawFrame> {
+        match &self.host {
+            Some(host) => host.capture_for(session, target),
+            None => self.capture(target),
+        }
+    }
+
     fn capture(&self, target: &CaptureTarget) -> DResult<RawFrame> {
         if let Some(host) = &self.host {
             return host.capture(target);

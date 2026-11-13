@@ -150,7 +150,7 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
                 if let id { channel.write(RemoteWire.failure(id: id, code: "no_window", message: "this agent has not worked in a window yet")) }
                 return
             }
-            guard let pid = WindowRaise.raise(window: place.window, pid: place.pid) else {
+            guard let pid = WindowRaise.raise(window: place.window, pid: place.app?.pid) else {
                 if let id { channel.write(RemoteWire.failure(id: id, code: "no_window", message: "the agent's window is gone")) }
                 return
             }
@@ -228,9 +228,9 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
 
     fileprivate func capture(_ target: Data, frame: UnsafeMutablePointer<CmuxCuFrame>, error: UnsafeMutablePointer<UInt8>?,
                              errorCapacity: Int) -> Int32 {
-        guard let target = CaptureTarget(json: target) else { return Self.fail("bad capture target", error, errorCapacity) }
-        activity.noteCapture(target)
-        switch ScreenCapture().capture(target) {
+        guard let request = CaptureRequest(json: target) else { return Self.fail("bad capture target", error, errorCapacity) }
+        activity.noteCapture(request)
+        switch ScreenCapture().capture(request.target) {
         case .failure(let failure):
             return Self.fail(failure.description, error, errorCapacity)
         case .success(let captured):

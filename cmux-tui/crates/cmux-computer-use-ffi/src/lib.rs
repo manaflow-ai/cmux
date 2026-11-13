@@ -111,6 +111,19 @@ impl CmuxCuHost {
     }
 }
 
+/// The `capture` callback's target JSON: `{"window"}` or `{"display"}`, with the calling agent's
+/// session key (`"session"`) when the capture is for one, so the host knows whose window it is.
+fn capture_json(session: Option<&str>, target: &CaptureTarget) -> String {
+    let mut request = match target {
+        CaptureTarget::Window(id) => json!({"window": id}),
+        CaptureTarget::Display(d) => json!({"display": d}),
+    };
+    if let Some(session) = session.filter(|s| !s.is_empty()) {
+        request["session"] = json!(session);
+    }
+    request.to_string()
+}
+
 /// The host's callbacks. The host promises its context outlives the engine
 /// and that the callbacks are thread-safe (header contract).
 #[derive(Clone, Copy)]
@@ -120,11 +133,11 @@ unsafe impl Sync for Host {}
 
 impl HostServices for Host {
     fn capture(&self, target: &CaptureTarget) -> DResult<RawFrame> {
-        let request = match target {
-            CaptureTarget::Window(id) => json!({"window": id}),
-            CaptureTarget::Display(d) => json!({"display": d}),
-        };
-        self.capture_request(&request.to_string())
+        self.capture_request(&capture_json(None, target))
+    }
+
+    fn capture_for(&self, session: &str, target: &CaptureTarget) -> DResult<RawFrame> {
+        self.capture_request(&capture_json(Some(session), target))
     }
 
     fn capture_display_excluding(
@@ -659,6 +672,19 @@ mod tests {
         assert_eq!(args["x"], 1);
         assert_eq!(ctx.origin, OriginKind::Remote { machine: "mini".into(), same_account: true });
         assert!(parse_request(&json!({})).is_err());
+    }
+
+    #[test]
+    fn a_capture_request_names_its_session() {
+        let window = CaptureTarget::Window("42".into());
+        let parsed: Value =
+            serde_json::from_str(&capture_json(Some("terminal:t1:9"), &window)).unwrap();
+        assert_eq!(parsed, json!({"window": "42", "session": "terminal:t1:9"}));
+        let parsed: Value = serde_json::from_str(&capture_json(None, &window)).unwrap();
+        assert_eq!(parsed, json!({"window": "42"}));
+        let parsed: Value =
+            serde_json::from_str(&capture_json(Some(""), &CaptureTarget::Display(None))).unwrap();
+        assert_eq!(parsed, json!({"display": null}));
     }
 
     #[cfg(unix)]

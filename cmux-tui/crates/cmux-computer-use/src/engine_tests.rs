@@ -796,6 +796,20 @@ fn the_live_preview_hides_protected_denied_and_never_apps() {
     assert!(e.app_blocked("com.apple.TextEdit", "TextEdit"), "answered Never");
 }
 
+/// A window screenshot names the agent session it is for, so the host can tell whose window it
+/// is (the live preview streams only a session's own window, never another agent's).
+#[test]
+fn a_window_capture_names_its_session() {
+    let d = Arc::new(FakeDesktop::standard());
+    let e = engine(d.clone(), PolicyConfig::default());
+    let shot = e.call(&ctx(None), "screenshot", &json!({"window_id": "1"}));
+    assert!(!shot.is_error, "{:?}", shot.body);
+    let other = CallContext { session: "s2".into(), ..ctx(None) };
+    let shot = e.call(&other, "screenshot", &json!({"window_id": "1"}));
+    assert!(!shot.is_error, "{:?}", shot.body);
+    assert_eq!(*d.capture_sessions.lock().unwrap(), vec!["s1".to_string(), "s2".to_string()]);
+}
+
 #[test]
 fn a_name_for_several_apps_is_refused_before_anyone_is_asked() {
     // A desktop whose launch_app takes an identity (macOS: a bundle id) and

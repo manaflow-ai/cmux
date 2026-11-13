@@ -39,17 +39,50 @@ enum PreviewStreamStep: Equatable, Sendable {
     }
 }
 
+/// The encoded frames waiting for a preview's channel (pure: tests cover it).
+struct PreviewFrameBacklog: Equatable, Sendable {
+    /// Frames handed to the writer and not yet written.
+    var pending = 0
+    /// Frames are dropped until the next keyframe.
+    var dropping = false
+    /// The encoder should make its next frame a keyframe (``takeKeyframeRequest()`` clears it).
+    var wantsKeyframe = false
+
+    /// Whether an encoded frame goes to the writer (counted as pending) or is dropped. Past `limit`
+    /// pending frames the stream drops every frame until a keyframe that fits, and asks the encoder
+    /// for one (again if that keyframe had to be dropped too).
+    mutating func admit(keyframe: Bool, limit: Int) -> Bool {
+        if keyframe, pending < limit { dropping = false }
+        if !dropping, pending >= limit {
+            dropping = true
+            wantsKeyframe = true
+        }
+        if dropping {
+            if keyframe { wantsKeyframe = true }
+            return false
+        }
+        pending += 1
+        return true
+    }
+
+    /// Whether the encoder should force a keyframe now; the request is taken.
+    mutating func takeKeyframeRequest() -> Bool {
+        defer { wantsKeyframe = false }
+        return wantsKeyframe
+    }
+}
+
 /// The worker's preview socket: the host splices the app's `computer-use-preview` channel here.
 /// Only the host (this worker's parent) may connect; each connection streams one session.
 final class PreviewStreamServer: Sendable {
     private let path: String
-    private let windowOf: @Sendable (String) -> (window: UInt32, pid: Int32?)?
+    private let windowOf: @Sendable (String) -> ComputerUsePreview.SessionWindow?
     private let blocked: @Sendable (String, String) -> Bool
 
     /// - Parameters:
     ///   - windowOf: The window a session works in (``ComputerUseActivityReporter/window(of:)``).
     ///   - blocked: Whether an app (bundle id, name) is protected, denied or answered Never, now.
-    init(path: String, windowOf: @escaping @Sendable (String) -> (window: UInt32, pid: Int32?)?,
+    init(path: String, windowOf: @escaping @Sendable (String) -> ComputerUsePreview.SessionWindow?,
          blocked: @escaping @Sendable (String, String) -> Bool) {
         self.path = path
         self.windowOf = windowOf
@@ -75,14 +108,19 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
     static let lookInterval: DispatchTimeInterval = .milliseconds(500)
     /// The stream's highest frame rate.
     static let framesPerSecond: Int32 = 30
+    /// The most encoded frames waiting for the channel; past it frames are dropped until a keyframe.
+    static let maximumPendingFrames = 3
 
     private let channel: LineChannel
     private let request: PreviewStreamWire.Request
-    private let windowOf: @Sendable (String) -> (window: UInt32, pid: Int32?)?
+    private let windowOf: @Sendable (String) -> ComputerUsePreview.SessionWindow?
     private let blocked: @Sendable (String, String) -> Bool
     private let queue = DispatchQueue(label: "remote-cu-preview.session")
     private let writes = DispatchQueue(label: "remote-cu-preview.write")
     private let closed = DispatchSemaphore(value: 0)
+    /// Frames handed to `writes` and not yet written, and whether frames are being dropped until the
+    /// next keyframe (the app is reading slower than the stream). VideoToolbox's thread and `writes`.
+    private let backlog = OSAllocatedUnfairLock(initialState: PreviewFrameBacklog())
 
     // `queue` only.
     private var window: UInt32?
@@ -97,7 +135,7 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
     private var stillAt: Date?
 
     init(channel: LineChannel, request: PreviewStreamWire.Request,
-         windowOf: @escaping @Sendable (String) -> (window: UInt32, pid: Int32?)?,
+         windowOf: @escaping @Sendable (String) -> ComputerUsePreview.SessionWindow?,
          blocked: @escaping @Sendable (String, String) -> Bool) {
         self.channel = channel
         self.request = request
@@ -248,9 +286,10 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
         window = nil
     }
 
-    /// One JPEG of the window, at most twice a second: the fallback when no stream runs.
+    /// One JPEG of the window, at most twice a second: the fallback when no stream runs. Only the
+    /// window the last look passed through the gate (``window``), never one looked up here.
     private func sendStill() {
-        guard let id = window ?? windowOf(request.session)?.window else { return }
+        guard let id = window, stream == nil else { return }
         let now = Date()
         if let stillAt, now.timeIntervalSince(stillAt) < 0.5 { return }
         stillAt = now
@@ -259,11 +298,20 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
         writes.async { [weak self] in
             guard let self, case .success(let frame) = ComputerUsePreview.capture(window: id, longSide: side) else { return }
             queue.async {
-                guard !self.ended else { return }
+                // The capture took a while: send it only if this is still the window to show, no stream
+                // replaced it, and its app is still allowed now (a deny-list edit during the capture
+                // already sent `blocked`; a stale still must not follow it).
+                guard self.stillMaySend(window: id) else { return }
                 self.send(state: "still", extra: [:])
                 self.write(PreviewStreamWire.message(PreviewStreamWire.still, frame.jpeg))
             }
         }
+    }
+
+    /// Whether a still of window `id`, captured a moment ago, may go to the app now (queue).
+    private func stillMaySend(window id: UInt32) -> Bool {
+        guard !ended, stream == nil, window == id, let owner, let app = owner.id, !app.isEmpty else { return false }
+        return !blocked(app, owner.name ?? app)
     }
 
     // MARK: Frames (queue)
@@ -278,6 +326,8 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
             return
         }
         let time = sampleBuffer.presentationTimeStamp
+        // The app fell behind and frames were dropped: the next frame is a keyframe it can decode alone.
+        if backlog.withLock({ $0.takeKeyframeRequest() }) { forceKeyframe = true }
         let properties: CFDictionary? = forceKeyframe ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
         forceKeyframe = false
         VTCompressionSessionEncodeFrame(encoder, imageBuffer: pixels, presentationTimeStamp: time, duration: .invalid,
@@ -306,7 +356,15 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
             out.append(PreviewStreamWire.parameterSets(sps: sets.sps, pps: sets.pps))
         }
         out.append(PreviewStreamWire.frame(keyframe: keyframe, microseconds: micros, avcc: data))
-        write(out)
+        // A slow reader: at most a few frames wait for the channel; past that, frames are dropped
+        // until a keyframe (asked for at once), so the app never decodes a frame whose reference it lost.
+        guard backlog.withLock({ $0.admit(keyframe: keyframe, limit: Self.maximumPendingFrames) }) else { return }
+        writes.async { [weak self] in
+            guard let self else { return }
+            let written = channel.write(out)
+            backlog.withLock { $0.pending -= 1 }
+            if !written { end() }
+        }
     }
 
     // MARK: VideoToolbox

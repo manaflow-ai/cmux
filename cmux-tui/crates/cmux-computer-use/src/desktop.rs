@@ -368,6 +368,13 @@ pub trait Desktop: Send + Sync {
         apps.into_iter().find(|a| a.id.eq_ignore_ascii_case(&window.app_id)).map(|a| a.name)
     }
     fn capture(&self, target: &CaptureTarget) -> DResult<RawFrame>;
+    /// [`Self::capture`] for the agent session `session` (the engine's session key). A host that
+    /// tracks what each session looked at (the macOS worker: the window each agent's live preview
+    /// shows) gets it with the target; the default ignores it.
+    fn capture_for(&self, session: &str, target: &CaptureTarget) -> DResult<RawFrame> {
+        let _ = session;
+        self.capture(target)
+    }
     /// Whether a window capture holds only that window's own pixels, never a
     /// window drawn over it. When false (a composited crop of the screen), the
     /// engine paints denied windows that overlap the target out of the shot.
@@ -477,6 +484,11 @@ pub mod fake;
 /// worker).
 pub trait HostServices: Send + Sync {
     fn capture(&self, target: &CaptureTarget) -> DResult<RawFrame>;
+    /// [`Self::capture`] for the agent session `session` ([`Desktop::capture_for`]).
+    fn capture_for(&self, session: &str, target: &CaptureTarget) -> DResult<RawFrame> {
+        let _ = session;
+        self.capture(target)
+    }
     /// A display capture without the windows of `exclude_pids` (ScreenCaptureKit's
     /// application filter in the macOS worker).
     fn capture_display_excluding(

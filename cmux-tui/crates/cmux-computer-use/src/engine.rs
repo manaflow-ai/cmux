@@ -1669,7 +1669,10 @@ impl Engine {
         }
         let raw = match excluded {
             Some(frame) => frame,
-            None => self.desktop.capture(&target).map_err(|e| ToolOutput::desktop(&e))?,
+            None => self
+                .desktop
+                .capture_for(&ctx.session, &target)
+                .map_err(|e| ToolOutput::desktop(&e))?,
         };
         let mut redact: Vec<Rect> = Vec::new();
         if !isolated {

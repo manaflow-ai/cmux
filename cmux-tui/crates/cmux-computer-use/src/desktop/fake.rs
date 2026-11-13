@@ -56,6 +56,8 @@ pub struct FakeDesktop {
     pub paint: Mutex<u8>,
     /// Captures taken so far.
     pub captures: Mutex<u32>,
+    /// The session each capture was for, in order (`capture_for`).
+    pub capture_sessions: Mutex<Vec<String>>,
     /// Full window lists read so far.
     pub window_lists: Mutex<u32>,
     /// Where the person's pointer is.
@@ -139,6 +141,7 @@ impl FakeDesktop {
             events: Mutex::new(vec![]),
             paint: Mutex::new(200),
             captures: Mutex::new(0),
+            capture_sessions: Mutex::new(Vec::new()),
             window_lists: Mutex::new(0),
             pointer: Mutex::new(None),
             repaint_from: Mutex::new(None),
@@ -385,6 +388,14 @@ impl Desktop for FakeDesktop {
         *self.last_excluded.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
             exclude_pids.to_vec();
         self.capture(&CaptureTarget::Display(display.map(str::to_string)))
+    }
+
+    fn capture_for(&self, session: &str, target: &CaptureTarget) -> DResult<RawFrame> {
+        self.capture_sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(session.to_string());
+        self.capture(target)
     }
 
     fn capture(&self, target: &CaptureTarget) -> DResult<RawFrame> {

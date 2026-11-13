@@ -54,7 +54,8 @@ enum {
 typedef struct CmuxCuHost {
     uint32_t struct_size;
     void *context;
-    // target_json: {"window":"<CGWindowID>"} or {"display":null|"<id>"}.
+    // target_json: {"window":"<CGWindowID>"} or {"display":null|"<id>"}, with "session" (the
+    // calling agent's session key) when the capture is for an agent's call.
     // Returns 0 and fills *frame, or nonzero and writes a UTF-8 message
     // (up to error_cap bytes) to error.
     int32_t (*capture)(void *context, const uint8_t *target_json, size_t target_len,
