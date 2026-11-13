@@ -830,7 +830,11 @@ where
                         self.maybe_start_wanted(&sid);
                     }
                     PagePurpose::MirrorWalk => self.accept_mirror_walk_page(page, frame_bytes),
-                    PagePurpose::Wanted => self.accept_wanted_page(page, frame_bytes),
+                    PagePurpose::Wanted => self.accept_wanted_page(
+                        page,
+                        frame_bytes,
+                        state.request.and_then(|request| request.keys).unwrap_or_default(),
+                    ),
                 }
             }
             FrameKind::Delta => {
@@ -964,7 +968,12 @@ where
         }
     }
 
-    fn accept_wanted_page(&mut self, page: PageResult<T>, frame_bytes: u64) {
+    fn accept_wanted_page(
+        &mut self,
+        page: PageResult<T>,
+        frame_bytes: u64,
+        requested_keys: Vec<ListKey>,
+    ) {
         let sid = page.sid.clone();
         let mut emitted = false;
         let mut answered = 0usize;
@@ -1034,6 +1043,13 @@ where
         if !emitted {
             self.charge_frame_now(Some(&sid), frame_bytes);
         }
+        {
+            let Some(sub) = self.subscriptions.get_mut(&sid) else { return };
+            let Some(mirror) = sub.mirror.as_mut() else { return };
+            for key in &requested_keys {
+                mirror.pending_wanted.retain(|pending| pending != key);
+            }
+        }
         if !page.rest.is_empty() {
             if answered == 0 {
                 self.protocol_error("wanted page rest made no progress");
@@ -1042,7 +1058,6 @@ where
             {
                 let Some(sub) = self.subscriptions.get_mut(&sid) else { return };
                 let Some(mirror) = sub.mirror.as_mut() else { return };
-                mirror.pending_wanted.retain(|key| !page.rest.contains(key));
                 for key in page.rest.iter().rev() {
                     mirror.pending_wanted.push_front(key.clone());
                 }
@@ -1818,7 +1833,7 @@ tail"#;
         assert!(!page_request.is_empty());
         client.received(&page);
         assert!(matches!(client.next_change(), Some(Change::Summary { .. })));
-        assert!(matches!(client.next_change(), Some(Change::ResumeEnd { .. })));
+        assert!(matches!(client.next_change(), Some(Change::Whole { .. })));
     }
 
     #[test]
