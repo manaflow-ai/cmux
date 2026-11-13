@@ -185,8 +185,10 @@ impl Summary {
     }
 
     fn archived(&self) -> bool {
-        self.extra
-            .pointer("/tags/archived")
+        serde_json::from_str::<serde_json::Value>(self.extra.get())
+            .ok()
+            .as_ref()
+            .and_then(|value| value.pointer("/tags/archived"))
             .is_some_and(|value| value.as_bool() == Some(true) || value.as_str() == Some("true"))
     }
 
