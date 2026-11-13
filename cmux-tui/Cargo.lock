@@ -6,7 +6,9 @@ version = 4
 name = "acpmux"
 version = "1.0.0"
 dependencies = [
+ "acpmux-book",
  "acpmux-build-id",
+ "acpmux-core",
  "acpmux-hot",
  "aho-corasick",
  "anyhow",
@@ -129,10 +131,20 @@ name = "acpmux-build-id"
 version = "1.0.0"
 
 [[package]]
+name = "acpmux-client"
+version = "1.0.0"
+dependencies = [
+ "acpmux-book",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "acpmux-core"
 version = "1.0.0"
 dependencies = [
  "acpmux-book",
+ "acpmux-client",
  "arc-swap",
  "cmux-scope",
  "serde",
@@ -1221,6 +1233,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+ "unicode-segmentation",
  "uuid",
  "zeroize",
 ]
