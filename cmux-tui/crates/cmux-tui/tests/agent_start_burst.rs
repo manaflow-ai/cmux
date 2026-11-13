@@ -178,7 +178,9 @@ struct Control {
 impl Control {
     fn open(socket: &Path) -> Self {
         let stream = transport::connect(socket).unwrap();
-        stream.set_read_timeout(Some(test_timeout(Duration::from_secs(30)))).unwrap();
+        // macOS refuses the option on a socket that the daemon closed (it
+        // refused the connection at its limit); a read there ends at once.
+        let _ = stream.set_read_timeout(Some(test_timeout(Duration::from_secs(30))));
         let writer = stream.try_clone_box().unwrap();
         Self { writer, reader: BufReader::new(stream), sent: 0 }
     }
@@ -342,6 +344,11 @@ fn agent_start_context_refused_list_is_not_known_and_never_no_other_agent() {
         "setup: the daemon must refuse the context read (admitted {}, refused {})",
         after.accepted - before.accepted,
         after.refused - before.refused
+    );
+    assert_eq!(
+        after.came() - before.came(),
+        1,
+        "a refused context read must not ask the daemon for another connection"
     );
     assert_eq!(exit, Some(0), "the context hook must exit 0: {text}");
     assert!(text.contains(&format!("terminal {terminal}.")), "the terminal is named: {text}");

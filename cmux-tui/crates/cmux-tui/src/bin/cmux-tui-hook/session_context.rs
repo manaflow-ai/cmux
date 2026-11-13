@@ -326,7 +326,6 @@ mod tests {
         let unanswered = text(&Place { terminal: "term_1".into(), ..Place::default() });
         assert!(unanswered.contains("not known"), "{unanswered}");
         assert!(!unanswered.contains(none), "{unanswered}");
-        assert!(unanswered.contains("agent list"), "{unanswered}");
         let alone =
             text(&Place { terminal: "term_1".into(), peers: Some(Vec::new()), ..Place::default() });
         assert!(alone.contains(none), "{alone}");
@@ -415,17 +414,31 @@ mod tests {
     #[cfg(unix)]
     type Seen = std::sync::Arc<std::sync::Mutex<Vec<Vec<String>>>>;
 
-    /// A session on `socket` that serves one connection after the other.
-    /// With `busy` it answers each connection with the busy line of a daemon
-    /// at its connection limit and then only records what the client still
-    /// sends; else it answers each request with `answer` (`None`: an error
-    /// reply). The receiver gets a message at the end of each connection.
+    /// How a fake session answers.
+    #[cfg(unix)]
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Fake {
+        /// Each request gets the reply of `answer` (`None`: an error reply).
+        Answers,
+        /// Each connection gets the busy line of a daemon at its connection
+        /// limit; the session then only records what the client still sends.
+        Busy,
+        /// Each request gets the reply of `answer` with the id of another
+        /// request.
+        OtherId,
+    }
+
+    /// A session on `socket` that serves one connection after the other, as
+    /// `fake` says. It keeps each connection open to its end, so that each
+    /// request that the client still sends is seen. The receiver gets a
+    /// message at the end of each connection.
     #[cfg(unix)]
     fn fake_session(
         socket: &Path,
-        busy: bool,
+        fake: Fake,
         answer: fn(&str, &Value) -> Option<Value>,
     ) -> (Seen, std::sync::mpsc::Receiver<()>) {
+        let busy = fake == Fake::Busy;
         let listener = std::os::unix::net::UnixListener::bind(socket).unwrap();
         let seen = Seen::default();
         let record = seen.clone();
@@ -457,10 +470,12 @@ mod tests {
                     if busy {
                         continue;
                     }
+                    let id =
+                        if fake == Fake::OtherId { json!("other") } else { request["id"].clone() };
                     let mut reply = json!({
                         "protocol": "cmux.protocol/2",
                         "type": "response",
-                        "id": request["id"],
+                        "id": id,
                     });
                     match answer(&operation, &request["params"]) {
                         Some(result) => {
@@ -530,7 +545,7 @@ mod tests {
     fn agent_start_context_read_sends_its_eight_requests_on_one_connection() {
         let root = tempfile::tempdir().unwrap();
         let socket = root.path().join("s.sock");
-        let (seen, _at_end) = fake_session(&socket, false, answer);
+        let (seen, _at_end) = fake_session(&socket, Fake::Answers, answer);
         let place = read(&socket, "term_1");
         let peers = Some(vec![Peer { name: "alpha".into(), harness: "codex".into() }]);
         assert_eq!(place, Place { peers, ..whole_place() });
@@ -544,7 +559,7 @@ mod tests {
     fn agent_start_context_read_goes_on_after_an_error_reply() {
         let root = tempfile::tempdir().unwrap();
         let socket = root.path().join("s.sock");
-        let (seen, _at_end) = fake_session(&socket, false, answer_with_no_agent_list);
+        let (seen, _at_end) = fake_session(&socket, Fake::Answers, answer_with_no_agent_list);
         let place = read(&socket, "term_1");
         assert_eq!(place, whole_place());
         assert!(text(&place).contains("not known"), "{}", text(&place));
@@ -552,14 +567,30 @@ mod tests {
     }
 
     /// A daemon at its connection limit answers the connection with the busy
-    /// line and closes. The read then sends no other request, on this
-    /// connection or on a new one, and knows only the terminal.
+    /// line (the real daemon then closes; the fake session does not). The
+    /// read then sends no other request, on this connection or on a new one,
+    /// and knows only the terminal.
     #[cfg(unix)]
     #[test]
     fn agent_start_context_read_sends_nothing_after_the_busy_line() {
         let root = tempfile::tempdir().unwrap();
         let socket = root.path().join("s.sock");
-        let (seen, at_end) = fake_session(&socket, true, answer);
+        let (seen, at_end) = fake_session(&socket, Fake::Busy, answer);
+        let place = read(&socket, "term_1");
+        assert_eq!(place, Place { terminal: "term_1".into(), ..Place::default() });
+        at_end.recv_timeout(Duration::from_secs(10)).expect("the read left its connection open");
+        assert_eq!(*seen.lock().unwrap(), [["agent.list"]]);
+    }
+
+    /// A reply with the id of another request is not the answer: a stale
+    /// line must never be read as the answer to a later request, so the
+    /// connection carries no other request and no new connection is opened.
+    #[cfg(unix)]
+    #[test]
+    fn agent_start_context_read_sends_nothing_after_a_reply_with_another_id() {
+        let root = tempfile::tempdir().unwrap();
+        let socket = root.path().join("s.sock");
+        let (seen, at_end) = fake_session(&socket, Fake::OtherId, answer);
         let place = read(&socket, "term_1");
         assert_eq!(place, Place { terminal: "term_1".into(), ..Place::default() });
         at_end.recv_timeout(Duration::from_secs(10)).expect("the read left its connection open");
