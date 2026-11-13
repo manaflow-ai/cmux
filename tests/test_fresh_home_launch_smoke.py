@@ -1648,7 +1648,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         # Chromium's helper removes the launch's code-sign clone (about 1 GB) about 1 s after the app's end. The
         # run stopped it with the app's other processes at once, so each launch left its clone until reboot.
         self.clone_helper = "ends"
-        status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10")
+        status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
         self.assertEqual(status, smoke.PASS, output)
         done = sorted(path.name for path in self.clones.glob("done-*"))
         self.assertEqual(len(done), 1, f"the cleanup helper was stopped before it removed the clone\n{output}")
@@ -1678,7 +1678,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
             folder.mkdir(parents=True)
             (folder / "binary").write_text("of another launch")
         env = {**self.env, "CMUX_FRESH_SMOKE_CLONE_HELPER_WAIT_SECONDS": "0.5"}
-        status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10", env=env)
+        status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10", env=env)
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual(list(self.clones.glob("done-*")), [])
         self.assertEqual(self.clones_left(), ["com.example.fresh-smoke-stub.code_sign_clone/code_sign_clone.Other1",
@@ -1694,7 +1694,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
     def test_the_clone_parent_goes_only_when_this_launchs_clone_was_its_last(self):
         self.clone_helper = "stays"
         env = {**self.env, "CMUX_FRESH_SMOKE_CLONE_HELPER_WAIT_SECONDS": "0.5"}
-        status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10", env=env)
+        status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10", env=env)
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual(sorted(path.name for path in self.clones.iterdir()), [], output)
 
@@ -1703,7 +1703,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         # launch's: it removes none (never the newest, never the whole parent) and says so.
         self.clone_helper = "no-suffix"
         env = {**self.env, "CMUX_FRESH_SMOKE_CLONE_HELPER_WAIT_SECONDS": "0.5"}
-        status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10", env=env)
+        status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10", env=env)
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual(len(self.clones_left()), 1, output)
         told = report["clone_cleanup"]
