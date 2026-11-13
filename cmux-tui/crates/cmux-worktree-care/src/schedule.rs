@@ -104,13 +104,23 @@ pub fn claim(
     std::fs::create_dir_all(dir)
         .map_err(|e| Refused::Unavailable(format!("{}: {e}", dir.display())))?;
     let lock_path = dir.join(LOCK);
-    let lock = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(&lock_path)
+    let lock = open_lock(&lock_path)
         .map_err(|e| Refused::Unavailable(format!("{}: {e}", lock_path.display())))?;
+    claim_on(lock, dir, now_ms, spacing, record)
+}
+
+fn open_lock(path: &Path) -> std::io::Result<File> {
+    std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(path)
+}
+
+/// [`claim`] on the pass lock opened as `lock`.
+fn claim_on(
+    lock: File,
+    dir: &Path,
+    now_ms: u64,
+    spacing: Option<u64>,
+    record: bool,
+) -> Result<Claim, Refused> {
     if !try_lock(&lock) {
         return Err(Refused::Busy);
     }
@@ -216,5 +226,23 @@ mod tests {
         assert_eq!(last(&dir), Some(Stamp { started_ms: 0, finished_ms: Some(5) }));
         claim(&dir, 8, None, true).expect("clean up now").finish(9).unwrap();
         assert_eq!(last(&dir), Some(Stamp { started_ms: 8, finished_ms: Some(9) }));
+    }
+
+    /// A pass that is not due lets go of the pass lock, also while a child the daemon forked
+    /// meanwhile has the descriptor: else a pass someone asks for next fails with "a worktree
+    /// cleanup pass or report is already running".
+    #[cfg(unix)]
+    #[test]
+    fn a_pass_not_due_leaves_the_lock_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = folder("forked");
+        claim(&dir, 0, Some(HOUR), true).expect("first pass").finish(0).unwrap();
+        let lock = open_lock(&dir.join(LOCK)).unwrap();
+        let keeper = crate::test_fork::Keeper::fork();
+        let not_due = claim_on(lock, &dir, 1, Some(HOUR), true);
+        let asked = claim(&dir, 1, None, false);
+        drop(keeper);
+        assert_eq!(not_due.unwrap_err(), Refused::NotDue);
+        assert!(asked.is_ok(), "a pass that was not due left the pass lock held");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

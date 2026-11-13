@@ -867,4 +867,20 @@ mod care_tests {
         assert!(!within_squash_limit("129"));
         assert!(!within_squash_limit("not-a-count"));
     }
+
+    /// A merge check lets go of the host's merge-tree lock, also while a child the daemon
+    /// forked meanwhile has the descriptor: else the next squash check reads "unknown".
+    #[cfg(unix)]
+    #[test]
+    fn a_dropped_merge_tree_claim_is_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = crate::store::care_tests::scratch("forked-merge-tree");
+        let claim = merge_tree_claim(Some(&dir)).expect("a free merge-tree lock");
+        let keeper = crate::test_fork::Keeper::fork();
+        drop(claim);
+        let next = merge_tree_claim(Some(&dir));
+        drop(keeper);
+        assert!(next.is_some(), "a dropped merge-tree claim left the lock held");
+        drop(next);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
