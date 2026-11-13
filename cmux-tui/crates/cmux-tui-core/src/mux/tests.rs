@@ -86,6 +86,7 @@ mod terminal_views;
 mod unreadable_exit_sidecar;
 mod view_close_replay;
 mod viewport_columns;
+mod window_record_put_cost;
 #[cfg(unix)]
 mod workspace_close_cost;
 #[cfg(unix)]

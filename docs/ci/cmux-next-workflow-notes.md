@@ -820,8 +820,9 @@ and nightlies keep the requirement as advisory coverage.
 
 Above `daemon-test: Clean generated layout-reducer FFI lockfile` in `.github/workflows/cmux-next.yml`.
 
-Building the package's reducer FFI can rewrite the isolated crate's
-workspace lockfile. Put the checkout back immediately before
+Building the package's reducer FFI can rewrite its workspace's lockfile
+(cmux-layout-reducer-ffi is a member of the app FFI workspace, so the lock is
+cmux-tui/crates/cmux-app-ffi/Cargo.lock). Put the checkout back immediately before
 pin-cmux-tui validates it: the committed lockfile (#37324 tracks it)
 is restored, and an untracked one is removed. Deleting a tracked
 lockfile leaves the tree dirty, and pin-cmux-tui refuses that.

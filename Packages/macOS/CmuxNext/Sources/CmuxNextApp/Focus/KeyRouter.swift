@@ -8,7 +8,7 @@ import CmuxNextTerminal
 import CmuxNextFocus
 /// The one key dispatcher (plans/cmux-next/keybindings.md section 4,
 /// focus.md section 5). It decides every key-down of every cmux window in
-/// `CmuxApplication.sendEvent` (``interceptKeyDown(_:in:)``), before any
+/// `CmuxApplication.sendEvent` (``interceptKeyDown(_:in:heldBefore:)``), before any
 /// window, view or menu sees the key, in this order:
 ///
 /// 0. a Settings shortcut recorder, a popup's close key (a window-kind rule:
@@ -113,7 +113,7 @@ final class KeyRouter: BrowserKeyRouting {
     }
 
     /// Steps 1 and 3-5 for a key-down in a window with `focus` (step 2, the
-    /// chord, is stateful and runs in ``interceptKeyDown(_:in:)``).
+    /// chord, is stateful and runs in ``interceptKeyDown(_:in:heldBefore:)``).
     func decide(_ event: NSEvent, focus: FocusState, keyWindow: KeyWindowKind, facts: Facts = Facts()) -> Decision {
         guard keyWindow == .content else { return .panel }
         if Self.belongsToInputMethod(event, facts: facts) { return .deliver }
