@@ -14,6 +14,7 @@ spec.loader.exec_module(report)
 
 class ReportTests(unittest.TestCase):
     def video_run(self, folder, *, requested=True):
+        (folder / "repeats-requested.json").write_text('{"count":2}')
         for kind in ("key", "pointer"):
             (folder / f"latency-{kind}.json").write_text('{"g2g_ms":{"p50":10,"p95":20,"n":200}}')
         if requested:
@@ -87,6 +88,31 @@ class ReportTests(unittest.TestCase):
                 (folder / "ocr-2.json").write_text(json.dumps(unready))
                 report.target("apple-high", folder, out)
                 self.assertIs(json.loads(out.read_text())["ocr"]["comparison_ready"], False)
+
+    def test_failed_or_undeclared_repeats_cannot_be_complete(self):
+        for failed_artifact in ("phases-3.jsonl", "video-media-3.json", None):
+            with self.subTest(artifact=failed_artifact), tempfile.TemporaryDirectory() as directory:
+                folder = Path(directory)
+                self.video_run(folder)
+                (folder / "repeats-requested.json").write_text('{"count":3}')
+                for rep in (1, 2):
+                    (folder / f"ocr-{rep}.json").write_text(json.dumps({
+                        "cer": 0.02, "comparison_ready": True, "crops": {"nonce": str(rep)}}))
+                if failed_artifact:
+                    (folder / failed_artifact).write_text("")
+                out = folder / "target.json"
+                report.target("apple-high", folder, out)
+                result = json.loads(out.read_text())
+                self.assertEqual(len(result["extra"]["repeats"]), 3)
+                self.assertFalse(result["ok"])
+                self.assertIs(result["ocr"]["comparison_ready"], False)
+                self.assertIs(result["extra"]["video_complete"], False)
+                self.assertIsNone(result["fps"]["video"])
+                (folder / "repeats-requested.json").unlink()
+                report.target("apple-high", folder, out)
+                result = json.loads(out.read_text())
+                self.assertIs(result["ocr"]["comparison_ready"], False)
+                self.assertIs(result["extra"]["video_complete"], False)
 
     def test_buckets_crossing_phase_or_guard_are_discarded(self):
         phases = {"idle": {"start_unix_ms": 2000, "end_unix_ms": 6000}}
