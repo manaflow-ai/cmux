@@ -19,7 +19,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
-from nightly_workflow_text import nightly_text  # noqa: E402
+from nightly_workflow_text import nightly_text, write_out_step_aliases  # noqa: E402
 
 SCRIPT = ROOT / "scripts/ci/nightly_next_dev_ring.sh"
 RING = ROOT / "scripts/ci/nightly_next_ring.py"
@@ -106,7 +106,7 @@ class StaleSnapshotTests(unittest.TestCase):
 
 class WorkflowTests(unittest.TestCase):
     def job(self, name: str) -> str:
-        text = nightly_text()
+        text = write_out_step_aliases(nightly_text())
         start = text.index(f"\n  {name}:")
         following = re.search(r"\n  [a-z0-9-]+:\n", text[start + 1:])
         return text[start:start + 1 + following.start()] if following else text[start:]

@@ -88,6 +88,12 @@ class Tree:
                 return key
         return None
 
+    def workspace_named(self, directory: str) -> str | None:
+        """The workspace the package's own `package.workspace` names (cmux-rd-ffi: "../cmux-app-ffi"), which cargo
+        takes over the nearest one above it (cmux#42082 review F1)."""
+        named = self.manifests.get(directory, {}).get("package", {}).get("workspace")
+        return os.path.normpath(str(PurePosixPath(directory) / named)) if isinstance(named, str) else None
+
     def excluded(self, root: str, directory: str) -> bool:
         if not under(directory, root):
             return False  # a member beside the root ("../x") is outside every `exclude` entry
@@ -138,7 +144,8 @@ class Tree:
                 base = directory
                 if spec.get("workspace") is True:
                     # Inherited from the package's workspace: its own manifest when it is the root.
-                    base = directory if "workspace" in manifest else (self.workspace_above(directory) or directory)
+                    base = directory if "workspace" in manifest else (self.workspace_named(directory)
+                                                                      or self.workspace_above(directory) or directory)
                     spec = self.manifests.get(base, {}).get("workspace", {}).get("dependencies", {}).get(name, {})
                     if not isinstance(spec, dict):
                         continue

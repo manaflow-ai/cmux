@@ -10,6 +10,7 @@ import { FolderListEditor } from "./FolderListEditor";
 import { HostListEditor } from "./HostListEditor";
 import { MenuEditor } from "./MenuEditor";
 import { NumberEditor } from "./NumberEditor";
+import { ZoomEditor } from "./ZoomEditor";
 import { DurationEditor, isDuration } from "./DurationEditor";
 import { NumberListEditor } from "./NumberListEditor";
 import { OrderedChoicesEditor } from "./OrderedChoicesEditor";
@@ -42,6 +43,7 @@ export function Editor(props: EditorProps): ReactNode {
     case "choice_or_url":
       return <ChoiceOrUrlEditor {...props} />;
     case "number":
+      if (row.key === "app.uiScale") return <ZoomEditor {...props} />;
       // A time row with a wide range is a menu of durations; a slider would park its value at the start.
       return isDuration(row) ? <DurationEditor {...props} /> : <NumberEditor {...props} />;
     case "color":

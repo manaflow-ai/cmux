@@ -128,6 +128,10 @@ fn judge_row(row: &Row) -> Option<String> {
             let Some(hit) = lines.iter().find(|l| l.contains(&row.what)) else {
                 return Some(format!("no finding names `{}`:\n{shown}", row.what));
             };
+            // Exactly what the row names: one more finding fails it as a missing one does.
+            if lines.len() != 1 {
+                return Some(format!("found more than `{}`:\n{shown}", row.what));
+            }
             (row.kind != "-" && !hit.contains(&row.kind))
                 .then(|| format!("want kind {}, got {hit}", row.kind))
         }
@@ -159,6 +163,26 @@ fn every_row_is_judged_as_it_says() {
         failed.len(),
         rows.len(),
         failed.join("\n")
+    );
+}
+
+/// #41567 review F1: a `flagged` row names the finding its source holds, so one more finding
+/// fails it.
+#[test]
+fn a_flagged_row_fails_on_a_finding_it_does_not_name() {
+    let row = Row {
+        verdict: "flagged".to_string(),
+        what: "p95 < BUDGET_MS".to_string(),
+        kind: "percentile bound".to_string(),
+        title: "a fixture".to_string(),
+        rust: "#[test]\nfn two_bounds() {\n    let p95 = helper();\n    assert!(p95 < BUDGET_MS);\n    let (busy, idle) = (helper(), helper());\n    assert!(busy < idle * 4);\n}\n".to_string(),
+        bare: false,
+        nextest: None,
+    };
+    let why = judge_row(&row);
+    assert!(
+        why.as_deref().is_some_and(|w| w.contains("busy < idle * 4")),
+        "busy < idle * 4 went unnamed: {why:?}"
     );
 }
 
@@ -248,7 +272,7 @@ fn a_file_names_its_tests_by_crate_layout() {
     let root = co.0.canonicalize().expect("exists");
     let mut layout = Layout::default();
     let id = |layout: &mut Layout, rel: &str| -> Option<TestId> {
-        match layout.file_tests(&root.join(rel), &root) {
+        match layout.file_tests(&root.join(rel), &root).expect("the checkout reads") {
             FileTests::NotRun => None,
             tests => Some(tests.id(&["m".to_string()], "f")),
         }
@@ -260,4 +284,58 @@ fn a_file_names_its_tests_by_crate_layout() {
     assert_eq!(integration.name, "m::f");
     assert_eq!(integration.binary_id.as_deref(), Some("demo::timing"));
     assert!(id(&mut layout, "cmux-tui/crates/demo/benches/b.rs").is_none());
+}
+
+// Review of cmux#41567, F1: a wrapper macro (`dbg!`, `vec!`, a user macro over statements) hid a
+// known miss from spread_bounds, so its ratchet over the tree judged nothing there.
+
+/// The start_mode known miss with `from..=to` of its lines (from `let (g50` to its assert) put
+/// through `wrap`, and the comparison spread_bounds should name.
+fn wrapped_known_miss(wrap: impl Fn(&str) -> String) -> String {
+    let row = KNOWN_MISSES[0].row;
+    let from = row.find("    let (g50, g95, gmax)").expect("the row binds the spread");
+    let assert = "    assert!(g50 < 500.0, \"p50 {g50} ms\");\n";
+    let to = row.find(assert).expect("the row bounds g50") + assert.len();
+    format!("{}{}{}", &row[..from], wrap(&row[from..to]), &row[to..])
+}
+
+#[test]
+fn spread_bounds_reads_the_bodies_of_wrapper_macros() {
+    let cases: [(&str, String, &str); 5] = [
+        (
+            "dbg!({ .. })",
+            wrapped_known_miss(|b| format!("    dbg!({{\n{b}    }});\n")),
+            "g50 < 500.0",
+        ),
+        (
+            "vec![{ .. }]",
+            wrapped_known_miss(|b| format!("    let _ = vec![{{\n{b}        0\n    }}];\n")),
+            "g50 < 500.0",
+        ),
+        (
+            "a user macro over statements",
+            wrapped_known_miss(|b| format!("    measured! {{\n{b}    }}\n")),
+            "g50 < 500.0",
+        ),
+        (
+            "format!(.., {{ .. }})",
+            wrapped_known_miss(|b| format!("    let _ = format!(\"{{:?}}\", {{\n{b}    }});\n")),
+            "g50 < 500.0",
+        ),
+        (
+            "dbg!(g50) as the bounded side",
+            wrapped_known_miss(|b| b.replace("assert!(g50 < 500.0", "assert!(dbg!(g50) < 500.0")),
+            "dbg!(g50) < 500.0",
+        ),
+    ];
+    let mut failed = Vec::new();
+    for (what, row, cmp) in &cases {
+        let found = spread_bounds("x.rs", row, &|_: &TestId| true, &FileTests::Loose)
+            .unwrap_or_else(|e| panic!("{what}: does not parse: {e}\n{row}"));
+        let texts: Vec<&str> = found.iter().map(|f| f.text.as_str()).collect();
+        if texts != [*cmp] {
+            failed.push(format!("{what}: want [{cmp}], got {texts:?}"));
+        }
+    }
+    assert!(failed.is_empty(), "spread_bounds misses a wrapped known miss:\n{}", failed.join("\n"));
 }

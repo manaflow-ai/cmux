@@ -16,6 +16,10 @@ categories = ["command-line-utilities", "development-tools"]
 name = "acpmux"
 path = "src/main.rs"
 
+[[bench]]
+name = "v2"
+harness = false
+
 [features]
 default = ["build-id"]
 # The stamped build id (acpmux-build-id) as the default of `hub::build()`.
@@ -54,6 +58,8 @@ chrono.workspace = true
 chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }
 cmux-json.workspace = true
+# The settings file's path and JSONC reader (src/user_settings.rs), the settings owner's.
+cmux-config.workspace = true
 # NEXT Cloud's generated client: the join's hub calls (redeem, credentials/self).
 cmux-cloud-client.workspace = true
 # The event log's journal (R-DURABILITY S2; always on).
@@ -70,6 +76,7 @@ cmux-link.workspace = true
 cmux-transport = { path = "../cmux-transport" }
 # Where the running cmux link registers its socket (`peer_carriers.rs`).
 cmux-tui-platform.workspace = true
+cmux-file-lock.workspace = true
 cmux-git.workspace = true
 cmux-worktree-care.workspace = true
 cmux-wg.workspace = true

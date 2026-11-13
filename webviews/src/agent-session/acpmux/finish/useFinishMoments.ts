@@ -111,6 +111,15 @@ export function useFinishMoments({
     }
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- turnSummary is read by the effect below
   }, [session, working, turnStartedAtMs, clockOffsetMs, stopping]);
+  // A page hidden while the sound waits gives the turn to the Agent Finished notification, which
+  // sounds for it; showing the page again before the summary comes does not bring the sound back.
+  useEffect(() => {
+    const dropWhenHidden = () => {
+      if (!shown()) pendingSound.current = undefined;
+    };
+    document.addEventListener("visibilitychange", dropWhenHidden);
+    return () => document.removeEventListener("visibilitychange", dropWhenHidden);
+  }, []);
   // The ended turn's summary row may come a render after its end.
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- resolveSound reads refs and this render's session
   useEffect(() => resolveSound(turnSummary), [turnSummary?.id, turnSummary?.status]);
