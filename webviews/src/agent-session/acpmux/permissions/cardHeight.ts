@@ -2,7 +2,7 @@
 // Keep the frame on the shared grid; interactive expansion is still measured by the transcript.
 import { layout, prepare, prepareWithSegments, layoutWithLines } from "@chenglou/pretext";
 import typeScale from "../../../../../schemas/type-scale/type-scale.json";
-import { drawnFontSize, chatDisplay, chatMetrics } from "../chatDisplay";
+import { chatDensityTextScale, drawnFontSize, chatDisplay, chatMetrics } from "../chatDisplay";
 import { chatUiFontVariables, chatUiMeasureStack, chatUiTracking } from "../chatUiFont";
 import type { AcpmuxPermission } from "../model";
 import { currentLanguage, translate } from "../i18n";
@@ -193,7 +193,9 @@ function questionHeight(question: AgentQuestion, width: number): number {
     const tracking = chatUiFontVariables(display.uiFont)["--cv-tracking"];
     let letterSpacing = tracking ? Number.parseFloat(tracking) : 0;
     if (tracking?.endsWith("em")) letterSpacing *= drawnFontSize(display);
-    const bubbleRoom = Math.max(1, width * 0.7 - 32);
+    // The bubble's 16 px sides and 10 px block padding at the density text scale (conversation.css .cv-user__bubble).
+    const bubbleScale = chatDensityTextScale();
+    const bubbleRoom = Math.max(1, width * 0.7 - 32 * bubbleScale);
     const bubbleText = (value: string) =>
       textHeight(plainText(value), bubbleRoom, drawnFontSize(display), metrics.lineHeight, false, 400, {
         font: metrics.measureFont,
@@ -201,7 +203,7 @@ function questionHeight(question: AgentQuestion, width: number): number {
         preserveWhitespace: true,
       });
     return (
-      20 +
+      20 * bubbleScale +
       question.items.reduce(
         (sum, item) => sum + bubbleText(item.prompt) + 2 + bubbleText(itemAnswerText(item, answer)) + 8,
         -8,

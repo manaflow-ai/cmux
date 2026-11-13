@@ -55,7 +55,12 @@ public struct Metrics {
     public static var tabStripHeight: CGFloat {
         guard let padding = DesignSettings.shared.paneChrome.cornerPadding else {
             let strip = MetricTunables.tabStripHeight
-            return strip.explicitValue != nil ? strip.value : strip.value + max(0, tabHeight - MetricTunables.tabHeight.value)
+            // A strip the person set (Debug Settings, `appearance.metrics.tabStripHeight`) keeps its height.
+            if strip.tunable.override != nil || strip.key.flatMap({ DesignSettings.shared.overrides[$0] }) != nil { return strip.value }
+            // The density's own strip (Compact 26, Default 36) grows when the sidebar's density or text size makes the
+            // row taller than the density's, so a row-tall tab is never clipped.
+            if strip.explicitValue != nil { return strip.value + max(0, tabHeight - densityRowHeight) }
+            return strip.value + max(0, tabHeight - MetricTunables.tabHeight.value)
         }
         return tabHeight + 2 * scale(padding) + stripTopOutset
     }
