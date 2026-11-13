@@ -2136,6 +2136,10 @@ jobs:
             --manifest-file assets/chatmux-relay/manifest.json \
             --expected-commit "$GITHUB_SHA" \
             --machine-manifest \
+            --machine-target aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--machine-target x86_64-apple-darwin} \
+            --machine-target x86_64-unknown-linux-musl \
+            --machine-target aarch64-unknown-linux-musl \
             --artifact-directory assets/chatmux-relay
 
       # The attestation is the only GitHub API write on the publish path, and it
@@ -2619,6 +2623,10 @@ jobs:
             --manifest-url "https://files.cmux.com/chatmux-relay/$GITHUB_SHA/manifest.json" \
             --expected-commit "$GITHUB_SHA" \
             --machine-manifest \
+            --machine-target aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--machine-target x86_64-apple-darwin} \
+            --machine-target x86_64-unknown-linux-musl \
+            --machine-target aarch64-unknown-linux-musl \
             --artifact-base-url "https://files.cmux.com/chatmux-relay/$GITHUB_SHA"
 
       # Not again in the Windows pass: latest has no Windows file, and a newer
@@ -2733,6 +2741,10 @@ jobs:
             --manifest-file assets/chatmux-relay/manifest.json \
             --expected-commit "$GITHUB_SHA" \
             --machine-manifest \
+            --machine-target aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--machine-target x86_64-apple-darwin} \
+            --machine-target x86_64-unknown-linux-musl \
+            --machine-target aarch64-unknown-linux-musl \
             --artifact-directory assets/chatmux-relay
 
       # The Cloud VM image roll (cloud-vm-image-roll.yml) for this build, as soon as the immutable,
@@ -2816,6 +2828,10 @@ jobs:
             --manifest-url "https://files.cmux.com/chatmux-relay/$GITHUB_SHA/manifest.json" \
             --expected-commit "$GITHUB_SHA" \
             --machine-manifest \
+            --machine-target aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--machine-target x86_64-apple-darwin} \
+            --machine-target x86_64-unknown-linux-musl \
+            --machine-target aarch64-unknown-linux-musl \
             --artifact-base-url "https://files.cmux.com/chatmux-relay/$GITHUB_SHA"
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
             verify python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -2859,6 +2875,8 @@ jobs:
               --require-artifact cmux-relay-aarch64-unknown-linux-musl \
               --forbid-artifact cmux-relay-x86_64-pc-windows-gnu.exe \
               --artifact-base-url "https://files.cmux.com/cmux-relay/latest"
+            # No --machine-target here: latest/ is published on main only, and
+            # the check then wants every machine target, Intel macOS too.
             verify python3 cmux-tui/scripts/verify_published_manifest.py \
               --manifest-url "https://files.cmux.com/chatmux-relay/latest/manifest.json?verify=$GITHUB_SHA" \
               --expected-commit "$GITHUB_SHA" \
