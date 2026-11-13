@@ -1,0 +1,80 @@
+name: iOS UI tests nightly
+
+# iOS pull requests skip cmuxUITests, and the App Review checks run only the
+# journeys they name, so most iOS UI tests ran nowhere: one stayed red from
+# August to November unseen, and App Review was the first to walk the app's
+# broken paths. Each night this dispatches test-ios.yml on main with
+# test_filter=cmuxUITests, every UI test on iPhone and iPad, and keeps one
+# tracking issue (label ios-ui-nightly-red) open while that run is red
+# (scripts/ci/ios_ui_nightly.py).
+#
+# It dispatches test-ios.yml instead of calling it so the run takes the same
+# path, runner routing and product build as a person's `gh workflow run
+# test-ios.yml -f test_filter=...`. A person's whole-target dispatch on main is
+# reported the same way.
+on:
+  schedule:
+    - cron: "40 7 * * *"
+  workflow_dispatch:
+  workflow_run:
+    workflows: [iOS simulator tests]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+env:
+  # Keep the display-name trigger checked against its stable workflow identity.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/test-ios.yml
+
+jobs:
+  dispatch:
+    name: Dispatch every iOS UI test on main
+    if: ${{ github.event_name != 'workflow_run' && github.ref == 'refs/heads/main' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch test-ios.yml with test_filter=cmuxUITests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # return_run_details answers with the run GitHub created; a dispatch
+          # that names no run fails instead of passing for "sent".
+          run_url="$(gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/test-ios.yml/dispatches" \
+            -f ref=main -f 'inputs[test_filter]=cmuxUITests' -F return_run_details=true --jq '.html_url // ""')"
+          if [ -z "$run_url" ]; then
+            echo "::error::The test-ios.yml dispatch returned no run."
+            exit 1
+          fi
+          echo "Dispatched every iOS UI test on main: $run_url" >> "$GITHUB_STEP_SUMMARY"
+
+  report:
+    name: Sync the iOS UI nightly issue
+    # Only a whole-target dispatch run on main; ios_ui_nightly.py checks the
+    # run again and ignores anything else.
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/test-ios.yml' && contains(github.event.workflow_run.display_title, ' · cmuxUITests · ') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    concurrency:
+      group: ios-ui-tests-nightly-report
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      - name: Open, update or close the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: python3 scripts/ci/ios_ui_nightly.py report --run-id "$RUN_ID"

@@ -55,6 +55,9 @@ PATH_OWNERS = {
     "scripts/ci/signing-runner-claim.sh": frozenset(("ci",)),
     "scripts/ci/glaeda-signing-hooks.txt": frozenset(("ci",)),
     ".github/workflows/ci-main-full-suite.yml": frozenset(("ci",)),
+    # tests/test_ci_ios_ui_nightly.py loads the script by path and reads both workflows.
+    ".github/workflows/ios-ui-tests-nightly.yml": frozenset(("ci",)),
+    "scripts/ci/ios_ui_nightly.py": frozenset(("ci",)),
     # tests/test_ci_gate_absent_signal.py imports the gate verdict.
     "scripts/ci/gate_verdict.py": frozenset(("ci",)),
 
