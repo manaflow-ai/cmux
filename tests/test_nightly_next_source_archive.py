@@ -55,6 +55,8 @@ def step(name: str) -> str:
 def steps(name: str) -> list[str]:
     """The text of every step called `name` (dash line through the next step)."""
     text = write_out_step_aliases(expand(WORKFLOW.read_text(encoding="utf-8")))
+    # nightly-next-one runs these same steps as YAML aliases of the split jobs' (tests/test_nightly_next_one_job.py).
+    text = re.sub(r"^  nightly-next-one:\n.*?(?=^  [A-Za-z0-9_-]+:\n)", "", text, count=1, flags=re.MULTILINE | re.DOTALL)
     starts = [m.start() for m in re.finditer(r"^      - name: ", text, re.MULTILINE)]
     blocks = []
     for index, start in enumerate(starts):
