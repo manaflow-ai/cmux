@@ -12,7 +12,7 @@ const reveal =
       "--cv-worked-footer-gap",
       look === "separated" ? "var(--ds-space-4)" : "var(--cv-footer-time-gap)",
     );
-    await ctx.hover({ selector: ".cv-worked" });
+    await ctx.hover({ selector: ".cv-worked-row .cv-worked" });
   };
 
 const snapshot = () => {
