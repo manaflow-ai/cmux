@@ -20,6 +20,10 @@ final class AgentRowGalleryCaptureUITests: UIStateCaptureCase {
     @MainActor func testExpanded() {
         for look in Look.allCases { run(group: "Rows expanded", parts: Self.foldingParts, look: look, open: true) }
     }
+    /// The question card alone (live and answered), both looks: a quick check of a card change.
+    @MainActor func testQuestionCards() {
+        for look in Look.allCases { run(group: "Rows", parts: ["live-question", "cards"], look: look) }
+    }
     @MainActor func testLargeText() {
         run(group: "Rows at accessibility text size", parts: Self.parts, look: .light, largeText: true)
     }
