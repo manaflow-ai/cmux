@@ -38,6 +38,8 @@ test("the categories are the approved ones, in order", () => {
     "editor",
     "browser",
     "agents",
+    // Settings > Models: which subscription or key each Cloud thread runs on (model-connections.md).
+    "models",
     "chief",
     "notifications",
     "keyboard",
