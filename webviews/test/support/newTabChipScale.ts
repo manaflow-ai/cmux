@@ -8,7 +8,7 @@ export type ChipMeasure = {
   chip: string;
   /** Leading glyph frame height; wide symbols retain their natural aspect. */
   glyph: number | null;
-  glyphInk: { top: number; bottom: number } | null;
+  glyphInk: { top: number; bottom: number; width: number } | null;
   glyphCenterY: number | null;
   label: { size: number; weight: number } | null;
   chevron: number | null;
@@ -28,7 +28,7 @@ export function measureNewTabChips(): ChipMeasure[] {
     const rect = element.getBoundingClientRect();
     return rect.height === 0 ? null : (rect.top + rect.bottom) / 2;
   };
-  const verticalInk = (element: Element | null) => {
+  const inkBounds = (element: Element | null) => {
     if (!(element instanceof SVGSVGElement)) return null;
     const rect = element.getBoundingClientRect();
     const view = element.viewBox.baseVal;
@@ -37,6 +37,7 @@ export function measureNewTabChips(): ChipMeasure[] {
     const stroke = style.stroke === "none" ? 0 : Number.parseFloat(style.strokeWidth) || 0;
     const scale = rect.height / view.height;
     return {
+      width: (bounds.width + stroke) * scale,
       top: rect.top + (bounds.y - view.y - stroke / 2) * scale,
       bottom: rect.top + (bounds.y - view.y + bounds.height + stroke / 2) * scale,
     };
@@ -82,7 +83,7 @@ export function measureNewTabChips(): ChipMeasure[] {
       return {
         chip,
         glyph: glyphElement ? glyphElement.getBoundingClientRect().height : null,
-        glyphInk: verticalInk(glyphElement),
+        glyphInk: inkBounds(glyphElement),
         glyphCenterY: glyphCenter,
         label: style ? { size: Number.parseFloat(style.fontSize), weight: Number(style.fontWeight) } : null,
         chevron: square(chevron),

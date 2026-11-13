@@ -72,8 +72,14 @@ await requireBrowserLane("newtab-chip-scale.test.ts", async () => {
               const mac = chips.find((chip) => chip.chip === "location 2")?.glyphInk;
               expect(folder, where).toBeTruthy();
               expect(mac, where).toBeTruthy();
-              expect(Math.abs(folder!.top - mac!.top), where).toBeLessThanOrEqual(0.5);
-              expect(Math.abs(folder!.bottom - mac!.bottom), where).toBeLessThanOrEqual(0.5);
+              const folderHeight = folder!.bottom - folder!.top;
+              const macHeight = mac!.bottom - mac!.top;
+              const centerDifference = (folder!.top + folder!.bottom - mac!.top - mac!.bottom) / 2;
+              expect(Math.abs(centerDifference), where).toBeLessThanOrEqual(0.5);
+              // The laptop is wider and shorter; equal height gave it too much visual weight.
+              const footprintRatio = (mac!.width * macHeight) / (folder!.width * folderHeight);
+              expect(footprintRatio, where).toBeGreaterThanOrEqual(0.9);
+              expect(footprintRatio, where).toBeLessThanOrEqual(1.1);
             }
             // The two chips above the box and the permission and model chips under it.
             expect(chips.filter((chip) => chip.chip.startsWith("location")).length, where).toBeGreaterThanOrEqual(1);
