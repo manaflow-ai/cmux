@@ -68,7 +68,9 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
            let bundledRuntime = sharedRuntimeRoot {
             let runtimeRoot = WebDevOverride.current.overlayRoot("webviews-app", entry: "__runtime/react-runtime.js")?
                 .appending(path: "__runtime", directoryHint: .isDirectory) ?? bundledRuntime
-            guard let file = Self.runtimeFileURL(for: url, root: runtimeRoot) else { return }
+            guard let file = Self.runtimeFileURL(for: url, root: runtimeRoot) else {
+                task.didFailWithError(URLError(.fileDoesNotExist)); return
+            }
             let id = ObjectIdentifier(task)
             active.insert(id)
             WebBundleServedViews.shared.add(webView)
