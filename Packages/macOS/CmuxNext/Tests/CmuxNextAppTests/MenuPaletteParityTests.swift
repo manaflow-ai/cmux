@@ -178,15 +178,26 @@ import Testing
     /// the tab there with `browserProfile.moveTab`.
     @Test func browserToolbarProfileMenuOffersEveryProfileAction() {
         let services = Self.services()
+        let registry = services.registry
+        registry.context = registry.descriptors.reduce(into: ActionContext()) { $0.formUnion($1.requires) }
+        func shownIDs(_ menu: NSMenu) -> Set<ActionID> {
+            Set(Self.rows(menu, "").compactMap { _, item -> ActionID? in
+                if case .action(let id) = Self.run(of: item) { return id }
+                return nil
+            })
+        }
         let menu = Self.toolbarProfileMenu(services)
         let rows = Self.rows(menu, "toolbar profile menu").map(\.1)
-        let shown = Set(rows.compactMap { item -> ActionID? in
-            if case .action(let id) = Self.run(of: item) { return id }
-            return nil
-        })
-        let profileActions = ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .browserProfile))
-        let missing = profileActions.filter { !shown.contains($0) }
-        #expect(missing.isEmpty, "the toolbar profile menu lacks \(missing.map(\.rawValue))")
+        let shown = shownIDs(menu)
+        // What the profile's badge menu offers for the same profile and tab.
+        let badge = shownIDs(registry.makeContextMenu(for: .browserProfile, target: ActionTargetRef(kind: .browserProfile, id: BrowserProfileRecord.defaultID),
+                                                      arguments: ["tab": .target(ActionTargetRef(kind: .tab, id: "tab-1"))], customize: false))
+        let required: Set<ActionID> = [
+            "browserProfile.newTab", "browserProfile.newWindow", "browserProfile.newWorkspace", "browserProfile.new",
+            "browserProfile.rename", "browserProfile.manageExtensions", "browserProfile.clearBrowsingData",
+        ]
+        let missing = badge.union(required).subtracting(shown)
+        #expect(missing.isEmpty, "the toolbar profile menu lacks \(missing.map(\.rawValue).sorted())")
         let moves = rows.compactMap(ActionRegistry.menuRun(of:)).filter { $0.id == "browserProfile.moveTab" }
         #expect(moves.map { $0.arguments["browserProfile"]?.stringValue } == ["work"], "moves: \(moves.map(\.arguments))")
         #expect(moves.allSatisfy { $0.target == ActionTargetRef(kind: .tab, id: "tab-1") })
