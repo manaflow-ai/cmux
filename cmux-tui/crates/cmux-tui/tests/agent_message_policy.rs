@@ -11,7 +11,7 @@ mod harness;
 
 /// One module, so `cargo test agent_message_policy` selects these tests.
 mod agent_message_policy {
-    use super::harness::{Daemon, delivery, refusal};
+    use super::harness::{Daemon, delivery, refusal, started_terminal, wait_for_file};
     use serde_json::{Value, json};
 
     const DAY_MS: i64 = 24 * 60 * 60 * 1000;
@@ -87,6 +87,74 @@ mod agent_message_policy {
         );
         assert_eq!(own["sender"], "acp:writer", "{own}");
         assert_eq!(daemon.list(json!({})).len(), 3, "a refused send stored a message");
+    }
+
+    /// The sender of a message is the class of its connection. A terminal
+    /// whose host has its seat, and that has not yet its own seat, has its
+    /// terminal's class: a message from a process of it is that terminal's
+    /// message, and follows the terminal's rule for another workspace.
+    #[test]
+    fn a_message_from_a_terminal_that_has_only_its_hosts_seat_is_that_terminals() {
+        let (daemon, gate) = Daemon::start_with_host_ready_gate("first-message");
+        let (alpha, _) = daemon.workspace("alpha");
+        let (beta, _) = daemon.workspace("beta");
+        let reader = daemon.terminal(&alpha, "exec sleep 600");
+        let (started, go) = (daemon.dir.join("started"), daemon.dir.join("go"));
+        let script = format!(
+            "unset CMUX_LAUNCH_CREDENTIAL; : > '{started}'; \
+             while [ ! -e '{go}' ]; do sleep 0.05; done; \
+             '{cli}' --json --socket '{socket}' agent message {reader} from-a-new-terminal; \
+             exec sleep 600",
+            started = started.display(),
+            go = go.display(),
+            cli = env!("CARGO_BIN_EXE_cmux-tui"),
+            socket = daemon.socket.display(),
+        );
+
+        gate.close();
+        let mut run = daemon.terminal_started(&beta, &script);
+        // The terminal's process runs: its host made it, and waits at the gate.
+        wait_for_file(&started);
+        // Each read of the count is one connection of the test itself. The
+        // count is of each client of the daemon, so the wait ends at the
+        // first new connection that is not a read. A connection of another
+        // client in that time would end the wait before the terminal's
+        // process connects; this test starts no such client there (the run
+        // command connected before `started`, and the other terminal runs
+        // `sleep`).
+        let mut reads = 0;
+        let mut connections_of_others = || {
+            reads += 1;
+            daemon.admitted_connections() - reads
+        };
+        let before = connections_of_others();
+        std::fs::write(&go, "").unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while connections_of_others() == before {
+            assert!(std::time::Instant::now() < deadline, "the terminal's process never connected");
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        let ready = run.try_wait().unwrap();
+        assert!(ready.is_none(), "setup: the terminal was ready before its process connected");
+        gate.open();
+        let writer = started_terminal(run);
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let message = loop {
+            let found =
+                daemon.list(json!({})).into_iter().find(|m| m["body"] == "from-a-new-terminal");
+            if let Some(found) = found {
+                break found;
+            }
+            assert!(std::time::Instant::now() < deadline, "the terminal's process never sent");
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        };
+        assert_eq!(
+            (message["sender"].as_str(), state_and_reason(&message, &reader).0.as_str()),
+            (Some(writer.as_str()), "held"),
+            "the sender and the first state of a message from a process of terminal \
+             {writer}, which had only its host's seat: {message}"
+        );
     }
 
     #[test]

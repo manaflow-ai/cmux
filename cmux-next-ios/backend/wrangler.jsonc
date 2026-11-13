@@ -37,7 +37,7 @@
         // APNs topics are the app's own bundle id.
         "APNS_TOPICS": "dev.cmux.mobile,dev.cmux.mobile.demo,dev.cmux.mobile.prod,dev.cmux.app.internal,com.cmux.app",
         // Connectivity alerts (PROTOCOL.md "Connectivity incidents"): every post, test route too, goes to
-        // #cmux-ios-connectivity. Channel ids are not secret; the bot token (SLACK_BOT_TOKEN) is.
+        // #cmux-next-ios-alerts. Channel ids are not secret; the bot token (SLACK_BOT_TOKEN) is.
         "CONNECTIVITY_ALERT_CHANNEL": "C0CHDSZJYU9",
         "CONNECTIVITY_ALERT_TEST_CHANNEL": "C0CHDSZJYU9",
         // Dev (primary) and production Stack users: production mobile builds use this dev Worker too.
@@ -77,7 +77,7 @@
         "API_VERSION": "0.15.0",
         // The TestFlight app (cmux INTERNAL) and the App Store app (com.cmux.app), both on this Worker.
         "APNS_TOPICS": "dev.cmux.mobile.prod,dev.cmux.app.internal,com.cmux.app",
-        // Connectivity alerts: every post goes to #cmux-ios-connectivity (channel ids are not secret).
+        // Connectivity alerts: every post goes to #cmux-next-ios-alerts (channel ids are not secret).
         "CONNECTIVITY_ALERT_CHANNEL": "C0CHDSZJYU9",
         "CONNECTIVITY_ALERT_TEST_CHANNEL": "C0CHDSZJYU9",
         "STACK_PROJECTS": "[{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
