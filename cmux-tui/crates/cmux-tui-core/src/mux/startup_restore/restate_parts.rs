@@ -445,7 +445,8 @@ fn run_session_restate(mux: &Weak<Mux>, ticket: startup_adoption_gate::Ticket) {
         }
         let step = mux.restate_step(&mut parts, mux.workspace_registry.waiters());
         let pause = match step {
-            Ok(PartStep::Stated(hold)) => hold,
+            // RED ARM, NOT FOR MERGE: the pause of a committed part is taken out.
+            Ok(PartStep::Stated(_)) => Duration::ZERO,
             Ok(PartStep::Deferred) => RESTATE_DEFER,
             Ok(PartStep::Passed) => Duration::ZERO,
             Ok(PartStep::Done) => {
