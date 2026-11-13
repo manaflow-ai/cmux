@@ -184,7 +184,8 @@ def load_bundle(
             commonjs.append(row)
         lowered = path.lower()
         row["developmentNamed"] = any(token in lowered for token in ("gallery", "fixture", "debug", ".test."))
-        if row["developmentNamed"] and row["reachableBytes"] != 0:
+        row["possiblyRetained"] = row["attributionValue"] > 0 or row["attributionMetric"] in ("unknown", "mixed")
+        if row["developmentNamed"] and row["possiblyRetained"]:
             dev_inputs.append(row)
         rows.append(row)
     rows_by_source = {source_paths[row["path"]]: row for row in rows if row["path"] in source_paths}
@@ -273,7 +274,7 @@ def render_markdown(report: dict[str, Any]) -> str:
                 flags.append(f"barrel({row['barrel']})")
             if row["commonjs"]:
                 flags.append("commonjs")
-            if row["developmentNamed"] and row["reachableBytes"] != 0:
+            if row["developmentNamed"] and row["possiblyRetained"]:
                 flags.append("development-named (review usage)")
             known = row["attributionMetric"] not in ("unknown", "mixed")
             value = f"{row['attributionValue']:,}" if known else "unknown"
@@ -339,7 +340,7 @@ def main() -> int:
     findings = []
     for bundle in bundles:
         for row in bundle["modules"]:
-            if row["package"] and (row["attributionValue"] > 0 or row["attributionMetric"] in ("unknown", "mixed")):
+            if row["package"] and row["possiblyRetained"]:
                 package_bundles[row["package"]].add(bundle["name"])
                 package_paths[row["package"]].add(row["path"])
                 if row["packageInstance"]:

@@ -327,6 +327,25 @@ class WebBundleReportTests(unittest.TestCase):
             self.assertEqual(len(report["duplicates"]["react"]["instances"]), 1)
             self.assertFalse(any("within pages" in finding for finding in report["findings"]))
 
+    def test_rolldown_zero_length_fixture_does_not_warn_but_unknown_does(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metafile = root / "rolldown.json"
+            metafile.write_text(json.dumps({
+                "schema": 2, "tool": "rolldown",
+                "outputs": {"entry.js": {"bytes": 60, "inputs": {
+                    "src/zeroFixture.ts": {"renderedLength": 0, "metric": "rolldown-rendered-length"},
+                    "src/usedFixture.ts": {"renderedLength": 40, "metric": "rolldown-rendered-length"},
+                    "src/unknownFixture.ts": {"renderedLength": None, "metric": "rolldown-rendered-length"},
+                }}},
+            }))
+            bundle = MODULE.load_bundle("viewer", metafile, None)
+            self.assertEqual({row["path"] for row in bundle["devInputs"]},
+                             {"src/usedFixture.ts", "src/unknownFixture.ts"})
+            markdown = MODULE.render_markdown({"bundles": [bundle], "duplicates": {}, "findings": []})
+            zero_line = next(line for line in markdown.splitlines() if "`src/zeroFixture.ts`" in line)
+            self.assertNotIn("development-named", zero_line)
+
     def test_barrel_graph_includes_exported_child_bytes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
