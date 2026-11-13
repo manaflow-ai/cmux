@@ -25,6 +25,7 @@ dependencies = [
  "cmux-cloud-client",
  "cmux-coderouter",
  "cmux-codex-acp",
+ "cmux-command-class",
  "cmux-config",
  "cmux-file-lock",
  "cmux-git",
