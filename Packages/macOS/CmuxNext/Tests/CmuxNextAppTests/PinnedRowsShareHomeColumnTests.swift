@@ -109,10 +109,6 @@ import Testing
             let (list, window) = Self.list(scale: c.scale)
             defer { window.close() }
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
-            // The optical glyph square every row glyph centers in is the icon column's width, so a glyph as wide as the
-            // column still starts on its edge and the center line is the column's center (the group headers' line).
-            #expect(abs(SidebarStyle.rowGlyphOpticalSide - SidebarStyle.iconColumnBox) <= 0.5,
-                    "\(c.testDescription): the optical glyph square is \(SidebarStyle.rowGlyphOpticalSide), the icon column \(SidebarStyle.iconColumnBox)")
             let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
             let tolerance = 1 / c.scale
             for item in Self.pins {

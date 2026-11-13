@@ -22,6 +22,9 @@ import Testing
         let k = frame.width / 16
         #expect(abs(14 * k - 16) <= 0.25)
         #expect(abs(frame.minY + 8 * k - 12) <= 0.25, "the ink centers on the row")
+        // Every glyph's ink centers in the square (#42431), so a narrow mark's middle is the square's, within the
+        // origin's and the size's pixel snapping (a 2x pixel each).
+        #expect(abs(frame.minX + 8 * k - 8) <= 0.5, "the pin's ink centers at \(frame.minX + 8 * k), the square's middle 8")
     }
 
     @Test func emptyInkDrawsNothing() {

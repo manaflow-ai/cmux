@@ -111,8 +111,9 @@ enum SidebarStyle {
     static var workspaceFaviconSide: CGFloat { (kindGlyphSize * workspaceGlyphScale).rounded() }
     /// The one optical size of every row's leading glyph ink (``SidebarOpticalGlyph``): a favicon, an app icon, the GitHub
     /// mark, a symbol, Home's house and a pin all fill this square along their larger side, at every density (Lawrence
-    /// 2026-11-09, 6:55 PM: "the cmux app icon looks smaller ... GitHub logo and the globe are different sizes"). It
-    /// fills the icon column exactly, so the gap from any glyph's ink to its title is the one column gap.
+    /// 2026-11-09, 6:55 PM: "the cmux app icon looks smaller ... GitHub logo and the globe are different sizes"). Every
+    /// glyph's ink centers in this square from the column's leading edge (#42431), so all leading glyphs share one
+    /// center line. It is not the icon column's width (2 pt narrower at compact), so tests compare glyphs row to row.
     static var rowGlyphOpticalSide: CGFloat { SidebarRowTuning.glyphSize.value }
     static var rowGlyphOptics: SidebarOpticalGlyph { SidebarOpticalGlyph(target: rowGlyphOpticalSide) }
     /// Reserve the icon column only when a visible icon precedes the title.
