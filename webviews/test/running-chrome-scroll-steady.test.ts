@@ -177,10 +177,25 @@ await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
           if (target instanceof Element && target.closest(".acpmux-minimap")) continue;
           const name = (animation as CSSAnimation).animationName;
           const label = name ?? (animation as CSSTransition).transitionProperty;
+          // The running line's shimmer is a one-second sweep every four seconds, started 600 ms after
+          // its label comes into view (conversation/shimmerCadence.ts), on no shared phase: a pass
+          // that begins while the wheel moves is the cadence's next pass, not a restart. Whether one
+          // fell inside the 100 frames was the runner's speed (run 43395228044: 3 of 6 cases red with
+          // seven browser files at once). Only the two approved layers pass (runningLineMotion.ts).
+          if (
+            target instanceof Element &&
+            ((name === "cmux-cadenced-shimmer-band" && target.matches(".cv-shimmer__band, .cv-row-shimmer__band")) ||
+              (name === "cmux-cadenced-shimmer-lit" &&
+                target.matches(".cv-shimmer__band > .cv-shimmer__lit, .cv-row-shimmer__band > .cv-row-shimmer__lit")))
+          )
+            continue;
           if (name && shared.has(name)) {
-            const period = Number(animation.effect?.getTiming().duration);
+            // The drawn phase is the iteration's progress: a shimmer phased by a negative delay
+            // (ui/spinnerClock.ts `setLoopPhase`) is that far ahead of its currentTime.
+            const timing = animation.effect!.getComputedTiming();
+            const period = Number(timing.duration);
             const phase = (performance.timeOrigin + now) % period;
-            const drawn = ((Number(animation.currentTime) % period) + period) % period;
+            const drawn = Number(timing.progress) * period;
             const off = Math.min(Math.abs(phase - drawn), period - Math.abs(phase - drawn));
             if (off < 50) continue;
             rowAnimations.push(

@@ -56,6 +56,9 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 NOTICES="$ROOT/cmux-tui/build-support/notices"
 CACHE="${CMUX_NOTICES_CACHE:-$HOME/.cache/cmux-notices}"
 CHECK=0 TUI_SOURCE=pin TREES="" WRITE_TREES=0
+# remote_refs and net_retry: a remote that does not answer is never read as a missing ref.
+# shellcheck source=scripts/cmux-next/lib/origin-net.sh
+source "$ROOT/scripts/cmux-next/lib/origin-net.sh"
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -79,6 +82,11 @@ if [[ "$TUI_SOURCE" == tree && "$CHECK" == 1 ]]; then
   exit 2
 fi
 
+# Before any git or curl call: the tools below need Python 3.11.4 (tomllib, and tarfile's extraction
+# filter). An older python3 ends the run here with one line that names the needed version and the
+# interpreter.
+python3 "$NOTICES/python_floor.py"
+
 iroh_rev="$(python3 -c 'import json, sys
 pins = [p for p in json.load(open(sys.argv[1]))["pins"] if p["identity"] == "iroh-ffi"]
 print(pins[0]["state"]["revision"])' "$ROOT/Packages/macOS/CmuxNext/Package.resolved")"
@@ -92,7 +100,8 @@ if [[ "$TUI_SOURCE" == pin ]]; then
   pin="$(sed -n 's/^commit=//p' "$ROOT/scripts/cmux-next/cmux-tui.pin")"
   [[ "$pin" =~ ^[0-9a-f]{40}$ ]] || { echo "error: no commit= line in scripts/cmux-next/cmux-tui.pin" >&2; exit 1; }
   ref="cmux-tui-src-${pin:0:11}"
-  if ! git -C "$ROOT" ls-remote --exit-code --tags origin "refs/tags/$ref" >/dev/null; then
+  tui_tag_lines="$(remote_refs "$ROOT" origin "refs/tags/$ref")" || exit 1
+  if [[ -z "$tui_tag_lines" ]]; then
     echo "error: source tag $ref (the cmux-tui pin) does not exist on origin; first-party crates must point at a permanent tag" >&2
     exit 1
   fi
@@ -102,7 +111,7 @@ if [[ "$TUI_SOURCE" == pin ]]; then
   # only when the pin has them. A cache made before they were archived (no
   # .archived-v2 stamp) is made again.
   if [[ ! -f "$tui_src/.archived-v2" ]]; then
-    git -C "$ROOT" cat-file -e "$pin^{commit}" 2>/dev/null || git -C "$ROOT" fetch --quiet origin "$pin"
+    git -C "$ROOT" cat-file -e "$pin^{commit}" 2>/dev/null || net_retry "fetch the cmux-tui pin $pin" git -C "$ROOT" fetch --quiet origin "$pin"
     tui_paths=(cmux-tui first-party-apps/cloud/server)
     if git -C "$ROOT" cat-file -e "$pin:workers/cmux-vm/cli" 2>/dev/null; then tui_paths+=(workers/cmux-vm/cli); fi
     rm -rf "$tui_src" "$tui_src.partial" && mkdir -p "$tui_src.partial"
@@ -121,7 +130,7 @@ iroh_src="$CACHE/iroh-ffi-$iroh_rev"
 if [[ ! -d "$iroh_src" ]]; then
   rm -rf "$iroh_src.partial" && mkdir -p "$iroh_src.partial"
   git -C "$iroh_src.partial" init --quiet
-  git -C "$iroh_src.partial" fetch --quiet --depth 1 https://github.com/manaflow-ai/iroh-ffi.git "$iroh_rev"
+  net_retry "fetch iroh-ffi $iroh_rev" git -C "$iroh_src.partial" fetch --quiet --depth 1 https://github.com/manaflow-ai/iroh-ffi.git "$iroh_rev"
   git -C "$iroh_src.partial" checkout --quiet FETCH_HEAD
   [[ "$(git -C "$iroh_src.partial" rev-parse HEAD)" == "$iroh_rev" ]] || { echo "error: iroh-ffi checkout is not $iroh_rev" >&2; exit 1; }
   mv "$iroh_src.partial" "$iroh_src"
@@ -131,7 +140,7 @@ cua_src="$CACHE/cmux-cua-$cua_rev"
 if [[ ! -d "$cua_src" ]]; then
   rm -rf "$cua_src.partial" && mkdir -p "$cua_src.partial"
   git -C "$cua_src.partial" init --quiet
-  git -C "$cua_src.partial" fetch --quiet --depth 1 https://github.com/manaflow-ai/cmux-cua.git "$cua_rev"
+  net_retry "fetch cmux-cua $cua_rev" git -C "$cua_src.partial" fetch --quiet --depth 1 https://github.com/manaflow-ai/cmux-cua.git "$cua_rev"
   git -C "$cua_src.partial" checkout --quiet FETCH_HEAD
   [[ "$(git -C "$cua_src.partial" rev-parse HEAD)" == "$cua_rev" ]] || { echo "error: cmux-cua checkout is not $cua_rev" >&2; exit 1; }
   mv "$cua_src.partial" "$cua_src"
@@ -153,7 +162,7 @@ rbh_crate=cmux-tui/crates/cmux-remote-browser-host
 # source_commit need not be on a branch, so a permanent tag holds it (publish-remote-browser-host.sh
 # pushes it), as cmux-tui-src-<pin> does for the cmux-tui pin; the first-party links name the tag.
 rbh_ref="cmux-rbh-src-${rbh_rev:0:11}"
-rbh_tag_lines="$(git -C "$ROOT" ls-remote --tags origin "refs/tags/$rbh_ref^{}" "refs/tags/$rbh_ref" || true)"
+rbh_tag_lines="$(remote_refs "$ROOT" origin "refs/tags/$rbh_ref^{}" "refs/tags/$rbh_ref")" || exit 1
 if ! grep -q "^$rbh_rev" <<<"$rbh_tag_lines"; then
   echo "error: source tag $rbh_ref (the remote browser host pin's source_commit) is not on origin at $rbh_rev; push it: git push origin $rbh_rev:refs/tags/$rbh_ref" >&2
   exit 1
@@ -163,7 +172,7 @@ if [[ ! -d "$rbh_src" ]]; then
   # Its own shallow fetch (as for iroh-ffi), not this checkout's history.
   rm -rf "$rbh_src.git" "$rbh_src.partial" && mkdir -p "$rbh_src.partial"
   git init --quiet "$rbh_src.git"
-  git -C "$rbh_src.git" fetch --quiet --depth 1 https://github.com/manaflow-ai/cmux.git "$rbh_rev"
+  net_retry "fetch the remote browser host source $rbh_rev" git -C "$rbh_src.git" fetch --quiet --depth 1 https://github.com/manaflow-ai/cmux.git "$rbh_rev"
   [[ "$(git -C "$rbh_src.git" rev-parse FETCH_HEAD)" == "$rbh_rev" ]] || { echo "error: fetched commit is not $rbh_rev" >&2; exit 1; }
   [[ "$(git -C "$rbh_src.git" rev-parse "FETCH_HEAD:$rbh_crate")" == "$rbh_tree" ]] ||
     { echo "error: $rbh_crate at $rbh_rev is not the pin's crate_tree $rbh_tree" >&2; exit 1; }
@@ -274,6 +283,10 @@ section rust-cmux-cua "Rust crates: Computer Use helper (cmux Computer Use.app, 
   --path-download "git+https://github.com/manaflow-ai/cmux-cua.git@$cua_rev"
 
 python3 "$ROOT/scripts/cmux-next/notices/ghostty_themes_notice.py" --root "$ROOT" --out "$work/ghostty-themes.md"
+# CMUX_NOTICES_OUT (tree mode only): write the notices there instead of the checkout's file. nightly-next-one generates
+# them in the background while the Release build copies the committed file (app-third-party-notices.sh generate).
+OUT_FILE="$ROOT/THIRD_PARTY_LICENSES.md"
+if [[ "$TUI_SOURCE" == tree && -n "${CMUX_NOTICES_OUT:-}" ]]; then OUT_FILE="$CMUX_NOTICES_OUT"; fi
 compose=(python3 "$ROOT/scripts/cmux-next/notices/compose_notices.py"
   --hand-written "$ROOT/scripts/cmux-next/notices/hand-written.md"
   --section "$work/ghostty-themes.md"
@@ -286,7 +299,7 @@ compose=(python3 "$ROOT/scripts/cmux-next/notices/compose_notices.py"
   --section "$work/rust-cmux-remote-browser-host.md"
   --section "$work/rust-iroh-ffi.md"
   --section "$work/rust-cmux-cua.md"
-  --out "$ROOT/THIRD_PARTY_LICENSES.md")
+  --out "$OUT_FILE")
 review=(python3 "$NOTICES/review_list.py" --cache "$CACHE"
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock" --lock "$asd_src/Cargo.lock"
   --lock "$ROOT/Native/DiffSidecar/Cargo.lock" --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" --lock "$iroh_src/Cargo.lock"
@@ -294,7 +307,7 @@ review=(python3 "$NOTICES/review_list.py" --cache "$CACHE"
   --lock "$cua_rust/Cargo.lock")
 if [[ "$TUI_SOURCE" == tree ]]; then
   "${compose[@]}"
-  echo "wrote THIRD_PARTY_LICENSES.md for this tree (${ref:0:11}; $(wc -c < "$ROOT/THIRD_PARTY_LICENSES.md" | tr -d ' ') bytes)"
+  echo "wrote $OUT_FILE for this tree (${ref:0:11}; $(wc -c < "$OUT_FILE" | tr -d ' ') bytes)"
 elif [[ "$CHECK" == 1 ]]; then
   "${review[@]}" --check
   "${compose[@]}" --check

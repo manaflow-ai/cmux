@@ -48,6 +48,16 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "reading", "plan", "task", "tasks", "todo", "checklist", "pin", "pinned", "list", "progress"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.finishSoundPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.finishSound", "Play Sound When Work Finishes"),
+                help: SettingsText.keyed("settings.agentPane.display.finishSound.help", "A soft sound when a long turn in the chat you're looking at ends, its checks pass or its pull request merges. Follows the Mac's Play user interface sound effects setting."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.finishSoundDefault),
+                keywords: ["agent", "chat", "sound", "sounds", "audio", "finish", "finished", "done", "merged", "checks", "turn", "notification"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.trayTuckedPath,
                 section: .appearance,
                 group: group,
@@ -70,6 +80,20 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 ]),
                 default: .string(AgentPaneDisplaySettingsSchema.trayHandleDefault),
                 keywords: ["agent", "chat", "acp", "display", "reading", "tray", "hat", "tuck", "handle", "grabber", "pull", "tab", "side", "left", "middle", "center", "right", "composer"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.unreadBannerPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.unreadBanner", "Unread Banner"),
+                help: SettingsText.keyed("settings.agentPane.display.unreadBanner.help", "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back."),
+                kind: .choice([
+                    SettingChoice("expanded", SettingsText.keyed("settings.choice.expanded", "Expanded")),
+                    SettingChoice("collapsed", SettingsText.keyed("settings.choice.collapsed", "Collapsed")),
+                    SettingChoice("off", SettingsText.keyed("settings.choice.off", "Off")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.unreadBannerDefault),
+                keywords: ["agent", "chat", "acp", "display", "reading", "unread", "new", "banner", "since", "jump", "mark", "read", "collapse", "expand", "hide"]
             ),
             SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.senderIconLeadPath,
@@ -254,6 +278,16 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 ]),
                 default: .string(AgentPaneDisplaySettingsSchema.presentationDefault),
                 keywords: ["agent", "chat", "acp", "display", "reading", "presentation", "messages", "bubbles", "chat", "tools"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.promptCoachPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.promptCoach", "Prompt Coach"),
+                help: SettingsText.keyed("settings.agentPane.display.promptCoach.help", "After a chat that took several corrections, shows how its first prompt could have said it all at once."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.promptCoachDefault),
+                keywords: ["agent", "chat", "acp", "prompt", "coach", "rewrite", "corrections", "tips", "one shot", "first prompt", "copy"]
             ),
             SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.statusVerbsModePath,

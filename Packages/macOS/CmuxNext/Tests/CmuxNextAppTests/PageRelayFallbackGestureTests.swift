@@ -27,9 +27,10 @@ import Testing
         return PageRelayChannel(service: services.machines.local, page: PageRelayChannel.relayPageID(page))
     }
 
-    private static func outcome(_ channel: PageRelayChannel, _ operation: String, _ context: PageCallContext) async -> Outcome {
+    private static func outcome(_ channel: PageRelayChannel, _ operation: String, _ context: PageCallContext,
+                                params: [String: CmuxNextDaemon.JSONValue] = [:]) async -> Outcome {
         do {
-            _ = try await channel.send(operation: operation, params: [:], idempotencyKey: "k", context: context)
+            _ = try await channel.send(operation: operation, params: params, idempotencyKey: "k", context: context)
             return .other
         } catch DaemonError.missingCapabilities(let missing) where missing == [DaemonClientRole.originClaimCapability] {
             return .refused
@@ -66,6 +67,18 @@ import Testing
         #expect(await Self.outcome(channel, "history.site.remove", next) == .forwarded)
         let sheet = PageCallContext(page: "cmux.history", origin: "user", confirmed: true)
         #expect(await Self.outcome(channel, "history.entries.remove", sheet) == .forwarded)
+    }
+
+    /// cmux#37378 review: the Feed's Mark All Read is one `feed.intent` of every shown id, so one
+    /// click backs it however long the Inbox is; a second intent off the same click (a page-side
+    /// batch loop) would be refused, which is why the daemon, not the page, splits it per owner.
+    @Test func oneClickBacksOneReadIntentOfEveryShownItem() async throws {
+        let feed = try Self.channel("cmux.feed")
+        let ids = (0..<300).map { CmuxNextDaemon.JSONValue.string("fi_\($0)") }
+        let read: [String: CmuxNextDaemon.JSONValue] = ["kind": .string("read"), "items": .array(ids)]
+        let click = PageCallContext(page: "cmux.feed", userGesture: true, gestureEvent: 300)
+        #expect(await Self.outcome(feed, "feed.intent", click, params: read) == .forwarded)
+        #expect(await Self.outcome(feed, "feed.intent", click, params: read) == .refused)
     }
 
     @Test func anOpThePagesSpecDoesNotListIsRefusedEvenOnAGestureOrSheet() async throws {

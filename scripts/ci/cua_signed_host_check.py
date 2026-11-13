@@ -34,11 +34,16 @@ import signal
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+# The workflow checks out only the files it runs; deadline_http.py is beside this script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 
 
 APPLE_NS = {"sparkle": "http://www.andymatuschak.org/xml-namespaces/sparkle"}
@@ -73,7 +78,7 @@ def run(args: list[str], *, timeout: float = 60, check: bool = True) -> subproce
 def feed_url(url: str) -> tuple[str, int, str]:
     request = urllib.request.Request(url, headers={"User-Agent": "cmux-cua-signed-host/1"})
     try:
-        body = urllib.request.urlopen(request, timeout=30).read()
+        _, body, _ = deadline_http.request(request, 30, raise_errors=True)
         root = ET.fromstring(body)
     except Exception as error:
         raise Failure(f"could not read appcast {url}: {error}") from error
@@ -93,7 +98,10 @@ def download(url: str, length: int, destination: Path) -> None:
     log(f"download {url}")
     request = urllib.request.Request(url, headers={"User-Agent": "cmux-cua-signed-host/1"})
     try:
-        with urllib.request.urlopen(request, timeout=180) as source, destination.open("wb") as target:
+        # Each wait ends after 180 s of silence, as urlopen(timeout=180) did, and the whole DMG within the
+        # signed-host job's own 15-minute limit (nightly-next-cua-signed-host.yml).
+        with deadline_http.stream(request, 15 * 60, stall=180, raise_errors=True) as source, \
+                destination.open("wb") as target:
             shutil.copyfileobj(source, target, 1 << 20)
     except Exception as error:
         raise Failure(f"could not download {url}: {error}") from error

@@ -48,6 +48,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationThreadRequest, "after_seq");
     try expectExplicitNullRejected(protocol.CreatePersonalGroupRequest, "collapsed");
     try expectExplicitNullRejected(protocol.CreateSurfaceWithReceiptRequest, "selector_fallbacks");
+    try expectExplicitNullRejected(protocol.CreateTerminalRequest, "create_workspace");
     try expectExplicitNullRejected(protocol.CreateTerminalRequest, "detached");
     try expectExplicitNullRejected(protocol.CreateTerminalRequest, "keep");
     try expectExplicitNullRejected(protocol.CreateWorkspaceGroupRequest, "collapsed");
@@ -80,6 +81,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SetClientSizingRequest, "exclusive");
     try expectExplicitNullRejected(protocol.SetDefaultColorsRequest, "complete");
     try expectExplicitNullRejected(protocol.SetRowHeightsRequest, "fit");
+    try expectExplicitNullRejected(protocol.ShellReadRequest, "after");
     try expectExplicitNullRejected(protocol.ShutdownDaemonRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.ShutdownDaemonRequest, "force");
     try expectExplicitNullRejected(protocol.ShutdownDaemonRequest, "keep_layout");
@@ -139,6 +141,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ResizedEvent, "kitty_image_aliases");
     try expectExplicitNullRejected(protocol.ResizedEvent, "replay");
     try expectExplicitNullRejected(protocol.SizeStateEvent, "self_participant");
+    try expectExplicitNullRejected(protocol.TitleChangedEvent, "text");
     try expectExplicitNullRejected(protocol.TitleChangedEvent, "title");
     try expectExplicitNullRejected(protocol.VtStateEvent, "colors");
     try expectExplicitNullRejected(protocol.VtStateEvent, "history_rows_omitted");
@@ -264,8 +267,10 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.RunResult, "workspace_id");
     try expectExplicitNullRejected(protocol.SavedTabGroupMember, "url");
     try expectExplicitNullRejected(protocol.Screen, "short_id");
+    try expectExplicitNullRejected(protocol.ServerStatsResult, "commands");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "disk");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "hook_queue");
+    try expectExplicitNullRejected(protocol.ServerStatsResult, "journal_followers");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "locks");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "resource_projection");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "write_path");
@@ -284,6 +289,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SurfaceResult, "workspace_id");
     try expectExplicitNullRejected(protocol.Tab, "short_id");
     try expectExplicitNullRejected(protocol.Tab, "supports_clear_history_key_fallback");
+    try expectExplicitNullRejected(protocol.Tab, "title_text");
     try expectExplicitNullRejected(protocol.TabGroupRun, "pane");
     try expectExplicitNullRejected(protocol.TerminalClipboardHost, "name");
     try expectExplicitNullRejected(protocol.TerminalColors, "overrides");
@@ -305,6 +311,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.Workspace, "name_revision");
     try expectExplicitNullRejected(protocol.Workspace, "name_source");
     try expectExplicitNullRejected(protocol.Workspace, "short_id");
+    try expectExplicitNullRejected(protocol.WorkspaceFirstTabBrowser, "activate");
     try expectExplicitNullRejected(protocol.WorkspaceMutationResult, "changed");
     try expectExplicitNullRejected(protocol.WorkspaceMutationResult, "closed_ids");
+    try expectExplicitNullRejected(protocol.WorkspaceMutationResult, "first_tab");
 }
