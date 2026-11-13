@@ -474,7 +474,7 @@ where
                         .map(str::to_owned);
                     let origin = value.get("origin").and_then(Value::as_str).unwrap_or("local");
                     if let Some(key) = key
-                        && state.changed_keys.contains(&(origin.to_owned(), key.to_owned()))
+                        && state.changed_keys.contains(&(origin.to_owned(), key))
                     {
                         return false;
                     }
@@ -525,7 +525,7 @@ where
             }
             FrameKind::Unknown(kind) => {
                 self.skips.unknown_kind = self.skips.unknown_kind.saturating_add(1);
-                self.skip_unknown(kind, &frame, frame_bytes)
+                self.skip_unknown(kind, &frame, frame_bytes);
             }
             _ => self.skip_unknown(0, &frame, frame_bytes),
         }
@@ -858,13 +858,9 @@ mod tests {
     fn upgrade_requires_matching_id_and_true_result() {
         let mut client = Client::<Value>::new(["list"]);
         client.connected();
-        assert_eq!(
-            client.received(
-                br#"{"jsonrpc":"2.0","id":99,"result":{"upgrade":true}}
-"#
-            ),
-            0
-        );
+        let wrong_id = br#"{"jsonrpc":"2.0","id":99,"result":{"upgrade":true}}
+"#;
+        assert_eq!(client.received(wrong_id), wrong_id.len());
         assert!(matches!(client.next_change(), Some(Change::Error { .. })));
 
         let mut client = Client::<Value>::new(["list"]);
@@ -1126,7 +1122,7 @@ tail"#;
         let _ = client.next_change();
         let page = Frame::json(
             FrameKind::Page,
-            &serde_json::json!({"sid":"s","rows":[{"chatId":"changed"},{"chatId":"kept"}],"hasAfter":false}),
+            &serde_json::json!({"sid":"s","rows":[{"chatId":"changed"},{"chatId":"kept"}],"hasBefore":false,"hasAfter":false}),
         )
         .unwrap()
         .encode();
