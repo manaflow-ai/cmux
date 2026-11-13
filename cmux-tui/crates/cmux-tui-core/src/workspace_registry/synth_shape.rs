@@ -105,10 +105,6 @@ const SESSION_PUT_SUBJECTS: u64 = 2;
 /// At most this many padding subjects on one record.
 const MAX_PADDING_SUBJECTS: u64 = 32;
 const PADDING_KINDS: [&str; 4] = ["workspace", "tab", "pane", "screen"];
-/// Rows between two checkpoints of the generator. Its commits by hand wake no
-/// checkpointer and a row writes many pages again: with no checkpoint the log
-/// of a 9.6 GB registry passed 98 GB before the end of the run.
-const CHECKPOINT_ROWS: u64 = 20_000;
 /// The generator's own open of the registry, right after an owner's
 /// shutdown: tries and the pause between two.
 const OPEN_TRIES: u32 = 100;
@@ -439,7 +435,7 @@ struct Counters {
     subject_rows: u64,
     /// Turns of the lane round for the other `agent.*` kinds.
     other_turns: u64,
-    /// The largest size of the registry's log (`Shape::note_log`).
+    /// The largest size of the registry's log (`Shape::bound_log`).
     log_peak_bytes: u64,
 }
 
@@ -570,10 +566,7 @@ impl Shape {
                 Kind::AgentOther => self.agent_other()?,
                 Kind::SessionPut => self.session_put()?,
             }
-            if self.counters.rows.is_multiple_of(CHECKPOINT_ROWS) {
-                self.checkpoint()?;
-            }
-            self.note_log();
+            self.bound_log()?;
             if self.options.progress && self.counters.rows.is_multiple_of(50_000) {
                 eprintln!(
                     "synth: {} rows ({} left in this step, {:.1} s)",

@@ -75,6 +75,14 @@ const SEGMENT_TRIGGER: &str = "CREATE TRIGGER IF NOT EXISTS journal_segments_rej
 /// The labels of the checkpoints that [`advance_checkpoints`] makes start here.
 const ADVANCE_LABEL_BASE: u64 = 1_000;
 
+/// The generator copies its log into the file when the log reaches this
+/// size. Its commits by hand wake no checkpointer and a row writes many pages
+/// again: with no checkpoint the log of a 9.6 GB registry passed 98 GB, and
+/// with one each 20,000 records the log of a 160 MiB test registry reached
+/// 2.5 GiB (a burst of the sparse part is 2 records and a commit of removed
+/// rows, and three tests build such a registry at one time).
+const LOG_BYTES: u64 = 32 << 20;
+
 /// Rows of one transaction of [`append_progress`].
 const APPEND_BATCH: u64 = 1_000;
 
@@ -238,11 +246,16 @@ impl SparseReport {
 }
 
 impl Shape {
-    /// Reads the size of the registry's log and keeps the largest.
-    pub(super) fn note_log(&mut self) {
+    /// Reads the size of the registry's log, keeps the largest, and copies
+    /// the log into the file when it reached [`LOG_BYTES`].
+    pub(super) fn bound_log(&mut self) -> anyhow::Result<()> {
         let registry = super::super::registry_path(&self.state_root, &self.options.session);
         let bytes = std::fs::metadata(sidecar_path(&registry, "-wal")).map_or(0, |log| log.len());
         self.counters.log_peak_bytes = self.counters.log_peak_bytes.max(bytes);
+        if bytes >= LOG_BYTES {
+            self.checkpoint()?;
+        }
+        Ok(())
     }
 
     /// Writes the sparse part and runs the first output cleanup on it (the
@@ -268,7 +281,7 @@ impl Shape {
             self.append(BURST_RECORDS)?;
             let stop = if burst + 1 == bursts { target } else { first + span * (burst + 1) };
             self.removed_rows(burst, stop, &mut report)?;
-            self.note_log();
+            self.bound_log()?;
             if self.options.progress && (burst + 1).is_multiple_of(10_000) {
                 eprintln!("synth: sparse part, burst {} of {bursts}", burst + 1);
             }
