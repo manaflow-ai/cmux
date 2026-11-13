@@ -478,6 +478,9 @@ struct Names {
     file_mods: HashSet<String>,
     /// The names each block defines, by [`block_key`]; none of them is in the maps above.
     blocks: HashMap<String, Layer>,
+    /// Every definition of each name outside blocks, with its inline module (`defs` keeps one):
+    /// a name two inline modules define is read in its own (review of cmux#41693, F1).
+    mod_defs: HashMap<String, Vec<Def>>,
 }
 
 impl Names {
@@ -552,6 +555,7 @@ impl Collect<'_> {
         if self.scope.is_empty() {
             self.names.top.insert(name.to_string(), def.clone());
         }
+        self.names.mod_defs.entry(name.to_string()).or_default().push(def.clone());
         self.names.defs.insert(name.to_string(), def);
     }
 }
@@ -802,7 +806,9 @@ impl<'a> Resolver<'a> {
     }
 
     /// What `name` stands for here: the innermost block's that defines or `use`s it, else the
-    /// file's definition, else the file's `use`.
+    /// definition or `use` of the inline module it is read in, else the file's definition, else
+    /// the file's `use`. Two inline modules that bind one name each keep their own, whatever the
+    /// source order (review of cmux#41693, F1).
     fn named(&self, name: &str) -> Option<Named<'a>> {
         for layer in self.layers() {
             if let Some(def) = layer.defs.get(name) {
@@ -815,6 +821,22 @@ impl<'a> Resolver<'a> {
             }
         }
         let names = self.names;
+        let module: Vec<&String> = self.at.iter().filter(|s| !is_block_step(s)).collect();
+        let in_module = |scope: &[String]| scope.iter().eq(module.iter().copied());
+        if let Some(def) = names
+            .mod_defs
+            .get(name)
+            .and_then(|defs| defs.iter().rev().find(|d| in_module(&d.scope)))
+        {
+            return Some(Named::Def(def));
+        }
+        if let Some(own) = names
+            .candidates
+            .get(name)
+            .and_then(|uses| uses.iter().rev().find(|(_, scope)| in_module(scope)))
+        {
+            return Some(Named::Use(&own.0, std::slice::from_ref(own)));
+        }
         if let Some(def) = names.defs.get(name) {
             return Some(Named::Def(def));
         }
@@ -1251,12 +1273,27 @@ impl<'a> Resolver<'a> {
     ) -> bool {
         let leading = path.leading_colon.is_some();
         let mut segs: Vec<&syn::PathSegment> = path.segments.iter().collect();
-        if !leading && segs.len() == 2 && segs.first().is_some_and(|s| s.ident == "self") {
+        let own_module =
+            !leading && segs.len() == 2 && segs.first().is_some_and(|s| s.ident == "self");
+        if own_module {
             segs.remove(0);
         }
         let Some((last, init)) = segs.split_last() else {
             return false;
         };
+        if own_module {
+            // `self::Name` is the module's item: a name a block around it binds is no item of the
+            // module, so it is read with no block's layer (review of cmux#42384, F1).
+            let module: Vec<String> =
+                self.at.iter().filter(|s| !is_block_step(s)).cloned().collect();
+            return self.within(&module).name(
+                &last.ident.to_string(),
+                &last.arguments,
+                env,
+                stack,
+                facts,
+            );
+        }
         if !leading && segs.len() == 1 {
             return self.name(&last.ident.to_string(), &last.arguments, env, stack, facts);
         }
