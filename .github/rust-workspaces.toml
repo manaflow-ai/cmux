@@ -62,22 +62,6 @@ root = "Native/OptChat/optchat-chief"
 run = true
 
 [[workspace]]
-root = "Native/OptChat/chief-kernel"
-run = true
-
-[[workspace]]
-root = "Native/OptChat/optchat-core"
-run = true
-
-[[workspace]]
-root = "Native/OptChat/optchat-host"
-run = true
-
-[[workspace]]
-root = "Native/OptChat/optchat-wasm"
-run = true
-
-[[workspace]]
 root = "cmux-next-ios/rust"
 run = true
 
@@ -119,18 +103,6 @@ run = true
 
 [[workspace]]
 root = "cmux-tui/crates/cmux-app-ffi"
-run = true
-
-[[workspace]]
-root = "cmux-tui/crates/cmux-layout-reducer-ffi"
-run = true
-
-[[workspace]]
-root = "cmux-tui/crates/cmux-rd-ffi"
-run = true
-
-[[workspace]]
-root = "cmux-tui/crates/cmux-sdk-ffi"
 run = true
 
 # The bench feature set is the one that builds without x264 (OpenH264 from source),

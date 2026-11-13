@@ -86,6 +86,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         public var aliases: [SettingsSection] = []
         /// Shown only in DEV builds: the page hides it when the host says it is not one.
         public var devOnly = false
+        /// Ids of retired categories (old `#/settings/<id>` links) that open this category.
+        public var legacyIDs: [String] = []
     }
 
     /// A titled run of categories in the page's sidebar (the lead run is untitled).
@@ -134,7 +136,7 @@ extension SettingsSchema {
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
         case .home: ["chief.importMemories", "diagnostics.viewHangReport"]
         case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
-        case .notifications: []
+        case .notifications: ["toasts.showHidden"]
         case .accounts: ["accounts.refresh", "palette.mobileConnect"]
         case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
         case .machines: ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"]

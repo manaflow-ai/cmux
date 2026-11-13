@@ -1,0 +1,26 @@
+{
+  "title": "Native browser chrome: the bookmarks bar (#41202) and the Page Info bubble (#41292), light and dark",
+  "settings": {"appearance": {"theme": "light:Soft Blue Light,dark:Soft Blue"}},
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "Browser workspace", "rpc": {"method": "action.run", "params": {"action": "newBrowserWorkspace", "focus": true}}, "wait": 4, "shot": false},
+    {"title": "A page", "rpc": {"method": "debug.omnibar_type", "params": {"text": "https://example.com"}}, "wait": 5, "shot": false},
+    {"title": "Bookmark one", "rpc": {"method": "action.run", "params": {"action": "bookmark.add", "args": {"url": "https://example.com", "title": "Example", "folder": "bar"}}}, "wait": 0.5, "shot": false},
+    {"title": "Bookmark two", "rpc": {"method": "action.run", "params": {"action": "bookmark.add", "args": {"url": "https://en.wikipedia.org/wiki/Bookmark", "title": "Wikipedia", "folder": "bar"}}}, "wait": 0.5, "shot": false},
+    {"title": "Bookmark three", "rpc": {"method": "action.run", "params": {"action": "bookmark.add", "args": {"url": "https://github.com/manaflow-ai/cmux", "title": "cmux on GitHub", "folder": "bar"}}}, "wait": 0.5, "shot": false},
+    {"title": "A folder", "rpc": {"method": "action.run", "params": {"action": "bookmark.newFolder", "args": {"name": "Reading", "folder": "bar"}}}, "wait": 0.5, "shot": false},
+    {"title": "Bar on", "rpc": {"method": "action.run", "params": {"action": "bookmark.toggleBar"}}, "wait": 1.5, "shot": false},
+    {"title": "Bar state", "rpc": {"method": "debug.bookmarks", "params": {}}, "wait": 0.2, "shot": false},
+    {"title": "Light", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 2, "shot": false},
+    {"title": "Light: the native bookmarks bar under the address field", "wait": 0.5},
+    {"title": "Light: Page Info open", "rpc": {"method": "action.run", "params": {"action": "browser.pageInfo"}}, "wait": 2},
+    {"title": "Light: Page Info, Connection page", "rpc": {"method": "action.run", "params": {"action": "browser.pageInfo.connection"}}, "wait": 1.5},
+    {"title": "Close Page Info", "rpc": {"method": "debug.key", "params": {"key": "escape"}}, "wait": 1, "shot": false},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2, "shot": false},
+    {"title": "Dark: the native bookmarks bar under the address field", "wait": 0.5},
+    {"title": "Dark: Page Info open", "rpc": {"method": "action.run", "params": {"action": "browser.pageInfo"}}, "wait": 2},
+    {"title": "Dark: Page Info, Connection page", "rpc": {"method": "action.run", "params": {"action": "browser.pageInfo.connection"}}, "wait": 1.5},
+    {"title": "Close Page Info", "rpc": {"method": "debug.key", "params": {"key": "escape"}}, "wait": 1, "shot": false},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 2, "shot": false}
+  ]
+}

@@ -283,6 +283,10 @@ section rust-cmux-cua "Rust crates: Computer Use helper (cmux Computer Use.app, 
   --path-download "git+https://github.com/manaflow-ai/cmux-cua.git@$cua_rev"
 
 python3 "$ROOT/scripts/cmux-next/notices/ghostty_themes_notice.py" --root "$ROOT" --out "$work/ghostty-themes.md"
+# CMUX_NOTICES_OUT (tree mode only): write the notices there instead of the checkout's file. nightly-next-one generates
+# them in the background while the Release build copies the committed file (app-third-party-notices.sh generate).
+OUT_FILE="$ROOT/THIRD_PARTY_LICENSES.md"
+if [[ "$TUI_SOURCE" == tree && -n "${CMUX_NOTICES_OUT:-}" ]]; then OUT_FILE="$CMUX_NOTICES_OUT"; fi
 compose=(python3 "$ROOT/scripts/cmux-next/notices/compose_notices.py"
   --hand-written "$ROOT/scripts/cmux-next/notices/hand-written.md"
   --section "$work/ghostty-themes.md"
@@ -295,7 +299,7 @@ compose=(python3 "$ROOT/scripts/cmux-next/notices/compose_notices.py"
   --section "$work/rust-cmux-remote-browser-host.md"
   --section "$work/rust-iroh-ffi.md"
   --section "$work/rust-cmux-cua.md"
-  --out "$ROOT/THIRD_PARTY_LICENSES.md")
+  --out "$OUT_FILE")
 review=(python3 "$NOTICES/review_list.py" --cache "$CACHE"
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock" --lock "$asd_src/Cargo.lock"
   --lock "$ROOT/Native/DiffSidecar/Cargo.lock" --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" --lock "$iroh_src/Cargo.lock"
@@ -303,7 +307,7 @@ review=(python3 "$NOTICES/review_list.py" --cache "$CACHE"
   --lock "$cua_rust/Cargo.lock")
 if [[ "$TUI_SOURCE" == tree ]]; then
   "${compose[@]}"
-  echo "wrote THIRD_PARTY_LICENSES.md for this tree (${ref:0:11}; $(wc -c < "$ROOT/THIRD_PARTY_LICENSES.md" | tr -d ' ') bytes)"
+  echo "wrote $OUT_FILE for this tree (${ref:0:11}; $(wc -c < "$OUT_FILE" | tr -d ' ') bytes)"
 elif [[ "$CHECK" == 1 ]]; then
   "${review[@]}" --check
   "${compose[@]}" --check

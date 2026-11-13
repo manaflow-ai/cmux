@@ -1052,10 +1052,6 @@ mkdir -p node_modules/.bin
         self.assertEqual(installed_driver.read_bytes(), reviewed)
         self.assertNotEqual(installed_driver.resolve(), (self.repo / "scripts" / "merge-pbxproj.py").resolve())
 
-    def commit_all(self, message):
-        self.git("add", "-A")
-        self.git("commit", "--quiet", "-m", message)
-
     def test_generated_web_bundles_keep_ours_and_sources_still_conflict(self):
         shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
         self.git("config", "user.name", "t")
@@ -1633,6 +1629,31 @@ mkdir -p node_modules/.bin
         # than main's; pulling it must install that copy, not keep an old one.
         self.assert_trusted_post_merge_reinstalls("feat-cmux-next")
 
+    def test_post_merge_keeps_legacy_masker_trust_without_copy_manifest(self):
+        """An older trusted branch may have no checks-copy-inputs, but its installer still copies the masker.
+        A dirty masker must stop the auto-install before the legacy trust path is dropped."""
+        hook = self.repo / "scripts/git-hooks/post-merge"
+        manifest = self.repo / "scripts/git-hooks/checks-copy-inputs"
+        manifest.unlink()
+        marker = self.root / "installer-ran"
+        installer = self.repo / INSTALLER
+        installer.write_text(f"#!/bin/sh\ntouch {shlex.quote(str(marker))}\n", encoding="utf-8")
+        installer.chmod(0o755)
+        self.git("add", "-A")
+        self.git("-c", "user.name=Merge Test", "-c", "user.email=merge@example.invalid", "commit", "-qm",
+                 "legacy trusted branch")
+        trusted = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("remote", "add", "upstream", self.CANONICAL)
+        self.git("update-ref", "refs/remotes/upstream/main", trusted)
+        masker = self.repo / "scripts/swift_source_mask.py"
+        masker.write_bytes(masker.read_bytes() + b"\n# dirty candidate\n")
+
+        result = subprocess.run(["/bin/bash", str(hook)], cwd=self.repo, env=self.env, text=True, capture_output=True)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(marker.exists(), "post-merge ran the installer over a dirty legacy masker")
+        self.assertIn("differ from trusted main", result.stderr)
+
     def assert_trusted_post_merge_reinstalls(self, branch):
         hook = self.repo / "scripts/git-hooks/post-merge"
         hook.unlink()
@@ -1788,6 +1809,109 @@ mkdir -p node_modules/.bin
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.installed_checks() / "swift_source_mask.py").read_bytes(),
                          (SOURCE / "scripts/swift_source_mask.py").read_bytes(), "the refreshed copy has no masker")
+
+    def test_installed_and_refreshed_checks_carry_the_shared_workflow_resolver(self):
+        # check-single-host-fallbacks.py reads runs-on through tests/workflow_jobs.py, and the hook runs its copy from
+        # the checks folder (it never reads the pushed one), so both the install and a refresh put it beside it.
+        resolver = self.repo / "tests/workflow_jobs.py"
+        if not resolver.is_file():
+            resolver.parent.mkdir(parents=True, exist_ok=True)
+            resolver.write_bytes((SOURCE / "tests/workflow_jobs.py").read_bytes())
+        self.stale_install()
+        self.assertTrue((self.installed_checks() / "workflow_jobs.py").is_file(), "the install has no resolver")
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "workflow_jobs.py").read_bytes(),
+                         (SOURCE / "tests/workflow_jobs.py").read_bytes(), "the refreshed copy has no resolver")
+
+    COPY_INPUTS = "scripts/git-hooks/checks-copy-inputs"
+
+    def copy_sources(self):
+        """The source of every entry of the copy's input list (`source -> destination` names its source first)."""
+        lines = (self.repo / self.COPY_INPUTS).read_text(encoding="utf-8").splitlines()
+        return [line.strip().split(" -> ")[0].strip() for line in lines
+                if line.strip() and not line.strip().startswith("#")]
+
+    def installed_pairs(self):
+        """The (source, destination) pairs the install or refresh says it copied (the copy's .pairs)."""
+        rows = (self.installed_checks() / ".pairs").read_text(encoding="utf-8").splitlines()
+        return [tuple(row.split("\t")) for row in rows if row]
+
+    def test_a_change_to_the_resolver_alone_marks_the_install_stale(self):
+        # Codex on #40894: the install copies tests/workflow_jobs.py beside the checks, but the stamp covered only
+        # scripts/cmux-next, so a feat-cmux-next that changed the resolver alone never reached the installed hooks.
+        resolver = self.repo / "tests/workflow_jobs.py"
+        resolver.parent.mkdir(parents=True, exist_ok=True)
+        resolver.write_bytes((SOURCE / "tests/workflow_jobs.py").read_bytes())
+        self.stale_install()
+        self.git("checkout", "-q", "--", ".")
+        self.assertEqual(self.refresh().returncode, 0)  # current at the newer rule
+        resolver.write_bytes(resolver.read_bytes() + b"\n# a resolver-only change\n")
+        newer = self.commit_all("resolver only")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", newer)
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "workflow_jobs.py").read_bytes(), resolver.read_bytes(),
+                         "a resolver-only change on feat-cmux-next did not reach the installed checks")
+        self.assertIn(newer[:12], result.stdout + result.stderr)
+
+    def test_every_file_the_install_copies_is_in_the_stamp_input(self):
+        # The install copies exactly the (source, destination) pairs refresh_checks.py makes of
+        # scripts/git-hooks/checks-copy-inputs, records them (.pairs) and stamps the copy from them, and a refresh does
+        # the same at its commit; post-merge trusts a checkout only when no source differs. A source installed under
+        # another name (`source -> destination`) is one pair like any other.
+        resolver = self.repo / "tests/workflow_jobs.py"
+        resolver.parent.mkdir(parents=True, exist_ok=True)
+        resolver.write_bytes((SOURCE / "tests/workflow_jobs.py").read_bytes())
+        inputs = self.repo / self.COPY_INPUTS
+        inputs.write_text(inputs.read_text(encoding="utf-8")
+                          + "scripts/ci/base_merge_warning.py -> renamed_merge_warning.py\n", encoding="utf-8")
+        self.git("remote", "add", "origin", self.CANONICAL)
+        head = self.commit_all("trusted")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", head)
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        copy = self.installed_checks()
+        pairs = self.installed_pairs()
+        self.assertIn(("scripts/ci/base_merge_warning.py", "renamed_merge_warning.py"), pairs)
+        self.assertIn(("tests/workflow_jobs.py", "workflow_jobs.py"), pairs)
+        installed = sorted(path.relative_to(copy).as_posix() for path in copy.rglob("*")
+                           if path.is_file() and path.name not in (".in-use", ".source", ".pairs"))
+        self.assertEqual(installed, sorted(destination for _, destination in pairs),
+                         "the install copied a file its pairs (the stamp's input) do not name, or the reverse")
+        for source, destination in pairs:
+            self.assertEqual((copy / destination).read_bytes(), (self.repo / source).read_bytes(), destination)
+        # The stamp is the one refresh_checks.py derives from the same pairs at the same commit.
+        python3 = (self.common_dir() / "cmux-git-hooks" / "python3-path").read_text(encoding="utf-8").strip()
+        derived = subprocess.run([python3, "-I", "scripts/git-hooks/refresh_checks.py", "--repo", str(self.repo),
+                                  "--stamp", head], cwd=self.repo, env=self.env, text=True, capture_output=True)
+        self.assertEqual(derived.returncode, 0, derived.stderr)
+        self.assertEqual((copy / ".source").read_text().split(), derived.stdout.split())
+        self.assertEqual(derived.stdout.split()[0], head)
+        self.assertEqual(self.refresh().stdout + self.refresh().stderr, "", "a current install was refreshed")
+        # A change to the renamed source alone marks the install stale and reaches its destination.
+        warning = self.repo / "scripts/ci/base_merge_warning.py"
+        warning.write_bytes(warning.read_bytes() + b"\n# renamed source only\n")
+        newer = self.commit_all("renamed source only")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", newer)
+        refreshed = self.refresh()
+        self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+        self.assertIn(newer[:12], refreshed.stdout + refreshed.stderr)
+        self.assertEqual((copy / "renamed_merge_warning.py").read_bytes(), warning.read_bytes())
+        self.assertEqual(self.installed_pairs(), pairs, "a refresh copied other pairs than the install")
+        # Each source a stamp reads is an input post-merge refuses to trust when it differs from the trusted branch.
+        self.git("update-ref", "refs/remotes/origin/main", newer)
+        for entry in [self.COPY_INPUTS, *self.copy_sources()]:
+            path = self.repo / (entry + "prepush-gate.py" if entry.endswith("/") else entry)
+            reviewed = path.read_bytes()
+            try:
+                path.write_bytes(reviewed + b"\n# dirty candidate\n")
+                hook = subprocess.run(["/bin/bash", "scripts/git-hooks/post-merge"], cwd=self.repo, env=self.env,
+                                      text=True, capture_output=True)
+                self.assertEqual(hook.returncode, 0, hook.stderr)
+                self.assertIn("differ from trusted main", hook.stderr, entry)
+            finally:
+                path.write_bytes(reviewed)
 
     def test_a_refresh_puts_the_release_download_fallback_beside_the_gate(self):
         # #38454 review: the gate loads scripts/ci/github_release_download.py from beside itself, so a refresh that
@@ -2012,6 +2136,180 @@ mkdir -p node_modules/.bin
 
 
 
+def _load_refresh_checks():
+    spec = importlib.util.spec_from_file_location("refresh_checks", SOURCE / "scripts/git-hooks/refresh_checks.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class CopyInputsConfinementTests(unittest.TestCase):
+    """Codex on #40894 (F1, security): checks-copy-inputs names a source in the repository and a destination in the
+    checks copy, and the install (install_copy) and a pre-push refresh (refresh) copy through it. An entry whose
+    source leaves the repository (absolute, `..`, a symlink out) would read any local file into the hook folder, and
+    one whose destination leaves the copy would overwrite any local file. Each form is refused, by name, before any
+    file is written; legitimate entries still copy."""
+
+    INPUTS = "scripts/git-hooks/checks-copy-inputs"
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="cmux-copy-inputs-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        # ../../outside from the repository and from the stage both land in OUTSIDE.
+        self.repo = self.root / "r" / "repo"
+        self.hook_dir = self.root / "h"
+        self.stage = self.hook_dir / "stage"
+        self.outside = self.root / "outside"
+        for folder in (self.repo / "scripts/cmux-next", self.repo / "scripts/git-hooks", self.stage, self.outside):
+            folder.mkdir(parents=True)
+        (self.outside / "secret").write_text("SECRET\n")
+        (self.outside / "victim").write_text("VICTIM\n")
+        (self.repo / "scripts/ok.py").write_text("OK = 1\n")
+        (self.repo / "scripts/cmux-next/check.py").write_text("CHECK = 1\n")
+        self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, HOME=str(self.root))
+        git_fixture_env.without_auto_maintenance(self.env)
+        self.git("init", "--quiet", "--initial-branch=main")
+        self.rc = _load_refresh_checks()
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env, text=True, capture_output=True,
+                              check=True).stdout
+
+    def commit(self, inputs):
+        (self.repo / self.INPUTS).write_text(inputs)
+        self.git("add", "-A")
+        self.git("-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "--allow-empty", "-qm", "inputs")
+        return self.git("rev-parse", "HEAD").strip()
+
+    def snapshot(self, folder):
+        out = {}
+        for dirpath, dirnames, filenames in os.walk(folder):
+            for name in dirnames + filenames:
+                path = Path(dirpath) / name
+                out[str(path.relative_to(folder))] = (os.readlink(path) if path.is_symlink()
+                                                      else None if path.is_dir() else path.read_bytes())
+        return out
+
+    def assert_install_refused(self, entry, rule, names):
+        before_stage, before_outside = self.snapshot(self.stage), self.snapshot(self.outside)
+        self.commit(f"scripts/cmux-next/\n{entry}\n")
+        with self.assertRaises(ValueError) as caught:
+            self.rc.install_copy(self.repo, self.stage)
+        message = str(caught.exception)
+        self.assertIn(names, message)
+        self.assertIn(rule, message)
+        self.assertEqual(self.snapshot(self.stage), before_stage, "a refused install wrote into the stage")
+        self.assertEqual(self.snapshot(self.outside), before_outside, "a refused install wrote outside")
+
+    def assert_refresh_refused(self, entry, rule, names):
+        commit = self.commit(f"scripts/cmux-next/\n{entry}\n")
+        before_hooks, before_outside = self.snapshot(self.hook_dir), self.snapshot(self.outside)
+        with self.assertRaises(ValueError) as caught:
+            self.rc.refresh(self.repo, self.hook_dir, commit)
+        self.assertIn(names, str(caught.exception))
+        self.assertIn(rule, str(caught.exception))
+        self.assertEqual(self.snapshot(self.hook_dir), before_hooks, "a refused refresh wrote into the hook folder")
+        self.assertEqual(self.snapshot(self.outside), before_outside, "a refused refresh wrote outside")
+
+    def assert_refused(self, entry, rule, refresh=True, names=None):
+        """ENTRY is refused under RULE, by a message naming NAMES (the entry itself by default)."""
+        with self.subTest("install"):
+            self.assert_install_refused(entry, rule, names or entry)
+        if refresh:
+            with self.subTest("refresh"):
+                self.assert_refresh_refused(entry, rule, names or entry)
+
+    # Sources.
+    def test_an_absolute_source_is_refused(self):
+        self.assert_refused(str(self.outside / "secret"), "is an absolute path")
+
+    def test_a_dot_dot_source_is_refused(self):
+        self.assert_refused("../../outside/secret", "has a .. component")
+
+    def test_a_source_through_a_dot_dot_detour_is_refused(self):
+        self.assert_refused("scripts/../../../outside/secret", "has a .. component")
+
+    def test_a_source_under_a_symlinked_folder_that_escapes_is_refused(self):
+        (self.repo / "linked").symlink_to(self.outside, target_is_directory=True)
+        self.assert_refused("linked/secret", "resolves outside")
+
+    def test_a_source_that_is_a_symlink_out_of_the_repository_is_refused(self):
+        (self.repo / "scripts/leak.py").symlink_to(self.outside / "secret")
+        self.assert_refused("scripts/leak.py", "resolves outside")
+
+    def test_a_folder_member_that_is_a_symlink_out_of_the_repository_is_refused(self):
+        (self.repo / "scripts/cmux-next/leak.py").symlink_to(self.outside / "secret")
+        self.assert_refused("scripts/ok.py", "resolves outside", refresh=False, names="scripts/cmux-next/leak.py")
+
+    def test_an_empty_source_is_refused(self):
+        self.assert_refused("-> renamed.py", "is empty")
+
+    # Destinations.
+    def test_an_absolute_destination_is_refused(self):
+        self.assert_refused(f"scripts/ok.py -> {self.outside / 'victim'}", "is an absolute path")
+
+    def test_a_dot_dot_destination_is_refused(self):
+        self.assert_refused("scripts/ok.py -> ../../outside/victim", "has a .. component")
+
+    def test_a_destination_through_a_dot_dot_detour_is_refused(self):
+        self.assert_refused("scripts/ok.py -> a/../../../outside/victim", "has a .. component")
+
+    def test_a_destination_under_a_symlinked_folder_that_escapes_is_refused(self):
+        (self.stage / "linked").symlink_to(self.outside, target_is_directory=True)
+        self.assert_refused("scripts/ok.py -> linked/victim", "resolves outside", refresh=False)
+
+    def test_a_destination_that_is_a_symlink_out_of_the_copy_is_refused(self):
+        (self.stage / "victim.py").symlink_to(self.outside / "victim")
+        self.assert_refused("scripts/ok.py -> victim.py", "resolves outside", refresh=False)
+
+    def test_an_empty_destination_is_refused(self):
+        self.assert_refused("scripts/ok.py ->", "is empty")
+
+    def test_the_cli_names_the_refused_entry_and_exits_non_zero(self):
+        self.commit("scripts/ok.py -> ../../outside/victim\n")
+        result = subprocess.run([sys.executable, "-I", str(SOURCE / "scripts/git-hooks/refresh_checks.py"),
+                                 "--repo", str(self.repo), "--install-copy", str(self.stage)],
+                                env=self.env, text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scripts/ok.py -> ../../outside/victim", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual((self.outside / "victim").read_text(), "VICTIM\n")
+
+    def test_post_merge_refuses_an_entry_that_leaves_the_repository(self):
+        # post-merge reads the same list (to diff each source against the trusted branch); an entry that leaves the
+        # repository stops it with the helper's refusal before the installer runs.
+        for relative in ("scripts/git-hooks/post-merge", "scripts/git-hooks/refresh_checks.py"):
+            shutil.copyfile(SOURCE / relative, self.repo / relative)
+        installer = self.repo / "scripts/install-git-hooks.sh"
+        marker = self.root / "installer-ran"
+        installer.write_text(f"#!/bin/sh\ntouch {shlex.quote(str(marker))}\n")
+        head = self.commit("scripts/cmux-next/\n../../outside/secret\n")
+        self.git("remote", "add", "upstream", "https://github.com/manaflow-ai/cmux.git")
+        self.git("update-ref", "refs/remotes/upstream/main", head)
+        hook = subprocess.run(["/bin/bash", "scripts/git-hooks/post-merge"], cwd=self.repo, env=self.env, text=True,
+                              capture_output=True)
+        self.assertEqual(hook.returncode, 0, hook.stderr)
+        self.assertIn("../../outside/secret", hook.stderr)
+        self.assertIn("has a .. component", hook.stderr)
+        self.assertFalse(marker.exists(), "post-merge ran the installer over a list that leaves the repository")
+
+    # Legitimate entries.
+    def test_legitimate_entries_still_copy(self):
+        commit = self.commit("scripts/cmux-next/\nscripts/ok.py\nscripts/ok.py -> renamed/ok2.py\n")
+        pairs = self.rc.install_copy(self.repo, self.stage)
+        self.assertEqual(sorted(pairs), sorted([("scripts/cmux-next/check.py", "check.py"), ("scripts/ok.py", "ok.py"),
+                                                ("scripts/ok.py", "renamed/ok2.py")]))
+        self.assertEqual((self.stage / "check.py").read_text(), "CHECK = 1\n")
+        self.assertEqual((self.stage / "ok.py").read_text(), "OK = 1\n")
+        self.assertEqual((self.stage / "renamed/ok2.py").read_text(), "OK = 1\n")
+        self.assertEqual(self.rc.refresh(self.repo, self.hook_dir, commit)[:30], "pre-push: refreshed the cmux-n")
+        copy = self.hook_dir / "cmux-next-checks"
+        self.assertEqual((copy / "renamed/ok2.py").read_text(), "OK = 1\n")
+        self.assertEqual((copy / "check.py").read_text(), "CHECK = 1\n")
+
+
 def load_tool_resolver():
     """The pre-commit hook's TOOL_RESOLVER (a single-quoted bash string) as a namespace of its
     functions; its dispatch runs only as __main__."""
@@ -2066,6 +2364,35 @@ class CaseInsensitiveDestination:
         return False
 
 
+class CaseInsensitiveLookup:
+    """os.path.isfile, os.path.exists, os.path.islink and os.access as on a case- and normalization-insensitive
+    volume (macOS's default): a lookup of a name under UNDER finds the entry whose NFD casefold is equal, so a PATH
+    directory holding NODE answers for node too (cmux#41666 review: the hook found NODE as node there)."""
+
+    def __init__(self, under):
+        self.folding = CaseInsensitiveDestination(under)
+        self.real = {"isfile": os.path.isfile, "exists": os.path.exists, "islink": os.path.islink,
+                     "access": os.access}
+
+    def __enter__(self):
+        fold = self.folding.existing
+        real = self.real
+        self.patches = [
+            mock.patch.object(os.path, "isfile", lambda path: real["isfile"](fold(path))),
+            mock.patch.object(os.path, "exists", lambda path: real["exists"](fold(path))),
+            mock.patch.object(os.path, "islink", lambda path: real["islink"](fold(path))),
+            mock.patch.object(os, "access", lambda path, mode, *a, **k: real["access"](fold(path), mode, *a, **k)),
+        ]
+        for patch in self.patches:
+            patch.start()
+        return self
+
+    def __exit__(self, *exc):
+        for patch in reversed(self.patches):
+            patch.stop()
+        return False
+
+
 class ChildPathStubNamesTests(unittest.TestCase):
     """The stubs for names on PATH that CHILD_TOOLS does not list: names that differ only in
     case (or Unicode normalization) are one file on a case-insensitive temporary volume, and
@@ -2082,12 +2409,12 @@ class ChildPathStubNamesTests(unittest.TestCase):
         patch.start()
         self.addCleanup(patch.stop)
 
-    def path_dir(self, label, *names):
+    def path_dir(self, label, *names, mode=0o755):
         directory = self.root / label
         directory.mkdir()
         for name in names:
             (directory / name).write_text("#!/bin/sh\nexit 0\n")
-            (directory / name).chmod(0o755)
+            (directory / name).chmod(mode)
         return str(directory)
 
     def child_path(self, *entries):
@@ -2117,11 +2444,21 @@ class ChildPathStubNamesTests(unittest.TestCase):
 
     def test_a_listed_name_keeps_its_own_stub_beside_a_case_variant(self):
         """node is in CHILD_TOOLS with no copy here; NODE on PATH must not take its stub."""
-        entry = self.path_dir("bin", "NODE")
-        with CaseInsensitiveDestination(self.temp):
+        # Not executable: on macOS's case-insensitive volumes an executable NODE is node itself (the same file), and
+        # the hook rightly links it (cmux#41666 review). This test is about the stub name, so the lookups fold too.
+        entry = self.path_dir("bin", "NODE", mode=0o644)
+        with CaseInsensitiveDestination(self.temp), CaseInsensitiveLookup(self.root):
             shims = self.child_path(entry)
         self.assertEqual(self.folded(shims).count("node"), 1)
         self.assertEqual(self.stub_kind(shims, "node"), "unresolved")
+
+    def test_on_a_case_insensitive_volume_an_executable_case_variant_is_the_listed_tool(self):
+        """There NODE and node are one file, so the hook links node to it (a NODE stub after it is never reached:
+        the links come first on the children's PATH)."""
+        entry = self.path_dir("bin", "NODE")
+        with CaseInsensitiveDestination(self.temp), CaseInsensitiveLookup(self.root):
+            shims = self.child_path(entry)
+        self.assertEqual(os.readlink(shims / "node"), os.path.join(entry, "node"))
 
     def test_names_differing_only_in_normalization_get_one_stub(self):
         composed, decomposed = "caf\u00e9", "cafe\u0301"

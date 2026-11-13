@@ -17,8 +17,11 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/acpmux-core",
+    "crates/acpmux-client",
     "crates/cmux-tailnet",
     "crates/acpmux-build-id",
+    "crates/acpmux-book",
     "crates/cmux-coderouter",
     "crates/cmux-history",
     "crates/cmux-imessage",
@@ -69,6 +72,7 @@ members = [
     "crates/cmux-holder-v3",
     "crates/cmux-process",
     "crates/cmux-scope",
+    "crates/cmux-file-lock",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-remote",
@@ -111,6 +115,7 @@ members = [
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
     "crates/cmux-cookie-sync",
+    "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
@@ -129,10 +134,14 @@ members = [
     "crates/cmux-view-rows",
     "crates/acpmux-hot",
     "crates/cmux-command-class",
+    "crates/cmux-source-scan",
 ]
 default-members = [
     "crates/acpmux",
+    "crates/acpmux-core",
+    "crates/acpmux-client",
     "crates/acpmux-build-id",
+    "crates/acpmux-book",
     "crates/cmux-coderouter",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
@@ -172,6 +181,7 @@ default-members = [
     "crates/cmux-pty",
     "crates/cmux-process",
     "crates/cmux-scope",
+    "crates/cmux-file-lock",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-remote",
@@ -211,6 +221,7 @@ default-members = [
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
     "crates/cmux-cookie-sync",
+    "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
@@ -275,8 +286,10 @@ ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
+cmux-file-lock = { path = "crates/cmux-file-lock" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
+cmux-browser-import = { path = "crates/cmux-browser-import" }
 cmux-classic-import = { path = "crates/cmux-classic-import" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
@@ -303,6 +316,7 @@ cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
 cmux-action-catalog = { path = "crates/cmux-action-catalog" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
 cmux-usage-patterns = { path = "crates/cmux-usage-patterns" }
+cmux-command-class = { path = "crates/cmux-command-class" }
 cmux-vault-egress = { path = "crates/cmux-vault-egress" }
 cmux-url-input = { path = "crates/cmux-url-input" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
@@ -474,27 +488,25 @@ terminput-crossterm = { path = "vendor/terminput-crossterm" }
 # RFC 6928's 10 segments (vendor/smoltcp/CMUX_PATCH.md).
 smoltcp = { path = "vendor/smoltcp" }
 
-# Thin LTO. Every tree build compiles this profile, and NEXT nightly waits on the
-# tree. Fat LTO in one codegen unit (#19666) spent about 6 single-threaded
-# minutes linking the cmux-tui binary and 2.5 more on acpmux; thin LTO runs that
-# work in parallel. On a 32 vCPU Linux box, the cmux-tui group went from 606 to
-# 168 s and acpmux from 368 to 135 s. Stripped cmux-tui is 24% larger (105.9 ->
-# 131.7 MB, x86_64 Linux). Terminal throughput and daemon request latency stayed
-# within noise. Dependencies keep one codegen unit each: on cmux-tui that is
-# 4 MB smaller than 16, for the same build time. The three crates on the
-# critical path get 16, so thin LTO has more modules to work on in parallel.
+# Fat LTO. The shipped cmux binary is size-sensitive: thin LTO made the stripped
+# x86_64 binary 24% larger (105.9 -> 131.7 MB) in #27830. Fat LTO with one
+# codegen unit is the previous measured size baseline and lets LLVM remove
+# duplicate cold paths across the daemon and its ACP multiplexer. The old
+# profile paid about 6 single-threaded minutes for cmux-tui and 2.5 more for
+# acpmux; that build cost is intentional for release artifacts and must be
+# checked against the startup benchmark before landing.
 [profile.release]
-lto = "thin"
+lto = "fat"
 codegen-units = 1
 
 [profile.release.package.cmux-tui]
-codegen-units = 16
+codegen-units = 1
 
 [profile.release.package.cmux-tui-core]
-codegen-units = 16
+codegen-units = 1
 
 [profile.release.package.acpmux]
-codegen-units = 16
+codegen-units = 1
 
 # Debug builds are what mux-dev dogfood runs; opt-level 0 makes the
 # per-frame render/diff path visibly laggy. Light optimization for our
@@ -504,7 +516,7 @@ opt-level = 1
 # opt-level 1 with many codegen units turns on rustc's crate-local ThinLTO,
 # which reruns over every codegen unit of the edited crate: 5.3 s of a 9.8 s
 # cmux-tui rebuild after a one-line edit (-Z time-passes, crate-split lane 3).
-# Off: about 11 s -> 5.5 s per edit; release builds keep lto = "thin".
+# Off: about 11 s -> 5.5 s per edit; release builds use fat LTO for size.
 lto = "off"
 # Line tables keep file:line in panics, backtraces and profiles; full DWARF made
 # each worktree's target about twice the size (Huge Blue, 10-19: 11 GB -> 5.4 GB

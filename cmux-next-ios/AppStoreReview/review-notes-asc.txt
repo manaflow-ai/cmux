@@ -1,8 +1,8 @@
 ## App Review notes for cmux-next-ios. cmux-next-ios/scripts/asc_review_package.py sync-notes
 ## writes this file to App Store Connect: lines starting "##" are dropped, each {{NAME}} is
-## filled from App Store Connect or a repository variable, and an empty value stops the run.
+## filled from App Store Connect's App Review Information, and an empty value stops the run.
 ## Every double-quoted label must be a string the release app shows (tests/test_asc_review_package.py).
-cmux for iPhone is where you talk to Chief, an agent that runs your coding agents and reports back in a conversation. This version replaces the earlier cmux iPhone app. You do not need a Mac, a VPN or any network setup to review it: the demo account has a Cloud Chief that runs in cmux Cloud and answers in chat.
+cmux for iPhone is where you talk to Chief, an agent that runs your coding agents and reports back in a conversation. You do not need a Mac, a VPN or any network setup to review it: the demo account's Chief runs in cmux Cloud and answers in chat.
 
 Prior review resolutions:
 - Guideline 2.5.2 (submission 99c2f5b0-5940-41d4-a02b-fd222d2eeeca): the app does not download or execute code on iPhone. It shows conversations and sends messages; agents run on the user's own Mac or in cmux Cloud.
@@ -19,12 +19,12 @@ First launch:
 - "Connect your Mac" is for people who also run cmux on a Mac. Tap "Not now".
 - On "Know when an agent needs you", tap "Turn on notifications" or "Not now". The app works the same either way.
 
-## REVIEW DEMO STEPS: START. The review demo path (the demo account's Cloud Chief answering
-## in chat, no Mac) replaces the numbered steps between START and END with its exact steps.
+## REVIEW DEMO STEPS: START. The steps the review demo path (#40831) gives: the demo account's
+## Hosted Chief answers in chat, with no Mac.
 Review path (no Mac needed):
-1. Home lists the account's conversations. Open the Chief named "{{REVIEW_CHIEF_NAME}}"; its row is tagged Cloud.
-2. Tap "Message Chief", type Reply with app-review-ok and tap Send. Chief's reply appears in the conversation within a few seconds.
-3. Tap the Chief's name at the top. Its page says "This Chief runs in cmux Cloud."
+1. Home opens. Tap Chief (it is labeled Main · Cloud), type a message, for example: What can you help me with? Then tap Send. Chief answers in the conversation within a few seconds.
+2. If Home shows "Chief Is Off" instead, tap "Turn On", then open Chief and send the message.
+3. Tap Chief's name at the top. Its page says "This Chief runs in cmux Cloud."
 ## REVIEW DEMO STEPS: END
 
 Other screens:

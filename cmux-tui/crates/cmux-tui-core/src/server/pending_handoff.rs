@@ -5,11 +5,26 @@ use serde_json::json;
 
 use super::responses::{send_bad_request, send_response};
 use super::{
-    DAEMON_SHUTDOWN_PENDING_CODE, MessageWriter, Request, ResourceError, Response,
-    ResponseErrorDelivery, send_resource_response,
+    DAEMON_SHUTDOWN_PENDING_CODE, MessageWriter, Request, ResourceError, ResourceOperation,
+    Response, ResponseErrorDelivery, send_resource_response,
 };
 
 const PENDING_HANDOFF_ERROR: &str = "daemon shutdown is in progress; request was not executed";
+
+/// The refusal of a resource request that the daemon did not run because its
+/// shutdown or a handoff began: a line read after that, and a git request
+/// that still waited for its place (server/git_lane.rs).
+pub(super) fn not_executed(operation: ResourceOperation) -> ResourceError {
+    ResourceError::new(
+        "operation.failed",
+        PENDING_HANDOFF_ERROR,
+        json!({
+            "operation": operation.wire_name(),
+            "reason": "daemon_handoff_pending",
+        }),
+        false,
+    )
+}
 
 /// Refuses one message received while a daemon handoff is reserved but not
 /// yet acknowledged. Nothing is parsed into a command or dispatched.
@@ -25,15 +40,7 @@ pub(super) fn reject_message_during_pending_handoff(message: &str, writer: &Mess
                     writer,
                     request.envelope.id,
                     operation,
-                    Err(ResourceError::new(
-                        "operation.failed",
-                        PENDING_HANDOFF_ERROR,
-                        json!({
-                            "operation": operation.wire_name(),
-                            "reason": "daemon_handoff_pending",
-                        }),
-                        false,
-                    )),
+                    Err(not_executed(operation)),
                 )
             }
             Err(error) => {

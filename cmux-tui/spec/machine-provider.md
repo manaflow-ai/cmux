@@ -107,6 +107,9 @@ The client never forgets an unsettled `mutation_id` to make room. It keeps up
 to 32 at once; while 32 wait for an answer, a request with a new intent fails
 with a clear error before it reaches the provider, and a retry of a waiting
 request still replays its id. A definite answer frees that request's slot.
+Every mutation, `connect_external_machine` included, takes this one path. A
+first attempt that fails before its frame is written (the provider does not
+advertise the capability, or the client is not authenticated) holds no slot.
 
 The provider emits `snapshot_changed`, `connection_closed`, `notice`, and `connection_progress` events. Snapshot changes are invalidations: the client fetches the latest snapshot instead of applying deltas. A bounded full subscriber queue may coalesce invalidations without unsubscribing. Provider disconnect cancels pending requests and closes subscribers.
 
