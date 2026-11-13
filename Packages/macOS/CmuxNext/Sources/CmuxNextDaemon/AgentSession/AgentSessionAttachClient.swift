@@ -198,7 +198,7 @@ public actor AgentSessionAttachClient {
     /// goes out over a new one.
     public func start(cwd: String?, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil,
                       ownerLink: OwnerLink? = nil, model: String? = nil, permissionMode: String? = nil,
-                      credentials: [String: String]? = nil) async throws -> String {
+                      credentials: LaunchCredential? = nil) async throws -> String {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot start a chat")
         }
@@ -261,7 +261,7 @@ public actor AgentSessionAttachClient {
     static func startParams(cwd: String?, harness: String?, homeConfirmed: Bool, personKey: PersonKey?,
                             servesKeyedReason: Bool, callerOwnsVM: Bool, servesVMKind: Bool,
                             model: String? = nil, servesModel: Bool = false, servesPermissionMode: Bool = false, permissionMode: String? = nil,
-                            servesCredentials: Bool = false, credentials: [String: String]? = nil) -> [String: any Sendable] {
+                            servesCredentials: Bool = false, credentials: LaunchCredential? = nil) -> [String: any Sendable] {
         var params: [String: any Sendable] = [:]
         if let cwd { params["cwd"] = cwd }
         if let harness { params["harness"] = harness }
@@ -276,7 +276,7 @@ public actor AgentSessionAttachClient {
         if callerOwnsVM, servesPermissionMode, let mode = startPermissionMode(permissionMode) { params["permission_mode"] = mode }
         // The owner's model credential, only over the owner answer of the link to their own Cloud VM
         // (`agent-session-start-credentials-v1`); anything else starts on the machine's own route.
-        if callerOwnsVM, servesCredentials, let credentials, !credentials.isEmpty { params["credentials"] = ["env": credentials] }
+        if callerOwnsVM, servesCredentials, let credentials, !credentials.env.isEmpty { params["credentials"] = credentials.wire }
         return params
     }
 
@@ -323,7 +323,7 @@ public actor AgentSessionAttachClient {
     /// (resuming the chat); answers acpmux's `restart` (`now`, `afterTurn`, `none`). Sent only over the
     /// owner answer of the link to the owner's own Cloud VM (``ownedConnection(_:check:)``); refused
     /// here otherwise, never sent.
-    public func updateCredentials(_ env: [String: String], ownerLink: OwnerLink?) async throws -> String? {
+    public func updateCredentials(_ credential: LaunchCredential, ownerLink: OwnerLink?) async throws -> String? {
         guard mode == .attach, ownerLink != nil else { throw Self.notOwner }
         let (transport, _, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
             guard served.credentials else {
@@ -334,8 +334,25 @@ public actor AgentSessionAttachClient {
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the credential was sent")
         }
-        let data = try await call("agent-session-credentials", ["env": env, "vm_kind": "owner"], on: transport)
+        var params = credential.wire
+        params["vm_kind"] = "owner"
+        let data = try await call("agent-session-credentials", params, on: transport)
         return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["restart"] as? String
+    }
+
+    /// `agent-session-credential-status`: whether the chat this tab shows runs on the owner's model
+    /// credential (nil: it runs on the machine's own route), read when this app attaches the chat
+    /// again. Over the owner answer of the link to the owner's own Cloud VM only, like the refresh.
+    public func credentialStatus(ownerLink: OwnerLink?) async throws -> CredentialStatus? {
+        guard mode == .attach, ownerLink != nil else { throw Self.notOwner }
+        let (transport, _, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
+            guard served.credentials else {
+                throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not take model credentials")
+            }
+        }
+        guard callerOwnsVM else { throw Self.notOwner }
+        let data = try await call("agent-session-credential-status", ["vm_kind": "owner"], on: transport)
+        return CredentialStatus(((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["credential"])
     }
 
     /// How many times ``ownedConnection(_:check:)`` reads the owner answer around a connection.

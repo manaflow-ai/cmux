@@ -181,7 +181,11 @@ impl Hub {
         let forking = session.fork_from.lock().unwrap_or_else(|e| e.into_inner()).is_some();
         let meta = session.meta();
         let opencode = super::policy_mode::is_opencode(&meta, profile);
-        // The owner's Cloud credential, held for this session only (`agent_credentials.rs`).
+        // The owner's Cloud credential, held for this session only (`agent_credentials.rs`). A
+        // chat that ran on one this daemon lost never starts on another route.
+        if let Some(refused) = self.credential_blocked(session, false) {
+            return Err(refused);
+        }
         let credential = session.credential.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let (profile, preset_digest, account_home) = self
             .spawn_profile_read(&meta, forking, profile, defaults_env, credential.as_ref())
@@ -311,6 +315,20 @@ impl Hub {
         p.argv = self.resolved_launcher_argv(p.argv);
         // The owner's Cloud credential: straight to the provider, no coderouter route
         // (`agent_credentials.rs`). Its names only are logged, never a value.
+        // A machine whose image still pins the coderouter route in the agent's managed layer (it
+        // outranks the env and `-c`) would send the credential there: that agent does not start.
+        if let Some(c) = credential {
+            let family = crate::config::derive_family(&meta.harness, &p);
+            let serves = crate::agent_credentials::Family::of_harness(&family) == Some(c.family());
+            if serves
+                && crate::agent_credentials::managed_route_pinned(
+                    c.family(),
+                    &self.vm_marker_root(),
+                )
+            {
+                return Err(crate::agent_credentials::managed_route_refusal());
+            }
+        }
         let direct = credential.is_some_and(|c| {
             let family = crate::config::derive_family(&meta.harness, &p);
             let applied = crate::agent_credentials::apply(c, &family, &mut p.argv, &mut p.env);

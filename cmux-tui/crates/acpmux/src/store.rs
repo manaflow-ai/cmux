@@ -173,6 +173,11 @@ pub struct SessionMeta {
     /// Model family of the profile at creation (`claude`, `codex`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
+    /// The chat runs on the owner's Cloud credential (`agent_credentials.rs`): its connection and
+    /// expiry only, never a value. A daemon that restarts without the credential refuses the chat's
+    /// prompts until the owner's Mac sends it again, rather than running it on another route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_ref: Option<crate::agent_credentials::CredentialRef>,
     /// Preset the session was created from (`-p NAME`); its env is re-applied on every respawn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<String>,
