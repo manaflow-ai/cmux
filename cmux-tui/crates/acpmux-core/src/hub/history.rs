@@ -29,7 +29,7 @@ pub(super) struct History {
 /// A comma-separated span of the already encoded operations in the ring.
 /// The connection wraps these bytes in the delta envelope without decoding
 /// or re-encoding an operation for each subscriber.
-pub(super) struct RawSpan {
+pub(crate) struct RawSpan {
     pub(crate) bytes: Vec<u8>,
     pub(crate) last_seq: u64,
 }
