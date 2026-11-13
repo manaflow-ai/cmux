@@ -49,15 +49,16 @@ impl State {
             .checked_add(count.checked_mul(32).ok_or(Error::CheckpointInvalid)?)
             .ok_or(Error::CheckpointInvalid)?;
         for chunk in bytes.get(start..end).ok_or(Error::CheckpointInvalid)?.chunks_exact(32) {
-            let id_hash =
-                <[u8; 8]>::try_from(&chunk[0..8]).map_err(|_| Error::CheckpointInvalid)?;
-            let at_state =
-                <[u8; 8]>::try_from(&chunk[8..16]).map_err(|_| Error::CheckpointInvalid)?;
-            let place =
-                <[u8; 8]>::try_from(&chunk[16..24]).map_err(|_| Error::CheckpointInvalid)?;
-            let span = <[u8; 4]>::try_from(&chunk[24..28]).map_err(|_| Error::CheckpointInvalid)?;
-            let text_len =
-                <[u8; 4]>::try_from(&chunk[28..32]).map_err(|_| Error::CheckpointInvalid)?;
+            let id_hash = <[u8; 8]>::try_from(chunk.get(0..8).ok_or(Error::CheckpointInvalid)?)
+                .map_err(|_| Error::CheckpointInvalid)?;
+            let at_state = <[u8; 8]>::try_from(chunk.get(8..16).ok_or(Error::CheckpointInvalid)?)
+                .map_err(|_| Error::CheckpointInvalid)?;
+            let place = <[u8; 8]>::try_from(chunk.get(16..24).ok_or(Error::CheckpointInvalid)?)
+                .map_err(|_| Error::CheckpointInvalid)?;
+            let span = <[u8; 4]>::try_from(chunk.get(24..28).ok_or(Error::CheckpointInvalid)?)
+                .map_err(|_| Error::CheckpointInvalid)?;
+            let text_len = <[u8; 4]>::try_from(chunk.get(28..32).ok_or(Error::CheckpointInvalid)?)
+                .map_err(|_| Error::CheckpointInvalid)?;
             let entry = QueueEntry {
                 id_hash: u64::from_le_bytes(id_hash),
                 at_state: u64::from_le_bytes(at_state),
