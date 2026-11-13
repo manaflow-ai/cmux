@@ -298,9 +298,20 @@ impl Mux {
             None,
             None,
             |state, registry| {
-                // RED: the behavior before this change. The full projection for each view.
-                let _ = surface;
-                let projection = self.resource_effect_projection_locked(registry, state, result)?;
+                let workspace = surface(state)
+                    .and_then(|surface| state.pane_of(surface))
+                    .and_then(|pane| state.screen_of(pane))
+                    .and_then(|(workspace, _)| state.workspaces.get(workspace))
+                    .map(|workspace| workspace.public_id.clone());
+                let projection = match workspace {
+                    Some(workspace) => self.changed_workspaces_projection_locked(
+                        registry,
+                        state,
+                        &[workspace],
+                        result,
+                    )?,
+                    None => self.resource_effect_projection_locked(registry, state, result)?,
+                };
                 Ok(projection_plan(projection))
             },
         )

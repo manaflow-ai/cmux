@@ -266,9 +266,22 @@ impl Mux {
         after: &mut State,
         result: Value,
     ) -> anyhow::Result<ResourceEffectProjection> {
-        // RED: the behavior before this change. Each of these kinds took the full projection.
-        let _ = before;
-        self.resource_effect_projection_locked(registry, after, result)
+        // The change can have removed a screen, a pane or a tab: its index entry would look
+        // like a resource that moved out of the scope.
+        after.rebuild_resource_indexes();
+        let workspaces = match changed_workspaces(before, after) {
+            Some(workspaces) if workspaces.is_empty() => after
+                .workspaces
+                .get(after.active_workspace)
+                .map(|workspace| vec![workspace.public_id.clone()]),
+            changed => changed,
+        };
+        match workspaces {
+            Some(workspaces) => {
+                self.changed_workspaces_projection_locked(registry, after, &workspaces, result)
+            }
+            None => self.resource_effect_projection_locked(registry, after, result),
+        }
     }
 
     /// The projection of one part of the restatement after a daemon start

@@ -221,20 +221,56 @@ impl Mux {
         parts: &mut RestateParts,
         waiters: usize,
     ) -> anyhow::Result<PartStep> {
-        // RED: the behavior before this change. ONE commit with the full projection of the
-        // session, with no read of the waiters.
-        let _ = waiters;
-        if parts.terminals_done {
+        if parts.pending.is_empty() && parts.terminals_done {
             return Ok(PartStep::Done);
         }
-        parts.terminals_done = true;
-        parts.pending.clear();
-        self.commit_restate_part(parts, |mux, registry, state, _| {
-            mux.resource_effect_projection_locked(
-                registry,
-                state,
-                Value::Object(Default::default()),
-            )
+        if waiters > 0 && parts.deferred < RESTATE_MAX_DEFERS {
+            parts.deferred += 1;
+            parts.tally.defers += 1;
+            return Ok(PartStep::Deferred);
+        }
+        parts.deferred = 0;
+        if parts.pending.is_empty() {
+            parts.terminals_done = true;
+            return self.commit_restate_part(parts, |mux, registry, state, _| {
+                let workspace = state
+                    .workspaces
+                    .get(state.active_workspace)
+                    .or(state.workspaces.first())
+                    .map(|workspace| workspace.public_id.clone())
+                    .ok_or_else(|| anyhow::Error::new(NoPart::Nothing))?;
+                mux.restate_unplaced_terminals_projection_locked(registry, state, &workspace)?
+                    .ok_or_else(|| anyhow::Error::new(NoPart::Nothing))
+            });
+        }
+        self.commit_restate_part(parts, |mux, registry, state, pending| {
+            let mut part = Vec::with_capacity(RESTATE_PART_WORKSPACES);
+            while part.len() < RESTATE_PART_WORKSPACES {
+                let Some(workspace) = pending.pop_front() else { break };
+                let live = state.workspaces.iter().any(|live| live.public_id == workspace);
+                if live && !registry.workspace_is_whole(&workspace) {
+                    part.push(workspace);
+                }
+            }
+            loop {
+                if part.is_empty() {
+                    return Err(anyhow::Error::new(NoPart::Nothing));
+                }
+                let projection = mux
+                    .restate_part_projection_locked(registry, state, &part)?
+                    .ok_or_else(|| anyhow::Error::new(NoPart::Escaped))?;
+                // The walk adds the stored and the live active workspace when they differ. A
+                // part is never more than its bound: give the last ones back and walk again.
+                let excess = projection.restated.len().saturating_sub(RESTATE_PART_WORKSPACES);
+                if excess == 0 {
+                    return Ok(projection);
+                }
+                for _ in 0..excess {
+                    if let Some(workspace) = part.pop() {
+                        pending.push_front(workspace);
+                    }
+                }
+            }
         })
     }
 
