@@ -187,14 +187,13 @@ final class PaneToolbar {
         // (Lawrence 2026-10-20: "i dont like the down arrow"); it is a row of "…"'s menu.
         let kinds = kind.map { paneKinds.union([$0]) } ?? paneKinds
         let reservedPins = kinds.map { kind in pinned.count(where: { Self.actions(kind).contains(ActionID(rawValue: $0)) }) }.max() ?? 0
-        // The zoom indicator is at the pane's top-right (`PaneZoomIndicatorView`), not a button here:
-        // a zoom keeps this room, so the strip's width and every tab stay put.
+        // A zoomed pane's Exit Zoom button sits left of "…" (`PaneToolbarView.zoomButton`, user 2026-11-09).
         let buttons = shownButtons()
         // The new-terminal and new-browser buttons are not shown: the + and the "…" menu offer them (Lawrence 2026-10-27: too many buttons).
         // A native page list needs an overflow route when a narrow pane cannot fit every real
         // button. It also keeps chat panes discoverable, which otherwise have no pane "…".
         let nativeTools = nativeEnabled ? nativeItems : []
-        view.show(buttons.compactMap(item), more: shown || !nativeTools.isEmpty, lit: zoomed && shown,
+        view.show(buttons.compactMap(item), more: shown || !nativeTools.isEmpty, lit: zoomed && shown, zoomed: zoomed,
                   reserving: kinds.isEmpty ? 0 : max(reservedPins, buttons.count) + 1,
                   nativeItems: nativeTools)
     }
@@ -202,9 +201,9 @@ final class PaneToolbar {
     /// The pinned actions the tab can run, in the user's order, as buttons before "…".
     func shownPins() -> [ActionID] { pinned.map(ActionID.init(rawValue:)).filter(tabActions().contains) }
 
-    /// The buttons before "…": the pins; a pinned zoom button is lit while the pane is zoomed. An
-    /// unpinned one never shows: the selected tab carries the zoom indicator (#25624).
-    func shownButtons() -> [ActionID] { shownPins() }
+    /// The buttons before "…": the pins. While the pane is zoomed a pinned zoom gives way to the
+    /// bar's one Exit Zoom button beside "…", so the pane shows one zoom mark, never two.
+    func shownButtons() -> [ActionID] { zoomed ? shownPins().filter { $0 != Self.zoom } : shownPins() }
 
     /// A pinned action's button: the New Tab page's tool symbols (cx-kk7lm), a zoomed pane's lit zoom.
     private func item(_ id: ActionID) -> PaneToolbarItem? {

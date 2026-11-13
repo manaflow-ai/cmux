@@ -3,7 +3,7 @@
 //! where a Mac's start keeps whatever mode its harness starts in.
 
 use super::agent_session_attach_tests::{
-    Client, FakeAcpmux, Fixture, PhoneFloor, SESSION, WAIT, assert_code, mux_with, run,
+    Client, FakeAcpmux, Fixture, KeyedRun, PhoneFloor, SESSION, WAIT, assert_code, mux_with, run,
     terminal_pane,
 };
 use super::*;
@@ -35,10 +35,15 @@ fn connect(
 }
 
 fn connect_with(label: &str, phone: bool, floor: PhoneFloor) -> Phone {
+    connect_fixture(label, phone, floor, Fixture::default())
+}
+
+/// [`connect_with`], with `extra`'s catalog timing (`catalog_after`, `catalog_hang_ups`).
+fn connect_fixture(label: &str, phone: bool, floor: PhoneFloor, extra: Fixture) -> Phone {
     let (family, mode) = (floor.family, floor.mode.clone());
     let fake = FakeAcpmux::start_with(
         label,
-        Fixture { start_folder_trusted: Some(true), phone: Some(floor), ..Default::default() },
+        Fixture { start_folder_trusted: Some(true), phone: Some(floor), ..extra },
     );
     let mux = mux_with(&fake, label);
     mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
@@ -201,4 +206,80 @@ fn a_phone_may_close_the_tab_of_a_chat_it_started_and_no_other() {
     assert_code(&refused, "remote_denied");
     let closed = phone.client.request(json!({"cmd":"close-surface","surface":phone.surface}));
     assert_eq!(closed["ok"], json!(true), "{closed}");
+}
+
+/// cmuxterm-hq run 42837396397 (cloud-chat-replies-production, 2026-11-10): the app restarted the
+/// machine's acpmux with a person key (remote approvals) 0.3 s before the start, and the start's
+/// catalog read waited on that fresh acpmux's login shell read past the 5 s every other call gets.
+/// The start was refused `agent_session.timeout` ("did not start the agent in time") with no agent
+/// spawned. A start waits for a starting acpmux's catalog, as acpmux itself holds it.
+#[test]
+fn the_owners_start_waits_for_a_starting_acpmuxs_catalog() {
+    let mode = Arc::new(Mutex::new("default".to_owned()));
+    let floor = PhoneFloor { strict: true, family: "claude", mode, stuck: false, table_gate: None };
+    let late = Fixture { catalog_after: Some(Duration::from_secs(7)), ..Default::default() };
+    let mut owner = connect_fixture("catalog-wait", false, floor, late);
+    let start = json!({"cmd":"agent-session-start","surface":owner.surface,"cwd":owner.cwd,
+        "harness":"claude","vm_kind":"owner"});
+    let id = owner.client.send(start);
+    let started = owner.client.answer_within(id, Duration::from_secs(30));
+    assert_eq!(started["ok"], json!(true), "{started}");
+    assert_eq!(started["data"]["session"], json!(SESSION));
+    let methods = owner.methods();
+    assert!(methods.contains(&"session/new".to_owned()), "{methods:?}");
+}
+
+/// The app's keyed restart of acpmux (remote approvals) can land while the start reads the
+/// catalog: the old acpmux closes the start's connection with no answer. The start connects to
+/// the acpmux that comes up and asks again, and the agent starts there, not a refusal.
+#[test]
+fn the_owners_start_survives_acpmux_restarting_under_it() {
+    let mode = Arc::new(Mutex::new("default".to_owned()));
+    let floor = PhoneFloor { strict: true, family: "claude", mode, stuck: false, table_gate: None };
+    let hang_ups = Arc::new(AtomicU64::new(2));
+    let restarting = Fixture { catalog_hang_ups: hang_ups.clone(), ..Default::default() };
+    let mut owner = connect_fixture("catalog-restart", false, floor, restarting);
+    let start = json!({"cmd":"agent-session-start","surface":owner.surface,"cwd":owner.cwd,
+        "harness":"claude","vm_kind":"owner"});
+    let id = owner.client.send(start);
+    let started = owner.client.answer_within(id, Duration::from_secs(30));
+    assert_eq!(started["ok"], json!(true), "{started}");
+    assert_eq!(started["data"]["session"], json!(SESSION));
+    assert_eq!(hang_ups.load(Ordering::SeqCst), 0);
+    let methods = owner.methods();
+    assert_eq!(methods.iter().filter(|m| *m == "_acpmux/harnesses").count(), 3, "{methods:?}");
+    assert!(methods.contains(&"session/new".to_owned()), "{methods:?}");
+}
+
+/// router-review F2 on cmux#40640: the keyed gate read the acpmux run before a restart; the start
+/// that reconnects to the run the restart brings, which holds no key for the caller, is refused
+/// `needs_keyed_start` before any agent starts, and a run that still holds it starts the agent.
+#[test]
+fn a_keyed_start_checks_the_key_again_on_the_restarted_acpmux() {
+    for (restarted, keyed) in [("run-b", false), ("run-a", true)] {
+        let mode = Arc::new(Mutex::new("default".to_owned()));
+        let floor =
+            PhoneFloor { strict: true, family: "claude", mode, stuck: false, table_gate: None };
+        let run = KeyedRun { current: Arc::new(Mutex::new("run-a")), restarted };
+        let restarting = Fixture {
+            catalog_hang_ups: Arc::new(AtomicU64::new(1)),
+            keyed_run: Some(run),
+            ..Default::default()
+        };
+        let mut owner = connect_fixture(&format!("keyed-{restarted}"), false, floor, restarting);
+        let start = json!({"cmd":"agent-session-start","surface":owner.surface,"cwd":owner.cwd,
+            "harness":"claude","vm_kind":"owner","require_person_key":true,
+            "person_instance":"run-a"});
+        let id = owner.client.send(start);
+        let answer = owner.client.answer_within(id, Duration::from_secs(30));
+        let methods = owner.methods();
+        assert_eq!(methods.iter().filter(|m| *m == "_acpmux/status").count(), 2, "{methods:?}");
+        assert_eq!(methods.contains(&"session/new".to_owned()), keyed, "{methods:?}");
+        if keyed {
+            assert_eq!(answer["ok"], json!(true), "{answer}");
+        } else {
+            assert_eq!(answer["error_code"], json!("agent_session.needs_keyed_start"), "{answer}");
+            assert_eq!(answer["data"]["safe_to_restart"], json!(true), "{answer}");
+        }
+    }
 }

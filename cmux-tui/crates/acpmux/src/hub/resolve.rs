@@ -103,21 +103,24 @@ impl Hub {
     }
 
     /// Resolve exactly what `new_session` will run while the remote request
-    /// is still in admission, before a session or child process exists.
+    /// is still in admission, before a session or child process exists, and
+    /// judge it by the one remote start rule (`web_modes::remote_start_for_config`,
+    /// which `session_profile_checked` also applies): the modes a Web start runs
+    /// in, or why it may not start (a refused family by its derived family; a
+    /// launcher profile of Claude Code by Claude's row).
     pub(crate) async fn preflight_remote_new(
         &self,
         harness: Option<String>,
         preset: Option<String>,
         model: Option<String>,
         cwd: Option<PathBuf>,
-    ) -> Result<(String, bool), RpcError> {
-        self.wait_startup().await;
+    ) -> Result<Result<Vec<String>, String>, RpcError> {
+        // As `session/new`: the catalog and launcher checks, not every chat's adoption.
+        self.wait_spawn_ready().await;
         let cfg = self.config.read().await;
         let resolved =
             self.resolve_new(&cfg, harness, &preset, model.as_deref(), true, cwd.as_deref())?;
-        let family = crate::config::derive_family(&resolved.agent, &resolved.profile);
-        let any_mode = crate::codex_app_server::is_profile_launch(&resolved.profile.argv);
-        Ok((family, any_mode))
+        Ok(crate::web_modes::remote_start_for_config(&cfg, &resolved.agent, &resolved.profile))
     }
 }
 
@@ -321,6 +324,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         updated_at: now,
         last_seq: 0,
         transcript_seq: 0,
+        recovered_after: None,
         parent_id: None,
         fork_seq: None,
         fork_before: None,
@@ -364,9 +368,12 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         seen_seq: None,
         unread_turns: 0,
         last_return: None,
+        away_recap: None,
+        read_through: Default::default(),
         claude_unstored: false,
         // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
         wait_start: false,
+        throwaway: false,
         hibernated_ms: 0,
         idle_launch: None,
         moved_to: None,
@@ -392,6 +399,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         harness_cost_usd: None,
         pull_requests: vec![],
         pull_request_times: Default::default(),
+        closed_pull_requests: vec![],
         touched_files: vec![],
         git_branch: None,
         git_head: None,
@@ -406,6 +414,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         turn_cap_ms: None,
         turn_cap_noticed: None,
         delegator: None,
+        cold: None,
     }
 }
 

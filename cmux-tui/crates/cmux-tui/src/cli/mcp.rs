@@ -29,6 +29,7 @@ mod cloud_repo_tools;
 mod code_mode;
 mod computer_use_gate;
 mod config;
+mod customize_tools;
 mod keybinding_tools;
 mod live_code_tools;
 mod messages;
@@ -218,6 +219,16 @@ pub(super) trait Backend {
         ))
     }
 
+    /// One `cmux customize WORDS…` verb, run by the CLI's own code
+    /// (`customize_tools`).
+    fn customize(&self, _words: &[String]) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "customize.unavailable",
+            "this server cannot reach the customization files",
+        ))
+    }
+
     /// Cloud chat repo actions run on the selected machine daemon.
     fn cloud_repo(&self, _action: &str, _args: Value) -> Result<Value, CallFailure> {
         Err(CallFailure::local(
@@ -355,6 +366,15 @@ impl Backend for LiveBackend {
     }
 
     #[cfg(unix)]
+    fn customize(&self, words: &[String]) -> Result<Value, CallFailure> {
+        super::customize::run_json(words, "mcp").map_err(|error| CallFailure {
+            kind: FailureKind::Rejected,
+            error,
+            idempotency_key: None,
+        })
+    }
+
+    #[cfg(unix)]
     fn daemon(&self, mut request: Value) -> Result<Value, CallFailure> {
         if let Some(fields) = request.as_object_mut() {
             fields.insert("id".into(), json!(1));
@@ -466,10 +486,12 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         [command] if command == "serve" => serve(global, true),
         [command, flag] if command == "serve" && flag == "--all-tools" => serve(global, false),
         [command] if command == "tools" => list_tools(global),
-        _ => {
-            eprintln!("cmux: {usage}");
-            2
-        }
+        _ => super::scope_usage_failure(
+            global.output,
+            "mcp",
+            &super::unknown_words("mcp", args),
+            usage.strip_prefix("usage: ").unwrap_or(usage),
+        ),
     }
 }
 
@@ -822,6 +844,7 @@ impl<B: Backend> Server<B> {
         tools
             .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
         tools.extend(automation_tools::descriptors());
+        tools.extend(customize_tools::descriptors());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
@@ -1079,6 +1102,9 @@ impl<B: Backend> Server<B> {
             return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(result) = automation_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = customize_tools::call(&self.backend, name, &arguments) {
             return Ok(result);
         }
         if let Some(tool) = remote_tools::find(name) {
@@ -1617,15 +1643,19 @@ fn envelope(error: Value, state: &str, idempotency_key: Option<&str>) -> Value {
 
 pub(super) fn failure_result(failure: CallFailure) -> Value {
     // An owner that says whether the run started (the app's `busy` and
-    // `timeout`) decides the state.
+    // `timeout`) decides the state. So does one that says it decided the refusal
+    // itself (`rejected`: a pane that cannot split): the app marks that `not_run`
+    // too (nothing applied), and `not_run` alone would tell the agent to send it again.
     let data = failure.error.get("data").or_else(|| failure.error.get("details"));
     let owner_state = data.and_then(|data| {
+        let said = data.get("state").and_then(Value::as_str);
+        if said == Some("rejected") {
+            return Some("rejected");
+        }
         if data.get("not_run") == Some(&Value::Bool(true)) {
             return Some("not_run");
         }
-        data.get("state")
-            .and_then(Value::as_str)
-            .filter(|state| matches!(*state, "not_run" | "in_progress"))
+        said.filter(|state| matches!(*state, "not_run" | "in_progress"))
     });
     // The app's queue deadline (`timeout`) says nothing about whether the
     // run started; a retry with the same key is safe either way.

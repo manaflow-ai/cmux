@@ -8,6 +8,8 @@ import {
   cloudStartEnded,
   cloudStartPushed,
   cloudStartSignedIn,
+  cloudFolderTooBig,
+  folderSizeText,
 } from "./cloudStartProgress";
 
 const begun = () => cloudStartBegun("k-1", "fix the build", "/Users/me/src/paint/");
@@ -244,6 +246,13 @@ test("the pane's other refusals before Cloud (attachments, a busy pane) mark no 
   }
 });
 
+// Leo 2026-11-10: "Cloud isn't available for this chat" said no reason and offered nothing.
+test("the host's not-now refusal says a chat is starting in this tab and how to use Cloud instead", () => {
+  const text = cloudRefusalText("unavailable_now");
+  expect(text).toBe("A chat is already starting in this tab. Open a new chat to start one in Cloud.");
+  expect(text).not.toContain("isn't available");
+});
+
 const question: CloudStartAsk = {
   id: "ask-1",
   kind: "codexDevice",
@@ -302,4 +311,87 @@ test("a failed start drops its question and says whether Retry can help", () => 
   const final = cloudStartEnded(asked, "k-1", { ok: false, code: "cloud_start_failed", message: "No" });
   expect(final?.retryable).toBeUndefined();
   expect(final?.ask).toBeUndefined();
+});
+
+test("a start the team's spending cap or the member's budget refused is worded by the pane, with no Retry", () => {
+  const cap = cloudStartEnded(begun(), "k-1", {
+    ok: false,
+    code: "cloud_start_failed",
+    message: "this team has spent 503.10 USD of its 500.00 USD spending cap; an admin can raise it",
+    retryable: true,
+  });
+  expect(cap).toMatchObject({ state: "failed", code: "cloud_spend_cap" });
+  expect(cap?.retryable).toBeUndefined();
+  expect(cap?.message).toContain("team admin");
+  const budget = cloudStartEnded(begun(), "k-1", {
+    ok: false,
+    code: "cloud_start_failed",
+    message: "you have spent 50.20 USD of your 50.00 USD monthly budget; a team admin can raise it",
+  });
+  expect(budget).toMatchObject({ state: "failed", code: "cloud_member_budget" });
+  // Any other failure keeps the host's words.
+  expect(
+    cloudStartEnded(begun(), "k-1", {
+      ok: false,
+      code: "cloud_start_failed",
+      message: "the machine stopped answering",
+    }),
+  ).toMatchObject({ code: "cloud_start_failed", message: "the machine stopped answering" });
+});
+
+test("a folder too big to copy says why with its size, offers no Retry and marks no step failed (Leo, 2026-11-10)", () => {
+  const gib = 1024 ** 3;
+  const details = {
+    folder: "~/Projects",
+    bytes: 20.1 * gib,
+    files: 323_831,
+    repos: [
+      { name: "cmux", path: "/Users/me/Projects/cmux" },
+      { name: "work/api", path: "/Users/me/Projects/work/api" },
+      { name: "relative", path: "not/absolute" },
+      { name: "", path: "/Users/me/Projects/empty" },
+    ],
+    more: false,
+  };
+  const ended = cloudStartEnded(begun(), "k-1", {
+    ok: false,
+    code: "cloud_folder_too_big",
+    message: "~/Projects is too big to copy to a Cloud machine",
+    retryable: true,
+    details,
+  });
+  expect(ended?.state).toBe("failed");
+  expect(ended?.code).toBe("cloud_folder_too_big");
+  expect(ended?.retryable).toBeUndefined();
+  expect(ended?.refusedHere).toBe(true);
+  // Only well-formed repositories with absolute paths are offered.
+  expect(ended?.tooBig).toEqual({
+    folder: "~/Projects",
+    repos: [
+      { name: "cmux", path: "/Users/me/Projects/cmux" },
+      { name: "work/api", path: "/Users/me/Projects/work/api" },
+    ],
+    more: false,
+  });
+  expect(ended?.message).toBe(
+    "~/Projects is too big to copy to a Cloud machine (at least 20.1 GB in 323,831 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+  );
+  // No repository inside: the limit is named, and another folder is the way on.
+  const plain = cloudStartEnded(begun(), "k-1", {
+    ok: false,
+    code: "cloud_folder_too_big",
+    details: { ...details, folder: "~/Downloads", repos: [] },
+  });
+  expect(plain?.message).toBe(
+    "~/Downloads is too big to copy to a Cloud machine (at least 20.1 GB in 323,831 files; a copy sends at most 20 GB or 500,000 files). Pick a smaller folder, or start without a folder.",
+  );
+});
+
+test("a too-big folder's size reads as the copy's limit words it", () => {
+  expect(folderSizeText(20.1 * 1024 ** 3)).toBe("20.1 GB");
+  expect(folderSizeText(20 * 1024 ** 3)).toBe("20 GB");
+  expect(folderSizeText(632 * 1024 ** 3)).toBe("632 GB");
+  expect(folderSizeText(300 * 1024 ** 2)).toBe("300 MB");
+  // Malformed details still say why, with no repository to offer.
+  expect(cloudFolderTooBig(undefined).tooBig).toEqual({ folder: "~", repos: [], more: false });
 });

@@ -48,8 +48,6 @@ export function WorktreePill({
         }}
         type="button"
         className="acpmux-header-tool acpmux-header-worktree"
-        aria-haspopup="dialog"
-        aria-expanded={open}
         {...trigger}
       >
         <Icon name="git.worktree" size={14} />
@@ -57,6 +55,7 @@ export function WorktreePill({
         <span className="acpmux-header-worktree-detail">{title}</span>
       </button>
       <Popover
+        id={trigger["aria-controls"]}
         open={open}
         // The pill owns opening; Base UI only reports dismissals (Escape and outside press).
         onOpenChange={(next) => {

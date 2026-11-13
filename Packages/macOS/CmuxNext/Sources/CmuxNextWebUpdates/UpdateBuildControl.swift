@@ -23,7 +23,8 @@ public struct UpdateBuildControl {
         return [
             // `{build?, check?}`: rolls back to a kept build, or with check
             // only reports whether it would. Both daemons' stores count: the
-            // app's and the Chief conversation owner's.
+            // app's and the Chief conversation owner's. That read and the swap outlast the 2 s
+            // deadline on a busy Mac (rollback drill, 2026-11-09: "did not finish within 1999 ms").
             .mainActor("updates.rollback") { call in
                 let build = call.params["build"]?.stringValue
                 let check = call.params["check"]?.boolValue == true
@@ -37,7 +38,7 @@ public struct UpdateBuildControl {
                         throw ControlError(code: "rollback_refused", message: refusal.message)
                     }
                 }
-            },
+            }.withDeadline(.fixed(.seconds(120))),
             // `{limit?}`: the nightly track's recent builds, newest first (`cmux nightly list`): each
             // with its date, commit, first change titles, and whether `updates.switch_build` takes it.
             // It reads the feed's notes, verdicts and pulled list, so it gets more than the 2 s deadline.
