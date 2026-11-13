@@ -17,7 +17,9 @@ resources.pak:
   arrays in its data segments): a page's map is the run of entries with
   consecutive ids, and it goes only when the top-level .html files of that
   run are exactly one group of WEBUI_PAGES. An id that any other map also
-  lists, or that the header names, stays.
+  lists, or that the header names, stays. So does a bitmap (PNG or JPEG
+  bytes): browser code loads some page images by id at launch, and Chromium
+  aborts on a bitmap it cannot load ("Unable to load bitmap image with id").
 
 locale.pak (--strings): the strings of STRING_PREFIXES (Chrome features
 cmux does not have) become empty. Their ids stay in the table, because
@@ -31,7 +33,7 @@ Every pak is rewritten in place (format 5: header, entry table, alias table,
 data); every other resource keeps its bytes. With no header, no matching
 names, no maps or a pak in another format it prints a warning and leaves the
 file as it is. A missing resource id has no entry, and Chromium's resource
-bundle answers an empty resource for it.
+bundle answers an empty resource for it, except for a bitmap (above).
 """
 import os
 import re
@@ -40,6 +42,7 @@ import sys
 
 PREFIX = "IDR_INTRO_SOUND_"
 MAGIC = b"fLaC"
+BITMAP_MAGICS = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")  # what ResourceBundle decodes: PNG, JPEG
 
 # Each group: the top-level .html files of one chrome:// page's resource map.
 WEBUI_PAGES = {
@@ -194,6 +197,10 @@ def remove(pak, should_drop):
         return pak, []
     new_aliases = [(rid, index_map[idx]) for rid, idx in alias_list if idx in index_map]
     return build(encoding, kept, new_aliases), dropped
+
+
+def is_bitmap(data):
+    return data.startswith(BITMAP_MAGICS)
 
 
 def drop(pak, ids):
@@ -372,7 +379,17 @@ def trim_resources(pak_path, header_path, framework):
         except (OSError, ValueError, struct.error, IndexError) as error:
             print(f"warning: cef-pak-drop: {framework}: {error}; resources.pak keeps its pages")
             pages = {}
-    new, dropped = remove(pak, lambda rid, data: (rid in sounds and data.startswith(MAGIC)) or rid in pages)
+    bitmaps = []
+
+    def goes(rid, data):
+        if rid in sounds and data.startswith(MAGIC):
+            return True
+        if rid in pages and is_bitmap(data):
+            bitmaps.append(rid)
+            return False
+        return rid in pages
+
+    new, dropped = remove(pak, goes)
     if not dropped:
         print(f"note: cef-pak-drop: nothing to drop in {pak_path}")
         return 0
@@ -380,7 +397,8 @@ def trim_resources(pak_path, header_path, framework):
     sound_names = [sounds[rid] for rid in dropped if rid in sounds]
     groups = sorted({pages[rid] for rid in dropped if rid in pages})
     print(f"note: cef-pak-drop: dropped {len(pak) - len(new)} bytes from resources.pak"
-          f" ({len(sound_names)} intro sounds, {len(dropped) - len(sound_names)} page resources)")
+          f" ({len(sound_names)} intro sounds, {len(dropped) - len(sound_names)} page resources;"
+          f" {len(bitmaps)} bitmaps kept)")
     if sound_names:
         print(f"note: cef-pak-drop: intro sounds: {', '.join(sound_names)}")
     if groups:
