@@ -589,7 +589,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_refuse_stray_processes.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. Checks scripts/ci/refuse_stray_processes.py, which nightly-next-one runs before its signing and publication secrets: the runner and the check's own tree pass, a detached process with the job's RUNNER_TRACKING_ID or a cwd under the runner fails; run python3 tests/test_refuse_stray_processes.py yourself after changing it (under 1 s, no Mac)."
+reason = "Lawrence 2026-10-23: no new CI tests. Checks scripts/ci/refuse_stray_processes.py, which nightly-next-one runs before its signing and publication secrets: the runner, the processes of the job hooks its Runner.Worker was started with and the check's own tree pass, a detached process with the job's RUNNER_TRACKING_ID or a cwd under the runner fails; run python3 tests/test_refuse_stray_processes.py yourself after changing it (under 1 s, no Mac)."
 
 [[test]]
 path = "tests/test_reload_build_only_app_path_readers.py"
