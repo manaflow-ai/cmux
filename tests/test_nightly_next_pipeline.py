@@ -585,9 +585,10 @@ elif "download-run-artifact.py" not in str(fast.get("run", "")):
 # nightly-sign.yml (shadow) admits a run by the nightly-prepared-app notice of its prepare-nightly-variant job, or
 # of the primary leg it reused. A prepared resume skips the primary, so the fallback leg records the digest of the
 # restored prepared app, the tarball whose zip the resume checked against the push run's artifact digest.
-spec = importlib.util.spec_from_file_location("nightly_sign_admit", ROOT / "scripts" / "ci" / "nightly_sign_admit.py")
-admit = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(admit)
+# By name, as tests/test_nightly_sign_shadow_workflow.py imports it: a load by path here made a second module object
+# of scripts/ci/nightly_sign_admit.py beside that one (tests/test_script_module_loads.py names it).
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import nightly_sign_admit as admit  # noqa: E402
 import hashlib  # noqa: E402
 import os  # noqa: E402
 import subprocess  # noqa: E402
