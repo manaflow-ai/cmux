@@ -26,11 +26,15 @@ const HOOK =
 function sent(text: string, minutes: number) {
   const incoming = incomingPrompt(text, { client: "acpmux-outbox#01a16e@lane-box-2" });
   return incoming?.kind === "message"
-    ? user(incoming.message.notice ? noticeRowText(incoming.message.notice, incoming.message.text) : incoming.message.text, minutes, {
-        incoming,
-        untyped: true,
-        resend: text,
-      })
+    ? user(
+        incoming.message.notice ? noticeRowText(incoming.message.notice, incoming.message.text) : incoming.message.text,
+        minutes,
+        {
+          incoming,
+          untyped: true,
+          resend: text,
+        },
+      )
     : user(text, minutes);
 }
 

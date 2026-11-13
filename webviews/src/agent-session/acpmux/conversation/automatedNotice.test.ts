@@ -15,7 +15,8 @@ const CONFLICT =
   "[stall-reconciler] #31356 conflicts with main at 42ed8159e6c1: .github/workflows/cloud-capture-provision.yml, webviews/src/agent-session/acpmux/direct.ts. Rebase or merge base; this notice won't repeat for head 3dc49e20c151.";
 const SPEND =
   "Spend guard (stall reconciler): this session shows $212 in 24h (thresholds: $150/day, 40 subagents/day; machines/spend-guard.json). Rulebook, tools/supervisor-models.json: pick each subagent's model by task kind. No reply needed; this is sent once a day.";
-const HOOK = "Stop hook feedback:\n[~/.claude/hooks/check.sh]: 2 tests still fail in webviews/test/x.test.ts.\nFix them before stopping.";
+const HOOK =
+  "Stop hook feedback:\n[~/.claude/hooks/check.sh]: 2 tests still fail in webviews/test/x.test.ts.\nFix them before stopping.";
 const INBOX =
   "[inbox] New messages from other agents in 2 threads.\n- claude-sr2 (thread t-1): merged #31356\n- coord-deputy (thread t-2): please rebase";
 
