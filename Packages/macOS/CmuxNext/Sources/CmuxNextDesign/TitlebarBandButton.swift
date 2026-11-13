@@ -80,6 +80,9 @@ public final class TitlebarBandButton: ClickableButton {
     override public func layout() {
         super.layout()
         renderSymbol()
+        // The hover fill is the button's own layer: a tab's roundness on the button's height, so every density's
+        // buttons round alike (Lucas 2026-11-13: "same roundness (proportionally)").
+        layer?.cornerRadius = Metrics.chromeRowCornerRadius(height: min(bounds.width, bounds.height))
         let size = min(Metrics.space3, bounds.height)
         badgeLabel.frame = NSRect(x: bounds.maxX - size, y: bounds.maxY - size, width: size, height: size)
     }

@@ -68,7 +68,8 @@ enum OmnibarStyle {
     static var toolbarTrailingInset: CGFloat { max(0, Metrics.paneTrailingControlCenter - buttonSize / 2) }
     /// Toolbar buttons highlight in a rounded square on hover and press, Helium's
     /// `Emphasis::kHigh` (8; Chrome draws a circle, `kMaximum`).
-    static var buttonCornerRadius: CGFloat { 8 }
+    /// A toolbar button's hover corner: a tab's roundness on the button's side (8 on 30), at every density.
+    static var buttonCornerRadius: CGFloat { Metrics.chromeRowCornerRadius(height: buttonSize) }
     /// Toolbar button icons: `kToolbarButtonIconSize` (20 at Standard), inside Helium's 4 pt
     /// `TOOLBAR_BUTTON` insets.
     static var toolbarIconSize: CGFloat { metrics.toolbarIconSize }

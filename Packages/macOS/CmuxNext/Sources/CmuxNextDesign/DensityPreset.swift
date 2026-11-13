@@ -16,7 +16,8 @@ public nonisolated enum DensityPreset: String, Sendable, CaseIterable {
         switch self {
         // A tab pill, the omnibar, the toolbar buttons and a sidebar row share one height (`Metrics.chromeRowHeight`):
         // `sidebarRowHeight` sets it. Default's list row adds `space1` (the Codex fill, 28 + 2 = 30; Lucas 2026-11-13: 30 pt tabs).
-        case .ultraCompact: DensityTokens(id: rawValue, name: "Ultra-compact", level: -0.5, spacing: 0.75, fontSize: 11)
+        case .ultraCompact: DensityTokens(id: rawValue, name: "Ultra-compact", level: -0.5, spacing: 0.75, fontSize: 11,
+                                          tokens: ["tabStripHeight": 26])
         case .compact: DensityTokens(id: rawValue, name: "Compact", tokens: ["sidebarRowHeight": 20, "tabStripHeight": 26])
         case .cozy: DensityTokens(id: rawValue, name: "Default", level: 0.5, fontSize: 14,
                                   tokens: ["sidebarRowHeight": 28, "tabStripHeight": 36])

@@ -122,7 +122,7 @@ public final class OverflowButton: ClickableButton {
 
     override public func updateLayer() {
         let side = min(bounds.width, bounds.height)
-        layer?.cornerRadius = hoverStyle == .circle ? side / 2 : min(plateCornerRadius ?? Metrics.itemCornerRadius, side / 2)
+        layer?.cornerRadius = hoverStyle == .circle ? side / 2 : min(plateCornerRadius ?? Metrics.chromeRowCornerRadius(height: side), side / 2)
         performWithTheme {
             // Without a fill, a press or an open menu shows in the glyph's own ink, as the tab bar's + does.
             let pressedInk = hoverStyle == .glyph ? Palette.litGlyph : Palette.textPrimary

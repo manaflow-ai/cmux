@@ -114,8 +114,13 @@ enum SidebarStyle {
     /// 2026-11-09, 6:55 PM: "the cmux app icon looks smaller ... GitHub logo and the globe are different sizes"). It
     /// fills the icon column exactly, so the gap from any glyph's ink to its title is the one column gap. The square is
     /// a tab's icon box, `Metrics.iconSize` (14 pt at Compact, 16 at Default, 20 at Comfortable), so a workspace row's
-    /// icon is its tab's size at every density: Helium's 16 pt favicon beside 12 pt text, 4 to 3 (Lucas 2026-11-13).
-    static var rowGlyphOpticalSide: CGFloat { Metrics.iconSize }
+    /// icon is its tab's size at every density: Helium's 16 pt favicon beside 12 pt text, 4 to 3 (Lucas 2026-11-13). It
+    /// grows with the sidebar's own density and text size as ``workspaceFaviconSide`` does from the sidebar's defaults.
+    static var rowGlyphOpticalSide: CGFloat {
+        // The workspace icon's size at the sidebar's defaults: Compact density, standard text (scale 1, no text step).
+        let atDefaults = CGFloat.iconRowSize(forLabelPointSize: Typography.body.pointSize)
+        return (Metrics.iconSize * workspaceFaviconSide / max(1, atDefaults)).rounded()
+    }
     static var rowGlyphOptics: SidebarOpticalGlyph { SidebarOpticalGlyph(target: rowGlyphOpticalSide) }
     /// Reserve the icon column only when a visible icon precedes the title.
     static func titleTextX(leading: CGFloat, iconSide: CGFloat, swatch: Bool = false) -> CGFloat {

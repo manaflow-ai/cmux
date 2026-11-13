@@ -195,7 +195,7 @@ final class SidebarIconView: NSView {
     private func snap(_ value: CGFloat) -> CGFloat { (value * backingScale).rounded() / backingScale }
     /// The favicon's drawn side, on the pixel grid: made a third larger than the optical size, so a favicon whose ink
     /// fills only part of its square (an app icon's margin) is scaled down, never up, to the optical size.
-    private var faviconSide: CGFloat { max(1 / backingScale, snap(SidebarStyle.workspaceFaviconSide * 4 / 3)) }
+    private var faviconSide: CGFloat { max(1 / backingScale, snap(SidebarStyle.rowGlyphOpticalSide * 4 / 3)) }
     /// The pixel side the favicon's bitmap is made at now (`SidebarFaviconRenditions.drawing`).
     private var faviconPixels: Int { max(1, Int((faviconSide * max(2, backingScale)).rounded())) }
 
@@ -226,7 +226,7 @@ final class SidebarIconView: NSView {
     /// The original treatment keeps the frame it always had.
     private func layoutFavicon(content: CGRect) {
         guard let drawing = faviconDrawing, drawing.treatment != .original else { return }
-        let side = SidebarStyle.workspaceFaviconSide
+        let side = SidebarStyle.rowGlyphOpticalSide
         // Leading with ink, `leadingImageFrame` already sized it to the optical size.
         if !leadsWithInk {
             imageView.frame = CGRect(x: snap(content.midX - side / 2), y: snap(content.midY - side / 2), width: side, height: side)

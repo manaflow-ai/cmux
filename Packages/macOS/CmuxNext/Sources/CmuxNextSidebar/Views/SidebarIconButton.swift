@@ -204,7 +204,8 @@ final class SidebarIconButton: ClickableButton {
     }
 
     override func updateLayer() {
-        layer?.cornerRadius = isRound ? min(bounds.width, bounds.height) / 2 : Metrics.itemCornerRadius
+        layer?.cornerRadius = isRound ? min(bounds.width, bounds.height) / 2
+            : Metrics.chromeRowCornerRadius(height: min(bounds.width, bounds.height))
         performWithTheme {
             contentTintColor = tintOverride ?? (hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary)
         }

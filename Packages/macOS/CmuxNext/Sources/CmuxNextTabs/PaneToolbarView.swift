@@ -521,9 +521,12 @@ public final class PaneToolbarView: NSView {
     /// concentric with it (the card's radius, `Metrics.tabStripCardRadius`, else the one outer
     /// radius, less the inset), as the first tab is with the top-leading corner. Lawrence 2026-11-07
     /// on the window's top-right ⋮: "needs to be concentric (related to window concentricity)".
+    /// Unless the person set the outer radius, it rounds as the + and every other top control does, a tab's roundness on
+    /// its side (Lucas 2026-11-13: the nested corner came out square; "match the rest like the + for new workspace").
     static func moreCornerRadius(inset: CGFloat) -> CGFloat {
-        Metrics.cornerRadius(nestedIn: Metrics.tabStripCardRadius ?? Metrics.corners.outer, inset: inset,
-                             size: CGSize(width: TitlebarBandButton.side, height: TitlebarBandButton.side))
+        guard Metrics.cornerRadiusIsSet else { return Metrics.chromeRowCornerRadius(height: TitlebarBandButton.side) }
+        return Metrics.cornerRadius(nestedIn: Metrics.tabStripCardRadius ?? Metrics.corners.outer, inset: inset,
+                                    size: CGSize(width: TitlebarBandButton.side, height: TitlebarBandButton.side))
     }
 
     /// The last button's gap to the trailing edge: its center on the pane's trailing control column,

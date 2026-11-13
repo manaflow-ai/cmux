@@ -47,6 +47,7 @@ export const PRESETS: ReadonlyArray<Density & { nameKey: string }> = [
     level: -0.5,
     spacing: 0.75,
     fontSize: ULTRA_COMPACT_BODY_POINTS,
+    tokens: { tabStripHeight: 26 },
   },
   // Lawrence 2026-11-13: Compact is 20 px tall everywhere, Default is Helium's text (30 px rows, a 36 px strip),
   // Comfortable is Chrome's text, Spacious has bigger text. Default's row is as drawn (Swift adds its Codex fill).

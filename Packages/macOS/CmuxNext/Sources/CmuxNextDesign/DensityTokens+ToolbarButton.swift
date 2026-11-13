@@ -6,7 +6,9 @@ extension DensityTokens {
     /// and `sidebar.textSize`'s extra height). The browser's `OmnibarMetrics` and the pane's trailing
     /// control column (``Metrics/paneTrailingControlCenter``) both read it, so the two ⋮ buttons stay
     /// on one column.
-    public var toolbarButtonSize: CGFloat { resolve(compact: 24, comfortable: 32) }
+    /// A density's own `sidebarRowHeight` token sets it too (Compact's 20 pt), so metrics made without the live row agree
+    /// with the chrome row.
+    public var toolbarButtonSize: CGFloat { resolve(compact: 24, comfortable: 32, token: "sidebarRowHeight") }
 
     /// The share of a toolbar glyph's side its ink fills: the pack fits each toolbar glyph's ink to
     /// the back arrow's keyline, 14.4 of the 24 grid (`design/icons/chromium/manifest.json` `fit`),
