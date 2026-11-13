@@ -73,6 +73,32 @@ pub struct IndexPage {
 }
 
 impl SummaryIndex {
+    /// Bounded page over the published live set. Unlike a state filter this
+    /// starts from the live ordered tree, so closed rows are never scanned.
+    pub fn read_live_page(
+        &self,
+        anchor: Option<&SortKey>,
+        side: ReadSide,
+        inclusive: bool,
+        limit: usize,
+        max_bytes: usize,
+        filter: Option<&ListFilter>,
+    ) -> io::Result<IndexPage> {
+        // Persistent roots are shared. The common selector reads only this
+        // tree and never scans closed rows or touches the disk snapshot.
+        let mut view = self.clone();
+        view.ordered = self.live_ordered.clone();
+        view.disk = None;
+        // The common inclusive selector can also retrieve the anchor by id.
+        // Exclude a closed anchor from that lookup without changing this index.
+        if let Some(anchor) = anchor
+            && view.get_row(&anchor.row).is_some_and(|row| !row.is_live())
+        {
+            view.by_id.remove(&anchor.row);
+        }
+        view.read_page(anchor, side, inclusive, limit, max_bytes, filter)
+    }
+
     /// One bounded part: a hot table range or a physical snapshot piece.
     /// Flags and continuation name candidates, including hidden rows (decision 93).
     pub fn read_page(
@@ -138,7 +164,10 @@ impl SummaryIndex {
             rows_read += piece.rows.len();
             for row in piece.rows {
                 let key = SortKey::of(&row);
-                let visible = !self.is_shadowed(&row.key())
+                let visible = SummaryIndex::contributes_to_index(&row)
+                    && !self.is_shadowed(&row.key())
+                    && !self.is_origin_removed(row.origin.as_str())
+                    && !self.is_snapshot_origin_hidden(row.origin.as_str())
                     && self.get_row(&row.key()).is_none()
                     && filter.is_none_or(|filter| {
                         filter
@@ -149,16 +178,16 @@ impl SummaryIndex {
                 candidates.push((key, visible.then_some(row)));
             }
         }
-        let mut hot = if cold {
+        let mut hot: Vec<(SortKey, Option<Arc<Summary>>)> = if cold {
             Vec::new()
         } else {
             match (anchor, side) {
-                (None, _) => self.after(None, limit + 1),
-                (Some(key), ReadSide::After) => self.after(Some(key), limit + 1),
-                (Some(key), ReadSide::Before) => self.before(key, limit + 1),
+                (None, _) => self.after_candidates(None, limit + 1),
+                (Some(key), ReadSide::After) => self.after_candidates(Some(key), limit + 1),
+                (Some(key), ReadSide::Before) => self.before_candidates(key, limit + 1),
                 (Some(key), ReadSide::Around) => {
-                    let mut rows = self.before(key, limit + 1);
-                    rows.extend(self.after(Some(key), limit + 1));
+                    let mut rows = self.before_candidates(key, limit + 1);
+                    rows.extend(self.after_candidates(Some(key), limit + 1));
                     rows
                 }
             }
@@ -169,7 +198,7 @@ impl SummaryIndex {
             && let Some(row) = self.get_row(&anchor.row)
             && SortKey::of(&row) == *anchor
         {
-            hot.push(row);
+            hot.push((SortKey::of(&row), Some(row)));
         }
         rows_read += hot.len();
         let disk_first = candidates.first().map(|(key, _)| {
@@ -186,8 +215,7 @@ impl SummaryIndex {
                 key.clone()
             }
         });
-        for row in hot {
-            let key = SortKey::of(&row);
+        for (key, row) in hot {
             if side != ReadSide::Before
                 && disk_after
                 && disk_last.as_ref().is_some_and(|last| &key > last)
@@ -200,7 +228,7 @@ impl SummaryIndex {
             {
                 continue;
             }
-            candidates.push((key, Some(row)));
+            candidates.push((key, row));
         }
         candidates.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.is_some().cmp(&a.1.is_some())));
         candidates.dedup_by(|a, b| a.0 == b.0);
@@ -275,7 +303,7 @@ impl SummaryIndex {
             || (!cold
                 && side == ReadSide::After
                 && anchor.is_some_and(|key| {
-                    !self.before(key, 1).is_empty()
+                    !self.before_candidates(key, 1).is_empty()
                         || (!inclusive
                             && self.get_row(&key.row).is_some_and(|row| SortKey::of(&row) == *key))
                 }));
@@ -284,7 +312,7 @@ impl SummaryIndex {
             || (!cold
                 && side == ReadSide::Before
                 && anchor.is_some_and(|key| {
-                    !self.after(Some(key), 1).is_empty()
+                    !self.after_candidates(Some(key), 1).is_empty()
                         || (!inclusive
                             && self.get_row(&key.row).is_some_and(|row| SortKey::of(&row) == *key))
                 }));

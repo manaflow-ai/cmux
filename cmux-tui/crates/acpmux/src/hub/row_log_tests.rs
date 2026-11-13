@@ -396,7 +396,7 @@ async fn a_change_that_may_reach_every_row_resets_every_older_cursor() {
         let (h, e) = hub.list_cursor();
         (h, e.to_owned())
     };
-    hub.events.changed();
+    hub.events.changed(None);
     let mut app = Client::new(&hub, Origin::Local).await;
     let params = json!({"enabled": true, "limit": 10, "afterSeq": head, "listEpoch": epoch});
     let reply = app.call(method::MUX_WATCH, params).await;
