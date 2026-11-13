@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43351269971",
+  "recorded_at": "2026-11-13T02:26:17Z",
+  "reason": "cmux-tui b7e245ed072f changes the image's cmux-tui (pinned 5f74c8090efe)",
+  "dry_run": false,
+  "cmux_tui": "b7e245ed072f58c4510c82a748506327cf4bbc21",
+  "fixes": [
+    {
+      "sha": "b7e245ed072f58c4510c82a748506327cf4bbc21",
+      "mergedAt": "2026-11-12T17:53:59-08:00",
+      "subject": "base red: acpmux socket-ready startup is independent of durable setup (#42177)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-13T02:26:17Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
