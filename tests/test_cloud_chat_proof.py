@@ -4,6 +4,7 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import runpy
 import subprocess
@@ -20,9 +21,10 @@ STAGING_API = "https://cloud-api-staging.cmux.dev"
 class CloudChatProofTests(unittest.TestCase):
     def run_proof(self, *, backend_name="staging", backend=None, environment=None, wrong_bundle=False,
                   signed_in=True, reply="CLOUD_BROWSER_PROOF_OK title=Example Domain h1=Example Domain", cleanup_exit=0, app_exits=True,
-                  from_folder=False, folder_reply=True):
+                  from_folder=False, folder_reply=True, grant=False, login="", agent="claude"):
         calls = []
         folders = []
+        configs = []
         clock = 0.0
         auth_reads = 0
         expected_api = STAGING_API if backend_name == "staging" else "https://cloud-api.cmux.dev"
@@ -47,6 +49,17 @@ class CloudChatProofTests(unittest.TestCase):
                 clock += 0.25
                 self.assertEqual(command[0], str(app / "Contents/Resources/bin/cmux"))
                 self.assertEqual(env["CMUX_SOCKET_PATH"], "/tmp/cmux-debug-proof-test.sock")
+                config = env.get("CMUX_NEXT_CONFIG_FILE")
+                if grant:
+                    # The app's own scratch cmux.json, private to this run, holding only the consent.
+                    path = Path(config)
+                    self.assertEqual(path.name, "cmux-next.json")
+                    self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                    self.assertEqual(json.loads(path.read_text()), {"cloud": {"useMyClaudeLoginOnMyCloudMachines": True}})
+                    if path not in configs:
+                        configs.append(path)
+                else:
+                    self.assertEqual(config, os.environ.get("CMUX_NEXT_CONFIG_FILE"))
                 self.assertTrue(capture_output)
                 self.assertTrue(text)
                 self.assertGreater(timeout, 0)
@@ -80,7 +93,9 @@ class CloudChatProofTests(unittest.TestCase):
                         if reply and folder_reply:
                             answer = f"{reply} folder={word}"
                         rest = rest[:2] + rest[4:]
-                    self.assertEqual(rest, ["--agent", "claude", "--name", "proof-test", "--wait",
+                    # `--login` goes to a Claude chat only, after any --from-folder.
+                    chosen = ["--login", login] if login and agent == "claude" else []
+                    self.assertEqual(rest, ["--agent", agent, *chosen, "--name", "proof-test", "--wait",
                                             "--timeout", "600", "--json"])
                     value = {"machine_id": "machine-proof", "session_id": "session-proof",
                              "host": "guest.example.test", "reply": answer,
@@ -106,18 +121,23 @@ class CloudChatProofTests(unittest.TestCase):
                                                    json.dumps({"result": value}), "")
 
             argv = [str(SCRIPT), "--app", str(app), "--tag", "proof-test",
-                    "--prompt", "Return the marker.", "--agent", "claude",
+                    "--prompt", "Return the marker.", "--agent", agent,
                     "--cloud-backend", backend_name, "--expected-api-origin", expected_api,
-                    "--evidence", str(evidence_path)] + (["--from-folder"] if from_folder else [])
+                    "--evidence", str(evidence_path)] + (["--from-folder"] if from_folder else []) \
+                + (["--grant-claude-login"] if grant else []) + (["--login", login] if login else [])
             with patch.object(sys, "argv", argv), patch("subprocess.run", side_effect=run), \
                     patch("subprocess.Popen", return_value=launcher) as launch, \
                     patch("time.monotonic", side_effect=lambda: clock), \
                     patch("time.sleep", side_effect=sleep), contextlib.redirect_stdout(io.StringIO()):
                 with self.assertRaises(SystemExit) as stopped:
                     runpy.run_path(str(SCRIPT), run_name="__main__")
+            expected_launch = ["/usr/bin/open", "-W", "-g", "-n", "--env", "CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-proof-test.sock"]
+            if grant:
+                self.assertEqual(len(configs), 1, "The CLI and the launch read one scratch cmux.json")
+                expected_launch += ["--env", f"CMUX_NEXT_CONFIG_FILE={configs[0]}"]
+                self.assertFalse(configs[0].parent.exists(), "The proof removes its scratch cmux.json")
             launch.assert_called_once_with(
-                ["/usr/bin/open", "-W", "-g", "-n", "--env", "CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-proof-test.sock",
-                 str(app), "--args", "--cloud-backend", backend_name],
+                expected_launch + [str(app), "--args", "--cloud-backend", backend_name],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             launcher.wait.assert_called_once_with(timeout=60)
             self.assertTrue(evidence_path.is_file(), "Every terminal outcome must write its evidence")
@@ -159,6 +179,28 @@ class CloudChatProofTests(unittest.TestCase):
                 self.assertEqual(calls[-1], ["app", "quit", "--json"])
                 self.assertEqual(steps["app exited"]["exit"], 0)
                 self.assertFalse(any(words[:2] == ["cloud", "env"] for words in calls))
+                self.assertEqual(evidence["claude_login"], {"consent_granted": False, "login": None})
+
+    def test_grant_claude_login_gives_the_launch_its_consent_and_the_chat_its_login(self):
+        # CI's unattended Claude chat on either backend: the consent a Release build's headless start waits for,
+        # in the launched app's own cmux.json, and `--login none` (the machine's team gateway), which a DEV
+        # build's headless start takes where it would refuse with needs-login-choice.
+        for backend_name in ("staging", "prod"):
+            with self.subTest(backend=backend_name):
+                code, evidence, calls = self.run_proof(backend_name=backend_name, grant=True, login="none")
+                self.assertEqual(code, 0, evidence)
+                self.assertEqual(evidence["claude_login"], {"consent_granted": True, "login": "none"})
+                start = next(words for words in calls if words[:2] == ["cloud", "start-chat"])
+                self.assertEqual(start[start.index("--login") + 1], "none")
+
+    def test_login_follows_the_folder_and_goes_to_a_claude_chat_only(self):
+        code, evidence, _ = self.run_proof(from_folder=True, grant=True, login="none")
+        self.assertEqual(code, 0, evidence)
+        code, evidence, calls = self.run_proof(agent="codex", grant=True, login="none")
+        self.assertEqual(code, 0, evidence)
+        self.assertEqual(evidence["claude_login"], {"consent_granted": True, "login": None})
+        start = next(words for words in calls if words[:2] == ["cloud", "start-chat"])
+        self.assertNotIn("--login", start)
 
     def test_from_folder_reply_must_hold_the_word_only_the_folder_has(self):
         code, evidence, _ = self.run_proof(from_folder=True)

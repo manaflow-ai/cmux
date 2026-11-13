@@ -723,9 +723,9 @@ pub(super) fn tree_delta_json(delta: &TreeDelta, mux: &Mux) -> Value {
     }
     if let Some(revision) = delta.workspace_revision {
         value.insert("workspace_revision", json!(revision));
-        if let Ok(Some(event)) = mux.workspace_registry_event(revision) {
-            value.insert("origin", json!(event.origin));
-            value.insert("mutation_id", json!(event.mutation_id));
+        if let Some(mutation) = &delta.mutation {
+            value.insert("origin", json!(mutation.origin));
+            value.insert("mutation_id", json!(mutation.mutation_id));
         }
         let (registry_id, generation) = mux.registry_identity();
         value.insert("registry_id", json!(registry_id));

@@ -1,0 +1,46 @@
+## App Review notes for cmux-next-ios. cmux-next-ios/scripts/asc_review_package.py sync-notes
+## writes this file to App Store Connect: lines starting "##" are dropped, each {{NAME}} is
+## filled from App Store Connect or a repository variable, and an empty value stops the run.
+## Every double-quoted label must be a string the release app shows (tests/test_asc_review_package.py).
+cmux for iPhone is where you talk to Chief, an agent that runs your coding agents and reports back in a conversation. This version replaces the earlier cmux iPhone app. You do not need a Mac, a VPN or any network setup to review it: the demo account has a Cloud Chief that runs in cmux Cloud and answers in chat.
+
+Prior review resolutions:
+- Guideline 2.5.2 (submission 99c2f5b0-5940-41d4-a02b-fd222d2eeeca): the app does not download or execute code on iPhone. It shows conversations and sends messages; agents run on the user's own Mac or in cmux Cloud.
+- System VPN API (submission 40f744df-e0fc-4782-9dac-aa0c79281b9f): the binary contains no packet tunnel extension and no Network Extension or VPN entitlement.
+- Guideline 1.5: the Support URL is https://cmux.com/support.
+
+Sign in (there is no password):
+1. Launch cmux and tap "Continue with email". On "What's your email?", enter {{DEMO_ACCOUNT_EMAIL}} (also in the demo account field) and tap "Continue".
+2. The app emails a one-time code. Open this public inbox in Safari: {{MAILINATOR_PUBLIC_INBOX_URL}} (no account or password needed). The newest email holds the code.
+3. Type the code on "Check your email". It submits on the last character. If no code arrives within two minutes, tap "Resend code".
+
+First launch:
+- If "Choose a space" appears, tap "Personal".
+- "Connect your Mac" is for people who also run cmux on a Mac. Tap "Not now".
+- On "Know when an agent needs you", tap "Turn on notifications" or "Not now". The app works the same either way.
+
+## REVIEW DEMO STEPS: START. The review demo path (the demo account's Cloud Chief answering
+## in chat, no Mac) replaces the numbered steps between START and END with its exact steps.
+Review path (no Mac needed):
+1. Home lists the account's conversations. Open the Chief named "{{REVIEW_CHIEF_NAME}}"; its row is tagged Cloud.
+2. Tap "Message Chief", type Reply with app-review-ok and tap Send. Chief's reply appears in the conversation within a few seconds.
+3. Tap the Chief's name at the top. Its page says "This Chief runs in cmux Cloud."
+## REVIEW DEMO STEPS: END
+
+Other screens:
+- Home: swipe a conversation left for "Read" and "Pin"; touch and hold it for "Mark as Read" and "Delete Conversation from List". "New Message to Chief" (top right) opens Chief with the keyboard up.
+- The Workspaces and Feed tabs show the workspaces and alerts of a Mac signed in to the same account. With no Mac they offer "Connect your Mac".
+- Account deletion: Settings, tap the account row at the top to open "Account", then "Delete Account". After the confirmation "Delete your cmux account?" the account and its data are deleted permanently and the app signs out. Please try it last, since it deletes the demo account.
+
+Permissions, each optional and asked only when first used:
+- Notifications: during setup, or with the first message to Chief, so Chief can tell you when an agent needs you.
+- Microphone: calls with Chief and audio messages to Chief and agents.
+- Speech Recognition: turns voice notes into text on this device. Audio is not sent for recognition.
+- Camera: a photo to attach to a message, or scanning the pairing code a Mac shows.
+- Photos: attaching photos to messages, and saving images to Photos.
+- Face ID: only when "Require Face ID" is on in Settings.
+- Local Network: a direct link to the user's own Mac on the same network.
+
+Payments: the app sells no digital goods and has no purchase, checkout or billing links.
+
+Contact during review: {{REVIEW_CONTACT_EMAIL}}, {{REVIEW_CONTACT_PHONE}}

@@ -1,6 +1,6 @@
 // New Chief while Create runs: the status line says it is working, then that it is slow, and a
 // refusal replaces it and gives Create back. Create never just greys out with nothing said.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -38,7 +38,10 @@ const strings = createStrings(
   ["en"],
 );
 
-const wait = (ms: number) => new Promise((done) => setTimeout(done, ms));
+const SLOW_AFTER_MS = 20;
+// The slow line is a timer, so the test moves a fake clock to it: no wait on the wall clock, which a loaded
+// runner wakes late (check:fixed-waits).
+const pass = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
 
 async function mount(createChief: () => Promise<ComposeOutcome>) {
   dom = new JSDOM('<!doctype html><html><body><main id="root"></main></body></html>', {
@@ -46,6 +49,7 @@ async function mount(createChief: () => Promise<ComposeOutcome>) {
     pretendToBeVisual: true,
   });
   for (const key of GLOBALS) saved.set(key, scope[key]);
+  jest.useFakeTimers();
   const view = dom.window;
   Object.assign(scope, {
     window: view,
@@ -68,10 +72,9 @@ async function mount(createChief: () => Promise<ComposeOutcome>) {
         actions={{ createChief }}
         onFinish={() => undefined}
         initialName="mario"
-        slowAfterMs={20}
+        slowAfterMs={SLOW_AFTER_MS}
       />,
     );
-    await wait(0);
   });
   const find = (id: string) => view.document.querySelector<HTMLElement>(`[data-testid="${id}"]`)!;
   return {
@@ -87,6 +90,7 @@ afterEach(async () => {
   dom = undefined;
   for (const [key, value] of saved) scope[key] = value;
   saved.clear();
+  jest.useRealTimers();
 });
 
 test("Create says it is working, then slow, and a refusal gives it back", async () => {
@@ -95,23 +99,20 @@ test("Create says it is working, then slow, and a refusal gives it back", async 
   expect(sheet.primary().disabled).toBe(false);
   expect(sheet.status()).toBe("");
 
-  await act(async () => {
-    sheet.primary().click();
-    await wait(0);
-  });
+  await act(async () => sheet.primary().click());
   expect(sheet.primary().disabled).toBe(true);
   expect(sheet.status()).toBe("Creating…");
 
-  await act(async () => wait(40));
+  await pass(SLOW_AFTER_MS - 1);
+  expect(sheet.status()).toBe("Creating…");
+  await pass(1);
   expect(sheet.status()).toBe("Taking longer");
 
-  await act(async () => {
-    answer({ kind: "refused", reason: "" });
-    await wait(0);
-  });
+  await act(async () => answer({ kind: "refused", reason: "" }));
   expect(sheet.primary().disabled).toBe(false);
   expect(sheet.status()).toBe("Failed");
 
-  await act(async () => wait(40));
+  // The slow timer of the finished run must not write over the refusal.
+  await pass(SLOW_AFTER_MS * 2);
   expect(sheet.status()).toBe("Failed");
 });

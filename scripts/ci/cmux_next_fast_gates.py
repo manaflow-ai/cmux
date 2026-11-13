@@ -25,7 +25,8 @@ The gates, each the same invocation as its push-time job:
   web lint        scripts/web_lint_prepush.py --base BASE --head MERGE --new-only (cmux-next-web-lint.yml's
                   web lint (fast); only findings the PR adds, per error)
   crash ratchet   scripts/ci/crash_ratchet_compare.py on the merge and BASE's exported tree (cmux-next-guards.yml)
-  prepush gate    scripts/cmux-next/prepush-gate.py --base BASE --head MERGE (only violations the PR adds)
+  prepush gate    scripts/cmux-next/prepush-gate.py --base BASE --head MERGE --advisory (only violations the PR
+                  adds; --advisory names the hook-only layers' findings as warnings and never fails the gate)
   crash-class rules  scripts/ci/crash_class_fast_gate.py on the merge and BASE's exported tree
                   (cmux-next-crash-class.yml: concurrency crash classes, super-call selectors and the
                   Chromium Objective-C contract; only findings the PR adds)
@@ -68,7 +69,11 @@ IDENTITY = ("-c", "user.name=cmux fast gates", "-c", "user.email=fast-gates@user
 # The crash ratchet reads these trees on each side (cmux-next-guards.yml, crash-ratchet).
 RATCHET_PATHS = ("Packages", "cmux-tui/crates", "scripts/cmux-next")
 FETCH_DEPTH = 50
-DEEPEN_STEPS = (200, 1000, 5000)
+# A pull request a few dozen commits from the tip needs only the first step. Each deepen brings commits and trees but
+# no blobs (--filter=blob:none; git fetches a blob a gate reads on demand): on 2026-11-13 a --deepen=200 with blobs
+# took 87 to 108 s of a 160 to 233 s job (runs 43473169308, 43474564309) for heads 9 and 32 commits from their base.
+DEEPEN_STEPS = (32, 200, 1000, 5000)
+DEEPEN_FILTER = "--filter=blob:none"
 
 
 def log(message: str) -> None:
@@ -207,9 +212,13 @@ def deepen(repo: Path, remote: str, wants: list[str], head: str, base: str) -> N
     for depth in DEEPEN_STEPS:
         if deep_enough(repo, head, base):
             return
-        git(repo, "fetch", "--no-tags", "--quiet", f"--deepen={depth}", remote, *wants)
+        started = time.monotonic()
+        git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, f"--deepen={depth}", remote, *wants)
+        log(f"fast-gates: deepened by {depth} in {time.monotonic() - started:.1f}s")
     if not deep_enough(repo, head, base):
-        git(repo, "fetch", "--no-tags", "--quiet", "--unshallow", remote, *wants)
+        started = time.monotonic()
+        git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, "--unshallow", remote, *wants)
+        log(f"fast-gates: unshallowed in {time.monotonic() - started:.1f}s")
 
 
 def fetch_for_merge(repo: Path, remote: str, pr: str, base: str) -> None:
@@ -304,7 +313,8 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
          if web else None),
         ("crash ratchet", [py, "scripts/ci/crash_ratchet_compare.py", "--script", "scripts/cmux-next/crash_ratchet.py",
                            "--head", str(repo), "--base", str(base_tree)]),
-        ("prepush gate", [py, "-I", "scripts/cmux-next/prepush-gate.py", "--base", base, "--head", merge]),
+        # --advisory: the hook-only layers as ::warning annotations, never this gate's result (prepush-gate.py).
+        ("prepush gate", [py, "-I", "scripts/cmux-next/prepush-gate.py", "--base", base, "--head", merge, "--advisory"]),
         ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree)]),
         ("webviews checks", [py, "scripts/ci/fast_gate_webviews_checks.py", "--base", base] if checks else None),
     ]

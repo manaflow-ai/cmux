@@ -8,10 +8,20 @@
 //! keep-layout. The user asked, so any end of the terminal's last
 //! incarnation qualifies, no backoff applies, and the supervisor's attempt
 //! count starts over (`supervisor.rs`). The restart runs the L2 worker
-//! (`spawn_respawn_worker`), so it takes a turn in the respawn gate (the
-//! terminal the person sees first) and a failed launch is tried again
-//! (`retry.rs`): the same terminal id gets a new shell and
-//! incarnation in its tabs, below the previous screen and the marker line.
+//! (`spawn_respawn_worker`), so it takes a turn in the respawn gate and a
+//! failed launch is tried again (`retry.rs`). The restore of a session (the
+//! tabs kept with no `on_show`: their terminal ran an agent session, or
+//! the kept row does not say) waits in the gate's line, a terminal of the
+//! daemon's active workspace first; any other restart is taken as one the
+//! person asked for and does not wait for that line. The request does not
+//! say who sent it, so two cases are on the wrong side today: a script's
+//! `cmux tab restart` of a dead tab that is not such a kept tab goes first
+//! too, and a kept agent tab that the person restarts by hand, or
+//! that a frontend starts at the first show of its workspace (a protected
+//! folder), waits in the line unless its workspace is the active one. The
+//! same terminal id gets a
+//! new shell and incarnation in its tabs, below the previous screen and the
+//! marker line.
 //! The tab id, placement, name, pin and group stay. A restarted keep-layout
 //! tab starts in its recorded directory and stops being kept
 //! (`tab-restart-kept-layout-v1`).
@@ -85,7 +95,15 @@ impl Mux {
         if let Some(recovered) = self.recover_failed_link_tab(surface) {
             return Ok(recovered);
         }
-        let plan = self.plan_user_restart(surface)?;
+        let mut plan = self.plan_user_restart(surface)?;
+        // A frontend restores a session with one `restart-tab` per tab kept
+        // with no `on_show` (the terminals that ran an agent): those take
+        // their turns in line. Any other restart is taken as one the person
+        // waits for (Restart Shell Here, the first show of a parked tab's
+        // workspace; a script's `cmux tab restart` too, the request does
+        // not tell them apart): it goes before each restore start that has
+        // not begun, in a hidden workspace too.
+        plan.asked = !plan.kept.iter().any(|kept| !kept.on_show);
         let accepted = TabRestart {
             terminal: plan.public_id.as_str().to_string(),
             previous_incarnation: plan.old_incarnation.clone(),
@@ -241,6 +259,7 @@ impl Mux {
             delay: Duration::ZERO,
             recorded,
             user_restart: true,
+            asked: false,
             kept,
             failed_launches: 0,
         })

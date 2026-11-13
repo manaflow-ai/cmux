@@ -1,16 +1,56 @@
 #!/usr/bin/env python3
-"""Validate the top-level schema used by tracked Xcode string catalogs."""
+"""Validate tracked Xcode string catalogs: their top-level schema, and that no text a person
+reads names one of cmux's internal parts (acpmux, optchat). Keys and translator comments may."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 
 ALLOWED_TOP_LEVEL_KEYS = frozenset(("sourceLanguage", "strings", "version"))
+
+# Internal component names a person never reads in the app (user, 2026-11-09: "generally in gui we
+# should not mention stuff like acpmux"). The CLI, docs and logs may still name them.
+INTERNAL_NAMES = re.compile(r"acpmux|optchat", re.IGNORECASE)
+
+
+def _string_values(node: object) -> list[str]:
+    """Every stringUnit value under a localization, its plural and device variations included."""
+    if isinstance(node, dict):
+        values = []
+        unit = node.get("stringUnit")
+        if isinstance(unit, dict) and isinstance(unit.get("value"), str):
+            values.append(unit["value"])
+        for key, child in node.items():
+            if key != "stringUnit":
+                values.extend(_string_values(child))
+        return values
+    if isinstance(node, list):
+        return [value for child in node for value in _string_values(child)]
+    return []
+
+
+def internal_name_errors(path: Path, strings: dict[str, object]) -> list[str]:
+    """Name each localization whose text shows an internal component name."""
+    errors: list[str] = []
+    for key, entry in strings.items():
+        localizations = entry.get("localizations") if isinstance(entry, dict) else None
+        if not isinstance(localizations, dict):
+            continue
+        for locale, localization in localizations.items():
+            for value in _string_values(localization):
+                found = INTERNAL_NAMES.search(value)
+                if found:
+                    errors.append(
+                        f"{path}: {key} [{locale}] shows the internal name '{found.group(0).lower()}' "
+                        "to the user; say cmux, or say what it does"
+                    )
+    return errors
 
 
 def _tracked_catalogs() -> list[Path]:
@@ -42,6 +82,8 @@ def check_catalog(path: Path) -> list[str]:
         )
     if not isinstance(data.get("strings"), dict):
         errors.append(f"{path}: missing top-level 'strings' object")
+    else:
+        errors.extend(internal_name_errors(path, data["strings"]))
     if data.get("version") != "1.0":
         errors.append(f"{path}: missing top-level 'version' key with value '1.0'")
     return errors

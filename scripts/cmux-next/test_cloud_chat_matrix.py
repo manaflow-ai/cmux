@@ -38,6 +38,8 @@ class FixtureTests(unittest.TestCase):
         for kind in matrix.WORKSPACES:
             if kind == "big-plain":
                 continue  # 128 MiB of random blobs; its shape is the plain folder's
+            if kind in matrix.REFUSED_CELLS:
+                continue  # refused before any copy: no manifest is compared, and 21 GiB of zeros is no fixture to hash
             folder, note = matrix.build_fixture(kind, self.root, self.args, "cmxcanarytest")
             if folder is None:
                 self.assertTrue(note.startswith("skipped"), kind)
@@ -45,6 +47,15 @@ class FixtureTests(unittest.TestCase):
             expected = matrix.local_manifest(folder, "cmxcanarytest")
             if not expected["left_out"] or set(expected["left_out"]) == {"symlink"}:
                 self.assertEqual(remote_manifest(folder)["sha256"], expected["sha256"], kind)
+
+    def test_a_parent_of_repositories_is_no_repository_and_holds_each(self):
+        for kind in ("parent-repos", "huge-parent-repos"):
+            folder, _ = matrix.build_fixture(kind, self.root, self.args, "")
+            self.assertFalse((folder / ".git").exists(), kind)
+            for name in matrix.PARENT_REPOS:
+                self.assertTrue((folder / name / ".git").is_dir(), (kind, name))
+        self.assertEqual((self.root / "huge-parent-repos/disk.img").stat().st_size, matrix.HUGE_PLAIN_BYTES)
+        self.assertEqual(set(matrix.REFUSED_CELLS), {"huge-plain", "huge-parent-repos"})
 
     def test_secrets_are_left_out_and_the_canary_is_found_where_it_is(self):
         folder, _ = matrix.build_fixture("secrets", self.root, self.args, "cmxcanarytest")
@@ -125,6 +136,116 @@ class GrantTests(unittest.TestCase):
         self.assertNotIn(".config/cmux", str(config))
         m.quit()
         self.assertFalse(config.exists())
+
+
+class TrustTests(unittest.TestCase):
+    """A fixture is trusted on this Mac before its cell, as a person does: an untrusted folder's Cloud start is
+    refused before any machine (#41079), which turned every cell red at 0.0 s."""
+
+    def fake_cli(self, folder: Path, code: int) -> Path:
+        cli = folder / "cmux"
+        cli.write_text(f'#!/bin/sh\necho "$@" >> "{folder}/calls"\n'
+                       + ('echo \'{"error":{"message":"no daemon"}}\'\n' if code else "") + f"exit {code}\n")
+        cli.chmod(0o755)
+        return cli
+
+    def test_a_fixture_is_trusted_through_setup_trust(self):
+        with tempfile.TemporaryDirectory() as folder:
+            m = matrix.Matrix(matrix.parse_args(["--cli", str(self.fake_cli(Path(folder), 0)), "--out", "/tmp/x"]))
+            self.assertEqual(m.trust(Path(folder) / "small-repo"), "")
+            self.assertEqual((Path(folder) / "calls").read_text().split(), ["setup", "trust", f"{folder}/small-repo"])
+
+    def test_a_trust_that_fails_is_the_cells_failure_not_a_skip(self):
+        with tempfile.TemporaryDirectory() as folder:
+            m = matrix.Matrix(matrix.parse_args(["--cli", str(self.fake_cli(Path(folder), 1)), "--out", "/tmp/x"]))
+            note = m.trust(Path(folder) / "small-repo")
+            self.assertTrue(note.startswith("fail: trust: "), note)
+            self.assertIn("no daemon", note)
+
+
+class StopTests(unittest.TestCase):
+    def test_a_cancelled_run_starts_no_more_cell_work(self):
+        import threading
+        m = matrix.Matrix(matrix.parse_args(["--cli", "/bin/sleep", "--out", "/tmp/x"]))
+        m.stop()
+        self.assertTrue(m.run_cell("small-repo", "claude", Path("/tmp"), "", word="w", canary="",
+                                   read_only=False)["result"].startswith("skipped"))
+        answer = []
+        worker = threading.Thread(target=lambda: answer.append(m.cmux("600")))
+        worker.start()
+        worker.join(5)
+        self.assertEqual(answer[0][0], 130)
+
+    def test_stop_ends_the_calls_cells_wait_on(self):
+        import threading
+        import time
+        m = matrix.Matrix(matrix.parse_args(["--cli", "/bin/sleep", "--out", "/tmp/x"]))
+        answer = []
+        worker = threading.Thread(target=lambda: answer.append(m.cmux("600", timeout=600)))
+        worker.start()
+        deadline = time.monotonic() + 5
+        while not m.children and time.monotonic() < deadline:
+            time.sleep(0.05)
+        started = time.monotonic()
+        m.stop()
+        worker.join(10)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertNotEqual(answer[0][0], 0)
+
+
+    def test_a_child_started_while_stopping_is_ended_too(self):
+        import threading
+        import time
+        m = matrix.Matrix(matrix.parse_args(["--cli", "/bin/sleep", "--out", "/tmp/x"]))
+        real = matrix.subprocess.Popen
+
+        def popen_then_stop(*args, **kwargs):  # stop() lands after the check, before registration
+            child = real(*args, **kwargs)
+            m.stop()
+            return child
+        matrix.subprocess.Popen = popen_then_stop
+        try:
+            answer = []
+            worker = threading.Thread(target=lambda: answer.append(m.cmux("600", timeout=600)))
+            started = time.monotonic()
+            worker.start()
+            worker.join(10)
+        finally:
+            matrix.subprocess.Popen = real
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertNotEqual(answer[0][0], 0)
+
+    def test_sigterm_while_the_main_thread_holds_the_lock_does_not_deadlock(self):
+        import os
+        import signal
+        import threading
+        import time
+        m = matrix.Matrix(matrix.parse_args(["--cli", "/bin/sleep", "--out", "/tmp/x"]))
+
+        class Cancelled(Exception):
+            pass
+
+        def handler(signum, frame):
+            m.stop()
+            raise Cancelled
+        previous = signal.signal(signal.SIGTERM, handler)
+        answer = []
+        worker = threading.Thread(target=lambda: answer.append(m.cmux("600", timeout=600)))
+        worker.start()
+        deadline = time.monotonic() + 5
+        while not m.children and time.monotonic() < deadline:
+            time.sleep(0.05)
+        started = time.monotonic()
+        try:
+            with self.assertRaises(Cancelled):
+                with m.lock:  # as launch(), sweep() and kill() hold it
+                    os.kill(os.getpid(), signal.SIGTERM)
+                    time.sleep(5)
+        finally:
+            signal.signal(signal.SIGTERM, previous)
+        worker.join(10)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertNotEqual(answer[0][0], 0)
 
 
 if __name__ == "__main__":
