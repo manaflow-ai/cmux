@@ -73,6 +73,9 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
 
   const open = async (engine: string, entry: string, variant: string, accent?: string) => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width: 760, height: 600 } });
+    // Claude's look, whose Send and Stop are plain glyphs: Codex's (the default since #42247) fills
+    // them, as Codex desktop does (composerLook.css).
+    await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "claude"));
     await page.goto(stageURL(entry, variant, accent));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,

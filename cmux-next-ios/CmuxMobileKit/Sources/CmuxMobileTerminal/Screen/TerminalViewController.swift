@@ -294,6 +294,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var settingOffset = false
     private var resizeSettle = TerminalResizeSettle()
     private var settleTask: Task<Void, Never>?
+    /// The foreground program's read in flight (``readForegroundProgram()``).
+    private var programRead: Task<Void, Never>?
     /// Hide Toolbar: the key row's height is 0.
     private var keyRowCollapsed: NSLayoutConstraint!
     /// The composer is closed or hidden: its height is 0.
@@ -337,8 +339,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = CmuxMobileGhosttyApp.background
-        // The terminal theme is dark: chrome, glass and the keyboard follow it.
-        overrideUserInterfaceStyle = .dark
+        // Chrome, glass and the keyboard follow the terminal theme (dark, or the Mac theme's look).
+        overrideUserInterfaceStyle = CmuxMobileGhosttyApp.interfaceStyle
         view.clipsToBounds = true
 
         scrollView.delegate = self
@@ -1198,6 +1200,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             case .alternateScreen(let on):
                 model.ingest(.alternateScreen(on))
                 applyMode(tui: on)
+                readForegroundProgram()
             case .hostGrid(let columns, let rows):
                 appliedHostColumns = columns
                 appliedHostRows = rows
@@ -1371,6 +1374,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + TerminalReplayGate.deadline) { [weak self] in
             guard let self, self.replayGate.expireIfOverdue(at: CACurrentMediaTime()) else { return }
             sizingLog.notice("replay gate expired at its deadline")
+            self.model.mirrorPlaced()
             self.outputSinceProbe = true
             self.updateDocument()
             if self.readingMark != nil {
@@ -1408,6 +1412,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return
         }
         if replayDone {
+            model.mirrorPlaced()
             if let started = replayStartedAt {
                 sizingLog.notice("replay done bytes=\(self.replayBytes, privacy: .public) ms=\(Int((CACurrentMediaTime() - started) * 1000), privacy: .public)")
                 replayStartedAt = nil
@@ -1512,6 +1517,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             guard let self, let view = self.freezeView, ObjectIdentifier(view) == held else { return }
             if self.replayGate.isReplaying {
                 self.replayGate.expire()
+                self.model.mirrorPlaced()
                 self.outputSinceProbe = true
                 self.updateDocument()
             }
@@ -1576,11 +1582,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The app left (false) or is coming back to (true) the foreground.
     ///
-    /// Leo, 2026-11-12: "when i load in it show me uncompact then squish". A
-    /// claim that lapsed while the app was away (the Mac's size lease ended
-    /// for a suspended phone) let the Mac's grid grow; the mirror followed
-    /// it, and coming back showed the Mac's wide grid until the reclaim's
-    /// resize reset the mirror at the phone's size. The page as it was when
+    /// Leo, 2026-11-12: "when i load in it show me uncompact then squish". The
+    /// background releases the phone's size at once, so the Mac's grid grows;
+    /// the mirror follows it, and coming back would show the Mac's wide grid
+    /// until the reclaim's resize reset the mirror at the phone's size. The page as it was when
     /// the app left (the phone's own grid) now stays up until that reset's
     /// replay is drawn: one steady frame at phone width.
     func appActiveChanged(_ active: Bool) {
@@ -2880,7 +2885,28 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         // The rows move under a selection: it would point at other text.
         tuiScroll.dragBegan = { [weak self] in self?.tuiSelection.clear() }
+        tuiScroll.routeMayHaveChanged = { [weak self] in self?.readForegroundProgram() }
         tuiScroll.install(in: tuiClip, surface: surface, tap: tuiTap)
+    }
+
+    /// Reads the Mac terminal's foreground program for the drag's route
+    /// (``TerminalPanRoute``): when the alternate screen comes and when a drag
+    /// begins on it. Each read forgets the program first: until it answers a
+    /// drag there sends nothing, so a name from before (less, before Claude
+    /// Code took the screen in an output hold that never showed the primary
+    /// screen) never sends Claude Code a key.
+    private func readForegroundProgram() {
+        programRead?.cancel()
+        programRead = nil
+        surface.foregroundProgram = nil
+        guard model.isTUI else { return tuiScroll.programRead() }
+        let session = model.session
+        programRead = Task { [weak self] in
+            let program = await session.foregroundProgram()
+            guard !Task.isCancelled, let self else { return }
+            if self.model.isTUI { self.surface.foregroundProgram = program }
+            self.tuiScroll.programRead()
+        }
     }
 
     /// While a long press selects, the page does not scroll under the finger.

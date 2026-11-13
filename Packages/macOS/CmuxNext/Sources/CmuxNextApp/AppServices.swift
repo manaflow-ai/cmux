@@ -28,6 +28,7 @@ import CmuxNextFavicons
 import CmuxNextHibernation
 import CmuxNextHomeEngine
 import CmuxNextIcons
+import CmuxNextKeepAwake
 import CmuxNextLiveCode
 import CmuxNextPalette
 import CmuxNextAccounts
@@ -460,7 +461,7 @@ final class AppServices {
     /// Agent harness profiles (Settings > Agents, `agent.harness.*`), through acpmux.
     private(set) lazy var agentHarnesses = AgentHarnessCenter(services: self)
     /// Every harness's icon (user 12922) for the tab strip and sidebar, and their drawings.
-    private(set) lazy var harnessIcons = HarnessIconBook(environment: { [weak self] in self.flatMap(QuitAgents.environment) })
+    private(set) lazy var harnessIcons = HarnessIconBook(work: work, build: environment.build, mock: environment.showcase)
     let harnessIconArtwork = HarnessIconArtwork()
     /// The drawn harness icons the tab strip and sidebar mappings take.
     var harnessIconLookup: HarnessIconLookup { harnessIconArtwork.lookup(for: harnessIcons.icons) }
@@ -575,7 +576,7 @@ final class AppServices {
          agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles()) {
         self.work = work
         bundledCLI = BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work)
-        (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain), .application(loginKeychain: loginKeychain))
+        (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain, appearance: ThemeScope.app), .application(loginKeychain: loginKeychain))
         (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource, self.peerApprover, self.heldKeyReplay) = (launchImages, relaunchWake, keyWindowSource, appActiveSource, peerApprover, heldKeyReplay)
         self.agentPaneStateFiles = agentPaneStateFiles
         agentPaneStateLoss = AgentPaneStateLoss(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())

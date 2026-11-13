@@ -70,6 +70,8 @@ pub mod deps;
 pub mod desktop_bridge;
 pub mod desktop_link;
 pub mod folder_instructions;
+#[cfg(all(test, unix))]
+mod fork_tests;
 pub mod forum;
 pub mod forum_mcp;
 pub mod frame_compress;
@@ -159,6 +161,7 @@ pub mod parent_watch;
 pub mod parse_budget;
 pub mod path_canon;
 pub mod peer;
+pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
 pub mod peer_paths;
@@ -178,6 +181,8 @@ pub mod protected_folders;
 pub mod protocol;
 pub mod qos;
 pub mod question_answer;
+#[cfg(target_os = "linux")]
+mod quiet_dirs;
 pub mod recovery;
 pub mod registry;
 pub mod request_cancel;
@@ -217,6 +222,8 @@ pub mod shell_words;
 pub mod sim_agent;
 #[cfg(test)]
 mod single_shot_list_tests;
+#[cfg(test)]
+mod source_scan_smoke;
 pub mod sr2_cost_labels;
 pub(crate) mod ssh_forward;
 pub mod stats;
@@ -236,6 +243,8 @@ pub mod tailnet;
 #[cfg(test)]
 mod test_exec;
 #[cfg(test)]
+mod test_hooks_tree;
+#[cfg(test)]
 mod test_stack;
 pub mod tools_mcp;
 pub mod touched_files;
@@ -247,7 +256,6 @@ pub mod turn_attestation;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;
-pub mod watch_delta;
 pub mod web_modes;
 pub mod wire_size;
 pub mod wireguard;
