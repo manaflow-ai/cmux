@@ -115,8 +115,14 @@ Today's targets:
   Select Standard during connection setup on the dedicated viewer. Apple
   targets require a second Mac and explicit `targets=`; the daily loopback
   defaults remain `rd,webrtc`.
-  Lack of an Apple timestamp API does not prevent measuring presented markers
-  with a common external observer; that observer is not implemented here yet.
+  A managed GUI step may provide `EVAL_PRESENTED_OBSERVER_BIN` (the `cmux-rd`
+  binary) plus `EVAL_PRESENTED_OBSERVER_PID`, `EVAL_PRESENTED_OBSERVER_WINDOW`,
+  `EVAL_PRESENTED_MARKER_ORIGIN`, `EVAL_PRESENTED_CELL_SIZE` and
+  `EVAL_PRESENTED_INPUT_POINT` in viewer capture pixels. The target then runs
+  `cmux-rd observe` against that exact visible window and accepts only a complete
+  `cmux.presented-marker/1` receipt. Without all of those values, Apple latency
+  stays explicitly unavailable; screenshot sampling never becomes a latency
+  claim.
 
 The window targets add `extra.process_cpu_pct`, the CPU of the process that captures and encodes,
 over the view. Compare them in one run with `--arg=targets=cu-png,rd-window,rd-window-30`

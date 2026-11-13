@@ -39,9 +39,56 @@ case "$verb" in
     ;;
   host-stop) ;;
   latency-view)
-    # Apple does not expose a supported input/frame timestamp API. Keep this row
-    # explicit rather than mixing a different protocol into the comparison.
     input=$1; raw=$3
+    if [[ -n "${EVAL_PRESENTED_OBSERVER_BIN:-}" ]]; then
+      # The managed GUI step may opt into cmux-rd's protocol-independent
+      # compositor observer. Every identity and geometry value is explicit so
+      # this target cannot silently observe another Screen Sharing window.
+      for var in EVAL_PRESENTED_OBSERVER_PID EVAL_PRESENTED_OBSERVER_WINDOW \
+        EVAL_PRESENTED_MARKER_ORIGIN EVAL_PRESENTED_CELL_SIZE EVAL_PRESENTED_INPUT_POINT; do
+        [[ -n "${!var:-}" ]] || {
+          echo "apple-$mode: presented observer requires $var" >&2
+          exit 1
+        }
+      done
+      [[ -x "$EVAL_PRESENTED_OBSERVER_BIN" ]] || {
+        echo "apple-$mode: presented observer is not executable: $EVAL_PRESENTED_OBSERVER_BIN" >&2
+        exit 1
+      }
+      kind=key
+      [[ "$input" == pointer ]] && kind=click
+      observer_raw="$raw.observer"
+      if ! "$EVAL_PRESENTED_OBSERVER_BIN" observe \
+        --pid "$EVAL_PRESENTED_OBSERVER_PID" \
+        --window "$EVAL_PRESENTED_OBSERVER_WINDOW" \
+        --display "${EVAL_PRESENTED_DISPLAY:-main}" \
+        --marker-origin "$EVAL_PRESENTED_MARKER_ORIGIN" \
+        --cell-size "$EVAL_PRESENTED_CELL_SIZE" \
+        --at "$EVAL_PRESENTED_INPUT_POINT" \
+        --input "$kind" --samples "$2" \
+        --timeout-ms "${EVAL_PRESENTED_TIMEOUT_MS:-1000}" \
+        --seed "${EVAL_PRESENTED_SEED:-1}" >"$observer_raw"; then
+        echo "apple-$mode: presented observer did not produce a complete marker receipt" >"$EVAL_STATE/latency.err"
+        exit 1
+      fi
+      python3 -I - "$observer_raw" "$raw" "$mode" <<'PY'
+import json, sys
+receipt = json.load(open(sys.argv[1]))
+if receipt.get("schema") != "cmux.presented-marker/1" or not receipt.get("complete"):
+    raise SystemExit("incomplete presented-marker receipt")
+json.dump({
+    "g2g_ms": {"n": receipt["n"], "p50": receipt["p50_ms"], "p95": receipt["p95_ms"]},
+    "lost": 0,
+    "split": {"input_to_capture_ms": None, "encode_ms": None, "transport_ms": None,
+               "decode_ms": None, "method": receipt.get("method", "cmux-rd presented observer")},
+    "mode": sys.argv[3], "observer": receipt,
+}, open(sys.argv[2], "w"))
+PY
+      exit 0
+    fi
+    # Without the explicit observer contract Apple has no supported
+    # input/frame timestamp API. Keep this row unavailable rather than mixing
+    # decode, screenshot or stale-window timing into the comparison.
     printf '{"g2g_ms":{},"lost":null,"split":{"method":"apple-screen-sharing-app: no supported glass-to-glass timestamp API"},"mode":"%s","input":"%s"}\n' "$mode" "$input" >"$raw"
     echo "apple-$mode: Apple Screen Sharing.app exposes no supported per-input frame timestamp; latency row is unavailable" >"$EVAL_STATE/latency.err"
     ;;

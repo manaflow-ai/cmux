@@ -36,6 +36,12 @@ if [[ "$prebuilt_branch" == *swiftc* ]]; then
   echo "FAIL: Apple prebuilt branch invokes swiftc"
   fail=1
 fi
+if ! grep -q 'EVAL_PRESENTED_OBSERVER_BIN' "$apple" ||
+   ! grep -q 'cmux.presented-marker/1' "$apple" ||
+   ! grep -q 'no supported glass-to-glass timestamp API' "$apple"; then
+  echo "FAIL: Apple latency path does not require a complete presented-marker observer"
+  fail=1
+fi
 
 if ! grep -q 'app="$home/Applications/CmuxScreenEvalLauncher.app"' "$harness" ||
    ! grep -q 'app=$(bash "$here/launcher/install.sh"' "$harness"; then
