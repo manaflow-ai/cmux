@@ -81,7 +81,7 @@ fn walk_memory_accounts_a_page_and_each_pending_id() {
     state.record_walk_page_memory(123, 0);
     assert_eq!(state.walk_peak_memory().0, 123);
     assert_eq!(
-        state.walk_peak_memory().2,
+        state.walk_peak_memory().3,
         (ids.iter().map(String::capacity).sum::<usize>()
             + ids.capacity().next_power_of_two().max(8) * WALK_ID_STATE_BYTES
             + std::mem::size_of::<[usize; 2]>()) as u64
