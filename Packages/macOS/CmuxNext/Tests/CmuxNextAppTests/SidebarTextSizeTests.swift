@@ -80,18 +80,20 @@ import Testing
     @Test func defaultKeepsTheOriginalSize() throws {
         try DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
             let m = try Self.measure(.standard)
+            // Compact's rows are 20 pt (Lawrence 2026-11-13), 2 pt apart.
             #expect(m.titlePoints == 12)
-            #expect(m.rowHeight == 24)
-            #expect(m.rowPitch == 26)
+            #expect(m.rowHeight == 20)
+            #expect(m.rowPitch == 22)
         }
     }
 
     @Test func largerMatchesChatGPT() throws {
         try DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
             let m = try Self.measure(.larger)
-            #expect(m.titlePoints == 14, "ChatGPT's sidebar titles are 14 pt; got \(m.titlePoints)")
-            #expect(m.rowPitch == 31, "ChatGPT's rows are 31 pt apart; got \(m.rowPitch)")
-            #expect(m.rowHeight == 29)
+            // The text size's step on Compact's 20 pt row (Default draws ChatGPT's 14 pt titles on its own).
+            #expect(m.titlePoints == 14, "Larger titles are 14 pt; got \(m.titlePoints)")
+            #expect(m.rowPitch == 27, "rows are 27 pt apart; got \(m.rowPitch)")
+            #expect(m.rowHeight == 25)
         }
     }
 
@@ -99,7 +101,7 @@ import Testing
         try DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
             let m = try Self.measure(.large)
             #expect(m.titlePoints == 13)
-            #expect(m.rowHeight == 27)
+            #expect(m.rowHeight == 23)
         }
     }
 

@@ -37,8 +37,12 @@ import Testing
         let reload = chrome.reloadButton.convert(chrome.reloadButton.bounds, to: nil)
         let row = Metrics.chromeRowHeight
         #expect(reload.width == row && reload.height == row, "the reload button is \(reload.size), the row \(row)")
-        #expect(chrome.reloadButton.layer?.cornerRadius == 8, "hover corner \(String(describing: chrome.reloadButton.layer?.cornerRadius))")
-        #expect(abs(OmnibarStyle.toolbarIconSize * DensityTokens.toolbarGlyphInkRatio - Metrics.iconSize) < 0.001)
+        // The hover corner is a tab's roundness on the button's side, 8 on 30 (Lucas 2026-11-13: one roundness, in
+        // proportion, at every density), and the glyph's ink a point under the small icon (Helium's 13 pt at Default).
+        #expect(chrome.reloadButton.layer?.cornerRadius == Metrics.chromeRowCornerRadius(height: row),
+                "hover corner \(String(describing: chrome.reloadButton.layer?.cornerRadius))")
+        #expect(abs(OmnibarStyle.toolbarIconSize * DensityTokens.toolbarGlyphInkRatio
+            - DensityTokens.toolbarGlyphInk(smallIcon: Metrics.smallIconSize)) < 0.001)
     }
 
     /// layout-constants.patch: `kToolbarElementPadding` and `kToolbarIconDefaultMargin` are the
@@ -60,7 +64,8 @@ import Testing
     /// `kLocationBarHeight` 28), rounded as Chrome rounds its tab (Lawrence 2026-11-11), so the chip
     /// nests in it: the bar's radius less its 2 pt inset, in place of `kLocationBarChildCornerRadius` 6.
     @Test func omnibarKeepsHeliumsLocationBarMetrics() {
-        #expect(OmnibarStyle.trailingIconSize == 18)
+        // 18 pt, or what a short bar leaves (Compact's 20 pt bar: 14).
+        #expect(OmnibarStyle.trailingIconSize == min(18, OmnibarStyle.barHeight - 6))
         #expect(OmnibarStyle.barHeight == Metrics.chromeRowHeight)
         #expect(OmnibarStyle.chipCornerRadius == max(0, OmnibarStyle.cardCornerRadius - OmnibarStyle.chipLeading))
         #expect(OmnibarStyle.barMargin == 6)
@@ -90,8 +95,9 @@ import Testing
         let side = metrics.closeButtonSize
         let pill = CGRect(x: 0, y: 0, width: 120, height: metrics.tabHeight)
         let close = CGRect(x: pill.maxX - metrics.contentTrailingInset - side, y: (pill.height - side) / 2, width: side, height: side)
-        #expect(metrics.cornerRadius == Metrics.chromeRowCornerRadius(height: metrics.tabHeight) && (pill.height - side) / 2 == 4,
-                "pill \(metrics.cornerRadius) pt, x inset \((pill.height - side) / 2) pt")
-        #expect(metrics.nestedCornerRadius(close, in: pill) == max(0, metrics.cornerRadius - 4))
+        let inset = (pill.height - side) / 2
+        #expect(metrics.cornerRadius == Metrics.chromeRowCornerRadius(height: metrics.tabHeight),
+                "pill \(metrics.cornerRadius) pt, x inset \(inset) pt")
+        #expect(metrics.nestedCornerRadius(close, in: pill) == max(0, metrics.cornerRadius - inset))
     }
 }
