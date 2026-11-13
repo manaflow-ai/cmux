@@ -83,7 +83,7 @@ fn generated_chains_base_refuses_implies_this_refuses() {
     };
     let dir = Path::new(&dir);
     let (mut total, mut base, mut new, mut both, mut base_only) = (0, 0, 0, 0, Vec::new());
-    for path in rust_files(dir) {
+    for path in rust_files(dir).expect("the chains directory") {
         let text = std::fs::read_to_string(&path).expect("chain");
         let refused = !judge_source(&format!("{SRC}chain.rs"), &text).is_empty();
         let base_refused =
@@ -167,7 +167,7 @@ fn the_tree_follows_paths_into_other_files() {
         std::fs::create_dir_all(path.parent().expect("a parent")).expect("mkdir");
         std::fs::write(&path, text).expect("write");
     }
-    let found = judge_tree(&dir);
+    let found = judge_tree(&dir).expect("the tree this test wrote reads");
     std::fs::remove_dir_all(&dir).expect("remove the tree this test wrote");
     let why = |name: &str| found.iter().find(|f| f.name == name).map(|f| f.why.clone());
     for name in ["OK_USE", "OK_PATH", "OK_TESTS_USE", "OK_GENERIC", "OK_CHILD"] {

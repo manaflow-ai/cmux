@@ -90,6 +90,27 @@ impl RowIndex {
         Ok(ROW_ENTRY_LEN)
     }
 
+    /// Clears the entry of `row_id`; the bytes written (16).
+    pub(crate) fn clear(&mut self, row_id: u64) -> io::Result<u64> {
+        let at = row_id
+            .checked_mul(ROW_ENTRY_LEN)
+            .ok_or_else(|| io::Error::other("rows.idx: the rowId is too large"))?;
+        if at.saturating_add(ROW_ENTRY_LEN) > self.len {
+            return Ok(0);
+        }
+        fsio::write_all_at(&self.file, &[0u8; 16], at)?;
+        self.dirty = true;
+        Ok(ROW_ENTRY_LEN)
+    }
+
+    pub(crate) fn max_row_id(&self) -> u64 {
+        self.len.saturating_sub(1) / ROW_ENTRY_LEN
+    }
+
+    pub(crate) fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
+
     /// Syncs the file when it changed since the last sync; whether it did.
     pub(crate) fn sync(&mut self) -> io::Result<bool> {
         if !self.dirty {
@@ -242,6 +263,26 @@ impl SeqIndex {
         fsio::write_all_at(&self.file, &raw, at)?;
         self.dirty = true;
         Ok(SEQ_ENTRY_LEN)
+    }
+
+    pub(crate) fn clear(&mut self, slot: u64) -> io::Result<u64> {
+        let at = slot
+            .checked_mul(SEQ_ENTRY_LEN)
+            .ok_or_else(|| io::Error::other("seq.idx: the seq is too large"))?;
+        if at.saturating_add(SEQ_ENTRY_LEN) > self.file.metadata()?.len() {
+            return Ok(0);
+        }
+        fsio::write_all_at(&self.file, &[0u8; 8], at)?;
+        self.dirty = true;
+        Ok(SEQ_ENTRY_LEN)
+    }
+
+    pub(crate) fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
+
+    pub(crate) fn max_slot(&self) -> u64 {
+        self.file.metadata().map_or(0, |meta| meta.len().saturating_sub(1) / SEQ_ENTRY_LEN)
     }
 
     /// Syncs the file when it changed since the last sync.

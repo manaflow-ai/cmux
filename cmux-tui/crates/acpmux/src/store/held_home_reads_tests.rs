@@ -13,15 +13,16 @@
 //! out (a test makes its own scratch homes).
 //!
 //! A row: a call of `exists_nofollow` (any error, a lost home's too, reads as "not there"); a
-//! call of a function named `metadata`, `symlink_metadata`, `exists` or `try_exists`
-//! (`std::fs::`, `Path::`, by any import) outside `home_fs`; a method `.exists()`,
+//! call of std's `metadata`, `symlink_metadata`, `exists` or `try_exists` (`std::fs::`,
+//! `Path::`), judged by the path the module's `use` imports resolve the call to (by name, an
+//! alias, a group, a glob, `fs::` through `use std::fs;`; #41915 review F2), outside `home_fs`; a method `.exists()`,
 //! `.try_exists()` or `.symlink_metadata()` (only a path has these); and `.metadata()`, `.is_file()`, `.is_dir()` or `.is_symlink()` on a
 //! receiver that is a path by its shape (a `File`, a `Metadata` and a `FileType` have these too):
 //! a path maker's value (`join`, `parent`, `path()`, `cold_path`, `Path::new`, ...), or a local
 //! or parameter bound to one or typed as a path. A macro's comma-separated arguments are read
 //! too (`ensure!(!path.exists(), ..)`).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use syn::spanned::Spanned;
 use syn::visit::Visit;
@@ -126,10 +127,6 @@ fn store_sources() -> Vec<(String, syn::File)> {
         .collect()
 }
 
-fn last_segment(path: &syn::Path) -> String {
-    path.segments.last().map(|s| s.ident.to_string()).unwrap_or_default()
-}
-
 /// Whether `ty` names a path (`Path`, `PathBuf`, `OsStr`, `OsString`, `impl AsRef<Path>`, ...).
 fn names_a_path(ty: &syn::Type) -> bool {
     struct Names(bool);
@@ -144,10 +141,139 @@ fn names_a_path(ty: &syn::Type) -> bool {
     names.0
 }
 
-/// One function's checks: the names bound to a path in it.
+/// The names one module or block brings in: `use` imports (name to full path), glob imports
+/// (their paths), and the functions and modules it defines (which shadow a glob). A module is
+/// `opaque`: it inherits nothing from the module around it; a block sees its enclosing scopes.
+#[derive(Clone, Default)]
+struct Scope {
+    opaque: bool,
+    imports: HashMap<String, Vec<String>>,
+    globs: Vec<Vec<String>>,
+    defined: HashSet<String>,
+}
+
+impl Scope {
+    fn of<'a>(items: impl IntoIterator<Item = &'a syn::Item>, opaque: bool) -> Self {
+        let mut scope = Scope { opaque, ..Scope::default() };
+        for item in items {
+            match item {
+                syn::Item::Use(u) if !is_test_attr(&u.attrs) => {
+                    scope.import(&mut Vec::new(), &u.tree);
+                }
+                syn::Item::Fn(f) => {
+                    scope.defined.insert(f.sig.ident.to_string());
+                }
+                syn::Item::Mod(m) => {
+                    scope.defined.insert(m.ident.to_string());
+                }
+                _ => {}
+            }
+        }
+        scope
+    }
+
+    fn import(&mut self, prefix: &mut Vec<String>, tree: &syn::UseTree) {
+        match tree {
+            syn::UseTree::Path(p) => {
+                prefix.push(p.ident.to_string());
+                self.import(prefix, &p.tree);
+                prefix.pop();
+            }
+            syn::UseTree::Name(n) if n.ident == "self" => {
+                if let Some(last) = prefix.last() {
+                    self.imports.insert(last.clone(), prefix.clone());
+                }
+            }
+            syn::UseTree::Name(n) => {
+                let mut full = prefix.clone();
+                full.push(n.ident.to_string());
+                self.imports.insert(n.ident.to_string(), full);
+            }
+            syn::UseTree::Rename(r) => {
+                let mut full = prefix.clone();
+                if r.ident != "self" {
+                    full.push(r.ident.to_string());
+                }
+                self.imports.insert(r.rename.to_string(), full);
+            }
+            syn::UseTree::Glob(_) => self.globs.push(prefix.clone()),
+            syn::UseTree::Group(g) => {
+                for tree in &g.items {
+                    self.import(prefix, tree);
+                }
+            }
+        }
+    }
+}
+
+/// What a name means in `scopes` (innermost last): `Some(path)` an import's full path, `None`
+/// a name defined here or not imported. A glob (`use std::fs::*;`) counts only for a name
+/// nothing in its scope defines or imports by name.
+fn lookup(scopes: &[Scope], name: &str) -> Option<Vec<String>> {
+    for scope in scopes.iter().rev() {
+        if scope.defined.contains(name) {
+            return None;
+        }
+        if let Some(full) = scope.imports.get(name) {
+            return Some(full.clone());
+        }
+        if scope.globs.iter().any(|glob| is_std_fs(glob)) {
+            return Some(vec!["std".into(), "fs".into(), name.to_string()]);
+        }
+        if scope.opaque {
+            break;
+        }
+    }
+    None
+}
+
+/// `segments` with its first name replaced by what it imports, again while that is an import
+/// of another local name (`use std::fs; use fs::metadata;`), a few steps at most.
+fn resolve(scopes: &[Scope], segments: &[String]) -> Vec<String> {
+    let mut path = segments.to_vec();
+    for _ in 0..4 {
+        let Some(first) = path.first() else { break };
+        if matches!(first.as_str(), "std" | "core" | "crate" | "self" | "super") {
+            break;
+        }
+        let Some(full) = lookup(scopes, first) else { break };
+        if full.first() == Some(first) && full.len() == 1 {
+            break;
+        }
+        path.splice(0..1, full);
+    }
+    path
+}
+
+fn is_std_fs(path: &[String]) -> bool {
+    path.len() == 2 && path[0] == "std" && path[1] == "fs"
+}
+
+/// Whether a call of `resolved` (its function's path, imports resolved) is std's existence or
+/// metadata read by path: `std::fs::x`, `std::path::Path::x` / `PathBuf::x`, or an `fs::x`,
+/// `Path::x` or `PathBuf::x` whose first name no import here names (an import the lint cannot
+/// see, which in this crate is std's).
+fn std_read_by_path(resolved: &[String]) -> bool {
+    let Some((last, head)) = resolved.split_last() else { return false };
+    if !(PATH_ONLY.contains(&last.as_str()) || last == "metadata") {
+        return false;
+    }
+    let head: Vec<&str> = head.iter().map(String::as_str).collect();
+    matches!(
+        head.as_slice(),
+        ["std", "fs"]
+            | ["std", "path", "Path" | "PathBuf"]
+            | ["fs"]
+            | ["Path" | "PathBuf"]
+            | ["path", "Path" | "PathBuf"]
+    )
+}
+
+/// One function's checks: the names bound to a path in it, and the scopes its names resolve in.
 struct Scan<'a> {
     rel: &'a str,
     paths: HashSet<String>,
+    scopes: Vec<Scope>,
     rows: Vec<String>,
 }
 
@@ -203,8 +329,20 @@ impl<'ast> Visit<'ast> for Scan<'_> {
     }
     fn visit_item_mod(&mut self, m: &'ast syn::ItemMod) {
         if !is_test_attr(&m.attrs) {
+            let items = m.content.as_ref().map_or(&[][..], |(_, items)| &items[..]);
+            self.scopes.push(Scope::of(items.iter(), true));
             syn::visit::visit_item_mod(self, m);
+            self.scopes.pop();
         }
+    }
+    fn visit_block(&mut self, b: &'ast syn::Block) {
+        let items = b.stmts.iter().filter_map(|s| match s {
+            syn::Stmt::Item(item) => Some(item),
+            _ => None,
+        });
+        self.scopes.push(Scope::of(items, false));
+        syn::visit::visit_block(self, b);
+        self.scopes.pop();
     }
     fn visit_item_impl(&mut self, i: &'ast syn::ItemImpl) {
         if !is_test_attr(&i.attrs) {
@@ -275,13 +413,20 @@ impl<'ast> Visit<'ast> for Scan<'_> {
         if let syn::Expr::Path(f) = &*c.func {
             let segments: Vec<String> =
                 f.path.segments.iter().map(|s| s.ident.to_string()).collect();
-            let last = last_segment(&f.path);
-            let through_home_fs = segments.iter().any(|s| s == "home_fs");
-            let by_path = !through_home_fs
-                && (PATH_ONLY.contains(&last.as_str()) || last == "metadata")
-                && segments.len() > 1;
+            // Judged by the path the imports resolve it to: `metadata(p)` after
+            // `use std::fs::metadata;` is std's, after a local `fn metadata` it is not.
+            let resolved = resolve(&self.scopes, &segments);
+            let last = resolved.last().cloned().unwrap_or_default();
+            let through_home_fs = resolved.iter().any(|s| s == "home_fs");
+            let by_path = !through_home_fs && std_read_by_path(&resolved);
             if last == "exists_nofollow" || by_path {
-                self.row(c.span(), format!("{}(..)", segments.join("::")));
+                let written = segments.join("::");
+                let what = if segments.len() == 1 {
+                    format!("{written}(..) ({})", resolved.join("::"))
+                } else {
+                    format!("{written}(..)")
+                };
+                self.row(c.span(), what);
             }
         }
         syn::visit::visit_expr_call(self, c);
@@ -302,8 +447,10 @@ impl<'ast> Visit<'ast> for Scan<'_> {
 /// The rows of one file.
 fn rows_in(rel: &str, file: &syn::File) -> Vec<String> {
     let mut rows = Vec::new();
+    let root = Scope::of(file.items.iter(), true);
     for item in &file.items {
-        let mut scan = Scan { rel, paths: HashSet::new(), rows: Vec::new() };
+        let mut scan =
+            Scan { rel, paths: HashSet::new(), scopes: vec![root.clone()], rows: Vec::new() };
         scan.visit_item(item);
         rows.append(&mut scan.rows);
     }
@@ -401,6 +548,91 @@ fn the_lint_finds_each_shape_of_a_check_by_path() {
             "fs::metadata(..)",
             "Path::exists(..)",
             ".exists()",
+        ],
+    );
+}
+
+/// The lint judges a call by the path its `use` imports resolve it to, per module (#41915 review
+/// F2): a std function imported by name, under an alias, in a group, by a glob or in a block is a
+/// row, as is `fs::` through `use std::fs;`. A function of the same name that is not std's (a
+/// local fn, an import from this crate, an `fs` that is another module, a name an inner module
+/// does not inherit) and the held-home forms are not.
+#[test]
+fn the_lint_resolves_imported_fs_functions() {
+    let fixture = r#"
+        mod direct {
+            use std::fs::symlink_metadata;
+            fn a(p: &Path) -> bool { symlink_metadata(p).is_ok() }
+        }
+        mod aliased {
+            use std::fs::symlink_metadata as sm;
+            fn a(p: &Path) -> bool { sm(p).is_ok() }
+        }
+        mod grouped {
+            use std::{fs::{self, metadata}, path::Path};
+            fn a(p: &Path) -> bool { metadata(p).is_ok() }
+            fn b(p: &Path) -> bool { fs::symlink_metadata(p).is_ok() }
+            fn c(p: &Path) -> bool { Path::exists(p) }
+        }
+        mod module_import {
+            use std::fs;
+            fn a(p: &Path) -> bool { fs::metadata(p).is_ok() }
+        }
+        mod globbed {
+            use std::fs::*;
+            fn a(p: &Path) -> bool { exists(p).unwrap_or(false) }
+        }
+        mod in_a_block {
+            fn a(p: &Path) -> bool {
+                use std::fs::metadata as m;
+                m(p).is_ok()
+            }
+        }
+        mod local_fn {
+            fn metadata(_: &Path) -> Option<u64> { None }
+            fn a(p: &Path) -> bool { metadata(p).is_some() }
+        }
+        mod local_import {
+            use crate::store::disk::{exists, metadata as meta};
+            fn a(p: &Path) -> bool { exists(p) && meta(p).is_some() }
+        }
+        mod local_fs {
+            use crate::store::disk as fs;
+            fn a(p: &Path) -> bool { fs::metadata(p).is_some() }
+        }
+        mod glob_shadowed {
+            use std::fs::*;
+            fn exists(_: &Path) -> bool { true }
+            fn a(p: &Path) -> bool { exists(p) }
+        }
+        mod not_inherited {
+            use std::fs::metadata;
+            mod inner {
+                fn metadata(_: &Path) -> bool { true }
+                fn a(p: &Path) -> bool { metadata(p) }
+            }
+        }
+        mod held {
+            use crate::home_fs::{self as hfs, symlink_metadata};
+            fn a(p: &Path) -> bool { symlink_metadata(p).is_ok() && hfs::metadata(p).is_ok() }
+        }
+    "#;
+    let file = syn::parse_file(fixture).unwrap();
+    let rows: Vec<String> = rows_in("x.rs", &file)
+        .into_iter()
+        .map(|row| row.split_once(' ').map(|(_, what)| what.to_string()).unwrap_or(row))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            "symlink_metadata(..) (std::fs::symlink_metadata)",
+            "sm(..) (std::fs::symlink_metadata)",
+            "metadata(..) (std::fs::metadata)",
+            "fs::symlink_metadata(..)",
+            "Path::exists(..)",
+            "fs::metadata(..)",
+            "exists(..) (std::fs::exists)",
+            "m(..) (std::fs::metadata)",
         ],
     );
 }
