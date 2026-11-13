@@ -24,9 +24,12 @@ import CmuxNextWakeups
 /// completely"). The edge zone appears whenever floating becomes possible (the sidebar hidden, Home
 /// left, the setting turned on); a pointer already on the edge then reads "inside" at once, which is
 /// not intent. Each such start disarms the edge (``edgeArmed``); it arms once the pointer is seen off
-/// the edge with the zone in place (``isEdgePlaced``) and the hide's slide over (``isSettling``), so
-/// a pointer resting through the hide, or reaching the edge during its slide, must leave and come
-/// back to float the sidebar.
+/// the edge with the zone in place (``isEdgePlaced``) and the hide's slide over (``isSettling``), or
+/// when the pointer enters a zone that was already in place at the last reconcile after the slide
+/// (the first move onto the edge after a hide: nothing reconciles when the slide lands). A zone that
+/// appears under the pointer reads it in the layout pass that places it, before that pass reconciles,
+/// so it is no entry: a pointer resting through the hide, or reaching the edge during its slide, must
+/// leave and come back to float the sidebar.
 @MainActor
 public final class FloatingSidebarReveal {
     /// How long the pointer rests on the edge before the sidebar floats in (intent, not a pass).
@@ -62,6 +65,9 @@ public final class FloatingSidebarReveal {
     public private(set) var edgeArmed = true
     /// ``canFloat`` at the last reconcile, to see floating become possible.
     private var couldFloat: Bool
+    /// ``isEdgePlaced`` at the last reconcile: an entry into a zone placed after it is the zone
+    /// appearing under the pointer, not a move onto the edge.
+    private var edgeWasPlaced = false
 
     /// The pointer is in the edge zone.
     public private(set) var edgeEngaged = false
@@ -89,6 +95,8 @@ public final class FloatingSidebarReveal {
     public func setEdgeEngaged(_ value: Bool) {
         guard edgeEngaged != value else { return }
         edgeEngaged = value
+        // A move onto a zone that was in place and floatable at the last reconcile, after the hide's slide.
+        if value, !edgeArmed, couldFloat, edgeWasPlaced, !isSettling() { edgeArmed = true }
         reconcile()
     }
 
@@ -107,7 +115,9 @@ public final class FloatingSidebarReveal {
             couldFloat = floatable
             if floatable, !isOpen { edgeArmed = false }
         }
-        if floatable, !edgeArmed, !edgeEngaged, isEdgePlaced(), !isSettling() { edgeArmed = true }
+        let placed = isEdgePlaced()
+        if floatable, !edgeArmed, !edgeEngaged, placed, !isSettling() { edgeArmed = true }
+        edgeWasPlaced = placed
         guard isOpen else {
             closeTimer.cancel()
             guard edgeEngaged, edgeArmed, floatable else { return openTimer.cancel() }

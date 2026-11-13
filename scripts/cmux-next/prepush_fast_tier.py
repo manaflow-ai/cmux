@@ -164,7 +164,10 @@ def worker(args, refs: str) -> dict:
             checks.append({"name": own.head, "status": "deferred", "detail": "merge attribution goes to full checks"})
         else:
             checks.extend(check_range(args.repo, own, args.scratch))
-    return {"head": heads[0] if len(heads) == 1 else None, "heads": heads, "checks": checks}
+    # Each range as push_range describes it: its note names a base the refresh could not fetch, so the receipt says
+    # when the files it checked were measured from this clone's stale copy.
+    return {"head": heads[0] if len(heads) == 1 else None, "heads": heads, "checks": checks,
+            "ranges": [own.describe() for own in ranges]}
 
 
 def main(argv=None) -> int:

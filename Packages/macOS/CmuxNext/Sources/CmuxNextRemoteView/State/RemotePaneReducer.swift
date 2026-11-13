@@ -20,13 +20,23 @@ public nonisolated enum RemotePaneEvent: Sendable, Hashable {
     case stopUpstream(RemoteUpstreamKind)
     /// The tab hid or closed: every kind is revoked.
     case stopAllUpstreams
+    /// The latency hold's flip came due with no new sample (``RemoteLatencyHold/due``).
+    case latencyCheck
 }
 
-/// The pane's single writer. Pure: `reduce` maps a state and an event to
-/// the next state, and the view renders whatever comes out.
+/// The pane's single writer. Pure: `reduce` maps a state, an event and the time it
+/// happened to the next state, and the view renders whatever comes out.
 public struct RemotePaneReducer {
     public nonisolated init() {}
-    public nonisolated func reduce(_ state: RemotePaneState, _ event: RemotePaneEvent) -> RemotePaneState {
+    public nonisolated func reduce(_ state: RemotePaneState, _ event: RemotePaneEvent,
+                                   now: ContinuousClock.Instant = .now) -> RemotePaneState {
+        var next = reduceEvent(state, event)
+        // A new session's path is not measured yet: nothing to hold.
+        if next.status?.rttMs == nil { next.latency.reset() } else { next.latency.sample(over: next.sampleOverLimit, at: now) }
+        return next
+    }
+
+    private nonisolated func reduceEvent(_ state: RemotePaneState, _ event: RemotePaneEvent) -> RemotePaneState {
         var next = state
         switch event {
         case let .status(status):
@@ -81,6 +91,8 @@ public struct RemotePaneReducer {
         case .stopAllUpstreams:
             next.status?.upstream.active = []
             next.status?.upstream.requested = []
+        case .latencyCheck:
+            break
         }
         return next
     }
