@@ -27,9 +27,11 @@ use crate::mux::journal_segment_retention::{
     AFTER_RETENTION_HOLD_FOR_TEST, BEFORE_NEXT_RETENTION_HOLD_FOR_TEST,
 };
 use crate::workspace_registry::JournalSubject;
+use crate::workspace_registry::journal_retention::RETENTION_ROWS_PER_HOLD;
 
-/// The most records one hold of the pass deletes the rows of.
-const RECORDS_A_HOLD: u64 = 256;
+/// The most records that lose their last row in one hold of the pass: a
+/// hold deletes at most this many rows.
+const RECORDS_A_HOLD: u64 = RETENTION_ROWS_PER_HOLD;
 /// Records written before the first seal: one segment of more than two
 /// holds of rows.
 const BIG_SEGMENT_RECORDS: u64 = 700;
