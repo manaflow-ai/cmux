@@ -34,7 +34,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium, type Browser, type CDPSession, type Page } from "playwright";
+import type { Browser, CDPSession, Page } from "playwright";
+import { chromium } from "./browsers";
 import type { ServerWebSocket } from "bun";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { percentile, round2 } from "../src/agent-session/acpmux/perf";
@@ -626,12 +627,7 @@ if (import.meta.main) {
       },
     });
     releases.push(() => statics.stop(true));
-    const browser = await chromium.launch({
-      ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-        ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-        : { channel: "chrome" }),
-      headless: true,
-    });
+    const browser = await chromium.launch({ headless: true });
     releases.push(() => browser.close());
     const browserCdp = TRACE_DIR ? await browser.newBrowserCDPSession() : undefined;
     if (TRACE_DIR) fs.mkdirSync(TRACE_DIR, { recursive: true });
