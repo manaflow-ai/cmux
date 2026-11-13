@@ -395,6 +395,23 @@ fn rebuild_from_raw(config: ChatConfig) -> Result<ActorState, ChatError> {
     state.edition = next_edition(previous, || (config.edition_random)());
     checkpoint(&mut state)?;
     let new_book = state.config.book.clone();
+    // Raw can be colocated with the derived book. Keep its original inode at the
+    // replacement path before renaming; the next source open must still find it.
+    if let Some(raw) = state.source.file_path() {
+        let served = config.book.canonicalize()?;
+        if let Ok(relative) = raw.strip_prefix(&served) {
+            let linked = new_book.join(relative);
+            if !linked.exists() {
+                if let Some(parent) = linked.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::hard_link(raw, &linked)?;
+                if let Some(parent) = linked.parent() {
+                    fs::File::open(parent)?.sync_all()?;
+                }
+            }
+        }
+    }
     drop(state);
     if config.book.exists() {
         let mut backup = config.book.with_extension("old");
@@ -836,9 +853,11 @@ mod tests {
         }
         fs::write(checkpoint, bytes).unwrap();
 
+        let raw_before = fs::read(dir.path().join("source.ndjson")).unwrap();
         let rebuilt = ChatActor::spawn(config);
         rebuilt.handle.wake().unwrap();
         rebuilt.join();
+        assert_eq!(fs::read(dir.path().join("source.ndjson")).unwrap(), raw_before);
         assert!(log::CheckpointHead::read(dir.path()).unwrap().is_some());
         let (_log, recovered) = Log::open(dir.path(), Options::default()).unwrap();
         assert!(recovered.checkpoint);
