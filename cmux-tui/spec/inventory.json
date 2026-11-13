@@ -34,6 +34,7 @@
     "browser.tab.set_profile",
     "browser.viewer.release",
     "browser.viewer.resize",
+    "browser_import.read",
     "chief.continue",
     "chief.engine.get",
     "chief.engine.set",
