@@ -68,6 +68,9 @@ pub(super) fn serve_line_connection(
         QueuedSink { outbound: outbound.clone(), control: Some(control.clone()) },
         render_service,
     );
+    if let Some(permit) = &connection_permit {
+        writer.long.attach(permit);
+    }
     let writer_outbound = outbound;
     let writer_close = writer.clone();
     let Ok(writer_thread) =

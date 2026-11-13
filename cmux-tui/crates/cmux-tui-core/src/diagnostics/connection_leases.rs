@@ -16,20 +16,36 @@
 //! the pool. It is still served to the end; only its slot is counted in the
 //! pool instead of the limit. Linux reports it once both halves are closed.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, PoisonError, Weak};
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 
-use super::ConnectionStats;
+use super::{ConnectionStats, LongConnectionsFull};
+
+/// The connection holds its slot of the limit (and, from a terminal, a slot
+/// of the terminals' short lane).
+const SHORT: u8 = 0;
+/// The client hung up: the slots went back, the connection is in the hung-up
+/// pool until its thread ends.
+const HUNG_UP: u8 = 1;
+/// A terminal's connection that holds a stream, a wait or a follow: the slots
+/// went back, it holds a place among the long connections
+/// (`long_connections`) until it ends.
+const LONG: u8 = 2;
 
 /// Whether the client at the other end closed its socket. Polled without
 /// blocking, from the accept loop.
 pub type PeerClosed = Box<dyn Fn() -> bool + Send + Sync>;
 
 /// One admitted connection's slot. Dropping it frees the slot, or its place in
-/// the hung-up pool once the slot was taken back.
+/// the hung-up pool once the slot was taken back, or its place among the long
+/// connections once it became one.
 pub struct ConnectionLease {
     stats: Arc<ConnectionStats>,
-    hung_up: AtomicBool,
+    /// `SHORT`, then at most one change, to `HUNG_UP` or to `LONG`.
+    state: AtomicU8,
+    /// Held while the connection becomes long (`become_long`), so two starts
+    /// on one connection at the same moment take one long place.
+    turning: Mutex<()>,
     peer_closed: Option<PeerClosed>,
     /// Also holds a terminal slot (`ConnectionStats::try_claim_terminal`,
     /// #27698), given back with the main slot; inside, the terminal it came
@@ -47,8 +63,13 @@ impl ConnectionLease {
         terminal: Option<Option<u32>>,
     ) -> Arc<Self> {
         let watched = peer_closed.is_some();
-        let lease =
-            Arc::new(Self { stats, hung_up: AtomicBool::new(false), peer_closed, terminal });
+        let lease = Arc::new(Self {
+            stats,
+            state: AtomicU8::new(SHORT),
+            turning: Mutex::new(()),
+            peer_closed,
+            terminal,
+        });
         if watched {
             let mut leases = lease.stats.leases.lock().unwrap_or_else(PoisonError::into_inner);
             leases.retain(|lease| lease.strong_count() > 0);
@@ -59,18 +80,64 @@ impl ConnectionLease {
 
     /// The client hung up and this connection no longer holds a slot.
     pub fn is_hung_up(&self) -> bool {
-        self.hung_up.load(Ordering::Acquire)
+        self.state.load(Ordering::Acquire) == HUNG_UP
+    }
+
+    /// The connection starts work that outlives a request (a stream, a wait,
+    /// a follow): a terminal's connection leaves the short lane for a place
+    /// among at most `limit` long ones (`long_connections`). It takes the long
+    /// place first and gives its two short slots back after, so it is never
+    /// in neither count. There is no way back: it stays long until it ends.
+    ///
+    /// `Err` at the bound (or at this terminal's share of it): nothing
+    /// changed, the connection is still a short one and the caller does not
+    /// start the work.
+    ///
+    /// No change for a connection from outside the terminals (it holds no
+    /// terminal slot), for one that is long already, and for one whose client
+    /// hung up (its slots went back before).
+    pub fn become_long(&self, limit: u64) -> Result<(), LongConnectionsFull> {
+        let Some(client) = self.terminal else { return Ok(()) };
+        // One start at a time. A connection's reader can start a stream while
+        // its dispatcher hands over a wait: the second one must see what the
+        // first one did. Without this, both took a long place for a moment,
+        // and at the bound the second one was refused though the connection
+        // was long.
+        let _turn = self.turning.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.state.load(Ordering::Acquire) != SHORT {
+            return Ok(());
+        }
+        self.stats.long.claim(limit, client)?;
+        let moved =
+            self.state.compare_exchange(SHORT, LONG, Ordering::AcqRel, Ordering::Acquire).is_ok();
+        if !moved {
+            // The accept loop took its slots back between the load and here.
+            self.stats.long.release(client);
+            return Ok(());
+        }
+        self.stats.release();
+        self.stats.release_terminal(client);
+        Ok(())
+    }
+
+    /// The connection holds a place among the long connections.
+    pub fn is_long(&self) -> bool {
+        self.state.load(Ordering::Acquire) == LONG
     }
 }
 
 impl Drop for ConnectionLease {
     fn drop(&mut self) {
-        if *self.hung_up.get_mut() {
-            self.stats.hung_up.fetch_sub(1, Ordering::AcqRel);
-        } else {
-            self.stats.release();
-            if let Some(client) = self.terminal {
-                self.stats.release_terminal(client);
+        match (*self.state.get_mut(), self.terminal) {
+            (HUNG_UP, _) => {
+                self.stats.hung_up.fetch_sub(1, Ordering::AcqRel);
+            }
+            (LONG, Some(client)) => self.stats.long.release(client),
+            (_, terminal) => {
+                self.stats.release();
+                if let Some(client) = terminal {
+                    self.stats.release_terminal(client);
+                }
             }
         }
     }
@@ -79,6 +146,8 @@ impl Drop for ConnectionLease {
 impl ConnectionStats {
     /// Moves every watched connection whose client closed into the hung-up
     /// pool (while it has room) and frees its slot. Returns the slots freed.
+    /// A long connection holds no slot to free: it keeps its long place until
+    /// its thread ends.
     pub(super) fn reclaim_hung_up(&self, limit: u64) -> u64 {
         let leases: Vec<Arc<ConnectionLease>> = {
             let mut leases = self.leases.lock().unwrap_or_else(PoisonError::into_inner);
@@ -88,7 +157,7 @@ impl ConnectionStats {
         let mut freed = 0;
         for lease in &leases {
             let Some(peer_closed) = &lease.peer_closed else { continue };
-            if lease.is_hung_up() || !peer_closed() {
+            if lease.state.load(Ordering::Acquire) != SHORT || !peer_closed() {
                 continue;
             }
             let pooled = self
@@ -100,9 +169,10 @@ impl ConnectionStats {
             if !pooled {
                 break;
             }
-            // Another accept loop may have taken this one back first.
+            // Another accept loop may have taken this one back first, or the
+            // connection became a long one.
             let taken =
-                lease.hung_up.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire);
+                lease.state.compare_exchange(SHORT, HUNG_UP, Ordering::AcqRel, Ordering::Acquire);
             if taken.is_err() {
                 self.hung_up.fetch_sub(1, Ordering::AcqRel);
                 continue;

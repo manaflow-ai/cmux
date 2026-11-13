@@ -3271,11 +3271,13 @@ jobs:
           # was still in progress, and GitHub refuses to re-run a live run
           # (review of #42580, F1): red, so the gap shows. The next
           # feat-cmux-next push's sweep-commit-manifests re-runs this run.
+          # The red's last word, cmux-tui-manifest-rerun-pending, keeps it out of
+          # cmuxterm-hq base_red_watch's base reds while that re-run is due.
           if [[ "$ADOPT_STATE" == pending ]]; then
             completion="$(curl -sS --connect-timeout 5 --max-time 15 \
               "https://files.cmux.com/cmux-tui/tree/$TREE_KEY/completion.json?verify=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" 2>/dev/null)" || completion=""
             if python3 -c 'import json,sys; sys.exit(0 if json.loads(sys.argv[1]).get("key") == sys.argv[2] else 1)' "$completion" "$TREE_KEY" 2>/dev/null; then
-              echo "::error title=commit manifest missing::tree $TREE_KEY was published after this run deferred, and cmux-tui/$GITHUB_SHA/manifest.json was not written; the next feat-cmux-next push's sweep re-runs this run (or re-run this run by hand)."
+              echo "::error title=commit manifest missing::tree $TREE_KEY was published after this run deferred, and cmux-tui/$GITHUB_SHA/manifest.json was not written; the next feat-cmux-next push's sweep re-runs this run (or re-run this run by hand). cmux-tui-manifest-rerun-pending"
               exit 1
             fi
             echo "::notice title=commit manifest pending::this run deferred tree $TREE_KEY to its owner, which re-runs it once the tree is published; that attempt writes and checks cmux-tui/$GITHUB_SHA/manifest.json."
