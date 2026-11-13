@@ -12,6 +12,8 @@ import {
 import { AlertCircle, Check, ChevronDown, ChevronRight, Folder, Spinner } from "./conversation/icons";
 
 import { Thinking } from "./conversation/Thinking";
+import { CloudSetupCard } from "./conversation/CloudSetupCard";
+import type { CloudSetupAction } from "./cloudSetup";
 import { usePaneLanguage, useT, type Translate } from "./i18n";
 import { cloudPlanRecoveryLabels } from "./cloudPlanRecoveryLabels";
 import type { CloudPlanTeam, CloudPlanTeamRefusal } from "./cloudPlanTeams";
@@ -191,7 +193,12 @@ function PlanTeamRefusal({
 }
 
 /** Start refusals that name what to do in their own card, with no failed step for the checklist to show. */
-const POLICY_REFUSALS: ReadonlySet<string> = new Set(["cloud_plan_required", "cloud_spend_cap", "cloud_member_budget"]);
+const POLICY_REFUSALS: ReadonlySet<string> = new Set([
+  "cloud_plan_required",
+  "cloud_spend_cap",
+  "cloud_member_budget",
+  "cloud_setup_required",
+]);
 
 export function CloudStartView({
   start,
@@ -205,6 +212,8 @@ export function CloudStartView({
   onRunHere,
   onDismiss,
   onSwitchTeam,
+  onSetUp,
+  onSetUpDismiss,
   planTeamLook = "notice",
 }: {
   start: CloudStartProgress;
@@ -225,6 +234,10 @@ export function CloudStartView({
   onDismiss?: () => void;
   /// A plan refusal in a team: switch to the person's own team (the team picker's switch) and send again.
   onSwitchTeam?: (team: CloudPlanTeam) => void;
+  /// Set up Cloud's buttons (`cloud_setup_required`, cloudSetup.ts): one of Settings > Models' ways in, then
+  /// the start goes again by itself once a connection serves the model; and its Not now.
+  onSetUp?: (action: CloudSetupAction) => void;
+  onSetUpDismiss?: () => void;
   /// The plan-in-a-team look (galleries compare them); the pane draws `notice`.
   planTeamLook?: CloudPlanTeamLook;
 }) {
@@ -291,6 +304,26 @@ export function CloudStartView({
       {...(onDismiss ? { onDismiss } : {})}
     />
   );
+  // Nothing serves the picked model (checked before any machine): Set up Cloud in place of the start,
+  // also while a button's way in is out (`signingIn`), until the start goes again.
+  const setup = (failed && start.code === "cloud_setup_required") || start.signingIn ? start.cloudSetup : undefined;
+  if (setup) {
+    return (
+      <section className="acpmux-cloud-start" data-state={start.state} data-setup="true">
+        {bubble && (
+          <div className="cv-user">
+            <div className="ui-glass cv-user__bubble selectable">{start.task}</div>
+          </div>
+        )}
+        <CloudSetupCard
+          need={setup}
+          waiting={!failed}
+          {...(onSetUp ? { onSetUp } : {})}
+          {...(onSetUpDismiss ? { onDismiss: onSetUpDismiss } : {})}
+        />
+      </section>
+    );
+  }
   // Nothing started (the plan is checked before any machine), so the notice has no startup card.
   if (planTeamRefusal && planTeamLook !== "card") {
     return (

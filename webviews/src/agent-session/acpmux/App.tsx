@@ -522,6 +522,7 @@ import {
   cloudPageRefusal,
   cloudRunsHere,
   cloudFolderGrants,
+  cloudPickExtras,
   cloudStartFolder,
   cloudStartSaid,
   cloudStartTeam,
@@ -547,6 +548,7 @@ import {
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { startAfterSignIn, waitForCloudSignIn, type CloudSignInWait } from "./cloudSignIn";
+import { waitForCloudSetUp, type CloudSetupAction, type CloudSetupNeed } from "./cloudSetup";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import {
   registerChatDisplayHost,
@@ -4611,6 +4613,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudSignInRetry] = useState(() => makeCloudSignInRetry(() => cloudSignInSend.current()));
   /// The sign-in a start waits on (cloudSignIn.ts): leaving Cloud (another mode, chat or tab) withdraws it.
   const cloudSignInWait = useRef<CloudSignInWait | undefined>(undefined);
+  /// Set up Cloud's button (cloudSetup.ts): the next sign-in resend waits on that way in instead of the
+  /// account sign-in, then the start goes again on the click the host kept.
+  const cloudSetUpPick = useRef<{ action: CloudSetupAction; need: CloudSetupNeed } | undefined>(undefined);
   const cancelCloudSignIn = () => {
     const wait = cloudSignInWait.current;
     cloudSignInWait.current = undefined;
@@ -4704,6 +4709,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sandbox.setMode("persistent");
   };
   const dismissCloudFailure = () => setCloudStart(undefined);
+  /// Set up Cloud's button: its way in runs on this Mac, and the prompt goes again once a connection
+  /// serves the model (the sign-in resend, `cloudSignInSend`), with no retyping.
+  const setUpCloud = (action: CloudSetupAction) => {
+    const need = cloudStart?.state === "failed" ? cloudStart.cloudSetup : undefined;
+    if (!need) return;
+    cloudSetUpPick.current = { action, need };
+    void cloudSignInRetry();
+  };
+  /// Set up Cloud's Not now: a wait still out is withdrawn (the start then ends here), else the card goes.
+  const dismissCloudSetUp = () => (cloudStart?.signingIn ? cancelCloudSignIn() : dismissCloudFailure());
   /// The plan card's Switch to <team>: the next Cloud send carries the team, and the host switches to it
   /// (the team picker's switch) before it starts, under the same click.
   const [cloudSwitchTeam] = useState(() => cloudStartTeam());
@@ -4753,10 +4768,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       return startCloud({ ...request, signedIn: true }, key);
     };
     let signIn: CloudSignInWait | undefined;
+    let setUpNeed: CloudSetupNeed | undefined;
     if (signingIn) {
       // One sign-in at a time: a newer one ends the wait on an older one.
       cancelCloudSignIn();
-      signIn = waitForCloudSignIn(callNative, key);
+      const pick = cloudSetUpPick.current;
+      cloudSetUpPick.current = undefined;
+      setUpNeed = pick?.need;
+      signIn = pick ? waitForCloudSetUp(callNative, key, pick.action, pick.need) : waitForCloudSignIn(callNative, key);
       cloudSignInWait.current = signIn;
     }
     const wait = signIn;
@@ -4825,6 +4844,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         start.harness ? harnessLabel(start.harness) : undefined,
         start.home,
         signingIn,
+        setUpNeed,
       ),
     );
     void started.then((answer) => {
@@ -7414,6 +7434,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // The harness that seeded prompt starts on (`newTab.submit --agent`), kept with it.
     let pendingHarness: string | undefined;
     let pendingModel: string | undefined;
+    let pendingEffort: string | undefined;
     /// The connected client as the harness switch sees it.
     let switchPort: SwitchPort | undefined;
     /// Who sent each prompt a harness switch held, stamped when the switch sends it into the session
@@ -7473,6 +7494,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           promptAttachments?: ComposerAttachment[];
           promptTicket?: { promptId?: unknown; ticket?: unknown };
           harness?: string;
+          /// A Cloud start's picked effort (AgentPaneHandshake `effort`): the seeded chat starts on it.
+          effort?: unknown;
           peer?: string;
           adopt?: unknown;
           surface?: unknown;
@@ -7655,6 +7678,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           };
         if (typeof host.harness === "string" && host.harness) pendingHarness = host.harness;
         if (typeof host.model === "string" && host.model) pendingModel = host.model;
+        if (typeof host.effort === "string" && host.effort) pendingEffort = host.effort;
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
         // Links copy in this build's scheme; only the hostless mock page falls back to Release's.
@@ -9028,11 +9052,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         const hasPrompt = Boolean(prompt || attachments.length);
         const harness = pendingHarness;
         const model = pendingModel;
+        // The picker's effort with its model (a Cloud start), held under its kind's id (heldOptions.ts).
+        const options = pendingEffort ? { [HELD_EFFORT_ID]: pendingEffort } : undefined;
         const ticket = pendingTicket;
         pendingPrompt = undefined;
         pendingAttachments = undefined;
         pendingHarness = undefined;
         pendingModel = undefined;
+        pendingEffort = undefined;
         pendingTicket = undefined;
         // The seeded prompt goes with its ticket, under the ticket's promptId.
         if (hasPrompt && ticket) heldPrompt.keep(ticket);
@@ -9049,7 +9076,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             },
           );
         } else if (harness && hasPrompt) {
-          void harnessSwitch.switchTo(harness, host.cwd, { model });
+          void harnessSwitch.switchTo(harness, host.cwd, { model, ...(options ? { options } : {}) });
           void send(prompt ?? "", attachments, undefined, false, ticket?.promptId, undefined, true).catch(
             () => undefined,
           );
@@ -9063,7 +9090,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // A model-only seed stays sessionless until the first Send; AcpmuxDirectClient retains
         // it in its host config and ensureSession() carries it into session/new.
         else if (harness && !client.adopted && client.startsOnSend)
-          void harnessSwitch.switchTo(harness, host.cwd, { model });
+          void harnessSwitch.switchTo(harness, host.cwd, { model, ...(options ? { options } : {}) });
       } catch (error) {
         if (!cancelled) {
           acpWire.lifecycle("handshake failed", { message: String(error) });
@@ -11567,6 +11594,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   {
                     ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
                     ...heldPick(composerSnapshot),
+                    // The picker's effort and account go with its model (cmux-tui/docs/model-connections.md).
+                    ...cloudPickExtras(composerSnapshot.summary),
                   },
                 );
                 if (typeof started === "string") {
@@ -12420,6 +12449,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                   onRunHere={runCloudHere}
                                   onDismiss={dismissCloudFailure}
                                   onSwitchTeam={switchTeamAndRetry}
+                                  onSetUp={setUpCloud}
+                                  onSetUpDismiss={dismissCloudSetUp}
                                 />
                               ),
                             }
@@ -12954,6 +12985,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     onRunHere={runCloudHere}
                     onDismiss={dismissCloudFailure}
                     onSwitchTeam={switchTeamAndRetry}
+                    onSetUp={setUpCloud}
+                    onSetUpDismiss={dismissCloudSetUp}
                   />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
                   <SandboxRunView
