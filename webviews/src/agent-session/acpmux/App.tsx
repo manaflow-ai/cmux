@@ -549,6 +549,7 @@ import {
 import { CloudStartView } from "./CloudStartView";
 import { startAfterSignIn, waitForCloudSignIn, type CloudSignInWait } from "./cloudSignIn";
 import { waitForCloudSetUp, type CloudSetupAction, type CloudSetupNeed } from "./cloudSetup";
+import { ClaudeConnectContext, setupConnect } from "./claudeConnect";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import {
   registerChatDisplayHost,
@@ -4717,6 +4718,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudSetUpPick.current = { action, need };
     void cloudSignInRetry();
   };
+  /// The model picker's Connect row (claudeConnect.ts `setupConnect`) while this chat's Cloud start
+  /// waits for a connection: shown only for the family the host's Set up Cloud need names, so a local
+  /// chat, or a Cloud one a connection serves, never shows it. Connect runs the card's first button.
+  const setUpCloudNow = useRef(setUpCloud);
+  setUpCloudNow.current = setUpCloud;
+  const cloudSetupNeed = cloudStart?.state === "failed" ? cloudStart.cloudSetup : undefined;
+  const cloudSetupWaiting = cloudStart?.signingIn === true;
+  const modelConnect = useMemo(
+    () => setupConnect(cloudSetupNeed, cloudSetupWaiting, (action) => setUpCloudNow.current(action)),
+    [cloudSetupNeed, cloudSetupWaiting],
+  );
   /// Set up Cloud's Not now: a wait still out is withdrawn (the start then ends here), else the card goes.
   const dismissCloudSetUp = () => (cloudStart?.signingIn ? cancelCloudSignIn() : dismissCloudFailure());
   /// The plan card's Switch to <team>: the next Cloud send carries the team, and the host switches to it
@@ -13200,7 +13212,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         <UpdateOfferContext.Provider value={updateOffer}>
           <AgentProgressContext.Provider value={progressStore}>
             <OpenBackgroundTasks.Provider value={quick ? undefined : openBackgroundTask}>
-              <NoticeSlot>{pane}</NoticeSlot>
+              <ClaudeConnectContext.Provider value={modelConnect}>
+                <NoticeSlot>{pane}</NoticeSlot>
+              </ClaudeConnectContext.Provider>
             </OpenBackgroundTasks.Provider>
           </AgentProgressContext.Provider>
         </UpdateOfferContext.Provider>

@@ -24,7 +24,7 @@ export function ClaudeConnectDialog({
   start,
 }: {
   /// The host's check and save (ClaudeConnect.add): the dialog's only way out to the app.
-  add: ClaudeConnect["add"];
+  add: NonNullable<ClaudeConnect["add"]>;
   onClose(): void;
   /// The token was saved: the caller closes the dialog and marks the picker row connected.
   onConnected(): void;

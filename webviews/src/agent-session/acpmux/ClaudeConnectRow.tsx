@@ -4,8 +4,8 @@
 // until the host's connection list catches up, then the row goes. The dialog lives beside the
 // picker (the menu closes on Connect), so the composer holds both through `useClaudeConnectFlow`.
 import { useState, type ReactNode } from "react";
-import { AgentMark } from "../shared/AgentMark";
-import { CLAUDE_CONNECT_BRAND, useClaudeConnect, type ClaudeConnectRowProps } from "./claudeConnect";
+import { AgentMark, agentBrand } from "../shared/AgentMark";
+import { CLAUDE_CONNECT_BRAND, connectDetailKey, useClaudeConnect, type ClaudeConnectRowProps } from "./claudeConnect";
 import { ClaudeConnectDialog } from "./ClaudeConnectDialog";
 import { Check } from "./conversation/icons";
 import { useT } from "./i18n";
@@ -37,7 +37,7 @@ export function ClaudeConnectRow({
               <Check size={12} /> {t("picker.connectClaude.connected")}
             </>
           ) : (
-            t("picker.connectClaude.detail")
+            t(connectDetailKey(agentBrand(mark ?? CLAUDE_CONNECT_BRAND)))
           )}
         </span>
       </span>
@@ -70,11 +70,17 @@ export function useClaudeConnectFlow(): { row?: ClaudeConnectRowProps; dialog: R
   // Connected lasts until the host's `needed` turns false (the row goes); a later need (the
   // connection was removed) starts over with Connect.
   if (saved && !host?.needed) setSaved(false);
+  // A host with its own way in (`open`) takes Connect there; the dialog is only for a host that adds
+  // the pasted token itself (`add`).
   const row: ClaudeConnectRowProps | undefined = host?.needed
-    ? { brand: CLAUDE_CONNECT_BRAND, connected: saved, onConnect: () => setOpen(true) }
+    ? {
+        brand: host.brand ?? CLAUDE_CONNECT_BRAND,
+        connected: saved,
+        onConnect: () => (host.open ? host.open() : setOpen(true)),
+      }
     : undefined;
   const dialog =
-    open && host ? (
+    open && host?.add ? (
       <ClaudeConnectDialog
         add={host.add}
         onClose={() => setOpen(false)}

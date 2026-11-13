@@ -7,7 +7,15 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { isClaudeToken } from "../shared/claudeSetupToken";
 import { isClaudeToken as settingsCheck } from "../../pages/settings/components/ModelsCard";
-import { ClaudeConnectContext, checkToken, connectRequest, refusalText, type ClaudeConnect } from "./claudeConnect";
+import {
+  ClaudeConnectContext,
+  checkToken,
+  connectRequest,
+  refusalText,
+  setupConnect,
+  type ClaudeConnect,
+} from "./claudeConnect";
+import type { CloudSetupAction } from "./cloudSetup";
 import { ClaudeConnectDialog } from "./ClaudeConnectDialog";
 import { ClaudeConnectRow, useClaudeConnectFlow } from "./ClaudeConnectRow";
 
@@ -234,4 +242,66 @@ test("without a host provider the picker gets no Connect row", async () => {
   }
   await mount(<Picker />);
   expect(seen).toBeUndefined();
+});
+
+test("the chat's Set up Cloud need gives the Connect row for its family; no need, or a wait out, gives none", () => {
+  const ran: CloudSetupAction[] = [];
+  const run = (action: CloudSetupAction) => void ran.push(action);
+  expect(setupConnect(undefined, false, run)).toBeUndefined();
+  expect(setupConnect({ family: "claude" }, true, run)).toBeUndefined();
+  const claude = setupConnect({ family: "claude", model: "opus" }, false, run)!;
+  expect(claude).toMatchObject({ needed: true, brand: "claude" });
+  expect(claude.add).toBeUndefined();
+  claude.open!();
+  const codex = setupConnect({ family: "codex" }, false, run)!;
+  expect(codex).toMatchObject({ needed: true, brand: "openai" });
+  codex.open!();
+  expect(ran).toEqual(["setUpClaude", "connectChatGPT"]);
+});
+
+test("a host with its own way in takes Connect there, with no dialog; Codex's row reads its ChatGPT way in", async () => {
+  const ran: CloudSetupAction[] = [];
+  let family: "claude" | "codex" = "codex";
+  let rerender: () => void = () => undefined;
+  function Host() {
+    const [, bump] = useState(0);
+    rerender = () => bump((n) => n + 1);
+    return (
+      <ClaudeConnectContext.Provider value={setupConnect({ family }, false, (action) => void ran.push(action))}>
+        <Picker />
+      </ClaudeConnectContext.Provider>
+    );
+  }
+  let brand: string | undefined;
+  function Picker() {
+    const { row, dialog } = useClaudeConnectFlow();
+    brand = row?.brand;
+    return (
+      <>
+        {row && (
+          <ClaudeConnectRow
+            name={row.brand === "openai" ? "Codex" : "Claude Code"}
+            mark={row.brand === "openai" ? "codex" : "claude"}
+            connected={row.connected}
+            onConnect={row.onConnect}
+          />
+        )}
+        {dialog}
+      </>
+    );
+  }
+  const doc = await mount(<Host />);
+  const row = () => doc.querySelector<HTMLElement>(".acpmux-connect-claude-row");
+  expect(brand).toBe("openai");
+  expect(row()?.textContent).toContain("Continue with ChatGPT");
+  await act(async () => row()!.querySelector("button")!.click());
+  await nextFrame();
+  expect(dialogOf(doc)).toBeNull();
+  family = "claude";
+  await act(async () => rerender());
+  expect(row()?.textContent).toContain("Link your Claude subscription to use Claude Code");
+  await act(async () => row()!.querySelector("button")!.click());
+  await nextFrame();
+  expect(dialogOf(doc)).toBeNull();
+  expect(ran).toEqual(["connectChatGPT", "setUpClaude"]);
 });
