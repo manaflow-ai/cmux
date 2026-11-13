@@ -24,6 +24,7 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import yaml
 
@@ -176,6 +177,16 @@ class RunnerTest(unittest.TestCase):
         self.assertIn("before", out)
         self.assertIn("fine", out)
         self.assertNotIn("::error", out)
+
+    def test_a_timed_out_step_whose_group_cannot_be_signalled_still_times_out(self) -> None:
+        # macOS answers killpg with EPERM, not ESRCH, when each process left in the step's group is a zombie
+        # (tests/test_ci_killpg_tolerates_eperm.py). The step ran past its timeout all the same: no exception,
+        # code None, and what the step printed is read.
+        step = table('[step.slow]\njob = "linux"\ntimeout = 1\nrun = "echo before; sleep 2"').steps["slow"]
+        with mock.patch.object(ci_steps.os, "killpg", side_effect=PermissionError(1, "Operation not permitted")):
+            result = ci_steps.run_step(step)
+        self.assertIsNone(result.code)
+        self.assertIn("before", result.output)
 
     def test_a_blocking_failure_fails_the_job(self) -> None:
         t = table('[step.a]\njob = "linux"\nrun = "false"\n[step.b]\njob = "linux"\nrun = "true"')

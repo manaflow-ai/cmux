@@ -70,7 +70,7 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
                 let panels = try await client.sessionInfoPanels()
                 return .object(["panels": .array(panels.map(panelJSON))])
             } catch {
-                throw PageError(code: "cmux.apps.panels.failed", message: String(describing: error), retryable: true)
+                throw PageError.failed(error, code: "cmux.apps.panels.failed", retryable: true)
             }
         case Self.namespace + "mount":
             return try mount(params)

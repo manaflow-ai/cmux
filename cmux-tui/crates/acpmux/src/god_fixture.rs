@@ -66,6 +66,17 @@ impl Shape {
         }
     }
 
+    /// Summary changes for the connection pressure gate. Even small must fill
+    /// the 4 MiB queue twice; both sides use fixed stretches so their peak
+    /// samples cover the same amount of work.
+    pub fn connection_change_bytes(&self) -> u64 {
+        match self.name {
+            "small" => 16 << 20,
+            "god" => 1 << 30,
+            _ => self.god_bytes.max(8 << 20),
+        }
+    }
+
     /// [`Self::god`] times `ACPMUX_GOD_SCALE` (default 1): its messages, bytes and chats. The
     /// peers stay whole: their rows are the heap's suspect (26 x 400 x 75 keys).
     pub fn god_from_env() -> Self {

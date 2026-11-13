@@ -2012,8 +2012,10 @@
    "unit": "pt"
   },
   "tabContentLeadingInset": {
-   "value": 8,
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift:30-31 (ChromeTunables.tabContentLeadingInset)",
+   "value": 6,
+   "derived": "round2x((tabHeight - iconSize) / 2 + iconSize / 16)",
+   "rule": "Derived from the tab height, not fixed: the icon box's vertical inset in the pill plus the icon grid's optical room (pack glyphs keep 1/16 of the box more space above and below than beside them), on the 2x pixel grid, so the glyph's ink sits as far from the pill's leading edge as from its top and bottom at every density. value is Compact density (24 pt tab, 14 pt icon); a 24 pt tab with a 16 pt icon gives 5, a 32 pt tab 9. A set chrome.tabContentLeadingInset (chrome.compactTabContentLeadingInset under Compact tabs) wins. Was a fixed 8 (6 under Compact tabs) until 8f32c4613bc (Lawrence 2026-11-12: \"space on left/top of tab is not even\").",
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Metrics.swift:193-215 (Metrics.tabContentLeadingInset, Metrics.evenIconLeadingInset); Tunables/ChromeTunables.swift:31-34, 51-54 (ChromeTunables.tabContentLeadingInset, compactTabContentLeadingInset)",
    "unit": "pt"
   },
   "terminalTextInset": {

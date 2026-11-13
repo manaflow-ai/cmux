@@ -9,9 +9,56 @@ import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from ".
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable, IDLE_JOURNEY_MS, listAllMachines, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 
 describe("cloud journey", () => {
+  test("preclaim records preserve the claim-to-bound split and receipt state", () => {
+    const row = preclaimClaimRecord({
+      claim: 2,
+      spare: "vm_spare",
+      answer: {
+        machine_id: "vm_claim",
+        lease_hit: true,
+        stages_ms: [
+          { step: "machine", ms: 40 },
+          { step: "join", ms: 12 },
+          { step: "guest_bind", ms: 8 },
+          { step: "connect_info", ms: 10 },
+          { step: "bound", ms: 5 },
+        ],
+      },
+      postBindLogin: "receipt",
+    });
+    expect(row).toEqual({
+      claim: 2,
+      machine: "vm_claim",
+      spare: "vm_spare",
+      lease_hit: true,
+      claim_to_bound: { claim_answer_ms: 40, join_ms: 52, guest_bind_ms: 60, connect_info_ms: 70, bound_ms: 75 },
+      post_bind_login: "receipt",
+    });
+  });
+
+  test("lease classification uses explicit broker evidence and keeps unknown separate from a miss", () => {
+    expect(classifyLeaseHit({ lease_hit: false })).toBe(false);
+    expect(classifyLeaseHit({ source: "warm" })).toBe(true);
+    expect(classifyLeaseHit({}, "claim lease_hit=no")).toBe(false);
+    expect(classifyLeaseHit({ message: "claimed spare" }, "claimed spare")).toBeNull();
+    expect(classifyLeaseHit({ machine_id: "vm_cold" })).toBeNull();
+  });
+
+  test("preclaim waits only for the owner's team stream and accepts its replayed ready event", () => {
+    expect(cloudSpareReadyFrame({ event: "cloud.spare.ready", stream: "cloud:team_a", data: { machine: "vm_spare", team: "team_a" } }, "vm_spare", "team_a")).toBe(true);
+    expect(cloudSpareReadyFrame({ event: "cloud.spare.ready", stream: "cloud:team_b", data: { machine: "vm_spare", team: "team_b" } }, "vm_spare", "team_a")).toBe(false);
+    expect(cloudSpareReadyFrame({ t: "snapshot", stream: "cloud:team_a", spares_needing_login: ["vm_spare"] }, "vm_spare", "team_a")).toBe(true);
+    expect(cloudSpareReadyFrame({ event: "cloud.spare.ready", stream: "cloud:team_a", data: { machine: "vm_other", team: "team_a" } }, "vm_spare", "team_a")).toBe(false);
+  });
+
+  test("claim stage extraction accepts the cloud start-session steps object without inventing missing stages", () => {
+    expect(claimToBoundSplit({ steps: [{ step: "claim", ms: 10 }, { step: "bound", ms: 5 }] })).toEqual({ claim_answer_ms: 10, join_ms: null, guest_bind_ms: null, connect_info_ms: null, bound_ms: 15 });
+    expect(claimToBoundSplit(undefined)).toEqual({ claim_answer_ms: null, join_ms: null, guest_bind_ms: null, connect_info_ms: null, bound_ms: null });
+  });
+
   test("--sign-in oidc trades the job's OIDC token for the API's session and keeps both out of the output", async () => {
     const calls: Array<{ method: string; url: string; auth: string }> = [];
     const fake = async (method: string, url: string, _body: unknown, headers: Record<string, string>) => {
