@@ -30,13 +30,40 @@ use crate::daemon_spec::{WORK_HOME, WORK_USER};
 
 /// The first check after `cmux host run` starts (a boot or an update's restart).
 const BOOT_DELAY: Duration = Duration::from_secs(30);
-/// Every minute while the machine runs: a merged fix reaches an idle machine
-/// within about a minute of the channel moving, not five. One check is a GET
-/// of the small signed channel file (served uncached, max-age 60) and a
-/// signature check; it logs only when its outcome changes.
-const INTERVAL: Duration = Duration::from_secs(60);
-/// An update waiting for a turn to end looks again this soon.
-const BUSY_RETRY: Duration = Duration::from_secs(60);
+/// Every 15 s while the machine runs (plus [`JITTER`]): a merged fix reaches
+/// an idle machine within about 20 s of the channel moving. The fleet's first
+/// machine on a new build waited half the interval on average, so at 60 s
+/// that wait was most of the published-to-first-seen stage (23 builds of
+/// 2026-11-13: p50 65 s over a 17 s floor). One check is a GET of the small
+/// signed channel file (about 2 KB; the CDN does not cache it, every GET
+/// reads the origin) and a signature check, no process but curl; it logs
+/// only when its outcome changes.
+const INTERVAL: Duration = Duration::from_secs(15);
+/// An update waiting for a turn to end or a carrier session to detach looks
+/// again this soon, so it goes within about 20 s of the machine going idle,
+/// not up to a minute after. The busy look is local (acpmux and the session
+/// host's admin channel) and runs only while an update waits.
+const BUSY_RETRY: Duration = Duration::from_secs(15);
+/// At most this much is added to each wait, a fresh draw each time
+/// ([`next_look`]), so machines that started together (spares restored from
+/// one snapshot, a fleet that restarted into one update) do not look in step.
+const JITTER: Duration = Duration::from_millis(3_750);
+
+/// How long the worker waits after a check that ended in `outcome` before it
+/// looks again: [`BUSY_RETRY`] while an update waits for idle, else
+/// [`INTERVAL`], plus `draw` folded into [`JITTER`].
+pub(super) fn next_look(outcome: &Outcome, draw: u64) -> Duration {
+    let base = if matches!(outcome, Outcome::Busy(_)) { BUSY_RETRY } else { INTERVAL };
+    base + Duration::from_millis(draw % (JITTER.as_millis() as u64 + 1))
+}
+
+/// A fresh random draw for [`next_look`] (std's per-process random hash keys).
+fn jitter_draw() -> u64 {
+    use std::hash::{BuildHasher as _, Hasher as _};
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u64(wall_ms());
+    hasher.finish()
+}
 pub(super) use super::gate::CONNECT_HOLD;
 /// The new build has this long to serve after its restart: a session host
 /// replays its journal before it listens (minutes for a large one).
@@ -543,7 +570,7 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
             continue;
         }
         let (outcome, _) = check(paths, Honor::All);
-        let next = if matches!(outcome, Outcome::Busy(_)) { BUSY_RETRY } else { INTERVAL };
+        let next = next_look(&outcome, jitter_draw());
         if !wait_watching(paths, rx, next) {
             return;
         }
@@ -598,14 +625,18 @@ impl Outcome {
 
 /// The updater's lock (`<state>/lock`, flock): one check, commit, rollback
 /// or guard at a time, in this process or another (`cmux host update
-/// check`). Released when the holder exits, also when the restart ends it.
+/// check`). Released when the holder lets go (commit and rollback do while
+/// the service lives on) or exits, also when the restart ends it. The drop
+/// unlocks before it closes: a child the service forked meanwhile keeps no
+/// lock through its copy, so the next check does not fail as "another update
+/// check runs".
 struct Lock {
-    _file: fs::File,
+    _lock: cmux_file_lock::FileLock,
 }
 
 impl Lock {
     fn take(paths: &Paths, wait: bool) -> Option<Lock> {
-        use std::os::unix::io::AsRawFd as _;
+        use cmux_file_lock::{FileLock, Kind};
         let dir = paths.at(super::STATE_DIR);
         fs::create_dir_all(&dir).ok()?;
         let file = fs::OpenOptions::new()
@@ -614,9 +645,13 @@ impl Lock {
             .write(true)
             .open(dir.join("lock"))
             .ok()?;
-        let flags = if wait { libc::LOCK_EX } else { libc::LOCK_EX | libc::LOCK_NB };
-        // SAFETY: flock on a descriptor this function owns.
-        (unsafe { libc::flock(file.as_raw_fd(), flags) } == 0).then_some(Lock { _file: file })
+        // The same exclusive flock as before: blocking, or one try.
+        let lock = if wait {
+            FileLock::take(file, Kind::Exclusive).ok()?
+        } else {
+            FileLock::try_take(file, Kind::Exclusive).ok()?
+        };
+        Some(Lock { _lock: lock })
     }
 }
 
@@ -658,7 +693,7 @@ pub fn check(paths: &Paths, honor: Honor) -> (Outcome, Option<HoldKind>) {
 /// Runs one check (`inner`), then the pause look over it on every way out
 /// but a flip (which looked right before it): a check that returned early
 /// after a pause (a busy look that timed out across it) starts the connect
-/// hold, or a flip could follow a minute later.
+/// hold, or a flip could follow at the next look.
 pub(super) fn check_step(
     paths: &Paths,
     watch: &crate::agent::PauseWatch,
@@ -792,6 +827,100 @@ fn check_inner(
         Gated::Off(why) => Outcome::Off(why),
         Gated::Failed(e) => Outcome::Failed(format!("flipping to profile {}: {e}", plan.to)),
     }
+}
+
+/// `cmux host update adopt`: puts a machine whose software predates the self-update (or
+/// whose work link the Mac app's in-place update replaced, which turns the updater off)
+/// on the channel's build once, from outside: a client runs it over the Cloud exec route
+/// with a copy of the new build when the machine never registers on the carrier relay
+/// (cmuxterm-hq#7086). Such a machine's link is down, so nothing waits on it: unlike
+/// [`check`] it honors no hold and reads no busy session or carrier session (the old
+/// build answers neither), and runs as soon as it is asked. It relinks the work user's
+/// cmux-tui into `current` ([`super::relink_work_link`]), then stages, builds and flips
+/// the next profile as [`check`] does, records the update as pending and restarts the
+/// services: the new `cmux host run` proves it or rolls it back ([`healthy`]), and its
+/// guard is the new build's own (the old one has no `host update guard`). From then on
+/// the machine updates itself. A rollback after the flip leaves the work link on
+/// `current`, that is on the image's build, not the file the Mac app had put there
+/// (kept at [`super::WORK_CMUX_TUI_KEPT`]).
+pub fn adopt(paths: &Paths) -> Outcome {
+    let Some(_lock) = Lock::take(paths, false) else {
+        return Outcome::Failed("another update check runs".to_owned());
+    };
+    if paths.at(super::OFF_FILE).exists() {
+        return Outcome::Off(format!("{} exists", super::OFF_FILE));
+    }
+    if load_pending(paths).is_some() {
+        return Outcome::Failed("an update is waiting for its health check".to_owned());
+    }
+    let Some(target) = channel::local_target() else {
+        return Outcome::Off(format!("no build for {}", std::env::consts::ARCH));
+    };
+    let body = match fetch(CHANNEL_URL, CHANNEL_MAX_BYTES as u64, None) {
+        Ok(body) => body,
+        Err(e) => return Outcome::Failed(format!("reading {CHANNEL_URL}: {e}")),
+    };
+    let payload = match channel::verify(&body, &channel::trusted_keys(), now()) {
+        Ok(payload) => payload,
+        Err(e) => return Outcome::Failed(format!("refusing {CHANNEL_URL}: {e}")),
+    };
+    let mut state = load_state(paths);
+    let plan = match decide(paths, &state, &payload, target) {
+        Ok(Decision::Update(plan)) => plan,
+        Ok(Decision::Current) => return Outcome::Current(payload.commit),
+        Ok(Decision::Older) => return Outcome::Older,
+        Ok(Decision::RolledBack) => return Outcome::RolledBackBefore,
+        Err(e) => return Outcome::Failed(e),
+    };
+    if let Err(e) = stage(paths, &plan) {
+        return Outcome::Failed(e);
+    }
+    if let Err(e) = store::build_profile(paths, plan.from, plan.to, &plan.replacements()) {
+        return Outcome::Failed(format!("building profile {}: {e}", plan.to));
+    }
+    record_installed(&mut state, &plan);
+    let _ = save_state(paths, &state);
+    let pending = plan.pending(now());
+    if let Err(e) = save_pending(paths, &pending) {
+        return Outcome::Failed(format!("recording the update: {e}"));
+    }
+    // The new profile's own `cmux` (the binary has `host` only under that name).
+    let guard = store::profile_dir(paths, plan.to).join("bin/cmux");
+    if let Err(e) = arm_guard_with(&pending, &guard) {
+        clear_pending(paths);
+        return Outcome::Failed(format!("arming the guard: {e}"));
+    }
+    let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
+    // Last before the flip, so a step that failed above left the work link as it was.
+    let relinked = match super::relink_work_link(paths) {
+        Ok(relinked) => relinked,
+        Err(e) => {
+            drop(commit);
+            disarm_guard();
+            clear_pending(paths);
+            return Outcome::Failed(format!("relinking {}: {e}", super::WORK_CMUX_TUI_LINK));
+        }
+    };
+    if let Err(e) = store::flip(paths, plan.to) {
+        super::restore_work_link(paths, relinked);
+        drop(commit);
+        disarm_guard();
+        clear_pending(paths);
+        return Outcome::Failed(format!("flipping to profile {}: {e}", plan.to));
+    }
+    if relinked != super::Relinked::Unchanged {
+        log(&format!("{} links {} again", super::WORK_CMUX_TUI_LINK, super::CURRENT_CMUX_TUI));
+    }
+    log(&format!(
+        "adopt: profile {} -> {}: cmux-tui {} ({}); restarting the services",
+        plan.from,
+        plan.to,
+        short_hex(&plan.cmux_tui.sha256),
+        short_hex(&plan.commit)
+    ));
+    restart_after_flip(&store_binary(&plan.old_cmux_tui));
+    drop(commit);
+    Outcome::Updating(plan.commit)
 }
 
 /// What the flip's step inside the gate did.
@@ -1403,6 +1532,12 @@ fn user_systemctl(args: &[&str]) -> bool {
 /// The previous build's `cmux host update guard --to <to>`, as a transient
 /// timer [`GUARD_AFTER_SECS`] from now.
 fn arm_guard(pending: &Pending) -> Result<(), String> {
+    arm_guard_with(pending, &store::profile_dir(&Paths::new("/"), pending.from).join("bin/cmux"))
+}
+
+/// [`arm_guard`] with `program` as the guard's `cmux`: an adopt's previous build has
+/// no `host update guard`, so its guard is the new build's own ([`adopt`]).
+fn arm_guard_with(pending: &Pending, program: &Path) -> Result<(), String> {
     disarm_guard();
     let _ = systemctl(&["stop", &format!("{GUARD_UNIT}.service")]);
     let _ = systemctl(&[
@@ -1410,7 +1545,6 @@ fn arm_guard(pending: &Pending) -> Result<(), String> {
         &format!("{GUARD_UNIT}.service"),
         &format!("{GUARD_UNIT}.timer"),
     ]);
-    let program = store::profile_dir(&Paths::new("/"), pending.from).join("bin/cmux");
     let status = Command::new("systemd-run")
         .arg(format!("--unit={GUARD_UNIT}"))
         .arg(format!("--on-active={GUARD_AFTER_SECS}"))
@@ -1498,6 +1632,12 @@ pub fn verb(args: &[String]) -> u8 {
             println!("{value}");
             0
         }
+        ["adopt"] => {
+            let outcome = adopt(&paths);
+            log(&outcome.line());
+            println!("{}", outcome.json(None));
+            if matches!(outcome, Outcome::Failed(_)) { 1 } else { 0 }
+        }
         ["check"] | ["check", "--skip-resume-hold"] => {
             let honor = if args.len() > 1 { Honor::AllButResume } else { Honor::All };
             let (outcome, skipped) = check(&paths, honor);
@@ -1527,9 +1667,34 @@ pub fn verb(args: &[String]) -> u8 {
         }
         _ => {
             eprintln!(
-                "usage: cmux host update status [--json] | check [--skip-resume-hold] | guard --to GENERATION"
+                "usage: cmux host update status [--json] | check [--skip-resume-hold] | adopt | guard --to GENERATION"
             );
             2
         }
+    }
+}
+
+#[cfg(test)]
+mod lock_tests {
+    use super::*;
+    use crate::updater::gate::tests::{end, forked_keeper};
+
+    /// The updater's lock is free once a commit or rollback lets go, also while a child the
+    /// service forked meanwhile still has the descriptor: else the next check fails with
+    /// "another update check runs".
+    #[test]
+    fn a_dropped_updater_lock_is_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        let lock = Lock::take(&paths, false).expect("a free updater lock");
+        assert!(Lock::take(&paths, false).is_none(), "the lock is held");
+        let child = forked_keeper();
+        drop(lock);
+        let again = Lock::take(&paths, false);
+        end(child);
+        assert!(
+            again.is_some(),
+            "a dropped updater lock stayed held through a forked child's copy"
+        );
     }
 }

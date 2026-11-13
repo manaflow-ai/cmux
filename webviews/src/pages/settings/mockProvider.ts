@@ -22,6 +22,7 @@ import {
   type AccountsRun,
   type AgentsRun,
   type AgentsState,
+  type ChannelsProgress,
   type ChannelSwitch,
   type ChannelsState,
   type AccountsState,
@@ -202,6 +203,8 @@ export class MockSettingsProvider {
   private connected: boolean;
   private museumArt: MuseumArtResult[];
   readonly workspaceBackgrounds = new Map<string, WorkspaceBackground>();
+  /** Holds `cmux.settings.host.lists` until it settles: a test's host that answers after the values. */
+  holdHost: Promise<void> | null = null;
 
   constructor(options: MockOptions = {}) {
     this.chatFolders = options.chatFolders;
@@ -242,7 +245,10 @@ export class MockSettingsProvider {
       "cmux.settings.preview": () => ({}),
       "cmux.settings.preview.end": () => ({}),
       "cmux.settings.sound.play": () => ({}),
-      "cmux.settings.host.lists": () => this.host,
+      "cmux.settings.host.lists": async () => {
+        if (this.holdHost) await this.holdHost;
+        return this.host;
+      },
       "cmux.settings.accounts.state": () => this.accountsState(),
       "cmux.settings.server.restart": () => ({}),
       "cmux.settings.server.pair": () => ({}),
@@ -318,13 +324,15 @@ export class MockSettingsProvider {
         if (!this.channels) throw new ProtocolError("cmux.page.unavailable", "no updater");
         return { ...this.channels, switch: this.channelSwitch };
       },
-      "cmux.settings.channels.go_back": (params) => {
+      "cmux.settings.channels.go_back": async (params) => {
         this.wentBack = params.build as string;
+        if (this.switchHold) await this.switchHold;
         return {};
       },
-      "cmux.settings.channels.switch_build": (params) => {
-        if (this.switchRefusal) throw new ProtocolError("cmux.page.refused", this.switchRefusal);
+      "cmux.settings.channels.switch_build": async (params) => {
         this.switchedTo = params.build as string;
+        if (this.switchHold) await this.switchHold;
+        if (this.switchRefusal) throw new ProtocolError("cmux.page.refused", this.switchRefusal);
         return {};
       },
       "cmux.settings.channels.update_machine": (params) => {
@@ -332,7 +340,10 @@ export class MockSettingsProvider {
         return {};
       },
       "cmux.settings.agents.state": () => this.agents.state,
-      "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
+      "cmux.settings.agents.run": async (params) => {
+        if ((params as { action?: string }).action === "remove") await this.agents.endpoint.holdRemove;
+        return this.agents.run(params as unknown as AgentsRun);
+      },
       "cmux.settings.context_menus.set": (params) => {
         const menus = this.host.context_menus;
         if (menus)
@@ -397,25 +408,45 @@ export class MockSettingsProvider {
         this.chiefs.push(made);
         return { value: made };
       },
-      "cmux.chief.backend.list": () => ({
-        harnesses: {
-          defaultHarness: "claude",
-          harnesses: { claude: { displayName: "Claude Code" }, codex: { displayName: "Codex" } },
-        },
-        // Codex's probed models, named as acpmux names them; Claude's are not probed (read off the id).
-        models: {
-          harnesses: [
-            {
-              harness: "codex",
-              models: [
-                { id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "medium", "high"] },
-                { id: "gpt-6-astra-mini", name: "GPT-6 Astra Mini", efforts: ["low", "medium"] },
-              ],
+      "cmux.chief.backend.list": async () => {
+        await this.agents.endpoint.holdList;
+        return {
+          harnesses: {
+            defaultHarness: "claude",
+            harnesses: {
+              claude: { displayName: "Claude Code" },
+              codex: { displayName: "Codex" },
+              ...this.agents.endpointHarnesses(),
+              ...this.agents.terminalHarnesses(),
             },
-          ],
-        },
-      }),
-      "cmux.chief.backend.doctor": () => ({ ok: true, steps: [{ name: "prompt", ok: true }] }),
+          },
+          // Codex's probed models, named as acpmux names them; Claude's are not probed (read off the id).
+          models: {
+            harnesses: [
+              {
+                harness: "codex",
+                models: [
+                  { id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "medium", "high"] },
+                  { id: "gpt-6-astra-mini", name: "GPT-6 Astra Mini", efforts: ["low", "medium"] },
+                ],
+              },
+            ],
+          },
+        };
+      },
+      "cmux.chief.backend.add": async (params) => {
+        await this.agents.endpoint.holdAdd;
+        const before = this.agents.endpoint.addFails;
+        if (before) throw new ProtocolError(before, "the endpoint's model list could not be read");
+        const added = this.agents.addEndpoint(params);
+        const fail = this.agents.endpoint.addThenFail;
+        if (fail) throw new ProtocolError(fail, "the add did not answer in time");
+        return added;
+      },
+      "cmux.chief.backend.doctor": async () => {
+        await this.agents.endpoint.holdDoctor;
+        return this.agents.endpoint.doctor;
+      },
       "cmux.settings.theme.set": (params) => {
         const { level, spec } = params as { level: string; spec: string | null };
         const theme = this.host.theme!;
@@ -640,6 +671,7 @@ export class MockSettingsProvider {
       "cmux.chief.profile.update",
       "cmux.chief.profile.create",
       "cmux.chief.backend.list",
+      "cmux.chief.backend.add",
       "cmux.chief.backend.doctor",
       "cmux.settings.harnesses.state",
       "cmux.settings.harnesses.run",
@@ -711,6 +743,7 @@ export class MockSettingsProvider {
     provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
     provide("cmux.settings.devices.changed", (ctx) => this.track(this.devicesChanged, ctx));
     provide("cmux.settings.channels.machines.changed", (ctx) => this.track(this.machinesChanged, ctx));
+    provide("cmux.settings.channels.switch.changed", (ctx) => this.track(this.switchChanged, ctx));
   }
 
   /** Settings > Devices as the app serves it (texts already localized). */
@@ -1008,6 +1041,17 @@ export class MockSettingsProvider {
     if (this.channels) this.channels = { ...this.channels, machines };
     for (const ctx of this.machinesChanged) ctx.emit(machines ?? null);
   }
+  private readonly switchChanged = new Set<EventSourceContext>();
+
+  /** Moves the running Switch or Go Back to its next stage (null: it ended) and tells the page,
+   * like the app's push; a later read of the card answers it too. */
+  setSwitchProgress(progress: ChannelsProgress | null): void {
+    if (this.channels) this.channels = { ...this.channels, progress };
+    for (const ctx of this.switchChanged) ctx.emit(progress);
+  }
+  /** Holds every Switch and Go Back reply until it resolves, as a host that answers only once
+   * the switch ends would; null: they answer at once. */
+  switchHold: Promise<void> | null = null;
   /** The way back the host answers with (Nightly's: the fixture runs a Dev build). */
   channelSwitch: ChannelSwitch | null = null;
   /** The build the card's Go Back asked for. */

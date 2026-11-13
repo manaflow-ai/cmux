@@ -17,6 +17,7 @@ import {
   setComposerSettings,
   type AttachmentView,
 } from "../src/agent-session/acpmux/composerSettings";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -77,12 +78,8 @@ afterEach(() => {
   dom.window.localStorage.clear();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {
@@ -146,6 +143,9 @@ function imageEngine() {
 
 /// A screenshot whose bytes come only when `release()` is called: a large image the composer is
 /// still reading and scaling.
+/// A screenshot whose read waits for `release`; each its own size, as two screenshots are (one of a
+/// type and size is read for its twin first: attachments.ts filesOnce).
+let slowScreenshots = 0;
 function slowScreenshot() {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => (release = resolve));
@@ -155,7 +155,10 @@ function slowScreenshot() {
       return super.arrayBuffer();
     }
   }
-  return { file: new Slow([PNG], "image.png", { type: "image/png" }), release };
+  return {
+    file: new Slow([PNG, new Uint8Array(++slowScreenshots)], "image.png", { type: "image/png" }),
+    release,
+  };
 }
 
 /// Yields to React until `ready()` holds; fails after 2 s with what it waited for.
@@ -519,9 +522,9 @@ test.each([
 });
 
 // Review of #37674 (F1): only the paste's own gesture takes the selection's place. A screenshot pasted
-// with the caret in a code block cannot go there and waits in the strip; the person then selects the
-// whole prompt while it loads. Once read, it is placed on its own (useInlineAttachments `ready`), and
-// that never deletes what is typed: the selection stays text, the chip goes after it.
+// with the caret in a code block cannot go there: it goes at the start of the prompt's first line that
+// can hold it (never the strip above the text); the person then selects the whole prompt while it
+// loads. Once read, it stays in that node, and that never deletes what is typed.
 test("an attachment placed once read never replaces the selection the person made meanwhile", async () => {
   const rects = { getClientRects: () => [], getBoundingClientRect: () => new dom.window.DOMRect() };
   Object.assign(dom.window.Range.prototype, rects);
@@ -537,7 +540,9 @@ test("an attachment placed once read never replaces the selection the person mad
   });
   const shot = slowScreenshot();
   await paste([shot.file]);
-  expect(field().querySelector("[data-inline-attachment]")).toBeNull();
+  // Not in the code block: at the start of the line after it.
+  expect(field().querySelector("pre [data-inline-attachment]")).toBeNull();
+  expect(field().querySelector("p [data-inline-attachment]")).not.toBeNull();
   await act(async () => markdownField().selectAll());
   shot.release();
   await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "the read chip");
@@ -547,6 +552,7 @@ test("an attachment placed once read never replaces the selection the person mad
   const value = markdownField().value();
   expect(value).toContain("let x = 1");
   expect(value).toContain("hello world");
+  expect(markdownField().inlineIds()).toHaveLength(1);
 });
 
 // Review of #37674 (F2): a read under 400 ms shows no indicator at all, with or without animations

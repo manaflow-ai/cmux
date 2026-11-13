@@ -1,8 +1,9 @@
 // l10n-allow-file: gallery fixtures (sample prompts and thoughts), not shipped UI.
-// A running turn's thought from its first words (conversation/turns.ts `codexRuns`): it streams in
-// its live viewport over the turn's Thinking line, instead of showing only once the next step ends
-// it (Leo, 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the thinking
-// ... I only started seeing your thinking bit, like, seven seconds in").
+// A running turn's thought from its first words (conversation/turns.ts `codexRuns`): it draws as the
+// line it folds to once done, over the turn's Thinking line, instead of showing only once the next
+// step ends it (Leo, 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the
+// thinking ... I only started seeing your thinking bit, like, seven seconds in"). The row keeps one
+// size from its first words to its end, so nothing jumps (Leo, 2026-11-07: "the jumps are jarring").
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, chat, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 
@@ -28,15 +29,15 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/turns.ts", "agent-session/acpmux/conversation/ThoughtRow.tsx"],
   variants: {
     "first-words": {
-      note: "Picked. The thought draws from its first chunk, labelled Thinking, over the turn's Thinking line.",
+      note: "Picked. The thought draws from its first chunk as its folded line, the brain glyph and its words, over the turn's Thinking line.",
       snapshot: chat([user(PROMPT, 0.1), streaming(SHORT)], { isWorking: true }),
     },
     long: {
-      note: "A thought taller than its live viewport keeps its newest lines in view while it streams; once done it folds.",
+      note: "A long thought is the same one line while it streams: its first words, cut with an ellipsis; a click opens its text.",
       snapshot: chat([user(PROMPT, 0.1), streaming(LONG)], { isWorking: true }),
     },
     "then-call": {
-      note: "A call ends it: the thought stays in the run as it was drawn, open in its viewport, until the turn's one fold at its end; the line names the call.",
+      note: "A call ends it: the thought stays in the run as it was drawn, the same line; the live line names the call.",
       snapshot: chat(
         [
           user(PROMPT, 0.1),

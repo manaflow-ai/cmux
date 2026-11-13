@@ -192,7 +192,10 @@ billing integration, operator reconciliation/cancellation of abandoned intents,
 and live-provider validation remain separate work.
 
 Every create and fork needs billing (`Entitlements`, 402) and a quota slot
-(`TenantMayCreate`, 429; default 20 live VMs, `TENANT_VM_QUOTAS` overrides).
+(`TenantMayCreate`, 429). A production product tenant has no machine-count
+cap: its machines are metered and cmux-platform's team spending cap is the stop.
+Dev/test tenants (every tenant off production) keep 20 live VMs, paused ones
+too; a `TENANT_VM_QUOTAS` entry holds any one tenant to its own number.
 Snapshot captures have the same durable send boundary, with separate quota and
 public snapshot IDs. A key permanently identifies one capture: use a new key
 for a new point in time. Omitted-key requests are separate captures, and retained

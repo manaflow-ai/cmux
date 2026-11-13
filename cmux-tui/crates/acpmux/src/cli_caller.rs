@@ -44,6 +44,10 @@ pub const CLI_NAME: &str = "acpmux-cli";
 pub const KIND_TERMINAL: &str = "terminal";
 /// The `callerKind` of a CLI inside an acpmux session's environment.
 pub const KIND_AGENT: &str = "agent";
+/// The `callerKind` of a CLI an app's guest MCP server runs (`acpmux_mcp_guest.rs`, with
+/// `desktop_link::GUEST_ENV` set to the app): a program, never the owner's terminal. A daemon
+/// reads it as any kind but `terminal` ([`Declared::Agent`]), an older daemon too.
+pub const KIND_GUEST: &str = "guest";
 /// The env var that gives each session's harness its daemon's own acpmux, an absolute path.
 pub const BIN_ENV: &str = "ACPMUX_BIN";
 /// `claimed` key of an unverified prompt from an old acpmux CLI: "acpmux-cli 0.1.0".
@@ -111,7 +115,14 @@ pub fn in_session_env(env: impl Fn(&str) -> Option<String>) -> bool {
 
 /// Adds this CLI's declaration to the `_meta.acpmux` of its `initialize`.
 pub fn declare(mux: &mut Map<String, Value>, env: impl Fn(&str) -> Option<String>) {
-    let kind = if in_session_env(env) { KIND_AGENT } else { KIND_TERMINAL };
+    let guest = env(crate::desktop_link::GUEST_ENV).is_some_and(|v| !v.trim().is_empty());
+    let kind = if in_session_env(&env) {
+        KIND_AGENT
+    } else if guest {
+        KIND_GUEST
+    } else {
+        KIND_TERMINAL
+    };
     mux.insert(PROTOCOL_FIELD.to_owned(), json!(PROTOCOL));
     mux.insert(KIND_FIELD.to_owned(), json!(kind));
 }
@@ -250,7 +261,7 @@ pub fn wrapper_path(home: &std::path::Path) -> std::path::PathBuf {
 #[cfg(unix)]
 pub fn install_wrapper(path: &std::path::Path, script: &str) -> std::io::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::PermissionsExt;
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let dir = path.parent().ok_or_else(|| std::io::Error::other("the wrapper has no folder"))?;
     // Private state, as every folder in the acpmux home: owner-only, and refused when another
@@ -267,13 +278,14 @@ pub fn install_wrapper(path: &std::path::Path, script: &str) -> std::io::Result<
     remove_dead_temporaries(dir);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = dir.join(format!(".{CLI_ALIAS}.{}.{n}.tmp", std::process::id()));
-    let create = || std::fs::OpenOptions::new().write(true).create_new(true).mode(0o700).open(&tmp);
+    let create =
+        || crate::home_fs::OpenOptions::new().write(true).create_new(true).mode(0o700).open(&tmp);
     let written = (|| {
         // A file with this name is a dead writer's that had this pid (no live process but this
         // one has it, and this one takes each `n` once): removed, then created once more.
         let mut file = match create() {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                std::fs::remove_file(&tmp)?;
+                crate::home_fs::remove_file(&tmp)?;
                 create()?
             }
             opened => opened?,
@@ -281,11 +293,11 @@ pub fn install_wrapper(path: &std::path::Path, script: &str) -> std::io::Result<
         file.write_all(script.as_bytes())?;
         file.sync_all()?;
         // The mode a umask may have narrowed: the script must run.
-        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o700))?;
-        std::fs::rename(&tmp, path)
+        crate::home_fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o700))?;
+        crate::home_fs::rename(&tmp, path)
     })();
     if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
     }
     written
 }
@@ -313,7 +325,7 @@ fn remove_dead_temporaries(dir: &std::path::Path) {
             && unsafe { libc::kill(pid, 0) } == -1
             && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
         if gone {
-            let _ = std::fs::remove_file(entry.path());
+            let _ = crate::home_fs::remove_file(entry.path());
         }
     }
 }
@@ -480,6 +492,23 @@ mod tests {
         declare(&mut mux, env(&[("ACPMUX_SESSION_ID", "s1")]));
         let hello = json!({"clientInfo": {"name": CLI_NAME}, "_meta": {"acpmux": mux}});
         assert_eq!(of_initialize(&hello), Some(Declared::Agent));
+    }
+
+    /// Review F1 (#39320): the CLI a guest MCP server runs (`acpmux_mcp_guest.rs` `new`) says
+    /// it is a guest, so the daemon never takes its prompt for the owner's terminal send.
+    #[test]
+    fn a_guest_cli_declares_no_terminal() {
+        let mut mux = Map::new();
+        declare(&mut mux, env(&[(crate::desktop_link::GUEST_ENV, "claude-desktop")]));
+        assert_eq!(mux.get(KIND_FIELD), Some(&json!(KIND_GUEST)));
+        let hello = json!({"clientInfo": {"name": CLI_NAME}, "_meta": {"acpmux": mux}});
+        let declared = of_initialize(&hello).unwrap();
+        assert_eq!(declared, Declared::Agent);
+        assert!(!declared.may_be_owner_terminal());
+        // A blank value is no guest.
+        let mut mux = Map::new();
+        declare(&mut mux, env(&[(crate::desktop_link::GUEST_ENV, " ")]));
+        assert_eq!(mux.get(KIND_FIELD), Some(&json!(KIND_TERMINAL)));
     }
 
     #[test]

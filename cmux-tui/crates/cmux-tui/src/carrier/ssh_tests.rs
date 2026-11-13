@@ -253,6 +253,61 @@ fn the_ssh_group_comes_after_the_relay_only_when_every_piece_is_there() {
     assert_eq!(codes, ["no_candidate", "no_tunnel", "no_key"]);
 }
 
+/// `carrier capabilities` reports ssh from the dial's own check: for every
+/// device setup, ssh is available exactly when an answer with an ssh
+/// candidate gets an ssh route, and unavailable with the same code.
+#[test]
+fn capabilities_and_the_dial_agree_on_every_setup() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = endpoints("10.20.0.7", 4_000_000_000);
+    let (full, _hub) = setup(dir.path(), true);
+    let quiet = tempfile::tempdir().unwrap();
+    let (no_listener, _) = setup(quiet.path(), false);
+    let with_ssh = answer(Some(candidate()));
+    for (tag, setup) in [
+        ("full", full.clone()),
+        ("no hub socket", no_listener),
+        ("no hub", SshSetup { hub: None, ..full.clone() }),
+        ("no exe", SshSetup { exe: None, ..full.clone() }),
+        ("no state", SshSetup { state: None, ..full.clone() }),
+        (
+            "a state dir ssh would expand",
+            SshSetup { state: Some(dir.path().join("a${b}")), ..full.clone() },
+        ),
+    ] {
+        let dial =
+            ssh_route(&setup, &with_ssh, MACHINE, source.clone(), far(), &SshRefusal::default())
+                .map(|_| ());
+        let ready = super::ssh_ready(&setup);
+        assert_eq!(ready, dial, "{tag}");
+        let caps = super::super::fault::capabilities(&super::super::fault::this_build(ready));
+        let ssh = &caps["carriers"]["ssh"];
+        assert_eq!(ssh["available"], dial.is_ok(), "{tag}: {caps}");
+        match dial {
+            Ok(()) => assert_eq!(caps["routes"], serde_json::json!(["relay", "ssh"]), "{tag}"),
+            Err(why) => {
+                assert_eq!(caps["routes"], serde_json::json!(["relay"]), "{tag}");
+                assert_eq!(ssh["code"], why.code(), "{tag}");
+                assert!(ssh["reason"].as_str().is_some_and(|r| !r.is_empty()), "{tag}");
+            }
+        }
+    }
+    // A path ssh would expand (`${`) is no route on either side, and no key
+    // is made where ssh could not use it.
+    let expanding = SshSetup { state: Some(dir.path().join("a${b}")), ..full };
+    assert_eq!(super::ssh_ready(&expanding), Err(Absent::Key));
+    let caps = super::super::fault::capabilities(&super::super::fault::this_build(
+        super::ssh_ready(&expanding),
+    ));
+    assert_eq!(caps["carriers"]["ssh"]["code"], "no_key", "{caps}");
+    assert!(!dir.path().join("a${b}").join("id_ed25519").exists(), "no key in an unusable dir");
+    assert_eq!(
+        super::ssh_ready(&SshSetup::default()),
+        Err(Absent::Tunnel),
+        "a setup with nothing in it has no ssh"
+    );
+}
+
 #[tokio::test]
 async fn a_link_authorizes_the_carrier_key_once_and_pins_the_endpoint_s_host_key() {
     let dir = tempfile::tempdir().unwrap();

@@ -98,6 +98,81 @@ fn a_binary_must_come_from_its_commit_publication() {
     assert!(payload.binaries_for(TARGET).is_err());
 }
 
+fn with_url(name: &str, url: String) -> Payload {
+    let mut p = payload_json(OLD_TUI, OLD_HOOK);
+    p["targets"][TARGET][name]["url"] = json!(url);
+    serde_json::from_value(p).unwrap()
+}
+
+#[test]
+fn a_binary_may_come_from_its_commit_machine_copy() {
+    // The Cloud machine channel's own (thin LTO) build of the commit: cmux-tui/<commit>/machine/.
+    let machine =
+        |name: &str| format!("https://files.cmux.com/cmux-tui/{COMMIT}/machine/{name}-{TARGET}");
+    let mut p = payload_json(OLD_TUI, OLD_HOOK);
+    p["targets"][TARGET]["cmux-tui"]["url"] = json!(machine("cmux-tui"));
+    p["targets"][TARGET]["cmux-tui-hook"]["url"] = json!(machine("cmux-tui-hook"));
+    let payload = channel::verify(&envelope(&p, "test"), &keys(), 5_000).unwrap();
+    let (tui, hook) = payload.binaries_for(TARGET).unwrap();
+    assert_eq!(tui.url, machine("cmux-tui"));
+    assert_eq!(hook.url, machine("cmux-tui-hook"));
+    // One of each kind is fine too: each binary is checked on its own.
+    assert!(with_url("cmux-tui", machine("cmux-tui")).binaries_for(TARGET).is_ok());
+    assert!(with_url("cmux-tui-hook", machine("cmux-tui-hook")).binaries_for(TARGET).is_ok());
+}
+
+#[test]
+fn a_binary_url_must_equal_one_of_the_two_exactly() {
+    let other = "f".repeat(40);
+    let base = "https://files.cmux.com/cmux-tui";
+    let near_misses = [
+        // Another commit, in either place.
+        format!("{base}/{other}/cmux-tui-{TARGET}"),
+        format!("{base}/{other}/machine/cmux-tui-{TARGET}"),
+        // Another commit's machine copy reached through this commit's directory.
+        format!("{base}/{COMMIT}/../{other}/machine/cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/machine/../cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/machine/../../{other}/cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/machine/%2e%2e/cmux-tui-{TARGET}"),
+        // Another name: the hook, another target, a suffix or a prefix.
+        format!("{base}/{COMMIT}/machine/cmux-tui-hook-{TARGET}"),
+        format!("{base}/{COMMIT}/machine/cmux-tui-aarch64-unknown-linux-musl"),
+        format!("{base}/{COMMIT}/machine/cmux-tui-{TARGET}.old"),
+        format!("{base}/{COMMIT}/machine/x-cmux-tui-{TARGET}"),
+        // Another directory, a nested one, a doubled slash or a missing one.
+        format!("{base}/{COMMIT}/machines/cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/machine/machine/cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/tree/cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}//cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/machine//cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}machine/cmux-tui-{TARGET}"),
+        // A query, a fragment, another scheme or host, a case change.
+        format!("{base}/{COMMIT}/machine/cmux-tui-{TARGET}?v=1"),
+        format!("{base}/{COMMIT}/machine/cmux-tui-{TARGET}#x"),
+        format!("http://files.cmux.com/cmux-tui/{COMMIT}/machine/cmux-tui-{TARGET}"),
+        format!("https://files.cmux.com.evil/cmux-tui/{COMMIT}/machine/cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/MACHINE/cmux-tui-{TARGET}"),
+        format!(" {base}/{COMMIT}/machine/cmux-tui-{TARGET}"),
+    ];
+    for url in near_misses {
+        let payload = with_url("cmux-tui", url.clone());
+        assert!(payload.binaries_for(TARGET).is_err(), "{url} passed");
+    }
+    // And the two allowed ones pass, built from the payload's own commit.
+    for url in channel::allowed_urls(COMMIT, &format!("cmux-tui-{TARGET}")) {
+        assert!(with_url("cmux-tui", url.clone()).binaries_for(TARGET).is_ok(), "{url} refused");
+    }
+    // A signed payload of another commit cannot name this commit's machine copy.
+    let mut p = payload_json(OLD_TUI, OLD_HOOK);
+    p["commit"] = json!(other);
+    p["targets"][TARGET]["cmux-tui-hook"]["url"] =
+        json!(format!("{base}/{other}/cmux-tui-hook-{TARGET}"));
+    p["targets"][TARGET]["cmux-tui"]["url"] =
+        json!(format!("{base}/{COMMIT}/machine/cmux-tui-{TARGET}"));
+    let payload = channel::verify(&envelope(&p, "test"), &keys(), 5_000).unwrap();
+    assert!(payload.binaries_for(TARGET).is_err());
+}
+
 #[test]
 fn keys_match_the_web_update_keys() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
@@ -796,7 +871,7 @@ fn a_restore_the_supervisor_has_not_dispatched_holds_the_flip() {
 }
 
 /// Review F2 of #38326: the health timeout's rollback waits while carrier
-/// sessions are attached, looking again every minute, and stops waiting when
+/// sessions are attached, looking again every BUSY_RETRY, and stops waiting when
 /// the role stops.
 #[cfg(target_os = "linux")]
 #[test]
@@ -805,7 +880,7 @@ fn the_health_timeout_rollback_waits_for_carrier_sessions() {
         vec![None, Some("1 carrier session(s) attached".to_owned()), Some("1".to_owned())];
     let mut carrier = || looks.pop().flatten();
     // `wait` with no message times out after BUSY_RETRY: too slow for a test,
-    // so a Check stands in for each minute.
+    // so a Check stands in for each look.
     let (tx, rx_checks) = std::sync::mpsc::channel();
     tx.send(role::Msg::Check).unwrap();
     tx.send(role::Msg::Check).unwrap();
@@ -1658,4 +1733,69 @@ fn a_carrier_read_that_times_out_inside_the_gate_is_busy() {
         assert!(matches!(gated, role::Gated::Busy(_)), "{honor:?}: {gated:?}");
         assert_eq!(gate::Gate::new(&paths).held_left(T0_MS), None, "a timeout is no new session");
     }
+}
+
+#[test]
+fn adopt_relinks_a_work_link_the_app_replaced_and_keeps_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    // Already the store link: nothing changes.
+    assert_eq!(relink_work_link(&paths).unwrap(), Relinked::Unchanged);
+    let link = paths.at(WORK_CMUX_TUI_LINK);
+    // The Mac app's in-place update left a file of its own (cmuxterm-hq#7086).
+    fs::remove_file(&link).unwrap();
+    fs::write(&link, b"the app's build").unwrap();
+    assert!(off_reason(&paths).is_some());
+    assert_eq!(relink_work_link(&paths).unwrap(), Relinked::KeptFile);
+    assert_eq!(fs::read_link(&link).unwrap(), Path::new(CURRENT_CMUX_TUI));
+    assert_eq!(fs::read(paths.at(WORK_CMUX_TUI_KEPT)).unwrap(), b"the app's build");
+    assert!(off_reason(&paths).is_none());
+    // A link elsewhere is pointed back too.
+    fs::remove_file(&link).unwrap();
+    std::os::unix::fs::symlink("/tmp/elsewhere", &link).unwrap();
+    assert_eq!(relink_work_link(&paths).unwrap(), Relinked::Linked);
+    assert_eq!(fs::read_link(&link).unwrap(), Path::new(CURRENT_CMUX_TUI));
+    // No link at all: made.
+    fs::remove_file(&link).unwrap();
+    assert_eq!(relink_work_link(&paths).unwrap(), Relinked::Linked);
+    assert!(off_reason(&paths).is_none());
+    // Restoring after a run that kept no file leaves an earlier `.pre-adopt` alone.
+    restore_work_link(&paths, Relinked::Linked);
+    assert_eq!(fs::read_link(&link).unwrap(), Path::new(CURRENT_CMUX_TUI));
+    assert!(paths.at(WORK_CMUX_TUI_KEPT).exists());
+    // After a run that kept one, it goes back.
+    fs::remove_file(&link).unwrap();
+    fs::write(&link, b"a newer app build").unwrap();
+    assert_eq!(relink_work_link(&paths).unwrap(), Relinked::KeptFile);
+    restore_work_link(&paths, Relinked::KeptFile);
+    assert_eq!(fs::read(&link).unwrap(), b"a newer app build");
+}
+
+/// Goal cloud-fix-to-machine (channel published -> first seen on a production
+/// machine): the worker looks at the channel again within 20 s of any check,
+/// idle or busy, so a channel move reaches an idle machine within about 20 s
+/// and a busy one within about 20 s of its turn ending, not a minute. Never
+/// sooner than 10 s (a tight loop), and the jitter keeps machines out of step.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_updater_looks_again_within_20_s_idle_or_busy() {
+    use std::collections::BTreeSet;
+    use std::time::Duration;
+    let outcomes = [
+        role::Outcome::Busy(vec!["1 carrier session(s) attached".to_owned()]),
+        role::Outcome::Current("c".to_owned()),
+        role::Outcome::Failed("reading the channel: timeout".to_owned()),
+        role::Outcome::Off("off".to_owned()),
+    ];
+    for outcome in &outcomes {
+        for draw in [0, 1, 1_875, 3_750, 3_751, 123_456_789, u64::MAX] {
+            let wait = role::next_look(outcome, draw);
+            assert!(
+                (Duration::from_secs(10)..=Duration::from_secs(20)).contains(&wait),
+                "{outcome:?} with draw {draw}: next look in {wait:?}"
+            );
+        }
+    }
+    let spread: BTreeSet<_> = (0..64u64).map(|i| role::next_look(&outcomes[1], i * 977)).collect();
+    assert!(spread.len() > 8, "the jitter spreads the looks: {spread:?}");
 }

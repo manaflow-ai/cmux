@@ -6,9 +6,10 @@
 // the order they were sent, each once acpmux took the one before. A refused one comes back to the
 // composer with every prompt behind it, so nothing is lost and nothing goes out of order.
 import type { ComposerAttachment } from "./attachments";
-import { attachedImages, sentPrompt } from "./direct";
+import { attachedImages, sentPromptShape } from "./direct";
 import type { SendGesture } from "./heldPrompt";
-import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
+import { carryInline, inlinePlainText } from "./inlinePrompt";
+import type { AcpmuxRow, AcpmuxSnapshot, QueuedPrompt } from "./model";
 
 /// `at`: when it was sent (Date.now()). `sentIn`: the chat shown when it was sent (`StartingPlace`).
 export type StartingSend = {
@@ -21,6 +22,20 @@ export type StartingSend = {
 /// Where the pane is: the chat it shows (none: a new chat not started yet) and its visit, the
 /// client's `selectionToken`, which moves on every selection.
 export type StartingPlace = { chat?: string; visit: number };
+
+/// A prompt waiting for the new chat as its queued row draws it, as a prompt acpmux queued draws:
+/// its words, and its images under them from the pane's own bytes. Never the draft's text as it is,
+/// whose attachments are tokens of their ids: an image pasted into a new chat's first prompt read as
+/// its UUID until the chat took it (#41016).
+export function startingQueueEntry(row: Pick<StartingSend, "id" | "text" | "attachments">): QueuedPrompt {
+  const images = attachedImages(row.attachments);
+  return {
+    id: row.id,
+    prompt: inlinePlainText(row.text, row.attachments),
+    sending: true,
+    ...(images.length ? { images } : {}),
+  };
+}
 /// `lost`: an edit saved while the prompt was going, which comes back only once it went.
 /// `gesture`: the Enter or click the composer bound to it while it held it for its files.
 type Item = StartingSend & { going: boolean; lost?: string; gesture?: SendGesture };
@@ -100,11 +115,19 @@ export class StartingSends {
     return true;
   }
 
-  /** Changes the text of a prompt that has not gone yet; false once it went. */
+  /**
+   * Changes the text of a prompt that has not gone yet (its row's words, `startingQueueEntry`): its
+   * attachments keep their places in it. False once it went.
+   */
   edit(id: string, text: string): boolean {
     const item = this.items.find((each) => each.id === id && !each.going);
     if (!item) return false;
-    item.text = text;
+    item.text = carryInline(item.text, text, item.attachments);
+    // A pasted or text chip's text is in the edited words now (the row shows it inline): its chip
+    // goes, or the prompt would carry that text twice, the chip's copy after the words.
+    item.attachments = item.attachments.filter(
+      (attachment) => attachment.kind !== "pasted" && attachment.kind !== "text",
+    );
     this.emit();
     return true;
   }
@@ -137,9 +160,9 @@ export class StartingSends {
 /// The row a starting prompt draws as: the one the chat's client draws for it once it went
 /// (direct.ts `sendNow`, `local-<promptId>`), so it stays the same row, and pending, so the
 /// Thinking line draws under it in its start look (conversation/turns.ts `waiting`).
-/// Its text, pastes and inline parts are the ones that row draws (direct.ts `sentPrompt`).
+/// Its text, pastes and inline parts are the ones that row draws (direct.ts `sentPromptShape`).
 function startingRow(send: StartingSend): AcpmuxRow {
-  const { inline, text, pasted } = sentPrompt(send.text, send.attachments);
+  const { inline, text, pasted } = sentPromptShape(send.text, send.attachments, { dropped: () => false });
   return {
     id: `local-${send.id}`,
     version: 0,

@@ -254,7 +254,6 @@ extension SidebarViewComponents {
             info["neighbor"] = describe(neighbor.view)
             info["neighbor_rows"] = "\(neighbor.list.displayed.rows.count) views=\(neighbor.list.rowViews.count) frame=\(neighbor.list.frame)"
         }
-        info["snapshot"] = describe(spacePaging.snapshotView)
         return info
     }
 }

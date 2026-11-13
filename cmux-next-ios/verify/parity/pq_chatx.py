@@ -354,7 +354,8 @@ def inspector(j, label):
     pq.shot("inspector-after-list")
     j.sim.tap_el(rows[0])
     time.sleep(1.5)
-    out["json"] = (ident(j, "chat.inspector.json").label or "")[:1500]
+    el = ident(j, "chat.inspector.json")  # a UITextView: its text is the value
+    out["json"] = (getattr(el, "value", None) or el.label or "")[:1500]
     pq.shot("inspector-after-json")
     # The Mac's record of the same seq.
     seq = int(out["rows"][0].split("seq ")[-1].split(",")[0]) if "seq " in out["rows"][0] else None

@@ -32,6 +32,16 @@
 //!   file (never to stderr): how long the attempt spent on the ticket, the
 //!   relay, the park, the handshake and the mux open
 //!   ([`contract::phases_line`]).
+//! - A relay attempt whose first link stays parked for 8 s looks at the
+//!   machine over the Cloud exec route and, when its software predates the
+//!   self-update (it never registers on the relay), has it adopt the signed
+//!   channel's build once, inside the same deadline ([`adopt`],
+//!   cmuxterm-hq#7086). That writes one `carrier.adopt machine=<vm_id>
+//!   outcome=<code> ms=<n>` line to the connect log, never to stderr.
+//! - With `CMUX_CARRIER_PROGRESS=1`, progress lines
+//!   (`{"progress":{"stage","text","eta_ms","deadline_ms"}}`) come before the
+//!   reply line, about once a second: the step the dial waits on and how
+//!   long is left ([`progress`]). Without it the reply line stays first.
 //! - `--service desktop` carries the machine's desktop instead: raw
 //!   `cmux.rd/1` bytes on stdin and stdout, through cmux-remote's
 //!   `local-socket` to `/run/cmux-rd/desktop.sock`. The daemon opens it only
@@ -84,14 +94,17 @@
 //! session per machine, dialed by the first accepted connection, and a mux
 //! control stream on it for each connection ([`serve`]).
 //!
-//! `cmux carrier capabilities [--json]` prints one JSON object on stdout and
-//! exits 0: the routes this build can carry a Cloud session over
-//! (`routes`), the faults a probe can inject (`faults`), and per carrier
-//! (`carriers.relay`, `carriers.ssh`) whether it is available (with a
-//! `reason` when not), can be probed, and which faults it takes
-//! ([`fault::capabilities`]). It needs no network, sign-in or app. The probe
-//! account's fault switch, `cmux cloud start-chat --carrier-fault`, is
-//! [`fault`]'s.
+//! `cmux carrier capabilities [--json] [--wg-hub PATH]` prints one JSON
+//! object on stdout and exits 0: the routes this device can carry a Cloud
+//! session over (`routes`), the faults a probe can inject (`faults`), and
+//! per carrier (`carriers.relay`, `carriers.ssh`) whether it is available
+//! (with a `code` and a `reason` when not), can be probed, and which faults
+//! it takes ([`fault::capabilities`]). ssh is available when the dial's own
+//! check of this device passes ([`ssh::ssh_ready`]: the tunnel hub at
+//! `--wg-hub` or the default socket answers, and the carrier key is there,
+//! made the first time as a dial makes it). It needs no network, sign-in or
+//! app. The probe account's fault switch, `cmux cloud start-chat
+//! --carrier-fault`, is [`fault`]'s.
 //!
 //! `cmux carrier tunnel --machine-id machine_… --name NAME --socket PATH`
 //! keeps this Mac's tunnel into the team's provider Cloud mesh up (attach,
@@ -107,6 +120,7 @@
 //! after its phases line, naming the ssh route's state and the carrier that
 //! carried it ([`contract::routes_line`]).
 
+mod adopt;
 mod answer;
 mod client;
 mod contract;
@@ -114,6 +128,7 @@ pub(crate) mod drill;
 pub(crate) mod fault;
 mod held;
 mod noise_key;
+mod progress;
 mod rd_link;
 mod route_log;
 mod secrets;
@@ -449,21 +464,34 @@ fn key(args: &[String]) -> i32 {
     }
 }
 
-/// `capabilities` or `capabilities --json`, exactly (the answer is JSON either way).
-pub(crate) fn parse_capabilities(args: &[String]) -> bool {
-    match args {
-        [verb] => verb == "capabilities",
-        [verb, flag] => verb == "capabilities" && flag == "--json",
-        _ => false,
+/// `capabilities [--json] [--wg-hub PATH]`, each once (the answer is JSON
+/// either way): `Some(hub)`, the dial's `--wg-hub` checked the same way.
+pub(crate) fn parse_capabilities(args: &[String]) -> Option<Option<PathBuf>> {
+    let (verb, rest) = args.split_first()?;
+    if verb != "capabilities" {
+        return None;
+    }
+    let rest = match rest {
+        [flag, tail @ ..] if flag == "--json" => tail,
+        _ => rest,
+    };
+    match rest {
+        [] => Some(None),
+        [flag, hub] if flag == "--wg-hub" => {
+            let hub = PathBuf::from(hub);
+            (hub.is_absolute() && cmux_unix_socket::fits(&hub)).then_some(Some(hub))
+        }
+        _ => None,
     }
 }
 
-/// `cmux carrier capabilities [--json]`: this build's carriers on stdout.
+/// `cmux carrier capabilities [--json] [--wg-hub PATH]`: this device's
+/// carriers on stdout.
 fn capabilities(args: &[String]) -> i32 {
-    if !parse_capabilities(args) {
-        return usage("usage: cmux carrier capabilities [--json]");
-    }
-    let line = format!("{}\n", fault::capabilities(&fault::this_build()));
+    let Some(hub) = parse_capabilities(args) else {
+        return usage("usage: cmux carrier capabilities [--json] [--wg-hub PATH]");
+    };
+    let line = format!("{}\n", fault::capabilities(&fault::this_device(hub)));
     let mut stdout = std::io::stdout().lock();
     let _ = stdout.write_all(line.as_bytes());
     let _ = stdout.flush();
@@ -509,11 +537,23 @@ pub(crate) fn run(args: &[String]) -> i32 {
         let (lines, mut queued) = tokio::sync::mpsc::unbounded_channel::<String>();
         let connect_log = route_log::default_path();
         let phases_log = connect_log.clone();
+        let deadline = tokio::time::Instant::now() + args.deadline;
+        // Progress lines go out before the reply line, so only for a caller
+        // that asked for them (`CMUX_CARRIER_PROGRESS=1`).
+        let progress = std::env::var(progress::ENV).is_ok_and(|v| v == "1").then(|| {
+            progress::Reporter::new(
+                progress::Expected::read(connect_log.as_deref()),
+                deadline,
+                args.service == DialService::Desktop,
+                reply,
+            )
+        });
+        let ticker = progress.as_ref().map(progress::Reporter::spawn);
         let plan = client::DialPlan {
             machine: args.machine.clone(),
             source,
             identity,
-            deadline: tokio::time::Instant::now() + args.deadline,
+            deadline,
             prefetched,
             log: Arc::new(move |line| {
                 if let Some(path) = &connect_log {
@@ -527,6 +567,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 }
             }),
             fresh_sessions: contract::FreshSessions::default(),
+            progress: progress.clone(),
             ssh: Arc::new(ssh::SshSetup::from_env(args.wg_hub.clone())),
             ssh_refusal: ssh::SshRefusal::default(),
         };
@@ -539,6 +580,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
             let dialed = client::dial(&plan).await;
             match (dialed, args.service) {
                 (Ok(dialed), DialService::Desktop) => {
+                    if let Some(progress) = &progress {
+                        progress.desktop();
+                    }
                     match open_desktop(&dialed.multiplexer, plan.deadline).await {
                         Ok(stream) => break (Ok(dialed), Some(stream)),
                         Err(failure) => {
@@ -554,6 +598,13 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 (dialed, _) => break (dialed, None),
             }
         };
+        // No progress line after the reply line.
+        if let Some(progress) = &progress {
+            progress.stop();
+        }
+        if let Some(ticker) = ticker {
+            ticker.abort();
+        }
         let code = match &dialed {
             Ok(dialed) => {
                 reply(&contract::connected_line(dialed.vmk));

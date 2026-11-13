@@ -24,6 +24,15 @@
 # Each group gets CARGO_BUILD_JOBS = ceil(2 * cores / groups) unless the caller
 # set it: all groups at full -j would start cores x groups rustc processes and
 # as many fat-LTO links at once, which can run a small runner out of memory.
+# Group 1 gets every core instead. It is the longest group in every caller (the
+# cmux-tui group), and builds alone for its last minutes after the others are
+# done: on a 16 vCPU Linux musl leg the other groups ended after 17-296 s and
+# group 1 after 358-461 s (runs 42653261844 to 42654596743, 2026-11-09), with
+# its rustc and ThinLTO workers held to 7 jobserver tokens on 16 cores. Every
+# core for group 1 adds cores - ceil(2 * cores / groups) tokens at the start
+# (16 + 5 x 6 = 46 instead of 36 for the six groups of a Linux musl leg), and the
+# extra ones all go to it once the short groups end. A caller's CARGO_BUILD_JOBS
+# still applies to every group.
 set -euo pipefail
 set -o noglob # BINS entries like '?name' are names, not patterns
 
@@ -51,9 +60,43 @@ if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
   groups=${#commands[@]}
   jobs=$(((2 * cores + groups - 1) / groups))
   ((jobs >= 1)) || jobs=1
+  lead_jobs=$((cores > jobs ? cores : jobs))
   export CARGO_BUILD_JOBS=$jobs
+  echo "cargo groups: ${#commands[@]}, CARGO_BUILD_JOBS=$lead_jobs for group 1, $CARGO_BUILD_JOBS each for the others"
+else
+  lead_jobs=$CARGO_BUILD_JOBS
+  echo "cargo groups: ${#commands[@]}, CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS each"
 fi
-echo "cargo groups: ${#commands[@]}, CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS each"
+
+# timings_summary REPORT START: the slowest units of a cargo --timings report
+# written since START (epoch seconds), and the units that ended last. Prints
+# nothing without a fresh report; a report it cannot read is one line, never a
+# failure.
+timings_summary() {
+  [[ -f "$1" ]] || return 0
+  python3 - "$1" "$2" <<'PY' || echo "cargo timings: could not read $1"
+import json, os, re, sys
+
+path, start = sys.argv[1], int(sys.argv[2])
+if os.path.getmtime(path) < start:
+    sys.exit(0)
+text = open(path, encoding="utf-8").read()
+m = re.search(r"\bUNIT_DATA\s*=\s*", text)
+if not m:
+    raise SystemExit(1)
+units, _ = json.JSONDecoder().raw_decode(text, m.end())
+def row(u):
+    end = u["start"] + u["duration"]
+    what = f'{u["name"]} {u.get("target", "").strip()}'.strip()
+    return f'  {u["duration"]:7.1f} s  {u["start"]:6.1f}-{end:6.1f}  {what}'
+print(f"cargo timings: {len(units)} units; slowest:")
+for u in sorted(units, key=lambda u: -u["duration"])[:12]:
+    print(row(u))
+print("cargo timings: last to end:")
+for u in sorted(units, key=lambda u: -(u["start"] + u["duration"]))[:6]:
+    print(row(u))
+PY
+}
 
 for i in "${!commands[@]}"; do
   n=$((i + 1))
@@ -68,6 +111,7 @@ for i in "${!commands[@]}"; do
   starts+=("$(date +%s)")
   (
     export CARGO_TARGET_DIR="$dir"
+    if ((n == 1)); then export CARGO_BUILD_JOBS="$lead_jobs"; fi
     status=0
     bash -c "set -euo pipefail; ${commands[i]}" > "$logs/$n.log" 2>&1 || status=$?
     echo "$status $(date +%s)" > "$logs/$n.done"
@@ -93,6 +137,12 @@ for i in "${!pids[@]}"; do
     continue
   fi
   echo "$label: $((end - starts[i])) s"
+  # A group run with `cargo --timings` (the Cloud machine channel's legs) names
+  # its slowest units and its last ones, so a slow leg says where its time went.
+  # Groups under 2 min never set a leg's pace: their units would only be noise.
+  if ((end - starts[i] >= 120)); then
+    timings_summary "${dirs[i]}/cargo-timings/cargo-timing.html" "${starts[i]}"
+  fi
 done
 
 for i in "${!bins[@]}"; do

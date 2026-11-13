@@ -17,6 +17,8 @@ and git ls-remote (no network) and checks what it does to the run:
 - Ctrl-C (SIGINT to the process group) cancels; SIGTERM or SIGHUP to the script does not;
 - a dispatch that gets HTTP 5xx is tried again (3 tries), a run GitHub created anyway is adopted,
   and when every try fails the script says no run was created;
+- a 404 or 500 on the first read of the new run is not a failure: the script names the run,
+  waits on it with glaeda-gh, and checks its revision before it accepts an artifact;
 - one open run per commit, mode and filter: while a run this script dispatched for the same
   commit and filter is still open, it does not dispatch, names that run and exits 4; an open
   run of another filter or another commit, or a finished run, does not stop a dispatch.
@@ -33,6 +35,13 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "verify-cmux-tui-hosted.sh"
@@ -59,7 +68,17 @@ case "$*" in
     if [[ "${FAKE_LIST_FAILS:-0}" == 1 ]]; then echo "gh: Server Error (HTTP 503)" >&2; exit 1; fi
     # FAKE_LIST_FINDS=1: GitHub created the run despite the error, and lists it.
     if [[ "${FAKE_LIST_FINDS:-0}" == 1 ]]; then echo __RUN_ID__; fi ;;
-  *headSha*) printf '%s\t%s\tworkflow_dispatch\n' "$(cat "$STUB_DIR/head")" "$(cat "$STUB_DIR/branch")" ;;
+  *headSha*)
+    # FAKE_IDENTITY_FAILS: how many identity reads fail first (FAKE_IDENTITY_CODE, default 404:
+    # GitHub answers 404 or 500 for a few seconds after it creates a run). FAKE_IDENTITY_SHA
+    # answers another commit (a run of another revision).
+    n=$(cat "$STUB_DIR/identity-reads" 2>/dev/null || echo 0)
+    echo $((n + 1)) > "$STUB_DIR/identity-reads"
+    if (( n < ${FAKE_IDENTITY_FAILS:-0} )); then
+      echo "failed to get run: HTTP ${FAKE_IDENTITY_CODE:-404}: Not Found (https://api.github.com/repos/manaflow-ai/cmux/actions/runs/__RUN_ID__)" >&2
+      exit 1
+    fi
+    printf '%s\t%s\tworkflow_dispatch\n' "${FAKE_IDENTITY_SHA:-$(cat "$STUB_DIR/head")}" "$(cat "$STUB_DIR/branch")" ;;
   *status,conclusion*)
     n=$(cat "$STUB_DIR/views" 2>/dev/null || echo 0)
     echo $((n + 1)) > "$STUB_DIR/views"
@@ -117,7 +136,7 @@ class Sandbox:
         shutil.copy2(SCRIPT, self.repo / "scripts" / SCRIPT.name)
         real_git = shutil.which("git")
         assert real_git, "git is required"
-        self.env = {
+        self.env = git_fixture_env.fixture_env({
             "PATH": f"{self.bin}:{os.environ['PATH']}",
             "HOME": str(self.dir),
             "TMPDIR": str(self.dir),
@@ -126,7 +145,7 @@ class Sandbox:
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
-        }
+        })
         for name, body in (("gh", GH_STUB), ("glaeda-gh", GLAEDA_STUB), ("git", GIT_STUB)):
             path = self.bin / name
             path.write_text(body, encoding="utf-8")
@@ -354,6 +373,37 @@ def open_run_lookup_failure_still_dispatches(failures: list[str], name: str, box
     check(failures, name, box.count("gh api -X POST") == 1, box, out)
 
 
+def first_run_read_failure_waits_on_the_run(code_name: str):
+    """Run 42688604218 (2026-11-09): the dispatch created the run, the first read of it
+    answered HTTP 404, and the script exited 1 with the run still going. Run 42688525295
+    (#39820) got HTTP 500 the same way. The script now names the run, hands the wait to
+    glaeda-gh wait run, and checks the run's revision once it can read it."""
+    def test(failures: list[str], name: str, box: Sandbox) -> None:
+        code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_IDENTITY_FAILS="1",
+                            FAKE_IDENTITY_CODE=code_name, CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+        check(failures, name, box.count("gh api -X POST") == 1
+              and box.count(f"glaeda-gh wait run manaflow-ai/cmux/{RUN_ID}") >= 1
+              and box.count("gh run download") >= 1 and box.count("gh run cancel") == 0
+              and f"actions/runs/{RUN_ID}" in out, box, out)
+    return test
+
+
+def unreadable_run_is_refused_before_download(failures: list[str], name: str, box: Sandbox) -> None:
+    # The revision is never confirmed: no artifact from that run is accepted.
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_IDENTITY_FAILS="99",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, code == 1 and box.count("glaeda-gh wait run") >= 1
+          and box.count("gh run download") == 0 and box.count("gh run cancel") == 0
+          and f"actions/runs/{RUN_ID}" in out, box, out)
+
+
+def late_read_of_another_revision_is_refused(failures: list[str], name: str, box: Sandbox) -> None:
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_IDENTITY_FAILS="1",
+                        FAKE_IDENTITY_SHA="f" * 40, CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, code == 1 and box.count("gh run download") == 0
+          and "is not this revision" in out, box, out)
+
+
 def signal_case(signum: int, whole_group: bool, want_cancels: int, want_code: int):
     def test(failures: list[str], name: str, box: Sandbox) -> None:
         process = box.start(["--full"], FAKE_STATES="queued||1", FAKE_WAITER_SLEEP="60",
@@ -412,6 +462,12 @@ def main() -> int:
         ("a finished run of the same commit and filter does not stop a dispatch",
          finished_run_of_same_commit_and_filter_dispatches),
         ("a failed open-run lookup still dispatches", open_run_lookup_failure_still_dispatches),
+        ("a 404 on the first read of the new run: wait on it, do not exit 1",
+         first_run_read_failure_waits_on_the_run("404")),
+        ("a 500 on the first read of the new run: wait on it, do not exit 1",
+         first_run_read_failure_waits_on_the_run("500")),
+        ("a run whose revision is never read is refused before download", unreadable_run_is_refused_before_download),
+        ("a late read that shows another revision is refused", late_read_of_another_revision_is_refused),
     ]:
         scenario(failures, name, test)
     if failures:

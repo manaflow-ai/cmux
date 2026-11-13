@@ -15,6 +15,9 @@ import QuartzCore
 /// names the content each row showed (`cold`: a first visit, whose content shows a frame later).
 /// ``confirms`` holds, per shown switch, when the daemon stored the selection
 /// (``confirmed(requestedAt:)``, asynchronous: the switch never waits for it).
+///
+/// Key window changes (``placeRows()``, then ``count(_:)``): each row of the recording then has `at_ms`, its intent
+/// since ``placeRows()``, and the count columns of ``SwitchKeyChanges``.
 @MainActor
 public final class SwitchFrameTimer {
     private struct Started {
@@ -42,6 +45,8 @@ public final class SwitchFrameTimer {
     private var probes: [ObjectIdentifier: CommitProbe] = [:]
     private let capacity = 1_024
     private var client: FrameClient?
+    /// When this recording began to place its rows (``placeRows()``); nil: it does not.
+    private var origin: CFTimeInterval?
 
     public init(owner: String) {
         client = FrameClient(owner: owner, isAnimation: false, on: .app) { [weak self] tick in self?.frame(tick) ?? false }
@@ -51,15 +56,29 @@ public final class SwitchFrameTimer {
     public var onStart: (@MainActor () -> Void)?
 
     public func start() {
-        (started, pending, samples, kinds, confirms, unconfirmed, isRecording) = ([:], [], [], [], [], [], true)
+        (started, pending, samples, kinds, confirms, unconfirmed, isRecording, origin) = ([:], [], [], [], [], [], true, nil)
         onStart?()
     }
 
     public func stop() {
-        (started, pending, unconfirmed, isRecording) = ([:], [], [], false)
+        (started, pending, unconfirmed, isRecording, origin) = ([:], [], [], false, nil)
         for probe in probes.values { probe.remove() }
         probes = [:]
         client?.deactivate()
+    }
+
+    /// Whether this recording places its rows (``placeRows()``).
+    public var placesRows: Bool { origin != nil }
+
+    /// Each row of this recording gets `at_ms`, its intent since now, until ``stop()``: ``count(_:)`` reads it.
+    public func placeRows() {
+        if isRecording { origin = CACurrentMediaTime() }
+    }
+
+    /// Gives each placed row its key window changes (``SwitchKeyChanges/counted(_:)``), from marks recorded since
+    /// ``placeRows()``. Call it before ``stop()``: the rows of switches that showed after it get no count.
+    public func count(_ changes: SwitchKeyChanges) {
+        samples = changes.counted(samples)
     }
 
     /// A switch intent for `key` (at `time`, default now); the latest one counts (an intent that never shows leaves no sample).
@@ -68,6 +87,12 @@ public final class SwitchFrameTimer {
         // Only an event from this switch's own input (not one left over from a launch or a menu).
         let input = inputTimestamp.flatMap { time - $0 >= 0 && time - $0 < 1 ? $0 : nil }
         started[key] = Started(start: time, input: input)
+    }
+
+    /// A switch intent for `key` now, while the app handles `event` (`NSApp.currentEvent`): a click's press or
+    /// release, or a key-down, is the switch's input; another event is none.
+    public func began(_ key: AnyHashable, handling event: NSEvent?) {
+        began(key, inputTimestamp: event.flatMap { [.leftMouseDown, .leftMouseUp, .keyDown].contains($0.type) ? $0.timestamp : nil })
     }
 
     /// Whether `key` began and has not shown yet.
@@ -136,6 +161,7 @@ public final class SwitchFrameTimer {
                            "commit_end_ms": (times.1 - start) * 1_000, "late_vsyncs": late(times.0),
                            "late_end_vsyncs": late(times.1), "refresh_ms": refresh * 1_000]
                 if let input = switched.started.input { row["input_ms"] = (start - input) * 1_000 }
+                if let origin { row["at_ms"] = (start - origin) * 1_000 }
                 for (stage, time) in switched.started.stages { row[stage + "_ms"] = (time - start) * 1_000 }
                 samples.append(row.merging(switched.extra) { own, _ in own })
                 kinds.append(switched.started.kind)
