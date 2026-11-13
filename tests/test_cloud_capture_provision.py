@@ -296,14 +296,20 @@ class Provision(unittest.TestCase):
             if production:
                 self.assertIn(f"inputs.target != '{name}'", grant)
 
-    def test_preclaim_reads_the_staging_names_and_keeps_production_names(self):
+    def test_preclaim_signs_in_with_the_staging_pair_and_keeps_production_names(self):
+        # cmux-next-cloud-journey's CMUX_DOGFOOD_STACK_* is the production account, which staging refuses
+        # (EMAIL_PASSWORD_MISMATCH); cmux-next-vm-image-dev's is the journey target's staging account (TARGETS above).
+        self.assertEqual(provision.TARGETS["journey"].environment, "cmux-next-vm-image-dev")
+        self.assertEqual(provision.TARGETS["journey-production"].environment, "cmux-next-cloud-journey")
         text = (ROOT / ".github" / "workflows" / "cloud-journey-prod.yml").read_text()
-        preclaim = text.split("- name: Staging preclaim login burst", 1)[1].split("- name: Upload staging preclaim evidence", 1)[0]
-        self.assertIn("CMUX_STAGING_STACK_EMAIL: ${{ secrets.CMUX_STAGING_STACK_EMAIL }}", preclaim)
-        self.assertIn("CMUX_STAGING_STACK_PASSWORD: ${{ secrets.CMUX_STAGING_STACK_PASSWORD }}", preclaim)
-        self.assertNotIn("CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}", preclaim)
+        job = text.split("\n  preclaim:\n", 1)[1]
+        self.assertIn("      name: cmux-next-vm-image-dev\n", job.split("    steps:", 1)[0])
+        preclaim = job.split("- name: Staging preclaim login burst", 1)[1].split("- name: Upload staging preclaim evidence", 1)[0]
+        self.assertIn("CMUX_STAGING_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}", preclaim)
+        self.assertIn("CMUX_STAGING_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}", preclaim)
         production = text.split("- name: Cloud journey (prod,", 1)[1].split("- name: ", 1)[0]
         self.assertIn("CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}", production)
+        self.assertIn("name: cmux-next-cloud-journey", text.split("\n  preclaim:\n", 1)[0])
 
     def test_the_platform_targets_seal_to_cmux_platform_repository_secrets_with_their_own_accounts(self):
         key, pk, sk = keypair()

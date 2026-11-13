@@ -245,12 +245,36 @@ pub enum HubError {
     InvalidWindow,
     #[error("invalid list page anchor or byte budget")]
     InvalidPage,
+    #[error("invalid_params: {0}")]
+    InvalidParams(String),
+    #[error("cursor_gone")]
+    CursorGone,
     #[error("encoding list frame failed: {0}")]
     Frame(#[from] FrameError),
     #[error("index log failed: {0}")]
-    Log(#[from] std::io::Error),
+    Log(#[source] std::io::Error),
     #[error("published summary {0:?} is missing after apply")]
     MissingSummary(String),
+}
+
+impl HubError {
+    fn page_error(error: std::io::Error) -> Self {
+        if error.kind() == std::io::ErrorKind::InvalidInput {
+            Self::InvalidParams(error.to_string())
+        } else {
+            error.into()
+        }
+    }
+}
+
+impl From<std::io::Error> for HubError {
+    fn from(error: std::io::Error) -> Self {
+        if error.get_ref().is_some_and(|inner| inner.is::<acpmux_book::index::CursorGone>()) {
+            Self::CursorGone
+        } else {
+            Self::Log(error)
+        }
+    }
 }
 
 impl Hub {
@@ -429,14 +453,16 @@ impl Hub {
             ),
             _ => (None, ReadSide::After),
         };
-        let page = index.read_page(
-            key.as_ref(),
-            side,
-            true,
-            requested,
-            crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
-            sub.filter.as_ref(),
-        )?;
+        let page = index
+            .read_page(
+                key.as_ref(),
+                side,
+                true,
+                requested,
+                crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
+                sub.filter.as_ref(),
+            )
+            .map_err(HubError::page_error)?;
         let window = Window {
             sid: sub.sid.clone(),
             cursor,
@@ -459,31 +485,45 @@ impl Hub {
         if request.stream.as_str() != "list" {
             return Err(HubError::WrongStream(request.stream.as_str().to_owned()));
         }
-        let Some((side, crate::wire::Position::List(key))) = request.side() else {
-            return Err(HubError::InvalidPage);
+        let (key, side) = match request.side() {
+            Some((side, crate::wire::Position::List(key))) => (
+                Some(book_key(key)),
+                match side {
+                    crate::wire::PageSide::Before => ReadSide::Before,
+                    crate::wire::PageSide::After => ReadSide::After,
+                },
+            ),
+            None if request.before.is_none()
+                && request.after.is_none()
+                && request.filter.as_ref().is_some_and(|filter| {
+                    filter.family.is_some() || filter.folder.is_some() || filter.forks.is_some()
+                }) =>
+            {
+                (None, ReadSide::After)
+            }
+            _ => return Err(HubError::InvalidPage),
         };
         let max = request.max_bytes as usize;
         if max > crate::wire::MAX_PAGE_BYTES || max <= 8192 + request.sid.len() {
             return Err(HubError::InvalidPage);
         }
-        let side = match side {
-            crate::wire::PageSide::Before => ReadSide::Before,
-            crate::wire::PageSide::After => ReadSide::After,
-        };
         let index = self.snapshot();
-        let page = index.read_page(
-            Some(&book_key(key)),
-            side,
-            false,
-            MAX_WINDOW_ROWS,
-            max - 8192 - request.sid.len(),
-            request.filter.as_ref(),
-        )?;
+        let page = index
+            .read_page(
+                key.as_ref(),
+                side,
+                false,
+                MAX_WINDOW_ROWS,
+                max - 8192 - request.sid.len(),
+                request.filter.as_ref(),
+            )
+            .map_err(HubError::page_error)?;
         let reply = crate::wire::PageResult {
             sid: request.sid.clone(),
             rows: page.rows.iter().map(Arc::as_ref).collect::<Vec<_>>(),
             has_before: page.has_before,
             has_after: page.has_after,
+            cold_unread: page.cold_unread,
             before_key: page.before_key.map(wire_key),
             after_key: page.after_key.map(wire_key),
             missing: Vec::new(),
@@ -514,6 +554,11 @@ fn wire_key(key: SortKey) -> crate::wire::ListKey {
 }
 
 fn validate_window(sub: &Sub) -> Result<usize, HubError> {
+    if sub.filter.as_ref().is_some_and(|filter| {
+        filter.family.is_some() || filter.forks.is_some() || filter.folder.is_some() || filter.cold
+    }) {
+        return Err(HubError::InvalidParams("table filters are page-only".into()));
+    }
     let requested = usize::from(sub.window.unwrap_or(DEFAULT_WINDOW_ROWS as u16));
     if requested == 0 || requested > MAX_WINDOW_ROWS {
         return Err(HubError::InvalidWindow);
@@ -730,6 +775,8 @@ mod compaction_gate;
 mod compaction_tests;
 #[cfg(test)]
 mod disk_gates;
+#[cfg(test)]
+mod kin_tests;
 #[cfg(test)]
 mod storage_tests;
 #[cfg(test)]
