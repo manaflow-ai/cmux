@@ -124,7 +124,7 @@ const CAPABILITIES: &[&str] = &[
     crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
     conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
     "machine-identity-v1",
-    cmd_subscribe::SCREEN_DEVICE_IDENTITY_CAPABILITY,
+    SCREEN_DEVICE_IDENTITY_CAPABILITY,
     AGENT_SESSION_ATTACH_CAPABILITY,
     agent_session_attach::AGENT_SESSION_CONTENT_CAPABILITY,
     AGENT_SESSION_START_CAPABILITY,

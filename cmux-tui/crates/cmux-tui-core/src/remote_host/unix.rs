@@ -606,10 +606,8 @@ impl Inner {
             let mut state = lock(&this.state);
             let state = std::mem::take(&mut *state);
             let changed = lock(&this.screen_device_id).take().is_some();
-            if changed {
-                if let Some(mux) = lock(&this.owner).upgrade() {
-                    mux.emit(crate::MuxEvent::ScreenDeviceChanged(None));
-                }
+            if changed && let Some(mux) = lock(&this.owner).upgrade() {
+                mux.emit(crate::MuxEvent::ScreenDeviceChanged(None));
             }
             state
         };
@@ -739,6 +737,27 @@ fn write_private(path: &Path, bytes: &[u8]) {
         .and_then(|mut file| file.write_all(bytes));
     if written.is_ok() {
         let _ = std::fs::rename(&temporary, path);
+    }
+}
+
+/// A live process's start time (macOS), for the app grant.
+#[cfg(target_os = "macos")]
+pub(crate) fn process_stamp(pid: u32) -> Option<(u64, u64)> {
+    platform::process_start(pid)
+}
+
+impl crate::mux::Mux {
+    /// Lets this daemon run cmux Remote (macOS): the host for the daemon on
+    /// `daemon_socket`, with durable state beside the daemon's own.
+    pub fn configure_remote_host(self: &Arc<Self>, daemon_socket: &Path) {
+        let Some(state_root) = crate::platform::workspace_state_dir()
+            .and_then(|sessions| sessions.parent().map(Path::to_path_buf))
+        else {
+            return;
+        };
+        self.control_clients
+            .remote_host
+            .configure(paths_for(daemon_socket, &state_root), Arc::downgrade(self));
     }
 }
 
@@ -908,26 +927,5 @@ mod tests {
             &*super::lock(&inner.state),
             State::Running(current) if Arc::ptr_eq(current, &second)
         ));
-    }
-}
-
-/// A live process's start time (macOS), for the app grant.
-#[cfg(target_os = "macos")]
-pub(crate) fn process_stamp(pid: u32) -> Option<(u64, u64)> {
-    platform::process_start(pid)
-}
-
-impl crate::mux::Mux {
-    /// Lets this daemon run cmux Remote (macOS): the host for the daemon on
-    /// `daemon_socket`, with durable state beside the daemon's own.
-    pub fn configure_remote_host(self: &Arc<Self>, daemon_socket: &Path) {
-        let Some(state_root) = crate::platform::workspace_state_dir()
-            .and_then(|sessions| sessions.parent().map(Path::to_path_buf))
-        else {
-            return;
-        };
-        self.control_clients
-            .remote_host
-            .configure(paths_for(daemon_socket, &state_root), Arc::downgrade(self));
     }
 }
