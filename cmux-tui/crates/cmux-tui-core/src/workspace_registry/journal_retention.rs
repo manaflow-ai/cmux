@@ -126,10 +126,14 @@ pub(crate) enum RetentionStep {
     FloorCut,
 }
 
+/// What a test runs at each [`RetentionStep`].
+#[cfg(test)]
+pub(crate) type RetentionStepHook = Box<dyn FnMut(RetentionStep)>;
+
 #[cfg(test)]
 thread_local! {
     /// Test seam: runs on this thread at each [`RetentionStep`].
-    pub(crate) static RETENTION_STEP_FOR_TEST: std::cell::RefCell<Option<Box<dyn FnMut(RetentionStep)>>> =
+    pub(crate) static RETENTION_STEP_FOR_TEST: std::cell::RefCell<Option<RetentionStepHook>> =
         const { std::cell::RefCell::new(None) };
 }
 
