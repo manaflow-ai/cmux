@@ -95,7 +95,7 @@
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"inset","values":{"-3px 0":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"margin","values":{"4px 6px":1,"4px 6px 0":1,"4px 0 2px":1,"2px 0 0":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"margin-inline-end","values":{"11px":1}}
-{"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"margin-inline-start","values":{"calc(var(--acpmux-composer-inset, 8px) - 3px)":1,"1px":1,"calc(9px - 2 * var(--acpmux-row-inset))":1}}
+{"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"margin-inline-start","values":{"1px":1,"calc(9px - 2 * var(--acpmux-row-inset))":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"margin-left","values":{"5px":1,"6px":3}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"margin-right","values":{"calc(2px * var(--cmux-interface-scale, 1))":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"margin-top","values":{"1px":1,"2px":1,"9px":1,"20px":1,"18px":1}}

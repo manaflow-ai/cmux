@@ -1372,10 +1372,12 @@
      shield's center is 17 px into its chip, so the chip starts the control inset less 3 px in (5 px
      in the chat; New Tab's taller row has a wider inset, so its + glyph and shield move in together).
      (-5 px was measured in a gallery that applied styles.css after this sheet, so the row kept the
-     bar's 10 px padding there and nowhere in the app.) The 3 px is the shield's 17 less the control's 14, both at
-     the composer's density, so it scales with them (Lucas 2026-11-14: the shield stood 1.2 px right of + at
-     Spacious). */
-  margin-inline-start: calc(var(--acpmux-composer-inset, 8px) - 3px * var(--acpmux-density, 1));
+     bar's 10 px padding there and nowhere in the app.) It is +'s center less the shield's center in its chip, both
+     from the density's tokens (as New Tab's foot, newtab/screen.css), so the shield stays under + at every density
+     (Lucas 2026-11-14: a fixed 3 px put it 1.2 px right of + at Spacious). */
+  margin-inline-start: calc(
+    var(--acpmux-composer-inset) + var(--acpmux-composer-control) / 2 - var(--acpmux-row-inset) - var(--acpmux-shield-box) / 2
+  );
 }
 .acpmux-composer-foot .acpmux-chips > .acpmux-mode:not(:first-child) { padding-inline-start: 0; }
 /* The context ring left of the model chip (Lawrence and Lucas 2026-11-11): it starts the
