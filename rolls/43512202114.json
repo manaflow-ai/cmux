@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43512202114",
+  "recorded_at": "2026-11-13T21:51:02Z",
+  "reason": "cmux-tui 96db467d6b11 changes the image's cmux-tui (pinned 7d3458daa268)",
+  "dry_run": false,
+  "cmux_tui": "96db467d6b11557b1961349f1d12299310a4a99e",
+  "fixes": [
+    {
+      "sha": "96db467d6b11557b1961349f1d12299310a4a99e",
+      "mergedAt": "2026-11-13T21:07:59Z",
+      "subject": "cmux-host carrier ticket: a refusal's journal line has its own token, code and message (#41696)"
+    },
+    {
+      "sha": "b7768904b5f07ba4f449864aa08d6c572cba8e13",
+      "mergedAt": "2026-11-13T21:06:52Z",
+      "subject": "acpmux: every chat shares one cached prompt prefix (#39276)"
+    },
+    {
+      "sha": "e46fc567ba285fbe91da71e4a357a41004658eaf",
+      "mergedAt": "2026-11-13T13:04:58-08:00",
+      "subject": "v2 client mirror and C ABI (#42652)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T21:51:02Z",
+    "snapshot_id": "sh-1710b680b0ea4873aee4afab714011d3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43512202114): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "70408742a92e4322e1aafd38a17f4cc7ab2a5740",
+    "image": "cloud-native-auto-96db467d-43512202114-1",
+    "revision": "ci-43512202114-1",
+    "at": "2026-11-13T21:51:02Z"
+  },
+  "rolled_back": false
+}
