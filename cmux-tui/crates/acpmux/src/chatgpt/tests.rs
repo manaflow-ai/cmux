@@ -18,6 +18,8 @@ use super::{Endpoints, Places, Service, Status, jwt, store};
 use crate::routes::{self, RouteKind};
 
 const ISSUED: &str = "oaiapp_test123";
+/// The fake's token answer names no `scope`.
+const OMIT_SCOPE: &str = "<omit>";
 const FULL_SCOPE: &str =
     "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct";
 
@@ -100,12 +102,13 @@ async fn token(
                     "nonce": nonce, "sub": "user-1", "email": "alex@example.com",
                     "https://api.openai.com/auth": {"chatgpt_plan_type": "pro"}}),
         );
-        return (
-            StatusCode::OK,
-            Json(json!({"access_token": "access-0", "refresh_token": "refresh-0",
-                        "id_token": id_token, "expires_in": 3600, "scope": scope,
-                        "token_type": "Bearer"})),
-        );
+        let mut answer = json!({"access_token": "access-0", "refresh_token": "refresh-0",
+                                "id_token": id_token, "expires_in": 3600, "scope": scope,
+                                "token_type": "Bearer"});
+        if scope == OMIT_SCOPE {
+            answer.as_object_mut().unwrap().remove("scope");
+        }
+        return (StatusCode::OK, Json(answer));
     }
     if let Some(error) = app.state.lock().unwrap().refresh_error {
         return (StatusCode::BAD_REQUEST, Json(json!({"error": error})));
@@ -437,4 +440,56 @@ async fn a_machine_credential_is_refreshed_to_ten_minutes_left() {
         .unwrap();
     assert_eq!(token, "access-r1");
     assert!(expires_at - now() >= super::CREDENTIAL_MARGIN_SECS);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_token_answer_without_scopes_is_not_a_plan_grant() {
+    let s = setup(OMIT_SCOPE).await;
+    let (status, _) = sign_in(&s, &[("code", "c1"), ("client_id", ISSUED)]).await;
+    assert_eq!(status, Status::Failed("no_plan_scope".into()), "never assumed from the ask");
+    assert!(store::all(&s.places.home).is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_callbacks_scope_counts_when_the_token_answer_has_none() {
+    let s = setup(OMIT_SCOPE).await;
+    let (status, _) =
+        sign_in(&s, &[("code", "c1"), ("client_id", ISSUED), ("scope", FULL_SCOPE)]).await;
+    assert_eq!(status, Status::Done("chatgpt".into()));
+    let s = setup(OMIT_SCOPE).await;
+    let (status, _) =
+        sign_in(&s, &[("code", "c1"), ("client_id", ISSUED), ("scope", "openid offline_access")])
+            .await;
+    assert_eq!(status, Status::Failed("no_plan_scope".into()));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reauth_saves_only_after_the_accounts_refresh_lock() {
+    let s = setup(FULL_SCOPE).await;
+    sign_in(&s, &[("code", "c1"), ("client_id", ISSUED)]).await;
+    // A refresh of the account is in flight: it holds the account's lock.
+    let lock = s.service.lock_for("chatgpt");
+    let held = lock.lock().await;
+    let begun = s.service.begin(s.places.clone(), Some("chatgpt".into()), |_| {}).await.unwrap();
+    let params = query(&begun.url);
+    assert!(params.contains_key("id_token_hint"), "a reauth hints the account");
+    s.fake.state.lock().unwrap().nonce = params["nonce"].clone();
+    let callback = format!(
+        "{}?{}",
+        params["redirect_uri"],
+        form_encode(&[("code", "c2"), ("state", params["state"].as_str())])
+    );
+    let call = tokio::spawn(async move { reqwest::get(&callback).await.map(|r| r.status()) });
+    let status = s.service.wait(&begun.attempt, Duration::from_millis(500)).await.unwrap();
+    assert_eq!(status, Status::Pending, "the save waits for the refresh");
+    // The refresh writes its record and lets go; the reauth's record then replaces it.
+    let mut stale = store::read(&s.places.home, "chatgpt").unwrap().unwrap();
+    stale.refresh_token = "refresh-stale".into();
+    store::write(&s.places.home, "chatgpt", &stale).unwrap();
+    drop(held);
+    let status = s.service.wait(&begun.attempt, Duration::from_secs(10)).await.unwrap();
+    assert_eq!(status, Status::Done("chatgpt".into()));
+    assert_eq!(call.await.unwrap().unwrap(), 200);
+    let record = store::read(&s.places.home, "chatgpt").unwrap().unwrap();
+    assert_eq!(record.refresh_token, "refresh-0", "the new sign-in's tokens, not the stale ones");
 }
