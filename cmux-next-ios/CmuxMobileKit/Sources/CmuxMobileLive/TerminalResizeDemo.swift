@@ -31,9 +31,10 @@ public struct TerminalResizeDemoRoot: View {
     public static var isRequested: Bool { CommandLine.arguments.contains("-CmuxMobileResizeDemo") }
 
     public var body: some View {
-        NavigationStack {
-            TerminalScreen(model: demo.model)
-        }
+        // The workspace tab page, as the app shows a Mac terminal: it
+        // measures its grid and sizes the session (the standalone screen
+        // never claimed a size here).
+        TerminalTabPage(host: demo.host, insets: EdgeInsets(top: 62, leading: 0, bottom: 90, trailing: 0), isInteractive: true)
         .overlay(alignment: .topLeading) {
             Text(demo.step)
                 .font(.system(size: 2))
@@ -48,6 +49,7 @@ public struct TerminalResizeDemoRoot: View {
 @MainActor @Observable
 final class TerminalResizeDemo {
     let model: TerminalModel
+    let host: TerminalTabHost
     private(set) var step = "start"
     @ObservationIgnored private let mac: ResizeDemoMac
 
@@ -60,6 +62,7 @@ final class TerminalResizeDemo {
             open: { DaemonClient(channel: mac.main) }
         )
         model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "claude — Mac")
+        host = TerminalTabHost(model: model)
     }
 
     private func mark(_ label: String) {
