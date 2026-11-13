@@ -3,8 +3,8 @@ import Foundation
 
 /// `file.open` (`cmux open <file>...`, cx-bmie): opens each file through the
 /// app's `file.open` action (the path the palette, the File menu and `cmux
-/// file open --path` take), in the pane of the caller's terminal, so a file
-/// shows in the file, Markdown or image page that fits it.
+/// file open --path` take), in the caller's own place, so a file shows in the
+/// file, Markdown or image page that fits it.
 ///
 /// Params:
 /// - `paths` (array of absolute paths) or `path` (one): the files, opened in
@@ -13,9 +13,11 @@ import Foundation
 /// - `where`: `tab` (default) or `editor` (the text editor app), as the action.
 /// - `as_text` (default false, `cmux open --as-text`): HTML, SVG or Markdown opens as its source
 ///   in the code editor (the action's `asText`, u18462).
-/// - `workspace_id`, `terminal_id`: placement as `browser.open_split`: the
-///   named workspace, else the caller's terminal pane, else the focused pane,
-///   else the workspace under a page the window shows.
+/// - `workspace_id`, `terminal_id`, `caller`: placement as `browser.open_split`
+///   (ControlCallerPlacement): the named workspace, else the caller's own place
+///   (beside an agent chat or a terminal an agent runs in, the own pane of a
+///   terminal with no agent), else the focused pane, else the workspace under a
+///   page the window shows. The reply's `placement` names which.
 /// - `focus` (default false), `idempotency_key`, `origin`: as `action.run`;
 ///   each path's run gets the key with `.<index>`. `after`: the read barrier.
 ///
@@ -36,10 +38,12 @@ struct FileOpenRun {
     func run(_ call: ControlCall) async throws -> JSONValue {
         let request = try FileOpenRequest(call.params, method: call.method)
         let topology = call.snapshot.topology
-        let placement = try BrowserOpenSplitPlacement.resolve(workspaceID: request.workspaceID, agentSession: nil,
-                                                              terminalID: request.terminalID, in: topology, method: call.method)
-        // `file.open` takes a pane: the pane of the placement's tab, else the action's own focused pane.
+        let placement = try BrowserOpenSplitPlacement.resolve(workspaceID: request.workspaceID, caller: request.caller,
+                                                              in: topology, method: call.method)
+        // `file.open` takes a pane: the pane of the placement's tab; beside a caller, the pane action.run picks
+        // for it; else the action's own focused pane.
         let paneID = placement.targetTab.flatMap { topology.tab(id: $0)?.pane.id }
+        let caller = placement.kind.isBesideCaller ? request.caller : nil
         var opened: [JSONValue] = []
         for (index, path) in request.paths.enumerated() {
             var args: [String: JSONValue] = ["path": .string(path)]
@@ -47,6 +51,7 @@ struct FileOpenRun {
             if request.asText { args["asText"] = true }
             var params: [String: JSONValue] = ["action": "file.open", "args": .object(args), "wait": true, "focus": .bool(request.focus)]
             if let paneID { params["target"] = .string("pane:" + paneID) }
+            if let caller { params["caller"] = caller.json }
             if let origin = request.origin { params["origin"] = .string(origin) }
             if let key = request.idempotencyKey { params["idempotency_key"] = .string("\(key).\(index)") }
             // The first run claims the call's progress; the rest run against the current snapshot.
@@ -64,7 +69,7 @@ struct FileOpenRun {
 
 /// The checked params of one `file.open`.
 struct FileOpenRequest: Sendable, Equatable {
-    static let parameters: Set<String> = ["paths", "path", "where", "as_text", "workspace_id", "terminal_id", "focus",
+    static let parameters: Set<String> = ["paths", "path", "where", "as_text", "workspace_id", "terminal_id", "caller", "focus",
                                           "idempotency_key", "origin", "after"]
 
     var paths: [String]
@@ -73,6 +78,8 @@ struct FileOpenRequest: Sendable, Equatable {
     var asText: Bool
     var workspaceID: String?
     var terminalID: String?
+    /// Who asks: `caller`, else the terminal `terminal_id` names.
+    var caller: ControlCaller?
     var focus: Bool
     var idempotencyKey: String?
     var origin: String?
@@ -102,6 +109,7 @@ struct FileOpenRequest: Sendable, Equatable {
         place = try Self.string(params, "where")
         workspaceID = try Self.string(params, "workspace_id")
         terminalID = try Self.string(params, "terminal_id")
+        caller = try ControlCaller(params, terminalID: terminalID)
         focus = try Self.flag(params, "focus")
         asText = try Self.flag(params, "as_text")
         idempotencyKey = try ControlRouter.idempotencyKey(params)

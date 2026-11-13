@@ -31,6 +31,9 @@ public struct ControlActionRequest: Sendable, Hashable {
     /// That column does not exist: the target is the chat itself, and the
     /// handler moves the new tab into a new column right of it.
     public var newColumnBeside = false
+    /// The panes beside the caller that are another agent's home (ControlCallerPlacement): the handler that
+    /// measures the column a window shows never places the caller's tab in one.
+    public var besideAgentHomes: [String] = []
 
     public init(actionID: String, target: ControlTargetRef? = nil, arguments: [String: ControlValue] = [:], origin: String = "cli",
                 focus: Bool = false) {

@@ -245,6 +245,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         invocation.callerApp = request.callerApp
         invocation.besideCaller = request.besideCaller
         invocation.newColumnBeside = request.newColumnBeside
+        invocation.besideAgentHomes = Set(request.besideAgentHomes)
         invocation.opensInBackground = request.background
         invocation.callerAgentSession = request.callerAgentSession
         invocation.callerTerminal = request.callerTerminal

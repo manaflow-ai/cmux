@@ -8,8 +8,8 @@ import os
 /// Params: `action` (id or CLI name; with `cli: true` only a CLI name of an
 /// action marked for the CLI), `target`, `args`, `wait` (default true),
 /// `idempotency_key`, `confirm` via args, `after` (read barrier), `caller`
-/// (the agent session or terminal that sent it: an agent's browser or diff
-/// with no target opens beside its chat, ControlCaller).
+/// (the agent session or terminal that sent it: with no target the run uses
+/// the caller's own place, never the app's focus, ControlCallerPlacement).
 ///
 /// With `wait`, the reply comes after every daemon command the action sent
 /// has replied, the store applied their echoes, and the control snapshot
@@ -125,12 +125,13 @@ extension ControlRouter {
         return given
     }
 
-    /// `given` aimed beside its caller, with its targets resolved, checked: available in the
+    /// `given` aimed at its caller's place, with its targets resolved, checked: available in the
     /// current context, and confirmed when destructive. Runs off the main actor.
     func prepared(_ action: ControlActionInfo, _ given: ControlActionRequest, call: ControlCall) async throws -> ControlActionRequest {
         var placed = given
-        try Self.placeBesideCaller(&placed, action: action, topology: call.snapshot.topology)
+        // A run that names its caller and no target: the browser nearest the caller, else the caller's own place.
         try Self.aimBrowserActionAtCaller(&placed, action: action, topology: call.snapshot.topology)
+        try Self.placeAtCaller(&placed, action: action, topology: call.snapshot.topology)
         let request = try await resolvedTargets(placed, snapshot: call.snapshot, deadline: call.deadline)
         guard call.snapshot.catalog.isAvailable(action, target: request.target) || action.unavailableReason != nil else {
             throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionNotAvailableInContext", "%@ is not available in the current context", action.id), data: [

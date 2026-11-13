@@ -123,8 +123,15 @@ extension ControlRouter {
             "access_mode": transport.accessMode.map(JSONValue.string) ?? .null,
             "protocol_version": JSONValue(Self.protocolVersion),
             "methods": .array(methodNames.map(JSONValue.string)),
+            // The app places a terminal caller's runs itself (ControlCallerPlacement); an app without the
+            // marker places only agent sessions, so the CLI names the caller's own tab for a terminal there.
+            "caller_placement": JSONValue(Self.callerPlacementVersion),
         ]
     }
+
+    /// `system.identify`'s `caller_placement`: 2 since a run with any caller and no target uses the caller's
+    /// own place (a terminal's too), and `beside` reports `own_pane` for a terminal no agent runs in.
+    static let callerPlacementVersion = 2
 
     static func list(_ params: [String: JSONValue], catalog: ControlCatalog) -> JSONValue {
         let category = params["category"]?.stringValue?.lowercased()

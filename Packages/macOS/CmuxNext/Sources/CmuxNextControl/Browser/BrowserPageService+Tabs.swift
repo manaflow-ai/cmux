@@ -29,9 +29,9 @@ extension BrowserPageService {
                 var params: [String: JSONValue] = ["action": .string(action), "wait": call.request.params["wait"] ?? true]
                 var tab: Tab?
                 if name == "new_tab", let lonely = try Self.callerWithNoBrowserNear(call) {
-                    // The caller's first browser: an agent's opens beside its chat, a terminal's
-                    // in its own pane behind it, so the agent running there stays in view.
-                    if lonely.caller.agentSession != nil || lonely.caller.homeChat {
+                    // The caller's first browser (ControlCallerPlacement): an agent's opens beside it;
+                    // a terminal no agent runs in gets it in its own pane, behind the terminal.
+                    if ControlCallerPlacement(lonely.location).isBeside {
                         params["caller"] = call.request.params["caller"]
                     } else {
                         params["target"] = .string("tab:" + lonely.location.tab.id)

@@ -72,6 +72,9 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// No column is right of the chat: the target is the chat, and the new
     /// tab moves into a new column right of it.
     public var newColumnBeside = false
+    /// The panes beside the caller that are another agent's home (their pane ids): a beside run never puts its
+    /// tab in a column that holds one, it makes its own column right of the caller. The control socket sets it.
+    public var besideAgentHomes: Set<String> = []
     /// A person's click opened this beside the chat (the header's Changes, Preview or Files): its
     /// tab takes the keyboard focus where it lands, and its close gives it back to the chat. An
     /// agent's beside run never takes it. In-app only: the control socket never sets it.

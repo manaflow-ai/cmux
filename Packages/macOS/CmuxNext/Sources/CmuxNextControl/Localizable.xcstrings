@@ -15875,6 +15875,268 @@
           }
         }
       }
+    },
+    "control.error.callerNotLocated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ has no target, and the caller's chat or terminal is in no workspace; name the tab, pane or workspace to act on"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يحدد %@ هدفًا، ومحادثة المتصل أو طرفيته ليست في أي مساحة عمل؛ حدّد علامة التبويب أو الجزء أو مساحة العمل المطلوب العمل عليها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nema cilj, a razgovor ili terminal pozivaoca nije ni u jednom radnom prostoru; navedite karticu, okno ili radni prostor na kojem treba djelovati"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ har intet mål, og kalderens chat eller terminal er ikke i noget arbejdsområde; angiv den fane, rude eller det arbejdsområde, der skal handles på"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat kein Ziel, und der Chat oder das Terminal des Aufrufers ist in keinem Arbeitsbereich; nenne den Tab, den Bereich oder den Arbeitsbereich, auf den es wirken soll"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no tiene destino, y el chat o el terminal de quien llama no está en ningún espacio de trabajo; indica la pestaña, el panel o el espacio de trabajo sobre el que actuar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’a pas de cible, et le chat ou le terminal de l’appelant n’est dans aucun espace de travail ; nommez l’onglet, le panneau ou l’espace de travail sur lequel agir"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non ha una destinazione e la chat o il terminale del chiamante non è in nessuna area di lavoro; indica la scheda, il riquadro o l’area di lavoro su cui agire"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にターゲットがなく、呼び出し元のチャットやターミナルはどのワークスペースにもありません。操作するタブ、ペイン、またはワークスペースを指定してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ គ្មានគោលដៅទេ ហើយការជជែក ឬស្ថានីយរបស់អ្នកហៅមិនស្ថិតក្នុងកន្លែងធ្វើការណាមួយឡើយ; សូមបញ្ជាក់ផ្ទាំង ផ្ទាំងរង ឬកន្លែងធ្វើការដែលត្រូវធ្វើសកម្មភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 대상이 없고 호출자의 채팅이나 터미널이 어느 워크스페이스에도 없습니다. 작업할 탭, 패널 또는 워크스페이스를 지정하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ har ikke noe mål, og oppkallerens chat eller terminal er ikke i noe arbeidsområde; oppgi fanen, ruten eller arbeidsområdet det skal virke på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nie ma celu, a czat lub terminal wywołującego nie jest w żadnym obszarze roboczym; wskaż kartę, panel lub obszar roboczy, na którym ma działać"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não tem destino, e o chat ou o terminal de quem chama não está em nenhum espaço de trabalho; indique a aba, o painel ou o espaço de trabalho em que agir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У %@ нет цели, а чат или терминал вызывающего не находится ни в одном рабочем пространстве; укажите вкладку, панель или рабочее пространство для действия"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ไม่มีเป้าหมาย และแชทหรือเทอร์มินัลของผู้เรียกไม่อยู่ในพื้นที่ทำงานใดเลย โปรดระบุแท็บ บานหน้าต่าง หรือพื้นที่ทำงานที่จะดำเนินการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ için hedef yok ve çağıranın sohbeti ya da terminali hiçbir çalışma alanında değil; üzerinde işlem yapılacak sekmeyi, bölmeyi veya çalışma alanını belirtin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не має цілі, а чат або термінал того, хто викликає, не міститься в жодному робочому просторі; вкажіть вкладку, панель або робочий простір для дії"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ không có đích, và cuộc trò chuyện hoặc terminal của bên gọi không nằm trong không gian làm việc nào; hãy nêu thẻ, ngăn hoặc không gian làm việc cần thao tác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 没有目标，且调用方的聊天或终端不在任何工作区中；请指定要操作的标签页、窗格或工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 沒有目標，且呼叫方的聊天或終端機不在任何工作區中；請指定要操作的分頁、窗格或工作區"
+          }
+        }
+      }
+    },
+    "control.error.callerTargetRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ closes or removes what it runs on, so an agent must name the target; your own tab is %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يغلق %1$@ أو يزيل ما يعمل عليه، لذا يجب على الوكيل تحديد الهدف؛ علامة تبويبك هي %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ zatvara ili uklanja ono na čemu se izvršava, pa agent mora navesti cilj; vaša kartica je %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ lukker eller fjerner det, den køres på, så en agent skal angive målet; din egen fane er %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ schließt oder entfernt, worauf es läuft, daher muss ein Agent das Ziel nennen; dein eigener Tab ist %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ cierra o quita aquello sobre lo que se ejecuta, así que un agente debe indicar el destino; tu propia pestaña es %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ferme ou supprime ce sur quoi il s’exécute, un agent doit donc nommer la cible ; votre propre onglet est %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ chiude o rimuove ciò su cui viene eseguito, quindi un agente deve indicare la destinazione; la tua scheda è %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ は実行対象を閉じるか削除するため、エージェントはターゲットを指定する必要があります。あなた自身のタブは %2$@ です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ បិទ ឬដកអ្វីដែលវាដំណើរការលើ ដូច្នេះភ្នាក់ងារត្រូវបញ្ជាក់គោលដៅ; ផ្ទាំងរបស់អ្នកផ្ទាល់គឺ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@은(는) 실행 대상을 닫거나 제거하므로 에이전트는 대상을 지정해야 합니다. 자신의 탭은 %2$@입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ lukker eller fjerner det den kjøres på, så en agent må oppgi målet; din egen fane er %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ zamyka lub usuwa to, na czym działa, więc agent musi wskazać cel; Twoja własna karta to %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ fecha ou remove aquilo em que é executado, então um agente deve indicar o destino; sua própria aba é %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ закрывает или удаляет то, на чём выполняется, поэтому агент должен указать цель; ваша собственная вкладка — %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ปิดหรือลบสิ่งที่มันทำงานอยู่ ดังนั้นเอเจนต์ต้องระบุเป้าหมาย แท็บของคุณเองคือ %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ üzerinde çalıştığı şeyi kapatır veya kaldırır, bu yüzden bir ajan hedefi belirtmelidir; kendi sekmeniz %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ закриває або вилучає те, на чому виконується, тому агент має вказати ціль; ваша власна вкладка — %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ đóng hoặc gỡ thứ nó chạy trên đó, nên tác nhân phải nêu đích; thẻ của chính bạn là %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 会关闭或移除它所作用的对象，因此代理必须指定目标；你自己的标签页是 %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 會關閉或移除它所作用的對象，因此代理必須指定目標；你自己的分頁是 %2$@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

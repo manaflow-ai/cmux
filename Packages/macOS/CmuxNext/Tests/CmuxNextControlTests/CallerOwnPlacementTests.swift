@@ -26,6 +26,7 @@ import Testing
             action("openBrowser", ["tab"], arguments: ["url"]), action("tab.focus", ["tab"]), action("file.open", ["pane"], arguments: ["path"]),
             action("newSurface", ["tab"], arguments: ["cwd"]), action("splitRight", ["pane"]), action("renameTab", ["tab"]),
             action("renameWorkspace", ["workspace"]), action("closeTab", ["tab"]), action("commandPalette", []),
+            action("newTab", ["workspace"]), action("newTab.default", ["tab"], arguments: ["cwd"]),
         ], contextMask: 0, aliases: [:], targetKinds: ["tab", "tab-group", "pane", "column", "screen", "workspace", "workspace-group", "window"],
                        debugActionsAvailable: true)
     }
@@ -246,6 +247,17 @@ import Testing
         #expect(executor.all.isEmpty)
         // Another session's terminal: the app cannot place it, so the run is as before.
         #expect(try await run("splitRight", Self.snapshot(), caller: ["terminal_id": "term-elsewhere"]).target == nil)
+        // A new workspace needs no place of the caller's: an agent no tab shows still makes one.
+        #expect(try await run("newTab", Self.snapshot(), caller: ["agent_session": "gone"]).target == nil)
+    }
+
+    @Test func anAgentsNewTabOpensBesideItAndItsNewWorkspaceIsListedByItsOwn() async throws {
+        let request = try await run("newTab.default", Self.snapshot())
+        #expect(request.target == Self.tabTarget("tab-agent"))
+        #expect(request.besideCaller)
+        #expect(request.newColumnBeside)
+        #expect(request.arguments["cwd"] == .string("/work/tab-agent"))
+        #expect(try await run("newTab", Self.snapshot()).target == ControlTargetRef(kind: "workspace", id: "ws-agent"))
     }
 
     // MARK: system.identify reports the same decision

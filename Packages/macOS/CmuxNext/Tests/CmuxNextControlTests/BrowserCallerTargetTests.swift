@@ -354,7 +354,7 @@ import Testing
 
     /// `cmux browser page new-tab URL` with no browser near the caller opens its first one, not a
     /// refusal: a terminal's in its own pane behind the terminal, an agent's beside its chat
-    /// (`openBrowser` with the caller, placed by `placeBesideCaller`).
+    /// (`openBrowser` with the caller, placed by `placeAtCaller`).
     @Test func aNewTabWithNoBrowserNearOpensOneForTheCaller() async throws {
         var snapshot = Self.snapshot(ownBrowser: false, neighbors: false)
         let openBrowser = ControlActionInfo(id: "openBrowser", title: "New Browser Tab", category: "tab", categoryTitle: "Tab",
