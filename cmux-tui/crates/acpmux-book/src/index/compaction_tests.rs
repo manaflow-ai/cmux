@@ -21,7 +21,7 @@ fn rotation_keeps_arrivals_in_the_new_generation_across_restart() {
     let job = log.rotate(captured.seq()).unwrap();
     let second = log.append(row("second", 1)).unwrap();
     log.sync().unwrap();
-    let result = job.run(Arc::new(captured.clone())).unwrap();
+    let result = job.run(Arc::new(captured)).unwrap();
     log.compacted(result.covered_generation, result.seq);
     drop(log);
 
@@ -127,7 +127,7 @@ fn an_old_generation_left_after_snapshot_rename_is_cleaned_on_open() {
     let second = log.append(row("second", 1)).unwrap();
     log.sync().unwrap();
     let old = fs::read(dir.path().join("index.log.1")).unwrap();
-    let result = job.run(Arc::new(captured.clone())).unwrap();
+    let result = job.run(Arc::new(captured)).unwrap();
     assert_eq!(result.covered_generation, 1);
     // Simulate a crash before the old-generation unlink completed.
     fs::write(dir.path().join("index.log.1"), old).unwrap();
