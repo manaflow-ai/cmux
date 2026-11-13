@@ -9,6 +9,7 @@
 //! PRs. This crate deliberately has no whole-list reply type.
 
 pub mod conn;
+pub mod chat;
 pub mod hub;
 pub mod life;
 pub mod wire;

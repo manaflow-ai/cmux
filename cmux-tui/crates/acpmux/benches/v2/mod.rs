@@ -68,6 +68,12 @@ pub const GATE_ROWS: &[GateRow] = &[
         measured: false,
     },
     GateRow {
+        pr: "3a",
+        name: "v2.pr03a.source_read_bounds",
+        done_when: "A 1 GB growth reads one chunk and holds reads one byte at 40 rows and 2M rows. A 10 MB line appended in 100 pieces is read once when its newline arrives.",
+        measured: false,
+    },
+    GateRow {
         pr: "4",
         name: "v2.pr04.byte_credit_drop_resume",
         done_when: "1 GB of events to a stopped reader: RSS stays under the connection budget; the reader resumes with no row lost or repeated.",
