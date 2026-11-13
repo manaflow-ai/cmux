@@ -288,3 +288,45 @@ fn a_folder_made_in_a_root_is_handed_on_to_be_listed() {
     assert_eq!(got.len(), 1, "{got:?}");
     assert_eq!(got[0].folders, paths(&["/h/.codex/sessions", "/h/.claude/projects/-w"]));
 }
+
+/// A symbolic link is never a folder that came, and the listing of a folder that came never goes
+/// through one: a link to a folder outside the root, moved in, or placed inside a folder moved in
+/// (to a folder or to a session file), would hand on files outside the root, which a scan of the
+/// root never reads (the adapters list entries without following links).
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn a_symbolic_link_is_neither_a_folder_that_came_nor_listed_through() {
+    use notify::event::{ModifyKind, RenameMode};
+    let base = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(base.path()).unwrap();
+    let root = base.join("projects");
+    let outside = base.join("outside");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("0199c0de.jsonl"), "{}\n").unwrap();
+    let filter = Arc::new(Filter {
+        roots: vec![WatchedRoot { path: root.clone(), kind: AdapterKind::ClaudeCode }],
+    });
+    let link = root.join("-work-link");
+    std::os::unix::fs::symlink(&outside, &link).unwrap();
+    let moved = notify::EventKind::Modify(ModifyKind::Name(RenameMode::To));
+    let got = filter.handed_from_notify(event(moved, &[link.to_str().unwrap()]));
+    assert!(!matches!(got, Some(Message::Folder(_))), "a link was taken for a folder: {got:?}");
+
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let trees = Trees::new(filter, tx, Duration::ZERO).unwrap();
+    let mut out = Vec::new();
+    trees.files_in(&link, &mut out);
+    assert!(out.is_empty(), "listed through a link: {out:?}");
+
+    // A real folder: its own session is listed; a link in it to a folder or a file is not.
+    let real = root.join("-work-app");
+    std::fs::create_dir_all(&real).unwrap();
+    std::fs::write(real.join("0199c0df.jsonl"), "{}\n").unwrap();
+    std::os::unix::fs::symlink(&outside, real.join("linked")).unwrap();
+    std::os::unix::fs::symlink(outside.join("0199c0de.jsonl"), real.join("0199c0e0.jsonl"))
+        .unwrap();
+    let mut out = Vec::new();
+    trees.files_in(&real, &mut out);
+    assert_eq!(out, vec![real.join("0199c0df.jsonl")]);
+}
