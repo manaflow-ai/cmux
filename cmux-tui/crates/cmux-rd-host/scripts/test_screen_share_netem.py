@@ -29,6 +29,11 @@ class ScreenShareNetemCliTests(unittest.TestCase):
         self.assertEqual(netem.sample_budget(20, 10, 5), 80)
         self.assertEqual(netem.sample_budget(20, 60, 5), 130)
 
+    def test_recovery_requires_restoration_and_a_live_host(self):
+        self.assertFalse(netem.recovered_after_drop(10, False, [50], None))
+        self.assertFalse(netem.recovered_after_drop(10, True, [50], "viewer silent for 3 s"))
+        self.assertTrue(netem.recovered_after_drop(10, True, [50], None))
+
 
 if __name__ == "__main__":
     unittest.main()
