@@ -3,11 +3,13 @@
 // Leo 2026-10-30, on Settings > Updates with the Update Channel menu open: "look for wastage".
 // Real Chromium and WebKit lay out the settings gallery's Updates page with its Update Channel menu
 // open and hold the menu to the settings menu rule (leo-workspace design/settings.md): it hugs its
-// rows and lines up with its trigger (left edge on the trigger's to 1px, never narrower), its rows are
-// the menu row token (--ds-control-row), a select's checkmark sits on the AppKit state column with the
-// text right after it (design/grid.md 5.3: state 10, text 22 when no row has an icon, never an empty
-// icon gutter), the glass is never opaque, and the page title above it is not clipped. Check Every
-// reads in hours, not seconds. With FAST_CHECKS_OUT set it also writes the 2x stills of the view.
+// rows and lines up with its trigger (an edge on the trigger's to 1px, never narrower), its rows are
+// the menu row token (--ds-control-row), the glass is never opaque, and the page title above it is
+// not clipped. Since #41237 (Lucas 2026-11-12, as Aside's) a Settings menu button is as wide as its
+// value and right-aligned, so its menu lines up with the trigger's trailing edge, and the menu marks
+// the chosen row with a small trailing check: labels on AppKit's plain leading (15, no state column),
+// the check 19 in from the trailing edge (pages/settings/look.css). Check Every reads in hours, not
+// seconds. With FAST_CHECKS_OUT set it also writes the 2x stills of the view.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
@@ -133,7 +135,8 @@ await requireBrowserLane("settings-select-menu-browser.test.ts", async () => {
           trigger: box(button),
           popup: box(popup),
           rows: items.map((item) => item.getBoundingClientRect().height),
-          checkCenter: checkBox.left + checkBox.width / 2 - box(popup).left,
+          // From the popup's trailing edge: the check is a trailing mark (pages/settings/look.css).
+          checkCenter: box(popup).right - (checkBox.left + checkBox.width / 2),
           textLeft,
           rowToken,
           background: style.backgroundColor,
@@ -155,15 +158,15 @@ await requireBrowserLane("settings-select-menu-browser.test.ts", async () => {
     for (const colorScheme of ["light", "dark"] as const)
       test(`${engine} ${colorScheme}: the Update Channel menu hugs and aligns with its trigger`, async () => {
         const m = await measure(engine, colorScheme, true);
-        // Aligned: the menu's left edge on the trigger's, and at least as wide.
-        expect(Math.abs(m.popup.left - m.trigger.left)).toBeLessThanOrEqual(1);
+        // Aligned: the menu's trailing edge on the right-aligned trigger's, and at least as wide.
+        expect(Math.abs(m.popup.right - m.trigger.right)).toBeLessThanOrEqual(1);
         expect(m.popup.width).toBeGreaterThanOrEqual(m.trigger.width - 0.5);
         // Rows on the menu row token.
         expect(m.rows.length).toBe(4);
         for (const height of m.rows) expect(Math.abs(height - m.rowToken)).toBeLessThanOrEqual(0.5);
-        // The checkmark on the state column, the text right after it: no empty gutter.
-        expect(Math.abs(m.checkCenter - 10)).toBeLessThanOrEqual(1);
-        for (const left of m.textLeft) expect(Math.abs(left - 22)).toBeLessThanOrEqual(1);
+        // The checkmark on the trailing side, 19 in from the edge; the text on the plain leading.
+        expect(Math.abs(m.checkCenter - 19)).toBeLessThanOrEqual(1);
+        for (const left of m.textLeft) expect(Math.abs(left - 15)).toBeLessThanOrEqual(1);
         // Glass, never opaque: a translucent fill (under the surface roles' near-opaque 0.9) over a
         // frost strong enough that the row under it does not read through (the menu glass tokens).
         const alpha = Number(/\/\s*([\d.]+)\)\s*$|,\s*([\d.]+)\)\s*$/.exec(m.background)?.slice(1).find(Boolean) ?? 1);
@@ -175,8 +178,9 @@ await requireBrowserLane("settings-select-menu-browser.test.ts", async () => {
         expect(m.title!.top).toBeGreaterThanOrEqual(m.title!.clipTop - 0.5);
       });
 
-  // The same rule for every select on every Settings page: each opens at its trigger's left edge,
-  // never narrower, on the menu row token, with its text at 22 (design/settings.md, "Menus").
+  // The same rule for every select on every Settings page: each opens at one of its trigger's edges
+  // (the trailing one for the right-aligned buttons), never narrower, on the menu row token, with its
+  // text at 15 and a trailing check (design/settings.md, "Menus"; #41237).
   test("every Settings select menu hugs and aligns with its trigger", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const [engine] = engines[0]!;
@@ -220,27 +224,31 @@ await requireBrowserLane("settings-select-menu-browser.test.ts", async () => {
                 range.selectNodeContents(node);
                 return range.getBoundingClientRect().left - p.left;
               }
-              return 22;
+              return 15;
             });
             const row = button.closest("[data-row-key]")?.getAttribute("data-row-key") ?? button.textContent ?? "";
             return {
               row,
               left: p.left - button.getBoundingClientRect().left,
-              // A menu wider than the room right of its trigger (a long list of painting titles)
-              // slides left to stay in the window, as an AppKit menu does: it ends at the edge.
-              noRoom: button.getBoundingClientRect().left + p.width > window.innerWidth - 4,
+              right: p.right - button.getBoundingClientRect().right,
+              // A menu wider than the room on either side of its trigger (a long list of painting
+              // titles) slides to stay in the window, as an AppKit menu does: it ends at the edge.
+              noRoom:
+                button.getBoundingClientRect().left + p.width > window.innerWidth - 4 &&
+                button.getBoundingClientRect().right - p.width < 4,
               narrower: button.getBoundingClientRect().width - p.width,
               rows: items.map((item) => item.getBoundingClientRect().height).filter((h) => Math.abs(h - token) > 0.5),
-              text: textLeft.filter((left) => Math.abs(left - 22) > 1),
+              text: textLeft.filter((left) => Math.abs(left - 15) > 1),
             };
           });
           opened++;
           const where = `${category.id} ${m.row}`;
           if (m.noRoom) shifted.push(where);
-          else if (Math.abs(m.left) > 1) failures.push(`${where}: menu starts ${m.left.toFixed(1)}px from its trigger`);
+          else if (Math.abs(m.left) > 1 && Math.abs(m.right) > 1)
+            failures.push(`${where}: menu edges ${m.left.toFixed(1)}px, ${m.right.toFixed(1)}px from its trigger's`);
           if (m.narrower > 0.5) failures.push(`${where}: menu ${m.narrower.toFixed(1)}px narrower than its trigger`);
           if (m.rows.length) failures.push(`${where}: rows ${m.rows.join(", ")}px, not the menu row token`);
-          if (m.text.length) failures.push(`${where}: text at ${m.text.map((x) => x.toFixed(1)).join(", ")}, not 22`);
+          if (m.text.length) failures.push(`${where}: text at ${m.text.map((x) => x.toFixed(1)).join(", ")}, not 15`);
           await page.keyboard.press("Escape");
           await page.locator(".ui-select-popup").waitFor({ state: "detached" });
         }

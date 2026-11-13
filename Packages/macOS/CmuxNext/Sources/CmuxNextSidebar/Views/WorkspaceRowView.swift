@@ -27,6 +27,10 @@ final class WorkspaceRowView: SidebarRowView {
     var activityState = StatusIndicatorState.idle
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
     var rowBadgeStyle = SidebarRowBadgeStyle.corner
+    /// The badge states this row last showed, and for which workspace: a done glyph settles in only
+    /// when the same workspace's work finishes (`configureBadges`), never on a first configure or a
+    /// row the pool hands to another workspace (cleared in `prepareForReuse`).
+    var shownBadges: (workspace: WorkspaceID, states: [StatusIndicatorState])?
     /// The agents acting in the workspace (`sidebar.presenceDots`, cx-gg84).
     let presenceDots = PresenceDotsView()
     /// An agent driving the screen or a browser in the workspace (`sidebar.driveIndicator`), shown with the dots off.
@@ -190,6 +194,7 @@ final class WorkspaceRowView: SidebarRowView {
         case .emoji?: "emoji"
         case .favicon?: "favicon"
         case .pagePlaceholder?: "pagePlaceholder"
+        case .page?: "page"
         }
     }
 
@@ -227,6 +232,7 @@ final class WorkspaceRowView: SidebarRowView {
         title.alphaValue = 1
         placeholderBar.layer?.removeAllAnimations()
         placeholderBar.alphaValue = 1
+        shownBadges = nil
     }
 
     private struct Content: Hashable {
@@ -286,7 +292,7 @@ final class WorkspaceRowView: SidebarRowView {
         lastTitle = shownTitle
         hiddenWorkspaceName = ws.namesWorkspace(shownTitle) ? nil : ws.title
         isArchived = ws.isArchived
-        icon.alphaValue = isArchived ? SidebarStyle.archivedAlpha : 1
+        icon.alphaValue = (isArchived ? SidebarStyle.archivedAlpha : 1) * SidebarStyle.glyphOpacity
         // Roll is for renames: a first name over the loading bar arrives at once, as under instant.
         let arrival = priorTitle?.isEmpty == true && !shownTitle.isEmpty && !isPlaceholderRow
             && ![.instant, .roll].contains(tunables.workspaceTitleMotion) && Motion.sidebar.animatesMovement(in: window)

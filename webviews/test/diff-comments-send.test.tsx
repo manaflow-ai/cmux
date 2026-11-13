@@ -180,6 +180,59 @@ test("a retry of the same comments sends the same prompt id, so the chat gets th
   }
 });
 
+test("an edit during an unsettled retry reuses the original request", async () => {
+  const { installPageDiffComments } = await import("../src/comments/bridge");
+  const { createRoot } = await import("react-dom/client");
+  const { useDiffComments } = await import("../src/diff-viewer/useDiffComments");
+  const { initialAppState } = await import("../src/diff-viewer/state");
+  const sends: Array<{ ids: unknown; opid?: string }> = [];
+  let first = true;
+  installPageDiffComments({
+    call: async (_op: string, body: { params: Record<string, unknown> }, options?: { opid?: string }) => {
+      sends.push({ ids: body.params.ids, opid: options?.opid });
+      if (first) {
+        first = false;
+        throw Object.assign(new Error("store busy"), { code: "operation.failed" });
+      }
+      return { cleared: body.params.ids };
+    },
+  } as never);
+  const savedWebkit = (window as unknown as { webkit: unknown }).webkit;
+  (window as unknown as { webkit: unknown }).webkit = undefined;
+  try {
+    type Hook = ReturnType<typeof useDiffComments>;
+    const state = {
+      current: { ...initialAppState({ payload: {} } as never, "ready" as never), comments: [] as Comment[] },
+    };
+    state.current.comments = [comment("c1", "a.ts", 1), comment("c2", "a.ts", 2)];
+    let hook!: Hook;
+    function Probe() {
+      hook = useDiffComments({
+        bridgeAvailable: true,
+        canSend: true,
+        dispatch: (() => {}) as never,
+        latestState: state as never,
+        repoRoot: "/repo",
+      });
+      return null;
+    }
+    const probe = createRoot(document.createElement("div"));
+    act(() => probe.render(<Probe />));
+    await act(async () => hook.send());
+    const originalOpid = sends[0]!.opid;
+    state.current.comments = [
+      { ...comment("c1", "a.ts", 1), message: "edited", updatedAt: "2026-11-07T00:01:00.000Z" },
+      comment("c2", "a.ts", 2),
+    ];
+    await act(async () => hook.send());
+    expect(sends[1]).toEqual({ ids: ["c1", "c2"], opid: originalOpid });
+    act(() => probe.unmount());
+  } finally {
+    installPageDiffComments(null);
+    (window as unknown as { webkit: unknown }).webkit = savedWebkit;
+  }
+});
+
 test("a comment edited while its send is on the way stays, with its edit", async () => {
   const { installPageDiffComments } = await import("../src/comments/bridge");
   const { createRoot } = await import("react-dom/client");
