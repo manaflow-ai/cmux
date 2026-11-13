@@ -109,8 +109,8 @@ import Testing
 
     /// https://github.com/manaflow-ai/cmux/issues/38061: a pinned row's pin ("CLOUDMUX") did not line up under Home's
     /// house. Home's row and a pinned row share one fixed-width icon column (one x, one width), and Home's ink
-    /// starts on its leading edge, where a text-only row's title starts (Lawrence 2026-11-09, "home/pin icons not left
-    /// aligned with 'Fix…'"); the narrow pin centers under it (#42431), at every density, minimal mode, width and text size.
+    /// centers in the rows' optical square from the column's edge, where a text-only row's title starts, and the narrow pin
+    /// centers on the same line (#42431), at every density, minimal mode, width and text size.
     @Test(arguments: cases)
     func homesGlyphAndThePinStartOnOneEdge(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
@@ -126,12 +126,15 @@ import Testing
             let pinInk = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin)
             let loose = try Self.row(list, Self.loose)
             let titleX = Self.x(list, loose.title.frame.minX, in: loose)
-            // Home's house fills the column's width, so its ink starts on the column's edge, where a text-only title starts.
-            #expect(abs(homeInk.minX - homeColumn.minX) <= Self.tolerance,
-                    "\(c.testDescription): Home's glyph starts at \(homeInk.minX), its icon column at \(homeColumn.minX)")
-            #expect(abs(homeInk.minX - titleX) <= Self.tolerance,
-                    "\(c.testDescription): Home's glyph starts at \(homeInk.minX), a text-only title at \(titleX)")
-            // The pin is a narrow mark: it centers under the house (https://github.com/manaflow-ai/cmux/issues/42431).
+            // Every leading glyph centers in the rows' one optical square from the column's edge
+            // (https://github.com/manaflow-ai/cmux/issues/42431). The house is a little narrower than that square, so its
+            // ink starts up to (square - ink) / 2 right of the edge a text-only title starts on, not on it.
+            let square = SidebarStyle.rowGlyphOpticalSide
+            #expect(abs(homeInk.midX - (homeColumn.minX + square / 2)) <= Self.tolerance,
+                    "\(c.testDescription): Home's glyph centers at \(homeInk.midX), its optical square at \(homeColumn.minX + square / 2)")
+            #expect(abs(homeInk.midX - (titleX + square / 2)) <= Self.tolerance,
+                    "\(c.testDescription): Home's glyph centers at \(homeInk.midX), the square after a text-only title's edge at \(titleX + square / 2)")
+            // The pin, a narrow mark, centers on the same line.
             #expect(abs(pinInk.midX - homeInk.midX) <= Self.tolerance,
                     "\(c.testDescription): the pin centers at \(pinInk.midX), Home's glyph at \(homeInk.midX)")
         }
