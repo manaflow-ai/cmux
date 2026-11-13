@@ -208,6 +208,7 @@ on:
       - schemas/layout-grid/settled-spacing.json
       - scripts/cmux-next/gen-layout-grid.py
       - tests/test_layout_grid.py
+      - tests/ui-structure/**
       - webviews/src/pages/shared/desktop.css
       - Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/LayoutGrid.swift
       - scripts/cmux-next/check-kill-switches.py
@@ -549,6 +550,7 @@ on:
       - schemas/layout-grid/settled-spacing.json
       - scripts/cmux-next/gen-layout-grid.py
       - tests/test_layout_grid.py
+      - tests/ui-structure/**
       - webviews/src/pages/shared/desktop.css
       - Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/LayoutGrid.swift
       - scripts/cmux-next/check-kill-switches.py
@@ -2076,6 +2078,13 @@ jobs:
         continue-on-error: true
         run: python3 -I tests/test_layout_grid.py && python3 -I scripts/cmux-next/gen-layout-grid.py --check
 
+      # The Chief thread's structure spec (tests/ui-structure/chief-thread.json): the checker fails the
+      # shipped 824dfe5 Messages page and passes the native transcript's recorded gallery variants.
+      - name: Chief thread structure (spec)
+        id: chief-thread-spec
+        continue-on-error: true
+        run: python3 -I tests/ui-structure/test_thread_structure.py
+
       # Why: docs/ci/cmux-next-workflow-notes.md#note-28
       - name: UI font (the system font)
         id: ui-font
@@ -2487,6 +2496,7 @@ jobs:
             ${{ steps.overlay-glass.outcome }}|Overlays are glass, never solid
             ${{ steps.type-scale.outcome }}|Type scale
             ${{ steps.layout-grid.outcome }}|Layout grid
+            ${{ steps.chief-thread-spec.outcome }}|Chief thread structure (spec)
             ${{ steps.ui-font.outcome }}|UI font (the system font)
             ${{ steps.motion-scale.outcome }}|Motion scale
             ${{ steps.motion-tokens.outcome }}|Motion and colour tokens
@@ -4368,6 +4378,24 @@ jobs:
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "480"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter CLISurfaceParityTests
+
+      # The native transcript (MessagesLab) at each gallery width, read through its accessibility tree and
+      # checked against the Chief thread spec (tests/ui-structure/chief-thread.json); a MessagesLab change
+      # routes CmuxNextAppTests. Its own package build, so only then.
+      - name: Chief thread structure (native transcript)
+        if: ${{ (!cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextAppTests'))) && steps.reuse.outputs.hit != 'true' }}
+        timeout-minutes: 25
+        env:
+          CHIEF_THREAD_GALLERY_DIR: ${{ runner.temp }}/chief-thread-gallery
+        run: xcrun swift test --package-path Packages/Shared/CmuxMessagesLab --filter ChiefThreadStructureTests
+      - name: Keep the Chief thread gallery
+        if: ${{ !cancelled() && steps.reuse.outputs.hit != 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chief-thread-gallery-native-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/chief-thread-gallery
+          if-no-files-found: ignore
+          retention-days: 3
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-235
       - name: Run state-resource regressions
