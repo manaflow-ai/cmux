@@ -477,6 +477,10 @@ impl SummaryIndex {
             return self.clone();
         }
         let mut next = self.clone();
+        if let Some(old) = next.by_id.get(&row.key()) {
+            next.ordered.remove(&SortKey::of(old));
+            next.live_ordered.remove(&SortKey::of(old));
+        }
         next.by_id.insert(row.key(), row.clone());
         next.ordered.insert(SortKey::of(&row), row);
         if row.is_live() {
@@ -651,6 +655,18 @@ mod tests {
         summary.last_activity = at;
         summary.extra = RawValue::from_string(extra.to_owned()).unwrap();
         summary
+    }
+
+    #[test]
+    fn every_session_state_uses_the_same_live_rule() {
+        for state in ["running", "ready", "waiting", "idle", "disconnected"] {
+            let mut row = Summary::new(state);
+            row.state = state.to_owned();
+            assert!(row.is_live(), "{state} should remain in the live view");
+        }
+        let mut closed = Summary::new("closed");
+        closed.state = "closed".to_owned();
+        assert!(!closed.is_live());
     }
 
     #[test]

@@ -130,6 +130,30 @@ pub(crate) fn start_v2_tee(
     (handle, task)
 }
 
+/// The bounded keyed-page provider used until chat actors own their checkpoints.
+pub(crate) struct V1PageProvider {
+    hub: Arc<Hub>,
+}
+
+impl V1PageProvider {
+    pub(crate) fn new(hub: Arc<Hub>) -> Self {
+        Self { hub }
+    }
+}
+
+impl acpmux_core::hub::PageProvider for V1PageProvider {
+    fn row(&self, key: &RowKey) -> Option<Arc<Summary>> {
+        if key.origin.as_ref() != "local" {
+            return None;
+        }
+        self.hub
+            .session_handles()
+            .into_iter()
+            .find(|session| session.id == key.chat_id.as_ref())
+            .and_then(|session| summary_from_session(&self.hub, &session).map(Arc::new))
+    }
+}
+
 /// Converts the v1 list row once, retaining v1's extension keys in `extra` while moving the
 /// durable identity and lineage edges into typed summary fields.
 fn summary_from_session(v1: &Hub, session: &Session) -> Option<Summary> {

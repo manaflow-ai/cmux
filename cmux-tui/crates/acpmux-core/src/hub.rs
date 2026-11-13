@@ -261,6 +261,12 @@ pub struct Hub {
     updates: Arc<UpdateQueue>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
+    page_provider: Arc<Mutex<Option<Arc<dyn PageProvider>>>>,
+}
+
+/// Supplies rows that are outside the hot summary index for a bounded keyed page.
+pub trait PageProvider: Send + Sync {
+    fn row(&self, key: &RowKey) -> Option<Arc<Summary>>;
 }
 
 /// Explicit name for the published summary hub used by later actors.
@@ -356,6 +362,7 @@ impl Hub {
             updates: updates.clone(),
             subscribers: subscribers.clone(),
             history: history.clone(),
+            page_provider: Arc::new(Mutex::new(None)),
         };
         let writer = HubWriter {
             #[cfg(test)]
@@ -402,6 +409,12 @@ impl Hub {
 
     pub fn snapshot(&self) -> Arc<SummaryIndex> {
         self.published.load_full()
+    }
+
+    pub fn set_page_provider(&self, provider: Arc<dyn PageProvider>) {
+        if let Ok(mut slot) = self.page_provider.lock() {
+            *slot = Some(provider);
+        }
     }
 
     pub fn resume_target(&self, cursor: u64) -> Result<Option<u64>, HubError> {
@@ -529,8 +542,6 @@ impl Hub {
             origins: Vec::new(),
             before_key: page.before_key.map(wire_key),
             after_key: page.after_key.map(wire_key),
-            missing: Vec::new(),
-            unknown: Vec::new(),
         };
         let frame = Frame::json(FrameKind::Window, &window)?;
         if frame.encoded_len() > crate::wire::MAX_PAGE_BYTES {
@@ -559,9 +570,14 @@ impl Hub {
             let mut rows = Vec::with_capacity(keys.len());
             let mut missing = Vec::new();
             let mut unknown = Vec::new();
+            let provider = self.page_provider.lock().ok().and_then(|slot| slot.clone());
             for key in keys {
                 let row_key = book_key(key).row;
                 if let Some(row) = index.get_row(&row_key) {
+                    rows.push(row);
+                } else if let Some(row) =
+                    provider.as_ref().and_then(|provider| provider.row(&row_key))
+                {
                     rows.push(row);
                 } else if key.origin == "local" {
                     missing.push(key.clone());

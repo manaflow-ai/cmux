@@ -587,6 +587,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     if let Some(v2) = v2.as_ref() {
         let (tee, task) = crate::hub::list_guard::start_v2_tee(hub.clone(), v2.clone());
         hub.install_v2_tee(tee);
+        v2.hub.set_page_provider(std::sync::Arc::new(crate::hub::list_guard::V1PageProvider::new(
+            hub.clone(),
+        )));
         v2_tasks.spawn(task);
     }
     // A copied machine's first start settles what the logs left open as stopped
