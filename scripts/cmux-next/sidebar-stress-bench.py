@@ -589,6 +589,15 @@ def selected_title():
     return next((r.get("title") for r in workspace_rows() if r.get("selected")), None)
 
 
+def cell_mark(asked, sent, switched):
+    """Why a cell of the switch matrix is no measure of what it names, or None. `switched` is the count of switches
+    that the app's own timer kept for the cell (None: an old build with no timer). The selection check inside a cell
+    cannot say this: it runs after each 4th input, which always goes back to the workspace the cell started from, so
+    it passes when no input switched anything."""
+    done = sent if switched is None else min(sent, switched)
+    return None if done >= asked else f"invalid: {done} of {asked} inputs switched"
+
+
 def scenario_switch_matrix(pid, size):
     """Workspace switch, input to the main thread idle after the switch drew, and the longest frame
     of the switch, per input (click on the row, Cmd-1..4, Ctrl-Cmd-] / [) and per kind (terminal,
@@ -646,10 +655,20 @@ def scenario_switch_matrix(pid, size):
                 if i % 4 == 3 and selected_title() != target:
                     wrong += 1
                 time.sleep(0.2)
+            # The timer's stop is the first call after the cell's last input: no call goes between 2 inputs.
+            samples = ((rpc("debug.workspace_switch", {"action": "stop"}) or {}).get("switches") or []) if timed else None
+            mark = cell_mark(opts.switches, len(lat), None if samples is None else len(samples))
+            if mark:
+                # A fact of the run, not a row: the cell keeps its counts and no latency key (perf-budgets.py makes
+                # rows only from a cell with input_to_idle_ms), and the matrix goes on.
+                out[f"{kind}.{how}"] = {"invalid": mark, "switches": len(lat), "app_switches": None if samples is None else len(samples),
+                                        "wrong_selection_checks": wrong, "app_samples": samples}
+                note(f"switch matrix {kind} {how}: {mark}")
+                continue
             entry = {"switches": len(lat), "input_to_idle_ms": percentiles(lat),
                      "longest_frame_ms": percentiles(longest), "wrong_selection_checks": wrong}
             if timed:
-                samples = (rpc("debug.workspace_switch", {"action": "stop"}) or {}).get("switches") or []
+                entry["app_switches"] = len(samples)
                 entry["app_samples"] = samples
                 commit = [x["commit_ms"] + x.get("input_ms", 0) for x in samples if isinstance(x.get("commit_ms"), (int, float))]
                 entry["input_to_commit_ms"] = percentiles(commit)
