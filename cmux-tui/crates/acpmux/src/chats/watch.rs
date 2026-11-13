@@ -521,12 +521,14 @@ fn coalesce(source: &mut impl Source, mut on_burst: impl FnMut(Burst) -> bool) {
                 Some(Message::RootEntries(_)) => {}
                 // Each folder once, and none below another: its listing lists them too.
                 #[cfg(not(target_os = "macos"))]
-                Some(Message::Folder(folder)) => {
-                    if !burst.folders.iter().any(|seen| folder.starts_with(seen)) {
-                        burst.folders.retain(|seen| !seen.starts_with(&folder));
-                        burst.folders.push(folder);
-                    }
+                Some(Message::Folder(folder))
+                    if !burst.folders.iter().any(|seen| folder.starts_with(seen)) =>
+                {
+                    burst.folders.retain(|seen| !seen.starts_with(&folder));
+                    burst.folders.push(folder);
                 }
+                #[cfg(not(target_os = "macos"))]
+                Some(Message::Folder(_)) => {}
                 None => {}
                 Some(Message::Stop) => return,
             }
