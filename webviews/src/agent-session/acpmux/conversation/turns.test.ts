@@ -93,6 +93,7 @@ test("a partial refresh keeps a reply when its body is empty or its id is recrea
     previous,
   );
   expect(empty.rows.some((row) => row.kind === "assistant" && row.text === "Keep this answer.")).toBe(true);
+  expect(empty.rows.filter((row) => row.kind === "assistant")).toHaveLength(1);
   expect(rekeyed.rows.some((row) => row.kind === "assistant" && row.text === "Keep this answer.")).toBe(true);
 });
 

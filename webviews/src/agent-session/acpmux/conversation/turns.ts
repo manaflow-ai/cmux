@@ -484,6 +484,7 @@ const retainVisibleReplies = (
     if (row && row.kind !== "assistant" && currentIds.has(row.id)) anchored = true;
   }
   let changed = false;
+  const replacedIds = new Set<string>();
   const next = rows.map((row) => {
     const prior = previousById.get(row.id);
     if (
@@ -494,12 +495,13 @@ const retainVisibleReplies = (
       retainIds.has(row.id)
     ) {
       changed = true;
+      replacedIds.add(row.id);
       return prior;
     }
     return row;
   });
   for (const row of relevant) {
-    if (row.kind === "assistant" && retainIds.has(row.id)) {
+    if (row.kind === "assistant" && retainIds.has(row.id) && !replacedIds.has(row.id)) {
       next.push(row);
       changed = true;
     }
