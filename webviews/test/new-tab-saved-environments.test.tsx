@@ -331,7 +331,7 @@ test("a saved SSH environment names the strip and asks on its machine, in its fo
     target: { harness: "claude", host: "devbox", cwd: "/srv/api" },
   });
   expect(environmentButton()?.getAttribute("aria-label")).toBe(
-    `${t("composer.environment")}: ${t("composer.anotherMachine")} · Devbox API`,
+    `${t("composer.environment")}: ${t("composer.otherDevices")} · Devbox API`,
   );
   // The environment names where the chat starts: no folder control beside it.
   expect(folderButton()).toBeNull();
@@ -403,7 +403,7 @@ test("picking another machine acpmux lists starts the chat there", async () => {
     target: { harness: "claude", host: "devbox" },
   });
   expect(environmentButton()?.getAttribute("aria-label")).toBe(
-    `${t("composer.environment")}: ${t("composer.anotherMachine")} · devbox`,
+    `${t("composer.environment")}: ${t("composer.otherDevices")} · devbox`,
   );
   // The prompt takes the keyboard back, as after a folder pick.
   expect(doc().activeElement).toBe(host.querySelector(".nt-field [contenteditable]"));

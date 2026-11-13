@@ -449,11 +449,12 @@ const openRunToggle: Play = async (ctx) => {
   await ctx.click({ role: "button", name: /^Where should this chat run/ });
   await waitRows("run")(ctx);
 };
-/// Where > Remote: the first ready machine is the pick and the machine control opens.
-const pickAnother: Play = async (ctx) => {
+/// Where > Other devices: the person's own machines open in the Where menu itself (Austin, 2026-11-12;
+/// it was Remote, which picked the first ready machine and opened the machine chip).
+const openWhereDevices: Play = async (ctx) => {
   await openWhere(ctx);
-  await ctx.click({ selector: '.acpmux-env-popover [data-action="another"]' });
-  await waitRows("machines")(ctx);
+  await ctx.click({ selector: '.acpmux-env-popover [data-action="otherDevices"]' });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover.acpmux-env-devices [role="option"]'));
 };
 type StripArm = "where-machine" | "where-machine-always" | "cloud-toggle" | "combined";
 const STRIP_NOTES: Record<StripArm, string> = {
@@ -481,7 +482,7 @@ function stripVariants(arm: StripArm) {
   const whereOpen = arm === "cloud-toggle" ? openRunToggle : arm === "combined" ? openCombined : openWhere;
   const machineOpen =
     arm === "where-machine"
-      ? pickAnother
+      ? openWhereDevices
       : arm === "where-machine-always"
         ? openMachineChip
         : arm === "cloud-toggle"
@@ -494,7 +495,7 @@ function stripVariants(arm: StripArm) {
       height: 320,
       note: note(
         arm === "where-machine"
-          ? "Remote picked: the first ready machine is the pick and the machine chip opens on the person's machines, ready first, SSH and Cloud alike (the icon is how each connects), Add Machine… last."
+          ? "Other devices open in the Where menu: its heading, the person's own machines ready first with a green dot and how each connects under its name, Add Machine… last; no Cloud machine. A pick there shows the machine chip, as before."
           : "Which machine, open.",
       ),
       props,
@@ -632,6 +633,18 @@ const otherDevicesVariants = {
     note: "gpu-box picked from Other devices: the main list keeps it checked after This Mac, Other devices still offered.",
     props: { ...otherDevicesMachines, ...onMachine("gpu-box") },
     play: openCombined,
+  },
+  "where-other-devices-list": {
+    height: 320,
+    note: "The shipped strip's Where menu, Other devices open: studio-mini and gpu-box ready with the green dot and SSH under the name, laptop greyed saying it is connecting, Add Machine… last; no Cloud machine.",
+    props: { ...otherDevicesMachines, stripLayout: "where-machine" as const },
+    play: openWhereDevices,
+  },
+  "where-other-devices-picked": {
+    height: 260,
+    note: "gpu-box picked there: Where reads Other devices and checks that row (with its count and chevron, so it still opens the list); the machine chip beside it names gpu-box and changes it as before.",
+    props: { ...otherDevicesMachines, stripLayout: "where-machine" as const, ...onMachine("gpu-box") },
+    play: openWhere,
   },
   "other-devices-none": {
     height: 260,
@@ -994,7 +1007,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker": {
-      note: "Where a chat runs (the shipped strip, Codex desktop's): This Mac, Cloud and Remote, one line each, with no machine list and no machine-name subtitle, though gpu-box and a Cloud machine are connected. Cloud gives the new workspace its own new machine; Remote shows the machine chip. New Cloud Machine…, Open Cloud…, SSH…, Add Machine… and Connect Phone… are the control's right-click menu.",
+      note: "Where a chat runs (the shipped strip, Codex desktop's): This Mac, Cloud and Other devices, one line each, with no machine list and no machine-name subtitle, though gpu-box and a Cloud machine are connected. Cloud gives the new workspace its own new machine; Other devices opens the person's own machines in place. New Cloud Machine…, Open Cloud…, SSH…, Add Machine… and Connect Phone… are the control's right-click menu.",
       props: {
         ...baseProps,
         environments: true,
@@ -1051,7 +1064,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openMachineList,
     },
     "environment-picker-alone": {
-      note: "Leo's case: This Mac, Cloud and Remote, as Codex's strip. A person with other machines sees the same three; with none, Remote is Add Machine….",
+      note: "Leo's case: This Mac, Cloud and Other devices, as Codex's strip. A person with other machines sees the same three, Other devices with their count; with none it has no count and opens just Add Machine….",
       props: {
         ...baseProps,
         environments: true,
@@ -1115,33 +1128,33 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     ...stripVariants("where-machine"),
     "machines-unavailable-collapsed": {
       height: 460,
-      note: 'Ships (Leo, 2026-11-09: "drop retired and unreachable machines from the list, or group them at the bottom"). Remote picked: the machines acpmux has not reached for 5 minutes or more wait under one muted "Unavailable (4)" row after the reachable ones, above Add Machine…; it opens them in place, greyed, with their state. A just-dropped machine keeps its row; a search finds any machine by name.',
+      note: 'Ships (Leo, 2026-11-09: "drop retired and unreachable machines from the list, or group them at the bottom"). Other devices open: the machines acpmux has not reached for 5 minutes or more wait under one muted "Unavailable (4)" row after the reachable ones, above Add Machine…; it opens them in place, greyed, with their state. A just-dropped machine keeps its row; a search finds any machine by name.',
       props: unavailableMachines,
-      play: pickAnother,
+      play: openWhereDevices,
     },
     "machines-unavailable-open": {
       height: 640,
       note: "The same list with Unavailable (4) opened: the four lanes greyed with Reconnecting, still above Add Machine…, and no pick.",
       props: { ...unavailableMachines, unavailableExpanded: true },
-      play: pickAnother,
+      play: openWhereDevices,
     },
     "machines-unavailable-after-add": {
       height: 460,
       note: "Variant: the Unavailable row below Add Machine…, the list's very end. Add Machine… then sits between what you can pick and what you cannot, and a long open group pushes nothing but itself.",
       props: { ...unavailableMachines, unavailableGroup: "after-add" as const },
-      play: pickAnother,
+      play: openWhereDevices,
     },
     "machines-unavailable-hidden": {
       height: 420,
       note: "Variant: unreachable machines dropped from the list (a search still finds them). The shortest list, but a machine that went away is gone with no trace of why.",
       props: { ...unavailableMachines, unavailableGroup: "hidden" as const },
-      play: pickAnother,
+      play: openWhereDevices,
     },
     "machines-unavailable-inline": {
       height: 640,
       note: "Before: every machine in place, the unreachable ones greyed at the end of their group saying Reconnecting, above Add Machine… (Leo's recording).",
       props: { ...unavailableMachines, unavailableGroup: "inline" as const },
-      play: pickAnother,
+      play: openWhereDevices,
     },
     ...stripVariants("where-machine-always"),
     ...stripVariants("cloud-toggle"),

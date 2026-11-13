@@ -204,15 +204,17 @@ async function openChip() {
   await flush();
 }
 
-test("Where's third row reads Remote, not Another machine", async () => {
-  expect(t("composer.anotherMachine")).toBe("Remote");
+// Austin, 2026-11-12: Where's third row is Other devices (it was Remote, and before that Another machine).
+test("Where's third row reads Other devices, not Remote or Another machine", async () => {
+  expect(t("composer.otherDevices")).toBe("Other devices");
   await mount({ flag: false, mode: "persistent" });
   const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
   await act(async () => void openPicker("Computer"));
   const labels = [...dom.window.document.querySelectorAll(".acpmux-env-popover .acpmux-menu-label")].map(
     (label) => label.textContent,
   );
-  expect(labels).toContain("Remote");
+  expect(labels).toContain("Other devices");
+  expect(labels).not.toContain("Remote");
   expect(labels).not.toContain("Another machine");
 });
 

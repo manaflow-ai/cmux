@@ -50,8 +50,9 @@ export type EnvironmentFaceStyle = "label" | "icon" | "chip";
 /// Which rows the list holds (ComposerContext `stripLayout`). `combined`: This Mac and Cloud, a
 /// machine only once it is the pick, a new chat's Other devices (`otherDevices`), every machine
 /// behind Machines… (one control for both).
-/// `where`: where the chat runs, three one-line rows, This Mac, Cloud and Remote, whose
-/// pick is the machine control's (`onAnother`). `machines`: which machine, the person's machines
+/// `where`: where the chat runs, three one-line rows, This Mac, Cloud and Other devices, which opens
+/// the person's own machines in place (`otherDevices`; it was Remote, which handed off to the machine
+/// control, until Austin, 2026-11-12). `machines`: which machine, the person's machines
 /// with no Cloud row, ready ones first, SSH and Cloud peers alike (their icon is the only mark of
 /// how each connects), then Add Machine…; This Mac heads it with `includeLocal`. `run`: ChatGPT's
 /// cloud toggle, "Where should this chat run?" over This Mac and Cloud. Cloud picked has no list of
@@ -118,8 +119,6 @@ export function EnvironmentPicker({
   includeLocal = true,
   digits = true,
   setupMenu = true,
-  onAnother,
-  openRequest,
   ownOnly = false,
   runDetails,
   unavailableGroup = "collapsed",
@@ -179,10 +178,6 @@ export function EnvironmentPicker({
   digits?: boolean;
   /// Whether the right-click setup menu is this control's (one control per strip has it).
   setupMenu?: boolean;
-  /// `where`: Remote was picked; the strip shows and opens its machine control.
-  onAnother?(): void;
-  /// Each new value opens the list (the strip opens the machine control after Remote).
-  openRequest?: number;
   /// `machines`: only the person's own machines (SSH), not Cloud machines (Cloud is one pick; its machines are behind Machines…).
   ownOnly?: boolean;
   /// `run`: a second line under This Mac and Cloud (gallery only).
@@ -247,14 +242,6 @@ export function EnvironmentPicker({
     if (!next) reset();
   });
   useLocationOpener(menu, () => setOpen(true));
-  // Not the mount's value: a control that mounts with a request (the machine control Another
-  // machine just showed) opens.
-  const openSeen = useRef<number | undefined>(undefined);
-  useEffect(() => {
-    if (openRequest === openSeen.current) return;
-    openSeen.current = openRequest;
-    if (openRequest !== undefined) setOpen(true);
-  });
   useEffect(() => {
     if (!closeOnTrustAsk || !open) return;
     setPopoverOpen(false);
@@ -305,7 +292,9 @@ export function EnvironmentPicker({
   const machineList = list === "machines" || list === "devices" || listRows === "machines";
   // Other devices: the person's own machines, every one that is neither this Mac nor a Cloud
   // machine (the machine control's `ownOnly`), in the list's order.
-  const offersDevices = otherDevices && listRows === "combined" && onConnect !== undefined;
+  // In Where it is the third row whatever the setup actions; in the combined list only where a
+  // machine can be added.
+  const offersDevices = otherDevices && (listRows === "where" || (listRows === "combined" && onConnect !== undefined));
   const devices = useMemo(
     () =>
       offersDevices
@@ -439,11 +428,6 @@ export function EnvironmentPicker({
           }
       : undefined;
   const cloudRow = runMode !== undefined ? CLOUD_RUN : cloud?.value;
-  // Where: Remote, whose pick is the machine control's. Which machine: Add Machine… last.
-  const another: Action | undefined =
-    listRows === "where" && onAnother
-      ? { value: ANOTHER, text: t("composer.anotherMachine"), kind: "local", run: onAnother }
-      : undefined;
   // Which machine's list, and Other devices' list, end with Add Machine….
   const addMachine: Action | undefined =
     (listRows === "machines" || offersDevices) && onConnect
@@ -464,7 +448,6 @@ export function EnvironmentPicker({
     ...targetActions,
     ...(cloud ? [cloud] : []),
     ...(devicesMenu ? [devicesMenu] : []),
-    ...(another ? [another] : []),
     ...(addMachine ? [addMachine] : []),
   ];
   // The right-click menu; rebuilt each render, as its items are a handful and read the open state.
@@ -544,9 +527,9 @@ export function EnvironmentPicker({
     ],
     [],
   );
-  // Where: This Mac, Cloud, Remote (checked while the pick is any other machine or a saved
+  // Where: This Mac, Cloud, Other devices (checked while the pick is any other machine or a saved
   // environment). The cloud toggle: This Mac and Cloud.
-  // A Cloud machine picked is Cloud's; any other machine (or a saved environment) is Remote's.
+  // A Cloud machine picked is Cloud's; any other machine (or a saved environment) is Other devices'.
   const checkedKind = ordered.find((environment) => environment.id === checkedRow)?.kind;
   const cloudChecked = clouded || (listRows === "where" && checkedKind === "cloud");
   // A saved environment on this Mac is This Mac's row in the Where list.
@@ -558,7 +541,7 @@ export function EnvironmentPicker({
   const where = [
     ...ordered.filter(isLocal).map((environment) => environment.id),
     ...(cloudRow ? [cloudRow] : []),
-    ...(another ? [another.value] : []),
+    ...(devicesMenu ? [devicesMenu.value] : []),
   ];
   // Which machine: the machines a chat can start on first, whatever their kind, then the rest
   // greyed; no Cloud row; Add Machine… last. Saved environments stay behind Machines….
@@ -707,7 +690,7 @@ export function EnvironmentPicker({
       return;
     }
     // A machine, Remote, or Cloud's New Cloud Machine flow: Persistent again.
-    if (!action || (value === ACTION + "cloud" && !action.signsIn) || value === ANOTHER) persistent();
+    if (!action || (value === ACTION + "cloud" && !action.signsIn)) persistent();
     if (action) action.run();
     // The chat's own machine, paused (cloudMachines.ts withCloudSleep), is still a pick: it resumes.
     else if (value === currentRow && !(machine && isCloudMachineRow(machine))) focusPrompt();
@@ -783,32 +766,29 @@ export function EnvironmentPicker({
     const action = actions.find((candidate) => candidate.value === value);
     if (action) {
       const checked =
-        (action === another && anotherPicked) || (action === cloud && listRows === "where" && cloudChecked);
+        (action === devicesMenu && listRows === "where" && anotherPicked) ||
+        (action === cloud && listRows === "where" && cloudChecked);
       return (
         <span
           className="acpmux-location-row acpmux-env-row acpmux-env-new"
           data-kind={action.kind}
           data-action={
-            action === another
-              ? "another"
-              : action === addMachine
-                ? "addMachine"
-                : value === MOVE_MENU
-                  ? "moveTo"
-                  : value === DEVICES_MENU
-                    ? "otherDevices"
-                    : value.startsWith(MOVE_TO)
-                      ? "moveTarget"
-                      : undefined
+            action === addMachine
+              ? "addMachine"
+              : value === MOVE_MENU
+                ? "moveTo"
+                : value === DEVICES_MENU
+                  ? "otherDevices"
+                  : value.startsWith(MOVE_TO)
+                    ? "moveTarget"
+                    : undefined
           }
           data-current={checked ? "" : undefined}
           data-ready={action.reason ? "false" : undefined}
           aria-disabled={action.reason ? true : undefined}
           title={action.reason}
         >
-          {action === another ? (
-            <AnotherMachineIcon />
-          ) : value === MOVE_MENU ? (
+          {value === MOVE_MENU ? (
             <MoveIcon />
           ) : value === DEVICES_MENU ? (
             <DevicesIcon />
@@ -826,6 +806,12 @@ export function EnvironmentPicker({
           {action === cloud && !action.signsIn && cloudTeam && <TeamTag team={cloudTeam} />}
           {/* How many of the person's machines a chat can start on now; none says nothing. */}
           {value === DEVICES_MENU && devicesReady > 0 && <span className="acpmux-env-count">{devicesReady}</span>}
+          {/* Where's Other devices is checked while one of them is the pick; its chevron still opens them. */}
+          {value === DEVICES_MENU && checked && (
+            <span className="acpmux-location-check" aria-hidden="true">
+              <CheckIcon />
+            </span>
+          )}
           {value === MOVE_MENU || value === DEVICES_MENU ? (
             <span className="acpmux-location-check acpmux-env-more-chevron" aria-hidden="true">
               <ChevronIcon />
@@ -1012,8 +998,6 @@ export function EnvironmentPicker({
 
 /// An action row's value: never a machine's id.
 const ACTION = "\u0000action:";
-/// Where's Remote row.
-const ANOTHER = ACTION + "another";
 /// A started chat's Move to… row, which opens its targets.
 const MOVE_MENU = ACTION + "moveTo";
 /// One Move to… target's row: its id after this.
@@ -1098,29 +1082,6 @@ export function EnvironmentIcon({ kind, name }: { kind: EnvironmentKind; name?: 
   );
 }
 
-/// Remote (one of the person's own machines): a globe, any kind of machine alike.
-export function AnotherMachineIcon() {
-  return (
-    <svg
-      className="acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon"
-      data-kind="another"
-      width={14}
-      height={14}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <circle cx="8" cy="8" r="5.75" />
-      <path d="M2.25 8h11.5M8 2.25c1.6 1.6 2.4 3.5 2.4 5.75S9.6 12.15 8 13.75M8 2.25C6.4 3.85 5.6 5.75 5.6 8s.8 4.15 2.4 5.75" />
-    </svg>
-  );
-}
-
 /// Which machine (the machine chip): a server, as Codex desktop's machine chip.
 export function ServerIcon() {
   return (
@@ -1186,8 +1147,9 @@ function MoveIcon() {
   );
 }
 
-/// Other devices: a laptop with a phone beside it.
-function DevicesIcon() {
+/// Other devices (the Where menu's row and, while one is the pick, the Where control): a laptop with
+/// a phone beside it.
+export function DevicesIcon() {
   return (
     <svg
       className="acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon"
