@@ -156,6 +156,19 @@ import Testing
         #expect(!presentation.isPresented)
     }
 
+    /// A view left on the overlay from an overlay that ended (a card whose fade-out never finished) lies above the live
+    /// question's card: the click on Close still reaches the live card.
+    @Test func aLeftoverViewOverTheCardNeverTakesItsClick() throws {
+        var answer: CmuxDialogAnswer?
+        let shown = try Self.show { answer = $0 }
+        defer { shown.center.dismiss(shown.id); shown.window.close() }
+        let host = try #require(WindowOverlayHost.existingHost(for: shown.window))
+        let leftover = NSView(frame: host.panel.modalContainer.bounds)
+        host.panel.modalContainer.addSubview(leftover)
+        try Self.click(try Self.control("cmux.dialog.button.confirm", in: shown), in: shown.panel)
+        #expect(answer?.button == "confirm", "a leftover view above the card took the click on Close")
+    }
+
     @Test func aClickOnTheCheckBoxChecksIt() throws {
         let shown = try Self.show { _ in }
         defer { shown.center.dismiss(shown.id); shown.window.close() }
