@@ -72,11 +72,12 @@ import Testing
                 // Which bitmap end is the rail's top depends on the context's row order, so each end is read for its shape;
                 // that the tip is the header's end is `SidebarGroupLineShape.body`'s (the path's y 0, the flipped view's top;
                 // theRailsTopIsTheKatana). `render(in:)` ignores `maskedCorners` and rounds every corner of the clip, so the
-                // checks read six rows (three quarters of a point) in from each end, past that rounding (fleet step
-                // 09b38faf5197fa34cb5dc6c9 drew the tip's left edge rounded only in the bitmap).
+                // checks read half the rail's width and two rows in from each end, past that rounding (fleet step
+                // 09b38faf5197fa34cb5dc6c9 drew the tip's left edge rounded only in the bitmap; a 4 pt connected rail's
+                // rounding reaches 16 rows in, step ff2d4d9deaf6ab600bcb7c03).
                 // The katana: the right edge cut away while the left is full. The round cap: both sides full there, and
                 // its middle reaching the end row.
-                let inset = 6
+                let inset = w / 2 + 2
                 func isTip(_ row: Int) -> Bool { a(0, row) >= body / 2 && a(w - 1, row) < body / 3 }
                 func isCap(_ row: Int, end: Int) -> Bool {
                     a(0, row) >= body / 2 && a(w - 1, row) >= body / 2 && a(w / 2, end) >= body / 2
