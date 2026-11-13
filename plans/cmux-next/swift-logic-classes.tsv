@@ -7886,10 +7886,10 @@ CmuxNextHome	class	HomeDropHighlightView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/
 CmuxNextHome	class	HomeDropState	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeDropHighlightView.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeFirstRunHero	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunHero.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeFirstRunIntro	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunIntro.swift	AppKit/SwiftUI view or platform code
+CmuxNextHome	class	HomeFirstRunRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunRow.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeFirstRunSwitchCard	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunSwitchCard.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	HomeFirstRunView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView+Debug.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	struct	HomeDebugAgentRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView+Debug.swift	from extension HomeFirstRunView:5: AppKit/SwiftUI view or platform code
-CmuxNextHome	class	HomeFirstRunRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView.swift	from enum HomeFirstRunAction:6: AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeFirstRunView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView.swift	from enum HomeFirstRunAction:6: AppKit/SwiftUI view or platform code
 CmuxNextHome	enum	HomeFirstRunAction	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	VideoJob	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFixtureMedia.swift	from enum HomeFixtureMedia:11: AppKit/SwiftUI view or platform code

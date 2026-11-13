@@ -387,7 +387,7 @@ impl Hub {
         };
         // `_slot_wait` counts the sub-session as waiting for a run slot from the moment its prompt
         // is queued for one, so the summary that `queued` record brings already says so.
-        let (withdraw, _slot_wait): (_, Option<WaitMark>) = match withdraw {
+        let (withdraw, _slot_wait): (_, Option<WaitMark<'_>>) = match withdraw {
             Some(withdraw) => (withdraw, None),
             None => 'run: {
                 let guard = if p.no_queue {
@@ -869,7 +869,7 @@ impl Hub {
         withdraw: &Notify,
     ) -> Wait<'a> {
         // Set while it waits for a run slot of its parent (`subsession_runs.rs`).
-        let mut slot_wait: Option<WaitMark> = None;
+        let mut slot_wait: Option<WaitMark<'_>> = None;
         loop {
             let moved = session.queue_moved.notified();
             tokio::pin!(moved);

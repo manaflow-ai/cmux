@@ -58,6 +58,7 @@ on:
       - Packages/iOS/**
       - vendor/stack-auth-swift-sdk-prerelease/**
       - scripts/cmux-next/build-layout-reducer-ffi.sh
+      - scripts/ghostty-zig-version.sh
       - scripts/cmux-next/build-app-ffi.sh
       - scripts/select-ci-xcode.sh
       - scripts/ci/xcode-pins.txt
@@ -379,6 +380,7 @@ on:
       # paths above already name.
       - scripts/ghosttykit-checksums.txt
       - scripts/cmux-next/cmux-tui-tree-inputs.txt
+      - scripts/ghostty-zig-version.sh
       - scripts/cmux-next/cef-license/LICENSE.txt
       - scripts/ci/macho_minos.py
       - scripts/ci/cmux_tui_tree_key.py

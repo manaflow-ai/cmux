@@ -59,7 +59,9 @@ impl HubWriter {
             self.start_hydration();
             return;
         }
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |time| time.as_secs());
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |time| u64::try_from(time.as_millis()).unwrap_or(u64::MAX));
         let mut next = current.as_ref().clone();
         let mut finished = false;
         let mut failed = false;
