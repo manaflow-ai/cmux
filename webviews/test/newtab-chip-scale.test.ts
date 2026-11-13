@@ -14,10 +14,9 @@ import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { measureNewTabChips, type ChipMeasure } from "./support/newTabChipScale";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-/** How far the tray's location chips draw their leading glyph under the label's line box (newtab/screen.css). */
-const LOCATION_GLYPH_DROP = 1;
-
 await requireBrowserLane("newtab-chip-scale.test.ts", async () => {
+  /** How far the tray's location chips draw their leading glyph under the label's line box (newtab/screen.css). */
+  const LOCATION_GLYPH_DROP = 1;
   setDefaultTimeout(240_000);
   const ENTRY = "agent-pane.new-tab-icon-column";
   const STATES = ["no-project", "project", "machine"];
