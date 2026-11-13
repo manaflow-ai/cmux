@@ -58,7 +58,10 @@ fn a_link_to_the_bundled_cmux_from_outside_the_bundle_is_that_build() {
     let exe = bundle(root.path(), "cmux DEV fix", "com.cmuxterm.app.debug.fix", None, b"1");
     let shim = root.path().join("cmux");
     std::os::unix::fs::symlink(&exe, &shim).unwrap();
-    assert_eq!(store_for(false, Some(&shim), Some(&home)), store_for(false, Some(&exe), Some(&home)));
+    assert_eq!(
+        store_for(false, Some(&shim), Some(&home)),
+        store_for(false, Some(&exe), Some(&home))
+    );
 }
 
 #[test]
