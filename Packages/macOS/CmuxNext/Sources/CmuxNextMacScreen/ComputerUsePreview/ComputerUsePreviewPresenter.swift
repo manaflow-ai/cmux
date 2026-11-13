@@ -52,7 +52,6 @@ public final class ComputerUsePreviewPresenter {
     private let reopen = DemandTimer(owner: "computer-use.preview.reopen")
     private var updateQueued = false
     private var escapeMonitor: Any?
-    private var observers: [any NSObjectProtocol] = []
     private var observation: Task<Void, Never>?
 
     /// - Parameters:
@@ -65,18 +64,11 @@ public final class ComputerUsePreviewPresenter {
         self.host = host
     }
 
-    /// Follows the agents' activity, the setting, the app's activation and key window, and (through
-    /// ``focusChanged()``) each window's focus.
+    /// Follows the agents' activity and the setting; the App calls ``focusChanged()`` when a window's
+    /// focus, the key window or the app's activation changes.
     public func start() {
         guard !started else { return }
         started = true
-        let center = NotificationCenter.default
-        for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
-                     NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.focusChanged() } // main-proof: observer on queue: .main
-            })
-        }
         let state = remote.computerUse
         observation = Task { [weak self] in
             for await _ in ObservationStream({ [weak self] () -> String in
@@ -89,7 +81,7 @@ public final class ComputerUsePreviewPresenter {
         }
     }
 
-    /// A window's focus moved (FocusEffectApplier), or the app or its key window changed: look again
+    /// A window's focus moved, or the app or its key window changed: look again
     /// on the next turn, once for a burst.
     public func focusChanged() {
         guard started, !updateQueued else { return }

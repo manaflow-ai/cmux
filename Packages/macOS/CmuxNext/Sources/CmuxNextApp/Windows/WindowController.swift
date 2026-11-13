@@ -377,6 +377,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let snapshots = services.sidebarSnapshots, id = state.id
         Task { await snapshots.touch(window: id) }
         focus.send(.windowKey(true))
+        services.computerUsePreview.focusChanged()
         services.cloudContextDidChange()
         services.canvasContextDidChange()
         BackdropImageStore.shared.desktop.windowDidChange()
@@ -384,6 +385,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) {
         focus.send(.windowKey(false))
+        services.computerUsePreview.focusChanged()
         // Hover cards in other windows show this window's pages (R131). The
         // next key window is known on the next main-actor turn.
         Task { @MainActor [weak self] in

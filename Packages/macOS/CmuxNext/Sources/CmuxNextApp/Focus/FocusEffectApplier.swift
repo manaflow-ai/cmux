@@ -46,6 +46,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         for (name, active) in [(NSApplication.didBecomeActiveNotification, true), (NSApplication.didResignActiveNotification, false)] {
             observers.append(MainActorObservation(name, center: center) { [weak self] in
                 self?.controller.focus.send(.appActive(active))
+                self?.controller.services.computerUsePreview.focusChanged()
                 if active { self?.reclaimKeyAfterActivation() }
             })
         }

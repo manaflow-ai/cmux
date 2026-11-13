@@ -94,13 +94,12 @@ public final class ComputerUsePreviewStream {
         }
     }
 
-    deinit { stop() }
+    nonisolated deinit { stop() }
 
-    /// The reader's outputs onto the main queue, in order (FIFO), for this stream while it lives.
+    /// The reader's outputs onto the main queue, in order, for this stream while it lives.
     func deliverer() -> @Sendable (Output) -> Void {
-        { [weak self] output in
-            DispatchQueue.main.async { MainActor.assumeIsolated { self?.receive(output) } } // main-proof: DispatchQueue.main runs on the main thread
-        }
+        let hop = ComputerUsePreviewMainHop { [weak self] output in self?.receive(output) }
+        return { hop.send($0) }
     }
 
     /// One output on the main actor: a frame goes to the layer (a failed renderer is flushed first),
@@ -209,6 +208,17 @@ public final class ComputerUsePreviewStream {
                                  Unmanaged.passUnretained(kCFBooleanTrue).toOpaque())
         }
         return sample
+    }
+}
+
+/// The seam from the preview's reader thread to the main actor: each output goes onto the main
+/// queue, which runs them one at a time in the order sent (a status before the still after it).
+nonisolated struct ComputerUsePreviewMainHop: Sendable {
+    let receive: @MainActor @Sendable (ComputerUsePreviewStream.Output) -> Void
+
+    func send(_ output: ComputerUsePreviewStream.Output) {
+        let receive = receive
+        DispatchQueue.main.async { MainActor.assumeIsolated { receive(output) } } // main-proof: the main queue runs on the main thread
     }
 }
 
