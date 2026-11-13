@@ -5,6 +5,7 @@ import CmuxNextPages
 import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -34,6 +35,12 @@ final class SettingsPageProvider: PageProvider {
     /// nil in tests without an app.
     var harnessesState: (@MainActor () -> JSONValue)?
     var harnessesRun: (@MainActor (JSONValue, PageCallContext?) async throws -> JSONValue)?
+    /// Settings > Models (`SettingsModels`, cmux-tui/docs/model-connections.md): the state after its first
+    /// read, the current state, one gesture, and the acpmux watch while a page shows it; nil in tests without an app.
+    var modelsLoad: (@MainActor () async -> JSONValue)?
+    var modelsState: (@MainActor () -> JSONValue)?
+    var modelsRun: (@MainActor (JSONValue, PageCallContext?) async throws -> JSONValue)?
+    var modelsWatching: (@MainActor (Bool) -> Void)?
     /// Settings > Devices (the device hub): its state, one gesture, and the
     /// watch that keeps its history current while a page shows it; nil in
     /// tests without an app.
@@ -217,6 +224,8 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.agents.run": return try await Self.host(agents, "agents").runPage(params)
         case "cmux.settings.harnesses.state": return try Self.host(harnessesState, "harnesses")()
         case "cmux.settings.harnesses.run": return try await Self.host(harnessesRun, "harnesses")(params, context)
+        case "cmux.settings.models.state": return try await Self.host(modelsLoad, "models")()
+        case "cmux.settings.models.run": return try await Self.host(modelsRun, "models")(params, context)
         case "cmux.settings.integrations.state", "cmux.settings.integrations.run":
             return try await Self.host(integrations, "agent integrations").call(op, params: params, context: context)
         case "cmux.settings.environments.state": return try Self.host(environmentsState, "environments")()
@@ -359,6 +368,15 @@ final class SettingsPageProvider: PageProvider {
         }
         if stream == "cmux.settings.harnesses.changed", let harnessesState {
             return Self.watch(harnessesState, onEvent: onEvent)
+        }
+        if stream == "cmux.settings.models.changed", let modelsState {
+            modelsWatching?(true)
+            let watch = Self.watch(modelsState, onEvent: onEvent)
+            let watching = modelsWatching
+            return PageSubscription {
+                watch.cancel()
+                MainDelivery().run { watching?(false) }
+            }
         }
         if stream == "cmux.settings.host.changed", let hostLists {
             return Self.watch(hostLists, onEvent: onEvent)

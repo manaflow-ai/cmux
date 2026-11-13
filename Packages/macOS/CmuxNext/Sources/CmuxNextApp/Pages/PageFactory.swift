@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentIntegrations
@@ -5,6 +6,7 @@ import CmuxNextAgentPane
 import CmuxNextApps
 import CmuxNextCloud
 import CmuxNextCloudUI
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHistoryPages
@@ -195,6 +197,26 @@ struct PageFactory {
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
+        // Settings > Models (cmux-tui/docs/model-connections.md): acpmux's connections, the team's gateway, keys and policy.
+        let accounts = services.accounts
+        let models = SettingsModels(
+            environment: { [weak services] in services.flatMap(QuitAgents.environment) },
+            keys: KeychainModelKeyStore(),
+            openURL: { NSWorkspace.shared.openInBackground($0) },
+            harnesses: harnesses,
+            team: { [weak accounts] in
+                guard let accounts, accounts.agentKeys.isPersonal == false, let team = accounts.activeTeam?.team else { return nil }
+                return (team.id, team.displayName)
+            },
+            agentKeys: accounts.agentKeys, policy: accounts.modelsPolicy, readGateway: accounts.teamGateway,
+            spreadSetting: { ModelsSettings(root: settings.snapshot.root).spreadUsage },
+            writeSpreadSetting: { on in
+                try await settings.setSetting(at: ModelsSettings.spreadUsagePath, to: on == ModelsSettings.spreadUsageDefault ? nil : .bool(on), by: .user)
+            })
+        provider.modelsLoad = { await models.loadedState() }
+        provider.modelsState = { models.state }
+        provider.modelsRun = { params, context in try await models.run(params, context: context) }
+        provider.modelsWatching = { on in if on { models.beginWatching() } else { models.endWatching() } }
         let cloud = services.cloud
         let environments = CloudEnvironmentsSettings(
             available: { [weak cloud] in cloud?.auth.isSignedIn ?? false },
