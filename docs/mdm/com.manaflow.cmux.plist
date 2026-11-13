@@ -3028,9 +3028,9 @@
 			<key>pfm_name</key>
 			<string>app.uiScale</string>
 			<key>pfm_range_max</key>
-			<real>1.5</real>
+			<real>5</real>
 			<key>pfm_range_min</key>
-			<real>0.84999999999999998</real>
+			<real>0.25</real>
 			<key>pfm_title</key>
 			<string>App Zoom</string>
 			<key>pfm_type</key>
