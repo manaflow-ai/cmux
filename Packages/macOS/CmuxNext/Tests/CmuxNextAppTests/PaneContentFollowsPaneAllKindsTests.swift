@@ -25,9 +25,10 @@ import Testing
 /// The kinds come from `TabContent.Kind.allCases` and each fixture is made in a switch with no default, so a new kind
 /// does not compile here until it has a fixture, and then has this contract or fails.
 ///
-/// One stated exception (`PaneKeyResizeHeld`, one conformance: `InternalPageView.holdsInKeyResize`): the docked Home
-/// and the Home page tab are HELD (`HeldHome`, the last tests here), with the measured reason at the protocol. No other
-/// page states it.
+/// No kind and no page is an exception. The docked Home and the Home page tab follow their pane too (the Home tests,
+/// the last ones here). They were the one stated exception until 2026-11-13 (cmux#41105: held at the size they had
+/// when the key was pressed, because a Home that followed missed each second refresh after a key press); the commit
+/// that ended it moved their tests from "held" to "follows" here.
 ///
 /// The app's own pane content (`PaneContentView`) shows the kind in p2 of p1 | p2; one press on p2 (`PaneResize.press`)
 /// moves the divider. The test is the spring's clock, one frame per step.
@@ -158,6 +159,55 @@ struct PaneContentFollowsPaneAllKindsTests {
         return CGRect(x: tenth(rect.minX), y: tenth(rect.minY), width: tenth(rect.width), height: tenth(rect.height))
     }
 
+    /// One press on p2 (the divider between p1 and p2 moves, so p2's left edge moves and its width changes), run to its
+    /// landing and past it. The contract: `content` has its content area's rect in EVERY frame, is at the rest size in
+    /// the landing's frame and takes no other size after it; `inner` (what a page tab's view shows) has that rect too; and
+    /// the key resize holds the pane's content area, never the whole pane. `also`: what else is wrong in a frame, or nil.
+    static func expectFollowsOnePress(_ name: String, content: NSView, inner: NSView?, pane: PaneContentView, model: LayoutModel, root: LayoutRootView,
+                                      landing: Landing, also: @MainActor () -> String? = { nil }) throws {
+        let area = pane.contentHost
+        let start = rect(area)
+        try #require(start.width > 100 && start.height > 100, "the pane's content area is \(start) before the press")
+        #expect(rect(content) == start, "at rest the \(name) content is at \(rect(content)), its area at \(start)")
+        #expect(pane.paneMotionHoldArea === area, "\(name): a key resize holds the whole pane, its tab strip too, not the pane's content area")
+
+        #expect(PaneResize.press("p2", .left, model: model, view: root))
+        var off: [String] = []
+        var areas: [CGRect] = []
+        var frames = 0
+        while frames < 240, root.advanceFrame(1.0 / 120) {
+            root.layoutSubtreeIfNeeded()
+            frames += 1
+            let now = rect(area)
+            areas.append(now)
+            if rect(content) != now { off.append("frame \(frames): content \(rect(content)), area \(now)") }
+            if let inner, rect(inner) != now { off.append("frame \(frames): page \(rect(inner)), area \(now)") }
+            if let wrong = also() { off.append("frame \(frames): \(wrong)") }
+        }
+        try #require(frames > 3, "the press did not spring (\(frames) frames)")
+        try #require(Set(areas.map(\.width)).count > 3, "the pane's content area did not move with the spring: \(Set(areas.map(\.width)).sorted())")
+        #expect(off.isEmpty, "\(name): the content was not at its area's rect in \(off.count) of \(frames) frames: \(off.prefix(3))")
+
+        // The landing's frame, then what the landing leaves for after its commit: the content is at the rest size in the
+        // landing's frame and takes no other size after it.
+        root.layoutSubtreeIfNeeded()
+        let landed = rect(area)
+        #expect(rect(content) == landed, "\(name): at the landing's frame the content is at \(rect(content)), its area at \(landed)")
+        let later = Sizes(of: content)
+        let release = landing.work
+        landing.work.removeAll()
+        for work in release { work() }
+        root.layoutSubtreeIfNeeded()
+        root.layoutSubtreeIfNeeded()
+        #expect(!area.isHolding, "the hold did not end at the landing")
+        #expect(landed.width != start.width, "the press did not change the pane's width: \(landed), was \(start)")
+        #expect(rect(area) == landed, "the content area changed after the landing's frame: \(rect(area)), was \(landed)")
+        #expect(rect(content) == landed, "\(name): after the landing the content is at \(rect(content)), its area at \(landed)")
+        if let inner { #expect(rect(inner) == landed, "\(name): after the landing the page is at \(rect(inner)), its area at \(landed)") }
+        #expect(later.taken.isEmpty, "\(name): the content took \(later.taken.count) more size(s) after the landing's frame: \(later.taken)")
+        if let wrong = also() { Issue.record("\(name): after the landing: \(wrong)") }
+    }
+
     @Test(arguments: TabContent.Kind.allCases)
     func theContentHasItsAreasRectInEveryFrameOfAKeyResize(_ kind: TabContent.Kind) throws {
         let shown = try Self.shown(kind)
@@ -180,62 +230,21 @@ struct PaneContentFollowsPaneAllKindsTests {
         let landing = Landing()
         root.context.afterCommit = { [landing] in landing.work.append($0) }
 
-        let pane = try #require(provider.views["p2"]), area = pane.contentHost
+        let pane = try #require(provider.views["p2"])
         try #require(content.window === window, "the pane does not show the \(kind) content")
-        let start = Self.rect(area)
-        try #require(start.width > 100 && start.height > 100, "the pane's content area is \(start) before the press")
-        #expect(Self.rect(content) == start, "at rest the \(kind) content is at \(Self.rect(content)), its area at \(start)")
         // The page inside an internal page tab (the file viewer's web view) is what the person sees: it fills its tab's view.
         let inner: NSView? = if case .page(let page) = shown.content { page.content } else { nil }
-
-        // One press on p2: the divider between p1 and p2 moves, so p2's left edge moves and its width changes.
-        #expect(PaneResize.press("p2", .left, model: model, view: root))
-        var off: [String] = []
-        var areas: [CGRect] = []
-        var frames = 0
-        while frames < 240, root.advanceFrame(1.0 / 120) {
-            root.layoutSubtreeIfNeeded()
-            frames += 1
-            let now = Self.rect(area)
-            areas.append(now)
-            if Self.rect(content) != now { off.append("frame \(frames): content \(Self.rect(content)), area \(now)") }
-            if let inner, Self.rect(inner) != now { off.append("frame \(frames): page \(Self.rect(inner)), area \(now)") }
-        }
-        try #require(frames > 3, "the press did not spring (\(frames) frames)")
-        try #require(Set(areas.map(\.width)).count > 3, "the pane's content area did not move with the spring: \(Set(areas.map(\.width)).sorted())")
-        #expect(off.isEmpty, "\(kind): the content was not at its area's rect in \(off.count) of \(frames) frames: \(off.prefix(3))")
-
-        // The landing's frame, then what the landing leaves for after its commit: the content is at the rest size in the
-        // landing's frame and takes no other size after it.
-        root.layoutSubtreeIfNeeded()
-        let landed = Self.rect(area)
-        #expect(Self.rect(content) == landed, "\(kind): at the landing's frame the content is at \(Self.rect(content)), its area at \(landed)")
-        let later = Sizes(of: content)
-        let release = landing.work
-        landing.work.removeAll()
-        for work in release { work() }
-        root.layoutSubtreeIfNeeded()
-        root.layoutSubtreeIfNeeded()
-        #expect(!area.isHolding, "the hold did not end at the landing")
-        #expect(Self.rect(area) == landed, "the content area changed after the landing's frame: \(Self.rect(area)), was \(landed)")
-        #expect(Self.rect(content) == landed, "\(kind): after the landing the content is at \(Self.rect(content)), its area at \(landed)")
-        if let inner { #expect(Self.rect(inner) == landed, "\(kind): after the landing the page is at \(Self.rect(inner)), its area at \(landed)") }
-        #expect(later.taken.isEmpty, "\(kind): the content took \(later.taken.count) more size(s) after the landing's frame: \(later.taken)")
+        try Self.expectFollowsOnePress("\(kind)", content: content, inner: inner, pane: pane, model: model, root: root, landing: landing)
     }
 
-    /// THE 2 HOME KINDS THAT ARE HELD, NOT FOLLOWING. Not a skip: this is their contract until the Home's layout is
-    /// cheap enough to follow, and the commit that makes them follow moves them from here to the kinds above in the
-    /// same commit.
+    /// THE 2 HOME PAGES, WHICH FOLLOW THEIR PANE AS EVERY KIND DOES. They are pages (`TabContent.Kind.page`, as the file
+    /// viewer's above) with a native view, and they were the one stated exception (cmux#41105): held at the size they
+    /// had when the key was pressed, with one new size after the landing, a jump the person saw after the pane came to
+    /// rest. What the follow costs in a frame is not a matter for this test (a count of frames, no time): the films of
+    /// the commit that ended the exception measure it.
     ///
-    /// The reason, measured (cmux#41105, hold mx5, Release builds, aws-m4pro-8, 120 Hz, 3 takes each): a Home that
-    /// followed its pane missed 13 to 15 of about 125 refreshes at a moving pane (docked Home) and 7 to 22 (Home page
-    /// tab), each second refresh in the first 8 frames after each key press; held, it missed 0. The frame's layout
-    /// pass took 5.6 ms at p95 against 1.3 ms held (the budget of a motion frame is 4 ms). A Home that follows and
-    /// drops each second refresh is a new defect in the main view; held is what it did before 2026-11-11.
-    ///
-    /// A conversation tab (`TabContent.Kind.conversation`) is not here: it followed its pane before too, and it is
-    /// in the kinds above.
-    nonisolated enum HeldHome: CaseIterable, Sendable {
+    /// A conversation tab (`TabContent.Kind.conversation`, the same Home view straight in the pane) is in the kinds above.
+    nonisolated enum Home: CaseIterable, Sendable {
         /// The docked Home (`InternalPageID.homeDock`, a `HomeDockView`).
         case docked
         /// The Home as a pane tab (`InternalPageID.homeTab`, a `TopHomePageView`).
@@ -243,24 +252,24 @@ struct PaneContentFollowsPaneAllKindsTests {
     }
 
     /// The Home page of `home`, made as its tab provider makes it (`HomeDockTab`, `HomePageTab`).
-    static func page(_ home: HeldHome, services: AppServices) -> InternalPageView {
+    static func page(_ home: Home, services: AppServices) -> InternalPageView {
         switch home {
         case .docked:
             // No tools for the tab row, whatever tools maker the process has (`HomeDockSwitchView.makeRowTools`, set by
             // `AppActions.bind` in other suites of this process): a fixture that wants tools sets them itself.
             let dock = HomeDockView(services: services, mode: .messages)
             dock.rowTools = [:]
-            return InternalPageView(key: "pane-holds-home-dock", page: .homeDock, content: dock)
+            return InternalPageView(key: "pane-follows-home-dock", page: .homeDock, content: dock)
         case .pageTab:
-            return InternalPageView(key: "pane-holds-home-tab", page: .homeTab, content: TopHomePageView(services: services, windowKey: { "pane-holds-home-tab" }))
+            return InternalPageView(key: "pane-follows-home-tab", page: .homeTab, content: TopHomePageView(services: services, windowKey: { "pane-follows-home-tab" }))
         }
     }
 
-    /// Held: in every frame of the press the Home has the size it had before the press, at the pane's edge that stays
-    /// (p2's right edge: the divider on its left moves), so it lays out in no frame of the motion. After the landing
-    /// it takes its content area's rect, with one new size.
-    @Test(arguments: HeldHome.allCases)
-    func theHomeKeepsItsSizeThroughAKeyResizeAndTakesTheRestSizeOnce(_ home: HeldHome) throws {
+    /// The Home, and the Home's own view in its page, have the content area's rect in every frame of the press, and the
+    /// rest size in the landing's frame with no other size after it: no size kept from before the press, no jump after
+    /// the pane came to rest.
+    @Test(arguments: Home.allCases)
+    func theHomeHasItsAreasRectInEveryFrameOfAKeyResize(_ home: Home) throws {
         let (services, _) = HomeLaunchRevealTests.services()
         let page = Self.page(home, services: services)
         defer { withExtendedLifetime(services) { (page.content as? HomeDockView)?.close() } }
@@ -280,48 +289,9 @@ struct PaneContentFollowsPaneAllKindsTests {
         let landing = Landing()
         root.context.afterCommit = { [landing] in landing.work.append($0) }
 
-        let pane = try #require(provider.views["p2"]), area = pane.contentHost
-        let host = try #require(sequence(first: pane as NSView, next: \.superview).first { $0 is PaneHostView }, "the pane's content has no pane host above it")
+        let pane = try #require(provider.views["p2"])
         try #require(page.window === window, "the pane does not show the \(home) Home")
-        let start = Self.rect(page)
-        try #require(start.width > 100 && start.height > 100, "the \(home) Home is at \(start) before the press")
-        #expect(start == Self.rect(area), "at rest the \(home) Home is at \(start), its area at \(Self.rect(area))")
-        #expect(page.holdsInKeyResize, "the \(home) Home does not state the key resize exception")
-        #expect(pane.paneMotionHoldArea === area, "the \(home) Home with no tools in the tab row is not held in its pane's content area")
-        let sizes = Sizes(of: page), inner = Sizes(of: page.content)
-
-        // One press on p2: the divider between p1 and p2 moves, so p2's left edge moves and its width changes.
-        #expect(PaneResize.press("p2", .left, model: model, view: root))
-        var off: [String] = []
-        var widths: Set<CGFloat> = []
-        var frames = 0
-        while frames < 240, root.advanceFrame(1.0 / 120) {
-            root.layoutSubtreeIfNeeded()
-            frames += 1
-            widths.insert(host.frame.width.rounded())
-            // The start size exactly; the edge that stays to a point (the spring's frames round to the screen's pixels).
-            let now = Self.rect(page)
-            if now.size != start.size || abs(now.maxX - start.maxX) > 1 || abs(now.minY - start.minY) > 1 { off.append("frame \(frames): \(now)") }
-        }
-        try #require(frames > 3, "the press did not spring (\(frames) frames)")
-        try #require(widths.count > 3, "the pane did not move with the spring: \(widths.sorted())")
-        #expect(off.isEmpty, "\(home): the Home was not held at \(start) in \(off.count) of \(frames) frames: \(off.prefix(3))")
-        #expect(sizes.taken.isEmpty, "\(home): the Home took \(sizes.taken.count) size(s) in the frames of the press: \(sizes.taken.prefix(3))")
-        #expect(inner.taken.isEmpty, "\(home): the Home's own view took \(inner.taken.count) size(s) in the frames of the press: \(inner.taken.prefix(3))")
-
-        // The landing's frame holds still; what the landing leaves for after its commit gives the Home its rest size, once.
-        root.layoutSubtreeIfNeeded()
-        #expect(sizes.taken.isEmpty, "\(home): the Home took a size in the landing's frame: \(sizes.taken)")
-        let release = landing.work
-        landing.work.removeAll()
-        for work in release { work() }
-        root.layoutSubtreeIfNeeded()
-        root.layoutSubtreeIfNeeded()
-        #expect(!area.isHolding, "the hold did not end at the landing")
-        let landed = Self.rect(area)
-        #expect(landed.width != start.width, "the press did not change the pane's width: \(landed), was \(start)")
-        #expect(Self.rect(page) == landed, "\(home): after the landing the Home is at \(Self.rect(page)), its area at \(landed)")
-        #expect(sizes.taken.count == 1, "\(home): the Home took \(sizes.taken.count) sizes for one press, not one: \(sizes.taken)")
+        try Self.expectFollowsOnePress("the \(home) Home", content: page, inner: page.content, pane: pane, model: model, root: root, landing: landing)
     }
 
     /// The docked Home's tools for its pane's tab row (the app gives it the Chief's, `HomeDockSwitchView.makeRowTools`).
@@ -355,54 +325,24 @@ struct PaneContentFollowsPaneAllKindsTests {
         return (services, page, tools, provider, model, root, window, landing)
     }
 
-    /// The docked Home as the app shows it, with its tools in its pane's tab row (the Chief's): the row cannot follow the
-    /// pane beside tools that keep their place, so the pane's host holds the WHOLE pane, its tab strip too, as it held
-    /// every pane before 2026-11-11 (`PaneContentAreaView.holdArea` gives no area). In every frame of the press the
-    /// pane's content and the Home have the size they had before it, at the pane's edge that stays; after the landing
-    /// the Home takes its pane's rect, with one new size.
-    @Test func theDockedHomeWithItsToolsInTheTabRowHoldsItsWholePaneThroughAKeyResize() throws {
+    /// The docked Home as the app shows it, with its tools in its pane's tab row (the Chief's): it follows its pane with
+    /// its tools, as a chat in the tab row does (`PaneTabRowPerPageHoldTests`). In every frame of the press the content
+    /// area is the pane's whole rect, the Home has that rect, and its tools are in the row. Before: the pane's host held
+    /// the WHOLE pane, its tab strip too, at the size it had when the key was pressed (`PaneContentAreaView.holdArea`
+    /// gave no area), and the pane took its rest size once, after the landing.
+    @Test func theDockedHomeWithItsToolsInTheTabRowFollowsItsPaneThroughAKeyResize() throws {
         let rig = try Self.dockedHomeWithRowTools()
         defer { rig.window.closeAfterTest() }
         defer { withExtendedLifetime(rig.services) { (rig.page.content as? HomeDockView)?.close() } }
-        let (page, root, landing) = (rig.page, rig.root, rig.landing)
+        let (page, tools) = (rig.page, rig.tools)
         let pane = try #require(rig.provider.views["p2"]), area = pane.contentHost
-        let host = try #require(sequence(first: pane as NSView, next: \.superview).first { $0 is PaneHostView }, "the pane's content has no pane host above it")
-        try #require(page.window === rig.window && !rig.tools.isHidden, "fixture: the pane does not show the docked Home with its tools in the tab row")
-        try #require(pane.paneMotionHoldArea == nil, "the docked Home with its tools in the tab row is held in its pane's content area, not with its whole pane")
-        let (start, startPane) = (Self.rect(page), Self.rect(pane))
-        try #require(start.width > 100 && start.height > 100, "the docked Home is at \(start) before the press")
-        #expect(start == startPane, "at rest the docked Home, under its pane's tab row, is at \(start), its pane's content at \(startPane)")
-        let sizes = Sizes(of: page), paneSizes = Sizes(of: pane)
-
-        #expect(PaneResize.press("p2", .left, model: rig.model, view: root))
-        var off: [String] = []
-        var widths: Set<CGFloat> = []
-        var frames = 0
-        while frames < 240, root.advanceFrame(1.0 / 120) {
-            root.layoutSubtreeIfNeeded()
-            frames += 1
-            widths.insert(host.frame.width.rounded())
-            let (now, nowPane) = (Self.rect(page), Self.rect(pane))
-            if area.isHolding || now.size != start.size || nowPane.size != startPane.size || abs(now.maxX - start.maxX) > 1 || abs(now.minY - start.minY) > 1 {
-                off.append("frame \(frames): the Home \(now), its pane's content \(nowPane), the area holds: \(area.isHolding)")
-            }
+        try #require(page.window === rig.window && !tools.isHidden, "fixture: the pane does not show the docked Home with its tools in the tab row")
+        try #require(Self.rect(area) == Self.rect(pane), "fixture: with the Home's tools in the tab row the content area \(Self.rect(area)) is not the pane's whole rect \(Self.rect(pane))")
+        try Self.expectFollowsOnePress("the docked Home with its tools in the tab row", content: page, inner: page.content, pane: pane, model: rig.model,
+                                       root: rig.root, landing: rig.landing) {
+            if tools.isHidden { return "the Home's tools are not in the tab row" }
+            return Self.rect(area) == Self.rect(pane) ? nil : "the content area \(Self.rect(area)) is not the pane's whole rect \(Self.rect(pane))"
         }
-        try #require(frames > 3, "the press did not spring (\(frames) frames)")
-        try #require(widths.count > 3, "the pane did not move with the spring: \(widths.sorted())")
-        #expect(off.isEmpty, "the whole pane was not held at \(startPane) in \(off.count) of \(frames) frames: \(off.prefix(3))")
-        #expect(sizes.taken.isEmpty && paneSizes.taken.isEmpty, "in the frames of the press the Home took \(sizes.taken.count) size(s) and its pane's content \(paneSizes.taken.count)")
-
-        root.layoutSubtreeIfNeeded()
-        let release = landing.work
-        landing.work.removeAll()
-        for work in release { work() }
-        root.layoutSubtreeIfNeeded()
-        root.layoutSubtreeIfNeeded()
-        let landed = Self.rect(pane)
-        #expect(landed.width != startPane.width, "the press did not change the pane's width: \(landed), was \(startPane)")
-        #expect(Self.rect(page) == landed, "after the landing the Home is at \(Self.rect(page)), its pane's content at \(landed)")
-        #expect(sizes.taken.count == 1, "the Home took \(sizes.taken.count) sizes for one press, not one: \(sizes.taken)")
-        #expect(!rig.tools.isHidden, "after the landing the Home's tools are not in the tab row")
     }
 
     /// The tab that its pane shows when the key is pressed, before the tab change to the docked Home.
@@ -415,22 +355,24 @@ struct PaneContentFollowsPaneAllKindsTests {
         case inTheTabRow
     }
 
-    /// A tab change to the docked Home INSIDE a key hold of its pane (the press was on another tab, so the pane's
-    /// content area holds, and the Home was parked at the frame it shows at, with its tools in the tab row). The Home
-    /// stays out of the tab row until the landing: it is held at its content area's size under the pane's tab strip, as
-    /// a Home with no tools is, and takes the row once, after the landing. Before: its first layout in the hold took the
-    /// row at the pane's whole size, the next frame held it at that size while the area went back under the strip, and a
-    /// band with the Home's tools showed under the strip until the landing (review of cmux#41105). The same band showed
-    /// when the tab before was a chat with its tools in the row: the Home came in at the whole pane's size, filled the
-    /// area, and was held at that size with its row, while the area went under the strip.
+    /// A tab change to the docked Home INSIDE a key hold of its pane (the press was on another tab; the Home was parked
+    /// at the frame it shows at, with its tools in the tab row). The rule of a chat shown during a key resize
+    /// (`PaneTabRowPerPageHoldTests`, (b)) is the Home's too: from the tab change on, the Home has its content area's
+    /// rect in every frame; its tools are in the row only while the area is the pane's whole rect, and without them the
+    /// area is under the pane's tab strip; after the landing its tools are in the row and it has its pane's rect.
+    ///
+    /// History (reviews of cmux#41105 and cmux#41291, while the Home was held): its first layout in the hold took the row
+    /// at the pane's whole size, the next frame held it at that size while the area went back under the strip, and a band
+    /// with the Home's tools showed under the strip until the landing. A Home at a rect that is not its area's is that
+    /// band, so this rule pins it.
     @Test(arguments: TabBefore.allCases)
-    func theDockedHomeShownInsideAKeyHoldStaysOutOfTheTabRowUntilTheLanding(_ before: TabBefore) throws {
+    func theDockedHomeShownInsideAKeyHoldHasItsAreasRectInEveryFrame(_ before: TabBefore) throws {
         let rig = try Self.dockedHomeWithRowTools()
         defer { rig.window.closeAfterTest() }
         defer { withExtendedLifetime(rig.services) { (rig.page.content as? HomeDockView)?.close() } }
         let (page, root, landing) = (rig.page, rig.root, rig.landing)
         let pane = try #require(rig.provider.views["p2"]), area = pane.contentHost
-        try #require(page.window === rig.window && !rig.tools.isHidden && pane.paneMotionHoldArea == nil,
+        try #require(page.window === rig.window && !rig.tools.isHidden && Self.rect(area) == Self.rect(pane),
                      "fixture: the pane does not show the docked Home with its tools in the tab row")
 
         // Another tab of the pane shows: the Home is parked, and the area is under the pane's tab strip.
@@ -465,12 +407,14 @@ struct PaneContentFollowsPaneAllKindsTests {
         root.layoutSubtreeIfNeeded()
         root.layoutSubtreeIfNeeded()
         try #require(!page.isHidden, "fixture: the tab change did not show the Home")
-        let sizes = Sizes(of: page)
         var off: [String] = []
+        var widths: Set<CGFloat> = []
         func look(_ when: String) {
-            let (now, nowArea) = (Self.rect(page), Self.rect(area))
-            if !rig.tools.isHidden || nowArea.height != under.height || now.height != under.height || abs(now.maxX - nowArea.maxX) > 1 || abs(now.minY - nowArea.minY) > 1 {
-                off.append("\(when): the Home \(now), its area \(nowArea) (under the strip: \(under.height) pt high), its tools in the row: \(!rig.tools.isHidden)")
+            let (now, nowArea, nowPane) = (Self.rect(page), Self.rect(area), Self.rect(pane))
+            widths.insert(now.width)
+            let inRow = !rig.tools.isHidden
+            if now != nowArea || (inRow ? nowArea != nowPane : nowArea.height != under.height) {
+                off.append("\(when): the Home \(now), its area \(nowArea), its pane's content \(nowPane) (under the strip: \(under.height) pt high), its tools in the row: \(inRow)")
             }
         }
         look("the tab change")
@@ -480,10 +424,10 @@ struct PaneContentFollowsPaneAllKindsTests {
             look("frame \(frames)")
         }
         try #require(frames > 6, "the press did not spring after the tab change (\(frames) frames)")
-        #expect(off.isEmpty, "\(before): the Home shown inside the key hold was in the tab row, or not at its area under the strip, \(off.count) times: \(off.prefix(3))")
-        #expect(sizes.taken.isEmpty, "\(before): the Home took \(sizes.taken.count) size(s) in the frames after the tab change: \(sizes.taken.prefix(3))")
+        #expect(widths.count > 3, "\(before): the Home shown inside the key hold did not move with its pane: widths \(widths.sorted())")
+        #expect(off.isEmpty, "\(before): the Home shown inside the key hold was not at its area's rect, or had its tools' row off the strip's row, \(off.count) times: \(off.prefix(3))")
 
-        // After the landing the Home takes the row and its pane's rect.
+        // After the landing the Home has the row and its pane's rect.
         root.layoutSubtreeIfNeeded()
         let release = landing.work
         landing.work.removeAll()
@@ -492,15 +436,5 @@ struct PaneContentFollowsPaneAllKindsTests {
         #expect(!area.isHolding, "the hold did not end at the landing")
         #expect(!rig.tools.isHidden, "after the landing the Home's tools are not in the tab row")
         #expect(Self.rect(page) == Self.rect(pane), "after the landing the Home is at \(Self.rect(page)), its pane's content at \(Self.rect(pane))")
-    }
-
-    /// The exception is the Home's alone: a page of another kind follows its pane (the file viewer's page in the kinds
-    /// above), and states no hold.
-    @Test func noPageButTheHomeStatesTheKeyResizeException() {
-        _ = NSApplication.shared
-        for page in [InternalPageID.files, .settings] {
-            #expect(!InternalPageView(key: "pane-follows-\(page.rawValue)", page: page, content: NSView()).holdsInKeyResize,
-                    "the \(page.rawValue) page states the key resize exception: only the Home may (PaneKeyResizeHeld)")
-        }
     }
 }

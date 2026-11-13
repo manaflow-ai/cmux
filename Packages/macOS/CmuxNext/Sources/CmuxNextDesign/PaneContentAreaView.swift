@@ -16,8 +16,8 @@ import QuartzCore
 /// A view that fills the area and is hidden (a parked page) does no work in the hold: it takes the area's size once,
 /// when the hold ends or when it shows.
 ///
-/// One exception, which a kind states (``PaneKeyResizeHeld``; today the Home): its view keeps the size it had when the
-/// hold began, on the hold's edges, and takes the area's size once, when the hold ends.
+/// No kind is an exception. The Home was one until 2026-11-13 (cmux#41105: it kept the size it had when the hold began
+/// and took the area's size once, when the hold ended); it follows now, as every kind does.
 public final class PaneContentAreaView: NSView {
     /// The Chromium hosts inside this area that read its clip.
     public let chromeClipReaders = FrameNoticeReaders()
@@ -118,7 +118,7 @@ public final class PaneContentAreaView: NSView {
     /// now that the area hands in this layout pass, ``followerDidShow()``): its owner leaves that frame alone until the
     /// hold ends, so the container hears the hold before its first layout at the pane's size.
     public func placesInHold(_ view: NSView) -> Bool {
-        if handed.contains(ObjectIdentifier(view)) || keepsSizeInHold(view) { return true }
+        if handed.contains(ObjectIdentifier(view)) { return true }
         guard heldSize != nil, let follower = view as? any PaneMotionHoldFollowing else { return false }
         return follows(follower)
     }
@@ -152,7 +152,7 @@ public final class PaneContentAreaView: NSView {
     /// one size when the hold ends or when it shows, ``release()``).
     public override func resizeSubviews(withOldSize oldSize: NSSize) { // perf-hot: 4ms motion-frame
         guard heldSize != nil else { return super.resizeSubviews(withOldSize: oldSize) }
-        for view in subviews where !handed.contains(ObjectIdentifier(view)) && !(view.isHidden && fillsArea(view)) && !keepsSizeInHold(view) {
+        for view in subviews where !handed.contains(ObjectIdentifier(view)) && !(view.isHidden && fillsArea(view)) {
             let size = view.frame.size
             view.resize(withOldSuperviewSize: oldSize)
             if view.frame.size != size { view.needsLayout = true }
@@ -161,28 +161,6 @@ public final class PaneContentAreaView: NSView {
 
     /// A view that takes the area's whole size as the area changes (the selected tab's content, a parked page).
     private func fillsArea(_ view: NSView) -> Bool { view.autoresizingMask.isSuperset(of: [.width, .height]) }
-
-    /// Whether `view` keeps its size through this hold: the exception a kind states (``PaneKeyResizeHeld``; the Home). The
-    /// area puts it on the hold's edges in each frame (``follow(handing:)``, an origin write, no layout) and gives it its
-    /// bounds once, when the hold ends (``release()``); its owner leaves its frame alone until then.
-    public func keepsSizeInHold(_ view: NSView) -> Bool { fillsArea(view) && keepsOutOfTabRowInHold(view) }
-
-    /// Whether `view` states the exception (``PaneKeyResizeHeld``; the Home) while this hold is on: its pane gives it no
-    /// tab row until the hold ends. Also before the view fills the area (a parked Home shown by a tab change inside the
-    /// hold comes in at the frame it was parked at, ``keepsSizeInHold(_:)`` false in its first layout): it takes the
-    /// area's size under the strip once, then keeps it. With the row it took the pane's whole size in that layout and
-    /// kept it while the area went back under the strip, its tools in a band under the strip until the landing.
-    public func keepsOutOfTabRowInHold(_ view: NSView) -> Bool {
-        heldSize != nil && (view as? any PaneKeyResizeHeld)?.holdsInKeyResize == true
-    }
-
-    /// The area that a key hold of the pane that shows `content` uses: this one. Nil (the pane's host holds the whole
-    /// pane, its tab strip too, as every pane did before 2026-11-11) for content that states the exception
-    /// (``PaneKeyResizeHeld``; the Home) while it draws its tools in the pane's tab row: the row cannot follow the pane
-    /// beside tools that keep their place.
-    public func holdArea(for content: NSView?, drawsInTabRow: @autoclosure () -> Bool) -> PaneContentAreaView? {
-        (content as? any PaneKeyResizeHeld)?.holdsInKeyResize == true && drawsInTabRow() ? nil : self
-    }
 
     /// Rounds the area's corners (0: square), with no implicit animation.
     public func setCornerRadius(_ radius: CGFloat) {
@@ -197,10 +175,6 @@ public final class PaneContentAreaView: NSView {
     /// hear it.
     private func follow(handing: Bool) { // perf-hot: 4ms motion-frame
         guard let heldSize, let hold else { return }
-        for view in subviews where !view.isHidden && keepsSizeInHold(view) {
-            let origin = hold.producerFrame(view.frame.size, in: bounds).origin
-            if view.frame.origin != origin { view.setFrameOrigin(origin) }
-        }
         for case let follower as any PaneMotionHoldFollowing in subviews {
             let id = ObjectIdentifier(follower)
             if !handed.contains(id) {
