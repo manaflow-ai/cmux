@@ -174,8 +174,7 @@ struct CloudStartChat {
         }
     }
 
-    /// What a copy answers: the CLI's answer, and the chat's folder and the copied folder on the machine, whether it copied now (false: an earlier
-    /// copy under the key finished) and whether this Mac trusts the source.
+    /// What a copy answers: the CLI's answer, the chat's folder and the copied folder on the machine, whether it copied now (false: an earlier copy under the key finished) and whether this Mac trusts the source.
     typealias Copied = (CloudMoveCLI.Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool))
 
     /// Copies `folder` to a new folder of the start's own on `machine` (`cmux link start-chat copy`), under `key` and
@@ -229,8 +228,9 @@ struct CloudStartChat {
     private func openUploaded(_ start: AgentPaneCloudStart, from origin: Origin, on machine: CloudMachineSession, cwd: String?,
                               trusted: Bool, tabKey: String, copy: CloudMovedChats.Entry? = nil,
                               original: AgentPaneCloudStart? = nil) async throws -> String {
+        // A chosen model connection goes with the launch only to a daemon that takes one; an image's older daemon dropped it and the provider refused the agent.
         await CloudOutdatedMachine.updateBeforeUsingCapability(
-            holds: { services.agentTabs.holdsTabs(machine.daemon) },
+            holds: { services.agentTabs.holdsTabs(machine.daemon) && (origin.connection == nil || machine.daemon.supports(DaemonCapability.agentSessionStartCredentials.rawValue)) },
             update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) })
         let context = AppActionContext(services: services), daemon = machine.daemon, failure = CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title))
         let (seed, handOff) = AgentPaneSeedSource.handingOffDraft(start.seed(cwd: cwd)) { [services] in services.agentTabs.unsentDrafts.draft(forTab: services.agentTabs.resolve(origin.tab.id), machine: services.agentTabs.daemonListing(origin.tab)?.machineID) }
