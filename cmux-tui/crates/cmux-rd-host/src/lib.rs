@@ -50,6 +50,8 @@ mod mac;
 mod marker;
 #[cfg(feature = "bench")]
 mod observe;
+#[cfg(feature = "bench")]
+mod process_cpu;
 mod selftest;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
 mod serve;
@@ -80,7 +82,7 @@ pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 pub fn run_cli(args: &[String]) -> i32 {
     let Some(cmd) = args.first() else {
         eprintln!(
-            "usage: cmux-rd host|bench|observe|testapp|serve|connect|encode-selftest|openh264-install [--key value ...]"
+            "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|encode-selftest|openh264-install [--key value ...]"
         );
         return 2;
     };
@@ -98,6 +100,8 @@ pub fn run_cli(args: &[String]) -> i32 {
         "bench" => bench::run(&opts),
         #[cfg(all(target_os = "macos", feature = "bench"))]
         "observe" => mac::observe::run(&opts),
+        #[cfg(all(target_os = "macos", feature = "bench"))]
+        "observe-cpu" => mac::cpu::run(&opts),
         #[cfg(target_os = "linux")]
         "testapp" => testapp::run(&opts),
         #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]

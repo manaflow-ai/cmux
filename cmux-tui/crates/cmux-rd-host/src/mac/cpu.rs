@@ -1,119 +1,87 @@
-//! Bounded process CPU sampling for benchmark receipts.
-//!
-//! This is deliberately separate from product telemetry. The observer samples the
-//! selected viewer PID only when a bench asks for it; inaccessible, dead, or
-//! reused PIDs return an explicit unknown result.
+//! Exact-PID benchmark accounting. No process scans or permission changes.
+use crate::process_cpu::{interval, Sample};
 
-use std::ffi::c_void;
-use std::os::raw::c_int;
-
-const RUSAGE_INFO_V4: c_int = 4;
-
-unsafe extern "C" {
-    fn proc_pid_rusage(pid: c_int, flavor: c_int, buffer: *mut c_void) -> c_int;
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Sample {
-    pub pid: i32,
-    /// The kernel process UUID is stable for the lifetime of a process and changes on PID reuse.
-    pub start: String,
-    pub cpu_us: u64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum DeltaError {
-    PidMismatch,
-    PidReused,
-    CounterWentBackwards,
-    Unavailable(String),
-}
-
-/// Compute a process CPU delta only when both samples identify the same live
-/// process. CPU is process time, not wall time or a lifetime-average percent.
-pub fn delta(before: &Sample, after: &Sample) -> Result<u64, DeltaError> {
-    if before.pid != after.pid {
-        return Err(DeltaError::PidMismatch);
-    }
-    if before.start != after.start {
-        return Err(DeltaError::PidReused);
-    }
-    after.cpu_us.checked_sub(before.cpu_us).ok_or(DeltaError::CounterWentBackwards)
-}
-
-/// Sample one PID using macOS `proc_pid_rusage`. The first 16 bytes are the
-/// kernel process UUID; the next two words are user and system CPU nanoseconds
-/// in `rusage_info_v4`.
-pub fn sample(pid: i32) -> Result<Sample, DeltaError> {
+fn sample(pid: i32) -> Result<Sample, &'static str> {
     if pid <= 0 {
-        return Err(DeltaError::Unavailable("invalid pid".to_string()));
+        return Err("invalid_pid");
     }
-    let mut raw = [0u8; 512];
-    // SAFETY: the kernel writes into the fixed rusage buffer; this is a
-    // read-only accounting request and does not signal or mutate the process.
-    let result = unsafe { proc_pid_rusage(pid, RUSAGE_INFO_V4, raw.as_mut_ptr().cast()) };
-    if result != 0 {
-        return Err(DeltaError::Unavailable(format!("proc_pid_rusage failed: {result}")));
+    let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v0>::zeroed();
+    // SAFETY: V0 writes precisely rusage_info_v0 into the aligned writable buffer.
+    let status =
+        unsafe { libc::proc_pid_rusage(pid, libc::RUSAGE_INFO_V0, usage.as_mut_ptr().cast()) };
+    if status != 0 {
+        return Err(match std::io::Error::last_os_error().raw_os_error() {
+            Some(libc::EPERM | libc::EACCES) => "permission_denied",
+            Some(libc::ESRCH) => "process_gone",
+            _ => "process_usage_unavailable",
+        });
     }
-    let mut start = String::with_capacity(32);
-    for byte in &raw[..16] {
-        use std::fmt::Write;
-        let _ = write!(start, "{byte:02x}");
+    // SAFETY: all integer fields initialized by the successful V0 call.
+    let usage = unsafe { usage.assume_init() };
+    if usage.ri_proc_exit_abstime != 0 {
+        return Err("process_gone");
     }
-    let Ok(user_bytes) = <[u8; 8]>::try_from(&raw[16..24]) else {
-        return Err(DeltaError::Unavailable("short user CPU field".to_string()));
-    };
-    let Ok(system_bytes) = <[u8; 8]>::try_from(&raw[24..32]) else {
-        return Err(DeltaError::Unavailable("short system CPU field".to_string()));
-    };
-    let user_ns = u64::from_ne_bytes(user_bytes);
-    let system_ns = u64::from_ne_bytes(system_bytes);
-    Ok(Sample { pid, start, cpu_us: user_ns.saturating_add(system_ns) / 1000 })
+    if usage.ri_proc_start_abstime == 0 {
+        return Err("unknown_process_start");
+    }
+    Ok(Sample {
+        pid,
+        start_abstime: usage.ri_proc_start_abstime,
+        cpu_ns: usage
+            .ri_user_time
+            .checked_add(usage.ri_system_time)
+            .ok_or("cpu_counter_overflow")?,
+        sampled_ns: crate::clock::now_ns(),
+    })
 }
 
-/// A separate observer self-CPU sample can use `getrusage(RUSAGE_SELF)`;
-/// callers must label it `observer_cpu_us`, never viewer or host CPU.
-pub fn observer_cpu_us() -> Option<u64> {
-    let mut usage = std::mem::MaybeUninit::<libc::rusage>::zeroed();
-    // SAFETY: getrusage initializes the plain-old-data struct we own.
-    let result = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
-    if result != 0 {
-        return None;
+/// Standalone benchmark command; endpoint attribution is always explicit.
+pub fn run(opts: &crate::args::Opts) -> crate::Res<()> {
+    let pid = opts.num_or::<i32>("pid", 0)?;
+    let duration_ms = opts.num_or::<u64>("duration-ms", 1000)?;
+    if pid <= 0 || !(1..=60_000).contains(&duration_ms) {
+        return Err("observe-cpu requires --pid >0 and --duration-ms 1..60000".into());
     }
-    // SAFETY: getrusage returned success and initialized `usage`.
-    let usage = unsafe { usage.assume_init() };
-    Some(
-        (usage.ru_utime.tv_sec as u64)
-            .saturating_mul(1_000_000)
-            .saturating_add(usage.ru_utime.tv_usec as u64)
-            .saturating_add((usage.ru_stime.tv_sec as u64).saturating_mul(1_000_000))
-            .saturating_add(usage.ru_stime.tv_usec as u64),
-    )
+    let own_pid = std::process::id() as i32;
+    let before = sample(pid);
+    let observer_before = sample(own_pid);
+    // Standalone measurement command, never called on an app/main-thread path.
+    std::thread::sleep(std::time::Duration::from_millis(duration_ms));
+    let after = sample(pid);
+    let observer_after = sample(own_pid);
+    println!(
+        "{}",
+        serde_json::json!({
+            "schema": "cmux.process-cpu-interval/1",
+            "pid": pid,
+            "duration_ms_requested": duration_ms,
+            "viewer": interval(before, after),
+            "observer_pid": own_pid,
+            "observer": interval(observer_before, observer_after),
+            "host_cpu_pct": null,
+            "unit": "percent of one CPU core; user plus system time",
+        })
+    );
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn sample(pid: i32, start: &str, cpu_us: u64) -> Sample {
-        Sample { pid, start: start.to_string(), cpu_us }
-    }
-
     #[test]
-    fn delta_accepts_same_process_and_preserves_microseconds() {
-        assert_eq!(delta(&sample(7, "start", 1_000), &sample(7, "start", 2_500)), Ok(1_500));
-    }
-
-    #[test]
-    fn delta_rejects_pid_reuse_and_counter_regression() {
-        assert_eq!(delta(&sample(7, "old", 1), &sample(7, "new", 2)), Err(DeltaError::PidReused));
-        assert_eq!(
-            delta(&sample(7, "same", 2), &sample(7, "same", 1)),
-            Err(DeltaError::CounterWentBackwards)
-        );
-        assert_eq!(
-            delta(&sample(7, "same", 1), &sample(8, "same", 2)),
-            Err(DeltaError::PidMismatch)
-        );
+    fn process_cpu_native_self_and_child_identity() {
+        let first = sample(std::process::id() as i32).expect("self usage");
+        let second = sample(std::process::id() as i32).expect("self usage");
+        assert_eq!(first.start_abstime, second.start_abstime);
+        assert!(second.cpu_ns >= first.cpu_ns);
+        assert!(interval(Ok(first), Ok(second)).cpu_pct.is_some());
+        let mut child =
+            std::process::Command::new("/bin/sleep").arg("0.2").spawn().expect("owned child");
+        let pid = child.id() as i32;
+        let usage = sample(pid);
+        child.wait().expect("reap owned child");
+        assert_eq!(usage.expect("child usage").pid, pid);
+        assert!(sample(pid).is_err());
+        assert!(sample(-1).is_err());
     }
 }

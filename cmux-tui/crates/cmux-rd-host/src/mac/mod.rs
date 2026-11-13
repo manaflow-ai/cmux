@@ -4,6 +4,7 @@
 //! the host process or the app that launched it.
 
 pub(crate) mod capture;
+#[cfg(feature = "bench")]
 pub(crate) mod cpu;
 mod input;
 mod keys;
