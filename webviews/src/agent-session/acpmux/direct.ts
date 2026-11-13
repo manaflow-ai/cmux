@@ -10338,8 +10338,10 @@ export class AcpmuxDirectClient {
     );
     this.placeSince();
     const actualRows = this.rows.sorted();
-    const actualIds = new Set(actualRows.map((row) => row.id));
-    const indexedRows = [...this.indexedPlaceholders.values()].filter((row) => !actualIds.has(row.id));
+    // Only a rail jump's sparse window holds placeholders: the common snapshot builds no id set.
+    const placeholders = this.indexedPlaceholders;
+    const actualIds = placeholders?.size ? new Set(actualRows.map((row) => row.id)) : undefined;
+    const indexedRows = actualIds ? [...placeholders.values()].filter((row) => !actualIds.has(row.id)) : [];
     // Indexed placeholders carry only prompt text, but sorting them by their sequence keeps every
     // prompt at its final rail slot while a sparse target page is being filled in.
     const publishedRows =
@@ -14304,8 +14306,9 @@ export class AcpmuxDirectClient {
   }
 
   private clearIndexedHistory(): void {
-    this.indexedPlaceholders.clear();
-    this.indexedPages.clear();
+    // `?.`: a client a test builds from the prototype has none of these yet.
+    this.indexedPlaceholders?.clear();
+    this.indexedPages?.clear();
     this.indexedGaps = [];
   }
 
