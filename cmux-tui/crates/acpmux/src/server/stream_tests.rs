@@ -316,7 +316,7 @@ async fn upgrade_read_ahead_reaches_hello_then_list_window() {
         let (last, _last_rx) = oneshot::channel();
         let task = tokio::spawn(async move {
             let upgrade = read_lines(rd, tx, last, LIMITS, Some(&v2)).await.unwrap();
-            upgrade.serve(wr, &v2).await.unwrap();
+            upgrade.serve(wr, &v2, "test".into()).await.unwrap();
         });
         let hello = Frame::json(
             FrameKind::Request,
@@ -338,6 +338,7 @@ async fn upgrade_read_ahead_reaches_hello_then_list_window() {
         }
         let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
         assert_eq!(reply.pointer("/result/upgrade"), Some(&json!(true)));
+        client.write_all(&hello.encode()).await.unwrap();
         assert_eq!(v2_frame(&mut client).await.kind, FrameKind::Hello);
         let sub = Frame::json(
             FrameKind::Request,

@@ -1185,6 +1185,10 @@ pub(super) struct SummaryStamp {
 }
 
 impl Hub {
+    pub fn run_id(&self) -> String {
+        self.person.instance().to_owned()
+    }
+
     pub fn new(config: Config, store: Box<dyn Store>) -> Arc<Self> {
         Self::new_with_mailbox(config, store, Mailbox::memory())
     }

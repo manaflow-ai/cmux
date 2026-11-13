@@ -170,9 +170,6 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     state: Arc<std::sync::Mutex<ConnectionState>>,
 ) -> Result<(), ConnError> {
     let wake = state.lock().map_err(|_| poisoned())?.wake.clone();
-    let hello =
-        Frame::json(FrameKind::Hello, &HelloReply { daemon_id, limits: Limits::default() })?;
-    state.lock().map_err(|_| poisoned())?.offer_reply(hello)?;
     let mut decoder = crate::wire::FrameDecoder::default();
     let mut buffer = [0_u8; 16 * 1024];
     let mut pending = VecDeque::<Frame>::new();
@@ -296,7 +293,13 @@ fn process_frame(
             if *hello_seen {
                 return Err(ConnError::InvalidRequest("hello was already received".into()));
             }
-            state.lock().map_err(|_| poisoned())?.set_identity(hello.identity.as_deref())?;
+            let mut state = state.lock().map_err(|_| poisoned())?;
+            state.set_identity(hello.identity.as_deref())?;
+            let reply = Frame::json(
+                FrameKind::Hello,
+                &HelloReply { daemon_id: daemon_id.clone(), limits: Limits::default() },
+            )?;
+            state.offer_reply(reply)?;
             *hello_seen = true;
         }
         Request::Sub(sub) => {

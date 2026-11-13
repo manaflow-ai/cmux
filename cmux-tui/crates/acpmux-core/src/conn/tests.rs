@@ -107,8 +107,8 @@ fn list_pair() -> ListPair {
     (client, task, hub, writer, source)
 }
 async fn hello(client: &mut DuplexStream) {
-    assert_eq!(receive(client).await.kind, FrameKind::Hello);
     send(client, json!({"method":"hello","params":{"clientKind":"test","protocol":2}})).await;
+    assert_eq!(receive(client).await.kind, FrameKind::Hello);
 }
 async fn subscribe(client: &mut DuplexStream, sid: &str) -> Frame {
     send(client, json!({"method":"sub","params":{"sid":sid,"stream":"list"}})).await;
@@ -138,7 +138,6 @@ async fn a_live_offer_wakes_the_connection_and_first_window_precedes_it() {
 #[tokio::test]
 async fn errors_name_the_request_and_every_pre_hello_request_is_refused() {
     let (mut client, task, _hub, _writer, _source) = list_pair();
-    assert_eq!(receive(&mut client).await.kind, FrameKind::Hello);
     for method in ["credit", "unsub", "page", "sub"] {
         send(
             &mut client,
@@ -153,6 +152,7 @@ async fn errors_name_the_request_and_every_pre_hello_request_is_refused() {
         assert!(value.get("code").is_some());
     }
     send(&mut client, json!({"method":"hello","params":{"clientKind":"test","protocol":2}})).await;
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Hello);
     assert_eq!(subscribe(&mut client, "s").await.kind, FrameKind::Window);
     assert_eq!(subscribe(&mut client, "s").await.kind, FrameKind::Error);
     send(&mut client, json!({"method":"credit","params":{"sid":"absent","consumed":1}})).await;
@@ -819,7 +819,7 @@ fn subscription_first_frame_past_remaining_budget_drops_with_named_cursor() {
         state.offer("s", frame(crate::wire::MAX_FRAME_BYTES - 8), Cursor(8)),
         Offer::Taken
     ));
-    assert!(matches!(state.offer("s", frame(90), Cursor(9)), Offer::Dropped { .. }));
+    assert!(matches!(state.offer("s", frame(100), Cursor(9)), Offer::Dropped { .. }));
     assert_eq!(state.subscription_count(), 0);
     state.release_reply();
 }

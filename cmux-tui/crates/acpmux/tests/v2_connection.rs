@@ -39,8 +39,8 @@ async fn receive(r: &mut (impl AsyncRead + Unpin)) -> Frame {
     .unwrap()
 }
 async fn hello(client: &mut UnixStream) {
-    assert_eq!(receive(client).await.kind, FrameKind::Hello);
     request(client, json!({"method":"hello","params":{"protocol":2}})).await;
+    assert_eq!(receive(client).await.kind, FrameKind::Hello);
 }
 async fn sub(client: &mut UnixStream, sid: &str, cursor: Option<u64>) {
     request(client, json!({"method":"sub","params":{"sid":sid,"stream":"list","cursor":cursor,"edition":0,"window":100}})).await;

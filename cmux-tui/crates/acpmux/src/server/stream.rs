@@ -45,6 +45,7 @@ pub(super) async fn serve_stream(
     socket_peer: crate::sender_harness::SocketPeer,
     v2: Option<std::sync::Arc<acpmux_core::life::V2>>,
 ) {
+    let daemon_id = hub.run_id();
     let (rd, wr) = crate::local_stream::split(stream);
     let (in_tx, in_rx) = mpsc::channel::<String>(INBOUND_LINES);
     let (out_tx, out_rx) = mpsc::channel::<String>(4096);
@@ -69,7 +70,7 @@ pub(super) async fn serve_stream(
         ));
         let (upgrade, writer_result, serving_result) = tokio::join!(reader, writer, serving);
         if let (Some(upgrade), Ok(wr), Ok(())) = (upgrade, writer_result, serving_result) {
-            let _ = upgrade.serve(wr, &v2).await;
+            let _ = upgrade.serve(wr, &v2, daemon_id).await;
         }
     } else {
         // Preserve v1's independent reader/writer tasks exactly when v2 is off.
@@ -104,6 +105,7 @@ impl<R: AsyncRead + Unpin> Upgrade<R> {
         self,
         mut writer: W,
         v2: &acpmux_core::life::V2,
+        daemon_id: String,
     ) -> Result<(), acpmux_core::conn::ConnError> {
         // The v1 connection has ended, but its upgraded client is still here.
         let _client = crate::daemon::unused_exit::client();
@@ -115,7 +117,7 @@ impl<R: AsyncRead + Unpin> Upgrade<R> {
         );
         writer.write_all(reply.to_line().as_bytes()).await?;
         let source = Arc::new(acpmux_core::conn::HubSource::new(v2.hub()));
-        acpmux_core::conn::run(self.reader, writer, source, "acpmux", &self.surfaces).await
+        acpmux_core::conn::run(self.reader, writer, source, daemon_id, &self.surfaces).await
     }
 }
 
