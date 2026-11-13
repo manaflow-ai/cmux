@@ -4,6 +4,7 @@
 // projections"). Money, destructive and view-changing ops go to the host as native actions (ops.ts
 // NATIVE_ACTIONS). React reads it through `useSyncExternalStore`; tests drive it directly.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { AccountReader } from "./account";
 import { connectionFailure } from "./connectionFailure";
 import { DetailReader, type MachineDetail } from "./detail";
@@ -110,7 +111,7 @@ export interface CloudState {
   planFailed?: boolean;
   /** `cloud.migration.status` (contract 4). */
   migration?: MigrationStatus;
-  /** "Later" hid the classic migration banner for this page session. */
+  /** "Later" hid the classic migration banner for this account (kept in this browser, account.ts). */
   migrationDismissed: boolean;
   /** A plan refusal of a change outside the create sheet (start, resize, snapshot). */
   refusal?: PlanRefusal;
@@ -1148,9 +1149,9 @@ function noImage(error: unknown): boolean {
   return isPageError(error) && error.code === CloudErrors.noSnapshotConfigured;
 }
 
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+/** The plain sentence of a failure; the backend's own text stays in the error (`errorText` puts a
+ * known code's page sentence first). */
+const message = (error: unknown): string => userMessage(error);
 
 function codeOf(error: unknown): string | undefined {
   return isPageError(error) ? error.code : undefined;

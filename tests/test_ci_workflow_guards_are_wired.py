@@ -134,6 +134,17 @@ UNWIRED: set[str] = {
     # `deployment: false`, so the PR logs no "temporarily deployed" event. Run it by hand after adding an
     # environment to a job.
     "tests/test_ci_secrets_only_environments_log_no_deployment.py",
+    # lane = "manual" for the same rule. The first proves each derived job list red against its pre-fix reader
+    # with fixture workflows; the second fails on a guard that reads a job field raw instead of through
+    # tests/workflow_jobs.py. Run both by hand after changing a job-list guard or the resolver. Exit: as above.
+    "tests/test_ci_job_list_fixture_mutations.py",
+    "tests/test_ci_guards_read_through_workflow_jobs.py",
+    # lane = "manual" for the same rule. It fails when a job on a self-hosted selector downloads an artifact into a
+    # relative directory a persistent worker may still hold files in; run it by hand after adding a download-artifact step.
+    "tests/test_ci_self_hosted_downloads_are_fresh.py",
+    # lane = "manual" for the same rule. It fails when a publishing step of coderouter-release.yml or app-ffi-release.yml
+    # loses its release-ref gate or a workflow_dispatch can reach it; run it by hand after editing either workflow.
+    "tests/test_ci_release_publish_tag_gate.py",
     # lane = "manual" (tests/test-execution.d/ci.toml): it pins scripts/cmux-next/check-single-host-fallbacks.py,
     # which ci-guards.yml runs only with --advisory and the pre-push gate runs strictly. Run it by hand after
     # changing the checker or .github/single-host-fallbacks.json.
@@ -142,6 +153,10 @@ UNWIRED: set[str] = {
     # check step; that job runs scripts/cmux-next/cargo-locks.py check --strict itself on every Rust change. Run
     # it by hand after changing cargo-locks.py or that step.
     "tests/test_cargo_locks.py",
+    # lane = "manual" (tests/test-execution.d/other.toml; no new CI tests, CLAUDE.md). It reads four workflows
+    # only as text (each failing step asks cargo-locks.py explain) and lists cargo --locked wrappers. Run it by hand
+    # after changing cargo-locks.py or a step that runs cargo with --locked.
+    "tests/test_cargo_locks_explain.py",
 }
 
 
