@@ -3,7 +3,9 @@
 // task on its first lines with Show more (Lawrence 2026-10-19).
 import { agentPaneEntry } from "../../../gallery/format";
 import { UPLOADED_AVATAR } from "../../../gallery/fixtures/agentAvatar";
-import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import { GALLERY_NOW } from "../../../gallery/clock";
+import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
+import type { AcpmuxRow } from "../model";
 
 const longTask = [
   "ACP missing user prompt",
@@ -27,6 +29,22 @@ const envelope = [
   "",
   "Fix the Home header fade so the transcript under it stays legible.",
 ].join("\n");
+
+/** A turn still running under its prompt: "Working for" over its work, a command in flight. */
+const running = (from?: "chief") =>
+  chat(
+    [
+      user("Rebase and push when the tests pass.", 3, { seq: 1, ...(from && { from }) }),
+      activity(
+        [
+          tool("git fetch origin", "execute", "completed", { command: "git fetch origin", exitCode: 0 }),
+          tool("bun test", "execute", "in_progress", { command: "bun test" }),
+        ],
+        1,
+      ),
+    ] as AcpmuxRow[],
+    { isWorking: true, turnStartedAtMs: GALLERY_NOW - 164_000 },
+  );
 
 export default agentPaneEntry({
   id: "agent-pane.chief-prompt",
@@ -62,6 +80,21 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".cv-user__from img.cv-agent-avatar"));
       },
+    },
+    running: {
+      note: 'A Chief prompt over a running turn: "Working for" stands the turn gap under the bubble, as under a typed prompt (https://github.com/manaflow-ai/cmux/issues/42444).',
+      snapshot: running("chief"),
+    },
+    "running-typed": {
+      note: "The same running turn under a prompt typed in the pane, for comparison.",
+      snapshot: running(),
+    },
+    waiting: {
+      note: "A Chief prompt just sent, its live line under it: the block gap, its action row centred in that.",
+      snapshot: chat([user("Rebase and push when the tests pass.", 0, { seq: 1, from: "chief" })] as AcpmuxRow[], {
+        isWorking: true,
+        turnStartedAtMs: GALLERY_NOW,
+      }),
     },
     "follow-up": {
       note: "A short follow-up the Chief told it, under a prompt typed in the pane.",
