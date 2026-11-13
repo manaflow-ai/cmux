@@ -1171,30 +1171,35 @@ public final class DaemonTerminalSession: TerminalSession {
         let typedAt = input[0].at
         let end = input.firstIndex(where: \.submit).map { $0 + 1 } ?? input.count
         let endsWithSubmit = input[end - 1].submit
-        var batch = input[..<end].reduce(into: Data()) { $0.append($1.bytes) }
+        var bytes = input[..<end].reduce(into: Data()) { $0.append($1.bytes) }
         // The person's own bytes in it: a failed batch of terminal replies
         // alone is no "keys not sent". A submit's Return counts.
         let typedBytes = input[..<end].reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) } + (endsWithSubmit ? 1 : 0)
         input.removeSubrange(..<end)
-        let submitted = endsWithSubmit && submitsWithText
+        let withReturn = endsWithSubmit && submitsWithText
         // Queued for a daemon that took `submit`, going to one that does not
         // (a reattach to an older Mac): Return rides in the same bytes.
-        if endsWithSubmit, !submitted { batch.append(0x0D) }
+        if endsWithSubmit, !withReturn { bytes.append(0x0D) }
+        let batch = bytes
         let surface = surface
         let onLane = target !== client
         Task { [weak self] in
             guard let self else { return }
             var written = false
             do {
-                let submit: @Sendable () async throws -> String = submitted
-                    ? { try await target.submit("send", params: ["surface": surface, "bytes": batch.base64EncodedString(), "submit": true]) }
-                    : { try await target.submit("send", params: ["surface": surface, "bytes": batch.base64EncodedString()]) }
+                let submit: @Sendable () async throws -> String = {
+                    // Each request gets its own literal (Swift 6 regions).
+                    if withReturn {
+                        return try await target.submit("send", params: ["surface": surface, "bytes": batch.base64EncodedString(), "submit": true])
+                    }
+                    return try await target.submit("send", params: ["surface": surface, "bytes": batch.base64EncodedString()])
+                }
                 // A lane request gets written and answered within seconds or
                 // the lane is given up.
                 let id: String
                 if onLane {
                     guard let submitted = try await Self.within(.seconds(10), submit) else {
-                        abandonInputLane(target, number: number, bytes: batch.count, typed: typedBytes, submit: submitted, wasWriting: true)
+                        abandonInputLane(target, number: number, bytes: batch.count, typed: typedBytes, submit: withReturn, wasWriting: true)
                         return
                     }
                     id = submitted
@@ -1209,7 +1214,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 let reply: Data
                 if onLane {
                     guard let answer = try await Self.within(.seconds(10), { try await target.reply(to: id) }) else {
-                        abandonInputLane(target, number: number, bytes: batch.count, typed: typedBytes, submit: submitted, wasWriting: false)
+                        abandonInputLane(target, number: number, bytes: batch.count, typed: typedBytes, submit: withReturn, wasWriting: false)
                         return
                     }
                     reply = answer
@@ -1225,11 +1230,11 @@ public final class DaemonTerminalSession: TerminalSession {
                 lastError = LinkController.reason(error)
                 inputRecovering = true
                 if written || target === abandonedInputLane {
-                    inputFailed.append((number, batch, typedAt, written: true, typed: typedBytes, submit: submitted))
+                    inputFailed.append((number, batch, typedAt, written: true, typed: typedBytes, submit: withReturn))
                 } else {
                     // Never written: safe to send again (on the attach channel
                     // when the lane failed, or after the reattach).
-                    inputFailed.append((number, batch, typedAt, written: false, typed: typedBytes, submit: submitted))
+                    inputFailed.append((number, batch, typedAt, written: false, typed: typedBytes, submit: withReturn))
                 }
                 if inputClient === target {
                     dropInputLane()
