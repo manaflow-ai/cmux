@@ -158,16 +158,16 @@ impl Client {
 
     /// The result of one read `operation` of `directory`.
     fn read(&mut self, operation: &str, directory: &Path) -> Value {
-        self.read_with(operation, directory, None)
+        self.read_with(operation, directory, &[])
     }
 
-    /// The result of one read `operation` of `directory`, with a `query` when there is one.
-    fn read_with(&mut self, operation: &str, directory: &Path, query: Option<&str>) -> Value {
+    /// The result of one read `operation` of `directory`, with each parameter of `more`.
+    fn read_with(&mut self, operation: &str, directory: &Path, more: &[(&str, &str)]) -> Value {
         self.next += 1;
         let id = format!("r{}", self.next);
         let mut params = json!({"path": directory, "machine": "current", "session": "current"});
-        if let Some(query) = query {
-            params["query"] = json!(query);
+        for (name, value) in more {
+            params[*name] = json!(value);
         }
         let request = json!({
             "protocol": "cmux.protocol/2",
@@ -200,7 +200,7 @@ impl Client {
 
     /// What `git.diff` says of the file `path` of `repo`.
     fn changed_file(&mut self, repo: &Path, path: &str) -> Value {
-        let result = self.read("git.diff", repo);
+        let result = self.read_with("git.diff", repo, &[("scope", "uncommitted")]);
         let files = result["files"].as_array().unwrap_or_else(|| panic!("no files in {result}"));
         files
             .iter()
@@ -223,7 +223,7 @@ impl Client {
 
     /// The paths that `git.files.search` finds in `folder` for `query`, sorted.
     fn found(&mut self, folder: &Path, query: &str) -> Vec<String> {
-        let result = self.read_with("git.files.search", folder, Some(query));
+        let result = self.read_with("git.files.search", folder, &[("query", query)]);
         let results =
             result["results"].as_array().unwrap_or_else(|| panic!("no results in {result}"));
         let mut paths: Vec<String> = results
