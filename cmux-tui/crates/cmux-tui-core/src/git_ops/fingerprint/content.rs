@@ -121,6 +121,20 @@ struct Cache {
     reads: u64,
 }
 
+impl Cache {
+    /// Keeps `kept` for `path` in a cache of at most `bound` hashes.
+    fn keep(&mut self, path: &Path, kept: Kept, bound: usize) {
+        if self.files.len() >= bound && !self.files.contains_key(path) {
+            // Keep what this read uses: at most MAX_FILES entries.
+            let read = kept.read;
+            self.files.retain(|_, held| held.read == read);
+        }
+        if self.files.len() < bound || self.files.contains_key(path) {
+            self.files.insert(path.to_path_buf(), kept);
+        }
+    }
+}
+
 /// The kept hashes. The lock is never held while a file is read.
 fn cache() -> MutexGuard<'static, Cache> {
     static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
@@ -202,15 +216,7 @@ impl Reader {
         self.files_read = self.files_read.saturating_add(1);
         self.bytes_read = self.bytes_read.saturating_add(bytes);
         let kept = Kept { stamp, hash, settled: stamp.settled_at(started), read: self.read };
-        let mut cache = cache();
-        if cache.files.len() >= MAX_KEPT && !cache.files.contains_key(path) {
-            // Keep what this read uses: at most MAX_FILES entries.
-            let read = self.read;
-            cache.files.retain(|_, kept| kept.read == read);
-        }
-        if cache.files.len() < MAX_KEPT || cache.files.contains_key(path) {
-            cache.files.insert(path.to_path_buf(), kept);
-        }
+        cache().keep(path, kept, MAX_KEPT);
         Some(hash)
     }
 }
@@ -249,4 +255,35 @@ fn hash_file(path: &Path) -> Option<([u8; 32], u64, Stamp)> {
         }
     }
     Some((hasher.finalize().into(), bytes, stamp))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn kept(read: u64) -> Kept {
+        let stamp = Stamp { size: 1, modified: None, node: Node::default() };
+        Kept { stamp, hash: [0; 32], settled: true, read }
+    }
+
+    /// Two work trees are checked in turn. Read 3 is of the second one: it used `a1` again,
+    /// and it will come to `a2`, which its read before (2) hashed. `b1` and `b2` are of the
+    /// other work tree's read (1), which is longer ago.
+    #[test]
+    fn git_fingerprint_drops_the_hashes_of_the_oldest_read_when_its_cache_is_full() {
+        let mut cache = Cache::default();
+        for (name, read) in [("b1", 1), ("b2", 1), ("a1", 3), ("a2", 2)] {
+            cache.keep(Path::new(name), kept(read), 4);
+        }
+        cache.keep(Path::new("new"), kept(3), 4);
+        let mut names: Vec<_> =
+            cache.files.keys().map(|path| path.to_string_lossy().into_owned()).collect();
+        names.sort();
+        assert_eq!(
+            names,
+            ["a1", "a2", "new"],
+            "a full cache must drop the read that is longest ago, and keep the hash that the \
+             current read comes to next"
+        );
+    }
 }
