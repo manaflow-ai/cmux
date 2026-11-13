@@ -168,6 +168,20 @@ class GitHubReaderTests(unittest.TestCase):
             self.assertEqual(got, code, out)
 
 
+    def test_a_merge_github_never_linked_to_its_pr_is_found_by_its_title(self) -> None:
+        # 515fdc0 (#42462, lawrencecchen, squash): commits/{sha}/pulls and associatedPullRequests both stayed
+        # empty, so the guard read a teammate's merge as a direct push and cancelled cmux.com's deploy.
+        page = {"commit": {"message": "web: Sign in with ChatGPT (#42462)\n\nbody"},
+                "files": [{"filename": "web/app/env.ts"}]}
+        for merged_sha, code in ((SHA, 0), ("b" * 40, 1)):
+            api = FakeApi({rf"commits/{SHA}\?": page, rf"commits/{SHA}/pulls": [],
+                           r"pulls/42462$": pr(42462, user=MATE, sha=merged_sha), "actions/workflows/": NO_RUNS})
+            got, out = run_check(api, "--before", "", "--after", SHA, "--baseline", "before")
+            self.assertEqual(got, code, out)  # a #N whose merge commit is another sha proves nothing
+            if code:
+                self.assertIn("direct push", out)
+
+
 NO_RUNS = {"workflow_runs": []}
 BASE, A, R, B = "0" * 39 + "1", "1" * 40, "2" * 40, "3" * 40
 API, PAGE = "web/app/api/vm/route.ts", "web/app/(site)/pricing/page.tsx"
