@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43365053630",
+  "recorded_at": "2026-11-13T04:30:02Z",
+  "reason": "cmux-tui ad031cd05521 changes the image's cmux-tui (pinned 32387d368432)",
+  "dry_run": false,
+  "cmux_tui": "ad031cd055216e2537fb1697b4490d5dae42ec6d",
+  "fixes": [
+    {
+      "sha": "ad031cd055216e2537fb1697b4490d5dae42ec6d",
+      "mergedAt": "2026-11-12T21:54:06-06:00",
+      "subject": "acpmux: a Codex writer probe and a daemon lock look unlock before they close"
+    },
+    {
+      "sha": "9d0297ee8ec8a681cc888af2981d48a91b4a4bd1",
+      "mergedAt": "2026-11-12T21:54:06-06:00",
+      "subject": "acpmux tests: a writer probe and a daemon lock look leave no lock while their descriptions stay open (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T04:30:02Z",
+    "snapshot_id": "sh-a1c6e183fc33408fb7e44f44335de60b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43365053630): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "feaae94ae19bc68a0032affb51748df310a927a1",
+    "image": "cloud-native-auto-ad031cd0-43365053630-1",
+    "revision": "ci-43365053630-1",
+    "at": "2026-11-13T04:30:02Z"
+  },
+  "rolled_back": false
+}
