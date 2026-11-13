@@ -163,9 +163,16 @@ import Testing
         let shown = try Self.show { answer = $0 }
         defer { shown.center.dismiss(shown.id); shown.window.close() }
         let host = try #require(WindowOverlayHost.existingHost(for: shown.window))
-        let leftover = NSView(frame: host.panel.modalContainer.bounds)
-        host.panel.modalContainer.addSubview(leftover)
-        try Self.click(try Self.control("cmux.dialog.button.confirm", in: shown), in: shown.panel)
+        let close = try Self.control("cmux.dialog.button.confirm", in: shown)
+        // On the card's own container, above the card, covering it.
+        let container = try #require(shown.center.dialog(shown.id)?.view?.superview)
+        let leftover = NSView(frame: container.bounds)
+        container.addSubview(leftover)
+        let inWindow = Self.middle(of: close)
+        let hit = shown.root.hitTest(shown.root.superview?.convert(inWindow, from: nil) ?? inWindow)
+        #expect(hit.map { $0 === close || $0.isDescendant(of: close) } == true,
+                "the click at Close lands on \(hit.map { String(describing: type(of: $0)) } ?? "nothing")")
+        try Self.click(close, in: shown.panel)
         #expect(answer?.button == "confirm", "a leftover view above the card took the click on Close")
     }
 
