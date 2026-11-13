@@ -33,6 +33,9 @@ fi
 grep -Fq 'type: choice' "$workflow"
 grep -Fq -- '- remote' "$workflow"
 grep -Fq 'associated-prs.json' "$workflow"
+grep -Fq 'source_pr: ${{ steps.resolve.outputs.source_pr }}' "$workflow"
+grep -Fq 'source_pr="$pr_number"' "$workflow"
+grep -Fq 'echo "source_pr=$source_pr"' "$workflow"
 grep -Fq 'pull.get("state") == "open"' "$workflow"
 grep -Fq 'base_repo.get("full_name") == repo' "$workflow"
 grep -Fq 'base.get("ref") == "feat-cmux-next"' "$workflow"
@@ -46,6 +49,25 @@ grep -Fq 'CMUX_CEF_R2_WRITE_ACCESS_KEY_ID' "$workflow"
 grep -Fq 'cmux-remote-dev.pin.json' "$workflow"
 grep -Fq 'cmux-next-helper-dev-signed' "$workflow"
 grep -Fq 'product="cmux Remote"' "$workflow"
+
+python3 - "$workflow" <<'PY'
+import pathlib
+import re
+import sys
+
+workflow = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+pin_job = workflow.split("\n  pin-pr:\n", 1)[1]
+guard = re.search(r"\n    if: ([^\n]+)\n", pin_job)
+assert guard and guard.group(1) == "needs.sdk.outputs.source_pr == ''"
+assert "needs: [sdk, build, sign, publish]" in pin_job
+
+def opens_pin_pr(source_pr):
+    return source_pr == ""
+
+assert opens_pin_pr("")
+assert not opens_pin_pr("42365")
+print("pin-pr guard fixtures: ancestor opens; unmerged source PR skips")
+PY
 
 # Execute the exact admission Python embedded in the workflow. This catches a
 # future relaxation that merely keeps the contract strings while admitting a

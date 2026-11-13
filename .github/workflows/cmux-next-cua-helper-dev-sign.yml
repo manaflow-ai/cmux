@@ -65,6 +65,7 @@ jobs:
       pull-requests: read
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
+      source_pr: ${{ steps.resolve.outputs.source_pr }}
     steps:
       # Only main code runs in this job, which holds the R2 key: the
       # feat-cmux-next commit is read through the API, and its SDK pin as JSON.
@@ -89,6 +90,7 @@ jobs:
           sha="$(gh api "repos/$GH_REPO/commits/$WANT" --jq .sha)"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::cannot resolve $WANT" >&2; exit 1; }
           status="$(gh api "repos/$GH_REPO/compare/$sha...feat-cmux-next" --jq .status)"
+          source_pr=""
           if [[ "$status" != ahead && "$status" != identical ]]; then
             # A feature PR's head is intentionally not an ancestor until that PR
             # merges. Accept only the exact open PR head for this repository and
@@ -119,6 +121,7 @@ jobs:
               echo "::error::$sha is not an open exact-head PR into feat-cmux-next ($status)" >&2
               exit 1
             }
+            source_pr="$pr_number"
             echo "Resolved unmerged feat-cmux-next PR #$pr_number at exact head $sha" >> "$GITHUB_STEP_SUMMARY"
           fi
           gh api -H 'Accept: application/vnd.github.raw+json' \
@@ -135,7 +138,7 @@ jobs:
           print(sha, key)
           PY
           )
-          { echo "sha=$sha"; echo "sdk_sha=$sdk_sha"; echo "key=$key"; } >> "$GITHUB_OUTPUT"
+          { echo "sha=$sha"; echo "source_pr=$source_pr"; echo "sdk_sha=$sdk_sha"; echo "key=$key"; } >> "$GITHUB_OUTPUT"
           echo "Building the dev helper from feat-cmux-next $sha (SDK $sdk_sha)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fetch the pinned SDK tarball
@@ -399,9 +402,12 @@ jobs:
           done
 
   pin-pr:
-    name: Open the pin bump
-    needs: [build, sign, publish]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    name: Open the ancestor pin bump
+    # An unmerged source PR owns its tree and must carry its own pin update;
+    # only an ancestor build may open a separate pin PR into feat-cmux-next.
+    if: needs.sdk.outputs.source_pr == ''
+    needs: [sdk, build, sign, publish]
+    runs-on: ${{ vars.CI_BLACKSMITH_OFF == '1' && contains(toJSON(github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'), '"blacksmith-') && (github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-fleet-linux-x64') || (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -448,6 +454,9 @@ jobs:
           [[ "$PIN" =~ ^(cua-helper-dev|cmux-remote-dev)\.pin\.json$ ]] || { echo "::error::invalid pin name $PIN" >&2; exit 1; }
           pin="scripts/cmux-next/$PIN"
           cp "$RUNNER_TEMP/signed/$PIN" "$pin"
+          # The sparse checkout may not contain this first pin yet; intent-to-add
+          # makes the comparison include an untracked generated pin.
+          git add -N "$pin"
           if git diff --quiet -- "$pin"; then
             echo "feat-cmux-next already pins $SHA256" >> "$GITHUB_STEP_SUMMARY"
             exit 0
