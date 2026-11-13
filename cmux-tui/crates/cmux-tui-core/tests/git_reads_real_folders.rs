@@ -15,7 +15,9 @@
 //! - `git.files.search` and `git.files.list` say of a listed name if it is a folder (a
 //!   submodule). A link is a file whatever its target is, also when git lists tracked paths
 //!   below its name. A name below a link is no folder and no search result, also when the
-//!   link took a folder's place after git's listing.
+//!   link took a folder's place after git's listing. A path below a link is no match in the
+//!   search's count and gives no name in the list, with and without a file of its name behind
+//!   the link, and also when the folder that is searched or listed became the link.
 //!
 //! The git on `PATH` is a stand-in that is the real git. After a child that lists the
 //! untracked files (`ls-files --others`) it runs `.git/after-untracked-listing` of the work
@@ -227,9 +229,22 @@ impl Client {
         entry["kind"].clone()
     }
 
+    /// What `git.files.search` says of `folder` for `query`.
+    fn search(&mut self, folder: &Path, query: &str) -> Value {
+        self.read_with("git.files.search", folder, &[("query", query)])
+    }
+
+    /// The names that `git.files.list` gives for `folder`, in its order.
+    fn listed_names(&mut self, folder: &Path) -> Vec<String> {
+        let result = self.read("git.files.list", folder);
+        let entries =
+            result["entries"].as_array().unwrap_or_else(|| panic!("no entries in {result}"));
+        entries.iter().map(|entry| entry["name"].as_str().unwrap_or_default().to_owned()).collect()
+    }
+
     /// The paths that `git.files.search` finds in `folder` for `query`, sorted.
     fn found(&mut self, folder: &Path, query: &str) -> Vec<String> {
-        let result = self.read_with("git.files.search", folder, &[("query", query)]);
+        let result = self.search(folder, query);
         let results =
             result["results"].as_array().unwrap_or_else(|| panic!("no results in {result}"));
         let mut paths: Vec<String> = results
@@ -596,7 +611,7 @@ fn git_files_search_gives_a_link_as_a_file_whatever_its_target_is() {
 }
 
 #[test]
-fn git_files_list_gives_no_folder_below_a_folder_that_became_a_link_after_the_listing() {
+fn git_files_list_gives_no_name_of_a_folder_that_became_a_link_after_the_listing() {
     let repo = fresh_repository();
     std::fs::create_dir_all(repo.join("dir")).unwrap();
     std::fs::write(repo.join("dir/name"), "inside\n").unwrap();
@@ -608,9 +623,27 @@ fn git_files_list_gives_no_folder_below_a_folder_that_became_a_link_after_the_li
     assert_eq!(client.listed_kind(&folder, "name"), "file", "the file of the work tree");
 
     let hook = swap_after(&repo, "after-deleted-listing", &outside);
-    let during = client.listed_kind(&folder, "name");
+    let during = client.listed_names(&folder);
     swapped(&repo, &hook);
-    assert_eq!(during, "file", "the kind of a name that is not in the work tree");
+    assert!(during.is_empty(), "a name that is not in the work tree: {during:?}");
+}
+
+#[test]
+fn git_files_search_counts_no_match_in_a_folder_that_became_a_link_after_the_listing() {
+    let repo = fresh_repository();
+    std::fs::create_dir_all(repo.join("dir")).unwrap();
+    std::fs::write(repo.join("dir/name.txt"), "inside\n").unwrap();
+    let outside = outside_folder("name.txt", b"outside\n");
+    let mut client = Client::of_a_new_daemon();
+    let folder = repo.join("dir");
+    let before = client.search(&folder, "name");
+    assert_eq!(before["total_matches"], 1, "the file of the work tree: {before}");
+
+    let hook = swap_after(&repo, "after-deleted-listing", &outside);
+    let during = client.search(&folder, "name");
+    swapped(&repo, &hook);
+    assert_eq!(during["total_matches"], 0, "a path that is not in the work tree: {during}");
+    assert_eq!(during["results"], json!([]), "{during}");
 }
 
 #[test]
@@ -631,18 +664,52 @@ fn git_files_search_gives_no_path_below_a_folder_that_became_a_link_after_the_li
 /// No search result.
 const NO_PATH: [&str; 0] = [];
 
-/// A new repository whose tracked folder `dir` is now a link to a folder outside it. That
-/// folder has a `below.txt` of its own, the name of the tracked file `dir/below.txt`.
-fn repository_with_a_link_in_the_place_of_a_tracked_folder() -> PathBuf {
+/// A new repository whose tracked folder `dir`, with the tracked file `dir/below.txt`, is now
+/// a link to a folder outside it. That folder has one file, `outside_file`.
+fn repository_with_a_link_to_a_folder_with(outside_file: &str) -> PathBuf {
     let repo = fresh_repository();
     std::fs::create_dir_all(repo.join("dir")).unwrap();
     std::fs::write(repo.join("dir/below.txt"), "inside\n").unwrap();
     git(&repo, &["add", "dir/below.txt"]);
     git(&repo, &["commit", "--quiet", "-m", "dir"]);
-    let outside = outside_folder("below.txt", b"outside\n");
+    let outside = outside_folder(outside_file, b"outside\n");
     std::fs::rename(repo.join("dir"), repo.join(".git").join("dir-away")).unwrap();
     std::os::unix::fs::symlink(&outside, repo.join("dir")).unwrap();
     repo
+}
+
+/// A new repository whose tracked folder `dir` is now a link to a folder outside it. That
+/// folder has a `below.txt` of its own, the name of the tracked file `dir/below.txt`.
+fn repository_with_a_link_in_the_place_of_a_tracked_folder() -> PathBuf {
+    repository_with_a_link_to_a_folder_with("below.txt")
+}
+
+/// The folder behind the link has a file of the tracked name, or it has none.
+const BEHIND_THE_LINK: [&str; 2] = ["below.txt", "other.txt"];
+
+#[test]
+fn git_files_search_counts_no_match_below_a_link_in_the_place_of_a_tracked_folder() {
+    let mut client = Client::of_a_new_daemon();
+    for outside_file in BEHIND_THE_LINK {
+        let repo = repository_with_a_link_to_a_folder_with(outside_file);
+        let result = client.search(&repo, "below");
+        assert_eq!(result["total_matches"], 0, "{outside_file} behind the link: {result}");
+        assert_eq!(result["truncated"], false, "{outside_file} behind the link: {result}");
+        assert_eq!(result["results"], json!([]), "{outside_file} behind the link: {result}");
+    }
+}
+
+#[test]
+fn git_files_list_gives_no_name_for_an_ignored_link_in_the_place_of_a_tracked_folder() {
+    let mut client = Client::of_a_new_daemon();
+    for outside_file in BEHIND_THE_LINK {
+        let repo = repository_with_a_link_to_a_folder_with(outside_file);
+        // An ignore rule hides the link, as it hides each untracked name; it hides no tracked
+        // path, and the tracked `dir/below.txt` is not in the work tree.
+        std::fs::write(repo.join(".gitignore"), "/dir\n").unwrap();
+        let names = client.listed_names(&repo);
+        assert_eq!(names, [".gitignore", "a.txt"], "{outside_file} behind the link");
+    }
 }
 
 #[test]
