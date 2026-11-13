@@ -247,9 +247,13 @@ impl IndexLog {
         let mut plan = self.rotate(index.seq())?;
         plan.snapshot_path = path.as_ref().to_owned();
         let result = plan.run(std::sync::Arc::new(index.clone()))?;
-        if result.cleanup_errors == 0 {
-            self.compacted(result.covered_generation, result.seq);
+        if result.cleanup_errors != 0 {
+            return Err(io::Error::other(format!(
+                "compaction installed but cleanup had {} errors",
+                result.cleanup_errors
+            )));
         }
+        self.compacted(result.covered_generation, result.seq);
         Ok(())
     }
 
