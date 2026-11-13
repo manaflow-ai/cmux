@@ -156,7 +156,7 @@ extension SidebarListViewComponents {
     }
     /// The drag's base layout (no gap) and its drop rules in the Rust reducer, made again only when the rows or their
     /// look change: a move builds no options, lays out nothing and crosses into Rust with the card's points only, so its
-    /// cost does not grow with the rows the list holds (`SidebarDragMoveCostTests`, `SidebarDragFullMoveCostTests`). The rows are the held ones as shown (`SidebarRowHold`).
+    /// cost does not grow with the rows the list holds (`SidebarDragMoveCostTests`, `SidebarDragFullMoveCostTests`).
     func dragBase(_ drag: Drag) -> (layout: SidebarLayout, rules: DropResolver.DragRules?) {
         let key = dragBaseKey(drag)
         if let base = drag.base, base.key == key { return (base.layout, base.rules) }
@@ -402,8 +402,6 @@ extension SidebarListViewComponents {
             groupLineViews.showMissing(groupLines(displayed), in: self, above: decorations)
         }
         updateHover()
-        // The rows the ticks patched meanwhile show their new content now, together (`SidebarRowHold`).
-        releaseRowHold()
         if let anchor = drag.renameOnLand { inlineRename.beginGroup(of: anchor) }
     }
 
