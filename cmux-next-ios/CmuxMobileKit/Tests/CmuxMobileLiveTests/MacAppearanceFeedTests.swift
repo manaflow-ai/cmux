@@ -45,7 +45,7 @@ import UIKit
         let feed = MacAppearanceFeed(theme: theme)
         feed.focus(macID: "mac")
         let picture = Data([0x89, 0x50, 0x4E, 0x47, 1, 2, 3, 4])
-        let fetches = Counter()
+        let fetches = FetchCounter()
         // Bytes that are not the announced picture are dropped: the colors still apply.
         await feed.apply(Self.frame(background: "#101010", wallpaper: (Self.id(picture), picture.count)), macID: "mac") { _ in
             fetches.count += 1
@@ -87,7 +87,7 @@ import UIKit
             UIColor.orange.setFill()
             context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
         }
-        let fetches = Counter()
+        let fetches = FetchCounter()
         // mac-b's frame arrives while mac-a is focused: nothing shows, nothing is fetched yet.
         await feed.apply(Self.frame(background: "#404040", wallpaper: (Self.id(picture), picture.count)), macID: "mac-b") { _ in
             fetches.count += 1
@@ -108,7 +108,7 @@ import UIKit
 
 /// A fetch count the test's fetch closures share.
 @MainActor
-final class Counter {
+final class FetchCounter {
     var count = 0
 }
 #endif
