@@ -23,9 +23,27 @@
     webviews_test_history.py base-red-files BASE_REDS.json --names NAMES.json
         print, one a line, NAMES' red files (a shard's first run) whose every red name BASE_REDS holds; an
         unreadable BASE_REDS prints none, so every red file is retried
+    webviews_test_history.py early-files BASE_REDS.json --shard I --shard-count K --durations MANIFEST.json
+                                         [--only FILES] [--root DIR]
+        print, one a line, shard I's share (of K) of the files BASE_REDS names, kept to the FILES list (the
+        change's affected files) and to files under DIR; react-apps-base-early runs them on the merge parent
+    webviews_test_history.py early-known EARLY_DIR --sha BASE_SHA --replay FILES --known BASE.json
+        take into BASE (known's output) the verdicts react-apps-base-early's artifacts in EARLY_DIR hold for the
+        FILES list (known's replay list) at BASE_SHA, and rewrite FILES with the files still to replay
+    webviews_test_history.py heads SHARDS_DIR --count K --out DIR
+        join the K head shards' react-apps-head-results-shardI artifacts under SHARDS_DIR into one in DIR (their
+        results map, runner and raw logs) for the one react-apps-base-check, and write DIR/shards.json ({file:
+        shard}); a missing shard exits 1, an unreadable one leaves the joined results unreadable
+    webviews_test_history.py rerun-fits FILES --shards SHARDS.json --cap N
+        exit 0 when FILES (the change's reds to re-run alone) is not empty and no head shard holds more than N
+        of them, else 1
     webviews_test_history.py fetch OUT --repo OWNER/REPO --branch BRANCH
         write to OUT the newest history a push on BRANCH uploaded (the ARTIFACT artifact), or an empty
         one when there is none or it cannot be read; GITHUB_TOKEN reads it (actions: read)
+    webviews_test_history.py stuck HISTORY [--runs N] [--repo OWNER/REPO] [--summary FILE] [--fail]
+        name every file red on each of the last N pushes it ran on (default STUCK_RUNS), with the push it first
+        went red on and the last one it passed, grouped by that range: one ::error annotation a range, a table in
+        SUMMARY (the job summary), and with --fail exit 1 when any is stuck
 
 Why: a pull request fails only on the webview tests its base replay (react-apps-base-check)
 passes, and that replay runs each red file once, alone, on the merge parent. A test that fails
@@ -42,6 +60,11 @@ its fix make one red stretch, and a busy day changes the inputs on nearly every 
 never run twice on the same ones. So is a red of a test that failed on the base itself while its
 file's reds came back after a green: one flake may fail a different test of its file each run. The inputs are the paths the router (web_subareas.py) runs the webview
 suite for; a test that reads a file outside them is a router gap, which also skips it on pull requests.
+A base red is excused on every pull request (it is red at the base too), and nothing else asked how long it
+had been red: on 2026-11-13 react-apps-check had been red on every one of 78 completed push runs since
+2026-11-11 16:59 UTC, and model-picker-scaling on 62 recorded pushes in a row, before anyone read the
+failures (cmuxterm-hq#10383). `stuck` names such a red after STUCK_RUNS pushes (about 5 h at two runs an
+hour), with the commits it went red between, so it becomes someone's while pull requests keep passing it.
 Each run stores only what it needs: its inputs key, the files that ran and the names that were red.
 A test is green on a run whose file ran and named neither it nor the file as red; a file red
 without naming tests (a timeout, a crash) says nothing about that file's tests on that run.
@@ -53,6 +76,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -262,10 +286,225 @@ def base_red_files(reds: set[str], head: dict[str, bool]) -> list[str]:
     return sorted(file for file, names in by_file.items() if all(name in reds for name in names))
 
 
+EARLY_DEFAULT_S = 60.0  # a base red file the duration manifest has no seconds for
+
+
+def early_files(reds: list[str], shard: int, count: int, durations: dict[str, float], only: set[str] | None = None,
+                root: Path | None = None) -> list[str]:
+    """Shard SHARD's (one-based, of COUNT) share of the files REDS names (known_reds: red on the base's newest recorded
+    push), for react-apps-base-early to run on the merge parent while the head shards run.
+
+    ONLY (the change's affected files) keeps the files a head shard will run; ROOT (webviews/ at the merge parent) keeps
+    the files the base has. Longest first onto the least loaded shard, ties by name, so every shard computes the same
+    split; the 600 s base timeout of run 43384458711 gets a shard to itself."""
+    files = sorted({str(name).split(" > ", 1)[0] for name in reds})
+    files = [f for f in files if (only is None or f in only) and (root is None or (root / f).is_file())]
+    loads = [0.0] * count
+    mine = []
+    for file in sorted(files, key=lambda f: (-durations.get(f, EARLY_DEFAULT_S), f)):
+        target = min(range(count), key=lambda i: (loads[i], i))
+        loads[target] += durations.get(file, EARLY_DEFAULT_S)
+        if target == shard - 1:
+            mine.append(file)
+    return sorted(mine)
+
+
+def early_known(early: list[dict], base_sha: str, replay: list[str],
+                known: dict[str, bool]) -> tuple[dict[str, bool], list[str]]:
+    """(KNOWN with the early base runs' verdicts for REPLAY's files, the files still to replay).
+
+    react-apps-base-early ran the base's recorded red files once each, alone, on this merge parent, with the head's
+    runner, while the head shards ran: the run react-apps-base-check's replay would make after them (run 43384458711:
+    up to 10 such files, 12.8 min, after the head shards' 17.9). A file takes those verdicts only when an early run on
+    BASE_SHA listed it and wrote a result for it; anything else (no artifact, another sha, a file it did not reach)
+    replays as before."""
+    results: dict[str, bool] = {}
+    ran: set[str] = set()
+    for item in early:
+        if not isinstance(item, dict) or item.get("sha") != base_sha or len(base_sha) != 40:
+            continue
+        files, found = item.get("files"), item.get("results")
+        if not isinstance(files, list) or not isinstance(found, dict):
+            continue
+        ran.update(str(f) for f in files)
+        results.update({str(name): bool(ok) for name, ok in found.items() if isinstance(ok, bool)})
+    by_file: dict[str, dict[str, bool]] = {}
+    for name, ok in results.items():
+        by_file.setdefault(name.split(" > ", 1)[0], {})[name] = ok
+    out, left = dict(known), []
+    for file in replay:
+        if file in ran and by_file.get(file):
+            out.update(by_file[file])
+        else:
+            left.append(file)
+    return out, left
+
+
+def flaky_only(replay: list[str], flaky_names: set[str], head: dict[str, bool]) -> tuple[list[str], list[str]]:
+    """(the files still to replay, the files whose every red head name is flaky on the base).
+
+    guards_new_reds.py never charges a red name the flaky list holds to the change, whatever the base replay says, so a
+    file whose head reds are all on it needs no replay: run 43442029204's base check replayed 4 such files (1.7 min of
+    base install, bundles and browsers, then 3.4 min) after the head shards' 18.4 min, and every one only warned. A file
+    with any red the list does not hold, or with none the head names, replays as before."""
+    left, dropped = [], []
+    for file in replay:
+        reds = [name for name, ok in head.items() if not ok and name.split(" > ", 1)[0] == file]
+        (dropped if reds and all(name in flaky_names for name in reds) else left).append(file)
+    return left, dropped
+
+
+HEAD_ARTIFACT = "react-apps-head-results-shard{}"
+HEAD_RESULTS = "webviews-head-results.json"
+
+
+def join_heads(shards: Path, count: int, out: Path) -> str | None:
+    """Join the COUNT head shards' artifacts under SHARDS into OUT, for the one react-apps-base-check that judges them
+    all (it was one job a head shard, 12 jobs for what run 43409592440 answered in 0.3 to 0.9 min each). Their result
+    maps and raw logs are disjoint (a test file runs in one shard; a log is named by its file), and every shard copies
+    the same runner from the head. None when joined; else why not (a shard's artifact is missing: the job then fails,
+    as a missing download failed it). An unreadable shard map writes unreadable joined results, which the base check
+    reads as it read one shard's unreadable results."""
+    joined: dict | None = {}
+    where: dict[str, int] = {}
+    out.mkdir(parents=True, exist_ok=True)
+    for shard in range(1, count + 1):
+        here = shards / HEAD_ARTIFACT.format(shard)
+        if not (here / HEAD_RESULTS).is_file():
+            return f"{HEAD_ARTIFACT.format(shard)} has no {HEAD_RESULTS}"
+        try:
+            found = json.loads((here / HEAD_RESULTS).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            found = None
+        if not isinstance(found, dict):
+            joined = None
+        elif joined is not None:
+            joined.update(found)
+            for name in found:
+                where.setdefault(str(name).split(" > ", 1)[0], shard)
+        if (here / "runner").is_dir() and not (out / "runner").is_dir():
+            shutil.copytree(here / "runner", out / "runner")
+        logs = here / "raw-logs"
+        if logs.is_dir():
+            (out / "raw-logs").mkdir(exist_ok=True)
+            for log in sorted(logs.iterdir()):
+                if not log.is_file():
+                    continue
+                target = out / "raw-logs" / log.name
+                if log.name in ("summary", "first-summary"):
+                    with target.open("ab") as listed:
+                        listed.write(log.read_bytes())
+                else:
+                    shutil.copyfile(log, target)
+    (out / HEAD_RESULTS).write_text("unreadable\n" if joined is None else json.dumps(joined, indent=1, sort_keys=True) + "\n",
+                                    encoding="utf-8")
+    (out / "shards.json").write_text(json.dumps(where, sort_keys=True) + "\n", encoding="utf-8")
+    return None
+
+
+def rerun_fits(files: list[str], where: dict[str, int], cap: int) -> bool:
+    """Whether the change's reds may be re-run alone on the head: at least one, and at most CAP from any one head shard
+    (the cap the per-shard base checks each held; the files no shard names count together, as one shard)."""
+    if not files:
+        return False
+    counts: dict[object, int] = {}
+    for file in files:
+        shard = where.get(file, "unnamed")
+        counts[shard] = counts.get(shard, 0) + 1
+    return max(counts.values()) <= cap
+
+
 def flaky(runs: list[dict], names: list[str] | None = None) -> list[str]:
     if names is None:
         names = sorted({name for run in runs for name in run["red"]})
     return sorted(name for name in names if flaky_name(runs, name))
+
+
+STUCK_RUNS = 10  # pushes in a row a file may stay red before it is named: about 5 h of coalesced runs
+STUCK_TESTS_SHOWN = 5  # red tests named a file; the rest are counted
+STUCK_NOTES = 9  # ::error annotations at most, one a range (GitHub shows 10 a step); one more counts the rest
+
+
+def file_red(run: dict, file: str) -> bool | None:
+    """FILE's verdict on RUN: None when it did not run, False when it or any of its tests was red."""
+    if file not in run["files"]:
+        return None
+    return not (file in run["red"] or any(name.startswith(f"{file} > ") for name in run["red"]))
+
+
+def stuck(runs: list[dict], streak: int = STUCK_RUNS) -> list[dict]:
+    """The files red on each of the last STREAK pushes they ran on, newest run's reds only, by file.
+
+    Each: file, reds (the pushes in a row it was red, back to its last green or the history's start), first (the
+    oldest of those pushes), green (the push before it, its last pass; None when the history holds none), tests
+    (its red names on the newest push). A flake is never stuck: one green ends the stretch."""
+    if not runs:
+        return []
+    newest = runs[-1]
+    files = sorted({name.split(" > ", 1)[0] for name in newest["red"]})
+    out = []
+    for file in files:
+        reds, first, green = 0, None, None
+        for run in reversed(runs):
+            ok = file_red(run, file)
+            if ok is None:
+                continue
+            if ok:
+                green = run
+                break
+            reds, first = reds + 1, run
+        if reds >= streak:
+            tests = sorted(name for name in newest["red"] if name.startswith(f"{file} > "))
+            out.append({"file": file, "reds": reds, "first": first, "green": green, "tests": tests})
+    return out
+
+
+def _when(run: dict) -> str:
+    import datetime  # noqa: PLC0415
+    return datetime.datetime.fromtimestamp(run["time"], datetime.timezone.utc).strftime("%Y-%m-%d %H:%MZ")
+
+
+def stuck_report(found: list[dict], runs: list[dict], streak: int, repo: str = "") -> tuple[list[str], str]:
+    """(the ::error annotations, one a first-red range; the Markdown summary) for stuck()'s FOUND."""
+    url = f"https://github.com/{repo}" if repo else ""
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for item in found:
+        groups.setdefault((item["first"]["sha"], item["green"]["sha"] if item["green"] else ""), []).append(item)
+    notes, rows = [], []
+    for (first, green), items in sorted(groups.items(), key=lambda kv: kv[1][0]["first"]["time"]):
+        start = items[0]["first"]
+        since = f"since {first[:12]} ({_when(start)})"
+        if green:
+            span = f"last green {green[:12]} ({_when(items[0]['green'])})"
+            commits = f"{url}/compare/{green}...{first}" if url else f"{green}..{first}"
+        else:
+            span = f"no green in the {len(runs)} pushes recorded (since {_when(runs[0])})"
+            commits = f"{url}/commit/{first}" if url else first
+        names = ", ".join(i["file"] for i in items)
+        most = max(i["reds"] for i in items)
+        notes.append(f"::error title=Webview base red for {most} pushes::{len(items)} webview test file(s) red on "
+                     f"every feat-cmux-next push {since}, {span}; pull requests excuse them as base reds, so they "
+                     f"are nobody's until fixed. Went red in: {commits}. Files: {names}")
+        for item in items:
+            shown = "<br>".join(t.split(" > ", 1)[1] for t in item["tests"][:STUCK_TESTS_SHOWN])
+            more = len(item["tests"]) - STUCK_TESTS_SHOWN
+            if more > 0:
+                shown += f"<br>and {more} more"
+            went = f"[{green[:12]}...{first[:12]}]({commits})" if url and green else commits
+            rows.append(f"| `{item['file']}` | {item['reds']} | {first[:12]} ({_when(item['first'])}) | "
+                        f"{green[:12] if green else 'none recorded'} | {went} | {shown or '(the file failed)'} |")
+    if len(notes) > STUCK_NOTES:
+        rest = len(notes) - STUCK_NOTES
+        notes = notes[:STUCK_NOTES] + [f"::error title=Webview base reds::{rest} more range(s) of stuck webview base "
+                                       "reds; the job summary lists every file"]
+    if not found:
+        return [], f"### Webview base reds\n\nNo webview test file is red on the last {streak} pushes it ran on.\n"
+    summary = (f"### Webview base reds stuck for {streak}+ pushes\n\n"
+               f"{len(found)} file(s) red on every push since they went red. Pull requests excuse them as base reds; "
+               "each range below is where one went red.\n\n"
+               "| File | Red pushes in a row | First red | Last green | Went red in | Red tests now |\n"
+               "| --- | --- | --- | --- | --- | --- |\n" + "\n".join(rows) + "\n")
+    return notes, summary
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -367,13 +606,54 @@ def main(argv: list[str]) -> int:
     br = sub.add_parser("base-red-files")
     br.add_argument("base_reds")
     br.add_argument("--names", required=True)
+    ef = sub.add_parser("early-files")
+    ef.add_argument("base_reds")
+    ef.add_argument("--shard", type=int, required=True)
+    ef.add_argument("--shard-count", type=int, required=True)
+    ef.add_argument("--durations", required=True)
+    ef.add_argument("--only")
+    ef.add_argument("--root")
+    ek = sub.add_parser("early-known")
+    ek.add_argument("early_dir")
+    ek.add_argument("--sha", required=True)
+    ek.add_argument("--replay", required=True)
+    ek.add_argument("--known", required=True)
+    fo = sub.add_parser("flaky-only")
+    fo.add_argument("flaky")
+    fo.add_argument("--replay", required=True)
+    fo.add_argument("--names", required=True)
+    hd = sub.add_parser("heads")
+    hd.add_argument("shards")
+    hd.add_argument("--count", type=int, required=True)
+    hd.add_argument("--out", required=True)
+    rf = sub.add_parser("rerun-fits")
+    rf.add_argument("files")
+    rf.add_argument("--shards", required=True)
+    rf.add_argument("--cap", type=int, required=True)
     fe = sub.add_parser("fetch")
     fe.add_argument("out")
     fe.add_argument("--repo", required=True)
     fe.add_argument("--branch", required=True)
     fe.add_argument("--need-read", action="store_true",
                     help="exit 1 when the history could not be read (a missing one is fine): a push then saves none")
+    st = sub.add_parser("stuck")
+    st.add_argument("history")
+    st.add_argument("--runs", type=int, default=STUCK_RUNS)
+    st.add_argument("--repo", default="")
+    st.add_argument("--summary")
+    st.add_argument("--fail", action="store_true", help="exit 1 when a file is stuck")
     args = parser.parse_args(argv)
+    if args.command == "stuck":
+        runs = load(args.history)
+        found = stuck(runs, max(1, args.runs))
+        notes, summary = stuck_report(found, runs, max(1, args.runs), args.repo)
+        for note in notes:
+            print(note)
+        print(summary)
+        if args.summary:
+            with open(args.summary, "a", encoding="utf-8") as handle:
+                handle.write(summary)
+        return 1 if args.fail and found else 0
     if args.command == "fetch":
         found, said, read = fetch(args.repo, args.branch, os.environ.get("GITHUB_TOKEN"))
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
@@ -405,6 +685,71 @@ def main(argv: list[str]) -> int:
             return 0
         for file in base_red_files({str(name) for name in reds}, results([args.names])):
             print(file)
+        return 0
+    if args.command == "early-files":
+        try:
+            data = json.loads(Path(args.base_reds).read_text(encoding="utf-8"))
+            reds = data["red"] if isinstance(data, dict) and isinstance(data.get("inputs"), str) and data["inputs"] else None
+        except (OSError, ValueError, KeyError):
+            reds = None
+        if not isinstance(reds, list) or not 1 <= args.shard <= args.shard_count:
+            return 0
+        try:
+            durations = json.loads(Path(args.durations).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            durations = {}
+        durations = {str(k): float(v) for k, v in durations.items() if isinstance(v, (int, float)) and not isinstance(v, bool)
+                     and 0 <= v < 86400} if isinstance(durations, dict) else {}
+        only = None
+        if args.only:
+            only = {line.strip() for line in Path(args.only).read_text(encoding="utf-8").splitlines() if line.strip()}
+        for file in early_files(reds, args.shard, args.shard_count, durations, only, Path(args.root) if args.root else None):
+            print(file)
+        return 0
+    if args.command == "heads":
+        why = join_heads(Path(args.shards), args.count, Path(args.out))
+        if why:
+            print(f"::error title=Webview head results::{why}: that head shard published no results to judge")
+            return 1
+        return 0
+    if args.command == "rerun-fits":
+        try:
+            files = [line.strip() for line in Path(args.files).read_text(encoding="utf-8").splitlines() if line.strip()]
+        except OSError:
+            files = []
+        try:
+            where = json.loads(Path(args.shards).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            where = {}
+        if not isinstance(where, dict):
+            where = {}
+        return 0 if rerun_fits(files, where, args.cap) else 1
+    if args.command == "early-known":
+        # Any failure leaves BASE and FILES as they were: every file in FILES still replays.
+        early = []
+        for path in sorted(Path(args.early_dir).glob("early-*.json")) if Path(args.early_dir).is_dir() else []:
+            try:
+                early.append(json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                continue
+        replay_path, known_path = Path(args.replay), Path(args.known)
+        replay = [line for line in replay_path.read_text(encoding="utf-8").splitlines() if line]
+        known_now = json.loads(known_path.read_text(encoding="utf-8"))
+        if not isinstance(known_now, dict):
+            return 1
+        merged, left = early_known(early, args.sha, replay, known_now)
+        print(f"react-apps-base-early answers for {len(replay) - len(left)} of {len(replay)} files to replay")
+        known_path.write_text(json.dumps(merged, sort_keys=True) + "\n", encoding="utf-8")
+        replay_path.write_text("".join(f"{file}\n" for file in left), encoding="utf-8")
+        return 0
+    if args.command == "flaky-only":
+        # Any failure leaves FILES as it was: every file in it still replays.
+        replay_path = Path(args.replay)
+        replay = [line for line in replay_path.read_text(encoding="utf-8").splitlines() if line]
+        names = {line.strip() for line in Path(args.flaky).read_text(encoding="utf-8").splitlines() if line.strip()}
+        left, dropped = flaky_only(replay, names, results([args.names]))
+        print(f"{len(dropped)} of {len(replay)} files to replay hold only reds flaky on the base: they only warn, unreplayed")
+        replay_path.write_text("".join(f"{file}\n" for file in left), encoding="utf-8")
         return 0
     if args.command == "known":
         base, replay = known(load(args.history), args.inputs, results([args.names]))

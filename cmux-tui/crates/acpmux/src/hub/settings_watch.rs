@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::Instant;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 use notify::Watcher as _;
 
 use super::harness_watch::{MAX_BURST, QUIET};
@@ -48,9 +48,13 @@ impl Drop for SettingsWatchState {
 
 /// Keeps the watcher alive; dropping it stops the events and its thread.
 pub(crate) struct SettingsWatcher {
-    #[cfg(not(target_os = "macos"))]
+    /// Linux: inotify for changes only (`quiet_dirs`): notify asks for every open, and while
+    /// `~/.config/cmux` does not exist the folder watched is `$HOME`.
+    #[cfg(target_os = "linux")]
+    watcher: StdMutex<crate::quiet_dirs::QuietDirs>,
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     watcher: StdMutex<notify::RecommendedWatcher>,
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     watched: StdMutex<Vec<PathBuf>>,
     #[cfg(target_os = "macos")]
     _watch: crate::named_files_watch::NamedFilesWatch,
@@ -83,7 +87,27 @@ impl Hub {
             };
             Arc::new(SettingsWatcher { _watch: named })
         };
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
+        let watch = {
+            // The watch follows each settings file's path itself: its folder as named and through
+            // links, the nearest existing ancestor of a missing one, a folder replaced under its
+            // name, and no watch left on a folder it no longer needs (`quiet_dirs`).
+            let targets =
+                files.iter().cloned().map(crate::quiet_dirs::Target::File).collect::<Vec<_>>();
+            let watcher = match crate::quiet_dirs::QuietDirs::follow(
+                tx,
+                "acpmux-settings-inotify",
+                targets,
+            ) {
+                Ok(watcher) => watcher,
+                Err(e) => {
+                    tracing::warn!("settings watch cannot start: {e}");
+                    return;
+                }
+            };
+            Arc::new(SettingsWatcher { watcher: StdMutex::new(watcher) })
+        };
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         let watch = {
             let watcher = match notify::recommended_watcher(move |event| {
                 let _ = tx.send(event);
@@ -171,13 +195,20 @@ impl SettingsWatcher {
         // The kqueue watch arms itself again when a folder or file comes or goes.
     }
 
+    /// Linux: the watch follows the files' paths itself (`quiet_dirs`); looking again here
+    /// covers what changed while the burst gathered.
+    #[cfg(target_os = "linux")]
+    fn refresh(&self, _files: &[PathBuf]) {
+        self.watcher.lock().unwrap_or_else(|p| p.into_inner()).sync();
+    }
+
     /// Watches each settings file's folder, as for macOS above, on notify's watcher.
     ///
     /// A folder made between the look and its ancestor's watch has no event (the watch came
     /// after it), so after each new watch the folders are looked at again, until a look adds
     /// none: the daemon starts this watch after its ready line, the moment a client may make
     /// `~/.config/cmux` and its settings file, and a later write into that folder was missed.
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     fn refresh(&self, files: &[PathBuf]) {
         let mut watched = self.watched.lock().unwrap_or_else(|p| p.into_inner());
         let mut watcher = self.watcher.lock().unwrap_or_else(|p| p.into_inner());
@@ -187,20 +218,20 @@ impl SettingsWatcher {
             let folders = files.iter().flat_map(|f| {
                 [f.parent().map(Path::to_path_buf), real(f).parent().map(Path::to_path_buf)]
             });
+            let mut own: Vec<PathBuf> = Vec::new();
             for folder in folders.flatten() {
                 if let Some(existing) = folder.ancestors().find(|a| a.is_dir()) {
                     wanted.push(existing.to_path_buf());
                 }
-            }
-            #[cfg(test)]
-            if let Some(mut hook) = tests::AFTER_LOOK.with(|hook| hook.borrow_mut().take()) {
-                hook();
+                own.push(folder);
             }
             let mut added = false;
             for dir in wanted {
+                // An ancestor standing in for a missing folder: its entries only.
+                let entries_only = !own.contains(&dir);
                 if dir.is_dir()
                     && !watched.contains(&dir)
-                    && watcher.watch(&dir, notify::RecursiveMode::NonRecursive).is_ok()
+                    && arm_dir(&mut watcher, &dir, entries_only)
                 {
                     watched.push(dir);
                     added = true;
@@ -211,6 +242,12 @@ impl SettingsWatcher {
             }
         }
     }
+}
+
+/// Watches `dir` (notify has no entries-only watch: every change).
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn arm_dir(watcher: &mut notify::RecommendedWatcher, dir: &Path, _entries_only: bool) -> bool {
+    watcher.watch(dir, notify::RecursiveMode::NonRecursive).is_ok()
 }
 
 /// `path` resolved through its nearest existing folder (FSEvents reports
@@ -232,6 +269,23 @@ fn real(path: &Path) -> PathBuf {
     }
 }
 
+/// Whether `path` is `file` or a folder on the way to it.
+fn on_the_way(file: &Path, path: &Path) -> bool {
+    file == path || file.ancestors().any(|a| a == path)
+}
+
+/// Linux: whether `path` is a settings file, or a folder on the way to one, as its links resolve
+/// now (a link's target may not have existed at start, or the link was pointed elsewhere since).
+#[cfg(target_os = "linux")]
+fn followed(files: &[PathBuf], path: &Path) -> bool {
+    files.iter().any(|f| on_the_way(&crate::quiet_dirs::resolve(f).0, path))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn followed(_files: &[PathBuf], _path: &Path) -> bool {
+    false
+}
+
 /// Ends when the watcher is dropped (the channel closes), or when the task
 /// is gone (the runtime stopped or the hub dropped).
 fn run(
@@ -242,9 +296,9 @@ fn run(
 ) {
     let mut names: Vec<PathBuf> = files.to_vec();
     names.extend(files.iter().map(|f| real(f)));
-    // A settings file, or a folder on the way to one (created or removed).
-    let relevant =
-        |path: &Path| names.iter().any(|f| f == path || f.ancestors().any(|a| a == path));
+    // A settings file, or a folder on the way to one (created or removed). Linux also matches
+    // each file as its links resolve now: a link's target may not have existed at start.
+    let relevant = |path: &Path| names.iter().any(|f| on_the_way(f, path)) || followed(files, path);
     let matters = |event: notify::Result<notify::Event>| match event {
         // A watcher error may have dropped events: look again.
         Err(_) => true,
@@ -281,40 +335,5 @@ fn run(
         if closed {
             return;
         }
-    }
-}
-
-#[cfg(all(test, not(target_os = "macos")))]
-mod tests {
-    use super::*;
-    use std::cell::RefCell;
-
-    thread_local! {
-        /// Run once, right after `refresh` first looks at which folders exist.
-        pub(super) static AFTER_LOOK: RefCell<Option<Box<dyn FnMut()>>> =
-            const { RefCell::new(None) };
-    }
-
-    /// `~/.config/cmux` made between `refresh`'s look (which found only the home) and the
-    /// home's watch: no event ever names it, so the folder must be watched by that same refresh,
-    /// or a later write of the settings file in place is never seen.
-    #[test]
-    fn a_folder_made_while_refresh_looks_is_watched_by_that_refresh() {
-        let base = tempfile::tempdir().unwrap();
-        let home = std::fs::canonicalize(base.path()).unwrap();
-        let folder = home.join(".config").join("cmux");
-        let file = folder.join("cmux-next.json");
-        let made = folder.clone();
-        AFTER_LOOK.with(|hook| {
-            *hook.borrow_mut() = Some(Box::new(move || std::fs::create_dir_all(&made).unwrap()));
-        });
-        let watch = SettingsWatcher {
-            watcher: StdMutex::new(notify::recommended_watcher(|_| {}).unwrap()),
-            watched: StdMutex::new(Vec::new()),
-        };
-        watch.refresh(&[file]);
-        assert!(AFTER_LOOK.with(|hook| hook.borrow().is_none()), "the look never ran");
-        let watched = watch.watched.lock().unwrap().clone();
-        assert!(watched.contains(&folder), "{watched:?}");
     }
 }

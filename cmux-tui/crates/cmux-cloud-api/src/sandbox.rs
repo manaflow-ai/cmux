@@ -50,13 +50,24 @@ pub const DEFAULT_TEARDOWN_MS: i64 = 180_000;
 pub const DEFAULT_CALLS_MARGIN_MS: i64 = 60_000;
 /// The longest a cancel waits for the Run to stop before it answers.
 const CANCEL_WAIT: Duration = Duration::from_secs(30);
-const TASK_MAX_CHARS: usize = 16_000;
+/// The longest task a Run takes, in characters as [`task_fits`] counts them.
+pub const TASK_MAX_CHARS: usize = 16_000;
 const KEY_MAX_CHARS: usize = 128;
 /// The receipt's reply: the end of the agent's answer, at most this many characters.
 pub const REPLY_MAX_CHARS: usize = 4_000;
 const ERROR_MAX_CHARS: usize = 500;
 pub const AGENTS: [&str; 4] = ["claude", "codex", "opencode", "pi"];
 pub const DEFAULT_AGENT: &str = "codex";
+
+/// Whether `task` (already trimmed) is a Run's task: 1 to [`TASK_MAX_CHARS`] characters. Characters
+/// as the composer and classic Cloud count them (grapheme clusters, Swift's `count`), never bytes,
+/// Unicode scalars or UTF-16 units: a decomposed "é" or a ZWJ family emoji is one (#39022 review at
+/// 1c13439a, F2). The daemon's create and `cmux run --sandboxed` both ask this, so the CLI never
+/// refuses a task the daemon takes or sends one it refuses. It stops counting past the limit.
+pub fn task_fits(task: &str) -> bool {
+    !task.is_empty() && task.graphemes(true).nth(TASK_MAX_CHARS).is_none()
+}
+
 /// A Run's machine is named this and the Run's id, so a cleanup finds it by name.
 pub const MACHINE_PREFIX: &str = "sandbox-";
 /// The label a lost Run's timeout names.
@@ -111,9 +122,11 @@ pub enum Removal {
     /// Not yet: the machine is still listed (a delete was asked for, or is under way), or the list
     /// cannot say (signed out, not loaded, another team). Read again later.
     Later(String),
-    /// No list could be read at all: the app not running, or its Cloud verbs refused (Cloud turned
-    /// off by an organization). Read again later; this time never counts toward giving up, so a
-    /// Mac that was closed or a policy that was on never strands the machine with no delete tried.
+    /// No list could be read at all (the app not running, or its Cloud verbs refused: Cloud turned
+    /// off by an organization), or the list the app answered cannot say (signed out, not loaded
+    /// yet, or another account's). Read again later; this time never counts toward giving up, so a
+    /// Mac that was closed, a policy that was on or a sign-out never strands the machine with no
+    /// delete tried: signing back in resumes the cleanup (#39022 F2 at b1bfb468).
     Unheard(String),
     /// The Run's own account's list shows a create of its name on its way: the app may still make
     /// the machine (a start that waits on the person's Start can make it days later). Read again
@@ -136,12 +149,17 @@ pub trait Steps: Send + Sync {
     /// Asks for the machine's delete when it is still listed; [`Removal::Gone`] only once an
     /// authoritative list for `scope` no longer shows it, [`Removal::Cleared`] when a list of one
     /// of the `elsewhere` accounts shows none of it.
+    ///
+    /// `listed_since_ms`: a list read before this time (ms since the epoch) is no proof the machine
+    /// is absent: a create whose answer was lost may land in the list after it (#39022 F1 at
+    /// b1bfb468), so only a list the app read since then says [`Removal::Gone`].
     fn remove(
         &self,
         machine_name: &str,
         machine: Option<&str>,
         scope: Option<&str>,
         elsewhere: &[String],
+        listed_since_ms: i64,
     ) -> Removal;
     /// The other accounts the app was on while the Run `run`'s task started (a switch during the
     /// start), each one where its machine may have been made; asked once, after the task.
@@ -498,9 +516,7 @@ impl Engine {
             ));
         }
         let task = optional_text(args, "task").map(str::trim).unwrap_or_default();
-        // Characters as the composer and classic Cloud count them (grapheme clusters, Swift's
-        // `count`), never Unicode scalars: a decomposed "é" is one (#39022 review at 1c13439a, F2).
-        if task.is_empty() || task.graphemes(true).count() > TASK_MAX_CHARS {
+        if !task_fits(task) {
             return Err(refused(400, "run_task_required", "task: the task, 1 to 16000 characters"));
         }
         let agent = optional_text(args, "agent").filter(|a| !a.is_empty()).unwrap_or(DEFAULT_AGENT);
@@ -738,7 +754,7 @@ impl Engine {
                 (run.machine_name, run.machine, run.scope, run.settle_ms, run.elsewhere)
             };
             let removal =
-                self.steps.remove(&name, machine.as_deref(), scope.as_deref(), &elsewhere);
+                self.steps.remove(&name, machine.as_deref(), scope.as_deref(), &elsewhere, settle);
             // Before the settle time a create there may still be on its way into that list.
             if let Removal::Cleared(other) = &removal
                 && now_ms() >= settle
@@ -1000,7 +1016,13 @@ fn snapshot(run: &Run) -> Value {
                 "totalMs": total,
             },
             "cost": null,
-            "cleanup": if run.cleanup == "destroyed" { "destroyed" } else { "pending" },
+            // `abandoned`: cmux stopped trying and the machine may still run; never `pending`
+            // then, which says cmux is still deleting it (#39022 review at a5563b2d, F2).
+            "cleanup": match run.cleanup.as_str() {
+                "destroyed" => "destroyed",
+                "abandoned" => "abandoned",
+                _ => "pending",
+            },
         })
     });
     json!({

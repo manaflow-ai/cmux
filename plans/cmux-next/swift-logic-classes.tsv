@@ -6684,7 +6684,7 @@ CmuxNextDesign	protocol	PaneTabRowSharing	0	PLATFORM	0	0	Packages/macOS/CmuxNext
 CmuxNextDesign	struct	PaneTabRowMenuItem	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneTabRowTool.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	PaneTabRowTool	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneTabRowTool.swift	from struct PaneTabRowMenuItem:4: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	PaneTintView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneTintView.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	class	KeyWindowObserver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PointerHover.swift	from class PointerHover:19: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
+CmuxNextDesign	class	KeyWindowObserver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/KeyWindowObserver.swift	from class PointerHover:19: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	PointerHover	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PointerHover.swift	from class PointerHover:19: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	TargetIndex	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PointerHover.swift	from class PointerHover:19: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	CmuxPopoverAnchor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PopoverAnchor.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
