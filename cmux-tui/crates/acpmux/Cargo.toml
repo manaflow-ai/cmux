@@ -185,6 +185,7 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+acpmux-client = { path = "../acpmux-client" }
 # Property tests of the stores under random operations, restarts and torn writes (src/stress/).
 proptest = { version = "1", default-features = false, features = ["std"] }
 # The NEXT Cloud network list (`vm.networks`), whose id the tunnel tests attach with.

@@ -7,6 +7,8 @@ impl Hub {
     /// replace is stored without its content and held; the held ones a record makes due are
     /// appended before it. A copy (`at`) is never held. Clients hear every record the store
     /// keeps, as sent; one it refused is not published ([`Hub::append_record_locked`]).
+    ///
+    /// `stored_only`: see [`Hub::append_record_locked`].
     #[allow(clippy::too_many_arguments)]
     pub(super) fn append_at_locked(
         &self,
@@ -16,6 +18,7 @@ impl Hub {
         msg: Value,
         host_seq: Option<u64>,
         at: Option<u64>,
+        stored_only: bool,
         notify: bool,
     ) -> (EventRecord, bool) {
         let keep = session.log_deferral.lock().unwrap_or_else(|e| e.into_inner()).keep(
@@ -27,8 +30,17 @@ impl Hub {
         );
         self.store_late(session, keep.before);
         let kept = keep.stored.map_or(Kept::Sent, Kept::Stub);
-        let (record, stored) =
-            self.append_record_locked(session, dir, kind, msg, host_seq, at, kept, notify);
+        let (record, stored) = self.append_record_locked(
+            session,
+            dir,
+            kind,
+            msg,
+            host_seq,
+            at,
+            stored_only,
+            kept,
+            notify,
+        );
         if stored {
             let mut deferral = session.log_deferral.lock().unwrap_or_else(|e| e.into_inner());
             deferral.stored(&record.dir, &record.kind, &record.msg);
@@ -41,8 +53,17 @@ impl Hub {
     fn store_late(&self, session: &Session, late: Vec<(&'static str, Value)>) -> bool {
         let mut late = late.into_iter();
         while let Some((kind, msg)) = late.next() {
-            let (record, stored) =
-                self.append_record_locked(session, "in", kind, msg, None, None, Kept::Sent, true);
+            let (record, stored) = self.append_record_locked(
+                session,
+                "in",
+                kind,
+                msg,
+                None,
+                None,
+                true,
+                Kept::Sent,
+                true,
+            );
             if !stored {
                 let mut refused = vec![(kind, record.msg)];
                 refused.extend(late);

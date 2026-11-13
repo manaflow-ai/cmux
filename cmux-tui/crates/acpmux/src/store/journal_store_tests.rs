@@ -1905,6 +1905,36 @@ fn a_retention_rewrite_of_a_replayed_chat_checkpoints_first() {
     );
 }
 
+/// A journal restore takes back the seqs a restart's recovery wrote (`Store::truncate_after`,
+/// review of #37284 at 4dcbe192, F1): the records past the cut go, and the records appended
+/// after it at those seqs are read back, from this store and from one opened again.
+#[test]
+fn a_log_cut_back_takes_the_records_appended_after_it() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(11);
+    let store = open(home.path(), &journal);
+    for seq in 1..=20 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.truncate_after(CHAT, 16).unwrap_or_else(|e| panic!("{e:#}")));
+    assert_eq!(seqs(store.as_ref(), CHAT), (1..=16).collect::<Vec<_>>());
+    for seq in 17..=30 {
+        store.append(CHAT, &record(seq, "status")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    store.flush_session(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
+    assert_eq!(seqs(store.as_ref(), CHAT), (1..=30).collect::<Vec<_>>());
+    let kinds = |store: &dyn Store| {
+        store.events(CHAT, 16, 100).unwrap().into_iter().map(|r| r.kind).collect::<Vec<_>>()
+    };
+    assert!(kinds(store.as_ref()).iter().all(|k| k == "status"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let restarted = journal.restart(Crash::Process);
+    drop(store);
+    let store = open(home.path(), &restarted);
+    assert_eq!(seqs(store.as_ref(), CHAT), (1..=30).collect::<Vec<_>>());
+    assert!(kinds(store.as_ref()).iter().all(|k| k == "status"));
+}
+
 /// #41627 F1, the class: a test that holds a thread the store owns (the checkpointer's
 /// `idle_hold` and `touch_hold`) releases it through `journal_store::Release` bound after the
 /// store, never a bare `send` on the hold's sender. A bare sender bound before the store outlives
