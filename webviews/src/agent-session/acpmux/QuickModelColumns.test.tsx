@@ -8,6 +8,7 @@ import type { ChatAccounts, NewChatAccount } from "./chatAccounts";
 import type { QuickFamily, QuickModel } from "./quickModelMenuModel";
 import { authText, type SessionAuth } from "./sessionAuth";
 import { translate } from "./i18n";
+import { settleReact } from "../../../test/support/domTeardown";
 import { modelMenuHeight, setModelMenuHeight } from "./modelMenuWidth";
 
 let QuickModelColumns: typeof import("./QuickModelColumns").QuickModelColumns;
@@ -64,6 +65,7 @@ afterEach(async () => {
     });
   root = undefined;
   await new Promise((resolve) => setTimeout(resolve, 0));
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

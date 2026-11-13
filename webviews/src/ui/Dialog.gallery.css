@@ -6,3 +6,14 @@
   box-shadow: var(--ui-popup-shadow);
   color: var(--cmux-text, CanvasText);
 }
+
+.dialog-gallery-title {
+  margin: 0 0 4px;
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+
+.dialog-gallery-description {
+  margin: 0 0 12px;
+  color: var(--cmux-text-secondary, GrayText);
+}

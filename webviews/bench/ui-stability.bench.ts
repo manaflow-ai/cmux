@@ -16,7 +16,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium, webkit, type Browser, type CDPSession, type Page } from "playwright";
+import { chromium, webkit } from "./browsers";
+import type { Browser, CDPSession, Page } from "playwright";
 import { perfRow, TARGET_MS } from "./perfRow";
 import { addStabilityProbe, cpuSession, measureIdle, median, settledAt, IDLE_MS, type Idle } from "./stability";
 

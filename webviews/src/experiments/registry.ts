@@ -5,7 +5,6 @@ import { diffTreeDisclosure, treeNameFade } from "../agent-session/acpmux/change
 import { sessionReplay } from "../agent-session/acpmux/replay/replay.experiment";
 import { steerQueueExperiment } from "../agent-session/acpmux/steerQueue/steerQueue.experiment";
 import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
-import { newTabHeadline } from "../agent-session/acpmux/newtab/headline.experiment";
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
 import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
@@ -44,6 +43,7 @@ import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.
 import { claudeTurnFold } from "../agent-session/acpmux/conversation/claudeTurnFold.experiment";
 import { commandLabelLook } from "../agent-session/acpmux/conversation/commandLabel.experiment";
 import { liveTurnWork } from "../agent-session/acpmux/conversation/liveTurnWork.experiment";
+import { jumpUpButton } from "../agent-session/acpmux/jumpUp.experiment";
 import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
 import { turnFoldSteered } from "../agent-session/acpmux/conversation/turnFoldSteered.experiment";
 import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
@@ -88,6 +88,7 @@ import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDat
 import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.experiment";
 import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.experiment";
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
+import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -104,6 +105,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   claudeTurnFold,
   commandLabelLook,
   liveTurnWork,
+  jumpUpButton,
   turnFoldReplies,
   turnFoldSteered,
   workedForMessages,
@@ -111,7 +113,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   threadMinimapHeight,
   threadMinimapGutter,
   threadMinimapRestTick,
-  newTabHeadline,
   newTabComposerTrailingGap,
   newTabIconColumn,
   threadMinimapLit,
@@ -183,6 +184,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   fieldGrowthMotion,
   composerDockMotion,
   teamAudit,
+  jumpPairLook,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

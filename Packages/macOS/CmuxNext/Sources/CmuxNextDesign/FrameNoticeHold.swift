@@ -27,6 +27,13 @@ public final class FrameNoticeReaders {
 
     public func contains(_ view: NSView) -> Bool { entries.object(forKey: view) != nil }
 
+    /// An ancestor's clip changed without moving its readers.
+    public func notifyGeometryChange() {
+        for case let view as NSView in entries.keyEnumerator().allObjects {
+            entries.object(forKey: view)?.onAncestorMove()
+        }
+    }
+
     func onAncestorMove(of view: NSView) -> (() -> Void)? { entries.object(forKey: view)?.onAncestorMove }
 }
 

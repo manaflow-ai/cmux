@@ -3,6 +3,7 @@
 // Codex app draws it (Lucas, 2026-11-11; runScroll.experiment.ts). The `inline` arm draws every line
 // in the transcript's one scroll, as before (Leo, #26696).
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -40,6 +41,7 @@ async function render(): Promise<HTMLElement> {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
