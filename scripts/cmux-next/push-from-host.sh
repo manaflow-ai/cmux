@@ -26,16 +26,32 @@
 # commits then have new ids (printed last): fetch and rebase this clone before more work. A conflict stops it;
 # nothing is pushed.
 # --host may be given more than once (or CMUX_PUSH_HOST may list several, space-separated): the first host that
-# answers SSH is used.
+# answers SSH and holds the clone is used. A host is HOST or HOST:REPO (REPO relative to HOST's home; without it,
+# CMUX_PUSH_HOST_REPO). With none given, DEFAULT_HOSTS below, in order: the Macs that have a full clone with the hooks
+# installed (machines/fleet-registry.json in leo-workspace: cmux16 is an owned mini with the mac-build role). Not a
+# Linux host: the hook runs SwiftFormat and SwiftLint. On 2026-11-12 at 00:40Z cmux-lawrence-2, then the only
+# default, stopped answering SSH (office power) and every sparse-worktree web push (web_lint_prepush.py sends them
+# here) failed with "no host answers".
+# A host the fleet reserves for someone is skipped, whether it came from DEFAULT_HOSTS, CMUX_PUSH_HOST or --host:
+# before SSH, each host goes to leo-workspace's tools/fleet_reservations.py (the registry's dated reservations, the
+# build controller's pool holds, HQ's owner-only hosts), and when every host is reserved nothing is sent. A reader
+# that answers neither free nor reserved skips the host too (fail closed). A Mac without the reader (no
+# leo-workspace checkout) is warned once and not checked. On 2026-11-12 a helper pushed through a perf lead's mini
+# from this list; a hardcoded list can't know who holds a host today.
+# --which-host prints the host and repo it would use (`HOST REPO`) and exits 0, before anything is sent.
 #
-# Exit: 0 pushed (or already there), 1 refused by the hook or by GitHub (output above), 2 usage or setup.
-# Without --rebase a non-fast-forward is refused by GitHub as always. It never forces.
+# Exit: 0 pushed (or already there), 1 refused by the hook or by GitHub (output above), 2 usage or setup (also: every
+# host reserved or unreachable). Without --rebase a non-fast-forward is refused by GitHub as always. It never forces.
 #
-# Environment: CMUX_PUSH_HOST [cmux-lawrence-2], CMUX_PUSH_HOST_REPO [fun/cmux, relative to HOST's home],
+# Environment: CMUX_PUSH_HOST [DEFAULT_HOSTS], CMUX_PUSH_HOST_REPO [fun/cmux, relative to HOST's home],
+# CMUX_FLEET_RESERVATIONS [~/Projects/leo-workspace/tools/fleet_reservations.py, the reader reach uses],
 # and the hook's own CMUX_WEB_LINT_SKIP_REASON / CMUX_NEXT_CHECKS_SKIP_REASON, passed through.
 set -euo pipefail
 
+# The fallback order (header). Each HOST:REPO; the first that answers SSH and has the clone is used.
+DEFAULT_HOSTS=(cmux-lawrence-2:fun/cmux cmux16:Projects/cmux)
 HOSTS=()
+WHICH_HOST=0
 REBASE=0
 HOST_REPO="${CMUX_PUSH_HOST_REPO:-fun/cmux}"
 REV="HEAD"
@@ -44,8 +60,9 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --host) HOSTS+=("${2:?--host needs a value}"); shift ;;
         --rebase) REBASE=1 ;;
+        --which-host) WHICH_HOST=1 ;;
         --sha) REV="${2:?--sha needs a value}"; shift ;;
-        -h|--help) sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
         -*) echo "push-from-host: unknown option $1" >&2; exit 2 ;;
         *) [[ -z "$BRANCH" ]] || { echo "push-from-host: one BRANCH only" >&2; exit 2; }; BRANCH="$1" ;;
     esac
@@ -57,27 +74,76 @@ if [[ -z "$BRANCH" ]] || ! git check-ref-format "refs/heads/$BRANCH" || [[ ! "$B
     exit 2
 fi
 if (( ${#HOSTS[@]} == 0 )); then
-    read -r -a HOSTS <<< "${CMUX_PUSH_HOST:-cmux-lawrence-2}"
+    if [[ -n "${CMUX_PUSH_HOST:-}" ]]; then
+        read -r -a HOSTS <<< "$CMUX_PUSH_HOST"
+    else
+        HOSTS=("${DEFAULT_HOSTS[@]}")
+    fi
 fi
 if [[ ! "$HOST_REPO" =~ ^[A-Za-z0-9._/-]+$ ]]; then
     echo "push-from-host: the repo path has characters this script does not pass to a shell" >&2
     exit 2
 fi
+RESERVATIONS="${CMUX_FLEET_RESERVATIONS:-$HOME/Projects/leo-workspace/tools/fleet_reservations.py}"
+if [[ ! -f "$RESERVATIONS" ]]; then
+    echo "push-from-host: no fleet reservation reader at $RESERVATIONS; hosts are not checked for reservations." >&2
+    RESERVATIONS=""
+fi
 HOST=""
-for candidate in "${HOSTS[@]}"; do
-    if [[ ! "$candidate" =~ ^[A-Za-z0-9._@-]+$ ]]; then
-        echo "push-from-host: host '$candidate' has characters this script does not pass to a shell" >&2
+TRIED=()
+RESERVED=()
+for spec in "${HOSTS[@]}"; do
+    candidate="${spec%%:*}"
+    repo="$HOST_REPO"
+    [[ "$spec" != *:* ]] || repo="${spec#*:}"
+    if [[ ! "$candidate" =~ ^[A-Za-z0-9._@-]+$ || ! "$repo" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+        echo "push-from-host: host '$spec' has characters this script does not pass to a shell" >&2
         exit 2
     fi
-    if ssh -o BatchMode=yes -o ConnectTimeout=10 "$candidate" true 2>/dev/null; then
-        HOST="$candidate"
-        break
+    if [[ -n "$RESERVATIONS" ]]; then
+        # The reader exits 0 for a free host and 1 for a reserved one, printing who holds it. ssh's user@ is not
+        # part of the machine's name.
+        STATUS=0
+        HELD="$(python3 -I "$RESERVATIONS" "${candidate#*@}" 2>&1)" || STATUS=$?
+        if (( STATUS == 1 )); then
+            echo "push-from-host: skipping $candidate: $HELD" >&2
+            RESERVED+=("$candidate")
+            continue
+        elif (( STATUS != 0 )); then
+            echo "push-from-host: skipping $candidate: its reservation can't be read (exit $STATUS): $HELD" >&2
+            RESERVED+=("$candidate")
+            continue
+        fi
     fi
-    echo "push-from-host: $candidate does not answer SSH." >&2
+    TRIED+=("$candidate")
+    # Answering SSH is not enough: a host without the clone would fail later, after the bundle. ssh's own failure
+    # (no answer) is 255; the remote test's is 1.
+    STATUS=0
+    ssh -o BatchMode=yes -o ConnectTimeout=10 "$candidate" "test -e \"\$HOME/$repo/.git\"" 2>/dev/null || STATUS=$?
+    if (( STATUS == 0 )); then
+        HOST="$candidate"
+        HOST_REPO="$repo"
+        break
+    elif (( STATUS == 255 )); then
+        echo "push-from-host: $candidate does not answer SSH; trying the next host." >&2
+    else
+        echo "push-from-host: $candidate has no clone at ~/$repo; trying the next host." >&2
+    fi
 done
 if [[ -z "$HOST" ]]; then
-    echo "push-from-host: no host answers SSH (${HOSTS[*]}); name another with --host." >&2
+    if (( ${#TRIED[@]} == 0 )); then
+        echo "push-from-host: every host is reserved or its reservation can't be read (${RESERVED[*]}); nothing was sent. Name a free one with --host HOST[:REPO]." >&2
+    else
+        # Not ${RESERVED[*]} on an empty array: macOS's bash 3.2 calls that unbound under set -u.
+        SKIPPED=""
+        (( ${#RESERVED[@]} == 0 )) || SKIPPED="; skipped as reserved: ${RESERVED[*]}"
+        echo "push-from-host: no host answers SSH (${TRIED[*]})$SKIPPED; name another with --host HOST[:REPO]." >&2
+    fi
     exit 2
+fi
+if (( WHICH_HOST )); then
+    echo "$HOST $HOST_REPO"
+    exit 0
 fi
 SHA="$(git rev-parse --verify --quiet "$REV^{commit}")" || { echo "push-from-host: $REV is not a commit" >&2; exit 2; }
 # No `git status` here: on the loaded Mac this script is for, it alone took minutes. Only commits are pushed.
@@ -125,30 +191,74 @@ BUNDLED=0
 # An empty bundle is refused by git: then HOST already has every commit of SHA.
 git bundle create -q "$WORK/bundle" "refs/push-from-host/$NAME" ${EXCLUDE[@]+"${EXCLUDE[@]}"} 2>/dev/null && BUNDLED=1
 git update-ref -d "refs/push-from-host/$NAME"
+# HOST's files for this push (the bundle, the script it runs with the token on stdin, the checkout) sit in one folder
+# mktemp makes there, never at a name another account on HOST could guess and plant first.
+RDIR="$("${SSH[@]}" "mktemp -d /tmp/$NAME-XXXXXX")" || RDIR=""
+if [[ ! "$RDIR" =~ ^/tmp/push-from-host-[0-9a-f]+-[0-9]+-[A-Za-z0-9]+$ ]]; then
+    echo "push-from-host: could not make a private folder on $HOST; nothing was pushed." >&2
+    exit 2
+fi
 if (( BUNDLED )); then
-    "${SSH[@]}" "cat > /tmp/$NAME.bundle" < "$WORK/bundle"
+    "${SSH[@]}" "cat > '$RDIR/bundle'" < "$WORK/bundle"
 fi
 
 # The step that runs on HOST. Sent as a file, so SSH stdin is free to carry the token (its only line).
 cat > "$WORK/remote.sh" <<'REMOTE'
 set -euo pipefail
-REPO="$HOME/$1" BRANCH="$2" SHA="$3" NAME="$4" REBASE="$7" WHO="$8" MAIL="$9"
+REPO="$HOME/$1" BRANCH="$2" SHA="$3" NAME="$4" REBASE="$7" WHO="$8" MAIL="$9" RDIR="${10}"
 # A non-login SSH shell has the system PATH only; the web lint needs bun. Appended, so nothing here comes first.
 export PATH="$PATH:/opt/homebrew/bin:$HOME/.bun/bin"
 [[ -z "$5" ]] || export CMUX_WEB_LINT_SKIP_REASON="$5"
 [[ -z "$6" ]] || export CMUX_NEXT_CHECKS_SKIP_REASON="$6"
 IFS= read -r CMUX_PUSH_TOKEN
-TREE="/tmp/$NAME.tree"
+TREE="$RDIR/tree"
 cd "$REPO"
+# Set before any step that can exit (the disk check below did, and left this push's bundle and script in /tmp).
 cleanup() {
     cd "$REPO"
     git worktree remove --force "$TREE" >/dev/null 2>&1 || true
     git worktree remove --force "$TREE.hooks" >/dev/null 2>&1 || true
-    rm -f "/tmp/$NAME.bundle" "/tmp/$NAME.sh"
+    rm -rf "$RDIR"
 }
 trap cleanup EXIT
-if [[ -f "/tmp/$NAME.bundle" ]]; then
-    git fetch -q --no-tags "/tmp/$NAME.bundle" "refs/push-from-host/$NAME"
+# Leftovers of runs that were killed, whose EXIT trap never ran: a tree is a full checkout (about 2 GB). Only this
+# script's own names, and only those older than 2 hours, so a push that runs now keeps its files. On 2026-11-10
+# this host went offline at 99% full.
+STALE=0
+while IFS= read -r old; do
+    case "$old" in
+        *.tree|*.tree.hooks) git worktree remove --force "$old" >/dev/null 2>&1 || rm -rf "$old" ;;
+        *)
+            if [[ -d "$old" && ! -L "$old" ]]; then
+                git worktree remove --force "$old/tree" >/dev/null 2>&1 || true
+                git worktree remove --force "$old/tree.hooks" >/dev/null 2>&1 || true
+                rm -rf "$old"
+            else
+                rm -f "$old"
+            fi
+            ;;
+    esac
+    STALE=$((STALE + 1))
+done < <(find /tmp/ -maxdepth 1 -name 'push-from-host-*' -user "$(id -u)" -mmin +120 2>/dev/null)
+git worktree prune >/dev/null 2>&1 || true
+(( STALE == 0 )) || echo "push-from-host: removed $STALE leftover file(s) of earlier pushes from /tmp on $HOSTNAME." >&2
+# The checkout below needs about 2 GB. Under 3 GB free it would stop half-written: refuse first. Under 20 GB: say
+# so on every push, while there is still room to act.
+FREE_KB="$(df -Pk /tmp 2>/dev/null | awk 'NR==2 {print $4}')"
+if [[ "$FREE_KB" =~ ^[0-9]+$ ]]; then
+    FREE_GB=$((FREE_KB / 1048576))
+    if (( FREE_KB < 3 * 1048576 )); then
+        echo "push-from-host: $HOSTNAME has $FREE_GB GB of disk free and a push needs a 2 GB checkout; nothing was" \
+            "pushed. Free disk there, or name another Mac with --host." >&2
+        exit 2
+    fi
+    if (( FREE_KB < 20 * 1048576 )); then
+        echo "push-from-host: WARNING: $HOSTNAME has only $FREE_GB GB of disk free (under 20 GB). This push goes on;" \
+            "free disk there before the pushes stop." >&2
+    fi
+fi
+if [[ -f "$RDIR/bundle" ]]; then
+    git fetch -q --no-tags "$RDIR/bundle" "refs/push-from-host/$NAME"
 fi
 if ! git cat-file -e "$SHA^{commit}" 2>/dev/null; then
     echo "push-from-host: $HOSTNAME does not have $SHA after the bundle; nothing was pushed." >&2
@@ -217,7 +327,7 @@ unset CMUX_PUSH_TOKEN
 echo "push-from-host: not pushed (git push exit $STATUS): $BRANCH is ${NOW:-absent} on the remote." >&2
 exit 1
 REMOTE
-"${SSH[@]}" "cat > /tmp/$NAME.sh" < "$WORK/remote.sh"
+"${SSH[@]}" "cat > '$RDIR/run.sh'" < "$WORK/remote.sh"
 
 # The committer of a commit HOST rebases: this clone's identity, as a rebase here would use.
 WHO="$(git config user.name || true)"
@@ -228,9 +338,9 @@ if (( REBASE )) && [[ -z "$WHO" || -z "$MAIL" ]]; then
 fi
 # HOST's stdout carries only the result line (the pushed commit); everything a person reads is on stderr.
 STATUS=0
-printf '%s\n' "$TOKEN" | "${SSH[@]}" bash "/tmp/$NAME.sh" "'$HOST_REPO'" "'$BRANCH'" "$SHA" "$NAME" \
+printf '%s\n' "$TOKEN" | "${SSH[@]}" bash "$RDIR/run.sh" "'$HOST_REPO'" "'$BRANCH'" "$SHA" "$NAME" \
     "$(printf '%q' "${CMUX_WEB_LINT_SKIP_REASON:-}")" "$(printf '%q' "${CMUX_NEXT_CHECKS_SKIP_REASON:-}")" \
-    "$REBASE" "$(printf '%q' "$WHO")" "$(printf '%q' "$MAIL")" > "$WORK/out" || STATUS=$?
+    "$REBASE" "$(printf '%q' "$WHO")" "$(printf '%q' "$MAIL")" "$RDIR" > "$WORK/out" || STATUS=$?
 unset TOKEN
 grep -v '^push-from-host-result ' "$WORK/out" >&2 || true
 PUSHED="$(sed -n 's/^push-from-host-result \([0-9a-f]\{40\}\)$/\1/p' "$WORK/out" | tail -1)"

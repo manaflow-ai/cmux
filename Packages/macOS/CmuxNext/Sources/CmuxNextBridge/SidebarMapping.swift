@@ -1,6 +1,7 @@
 public import CmuxNextDaemon
 public import CmuxNextSidebar
 public import CmuxNextDesign
+public import CmuxNextIcons
 import Foundation
 
 /// Maps the daemon store's sidebar flattening into sidebar rows: one machine
@@ -68,11 +69,15 @@ public struct SidebarMapping {
         /// The page's sound (a browser tab playing sound or muted); the row
         /// merges its tabs' (`SidebarWorkspaceAudio.merge`).
         public var audio: SidebarWorkspaceAudio?
+        /// A cmux page's own icon (`cmux://remote-view` of a Cloud machine: the Cloud icon), in place of a favicon:
+        /// a cmux page is no site, so its row never wears the no-favicon globe.
+        public var icon: IconName?
 
-        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil) {
+        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil, icon: IconName? = nil) {
             self.title = title
             self.favicon = favicon
             self.audio = audio
+            self.icon = icon
         }
     }
 
@@ -271,15 +276,6 @@ public struct SidebarMapping {
     /// Peers qualify session names for routing; the sidebar already shows the host separately.
     public static func shortSessionName(_ name: String?) -> String? {
         name?.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init)
-    }
-
-    /// Nobody named `workspace` and nothing names it: no title, the daemon's default name, and
-    /// no name from its front tab (`label`, the auto name) beyond the home folder (Leo 2026-10-20:
-    /// "~", "workspace-11" and "workspace-29" rows clutter the sidebar).
-    public static func isUnnamed(_ workspace: WorkspaceModel, label: String?) -> Bool {
-        guard workspace.isUnnamed else { return false }
-        guard let label, !label.isEmpty else { return true }
-        return label == "~"
     }
 
     /// A daemon checklist item as the sidebar draws it.

@@ -317,13 +317,16 @@ impl Mux {
                     }
                     target_record = source_record.clone();
                 } else {
-                    source_record.active_tab = source_order
-                        .get(
-                            state.panes[&source_pane]
-                                .active_tab
-                                .min(source_order.len().saturating_sub(1)),
-                        )
-                        .cloned();
+                    // The live move's rule (`move_tab_in_state`): the old active index into the
+                    // order without the moved tab named the tab after the live active one when
+                    // the moved tab was before it, and a later scoped projection trusted that.
+                    let active = tree_edit::active_after_tab_left(
+                        state.panes[&source_pane].active_tab,
+                        old_index,
+                        source_order.len(),
+                    );
+                    source_record.active_tab =
+                        source_order.get(active.min(source_order.len().saturating_sub(1))).cloned();
                     target_record.active_tab = Some(tab_id.clone());
                 }
                 // The tab order rewrites the position of every tab after the
@@ -388,11 +391,7 @@ impl Mux {
                     target_screen.active_pane = target_pane_id.clone();
                     changes.push(ResourceChange::UpsertScreen(target_screen.clone()));
                     changes.push(ResourceChange::UpsertWorkspace {
-                        workspace: registry_workspace(
-                            state,
-                            target_workspace_index,
-                            registry.session_id().as_str(),
-                        ),
+                        workspace: registry_workspace(state, target_workspace_index, &mux.session),
                         position: target_workspace_index,
                         active_screen: Some(target_screen_id.clone()),
                     });
@@ -420,19 +419,36 @@ impl Mux {
                 } else {
                     Vec::new()
                 };
-                // A move within the pane changes its screen's value too, which lists each pane's
-                // tabs in order: restate it, so the journal states the new order. A later scoped
-                // walk that leaves this workspace out trusts the stated value
-                // (`layout_ops_conserve_tabs`).
-                if source_pane == target_pane && final_index != old_index {
-                    let screen = topology_screen(&after, &target_screen_id)?;
+                // A screen's value lists each of its panes' tabs in order and their active tab, so
+                // every screen whose pane this move changed is restated: the source pane's screen
+                // and the target pane's (one screen for a move within a pane), unless the focus
+                // deltas above restated it already. A later scoped walk that leaves this workspace
+                // out trusts the stated value (`layout_ops_conserve_tabs`: a tab moved out of a
+                // screen that was no workspace's active screen left that screen's old tab list).
+                let source_screen_id = topology_pane(&topology, &source_pane_id)?.screen_id.clone();
+                let mut changed_screens = Vec::new();
+                if source_pane != target_pane || final_index != old_index {
+                    changed_screens.push(source_screen_id);
+                    changed_screens.push(target_screen_id);
+                }
+                changed_screens.sort();
+                changed_screens.dedup();
+                for screen_id in changed_screens {
+                    let stated = deltas.iter().any(|delta| {
+                        delta["resource"] == "screen" && delta["id"] == screen_id.as_str()
+                    });
+                    if stated {
+                        continue;
+                    }
+                    // A source pane emptied by the move may take its screen with it.
+                    let Ok(screen) = topology_screen(&after, &screen_id) else { continue };
                     let value = screen_value(
                         screen,
                         &after,
                         after.active_workspace.as_ref(),
                         active_screen(&after, &screen.workspace_id),
                     )?;
-                    deltas.push(upsert(deltas.len(), "screen", target_screen_id.as_str(), value));
+                    deltas.push(upsert(deltas.len(), "screen", screen_id.as_str(), value));
                 }
                 let mut changed_tabs = vec![tab_id.clone()];
                 changed_tabs.extend(shifted);

@@ -1,9 +1,8 @@
-// The composer's trailing glyphs (Send's ↵, Stop, the mic) draw at Claude Code desktop's size and
-// weight, a touch over + (Leo 2026-11-02: "our icons should be a tiny bit bigger at least our send
-// button i think can be nicer lokoing ... compared to claude code"): one 18 px glyph with a 1.5 px
-// line, through the shared tokens on the composer's root, in both looks and on New Tab; and ↵ is
-// drawn in Claude Code's proportions (about 13 × 12 px of ink at 18 px). Base drew 16 px glyphs with
-// a 1.25 line in the chat and a ↵ 9.2 units wide.
+// The composer's trailing glyphs (Send's ↵, Stop, the mic) draw at the composer's one glyph size, as
+// +, the mode's shield and the provider mark do (Austin 2026-11-11: standardize icon sizes, the mic a
+// bit too big), on the density (16 px at Default), with Claude Code desktop's 1.5 px line (Leo
+// 2026-11-02), through the shared tokens on the composer's root, in both looks and on New Tab; and ↵
+// is drawn in Claude Code's proportions. The 18 px glyph (2026-11-02 to 11-11) stood out over +.
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -19,12 +18,14 @@ const block = (source: string, selector: string) => {
 const token = (body: string, name: string) => body.match(new RegExp(`${name}:\\s*([^;]+);`))?.[1]?.trim();
 
 describe("composer trailing glyphs", () => {
-  test("the composer root declares an 18 px glyph and a 1.5 px line (1.35 on the 16 grid)", () => {
+  test("the composer root declares one 16 px glyph on the density and a 1.5 px line", () => {
     const root = block(css("composerLocation.css"), ".acpmux-dock,\n:is(.acpmux-composer, .nt-composer) {");
-    expect(token(root, "--acpmux-composer-trail-glyph")).toBe("18px");
-    expect(Number(token(root, "--acpmux-composer-trail-stroke")) * (18 / 16)).toBeCloseTo(1.5, 1);
+    expect(token(root, "--acpmux-composer-glyph")).toBe("calc(16px * var(--acpmux-density))");
+    expect(token(root, "--acpmux-composer-trail-glyph")).toBe("var(--acpmux-composer-glyph)");
+    expect(Number(token(root, "--acpmux-composer-trail-stroke"))).toBeCloseTo(1.5, 1);
     const newTab = block(css("newtab/screen.css"), ".nt-screen .nt-composer {\n  --acpmux-composer-control");
-    expect(token(newTab, "--acpmux-composer-trail-glyph")).toBe("18px");
+    expect(token(newTab, "--acpmux-composer-glyph")).toMatch(/^calc\(16px \* var\(--cmux-density-scale/);
+    expect(token(newTab, "--acpmux-composer-trail-glyph")).toBe("var(--acpmux-composer-glyph)");
     expect(token(newTab, "--acpmux-composer-trail-stroke")).toBe(token(root, "--acpmux-composer-trail-stroke"));
   });
 
@@ -38,12 +39,12 @@ describe("composer trailing glyphs", () => {
       expect(body).toContain("height: var(--acpmux-composer-trail-glyph");
       expect(body).toContain("stroke-width: var(--acpmux-composer-trail-stroke");
     }
-    // The chat's mic no longer shares +'s 16 px rule.
+    // + takes the same one glyph.
     const plus = block(
       css("composerLocation.css"),
-      ".acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button .acpmux-icon {",
+      ":is(.acpmux-composer, .nt-composer) .acpmux-composer-plus .acpmux-picker-button .acpmux-icon,",
     );
-    expect(plus).toContain("width: 16px");
+    expect(plus).toContain("width: var(--acpmux-composer-glyph)");
     expect(css("composerLocation.css")).not.toMatch(/\.acpmux-composer-bar \.acpmux-mic \.acpmux-icon\s*\{/);
   });
 

@@ -55,7 +55,8 @@ public final class ScreenSession {
     public var preferences: ScreenPreferences
     public var credentials: VNCCredentials
     /// Automatic reconnects after a stream drops: how many tries (0 turns them
-    /// off), backing off 0, 1, 2, 4, 8 s, before the session fails.
+    /// off), backing off 0, 1, 2, 4, 8 s, before the session fails. A viewer
+    /// that needs a new ticket can use ``prepareForReconnect()`` first.
     @ObservationIgnored public var reconnectLimit = 5
 
     @ObservationIgnored public var onFrame: ((VNCFrame) -> Void)?
@@ -238,9 +239,8 @@ public final class ScreenSession {
 
     /// A screen stream whose signaling the app supplies: each `connect()`
     /// asks `signaling` for the connection to use (a device hub session's
-    /// ``TicketSignaling``, which admits once). Nil fails the connect, so a
-    /// dropped session does not reconnect on its own unless the app has a
-    /// new one ready.
+    /// ``TicketSignaling``, which admits once). Nil fails the connect; an app
+    /// that needs to reattach supplies a fresh ticket before reconnecting.
     public init(title: String, preferences: ScreenPreferences = ScreenPreferences(),
                 signaling: @escaping @MainActor () -> (any ScreenSignaling)?) {
         self.title = title
@@ -476,6 +476,17 @@ public final class ScreenSession {
         connect()
     }
 
+    /// Leaves this session in the reconnecting state while an app obtains new
+    /// signaling credentials. The session object and its view state stay alive.
+    public func prepareForReconnect() {
+        guard !isClosed else { return }
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        disconnect(silently: true)
+        isReconnecting = true
+        phase = .connecting
+    }
+
     /// The app came back to the foreground: a stream that dropped while it
     /// was suspended reconnects right away.
     public func resumeIfNeeded() {
@@ -549,7 +560,10 @@ public final class ScreenSession {
         client = nil
         // Closing a peer connection waits on WebRTC's threads (TURN
         // deallocation can take seconds): never on the main actor.
-        if let stream { Task.detached { stream.close() } }
+        if let stream {
+            let sendBye = !silently
+            Task.detached { stream.close(sendBye: sendBye) }
+        }
         stream = nil
         onTelepointers?(nil, nil)
         stats.targetFps = nil

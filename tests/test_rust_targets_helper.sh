@@ -16,6 +16,16 @@ if [[ "$1 $2" == "target list" ]]; then
   printf '%s\n' $INSTALLED
   exit 0
 fi
+if [[ "$1 $2" == "toolchain list" ]]; then
+  for t in $TOOLCHAINS; do echo "$t-aarch64-apple-darwin"; done
+  exit 0
+fi
+if [[ "$1 $2" == "toolchain install" ]]; then
+  count=$(( $(cat "$CALLS.adds" 2>/dev/null || echo 0) + 1 ))
+  echo "$count" >"$CALLS.adds"
+  [[ "$count" -gt "${FAIL_ADDS:-0}" ]] || { echo "error: could not download file" >&2; exit 1; }
+  exit 0
+fi
 if [[ "$1 $2" == "target add" ]]; then
   count=$(( $(cat "$CALLS.adds" 2>/dev/null || echo 0) + 1 ))
   echo "$count" >"$CALLS.adds"
@@ -36,7 +46,7 @@ check() { # name, expected exit, expected calls (newline separated), then the he
   (
     # shellcheck source=scripts/lib/rust-targets.sh
     source "$root/scripts/lib/rust-targets.sh"
-    ensure_rust_targets "$@"
+    "${HELPER_FN:-ensure_rust_targets}" "$@"
   ) >"$work/$name.out" 2>&1 || status=$?
   if [[ "$status" != "$want_status" || "$(cat "$CALLS")" != "$want_calls" ]]; then
     echo "FAIL $name: exit $status (want $want_status), calls:" >&2
@@ -81,5 +91,24 @@ rustup target add aarch64-apple-darwin" aarch64-apple-darwin
 
 INSTALLED="" FAIL_ADDS=0 \
   check no-targets 0 ""
+
+# ensure_rust_toolchain: an installed toolchain makes no install call (no network); a missing one is
+# installed with a bounded retry; asking for a component always installs (rustup adds it).
+HELPER_FN=ensure_rust_toolchain TOOLCHAINS="1.95.0 stable" FAIL_ADDS=0 \
+  check toolchain-installed 0 "rustup toolchain list" 1.95.0 --profile minimal
+
+HELPER_FN=ensure_rust_toolchain TOOLCHAINS="1.950.0 stable" FAIL_ADDS=1 \
+  check toolchain-missing-retried 0 "rustup toolchain list
+rustup toolchain install 1.95.0 --profile minimal
+rustup toolchain install 1.95.0 --profile minimal" 1.95.0 --profile minimal
+
+HELPER_FN=ensure_rust_toolchain TOOLCHAINS="" FAIL_ADDS=99 \
+  check toolchain-bounded 1 "rustup toolchain list
+rustup toolchain install 1.95.0
+rustup toolchain install 1.95.0
+rustup toolchain install 1.95.0" 1.95.0
+
+HELPER_FN=ensure_rust_toolchain TOOLCHAINS="1.95.0" FAIL_ADDS=0 \
+  check toolchain-component 0 "rustup toolchain install 1.95.0 --component clippy" 1.95.0 --component clippy
 
 exit "$fail"

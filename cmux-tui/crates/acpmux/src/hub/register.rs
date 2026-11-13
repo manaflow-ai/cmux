@@ -191,9 +191,9 @@ impl Hub {
         let shown = {
             let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
             let shown = super::adoption::adopted_in(&sessions, &stores, family, &agent_session_id);
-            let taken = sessions
-                .values()
-                .any(|s| s.meta().name == name && shown.as_ref().is_none_or(|own| own.id != s.id));
+            let taken = sessions.values().any(|s| {
+                s.read_meta(|m| m.name == name) && shown.as_ref().is_none_or(|own| own.id != s.id)
+            });
             if taken {
                 return Err(RpcError::invalid_params(format!(
                     "session name {name:?} is taken: pick another, or rename that session first"
