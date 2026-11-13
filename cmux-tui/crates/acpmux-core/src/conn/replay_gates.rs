@@ -166,6 +166,9 @@ async fn replay_once(verbose: bool) -> (usize, usize) {
 fn append_round() -> Vec<u128> {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     let target = fill_ring(&hub, &mut writer, true);
+    // Keep fan-out identical on both sides. The control has the same one
+    // subscriber registered, but it does not copy history during the samples.
+    let _receiver = hub.subscribe_replay(&crate::wire::Sub::new("replay", "list"), target).unwrap();
     (0..SAMPLES)
         .map(|offset| {
             let start = Instant::now();
