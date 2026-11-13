@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 BASELINE=""
 CANDIDATE=""
-OUT="${CMUX_TEST_ARTIFACT_DIR:-/tmp/shared-react-runtime-proof}"
+OUT="${CMUX_TEST_ARTIFACT_DIR:-${FAST_CHECKS_OUT:-/tmp}/runtime-proof}"
 SAMPLES=20
 while (($#)); do
   case "$1" in
