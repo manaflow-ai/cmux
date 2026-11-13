@@ -186,9 +186,11 @@ public enum CmuxMobileAppearanceResolver {
         case .scrim: return rgba(t.shadow)
         case .cardStroke: return rgba(t.paneBorder)
         case .shimmerBand: return rgba(t.hoverFill)
-        // Two-tone: the sidebar a shade apart from the main pane (the Mac's
-        // separate sidebar surface: its shadow color over the window).
-        case .sidebarShade: return separateSidebar ? rgba(t.shadow) : rgba(t.shadow, alpha: 0)
+        // Two-tone: the sidebar a tonal step apart from the main pane (the Mac's
+        // `sidebar_step`, the foreground at a few percent over the window's backdrop),
+        // so it reads in light and dark alike (the shadow color turned a light
+        // theme's sidebar near-black).
+        case .sidebarShade: return separateSidebar ? rgba(t.sidebarStep) : rgba(t.sidebarStep, alpha: 0)
         case .terminalBackground: return rgba(t.terminalBackground.opaque)
         // The Mac's terminal over its window background: the terminal color at the theme's
         // background-opacity lets the picture through.
