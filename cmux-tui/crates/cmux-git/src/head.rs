@@ -11,7 +11,11 @@
 //! - one `for-each-ref` of that branch gives its commit, its upstream and
 //!   the counts. git fills `%(upstream:short)` and `%(upstream:track)` with
 //!   the functions that fill the status headers (`branch_get_upstream`,
-//!   `stat_tracking_info`, `shorten_unambiguous_ref`).
+//!   `stat_tracking_info`, `shorten_unambiguous_ref`). `--points-at=HEAD`
+//!   keeps the line only when its commit is the one that git resolves HEAD
+//!   to: the ref list has the names as they are stored, and on a file
+//!   system that ignores case git can resolve HEAD through a file that has
+//!   another name than the listed one.
 //!
 //! The refs answer for a HEAD that is on a branch that has a commit. In each
 //! other form only the status run says what its headers hold: with no commit
@@ -83,6 +87,8 @@ impl Checkout {
     fn branch_from_refs(&self) -> Result<Option<BranchHeaders>, GitFailure> {
         let arguments = ["symbolic-ref", "--quiet", "HEAD"];
         let head = match self.refs.run(&arguments, MAX_SMALL_OUTPUT_BYTES) {
+            // A part of a name is another name.
+            Ok(output) if output.truncated => return Ok(None),
             Ok(output) => output,
             // Detached (`--quiet` exits 1 with no message), or a HEAD that
             // git cannot read: the status run says which.
@@ -99,8 +105,14 @@ impl Checkout {
         // The status headers shorten the upstream's name with the loose
         // rule; `for-each-ref` takes the strict one from this setting, and
         // then prints `heads/origin` for a local upstream named as a remote.
-        let arguments =
-            ["-c", "core.warnAmbiguousRefs=false", "for-each-ref", BRANCH_FORMAT, reference];
+        let arguments = [
+            "-c",
+            "core.warnAmbiguousRefs=false",
+            "for-each-ref",
+            "--points-at=HEAD",
+            BRANCH_FORMAT,
+            reference,
+        ];
         let output = match self.refs.run(&arguments, MAX_SMALL_OUTPUT_BYTES) {
             Ok(output) if output.truncated => return Ok(None),
             Ok(output) => output,

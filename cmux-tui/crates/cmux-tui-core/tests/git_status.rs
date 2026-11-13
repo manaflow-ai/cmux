@@ -488,6 +488,15 @@ fn git_status_reply_is_of_the_branch_that_head_is_on_when_a_second_name_is_near(
     git(&repo, &["switch", "--quiet", "-c", "foo\u{a0}"]);
     let spaced = forms.check("a name that ends in U+00A0, beside the name with no such end", &repo);
 
+    // On a file system that ignores case, git resolves HEAD through the file of `FOO`, and
+    // the list of the refs has `foo` from the packed refs, at another commit.
+    let repo = world.fresh_clone();
+    git(&repo, &["branch", "foo", "HEAD~1"]);
+    git(&repo, &["pack-refs", "--all"]);
+    git(&repo, &["branch", "FOO"]);
+    git(&repo, &["symbolic-ref", "HEAD", "refs/heads/foo"]);
+    forms.check("a packed branch beside a loose one whose name differs in case only", &repo);
+
     // Only a file system that takes each byte can hold a ref that is not UTF-8.
     #[cfg(target_os = "linux")]
     let lossy = {
@@ -506,6 +515,27 @@ fn git_status_reply_is_of_the_branch_that_head_is_on_when_a_second_name_is_near(
     assert_eq!(spaced["branch"], json!("foo\u{a0}"), "{spaced}");
     #[cfg(target_os = "linux")]
     assert_eq!(lossy["branch"], json!("b\u{fffd}d"), "{lossy}");
+}
+
+/// A clone with HEAD on a branch whose name is not UTF-8. Only a file system that takes
+/// each byte can hold such a ref, so there is none on the others.
+fn clone_on_a_name_that_is_not_utf8(world: &World) -> Option<PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let repo = world.fresh_clone();
+        let name = OsStr::from_bytes(b"b\xffd");
+        assert!(git_ended(&repo, &[OsStr::new("branch"), name]), "no branch with a byte 0xff");
+        let target = OsStr::from_bytes(b"refs/heads/b\xffd");
+        let arguments = [OsStr::new("symbolic-ref"), OsStr::new("HEAD"), target];
+        assert!(git_ended(&repo, &arguments), "HEAD does not go to the branch with a byte 0xff");
+        Some(repo)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = world;
+        None
+    }
 }
 
 /// A folder that is in no repository, and a bare repository: the error is the one that the
@@ -564,8 +594,9 @@ fn git_status_of_a_branch_runs_no_child_that_reads_the_work_tree() {
 /// `.git`, which is never a tracked file: git then looks at no tracked file. They are a
 /// branch with no commit (only that child prints its upstream), a HEAD that names no branch,
 /// and a detached HEAD (that child prints the upstream of the branch with the name of the
-/// place that HEAD was detached at). It is a child that can read content, so the filter
-/// drivers are looked for before it.
+/// place that HEAD was detached at). A branch name that is not UTF-8 is one more, where a
+/// file system can hold it. It is a child that can read content, so the filter drivers are
+/// looked for before it.
 #[test]
 fn git_status_of_a_head_that_is_no_branch_with_a_commit_limits_the_status_child_to_no_file() {
     let world = World::new();
@@ -582,11 +613,15 @@ fn git_status_of_a_head_that_is_no_branch_with_a_commit_limits_the_status_child_
     std::fs::write(detached.join("a.txt"), "changed\n").unwrap();
 
     let forms = [
-        ("a branch with no commit", &orphan),
-        ("a HEAD outside refs/heads", &outside),
-        ("a detached HEAD", &detached),
+        Some(("a branch with no commit", orphan)),
+        Some(("a HEAD outside refs/heads", outside)),
+        Some(("a detached HEAD", detached)),
+        clone_on_a_name_that_is_not_utf8(&world).map(|named| {
+            std::fs::write(named.join("a.txt"), "changed\n").unwrap();
+            ("a branch name that is not UTF-8", named)
+        }),
     ];
-    for (form, directory) in forms {
+    for (form, directory) in forms.iter().flatten() {
         forget_children(directory);
         let reply = client.status(directory);
         let ran = children(directory);
