@@ -120,6 +120,11 @@ pub struct ListReceiver {
     published: Arc<ArcSwap<SummaryIndex>>,
 }
 
+pub(crate) enum RawRead {
+    Span(history::RawSpan),
+    Lagged { cursor: u64 },
+}
+
 impl Drop for ListReceiver {
     fn drop(&mut self) {
         if let Ok(mut subscribers) = self.subscribers.lock() {
@@ -177,6 +182,56 @@ impl ListReceiver {
             state.cursor = state.cursor.max(seq);
         }
         Some(item)
+    }
+
+    /// Reads a bounded span of the ring without decoding its operations.
+    /// `through` limits a replay to the target captured when it opened; `None`
+    /// follows the live tail. A malformed or expired span is reported as a
+    /// lag so the connection can open one fresh window.
+    pub(crate) fn try_next_raw(&self, through: Option<u64>, max_bytes: usize) -> Option<RawRead> {
+        let cursor = {
+            let state = self.subscriber.state.lock().ok()?;
+            if state.ended {
+                return None;
+            }
+            state.cursor
+        };
+        let span = {
+            let history = self.history.lock().ok()?;
+            let last = history.last_seq().unwrap_or_else(|| self.published.load().seq());
+            let target = through.unwrap_or(last).min(last);
+            if cursor >= target {
+                return None;
+            }
+            if history.first_seq().is_some_and(|first| cursor.saturating_add(1) < first) {
+                None
+            } else {
+                history.after_frame(cursor, target, max_bytes)
+            }
+        };
+        let Some(span) = span else {
+            if let Ok(mut state) = self.subscriber.state.lock() {
+                state.ended = true;
+            }
+            return Some(RawRead::Lagged { cursor });
+        };
+        if let Ok(mut state) = self.subscriber.state.lock() {
+            state.cursor = state.cursor.max(span.last_seq);
+        }
+        Some(RawRead::Span(span))
+    }
+
+    pub(crate) async fn recv_raw(&self, through: Option<u64>, max_bytes: usize) -> Option<RawRead> {
+        loop {
+            let changed = self.subscriber.notify.notified();
+            if let Some(item) = self.try_next_raw(through, max_bytes) {
+                return Some(item);
+            }
+            if self.subscriber.state.lock().ok()?.ended {
+                return None;
+            }
+            changed.await;
+        }
     }
 
     pub async fn recv(&self) -> Option<ListItem> {
@@ -397,6 +452,24 @@ impl Hub {
                 history: self.history.clone(),
                 published: self.published.clone(),
             },
+        })
+    }
+
+    /// Registers a subscriber at a retained cursor without constructing a
+    /// window. Resume callers use this path when the first response is a raw
+    /// ring span; a window is built only on a fresh or lagged resume.
+    pub fn subscribe_replay(&self, sub: &Sub, cursor: u64) -> Result<ListReceiver, HubError> {
+        if sub.stream.as_str() != "list" {
+            return Err(HubError::WrongStream(sub.stream.as_str().to_owned()));
+        }
+        validate_window(sub)?;
+        let subscriber = Arc::new(Subscriber::new(cursor));
+        self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
+        Ok(ListReceiver {
+            subscriber,
+            subscribers: self.subscribers.clone(),
+            history: self.history.clone(),
+            published: self.published.clone(),
         })
     }
 

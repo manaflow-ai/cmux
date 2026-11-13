@@ -26,6 +26,14 @@ pub(super) struct History {
     used: usize,
 }
 
+/// A comma-separated span of the already encoded operations in the ring.
+/// The connection wraps these bytes in the delta envelope without decoding
+/// or re-encoding an operation for each subscriber.
+pub(super) struct RawSpan {
+    pub(super) bytes: Vec<u8>,
+    pub(super) last_seq: u64,
+}
+
 #[derive(Serialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
 enum Op<T, S> {
@@ -148,6 +156,63 @@ impl History {
         out.extend_from_slice(self.bytes.get(begin.start..begin.start + first_len)?);
         out.extend_from_slice(self.bytes.get(..length - first_len)?);
         Some(out)
+    }
+
+    /// Copy as many complete operations as fit in `max_bytes`, inserting the
+    /// commas needed by the delta frame's `ops` array. The caller must hold no
+    /// lock while wrapping or offering the returned bytes.
+    pub(super) fn after_frame(
+        &self,
+        cursor: u64,
+        through: u64,
+        max_bytes: usize,
+    ) -> Option<RawSpan> {
+        if cursor >= through {
+            return Some(RawSpan { bytes: Vec::new(), last_seq: cursor });
+        }
+        let first = cursor.checked_add(1)?;
+        let offset = usize::try_from(first.checked_sub(self.first)?).ok()?;
+        let available = usize::try_from(through.checked_sub(cursor)?).ok()?;
+        let count = available.min(self.len.checked_sub(offset)?);
+        if count == 0 {
+            return None;
+        }
+        let mut out = Vec::new();
+        let mut last_seq = cursor;
+        for index in 0..count {
+            let entry = self.entries.get((self.head + offset + index) % self.entries.len())?;
+            let operation = self.copy_entry(*entry)?;
+            let separator = usize::from(!out.is_empty());
+            if !out.is_empty()
+                && out.len().saturating_add(separator).saturating_add(operation.len()) > max_bytes
+            {
+                break;
+            }
+            if out.is_empty() && operation.len() > max_bytes {
+                // Return the complete operation so the frame layer can report
+                // the bounded-frame error rather than splitting JSON.
+                out.extend_from_slice(&operation);
+            } else {
+                if separator != 0 {
+                    out.push(b',');
+                }
+                out.extend_from_slice(&operation);
+            }
+            last_seq = first.saturating_add(index as u64);
+            if out.len() > max_bytes {
+                break;
+            }
+        }
+        (!out.is_empty()).then_some(RawSpan { bytes: out, last_seq })
+    }
+
+    fn copy_entry(&self, entry: Entry) -> Option<Vec<u8>> {
+        let capacity = self.bytes.len();
+        let first_len = entry.len.min(capacity.saturating_sub(entry.start));
+        let mut out = Vec::with_capacity(entry.len);
+        out.extend_from_slice(self.bytes.get(entry.start..entry.start + first_len)?);
+        out.extend_from_slice(self.bytes.get(..entry.len.saturating_sub(first_len))?);
+        (out.len() == entry.len).then_some(out)
     }
 }
 
