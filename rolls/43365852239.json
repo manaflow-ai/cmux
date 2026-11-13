@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43365852239",
+  "recorded_at": "2026-11-13T04:37:45Z",
+  "reason": "cmux-tui 8c23543b1027 changes the image's cmux-tui (pinned ad031cd05521)",
+  "dry_run": false,
+  "cmux_tui": "8c23543b1027582c2eef5272238153c28829ea83",
+  "fixes": [
+    {
+      "sha": "8c23543b1027582c2eef5272238153c28829ea83",
+      "mergedAt": "2026-11-12T20:06:00-08:00",
+      "subject": "acpmux: agy on PATH is the Antigravity harness; agent start resumes it (#42355)"
+    },
+    {
+      "sha": "996cd633fe8983c2141b7e9dd3d48f516aacf629",
+      "mergedAt": "2026-11-12T20:04:43-08:00",
+      "subject": "cmux-source-scan: every visitor reads a wrapper macro's body (dbg!, vec!, user macros) (#41581)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T04:37:45Z",
+    "snapshot_id": "sh-f789d5b191f64fe7be7364b515d1c9ef",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43365852239): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8dbbaf9551c0d6668ebba14bd5a528faeeba9de3",
+    "image": "cloud-native-auto-8c23543b-43365852239-1",
+    "revision": "ci-43365852239-1",
+    "at": "2026-11-13T04:37:45Z"
+  },
+  "rolled_back": false
+}
