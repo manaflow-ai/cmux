@@ -248,6 +248,32 @@ class WebBundleReportTests(unittest.TestCase):
             bundle = MODULE.load_bundle("bundle", metafile, root)
             self.assertEqual(len(bundle["commonjs"]), 1)
 
+    def test_require_text_in_regex_or_grammar_is_not_commonjs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "grammar.mjs"
+            source.write_text("export const pattern = /require(_once)?/;\nexport const grammar = 'module.exports';\n")
+            metafile = root / "bundle.json"
+            metafile.write_text(json.dumps({
+                "inputs": {str(source): {"format": "esm", "bytes": source.stat().st_size}},
+                "outputs": {"entry.js": {"bytes": 60, "inputs": {str(source): {"bytesInOutput": 60}}}},
+            }))
+            self.assertEqual(MODULE.load_bundle("bundle", metafile, None)["commonjs"], [])
+
+    def test_zero_byte_package_wrapper_does_not_count_as_another_copy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metafile = self.write_bundle(root, "pages", [
+                ("node_modules/react/index.js", 100, 80),
+                ("node_modules/widget/node_modules/react/index.js", 100, 0),
+            ])
+            output = root / "report.json"
+            subprocess.run([sys.executable, str(SCRIPT), "--metafile", f"pages={metafile}",
+                            "--json", str(output)], check=True, capture_output=True, text=True)
+            report = json.loads(output.read_text())
+            self.assertEqual(len(report["duplicates"]["react"]["instances"]), 1)
+            self.assertFalse(any("within pages" in finding for finding in report["findings"]))
+
     def test_barrel_graph_includes_exported_child_bytes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -19,9 +19,6 @@ from typing import Any
 
 EXPORT_STAR = re.compile(r"(?:^|[;\n\r}])\s*export\s*\*\s+from\s*[\"']([^\"']+)[\"']")
 JS_COMMENTS = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/")
-JS_COMMENTS_AND_STRINGS = re.compile(
-    r"//[^\n]*|/\*[\s\S]*?\*/|(['\"`])(?:\\.|(?!\1)[^\\])*\1"
-)
 
 
 def package_name(path: str) -> str | None:
@@ -57,11 +54,6 @@ def resolve_input(path: str, metafile: Path, source_root: Path | None) -> Path:
     # metafile is commonly copied to a separate report directory. Callers pass
     # that working directory explicitly so source inspection remains accurate.
     return ((source_root or metafile.parent) / candidate).resolve()
-
-
-def clean_javascript(text: str) -> str:
-    """Remove comments and literals before checking for CommonJS syntax."""
-    return JS_COMMENTS_AND_STRINGS.sub("", text)
 
 
 def clean_comments(text: str) -> str:
@@ -171,7 +163,6 @@ def load_bundle(
             source_record.get("format") == "cjs"
             or any(edge.get("kind") == "require-call" for edge in source_record.get("imports", []))
             or path.endswith((".cjs", ".cts"))
-            or any(token in clean_javascript(text) for token in ("require(", "module.exports", "exports."))
         )
         if row["barrel"]:
             barrels.append(row)
@@ -245,6 +236,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         "", "Shipped bytes come from the output directory. Module attribution describes the bundler graph;",
         "Rolldown pre-minification lengths are not emitted bytes. Postprocessed files (including Pages CSS)",
         "can differ from that graph. Do not sum unlike metrics or treat attribution as a savings estimate.",
+        "CommonJS findings use bundler format/import metadata or explicit .cjs/.cts extensions;",
+        "metadata without that evidence is not proof that a module is ESM. Source text is not parsed for this check.",
         "", "## Top modules", "", "| Bundle | Module | source bytes | attribution | metric | ratio | flags |",
         "| --- | --- | ---: | ---: | --- | ---: | --- |",
     ]
@@ -309,7 +302,7 @@ def main() -> int:
     findings = []
     for bundle in bundles:
         for row in bundle["modules"]:
-            if row["package"]:
+            if row["package"] and (row["attributionValue"] > 0 or row["attributionMetric"] in ("unknown", "mixed")):
                 package_bundles[row["package"]].add(bundle["name"])
                 package_paths[row["package"]].add(row["path"])
                 if row["packageInstance"]:
