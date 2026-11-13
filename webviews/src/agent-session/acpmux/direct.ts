@@ -11,6 +11,7 @@ import { autoResumeAttempt, autoResumeStatus } from "./autoResumeStatus";
 import { extraFoldersParam, summaryExtraFolders, type ExtraFolderDraft } from "./extraFolders";
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation, subagentRetryNotice, type SubagentRetryNotice } from "./subagents/retryState";
+import { CACHE_EXPIRY_REASON, isCacheCompaction } from "./conversation/cacheCompaction";
 import { isModelRouterKind } from "./routerKinds";
 import type { SwitchPort } from "./harnessSwitch";
 import { OlderPageDelay } from "./conversation/olderPageDelay";
@@ -3112,6 +3113,9 @@ export class AcpmuxDirectClient {
   /// turn's (`dateTurnFromHost`).
   private turnPromptAtMs?: number;
   private autoResumedAttempt: number | undefined;
+  /// The latest prompt was acpmux's cache compaction (conversation/cacheCompaction.ts): the
+  /// compaction after it ran before the prompt cache expired, not because the person asked.
+  private cacheCompactPrompt = false;
   /// The last seq seen when Stop was pressed: only a turn event after it answers that Stop. A
   /// rebuild (loadOlder, lag resync) replays older ones, which must not answer a later Stop.
   private stopAfterSeq?: number;
@@ -4280,6 +4284,7 @@ export class AcpmuxDirectClient {
     this.clockOffset = undefined;
     this.summary = undefined;
     this.autoResumedAttempt = undefined;
+    this.cacheCompactPrompt = false;
     this.configSeq = 0;
     this.limitsSeq = 0;
     this.limitsVersion += 1;
@@ -7774,6 +7779,7 @@ export class AcpmuxDirectClient {
     this.turnPromptAtMs = undefined;
     this.runningTurnId = undefined;
     this.autoResumedAttempt = undefined;
+    this.cacheCompactPrompt = false;
     this.turnPrompt = undefined;
     this.turnTokens = undefined;
     this.turnTokenSplit = undefined;
@@ -9049,6 +9055,7 @@ export class AcpmuxDirectClient {
         // The continuation's raw instructions stay hidden. Its provenance supplies only the
         // attempt marker; a new prompt clears it, while a steer keeps the same turn's marker.
         if (msg.steer !== true) this.autoResumedAttempt = autoResumeAttempt(msg);
+        if (msg.steer !== true) this.cacheCompactPrompt = isCacheCompaction(msg);
         // A prompt, or a steer (which starts no turn but splits it), starts a new checklist.
         this.planRow = undefined;
         // The checklist before it has ended for Session Info's Progress (ProgressSection `currentPlan`).
@@ -9140,6 +9147,7 @@ export class AcpmuxDirectClient {
         const blank =
           !received &&
           (isRetryContinuation(msg) ||
+            isCacheCompaction(msg) ||
             (!raw.trim() &&
               promptImages(msg.images).length === 0 &&
               !inlineParts?.some((part) => part.kind !== "text")));
@@ -9628,8 +9636,11 @@ export class AcpmuxDirectClient {
         backgroundTask: { ...task, state: task.state },
       });
     } else if (event.kind === "compaction") {
-      const compaction = compactionOf(update);
-      if (!compaction) return;
+      const read = compactionOf(update);
+      if (!read) return;
+      // The cache timer's compaction says why it ran; a wrapper's own reason stays its own.
+      const compaction =
+        this.cacheCompactPrompt && read.reason === undefined ? { ...read, reason: CACHE_EXPIRY_REASON } : read;
       // The cancelled compaction's boundary may arrive even after the next prompt starts another
       // compaction. Running updates carry no identity either, so they cannot lift this fence.
       // Keep unscoped boundaries from claiming completion; the turn's terminal result settles
