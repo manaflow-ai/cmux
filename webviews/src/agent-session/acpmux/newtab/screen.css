@@ -158,7 +158,7 @@
 .nt-location[data-project-pending] .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-label {
   visibility: hidden;
 }
-/* The strip over the box takes the box's corner (--nt-box-radius, the chat composer's). */
+/* The strip over the box takes the box's corner (--nt-box-radius). */
 .nt-composer { --acpmux-strip-radius: var(--nt-box-radius); }
 /* The strip is the box's fill (.nt-box below): the composer's surface, so the two stay one
    surface. Neither changes on hover (Leo 2026-10-18: a composer is quiet, like Claude's and
@@ -421,10 +421,10 @@
      (Lucas 2026-11-13). */
   /* The composer's size scale: the density's, at least 0.8 of Default's (composerLocation.css --acpmux-density). */
   --nt-density: max(0.8, var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
-  /* New Tab's box corner is the chat composer's (composerLocation.css --grid-composer-radius, 12 px at Default on
-     its 48 px box), so the two boxes round alike and scale with the density, never near a pill (Lucas 2026-11-14:
-     "copy that exactly as it is onto the new tab composer"). */
-  --nt-box-radius: var(--grid-composer-radius, calc(12px * var(--nt-density)));
+  /* New Tab's box corner: a third of its one-line box, 16 px on 48 at Default and at every density's scale, in
+     every look and template, rounder than the chat composer's 12 but never near a pill (Lucas 2026-11-14: "a bit
+     more rounded. not fully rounded"). */
+  --nt-box-radius: calc(16px * var(--nt-density));
   /* The text's size times the density's room for it: the text size at Default (a 48 px box around Codex's 20 px
      line), and at 14 px text exactly what the chat composer's 48 px box leaves at each density, 24 x density less
      10 x the density's text scale, over 14 (M). It follows the person's own text size, as the base did, so a

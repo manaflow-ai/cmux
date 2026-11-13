@@ -69,7 +69,8 @@
   z-index: var(--layer-raised, 1);
 }
 .nt-composer[data-composer-look="codex"] > .nt-box {
-  border-radius: var(--grid-composer-radius);
+  /* New Tab's one corner in every look (newtab/screen.css --nt-box-radius), not Codex's 22 px chat card. */
+  border-radius: var(--nt-box-radius);
 }
 /* The box keeps its own four corners and whole rim over the tray (not the default's joined top). */
 :root .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-strip) > .acpmux-composer-box {
