@@ -700,16 +700,10 @@ async fn download(payload: &PublishedPayload) -> Result<PathBuf, String> {
     // Another cmux-tui process may be fetching the same build: hold the lock
     // while appending to the shared partial file, then look again.
     let lock_path = directory.join(format!("{file_name}.lock"));
-    let _lock = tokio::task::spawn_blocking(move || -> std::io::Result<std::fs::File> {
-        std::fs::create_dir_all(lock_path.parent().unwrap_or(Path::new(".")))?;
-        let lock =
-            std::fs::File::options().create(true).truncate(false).write(true).open(&lock_path)?;
-        lock.lock()?;
-        Ok(lock)
-    })
-    .await
-    .map_err(|error| error.to_string())?
-    .map_err(|error| format!("could not lock the download cache: {error}"))?;
+    let _lock = tokio::task::spawn_blocking(move || lock_download(&lock_path))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| format!("could not lock the download cache: {error}"))?;
     if is_cached(payload).await {
         return Ok(payload.cache_path.clone());
     }
@@ -832,6 +826,18 @@ fn prune_cache(directory: &Path, keep: &str) {
         }
     }
 }
+
+/// The download cache's lock for one build, waiting while another process fetches it.
+fn lock_download(lock_path: &Path) -> std::io::Result<std::fs::File> {
+    std::fs::create_dir_all(lock_path.parent().unwrap_or(Path::new(".")))?;
+    let lock = std::fs::File::options().create(true).truncate(false).write(true).open(lock_path)?;
+    lock.lock()?;
+    Ok(lock)
+}
+
+#[cfg(all(test, unix))]
+#[path = "ssh_artifacts_lock_tests.rs"]
+mod lock_tests;
 
 #[cfg(test)]
 mod published_pin_tests {
