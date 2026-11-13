@@ -15,10 +15,10 @@ import { isBareAgentText, isVisiblyEmptyMessage } from "./visibleMessage";
 // These pin the line look (backgroundTurnLook.experiment.ts `line`): the default draws a background
 // turn's calls inline, with no line (backgroundTurnInline.test.ts).
 beforeAll(() => {
-  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "background-turn-look": "line" };
+  globalThis.cmuxExperiments = { "background-turn-look": "line", "claude-turn-fold": "runs" };
 });
 afterAll(() => {
-  globalThis.cmuxExperiments = undefined;
+  delete globalThis.cmuxExperiments;
 });
 
 let at = 0;
@@ -45,6 +45,7 @@ const prompt = () => {
     row("summary", "turnSummary", { status: "completed", durationMs: 2_000 }),
   ];
 };
+const asView = (rows: AcpmuxRow[], expanded: Set<string>) => turnView(rows, expanded, { agentFamily: "claude" });
 
 // Only a lone period: other punctuation is rare and may mean something (Leo, 2026-11-03: "well
 // there are cases (rare) that you would want to see it"). Background turns that say nothing worth
@@ -69,7 +70,7 @@ test("four quiet background task lines with lone replies fold into one closed li
     line("d"),
     dot("d-dot"),
   ];
-  const view = turnView(rows, new Set());
+  const view = asView(rows, new Set());
   const run = backgroundRunRowId(backgroundTurnRowId("a"));
   expect(ids(view)).toEqual(["prompt", "reply", "summary", run]);
   const drawnRun = view.at(-1)!;
@@ -79,7 +80,7 @@ test("four quiet background task lines with lone replies fold into one closed li
   expect(html).toContain("4 background tasks finished");
   expect(html).toContain('aria-expanded="false"');
   // Opened: each line again, in order; the lone replies still draw nothing.
-  const open = turnView(rows, new Set([run]));
+  const open = asView(rows, new Set([run]));
   expect(ids(open).slice(3)).toEqual([
     run,
     backgroundTurnRowId("a"),
@@ -91,7 +92,7 @@ test("four quiet background task lines with lone replies fold into one closed li
 
 test("a finished and a stopped shell fold with the lines, as background updates", () => {
   const rows = [...prompt(), line("a"), note("stop", "stopped"), line("b")];
-  const view = turnView(rows, new Set());
+  const view = asView(rows, new Set());
   const run = view.at(-1)!;
   expect(run.backgroundRun).toMatchObject({ finished: 2, stopped: 1 });
   const html = renderToStaticMarkup(<BackgroundTurnLine row={run} expanded={false} onToggle={() => {}} />);
@@ -106,7 +107,7 @@ test("a notification followed by a real reply keeps that reply in sight", () => 
     row("said", "assistant", { text: "The suite failed: 2 tests.", inBackground: "loud" }),
     line("b"),
   ];
-  const view = turnView(rows, new Set());
+  const view = asView(rows, new Set());
   expect(ids(view).slice(3)).toEqual([
     backgroundTurnRowId("a"),
     "said",
@@ -115,16 +116,22 @@ test("a notification followed by a real reply keeps that reply in sight", () => 
   ]);
 });
 
-test("a failed shell and a running line end a run; one line alone stays as it was", () => {
+test("a failed shell joins the run and is counted; a running line ends it", () => {
   const rows = [...prompt(), line("a"), note("fail", "failed"), line("b"), line("live", { running: true })];
-  const view = turnView(rows, new Set());
+  const view = asView(rows, new Set());
+  const run = backgroundRunRowId(backgroundTurnRowId("a"));
+  expect(ids(view).slice(3)).toEqual([run, backgroundTurnRowId("live")]);
+  const drawn = view.find((entry) => entry.id === run)!;
+  expect(drawn.backgroundRun).toMatchObject({ finished: 2, failed: 1, commands: 1 });
+  const html = renderToStaticMarkup(<BackgroundTurnLine row={drawn} expanded={false} onToggle={() => {}} />);
+  expect(html).toContain("3 background updates, 1 failed");
+});
+
+test("one line alone stays as it was", () => {
+  const rows = [...prompt(), line("a"), line("live", { running: true })];
+  const view = asView(rows, new Set());
   expect(view.some((entry) => entry.backgroundRun)).toBe(false);
-  expect(ids(view).slice(3)).toEqual([
-    backgroundTurnRowId("a"),
-    "fail",
-    backgroundTurnRowId("b"),
-    backgroundTurnRowId("live"),
-  ]);
+  expect(ids(view).slice(3)).toEqual([backgroundTurnRowId("a"), backgroundTurnRowId("live")]);
 });
 
 test("a member line opened on its own keeps its rows inside the run", () => {
@@ -137,9 +144,9 @@ test("a member line opened on its own keeps its rows inside the run", () => {
   ];
   const run = backgroundRunRowId(backgroundTurnRowId("a"));
   // The member opened while its run is closed: still one line.
-  expect(ids(turnView(rows, new Set([backgroundTurnRowId("a")]))).slice(3)).toEqual([run]);
+  expect(ids(asView(rows, new Set([backgroundTurnRowId("a")]))).slice(3)).toEqual([run]);
   // Both open: the member's rows under it, then the next member.
-  expect(ids(turnView(rows, new Set([run, backgroundTurnRowId("a")]))).slice(3)).toEqual([
+  expect(ids(asView(rows, new Set([run, backgroundTurnRowId("a")]))).slice(3)).toEqual([
     run,
     backgroundTurnRowId("a"),
     "a-work",
@@ -149,7 +156,7 @@ test("a member line opened on its own keeps its rows inside the run", () => {
 
 test("Find opens the run, then the member line, for a row behind both", () => {
   const rows = [...prompt(), line("a"), row("a-work", "activity", { inBackground: "a", items: [] }), line("b")];
-  const drawn = turnView(rows, new Set());
+  const drawn = asView(rows, new Set());
   const run = backgroundRunRowId(backgroundTurnRowId("a"));
   // Then a message run that may fold the row inside the member's rows (messageRuns.ts).
   expect(hiddenRowFolds(rows, drawn, 4)).toEqual([run, backgroundTurnRowId("a"), messageRunRowId("a-work")]);
@@ -177,8 +184,8 @@ test("rows without a run come back as they were, and the run line keeps its obje
 test("closing a run hides its last member's opened rows with it", () => {
   const rows = [...prompt(), line("a"), line("b"), row("b-work", "activity", { inBackground: "b", items: [] })];
   const run = backgroundRunRowId(backgroundTurnRowId("a"));
-  expect(ids(turnView(rows, new Set([backgroundTurnRowId("b")]))).slice(3)).toEqual([run]);
-  expect(ids(turnView(rows, new Set([run, backgroundTurnRowId("b")]))).slice(3)).toEqual([
+  expect(ids(asView(rows, new Set([backgroundTurnRowId("b")]))).slice(3)).toEqual([run]);
+  expect(ids(asView(rows, new Set([run, backgroundTurnRowId("b")]))).slice(3)).toEqual([
     run,
     backgroundTurnRowId("a"),
     backgroundTurnRowId("b"),

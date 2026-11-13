@@ -312,18 +312,25 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Fork { session, name, cwd, force_admit } => {
+        Command::Fork { session, name, cwd, force_admit, harness, model } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
-            let mut p = json!({"sessionId": id, "mcpServers": [], "_meta": {"acpmux": {}}});
-            if let Some(c) = cwd {
-                p["cwd"] = json!(c);
-            }
+            let mut acpmux = serde_json::Map::new();
             if let Some(n) = name {
-                p["_meta"]["acpmux"]["name"] = json!(n);
+                acpmux.insert("name".into(), json!(n));
             }
             if force_admit {
-                p["_meta"]["acpmux"]["forceAdmit"] = json!(true);
+                acpmux.insert("forceAdmit".into(), json!(true));
+            }
+            if let Some(h) = harness {
+                acpmux.insert("harness".into(), json!(h));
+            }
+            if let Some(m) = model {
+                acpmux.insert("model".into(), json!(m));
+            }
+            let mut p = json!({"sessionId": id, "mcpServers": [], "_meta": {"acpmux": acpmux}});
+            if let Some(c) = cwd {
+                p["cwd"] = json!(c);
             }
             let v = client.request(method::SESSION_FORK, p).await?;
             super::launch::print_new_warnings(&v);
@@ -439,7 +446,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                             crate::config::home().join("bundles").join(format!("{peer}-{file}"))
                         }
                     };
-                    std::fs::create_dir_all(local.parent().unwrap())?;
+                    crate::home_fs::create_dirs(local.parent().unwrap())?;
                     let argv = crate::cli::hosts::scp_fetch_argv(
                         &url,
                         &remote_path,
@@ -581,7 +588,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             match connect(start).await {
                 Ok(client) => {
-                    let v = client.request(method::MUX_STATUS, json!({})).await?;
+                    let v = crate::cli::slow_notice::noted(
+                        "the status request",
+                        client.request(method::MUX_STATUS, json!({})),
+                    )
+                    .await?;
                     if json_out {
                         print_json(&v);
                         return Ok(());
@@ -607,10 +618,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         "store:    {}",
                         v.pointer("/store/mode").and_then(Value::as_str).unwrap_or("")
                     );
+                    // A count that missed status's reading budget is null: unknown, not 0.
+                    let live = v.get("liveAgents").and_then(Value::as_u64);
                     println!(
                         "sessions: {} ({} live agents)",
                         v.get("sessions").and_then(Value::as_u64).unwrap_or(0),
-                        v.get("liveAgents").and_then(Value::as_u64).unwrap_or(0)
+                        live.map_or_else(|| "unknown".to_owned(), |n| n.to_string())
                     );
                     if let Some(line) = crate::hub::views::other_build_hosts_line(&v) {
                         println!("{line}");

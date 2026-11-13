@@ -21,6 +21,8 @@ import subprocess
 import tempfile
 import unittest
 
+import sys
+
 import yaml
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
@@ -29,6 +31,9 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 DOC = yaml.safe_load((ROOT / ".github/workflows/cmux-next-base-autofix.yml").read_text())
@@ -357,8 +362,12 @@ class BaseAutofixFinishes(unittest.TestCase):
         # held. The graph is made on Linux from the manifest alone, so its own job needs nothing.
         job = DOC["jobs"]["target-graph"]
         self.assertNotIn("needs", job)
-        self.assertIn("ubuntu", job["runs-on"])
-        self.assertNotIn("macos", job["runs-on"])
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertIsNotNone(cells, "target-graph runs-on reads a matrix value nothing resolves")
+        self.assertTrue(cells)
+        for runner in cells:
+            self.assertIn("ubuntu", runner)
+            self.assertNotIn("macos", runner)
         self.assertFalse(job["concurrency"]["cancel-in-progress"])
         self.assertNotEqual(job["concurrency"]["group"], DOC["jobs"]["autofix"]["concurrency"]["group"])
         push = next(step for step in job["steps"] if step.get("name") == "Push the graph")
@@ -385,7 +394,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         dump.chmod(0o755)
         clean = {key: value for key, value in os.environ.items()
                  if key not in ("GRAPH", "STRINGS", "SDK", "SHORTCUTS", "APPHOST", "ACTIONS", "SETTINGS", "RATCHETS",
-                                "CLOUD", "FMT", "EXPORTS_DIR", "WEBVIEWS_PATCH", "CMUX_BASE_AUTOFIX_AGAIN")}
+                                "CLOUD", "LOCKS", "FMT", "EXPORTS_DIR", "WEBVIEWS_PATCH", "CMUX_BASE_AUTOFIX_AGAIN")}
         done = subprocess.run(["bash", str(ROOT / "scripts/cmux-next/base-autofix-repair.sh"), str(work)],
                               env={**clean, **env, "CMUX_BASE_AUTOFIX_SCRIPT": str(stub),
                                    "CMUX_BASE_AUTOFIX_DUMP": str(dump), "ARGS_OUT": str(work / "args")},
@@ -396,7 +405,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         for flag in ("--unverified-exports", "--unverified-settings-exports", "--no-fmt"):
             self.assertIn(flag, args)
         for flag in ("--generated", "--strings", "--sdk", "--docs-shortcuts", "--app-host", "--ratchets",
-                     "--cloud-clients", "--webviews-fmt-patch"):
+                     "--cloud-clients", "--webviews-fmt-patch", "--locks"):
             self.assertNotIn(flag, args)
 
     def mac_busy(self, runs: dict[int, list[tuple[str, str]]], self_run: int = 1, fail: bool = False,

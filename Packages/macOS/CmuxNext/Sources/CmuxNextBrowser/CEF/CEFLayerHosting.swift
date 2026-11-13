@@ -408,9 +408,17 @@ final class CEFLayerHosting {
         }
         // A dropped tick (its window closed in the hold) counts as the frame, so no page stays detached until an ask,
         // but grants nothing: SetFocus would order a closed window's page front. The tab keeps its ask for its next show.
+        // A view that left that window for another before it closed (a hidden tab an agent drove sits in the agent
+        // render window; a click on the tab moves it to its pane) shows in the other one: the wait moves there, and the
+        // hold's end grants the kept ask. With the drop taken as the frame, the tab kept its ask and no key reached it.
+        let waited = view?.window
         let client = FrameClient(owner: "cef.first-frame-attach", isAnimation: false,
                                  scheduler: { [weak view] in view.map(FrameScheduler.forView) ?? .app },
                                  dropped: { [weak self] in
+                                     if let self, let now = self.view?.window, now !== waited {
+                                         self.shownFrame = nil
+                                         return self.runAfterFrameShown(block)
+                                     }
                                      self?.afterFirstFrame = nil
                                      shown()
                                  }) { _ in

@@ -46,7 +46,7 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = OmnibarStyle.chipCornerRadius
+        layer?.cornerRadius = OmnibarStyle.chipButtonCornerRadius
         layer?.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
         image.translatesAutoresizingMaskIntoConstraints = false

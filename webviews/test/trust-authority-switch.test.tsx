@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -57,12 +58,8 @@ beforeEach(() => {
   root = createRoot(host);
 });
 afterEach(async () => act(() => root.unmount()));
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) globals[key] = value;
-    else delete globals[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope: globals });
 });
 
 for (const fromLocal of [true, false]) {

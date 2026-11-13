@@ -41,10 +41,10 @@ import {
   type Path,
   type VisibleRow,
 } from "../menuLayouts";
-import type { ContextMenuState, MenuLayout, MenuNode, MenuRow } from "../ops";
+import { SETTINGS_SENTENCES, type ContextMenuState, type MenuLayout, type MenuNode, type MenuRow } from "../ops";
+import { userMessage } from "../../shared/userMessage";
 import { sectionHref } from "../router";
 import { t } from "../strings";
-import { ResetSpacer } from "./ResetButton";
 
 const AREAS = ["workspace", "tabs", "terminal", "browser", "other"] as const;
 
@@ -170,7 +170,7 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
     setFailure(null);
     store
       .setContextMenuLayout(menu.id, isGenerated(menu, next) ? null : next)
-      .catch((error: unknown) => setFailure(error instanceof Error ? error.message : String(error)))
+      .catch((error: unknown) => setFailure(userMessage(error, SETTINGS_SENTENCES)))
       .finally(() => setPending((current) => (current === write ? null : current)));
   };
   const openFolder = (key: string) => setOpen((current) => new Set([...current, key]));
@@ -539,10 +539,9 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
                     setFailure(null);
                     store
                       .setShowCustomizeMenuItem(next)
-                      .catch((error: unknown) => setFailure(error instanceof Error ? error.message : String(error)));
+                      .catch((error: unknown) => setFailure(userMessage(error, SETTINGS_SENTENCES)));
                   }}
                 />
-                <ResetSpacer />
               </div>
             </div>
           </div>

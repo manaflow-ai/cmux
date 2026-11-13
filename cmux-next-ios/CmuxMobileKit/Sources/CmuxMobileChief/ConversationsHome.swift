@@ -209,13 +209,16 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         List {
             let tiles = pinnedTiles(list)
             if !tiles.isEmpty {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0, alignment: .bottom), count: 3), spacing: 4) {
+                // Messages' three across every phone (359 pt on a 375 pt iPhone to 424 pt on a 440 pt
+                // one: a 112 pt minimum fits three, never four); a wider screen (an unfolded
+                // foldable) adds columns instead of stretching three tiles.
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 112, maximum: 160), spacing: 0, alignment: .bottom)], spacing: 4) {
                     ForEach(tiles) { $0 }
                 }
                 .padding(.horizontal, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .listRowBackground(theme.colors.bg.color)
+                .listRowBackground(CmuxMobileBackdrop.listRow)
             }
             // The Cloud Chief's brain is off: say so and offer Turn On (a Chief that
             // never answers would otherwise sit silent on a phone with no Mac).
@@ -238,7 +241,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .padding(.bottom, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .listRowBackground(theme.colors.bg.color)
+                .listRowBackground(CmuxMobileBackdrop.listRow)
                 .animation(theme.motion.smooth.animation.unlessReduceMotion, value: card)
             } else if !unreadOnly, !searching, let status = sources.cloudStatus {
                 // The Cloud Chief could not take the pin: say why.
@@ -254,7 +257,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .padding(.bottom, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .listRowBackground(theme.colors.bg.color)
+                .listRowBackground(CmuxMobileBackdrop.listRow)
             } else if !unreadOnly, !searching, let error = sources.changeError {
                 // A refused switch or create while the Cloud Chief is open.
                 Text(error)
@@ -265,7 +268,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     .padding(.bottom, 8)
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
-                    .listRowBackground(theme.colors.bg.color)
+                    .listRowBackground(CmuxMobileBackdrop.listRow)
                     .accessibilityIdentifier("home.chief.changeError")
             }
             let entries = entries(list)
@@ -278,7 +281,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     HomeListRow(model: model, open: open, feed: feed, delete: askToDelete)
                         .equatable()
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
-                        .listRowBackground(theme.colors.bg.color)
+                        .listRowBackground(CmuxMobileBackdrop.listRow)
                         // Trailing only, as Workspaces' rows: a rightward swipe belongs to the
                         // team drawer, and while these are open it closes them instead
                         // (SidebarContainer finds the slid List row, RowSwipeActions).
@@ -321,7 +324,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .padding(.vertical, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .listRowBackground(theme.colors.bg.color)
+                .listRowBackground(CmuxMobileBackdrop.listRow)
                 .accessibilityIdentifier("home.showHidden")
             }
             // A search or Unread over the top of the list waits for the rest before it says "none".
@@ -335,13 +338,13 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     .padding(.top, 120)
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
-                    .listRowBackground(theme.colors.bg.color)
+                    .listRowBackground(CmuxMobileBackdrop.listRow)
                     .accessibilityIdentifier("home.empty")
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(theme.colors.bg.color.ignoresSafeArea())
+        .background(CmuxMobileBackdrop().ignoresSafeArea())
         // Kept rows show while the Mac's list loads: say they are being updated, over the
         // list (no row moves when it goes).
         .overlay(alignment: .bottom) {
@@ -494,7 +497,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
         .buttonStyle(.plain)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
-        .listRowBackground(theme.colors.bg.color)
+        .listRowBackground(CmuxMobileBackdrop.listRow)
         // Trailing only, as every Home row (the drawer keeps the rightward swipe).
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if chief.conversationID != nil {
@@ -555,7 +558,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .padding(.vertical, 8)
         .listRowInsets(EdgeInsets())
         .listRowSeparator(.hidden)
-        .listRowBackground(theme.colors.bg.color)
+        .listRowBackground(CmuxMobileBackdrop.listRow)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(identifier)
     }

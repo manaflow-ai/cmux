@@ -12,7 +12,7 @@ beforeEach(() => {
   globalThis.cmuxExperiments = { "background-turn-look": "inline" };
 });
 afterEach(() => {
-  globalThis.cmuxExperiments = undefined;
+  delete globalThis.cmuxExperiments;
 });
 
 let at = 0;

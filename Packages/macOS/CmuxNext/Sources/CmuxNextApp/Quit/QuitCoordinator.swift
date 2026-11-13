@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentActivity
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
@@ -167,7 +168,7 @@ final class QuitCoordinator {
 
     /// The quit's steps after the decision `choice` (`QuitSteps.run`).
     func quitSteps(_ choice: QuitSessionsChoice) -> QuitSteps {
-        let services = services
+        let services = services, steps = steps
         return QuitSteps(
             prepareWindows: { [steps] in
                 let incognito = AgentQuitFiles.incognitoTabs(services.agentTabs, isIncognito: { AgentQuitFiles.isIncognito($0, in: services) })

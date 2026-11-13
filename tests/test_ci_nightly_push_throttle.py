@@ -297,6 +297,20 @@ def test_skill_markdown_outside_the_bundled_skill_is_neutral() -> None:
                                        comparison=comparison(["skills/cmux-testing/SKILL.md"])))
 
 
+def test_paths_no_build_reads_are_neutral() -> None:
+    """The Cloud VM image roll (images/cmux-vm/inputs.lock.json, about 100 commits a day on
+    feat-cmux-next) and the other paths cmux_next_route.NO_APP_INPUT proves no build reads publish
+    no new app; a path the workflow or the bundle names still builds."""
+    _, nightly = ci_scripts()
+    for path in ["images/cmux-vm/inputs.lock.json", "services/example/main.go", ".claude/settings.json"]:
+        changed, reason = nightly.build_inputs_changed([path])
+        assert not changed, f"{path} reaches no build but rebuilt the app: {reason}"
+    roll = run_decide(event="push", interval="0",
+                      comparison=comparison(["images/cmux-vm/inputs.lock.json", "workers/cmux-vm/wrangler.jsonc"]))
+    assert not should_build(roll)
+    assert nightly.build_inputs_changed(["images/cmux-vm/inputs.lock.json", "Sources/AppDelegate.swift"])[0]
+
+
 def test_renames_are_classified_by_both_names() -> None:
     moved_out = comparison(["docs/moved.md"], files=[
         {"filename": "docs/moved.md", "status": "renamed",

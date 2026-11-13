@@ -176,7 +176,7 @@ extension MachineSettingsSchema {
                 section: .machines,
                 group: group,
                 title: SettingsText.keyed("settings.machines.sshLinkHosts", "Always Allowed SSH Link Hosts"),
-                help: SettingsText.keyed("settings.machines.sshLinkHosts.help", "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask."),
+                help: SettingsText.keyed("settings.machines.sshLinkHosts.help", "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask."),
                 kind: .stringList,
                 default: .array(SSHLinkHostsSetting.fallback.map { .string($0) }),
                 keywords: ["ssh", "link", "url", "host", "trust", "allow", "always", "machine", "security"],

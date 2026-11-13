@@ -210,6 +210,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         ),
         (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
         (vec!["pane", PANE, "split", "--down", "--shell", "make watch"], "pane.split"),
+        (vec!["pane", PANE, "split", "--right", "--fit"], "pane.split"),
         (vec!["tab", TAB, "update", "--icon", "star.fill"], "tab.update"),
         (
             vec![
@@ -353,7 +354,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // Cloud API calls carry the caller's access token;
                         // `cmux cloud` reaches them through its own stdin
                         // request, not a CLI verb per op.
+                        | "cloud.machine.chat_access"
                         | "cloud.machine.io"
+                        | "cloud.machine.share_chat"
                         | "cloud.owner.acpmux_keyed_start"
                         | "cloud.owner.acpmux_person_holds"
                         | "cloud.owner.fork_run"
@@ -473,6 +476,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // Apart from settings.list, daemon settings ops have no
                         // noun-first CLI verb yet, as they have no MCP tool
                         // (83285ad2b3bf; cx-9ce.12, cx-ncc.32).
+                        | "settings.edit"
                         | "settings.get"
                         | "settings.reset"
                         | "settings.reset_all"
