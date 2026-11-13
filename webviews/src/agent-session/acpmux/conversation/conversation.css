@@ -5638,7 +5638,10 @@ a.cv-sha:focus-visible {
   letter-spacing: 0.08em;
   user-select: text;
 }
-.cv-turn-error__details[open] {
+/* Details owns a full action-row slot in both states. The raw error grows below its summary when
+   open, but the disclosure itself never changes flex line or horizontal position (Leo, 2026-11-12:
+   "this details moves aroud"). */
+.cv-turn-error__details {
   flex-basis: 100%;
 }
 .cv-turn-error__raw {
