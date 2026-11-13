@@ -361,7 +361,7 @@ for name in "${names[@]}"; do
     # Pointer first: its click gives the marker key focus for the key run.
     for input in pointer key; do
       raw="$EVAL_STATE/latency-$input.raw"
-      rm -f "$raw" "$raw.clock" "$raw.span"
+      rm -f "$raw" "$raw.first" "$raw.clock" "$raw.span"
       view latency-view "$input" "$samples" "$raw" || err "latency $input failed"
       with_offsets "$raw" bash "$script" latency-report "$input" "$raw" "$dir/latency-$input.json" || err "latency $input: no report"
     done

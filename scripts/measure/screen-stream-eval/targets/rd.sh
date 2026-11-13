@@ -11,6 +11,10 @@ crate="$EVAL_ROOT/cmux-tui/crates/cmux-rd-host"
 rd="$EVAL_BIN/cmux-rd"
 port=4103
 
+now_ms() {
+  python3 -c 'import time; print(time.time_ns() // 1_000_000)'
+}
+
 host_start() {
   head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' >"$EVAL_STATE/token"
   chmod 600 "$EVAL_STATE/token"
@@ -139,14 +143,14 @@ EOF
     seconds=$1 snapshot=$2 go=$3 raw=$4
     ppm="$EVAL_STATE/snapshot.ppm"
     rm -f "$ppm"
-    start_ms=$(date +%s%3N)
+    start_ms=$(now_ms)
     export EVAL_WINDOW_START_MS="$start_ms"
     bench --input none --duration-s "$seconds" --snapshot "$ppm" \
       >"$raw" 2>"$EVAL_STATE/window.err" &
     pid=$!
     for _ in $(seq 1 200); do
       if grep -q 'passive: first frame' "$EVAL_STATE/window.err"; then
-        first_ms=$(date +%s%3N)
+        first_ms=$(now_ms)
         echo $((first_ms - start_ms)) >"$raw.first"
         break
       fi

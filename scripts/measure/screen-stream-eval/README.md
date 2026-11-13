@@ -99,7 +99,12 @@ Today's targets:
   CPU. They represent the two quality profiles selected in the app. Apple does
   not expose a supported input-to-presented-frame timestamp, so their key and
   pointer latency rows remain explicitly unavailable rather than mixing in a
-  different protocol.
+  different protocol. Screen Sharing.app also does not expose its VNC payload
+  byte counters; Apple rows therefore report frame rate, OCR, first frame and
+  CPU, with transport kbps explicitly unavailable. The target selects Full
+  Quality for `apple-high` and Adaptive Quality for `apple-standard` through
+  the app's View > Quality menu and fails closed when that menu cannot be
+  selected.
 
 The window targets add `extra.process_cpu_pct`, the CPU of the process that captures and encodes,
 over the view. Compare them in one run with `--arg=targets=cu-png,rd-window,rd-window-30`

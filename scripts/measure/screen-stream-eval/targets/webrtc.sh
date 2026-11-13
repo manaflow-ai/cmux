@@ -8,6 +8,10 @@ verb=$1
 shift
 package="$EVAL_ROOT/Packages/Shared/CmuxVNCWebRTC"
 
+now_ms() {
+  python3 -c 'import time; print(time.time_ns() // 1_000_000)'
+}
+
 host_start() {
   # Its pairing (a secret) lives in a home of its own inside the target's state directory.
   mkdir -p "$EVAL_STATE/home"
@@ -156,7 +160,7 @@ EOF
     # window-view SECONDS SNAPSHOT GO RAW
     seconds=$1 snapshot=$2 go=$3 raw=$4
     : >"$raw"
-    start_ms=$(date +%s%3N)
+    start_ms=$(now_ms)
     # The viewer creates GO itself at its first frame: swift test holds its output back until the
     # test ends, so a printed line would start the scene late (2026-11-05: GO 60 s late, after the
     # wait below ran out, put typing and scrolling past the window's end).
@@ -164,7 +168,7 @@ EOF
     pid=$!
     for _ in $(seq 1 600); do
       if [[ -e "$go" ]]; then
-        first_ms=$(date +%s%3N)
+        first_ms=$(now_ms)
         echo $((first_ms - start_ms)) >"$raw.first"
         break
       fi

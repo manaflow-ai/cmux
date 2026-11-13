@@ -7,6 +7,10 @@ shift
 mode=${EVAL_APPLE_MODE:-high}
 host=${EVAL_PEER:-${EVAL_APPLE_HOST:-127.0.0.1}}
 
+now_ms() {
+  python3 -c 'import time; print(time.time_ns() // 1_000_000)'
+}
+
 screen_sharing_app() {
   [[ -d "/System/Library/CoreServices/Screen Sharing.app" ]] && echo "/System/Library/CoreServices/Screen Sharing.app" && return
   [[ -d "/System/Applications/Utilities/Screen Sharing.app" ]] && echo "/System/Applications/Utilities/Screen Sharing.app" && return
@@ -45,21 +49,52 @@ PY
     seconds=$1; snapshot=$2; go=$3; raw=$4
     app=$(screen_sharing_app)
     open -g -a "$app" "vnc://$host" >/dev/null 2>&1 || true
-    # Wait for the app's window to become capturable, then sample the front-most
-    # display. Screen Sharing.app is deliberately the only viewer in this target.
-    start_ms=$(date +%s%3N)
+    # The two wrappers select the quality profile in Screen Sharing.app itself;
+    # fail closed if the requested menu item is unavailable instead of labeling
+    # an unselected profile as high or standard.
+    quality_item="Adaptive Quality"
+    [[ "$mode" == high ]] && quality_item="Full Quality"
+    osascript - "$quality_item" <<'OSA'
+on run argv
+  tell application "System Events"
+    tell process "Screen Sharing"
+      repeat 50 times
+        try
+          click menu bar item "View" of menu bar 1
+          click menu item "Quality" of menu 1 of menu bar item "View" of menu bar 1
+          click menu item (item 1 of argv) of menu 1 of menu item "Quality" of menu 1 of menu bar item "View" of menu bar 1
+          return
+        end try
+        delay 0.1
+      end repeat
+    end tell
+  end tell
+  error "Screen Sharing quality menu is unavailable"
+end run
+OSA
+    window_id=""
+    for _ in $(seq 1 100); do
+      window_id=$(osascript -e 'tell application "System Events" to tell process "Screen Sharing" to get id of front window' 2>/dev/null || true)
+      [[ "$window_id" =~ ^[0-9]+$ ]] && break
+      sleep 0.1
+    done
+    [[ "$window_id" =~ ^[0-9]+$ ]] || { echo "apple-$mode: Screen Sharing window id unavailable" >&2; exit 1; }
+    viewer_pid=$(ps -axo pid=,comm= | awk '$0 ~ /Screen Sharing/ {print $1; exit}')
+    [[ "$viewer_pid" =~ ^[0-9]+$ ]] || { echo "apple-$mode: Screen Sharing process unavailable" >&2; exit 1; }
+    # Capture only the remote Screen Sharing window. A full-display capture
+    # would measure the local scene and is not evidence about Apple's stream.
+    start_ms=$(now_ms)
     deadline=$((SECONDS + seconds))
     first_ms=""
     last_hash=""
     bucket_start_ms=""
-    bucket_bytes=0
     bucket_frames=0
     rows=()
     i=0
     while (( SECONDS < deadline )); do
       png="$EVAL_STATE/frame-$i.png"
-      if screencapture -x -o "$png" 2>/dev/null && [[ -s "$png" ]]; then
-        now=$(date +%s%3N)
+      if screencapture -x -o -l "$window_id" "$png" 2>/dev/null && [[ -s "$png" ]]; then
+        now=$(now_ms)
         hash=$(shasum -a 256 "$png" | awk '{print $1}')
         changed=0
         [[ -n "$first_ms" && "$hash" != "$last_hash" ]] && changed=1
@@ -68,17 +103,15 @@ PY
           echo "$first_ms" >"$raw.first"
           touch "$go"
         fi
-        bytes=$(stat -f %z "$png" 2>/dev/null || wc -c <"$png")
         if [[ -z "$bucket_start_ms" ]]; then bucket_start_ms=$now; fi
-        bucket_bytes=$((bucket_bytes + bytes))
+        # Screen Sharing.app's PNG screenshot is a local observation, not the
+        # VNC transport payload. Keep kbps explicitly unavailable.
         bucket_frames=$((bucket_frames + changed))
         if (( now - bucket_start_ms >= 1000 )); then
-          # The evaluator treats each row as one second of traffic.  Keep the
-          # high-rate capture private and publish one-second aggregates so
-          # bytes are kbps and changed hashes are fps.
-          rows+=("{\"unix_ms\":$now,\"bytes\":$bucket_bytes,\"frames\":$bucket_frames}")
+          # The evaluator treats each row as one second. Publish changed
+          # hashes as sampled frame rate; transport bytes are unavailable.
+          rows+=("{\"unix_ms\":$now,\"bytes\":null,\"frames\":$bucket_frames}")
           bucket_start_ms=$now
-          bucket_bytes=0
           bucket_frames=0
         fi
         last_hash=$hash
@@ -87,12 +120,12 @@ PY
       i=$((i + 1))
       sleep 0.1
     done
-    if (( bucket_bytes > 0 )); then
-      rows+=("{\"unix_ms\":$(date +%s%3N),\"bytes\":$bucket_bytes,\"frames\":$bucket_frames}")
+    if (( bucket_frames > 0 )); then
+      rows+=("{\"unix_ms\":$(now_ms),\"bytes\":null,\"frames\":$bucket_frames}")
     fi
     [[ -e "$go" ]] || touch "$go"
-    cpu=$(ps -axo comm=,%cpu= | awk '$1 ~ /Screen/ {sum += $2} END {print sum + 0}')
-    printf '{"series":[%s],"extra":{"first_frame_ms":%s,"cpu_pct":%s,"mode":"%s","viewer":"Screen Sharing.app"}}\n' \
+    cpu=$(ps -p "$viewer_pid" -o %cpu= 2>/dev/null | awk '{print $1 + 0}')
+    printf '{"series":[%s],"extra":{"first_frame_ms":%s,"cpu_pct":%s,"mode":"%s","viewer":"Screen Sharing.app","bytes_method":"Screen Sharing.app transport bytes are not exposed"}}\n' \
       "$(IFS=,; echo "${rows[*]-}")" "${first_ms:-null}" "${cpu:-null}" "$mode" >"$raw"
     ;;
   window-report)

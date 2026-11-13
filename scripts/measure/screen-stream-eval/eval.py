@@ -54,7 +54,9 @@ def phase_numbers(series: list[dict], phases: dict[str, dict]) -> tuple[dict, di
         if not rows:
             kbps[name] = fps[name] = encode[name] = decode[name] = None
             continue
-        kbps[name] = round(sum(s["bytes"] for s in rows) * 8 / 1000 / len(rows), 1)
+        byte_rows = [s.get("bytes") for s in rows]
+        kbps[name] = (round(sum(byte_rows) * 8 / 1000 / len(rows), 1)
+                      if all(isinstance(value, (int, float)) for value in byte_rows) else None)
         fps[name] = round(sum(s["frames"] for s in rows) / len(rows), 1)
         enc = [s["encode_ms"] for s in rows if isinstance(s.get("encode_ms"), (int, float))]
         dec = [s["decode_ms"] for s in rows if isinstance(s.get("decode_ms"), (int, float))]
@@ -90,7 +92,8 @@ def target(name: str, folder: Path, out: Path) -> None:
         result["split"][kind] = {k: split.get(k) for k in ("input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method")}
         if split.get("input_to_capture_parts"):
             result["split"][kind]["input_to_capture_parts"] = split["input_to_capture_parts"]
-        if g2g.get("p50") is None:
+        unavailable = (split.get("method") or "").startswith("apple-screen-sharing-app:")
+        if g2g.get("p50") is None and not unavailable:
             errors.append(f"latency {kind}: no samples")
     # Repeats (window-N.json, phases-N.jsonl, ocr-N.json): every number is the median of the repeats
     # that measured it, and extra.repeats keeps each repeat's own numbers.
@@ -107,8 +110,8 @@ def target(name: str, folder: Path, out: Path) -> None:
                     phases[row["phase"]] = row
         kbps, fps, encode, decode = phase_numbers(window.get("series") or [], phases)
         ocr = load(folder / f"ocr-{rep}.json")
-        if None in kbps.values():
-            errors.append(f"window {rep}: no numbers for {[k for k, v in kbps.items() if v is None]} (phases logged: {sorted(phases)})")
+        if None in fps.values():
+            errors.append(f"window {rep}: no frame numbers for {[k for k, v in fps.items() if v is None]} (phases logged: {sorted(phases)})")
         if ocr is None:
             errors.append(f"ocr {rep}: no result")
         else:
@@ -144,9 +147,13 @@ def target(name: str, folder: Path, out: Path) -> None:
                 result["ocr"][k] = middle.get(k)
     else:
         errors.append("ocr: no result")
-    result["extra"] = {"first_frame_ms": median_of(e.get("first_frame_ms") for e in extras),
-                        "cpu_pct": median_of(e.get("cpu_pct", e.get("process_cpu_pct")) for e in extras),
-                        **(extras[0] if extras else {}), "repeats": per_rep}
+    first_extra = extras[0] if extras else {}
+    metadata = {k: v for k, v in first_extra.items() if k not in {"first_frame_ms", "cpu_pct", "process_cpu_pct"}}
+    cpu_values = (e.get("cpu_pct") if isinstance(e.get("cpu_pct"), (int, float))
+                  else e.get("process_cpu_pct") for e in extras)
+    result["extra"] = {**metadata,
+                        "first_frame_ms": median_of(e.get("first_frame_ms") for e in extras),
+                        "cpu_pct": median_of(cpu_values), "repeats": per_rep}
     result["ok"] = not errors
     out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
 
@@ -206,7 +213,7 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
             lines.append(f"| kbps, {label} | {cell('kbps', phase, unit='', digits=0)} at {cell('fps', phase, unit=' fps')} |")
         lines.append(f"| Text OCR error (13 pt code, viewer vs host screenshot) | {cell('ocr', 'cer', unit='%', digits=2)}"
                      f" (host OCR vs drawn text {fmt(get(t, 'ocr', 'host_cer_vs_truth'), '%', 2)}) |")
-        lines.append(f"| First decoded frame / viewer CPU | {cell('extra', 'first_frame_ms')} / {cell('extra', 'cpu_pct', unit='%', digits=1)} |")
+        lines.append(f"| First decoded frame / viewer CPU | {cell('extra', 'first_frame_ms')} / {cell('extra', 'cpu_pct', digits=1)} % |")
         for kind in ("key", "pointer"):
             lines.append(f"| {kind.capitalize()} split: input→capture / encode / transport / decode | "
                          f"{cell('split', kind, 'input_to_capture_ms')} / {cell('split', kind, 'encode_ms', digits=2)} / "
