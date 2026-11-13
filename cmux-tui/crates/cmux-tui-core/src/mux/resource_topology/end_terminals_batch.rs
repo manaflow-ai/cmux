@@ -157,6 +157,7 @@ impl Mux {
             None,
             true,
             None,
+            projection.restates_all,
         )?;
         anyhow::ensure!(
             !committed.resource.replayed,

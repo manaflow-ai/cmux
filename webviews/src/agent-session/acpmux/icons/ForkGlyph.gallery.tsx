@@ -10,9 +10,13 @@ export default componentEntry<ForkGlyphGalleryProps>({
   covers: ["agent-session/acpmux/icons/ForkGlyphGallery.tsx", "agent-session/acpmux/icons/forkIcon.ts"],
   load: async () => ForkGlyphGallery,
   variants: {
+    "branch-mark": {
+      props: { fork: "branch-mark" },
+      note: "Chosen: the branch mark. A stem between two nodes on the left, a curve from the top-right node joining it. As tall as Pin, and apart from git.branch (two nodes, the stem runs out the top) and the pull request mark (an arrow, no curve).",
+    },
     "fork-mark": {
       props: { fork: "fork-mark" },
-      note: "Chosen: the fork mark Codex draws, two tines joining one stem through three nodes. It reads as fork at 12 pt, is as tall as Pin and as wide as Read aloud, and stays apart from git.branch (two nodes) and the pull request mark (an arrow between two columns).",
+      note: 'Before: the fork mark, two top nodes whose tines join one stem to a bottom node. It is the repository fork mark (Leo 2026-11-07: "our generated github icon... man figure somethgn out").',
     },
     "soft-fork": {
       props: { fork: "soft-fork" },
@@ -20,7 +24,7 @@ export default componentEntry<ForkGlyphGalleryProps>({
     },
     "turned-y": {
       props: { fork: "turned-y" },
-      note: "Candidate: one stem splitting into two arrowheads right. Reads as split or shuffle more than fork, and its arrowheads crowd the row.",
+      note: 'Candidate: the rejected up-pointing stem turned 90 degrees, one stem splitting into two arrowheads right, the other option (Leo 2026-11-07: "either move it 90 deg like claude\'s"). Reads as split or shuffle more than fork, and its arrowheads crowd the row.',
     },
     sideways: {
       props: { fork: "sideways" },

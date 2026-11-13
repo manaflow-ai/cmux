@@ -6,7 +6,7 @@ import { stackRole } from "./domains/team-roles.ts"
 import type { TeamState } from "./domains/team.ts"
 import { userIdFor } from "./domains/user.ts"
 import { storePlan } from "./inference/plan.ts"
-import { confirmTeamFacts, nextReadTicket, noteTeamEvent, storeVmPlan } from "./cloud-vm-plan.ts"
+import { confirmTeamFacts, nextReadTicket, noteTeamEvent, readStackTeam } from "./cloud-vm-plan.ts"
 import { deliverPendingCarry, pendingCarryAt, planCarryOnDelete } from "./team-grant-carry.ts"
 import type { StackMember, StackServer } from "./stack-server.ts"
 
@@ -291,10 +291,9 @@ export class StackTeamSync {
     }
     // The plan copy is dated before the read (review P3): a slower read never looks newer than it is.
     const readAt = Date.now()
-    const team = await stack.getTeam(ev.stack_team)
     // Every grant observed is kept at once, before any early return (review F1 at e9544f44): a delete that waits for
     // its confirmation, or a sync that stops early, must never leave an older (since revoked) grant as the copy.
-    if (team !== null && team.vm_personal_tenant !== true && team.vm_plan !== undefined) storeVmPlan(deps.sql, team.vm_plan, readAt, ticket)
+    const team = await readStackTeam(deps.sql, stack, ev.stack_team, readAt, ticket)
     // Stack still lists a team that a team.deleted named: change nothing now and ask again later, keeping the delete.
     if (team !== null && ev.type === "team.deleted") return schedule(deps.sql, ev, attempt, Date.now()) ? "team_delete_pending" : "team_delete_unconfirmed"
     if (team === null) {
@@ -310,7 +309,12 @@ export class StackTeamSync {
       return schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped"
     }
     // A cmux VM personal tenant is a private Stack team behind one personal owner: never a cmux team (team-vm-api-personal.ts).
-    if (team.vm_personal_tenant === true) return "vm_personal_tenant_ignored"
+    // A tenant made before its create marked it for clients too is marked now (CMUX-380), so the person's sign-in
+    // client stops offering it as a team; a failed mark leaves it ignored, and the next sync tries again.
+    if (team.vm_personal_tenant === true) {
+      if (team.vm_personal_tenant_visible === true || !stack.markVmPersonalTenantVisible) return "vm_personal_tenant_ignored"
+      return (await stack.markVmPersonalTenantVisible(ev.stack_team).catch(() => false)) ? "vm_personal_tenant_marked" : "vm_personal_tenant_ignored"
+    }
     const missing = () => (schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped")
     // Members are read before the mirror commit: a team not mirrored here yet whose Stack members are all
     // anonymous is a cmux.com visitor's sign-up personal team (StackMember.anonymous) and is never mirrored.

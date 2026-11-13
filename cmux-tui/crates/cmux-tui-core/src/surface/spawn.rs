@@ -206,6 +206,7 @@ impl Surface {
                     crate::workspace_registry::new_uuid_v4()
                 )),
                 journal_capture_supported: true,
+                output_log: Default::default(),
                 #[cfg(unix)]
                 local_output: shared_output,
                 journal_capture_epoch: AtomicU64::new(0),
@@ -252,7 +253,7 @@ impl Surface {
                 pending_host_binding: Mutex::new(None),
                 #[cfg(any(unix, windows))]
                 host_exit_record_path: None,
-                pid,
+                pid: terminal_runtime::terminal_seat(&mux, pid),
                 command: argv,
                 cwd,
                 exit: Mutex::new(None),

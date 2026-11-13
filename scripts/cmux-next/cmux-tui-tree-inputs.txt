@@ -23,6 +23,12 @@ blob scripts/ci/macos-cross.sh
 blob scripts/ci/macos_stubs.py
 blob scripts/ci/macho_weaken.py
 tree scripts/ci/macos-stubs
+# The release profile the binaries build with is set in the reusable build
+# workflow, not in cmux-tui/: lto, codegen-units, and CARGO_PROFILE_RELEASE_LTO
+# for the Cloud machine channel's legs. A profile-only change must build a new
+# tree, never reuse one built with the old profile (cmux#42622 had to touch
+# cargo-groups.sh to move the key; handbook reuse-key-leaves-out-an-input).
+blob .github/workflows/cmux-tui-build-package.yml
 # cmux-cloud, a tree companion (cmux-tui-cloud-server-*), builds from its own
 # crate outside cmux-tui/ (macos-cross.sh, cmux-tui-build-package.yml). Its
 # cmux-tui path dependencies are covered by `tree cmux-tui`.

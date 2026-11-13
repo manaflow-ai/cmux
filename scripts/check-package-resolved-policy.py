@@ -60,7 +60,7 @@ PACKAGE_DEPENDENCY_RE = re.compile(r"\.package\(([^)]*)\)", re.DOTALL)
 PACKAGE_PATH_ARGUMENT_RE = re.compile(r'\bpath\s*:\s*"([^"]+)"')
 PACKAGE_URL_ARGUMENT_RE = re.compile(r'\burl\s*:\s*"[^"]+"')
 WORKSPACE_GROUP_LOCATION_RE = re.compile(r'\blocation\s*=\s*"group:([^"]+)"')
-# The manifest gate of the Linux package jobs (swift-packages-linux.yml), the
+# The manifest gate of the Linux package jobs (swift-linux-packages.yml), the
 # only builds that set CMUX_SWIFTPM_TARGET_LINUX. A dependency appended inside
 # it exists only in a build for Linux: no Apple build (Xcode, the app, the
 # fleet's app compile, Mac `swift test`) resolves it, so it is no input of any
