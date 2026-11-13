@@ -451,20 +451,20 @@ where
     let sink: Arc<dyn OfferSink> = Arc::new(ConnectionSink { state: state.clone() });
     let mut pending = VecDeque::new();
     let mut source_tasks = tokio::task::JoinSet::new();
-    let mut writing: Option<FrameLease> = None;
+    let mut writing: Option<WritingFrame> = None;
     let mut hello_seen = false;
     loop {
         if writing.is_none() {
-            writing = state.lock().ok().and_then(|mut state| state.take());
+            writing = state.lock().ok().and_then(|mut state| state.take()).map(WritingFrame::new);
         }
         tokio::select! {
             biased;
-            result = write_lease(&mut writer, writing.as_ref()), if writing.is_some() => {
-                result?;
-                if let Some(lease) = writing.take()
+            result = write_lease(&mut writer, writing.as_mut()), if writing.is_some() => {
+                if result?
+                    && let Some(written) = writing.take()
                     && let Ok(mut state) = state.lock()
                 {
-                    state.written(&lease);
+                    state.written(&written.lease);
                 }
             }
             Some(frame) = async { pending.pop_front() }, if !pending.is_empty() => {
@@ -657,14 +657,37 @@ async fn process_frame<S: Source>(
     }
 }
 
+struct WritingFrame {
+    lease: FrameLease,
+    bytes: Vec<u8>,
+    offset: usize,
+}
+
+impl WritingFrame {
+    fn new(lease: FrameLease) -> Self {
+        Self { bytes: lease.frame.encode(), lease, offset: 0 }
+    }
+}
+
+// `write` is cancellation safe; `write_all` is not. Progress lives outside the
+// select future so an inbound request cannot cause a frame prefix to be written twice.
 async fn write_lease<W: AsyncWrite + Unpin>(
     writer: &mut W,
-    lease: Option<&FrameLease>,
-) -> Result<(), std::io::Error> {
-    match lease {
-        Some(lease) => writer.write_all(&lease.frame.encode()).await,
-        None => std::future::pending().await,
+    writing: Option<&mut WritingFrame>,
+) -> Result<bool, std::io::Error> {
+    let Some(writing) = writing else { return std::future::pending().await };
+    let remaining = writing.bytes.get(writing.offset..).ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid write offset")
+    })?;
+    if remaining.is_empty() {
+        return Ok(true);
     }
+    let count = writer.write(remaining).await?;
+    if count == 0 {
+        return Err(std::io::Error::new(std::io::ErrorKind::WriteZero, "frame write stopped"));
+    }
+    writing.offset += count;
+    Ok(writing.offset == writing.bytes.len())
 }
 
 fn queue_error(state: &Arc<std::sync::Mutex<ConnectionState>>, message: &str) {
@@ -885,5 +908,39 @@ mod tests {
     fn a_cursor_only_subscriber_reports_zero_retained_bytes() {
         let (hub, _) = SummaryHub::new(SummaryIndex::new());
         assert_eq!(hub.not_fed_bytes(), 0);
+    }
+
+    #[tokio::test]
+    async fn interrupted_write_preserves_frame_bytes_and_completed_cursor() {
+        let (mut writer, mut reader) = tokio::io::duplex(7);
+        let mut state = ConnectionState::default();
+        state.subscribe("s", Cursor(3)).unwrap();
+        let frame = Frame::json(FrameKind::Delta, &json!({"sid":"s","text":"abcdef"})).unwrap();
+        let expected = frame.encode();
+        assert_eq!(state.offer("s", frame, Cursor(4)), Offer::Taken);
+        let mut writing = WritingFrame::new(state.take().unwrap());
+        let mut received = Vec::new();
+        loop {
+            let complete = write_lease(&mut writer, Some(&mut writing)).await.unwrap();
+            assert_eq!(state.subscriptions.get("s").unwrap().cursor, Cursor(3));
+            if !complete {
+                // The duplex buffer is full. An unrelated ready arm cancels the
+                // pending write, exactly as a credit request does in run().
+                tokio::select! {
+                    biased;
+                    _ = write_lease(&mut writer, Some(&mut writing)) => panic!("buffer was full"),
+                    _ = std::future::ready(()) => {}
+                }
+            }
+            let mut chunk = [0_u8; 7];
+            let count = reader.read(&mut chunk).await.unwrap();
+            received.extend_from_slice(chunk.get(..count).unwrap());
+            if complete {
+                state.written(&writing.lease);
+                break;
+            }
+        }
+        assert_eq!(received, expected);
+        assert_eq!(state.subscriptions.get("s").unwrap().cursor, Cursor(4));
     }
 }
