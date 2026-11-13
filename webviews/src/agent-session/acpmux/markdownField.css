@@ -381,7 +381,7 @@
    page that is not the key one shows no caret (composerStates.css). */
 .acpmux-composer-box[data-attachment-view="strip"] .acpmux-md .acpmux-md-caret-line,
 .nt-composer[data-attachment-view="strip"] .acpmux-md .acpmux-md-caret-line {
-  caret-color: inherit !important;
+  caret-color: var(--cmux-caret, var(--agent-text)) !important;
 }
 .acpmux-composer-box[data-attachment-view="strip"] .acpmux-md-caret,
 .nt-composer[data-attachment-view="strip"] .acpmux-md-caret,
