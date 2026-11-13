@@ -47,6 +47,7 @@ pub mod carrier;
 pub mod channel;
 #[cfg(unix)]
 pub mod gate;
+pub mod look;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod store;
@@ -95,6 +96,10 @@ pub struct State {
     pub last: Option<String>,
     #[serde(default)]
     pub last_at: u64,
+    /// The last check and update run as codes, for the Cloud status report
+    /// ([`look`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub look: Option<look::Look>,
 }
 
 /// An update whose new build has not proved itself yet.

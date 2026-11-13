@@ -46,9 +46,8 @@
   --cv-ui-scale: var(--cmux-ui-scale, 1);
   --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 100%, calc(800px / var(--cv-ui-scale)));
   --cv-edge: var(--grid-icon-box);
-  /* Resolved where it is used: 100% is the pane's width there. Rounded to a whole pixel only, so the
-     default column stays --cv-column's width. */
-  --cv-inset: max(var(--cv-edge), round(nearest, (100% - var(--cv-column)) / 2, 1px));
+  /* Keep fractional CSS pixels: rounding here makes the on-screen edges wobble as page zoom changes. */
+  --cv-inset: max(var(--cv-edge), calc((100% - var(--cv-column)) / 2));
   --cv-font: var(--font-ui);
   /* Code follows the terminal font; a chat or Markdown viewer code font (chatDisplay.ts) sets
      --cv-mono in front of it. */
@@ -2104,6 +2103,59 @@ pre.cv-math-source {
 .acpmux-row {
   left: var(--cv-inset);
   right: var(--cv-inset-end, var(--cv-inset));
+}
+/* A live drag (a pane divider or window edge) flows the mounted rows (VirtualTranscript FLOW_CLASS):
+   they leave their placed tops and sit in normal flow, each with the gap under it as a margin, so
+   the browser rewraps them at each width in its own layout pass, as it does a web page. Anchored at
+   the first mounted row's top (--acpmux-flow-start, the padding above it) unless the view follows
+   the latest row. The rows are placed again once the width holds.
+   The gap is a length the transcript writes on each mounted row as the rows start to flow
+   (--acpmux-flow-gap, VirtualTranscript `anchorFlow`; 0 on the last one). It does not inherit: a
+   write styles the row alone, not what it holds. No rule here reads a row's place among its
+   siblings (:last-child and the like): such a rule makes the page style the row before a new one
+   again each time a row arrives, drag or no drag. */
+@property --acpmux-flow-gap {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+.acpmux-thread.acpmux-thread--flow {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  box-sizing: border-box;
+  padding-top: var(--acpmux-flow-start, 0px);
+  padding-bottom: 0;
+}
+/* A view that follows the latest row: the box ends where that row rests when the chat fills the
+   view (--acpmux-flow-end), and the rows hang from its end, so rows too tall for it go up past its
+   top, as a scroll to the end shows them. Two struts place rows that leave it free room, with no
+   read of a row: the one above takes that room first, up to the first row's place in a chat the
+   view holds whole (--acpmux-flow-start; the box's own length, so no room is left, while older
+   rows are unmounted above), and the one under takes the rest. Neither is a child, so the rows keep their
+   order; only a strut's size changes with the rows'. */
+.acpmux-thread.acpmux-thread--flow-end {
+  justify-content: flex-end;
+  height: var(--acpmux-flow-end);
+  padding-top: 0;
+}
+.acpmux-thread.acpmux-thread--flow-end::before {
+  content: "";
+  flex: 0 1 var(--acpmux-flow-start, 100%);
+  min-height: 0;
+}
+.acpmux-thread.acpmux-thread--flow-end::after {
+  content: "";
+  flex: 1 0 0px;
+}
+.acpmux-thread--flow > .acpmux-row {
+  position: relative;
+  flex: none;
+  top: auto !important;
+  right: auto;
+  left: auto;
+  margin-top: 0 !important;
+  margin-bottom: var(--acpmux-flow-gap);
 }
 .acpmux-row__gap {
   position: absolute;

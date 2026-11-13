@@ -33,15 +33,24 @@ public struct LinkPairing: Sendable {
     public static let authorizationTimeout = defaultHandshakeTimeout + defaultApprovalTimeout
     var handshakeTimeout: Duration = defaultHandshakeTimeout
     var approvalTimeout: Duration = defaultApprovalTimeout
+    private let clockNow: @Sendable () -> Duration
 
     public init(keys: PhoneKeys, phoneID: String, name: String, pins: MacPins = .standard, push: PushKeys? = nil,
                 invites: PairInvites = PairInvites()) {
+        self.init(keys: keys, phoneID: phoneID, name: name, pins: pins, push: push, invites: invites,
+                  clock: ContinuousClock())
+    }
+
+    init<C: Clock<Duration>>(keys: PhoneKeys, phoneID: String, name: String, pins: MacPins,
+                             push: PushKeys?, invites: PairInvites, clock: C) {
         self.keys = keys
         self.phoneID = phoneID
         self.name = name
         self.pins = pins
         self.push = push
         self.invites = invites
+        let start = clock.now
+        self.clockNow = { start.duration(to: clock.now) }
     }
 
     /// What the phone says when a paired Mac's identity changed.
@@ -208,7 +217,7 @@ public struct LinkPairing: Sendable {
         var boxKey: String?
         var boxSignature: String?
         var waitingForApproval = false
-        var deadline = ContinuousClock.now.advanced(by: handshakeTimeout)
+        var deadline = clockNow() + handshakeTimeout
         do {
             while true {
                 guard let frame = try await exchange(channel, until: deadline, approval: waitingForApproval,
@@ -234,7 +243,7 @@ public struct LinkPairing: Sendable {
                     // Repeated pending frames never extend the approval deadline.
                     if !waitingForApproval {
                         waitingForApproval = true
-                        deadline = ContinuousClock.now.advanced(by: approvalTimeout)
+                        deadline = clockNow() + approvalTimeout
                         await onWaiting()
                     }
                     continue
@@ -302,7 +311,7 @@ public struct LinkPairing: Sendable {
 
     /// "Remove This iPhone from My Macs": asks the Mac to forget this phone (best effort, over a live link).
     public func unpair(link: any MacLink, macID: String) async {
-        let deadline = ContinuousClock.now.advanced(by: handshakeTimeout)
+        let deadline = clockNow() + handshakeTimeout
         guard let (identity, approval) = try? keys.publicKeys(),
               let channel = try? await LinkDeadline.run(
                 timeout: handshakeTimeout,
@@ -328,11 +337,11 @@ public struct LinkPairing: Sendable {
     /// Deadline/cancellation closes this auth channel, unblocking its reader.
     /// Network silence must not be mistaken for an unanswered human prompt.
     private func exchange<Value: Sendable>(
-        _ channel: any LinkChannel, until deadline: ContinuousClock.Instant, approval: Bool = false,
+        _ channel: any LinkChannel, until deadline: Duration, approval: Bool = false,
         operation: @escaping @Sendable () async throws -> Value
     ) async throws -> Value {
         try await LinkDeadline.run(
-            timeout: ContinuousClock.now.duration(to: deadline),
+            timeout: deadline - clockNow(),
             timeoutError: LinkError(code: approval ? "timeout" : "reply_timeout",
                                    message: "The Mac didn't answer. Retry."),
             operation: operation,
