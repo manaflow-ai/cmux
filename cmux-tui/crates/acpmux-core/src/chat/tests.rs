@@ -221,16 +221,22 @@ fn kill_at(book: &Path, line: Option<usize>, point: Option<&str>) {
         command.env("ACPMUX_TEST_REBUILD_POINT", point);
     }
     let mut child = command.spawn().unwrap();
-    let mut ready = false;
-    for line in BufReader::new(child.stdout.take().unwrap()).lines() {
-        if line.unwrap().contains("ACTOR_CUT_READY") {
-            ready = true;
-            break;
-        }
+    let stdout = child.stdout.take().unwrap();
+    let (send, receive) = mpsc::channel();
+    let reader = thread::spawn(move || {
+        let ready = BufReader::new(stdout)
+            .lines()
+            .map_while(Result::ok)
+            .any(|line| line.contains("ACTOR_CUT_READY"));
+        let _ = send.send(ready);
+    });
+    let ready = receive.recv_timeout(Duration::from_secs(15)).unwrap_or(false);
+    if child.try_wait().unwrap().is_none() {
+        child.kill().unwrap();
     }
-    assert!(ready, "worker exited before the selected kill point");
-    child.kill().unwrap();
     assert!(!child.wait().unwrap().success());
+    reader.join().unwrap();
+    assert!(ready, "worker did not reach the selected kill point within 15 seconds");
 }
 
 #[test]
@@ -687,31 +693,33 @@ fn deterministic_translation_failure_is_counted_five_times_without_advancing_raw
 
 #[test]
 fn replaced_raw_after_a_killed_link_never_swaps_the_old_inode_back() {
-    let home = tempfile::tempdir().unwrap();
-    let book = home.path().join("book");
-    let config = fixture(&book, 2);
-    catch_up(config.clone());
-    fs::write(book.join("folds.idx"), []).unwrap();
-    kill_at(&book, None, Some("raw-linked"));
-    let replacement = home.path().join("replacement.ndjson");
-    fs::write(&replacement, corpus(1)).unwrap();
-    fs::rename(&replacement, book.join("source.ndjson")).unwrap();
-    #[cfg(unix)]
-    let inode = {
-        use std::os::unix::fs::MetadataExt;
-        fs::metadata(book.join("source.ndjson")).unwrap().ino()
-    };
-    rebuild(config);
-    assert_eq!(fs::read(book.join("source.ndjson")).unwrap(), corpus(1));
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        assert_eq!(fs::metadata(book.join("source.ndjson")).unwrap().ino(), inode);
+    for point in ["raw-linked", "committed", "closed"] {
+        let home = tempfile::tempdir().unwrap();
+        let book = home.path().join("book");
+        let config = fixture(&book, 2);
+        catch_up(config.clone());
+        fs::write(book.join("folds.idx"), []).unwrap();
+        kill_at(&book, None, Some(point));
+        let replacement = home.path().join("replacement.ndjson");
+        fs::write(&replacement, corpus(1)).unwrap();
+        fs::rename(&replacement, book.join("source.ndjson")).unwrap();
+        #[cfg(unix)]
+        let inode = {
+            use std::os::unix::fs::MetadataExt;
+            fs::metadata(book.join("source.ndjson")).unwrap().ino()
+        };
+        rebuild(config);
+        assert_eq!(fs::read(book.join("source.ndjson")).unwrap(), corpus(1));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            assert_eq!(fs::metadata(book.join("source.ndjson")).unwrap().ino(), inode);
+        }
+        assert_eq!(log::CheckpointHead::read(&book).unwrap().unwrap().edition, 2);
+        let clean = home.path().join("clean");
+        catch_up(fixture(&clean, 1));
+        assert_eq!(rows(&book), rows(&clean));
     }
-    assert_eq!(log::CheckpointHead::read(&book).unwrap().unwrap().edition, 2);
-    let clean = home.path().join("clean");
-    catch_up(fixture(&clean, 1));
-    assert_eq!(rows(&book), rows(&clean));
 }
 
 #[test]

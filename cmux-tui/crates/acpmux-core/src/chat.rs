@@ -514,8 +514,31 @@ fn rebuild_from_raw(
 ) -> Result<Option<ActorState>, ChatError> {
     let new_book = suffix(&config.book, ".new");
     if log::saved_checkpoint(&new_book)?.is_some_and(|saved| saved.edition != 0) {
-        finish_swap(&config, &new_book)?;
-        return retry_busy(|| open_state(config.clone())).map(Some);
+        // A committed replacement normally needs only the renames. If the served
+        // source was replaced while we were down, its newer inode must survive:
+        // the old staging link is no longer a copy of the authoritative raw file.
+        let replaced = if config.book.exists() {
+            let source = (config.source_factory)()?;
+            let mut basis: RebuildBasis =
+                serde_json::from_slice(&fs::read(new_book.join("rebuild"))?)
+                    .map_err(std::io::Error::other)?;
+            if basis.identity != source.identity() {
+                fs::remove_dir_all(&new_book)?;
+                fs::create_dir_all(&new_book)?;
+                basis.identity = source.identity().to_vec();
+                basis.keep = false;
+                save_basis(&new_book, &basis)?;
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if !replaced {
+            finish_swap(&config, &new_book)?;
+            return retry_busy(|| open_state(config.clone())).map(Some);
+        }
     }
     let mut source = (config.source_factory)()?;
     let source_stamp = source.stamp();
