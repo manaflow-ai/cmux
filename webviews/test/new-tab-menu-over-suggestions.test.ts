@@ -92,9 +92,7 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
         const misses = overlapping
           .map(({ row, x, y }) => {
             const hit = document.elementFromPoint(x, y);
-            return row.contains(hit)
-              ? null
-              : `${row.textContent?.trim().slice(0, 24)} -> ${hit?.className} row=${box.x.toFixed(1)},${box.y.toFixed(1)},${box.width.toFixed(1)}x${box.height.toFixed(1)} hit=${hit?.getBoundingClientRect().x.toFixed(1)},${hit?.getBoundingClientRect().y.toFixed(1)},${hit?.getBoundingClientRect().width.toFixed(1)}x${hit?.getBoundingClientRect().height.toFixed(1)}`;
+            return row.contains(hit) ? null : `${row.textContent?.trim().slice(0, 24)} -> ${hit?.className}`;
           })
           .filter(Boolean);
         return { overlapping: overlapping.length, misses };
