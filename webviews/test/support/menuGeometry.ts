@@ -7,7 +7,10 @@
 // - One text line per menu: every row's label starts at the same x, from the popup's left edge.
 // - That x is AppKit's: 15 (no state column, no icons), 22 (a state column), or the icon column + 20
 //   (an icon box of 14 and a gap of 6, at 15 or 22): never an empty gutter.
-// - A checkmark centres on the state column, 10 from the popup's edge.
+// - A checkmark centres on the state column, 10 from the popup's edge. The Settings page's pop-up
+//   menus (refined look, pages/settings/look.css) mark the chosen row as Aside does (Lucas
+//   2026-11-12): no state column, labels at 15, a small check on the trailing side, the shortcut's
+//   place (12 from the trailing edge, centred in its 14 box).
 // - A one-line row is the menu row token (--ds-control-row) high.
 // - A menu opened from a field-like trigger (data-field-trigger) starts at the trigger's leading edge
 //   and is at least as wide.
@@ -30,6 +33,8 @@ export type MenuMeasure = {
   name: string;
   popup: { left: number; width: number };
   trigger: { left: number; width: number; field: boolean } | null;
+  /** A Settings pop-up menu whose check sits on the trailing side (pages/settings/look.css). */
+  trailingCheck: boolean;
   rows: MenuRow[];
   rowToken: number;
   alpha: number;
@@ -111,6 +116,7 @@ export function measureMenus(page: Page): Promise<MenuMeasure[]> {
         name: `${popup.tagName.toLowerCase()}.${[...popup.classList].join(".")}`,
         popup: { left: p.left, width: p.width },
         trigger: t ? { left: t.left, width: t.width, field: trigger!.hasAttribute("data-field-trigger") } : null,
+        trailingCheck: popup.matches(':root[data-settings-look="refined"] .ui-select-popup'),
         rows,
         rowToken,
         alpha: alphaOf(style.backgroundColor),
@@ -141,9 +147,13 @@ export function menuFindings(menu: MenuMeasure): string[] {
   for (const row of icons)
     if (!near(row.iconX!, 15, 1) && !near(row.iconX!, 22, 1))
       findings.push(`"${row.label}": icon at ${row.iconX!.toFixed(1)}, not 15 or 22`);
+  // A trailing check centres 19 in from the popup's right edge: the trailing inset (12) and half its
+  // 14 box.
+  const checkAt = menu.trailingCheck ? menu.popup.width - 19 : 10;
   for (const row of rows)
-    if (row.checkX !== null && !near(row.checkX, 10, 0.5))
-      findings.push(`"${row.label}": check centred at ${row.checkX.toFixed(1)}, not 10`);
+    if (row.checkX !== null && !near(row.checkX, checkAt, 0.5))
+      findings.push(`"${row.label}": check centred at ${row.checkX.toFixed(1)}, not ${checkAt.toFixed(1)}`);
+  if (menu.trailingCheck && !near(first, 15, 1)) findings.push(`labels start at ${first.toFixed(1)}, not 15`);
   const tall = rows.filter((row) => !row.multiline && !near(row.height, menu.rowToken, 0.5));
   if (tall.length)
     findings.push(`rows ${[...new Set(tall.map((row) => row.height.toFixed(1)))].join(", ")} px, not ${menu.rowToken}`);

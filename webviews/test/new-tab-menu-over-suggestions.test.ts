@@ -81,8 +81,10 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
         const rows = [...menu.querySelectorAll<HTMLElement>(rowSelector)];
         const overlapping = rows.flatMap((row) => {
           const box = row.getBoundingClientRect();
-          // Columns scroll independently: only the part of a row inside its column is painted.
-          const column = row.closest(".acpmux-cols-list")?.getBoundingClientRect();
+          // Columns scroll independently: only the part of a row inside its column's scroller is
+          // painted. The effort levels scroll inside .acpmux-cols-tune-scroll, between the Reasoning
+          // heading and Fast (#41212), so a level row's painted part ends above Fast.
+          const column = row.closest(".acpmux-cols-tune-scroll, .acpmux-cols-list")?.getBoundingClientRect();
           const top = Math.max(box.top, column?.top ?? box.top, suggestions.top);
           const bottom = Math.min(box.bottom, column?.bottom ?? box.bottom, suggestions.bottom);
           const left = Math.max(box.left, column?.left ?? box.left, suggestions.left);
@@ -92,7 +94,9 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
         const misses = overlapping
           .map(({ row, x, y }) => {
             const hit = document.elementFromPoint(x, y);
-            return row.contains(hit) ? null : `${row.textContent?.trim().slice(0, 24)} -> ${hit?.className}`;
+            return row.contains(hit)
+              ? null
+              : `${row.textContent?.trim().slice(0, 24)} -> ${hit?.className} (${hit?.textContent?.trim().slice(0, 24)})`;
           })
           .filter(Boolean);
         return { overlapping: overlapping.length, misses };
