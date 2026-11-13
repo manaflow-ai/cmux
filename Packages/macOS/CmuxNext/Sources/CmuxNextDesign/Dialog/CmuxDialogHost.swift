@@ -172,11 +172,12 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
     public func discard(_ dialog: CmuxDialogPresentation) {
         if shown[ObjectIdentifier(dialog)] != nil { return hide(dialog) }
         drawing?.detach(dialog)
-        guard let view = dialog.view, view.superview != nil else { return }
         dialog.notePresented(false)
+        guard let view = dialog.view, view.superview != nil else { return }
         let panel = view.window
         let overlay = panel.flatMap { panel in
-            panel.parent.flatMap(WindowOverlayHost.existingHost(for:)) ?? (WindowOverlayHost.appHost().panel === panel ? WindowOverlayHost.appHost() : nil)
+            panel.parent.flatMap(WindowOverlayHost.existingHost(for:))
+                ?? WindowOverlayHost.existingAppHost.flatMap { $0.panel === panel ? $0 : nil }
         }
         if let handle = overlay?.presentedHandles.first(where: { $0.content === view || ($0.clipView.map(view.isDescendant(of:)) ?? false) }) {
             handle.onDismiss = nil

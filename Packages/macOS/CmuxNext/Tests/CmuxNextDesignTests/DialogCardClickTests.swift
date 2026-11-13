@@ -142,6 +142,20 @@ import Testing
         #expect(!Self.holds(view, shown.window), "a click on a card whose dialog ended leaves it up")
     }
 
+    /// The overlay host's own fallback: a host that never showed the card (it records nothing of it) still takes it off
+    /// the window, with its hold on the window's input.
+    @Test func anOverlayHostDiscardsACardItDoesNotRecord() throws {
+        let shown = try Self.show { _ in }
+        defer { shown.center.dismiss(shown.id); shown.window.close() }
+        let presentation = try #require(shown.center.dialog(shown.id))
+        let card = try #require(presentation.view)
+        #expect(Self.holds(card, shown.window), "precondition: the card shows")
+        CmuxDialogOverlayHost(activate: {}, isAppActive: { true }).discard(presentation)
+        #expect(!Self.holds(card, shown.window))
+        #expect(WindowOverlayHost.existingHost(for: shown.window)?.blocksWholeWindow != true)
+        #expect(!presentation.isPresented)
+    }
+
     @Test func aClickOnTheCheckBoxChecksIt() throws {
         let shown = try Self.show { _ in }
         defer { shown.center.dismiss(shown.id); shown.window.close() }

@@ -140,6 +140,9 @@ public final class WindowOverlayHost {
         hosts[ObjectIdentifier(window)].flatMap { $0.window === window && !$0.isTearingDown ? $0 : nil }
     }
 
+    /// The app host if one was made (never makes one).
+    public static var existingAppHost: WindowOverlayHost? { app }
+
     /// The host for overlays with no window (its own small panel, centered on the main screen).
     public static func appHost() -> WindowOverlayHost {
         if let app { return app }
