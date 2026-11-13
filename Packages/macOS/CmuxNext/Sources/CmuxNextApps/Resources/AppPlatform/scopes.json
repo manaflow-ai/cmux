@@ -2165,6 +2165,7 @@
     "session.open",
     "session.reload_config",
     "session.shutdown",
+    "settings.edit",
     "settings.reset",
     "settings.reset_all",
     "settings.set",

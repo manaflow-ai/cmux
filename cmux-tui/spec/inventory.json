@@ -245,6 +245,7 @@
     "session.terminal_defaults.update",
     "session.window.title.clear",
     "session.window.title.set",
+    "settings.edit",
     "settings.get",
     "settings.list",
     "settings.reset",

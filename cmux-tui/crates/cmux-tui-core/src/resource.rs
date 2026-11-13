@@ -450,6 +450,8 @@ pub enum ResourceOperation {
     SettingsReset,
     #[serde(rename = "settings.reset_all")]
     SettingsResetAll,
+    #[serde(rename = "settings.edit")]
+    SettingsEdit,
     #[serde(rename = "keybindings.get")]
     KeybindingsGet,
     #[serde(rename = "keybindings.set")]
