@@ -204,25 +204,20 @@ public final class ComputerUsePreviewStream {
             }
         case .status(let status):
             acceptsFrames = status.state == .streaming
-            // Another window shows now (video or stills): no picture of the old one stays, not its
-            // last frame, nor a still waiting in the slot, nor the still on screen (the presenter
-            // clears it on `windowChanged`). The old window's privacy is no longer checked.
-            if status.state == .streaming || status.state == .still, let window = status.window {
-                let changed = pictureWindow.map { $0 != window } ?? false
-                pictureWindow = window
-                if changed {
-                    renderer.flush(removingDisplayedImage: true, completionHandler: nil)
-                    hasPicture = false
-                    stills.clear()
-                    onEvent(.windowChanged)
-                }
+            // Another window is the session's now: no picture of the old one stays, not its last
+            // frame, nor the still on screen (the presenter clears it on `windowChanged`); the reader
+            // already emptied the still slot in wire order. The old window's privacy is no longer checked.
+            if Self.changesWindow(&pictureWindow, status) {
+                renderer.flush(removingDisplayedImage: true, completionHandler: nil)
+                hasPicture = false
+                onEvent(.windowChanged)
             }
             switch status.state {
             case .blocked:
+                // The reader emptied the still slot when it read this status.
                 renderer.flush(removingDisplayedImage: true, completionHandler: nil)
                 acceptsStills = false
                 hasPicture = false
-                stills.clear()
             case .streaming, .still:
                 acceptsStills = true
             case .noWindow, .paused:
@@ -244,6 +239,19 @@ public final class ComputerUsePreviewStream {
         }
     }
 
+    /// Whether `status` names another window than `shown` (the generation whose picture may be up),
+    /// updating it: any status naming a window counts, and a `streaming` or `still` status naming
+    /// none (an older cmux Remote) counts as a change once a window was named, to fail safe.
+    nonisolated static func changesWindow(_ shown: inout Int?, _ status: ComputerUsePreviewStatus) -> Bool {
+        if let window = status.window {
+            defer { shown = window }
+            return shown.map { $0 != window } ?? false
+        }
+        guard status.state == .streaming || status.state == .still, shown != nil else { return false }
+        shown = nil
+        return true
+    }
+
     // MARK: Reading (the reader thread)
 
     /// Reads the channel until it closes, then says so: statuses and stills as events, parameter
@@ -261,6 +269,7 @@ public final class ComputerUsePreviewStream {
         var header = [UInt8](repeating: 0, count: 5)
         var format: CMVideoFormatDescription?
         var skipping = false
+        var window: Int?
         while readExactly(socket, &header, count: 5) {
             let length = Int(UInt32(header[1]) << 24 | UInt32(header[2]) << 16 | UInt32(header[3]) << 8 | UInt32(header[4]))
             guard length <= ComputerUsePreviewWire.maximumPayload else { break }
@@ -270,7 +279,13 @@ public final class ComputerUsePreviewStream {
             switch header[0] {
             case ComputerUsePreviewWire.status:
                 if let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                   let status = ComputerUsePreviewStatus(object) { deliver(.status(status)) }
+                   let status = ComputerUsePreviewStatus(object) {
+                    // In wire order: a still read before `blocked` or another window is never shown,
+                    // and one read after it (the new window's first) is never dropped.
+                    let changed = Self.changesWindow(&window, status)
+                    if status.state == .blocked || changed { stills.clear() }
+                    deliver(.status(status))
+                }
             case ComputerUsePreviewWire.parameterSets:
                 if let sets = ComputerUsePreviewWire.parameterSets(data) { format = Self.format(sps: sets.sps, pps: sets.pps) }
             case ComputerUsePreviewWire.frame:

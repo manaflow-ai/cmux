@@ -2,6 +2,8 @@
 import AppKit
 import AVFoundation
 import CmuxNextComputerUse
+import CmuxNextDaemon
+import CmuxNextActions
 import CoreMedia
 import CoreVideo
 import Darwin
@@ -141,10 +143,7 @@ import VideoToolbox
         let sequence = try #require(stream.stills.put(jpeg: try jpeg(width: 40, height: 20)))
         stream.receive(.stillReady(sequence: sequence))
         #expect(picture.still != nil && !picture.hidesOverlay(presentation: .card), "A's still shows")
-        // A still of A waiting in the slot when B starts is dropped too.
-        let stale = try #require(stream.stills.put(jpeg: try jpeg(width: 40, height: 20)))
         stream.receive(.status(ComputerUsePreviewStatus(state: .streaming, window: 2)))
-        stream.receive(.stillReady(sequence: stale))
         #expect(picture.still == nil, "no still of A under B")
         #expect(picture.hidesOverlay(presentation: .card) && picture.hidesOverlay(presentation: .expanded))
         // The same for video: A's frame, then B streams with no frame yet.
@@ -212,7 +211,7 @@ import VideoToolbox
     /// The reader turns the channel's messages into outputs in order, skips a kind it does not know
     /// (a newer cmux Remote's), an unknown state and a still that does not decode, and says when the
     /// channel closes. Stills are decoded on the reader's thread into one slot: two before the main
-    /// queue takes one tell it once, and it gets the newest.
+    /// queue takes one tell it once (the slot keeps the newest; aStaleStillWordTakesNothing).
     @Test func theReaderDeliversStatusesStillsAndTheClose() throws {
         let (ours, theirs) = try socketPair()
         var bytes = message(0x53, Data(#"{"state":"streaming","width":640,"height":400}"#.utf8))
@@ -229,8 +228,7 @@ import VideoToolbox
         ComputerUsePreviewStream.read(ours, stills: stills) { seen.add($0) }
         close(ours)
         #expect(seen.kinds == ["status", "still", "status", "closed"])
-        #expect(stills.take(sequence: 1)?.width == 64, "the word about the first still takes the newest")
-        #expect(stills.take(sequence: 1) == nil)
+        #expect(stills.take(sequence: 1) == nil, "`blocked`, read after both stills, emptied the slot in wire order")
     }
 
     /// A payload past the wire's limit ends the stream instead of allocating it.
@@ -364,6 +362,71 @@ import VideoToolbox
         #expect(ComputerUsePreviewStatus(["state": "streaming", "window": 2])?.window == 2)
     }
 
+    /// The reader empties the still slot in wire order: a still read before another window's
+    /// status (or `blocked`) is never shown, and the new window's first still, read after it, is not
+    /// dropped (round-6 review: clearing on the main thread could drop B's first still).
+    @Test func theReaderEmptiesTheSlotInWireOrder() throws {
+        let (ours, theirs) = try socketPair()
+        var bytes = message(0x53, Data(#"{"state":"still","window":1}"#.utf8))
+        bytes += message(0x4A, try jpeg(width: 40, height: 20)) // window A
+        bytes += message(0x53, Data(#"{"state":"paused","window":2}"#.utf8))
+        bytes += message(0x4A, try jpeg(width: 64, height: 32)) // window B's first
+        #expect(bytes.withUnsafeBytes { write(theirs, $0.baseAddress, $0.count) } == bytes.count)
+        close(theirs)
+        let seen = Collected()
+        let stills = ComputerUsePreviewStillSlot()
+        ComputerUsePreviewStream.read(ours, stills: stills) { seen.add($0) }
+        close(ours)
+        let words = seen.outputs.compactMap { if case .stillReady(let sequence) = $0 { sequence } else { nil } }
+        #expect(words.count == 2)
+        #expect(stills.take(sequence: words[0]) == nil, "A's still, read before B's status, is gone")
+        #expect(stills.take(sequence: words[1])?.width == 64, "B's first still is kept")
+    }
+
+    /// Which statuses change the window: any that names another one, and (to fail safe with an
+    /// older cmux Remote) a `streaming` or `still` naming none once one was named.
+    @Test func whichStatusesChangeTheWindow() {
+        var shown: Int?
+        #expect(!ComputerUsePreviewStream.changesWindow(&shown, ComputerUsePreviewStatus(state: .streaming, window: 1)))
+        #expect(!ComputerUsePreviewStream.changesWindow(&shown, ComputerUsePreviewStatus(state: .still, window: 1)))
+        #expect(ComputerUsePreviewStream.changesWindow(&shown, ComputerUsePreviewStatus(state: .paused, window: 2)))
+        #expect(!ComputerUsePreviewStream.changesWindow(&shown, ComputerUsePreviewStatus(state: .noWindow)))
+        #expect(ComputerUsePreviewStream.changesWindow(&shown, ComputerUsePreviewStatus(state: .streaming)), "no window named: fail safe")
+        #expect(shown == nil)
+        #expect(!ComputerUsePreviewStream.changesWindow(&shown, ComputerUsePreviewStatus(state: .streaming)))
+    }
+
+    /// Hiding the preview and showing it again opens a new channel with an empty picture: the
+    /// still from before is gone and nothing shows until the new channel sends one (round-6 review:
+    /// a still of a window since denied came back on show).
+    @Test func aPictureNeverOutlivesItsChannel() throws {
+        let host = PreviewHost()
+        let remote = CmuxRemoteService(connection: { nil })
+        let presenter = ComputerUsePreviewPresenter(remote: remote, registry: ActionRegistry(), host: host)
+        var opened: [ComputerUsePreviewStream] = []
+        presenter.openChannel = { session, side, onEvent in
+            let stream = ComputerUsePreviewStream(session: session, longSide: side, onEvent: onEvent)
+            opened.append(stream)
+            return stream
+        }
+        let millis = Date().timeIntervalSince1970 * 1000
+        let data = try JSONSerialization.data(withJSONObject: ["event": "computer-use-activity",
+                                                               "sessions": [["session": "chat-1", "label": "Codex", "last_action_ms": millis]]])
+        remote.computerUse.take(activityEvent: try JSONDecoder().decode(JSONValue.self, from: data))
+        presenter.update()
+        let first = try #require(opened.last)
+        first.receive(.status(ComputerUsePreviewStatus(state: .still, window: 1)))
+        let sequence = try #require(first.stills.put(jpeg: try jpeg(width: 40, height: 20)))
+        first.receive(.stillReady(sequence: sequence))
+        let overlay = try #require(presenter.shownOverlay)
+        #expect(!overlay.isHidden && overlay.showsStill.thumbnail, "the still shows")
+        presenter.set(session: "chat-1", shown: false)
+        presenter.set(session: "chat-1", shown: true)
+        #expect(opened.count == 2, "showing again opens a new channel")
+        #expect(overlay.isHidden, "nothing shows before the new channel sends a picture")
+        #expect(overlay.showsStill == (thumbnail: false, expanded: false))
+    }
+
     /// Frames show only while the worker says `streaming`: after `blocked` (or any other status)
     /// no frame reaches the layer until the next `streaming`, and a closed channel clears the layer.
     @Test func framesShowOnlyWhileStreaming() throws {
@@ -436,6 +499,15 @@ import VideoToolbox
     }
 
     // MARK: Helpers
+
+    /// The App's side for the presenter: the setting on, and an agent chat focused.
+    @MainActor private final class PreviewHost: ComputerUsePreviewHost {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let surface = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        init() { container.addSubview(surface) }
+        var computerUseLivePreviewEnabled: Bool { true }
+        func computerUsePreviewFocus() -> (surface: ComputerUsePreviewSurface, host: NSView)? { (.chat(session: "chat-1"), surface) }
+    }
 
     /// What the reader delivered, in order (the reader runs on the test's thread here).
     private nonisolated final class Collected: Sendable {

@@ -127,7 +127,19 @@ public final class ComputerUsePreviewPresenter {
         self.remote = remote
         self.registry = registry
         self.host = host
+        openChannel = { [remote] session, side, onEvent in
+            let stream = ComputerUsePreviewStream(session: session, longSide: side, onEvent: onEvent)
+            stream.start(remote: remote)
+            return stream
+        }
     }
+
+    /// Opens a session's stream at a long side (tests pass one that opens no channel).
+    var openChannel: (_ session: String, _ longSide: Int,
+                      _ onEvent: @escaping @MainActor (ComputerUsePreviewStream.Event) -> Void) -> ComputerUsePreviewStream
+
+    /// The overlay on screen now (tests).
+    var shownOverlay: ComputerUsePreviewOverlay? { shown?.overlay }
 
     /// Follows the agents' activity and the setting; the App calls ``focusChanged()`` when a window's
     /// focus, the key window or the app's activation changes.
@@ -159,7 +171,7 @@ public final class ComputerUsePreviewPresenter {
 
     // MARK: Deciding
 
-    private func update() {
+    func update() {
         let now = Date()
         let enabled = host?.computerUseLivePreviewEnabled ?? false
         let focused = host?.computerUsePreviewFocus()
@@ -228,30 +240,36 @@ public final class ComputerUsePreviewPresenter {
         guard var current = shown else { return }
         let presentation = presentation(for: current.surface)
         current.overlay.present(presentation)
-        applyVisibility(current)
         // The stream runs while the preview is up, a blocked one too (cmux Remote sends nothing but
         // its status, and says when the window may show again); a hidden preview (a chip) streams
         // nothing.
         let side = Self.streamLongSide(expanded: presentation == .expanded, cardPoints: streamCardSide,
                                        backingScale: current.overlay.window?.backingScaleFactor ?? 2)
         if presentation == .hidden {
-            current.stream?.stop()
-            current.stream = nil
+            if current.stream != nil { replaceStream(&current, opening: nil) }
         } else if let stream = current.stream {
             stream.request(longSide: side)
         } else if !retrying {
-            current.stream = openStream(for: pick.session, longSide: side, overlay: current.overlay)
+            replaceStream(&current, opening: (pick.session, side))
         }
         shown = current
+        applyVisibility(current)
     }
 
-    private func openStream(for session: String, longSide: Int, overlay: ComputerUsePreviewOverlay) -> ComputerUsePreviewStream {
-        let stream = ComputerUsePreviewStream(session: session, longSide: longSide) { [weak self] event in
-            self?.streamEvent(event, session: session)
-        }
-        overlay.show(video: stream.displayLayer)
-        stream.start(remote: remote)
-        return stream
+    /// Every stop, replacement and reopen of a preview's stream goes through here: the old channel
+    /// closes and the picture starts empty, with no still on screen, because a picture only ever
+    /// comes from the channel open now. A new channel numbers its windows afresh, so nothing of an
+    /// earlier one (a still of a window since denied, or another window's) may carry over.
+    private func replaceStream(_ current: inout Shown, opening next: (session: String, longSide: Int)?) {
+        current.stream?.stop()
+        current.stream = nil
+        current.picture = ComputerUsePreviewPicture()
+        current.overlay.show(still: nil)
+        guard let next else { return }
+        let session = next.session
+        let stream = openChannel(session, next.longSide) { [weak self] event in self?.streamEvent(event, session: session) }
+        current.overlay.show(video: stream.displayLayer)
+        current.stream = stream
     }
 
     private func streamEvent(_ event: ComputerUsePreviewStream.Event, session: String) {
@@ -274,7 +292,7 @@ public final class ComputerUsePreviewPresenter {
             // cmux Remote went away or refused (an older host has no such channel): the last
             // picture goes (the stream cleared its layer), and the channel opens again after a
             // wait that doubles up to 30 s; said once.
-            current.stream = nil
+            replaceStream(&current, opening: nil)
             if !outageLogged {
                 outageLogged = true
                 previewPresenterLogger.notice("Computer Use preview: the channel closed; retrying with backoff")

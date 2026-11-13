@@ -298,6 +298,9 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
             stopStream()
             startFailures = 0
             nextStartAt = nil
+            // Say at once that another window is the session's now, before its stream or still:
+            // the app drops the old window's picture even if neither ever comes.
+            send(state: "paused", extra: ["window": streamGeneration(id)])
             startStream(id)
         case .stop(let refusal):
             stopStream()

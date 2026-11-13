@@ -133,6 +133,55 @@ import VideoToolbox
         releaser.finish()
     }
 
+    /// Moving to another window, the session says so at once (a `paused` status naming the new
+    /// window's generation) before that window's stream or still, so the app drops the old window's
+    /// picture even if neither ever comes (round-6 review).
+    @Test func anotherWindowIsAnnouncedAtOnce() throws {
+        let textEdit = textEdit
+        let current = OSAllocatedUnfairLock<UInt32>(initialState: 9)
+        let capture = PreviewCapture(
+            owner: { _ in textEdit },
+            bounds: { _ in nil },
+            window: { id in throw ScreenCapture.Failure.noWindow(id) }, // stills only
+            still: { _, _ in .success((Data([1, 2, 3]), 1, 1)) })
+        var fds: [Int32] = [-1, -1]
+        #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0)
+        var timeout = timeval(tv_sec: 10, tv_usec: 0)
+        _ = setsockopt(fds[1], SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        let request = try #require(PreviewStreamWire.Request(["session": "s1", "long_side": 400]))
+        let session = PreviewStreamSession(
+            channel: LineChannel(socket: fds[0]), request: request,
+            windowOf: { _ in ComputerUsePreview.SessionWindow(window: current.withLock { $0 }, app: textEdit) },
+            blocked: { _, _ in false }, capture: capture,
+            timing: PreviewTiming(look: .milliseconds(5), still: 0.001, retryBase: 10, retryMax: 10, keyframeGap: 0.3))
+        let returned = DispatchSemaphore(value: 0)
+        Thread { session.run(); returned.signal() }.start()
+        func next() -> (kind: UInt8, status: [String: Any]?)? {
+            var header = [UInt8](repeating: 0, count: 5)
+            guard recv(fds[1], &header, 5, MSG_WAITALL) == 5 else { return nil }
+            let length = Int(UInt32(header[1]) << 24 | UInt32(header[2]) << 16 | UInt32(header[3]) << 8 | UInt32(header[4]))
+            var payload = [UInt8](repeating: 0, count: length)
+            guard length == 0 || recv(fds[1], &payload, length, MSG_WAITALL) == length else { return nil }
+            let status = header[0] == 0x53 ? (try? JSONSerialization.jsonObject(with: Data(payload))) as? [String: Any] : nil
+            return (header[0], status)
+        }
+        let first = try #require(next())
+        #expect(first.status?["state"] as? String == "paused" && first.status?["window"] as? Int == 1, "window A is named first")
+        // Wait for A's still, then move to window B.
+        while let message = next(), message.kind != 0x4A {}
+        current.withLock { $0 = 10 }
+        var afterSwitch: [(kind: UInt8, status: [String: Any]?)] = []
+        while let message = next() {
+            afterSwitch.append(message)
+            if message.status?["window"] as? Int == 2 { break }
+        }
+        let announce = try #require(afterSwitch.last)
+        #expect(announce.status?["state"] as? String == "paused", "B is named by a paused status before anything of B")
+        #expect(afterSwitch.dropLast().allSatisfy { $0.status?["window"] as? Int != 2 })
+        close(fds[1])
+        #expect(returned.wait(timeout: .now() + 5) == .success)
+    }
+
     /// Keyframes: always the first after a start or a new encoder; asked ones at most every 300 ms.
     @Test func askedKeyframesAreThrottled() {
         var policy = PreviewKeyframePolicy(gap: 0.3)
