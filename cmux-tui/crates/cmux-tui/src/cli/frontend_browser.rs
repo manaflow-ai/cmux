@@ -13,8 +13,9 @@
 //!    the run names the caller and no target, and the app opens the tab
 //!    beside the chat. A terminal (`CMUX_TUI_TERMINAL_ID`): the same with an
 //!    app that places terminal callers (beside the terminal when it runs an
-//!    agent, its own pane otherwise); an older app gets the terminal's own
-//!    tab as the target, so the tab opens in the terminal's pane. An agent
+//!    agent, its own pane otherwise; should that app refuse the run, the
+//!    terminal's own pane); an older app gets the terminal's own tab as the
+//!    target, so the tab opens in the terminal's pane. An agent
 //!    chat the app does not know: the workspace its environment names
 //!    (`CMUX_WORKSPACE_ID`);
 //! 3. else, with no caller, the focused pane of the app's front window (no
@@ -120,17 +121,42 @@ pub(super) fn run_in_app(
     })
 }
 
+/// Where a browser tab goes, as the app run names it.
+#[derive(Default)]
+struct Target {
+    /// The tab whose pane gets the new tab; `None` leaves the place to the
+    /// app, which reads the caller the run names.
+    tab: Option<String>,
+    /// The `caller` that replaces the environment's (`app::with_caller`);
+    /// `None` keeps that one.
+    caller: Option<Value>,
+    /// The caller's own terminal when the app places it (`tab` is `None`):
+    /// should the app refuse the run, the tab opens in this terminal's pane,
+    /// never in the daemon's default pane, which follows the person's focus.
+    own_terminal: Option<String>,
+}
+
+/// The tab that shows `terminal`.
+fn terminal_tab(
+    reader: &mut Reader,
+    route: &Map<String, Value>,
+    terminal: &str,
+) -> Result<String, Failure> {
+    let mut selector = route.clone();
+    selector.insert("terminal".into(), json!(terminal));
+    let snapshot = read(reader, ResourceOperation::TerminalGet, selector)?;
+    string_field(&snapshot, "tab_id", "terminal")
+}
+
 /// Where a browser tab with no named place goes for the caller of a request
-/// to its own session (beside.rs): the tab to aim the run at, and the
-/// `caller` that replaces the environment's (`None` keeps that one).
-/// `(None, None)` leaves the place to the app, which reads the caller the
-/// run names: beside an agent's chat, and for a terminal, with an app that
-/// places terminals, beside it or in its own pane.
+/// to its own session (beside.rs). An agent's chat and a Chief turn: the app
+/// places the tab beside the chat. A terminal, with an app that places
+/// terminals: beside it or in its own pane, as the app decides.
 fn caller_target(
     reader: &mut Reader,
     app: &mut UnixStream,
     route: &Map<String, Value>,
-) -> Result<(Option<String>, Option<Value>), Failure> {
+) -> Result<Target, Failure> {
     let caller = super::beside::Caller::of_process();
     let mut identity = || {
         super::app::request(app, "system.identify", json!({}), super::app::READ_TIMEOUT).ok()?.ok()
@@ -144,20 +170,18 @@ fn caller_target(
             && let Some(tab) = super::resolve::workspace_key_path(reader, route, key)
                 .and_then(|path| path.get("tab").and_then(Value::as_str).map(str::to_owned))
         {
-            return Ok((Some(tab), Some(Value::Null)));
+            return Ok(Target { tab: Some(tab), caller: Some(Value::Null), own_terminal: None });
         }
-        return Ok((None, None));
+        return Ok(Target::default());
     }
-    let Some(terminal) = caller.terminal else { return Ok((None, None)) };
+    let Some(terminal) = caller.terminal else { return Ok(Target::default()) };
     if identity().is_some_and(|identity| super::beside::app_places_terminals(&identity)) {
-        return Ok((None, None));
+        return Ok(Target { own_terminal: Some(terminal), ..Target::default() });
     }
     // An older app opens a run with no target in the focused pane: name the
     // terminal's own tab, so the new tab opens in the terminal's pane.
-    let mut selector = route.clone();
-    selector.insert("terminal".into(), json!(terminal));
-    let snapshot = read(reader, ResourceOperation::TerminalGet, selector)?;
-    Ok((Some(string_field(&snapshot, "tab_id", "terminal")?), None))
+    let tab = terminal_tab(reader, route, &terminal)?;
+    Ok(Target { tab: Some(tab), ..Target::default() })
 }
 
 /// The `caller` of the app run for a request that names another session
@@ -214,13 +238,14 @@ pub(super) fn open(
     let url = params.get("url").and_then(Value::as_str).unwrap_or_default();
     // `--engine` (`webkit` or `cef`); absent: the app's `browser.defaultEngine`.
     let engine = params.get("engine").and_then(Value::as_str);
-    let (target, caller) = match named_pane_tab(reader, &route, params)? {
+    let Target { tab: target, caller, own_terminal } = match named_pane_tab(reader, &route, params)?
+    {
         Some(selector) => {
             let tab = read(reader, ResourceOperation::TabGet, selector)?;
-            (Some(string_field(&tab, "id", "tab")?), None)
+            Target { tab: Some(string_field(&tab, "id", "tab")?), ..Target::default() }
         }
         None if caller_route => caller_target(reader, app, &route)?,
-        None => (None, None),
+        None => Target::default(),
     };
     // A request for another session never names the caller's terminal.
     let caller = if caller_route { caller } else { Some(other_session_caller()) };
@@ -231,18 +256,25 @@ pub(super) fn open(
     };
     let opened = run_open(app, url, engine, target.as_deref(), caller.as_ref(), &key);
     let (reply, tab, on_default_pane) = match opened {
-        // The window shows a page: no focused pane to open in.
+        // The app ran nothing: its window shows a page (no focused pane to
+        // open in), or it does not place the caller's terminal.
         Err(failure) if target.is_none() && never_ran(&failure) => {
-            // No default pane either: the app's refusal says why.
-            let Ok(default) = read(reader, ResourceOperation::TabGet, default_pane_tab(&route))
-                .and_then(|tab| string_field(&tab, "id", "tab"))
-            else {
-                return Err(failure);
+            let fallback = match &own_terminal {
+                // The terminal's own pane, never the daemon's default one,
+                // which follows the person's focus.
+                Some(terminal) => {
+                    terminal_tab(reader, &route, terminal).map(|tab| (tab, "own", false))
+                }
+                None => read(reader, ResourceOperation::TabGet, default_pane_tab(&route))
+                    .and_then(|tab| string_field(&tab, "id", "tab"))
+                    .map(|tab| (tab, "default", true)),
             };
-            let default_key = format!("{key}.default");
+            // No such pane either: the app's refusal says why.
+            let Ok((pane_tab, suffix, shown_by_reveal)) = fallback else { return Err(failure) };
+            let fallback_key = format!("{key}.{suffix}");
             let (reply, tab) =
-                run_open(app, url, engine, Some(&default), caller.as_ref(), &default_key)?;
-            (reply, tab, true)
+                run_open(app, url, engine, Some(&pane_tab), caller.as_ref(), &fallback_key)?;
+            (reply, tab, shown_by_reveal)
         }
         opened => {
             let (reply, tab) = opened?;
