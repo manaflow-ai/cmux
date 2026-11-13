@@ -1042,7 +1042,7 @@ export class SettingsStore {
 
   /** Opens one showcase sample in the App Store's install flow. */
   openAppStore(app: string): void {
-    void this.request("cmux.app.action.run", { action: "appStore.show", app });
+    void this.request("cmux.app.action.run", { action: "appStore.show", args: { app } });
   }
 
   playSound(name: string): void {
