@@ -19,6 +19,9 @@ and git ls-remote (no network) and checks what it does to the run:
   and when every try fails the script says no run was created;
 - a 404 or 500 on the first read of the new run is not a failure: the script names the run,
   waits on it with glaeda-gh, and checks its revision before it accepts an artifact;
+- only a 404, a 5xx or a network drop on that read is waited out; a 401, a 403 or a broken gh
+  exits 1 at once;
+- exit 3 with a revision that is not confirmed does not tell the operator to download artifacts;
 - one open run per commit, mode and filter: while a run this script dispatched for the same
   commit and filter is still open, it does not dispatch, names that run and exits 4; an open
   run of another filter or another commit, or a finished run, does not stop a dispatch.
@@ -68,7 +71,11 @@ case "$*" in
     n=$(cat "$STUB_DIR/identity-reads" 2>/dev/null || echo 0)
     echo $((n + 1)) > "$STUB_DIR/identity-reads"
     if (( n < ${FAKE_IDENTITY_FAILS:-0} )); then
-      echo "failed to get run: HTTP ${FAKE_IDENTITY_CODE:-404}: Not Found (https://api.github.com/repos/manaflow-ai/cmux/actions/runs/__RUN_ID__)" >&2
+      case "${FAKE_IDENTITY_CODE:-404}" in
+        broken) echo "gh: unknown flag: --json" >&2 ;;
+        network) printf 'error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com\n' >&2 ;;
+        *) echo "failed to get run: HTTP ${FAKE_IDENTITY_CODE:-404}: Not Found (https://api.github.com/repos/manaflow-ai/cmux/actions/runs/__RUN_ID__)" >&2 ;;
+      esac
       exit 1
     fi
     printf '%s\t%s\tworkflow_dispatch\n' "${FAKE_IDENTITY_SHA:-$(cat "$STUB_DIR/head")}" "$(cat "$STUB_DIR/branch")" ;;
@@ -381,6 +388,54 @@ def first_run_read_failure_waits_on_the_run(code_name: str):
     return test
 
 
+def transient_first_read_exit_code(code_name: str):
+    """A 404 or a 5xx on the first read, then a green run: the script waits and exits 0."""
+    def test(failures: list[str], name: str, box: Sandbox) -> None:
+        code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_IDENTITY_FAILS="1",
+                            FAKE_IDENTITY_CODE=code_name, CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+        # gh run download exits 9 in the stub, so a waited run reaches the download and ends there.
+        check(failures, name, box.count("glaeda-gh wait run") >= 1 and box.count("gh run download") >= 1
+              and "could not show it yet" in out, box, out)
+    return test
+
+
+def permanent_first_read_error_exits_at_once(code_name: str):
+    """A 401, a 403 or a broken gh will not heal by waiting: exit 1 at once, without a wait.
+
+    The run exists, so the error names it; the script does not cancel it."""
+    def test(failures: list[str], name: str, box: Sandbox) -> None:
+        code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_IDENTITY_FAILS="99",
+                            FAKE_IDENTITY_CODE=code_name, CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+        check(failures, name, code == 1 and box.count("glaeda-gh wait run") == 0
+              and box.count("gh run watch") == 0 and box.count("gh run cancel") == 0
+              and f"actions/runs/{RUN_ID}" in out, box, out)
+    return test
+
+
+def deadline_with_an_unconfirmed_revision_names_no_download(failures: list[str], name: str, box: Sandbox) -> None:
+    """Exit 3 while the run's revision is not confirmed: say so, and do not tell the
+    operator to download artifacts of a run that may be another revision."""
+    code, out = box.run(["--full"], FAKE_STATES="queued||1", FAKE_WAITER_SLEEP="30", FAKE_IDENTITY_FAILS="99",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="3")
+    check(failures, name, code == 3 and box.count("gh run cancel") == 0
+          and f"glaeda-gh wait run manaflow-ai/cmux/{RUN_ID}" in out
+          and "gh run download" not in out and "revision is not confirmed" in out, box, out)
+
+
+def deadline_with_a_confirmed_revision_still_names_the_download(failures: list[str], name: str, box: Sandbox) -> None:
+    code, out = box.run(["--full"], FAKE_STATES="queued||1", FAKE_WAITER_SLEEP="30",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="3")
+    check(failures, name, code == 3 and "gh run download" in out, box, out)
+
+
+def cancel_on_timeout_with_an_unconfirmed_revision(failures: list[str], name: str, box: Sandbox) -> None:
+    """--cancel-on-timeout cancels the run it dispatched (the dispatch named it) and exits 1,
+    also while the first read has not confirmed its revision."""
+    code, out = box.run(["--cancel-on-timeout", "--full"], FAKE_STATES="queued||1", FAKE_WAITER_SLEEP="30",
+                        FAKE_IDENTITY_FAILS="99", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="3")
+    check(failures, name, code == 1 and box.count("gh run cancel") == 1 and "gh run download" not in out, box, out)
+
+
 def unreadable_run_is_refused_before_download(failures: list[str], name: str, box: Sandbox) -> None:
     # The revision is never confirmed: no artifact from that run is accepted.
     code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_IDENTITY_FAILS="99",
@@ -460,6 +515,19 @@ def main() -> int:
         ("a 500 on the first read of the new run: wait on it, do not exit 1",
          first_run_read_failure_waits_on_the_run("500")),
         ("a run whose revision is never read is refused before download", unreadable_run_is_refused_before_download),
+        ("a 404 first read, then a green run: the script waits and goes on", transient_first_read_exit_code("404")),
+        ("a 502 first read, then a green run: the script waits and goes on", transient_first_read_exit_code("502")),
+        ("a network drop (no HTTP code) on the first read, then a green run: the script waits and goes on",
+         transient_first_read_exit_code("network")),
+        ("a 401 first read exits 1 at once, without a wait", permanent_first_read_error_exits_at_once("401")),
+        ("a 403 first read exits 1 at once, without a wait", permanent_first_read_error_exits_at_once("403")),
+        ("a broken gh on the first read exits 1 at once, without a wait", permanent_first_read_error_exits_at_once("broken")),
+        ("exit 3 with an unconfirmed revision names no gh run download",
+         deadline_with_an_unconfirmed_revision_names_no_download),
+        ("exit 3 with a confirmed revision still names gh run download",
+         deadline_with_a_confirmed_revision_still_names_the_download),
+        ("--cancel-on-timeout with an unconfirmed revision cancels and exits 1",
+         cancel_on_timeout_with_an_unconfirmed_revision),
         ("a late read that shows another revision is refused", late_read_of_another_revision_is_refused),
     ]:
         scenario(failures, name, test)

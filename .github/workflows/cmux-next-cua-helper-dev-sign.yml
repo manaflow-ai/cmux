@@ -1,23 +1,23 @@
-name: cmux NEXT Computer Use helper (dev) signing
+name: cmux NEXT helper (dev) signing
 
-# Re-signs the dev Computer Use helper every DEV build embeds
-# (feat-cmux-next scripts/cmux-next/cua-helper-dev.pin.json), so a helper
-# change reaches DEV builds without a person signing it on a Mac. Leo,
-# 2026-11-05: "Yes, re-sign it".
+# Re-signs the selected dev helper every DEV build embeds, so a helper change
+# reaches DEV builds without a person signing it on a Mac. Leo, 2026-11-05:
+# "Yes, re-sign it". `computer-use` preserves the original route; `remote`
+# builds the cmux Remote host used by Mac Screen Sharing.
 #
 # sdk     resolves the feat-cmux-next commit and reads its SDK pin through
 #         the API, then downloads the pinned Cua Driver SDK tarball with main's
 #         presign-r2-url.py and checks its sha256, on Blacksmith Linux. No
 #         feat-cmux-next code runs where the R2 key is.
-# build   feat-cmux-next's build-cua-helper-dev.sh on an owned Mac first. It
+# build   feat-cmux-next's selected build script on an owned Mac first. It
 #         holds no secret: the SDK tarball comes from the sdk job and is
 #         checked against its pin again.
 # sign    the release environment (its secrets reach main only): the Developer
 #         ID certificate goes into a per-job temporary keychain
 #         (scripts/ci/signing-keychain.sh, deleted by an always() step), and
-#         main's scripts/ci/sign-cua-helper-dev.sh signs with a secure time
-#         stamp, verifies and writes the pin. Only main code runs while the key
-#         is present: the feat-cmux-next build is data.
+#         main's selected signer signs with a secure time stamp, verifies and
+#         writes the pin. Only main code runs while the key is present: the
+#         feat-cmux-next build is data.
 #         Blacksmith macOS, trusted like GitHub-hosted for release signing:
 #         the owned signing runners admit only nightly.yml's own signing jobs.
 # publish the cef-publish environment, the one that holds the cmux-cef-write
@@ -39,12 +39,27 @@ on:
         required: false
         default: ""
         type: string
+      helper:
+        description: "Helper to build, sign and publish"
+        required: false
+        default: computer-use
+        type: choice
+        options:
+          - computer-use
+          - remote
 
 permissions: {}
 
-concurrency:
-  group: cmux-next-cua-helper-dev-sign
-  cancel-in-progress: false
+# No workflow-level concurrency group. The publish job waits for a person in
+# cef-publish, and a run waiting there never times out (timeout-minutes counts
+# from the job's start). Under one workflow group, run 42677635673 sat at that
+# approval from 2026-11-09 and held the group: every later dispatch waited, and
+# each newer one cancelled the pending one (43374466637). So only the macOS
+# build and sign serialize, per helper, in job-level groups; publish has no
+# group (its upload is content-addressed and write-once, an identical object is
+# accepted), and pin-pr serializes per helper after it. A run that waits for
+# approval holds no group, and the sdk job names any run still waiting.
+# scripts/ci/check_workflow_concurrency.py refuses the old shape.
 
 jobs:
   sdk:
@@ -53,10 +68,37 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
+      actions: read
       contents: read
+      pull-requests: read
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
+      source_pr: ${{ steps.resolve.outputs.source_pr }}
     steps:
+      # Says so when an older run still waits for a cef-publish reviewer. This
+      # run does not wait behind it (no shared group), but its own publish
+      # needs the same approval, and an approval left for hours is how the
+      # 2026-11-09 run held every dispatch until 11-13. Best effort: a failed
+      # read only skips the notice.
+      - name: Name runs still waiting for a publish approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          waiting="$(gh api "repos/$GH_REPO/actions/workflows/cmux-next-cua-helper-dev-sign.yml/runs?status=waiting&per_page=20" \
+            --jq ".workflow_runs[] | select(.id != $RUN_ID) | \"\\(.id) \\(.created_at) \\(.html_url)\"" 2>/dev/null)" || exit 0
+          now="$(date -u +%s)"
+          while read -r id created url; do
+            [[ -n "$id" ]] || continue
+            hours=$(( (now - $(date -u -d "$created" +%s)) / 3600 ))
+            msg="run $id ($url) has waited ${hours}h for a cef-publish reviewer (teamleaderleo or lawrencecchen): approve or reject it there. This run does not wait behind it."
+            if (( hours >= 6 )); then echo "::warning title=Stale publish approval::$msg"; else echo "::notice title=Publish approval pending::$msg"; fi
+            echo "- $msg" >> "$GITHUB_STEP_SUMMARY"
+          done <<<"$waiting"
+          exit 0
+
       # Only main code runs in this job, which holds the R2 key: the
       # feat-cmux-next commit is read through the API, and its SDK pin as JSON.
       - name: Checkout main's R2 helper
@@ -68,7 +110,7 @@ jobs:
           sparse-checkout: scripts/ci/presign-r2-url.py
           sparse-checkout-cone-mode: false
 
-      # The input may name any commit; only one on feat-cmux-next is built.
+      # The input may name an ancestor or an exact open PR head for feat-cmux-next.
       - name: Require a feat-cmux-next commit and read its SDK pin
         id: resolve
         env:
@@ -80,8 +122,40 @@ jobs:
           sha="$(gh api "repos/$GH_REPO/commits/$WANT" --jq .sha)"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::cannot resolve $WANT" >&2; exit 1; }
           status="$(gh api "repos/$GH_REPO/compare/$sha...feat-cmux-next" --jq .status)"
-          [[ "$status" == ahead || "$status" == identical ]] ||
-            { echo "::error::$sha is not on feat-cmux-next ($status)" >&2; exit 1; }
+          source_pr=""
+          if [[ "$status" != ahead && "$status" != identical ]]; then
+            # A feature PR's head is intentionally not an ancestor until that PR
+            # merges. Accept only the exact open PR head for this repository and
+            # base, then read its pin as data. This keeps the ancestry guard while
+            # allowing the release route to validate the final feature artifact.
+            gh api "repos/$GH_REPO/commits/$sha/pulls?per_page=100" > "$RUNNER_TEMP/associated-prs.json"
+            pr_number="$(python3 -I - "$RUNNER_TEMP/associated-prs.json" "$GH_REPO" "$sha" <<'PY'
+          import json, sys
+          path, repo, sha = sys.argv[1:]
+          pulls = json.load(open(path, encoding="utf-8"))
+          for pull in pulls:
+              base = pull.get("base") or {}
+              base_repo = base.get("repo") or {}
+              head = pull.get("head") or {}
+              head_repo = head.get("repo") or {}
+              if (
+                  pull.get("state") == "open"
+                  and base_repo.get("full_name") == repo
+                  and base.get("ref") == "feat-cmux-next"
+                  and head.get("sha") == sha
+                  and head_repo.get("full_name") == repo
+              ):
+                  print(pull.get("number", ""))
+                  break
+          PY
+            )"
+            [[ "$pr_number" =~ ^[0-9]+$ ]] || {
+              echo "::error::$sha is not an open exact-head PR into feat-cmux-next ($status)" >&2
+              exit 1
+            }
+            source_pr="$pr_number"
+            echo "Resolved unmerged feat-cmux-next PR #$pr_number at exact head $sha" >> "$GITHUB_STEP_SUMMARY"
+          fi
           gh api -H 'Accept: application/vnd.github.raw+json' \
             "repos/$GH_REPO/contents/scripts/cmux-next/cua-driver-sdk.pin.json?ref=$sha" > "$RUNNER_TEMP/sdk-pin.json"
           # The pin is data: a content-addressed key in the cmux-cef bucket, nothing else.
@@ -96,7 +170,7 @@ jobs:
           print(sha, key)
           PY
           )
-          { echo "sha=$sha"; echo "sdk_sha=$sdk_sha"; echo "key=$key"; } >> "$GITHUB_OUTPUT"
+          { echo "sha=$sha"; echo "source_pr=$source_pr"; echo "sdk_sha=$sdk_sha"; echo "key=$key"; } >> "$GITHUB_OUTPUT"
           echo "Building the dev helper from feat-cmux-next $sha (SDK $sdk_sha)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fetch the pinned SDK tarball
@@ -127,6 +201,9 @@ jobs:
   build:
     name: Build the unsigned helper
     needs: sdk
+    concurrency:
+      group: cmux-next-cua-helper-dev-sign-build-${{ inputs.helper || 'computer-use' }}
+      cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     permissions:
@@ -134,6 +211,7 @@ jobs:
     outputs:
       sha: ${{ needs.sdk.outputs.sha }}
       unsigned_sha256: ${{ steps.build.outputs.unsigned_sha256 }}
+      asset: ${{ steps.build.outputs.asset }}
     steps:
       - name: Checkout feat-cmux-next
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -156,21 +234,34 @@ jobs:
       - name: Build
         id: build
         env:
+          HELPER: ${{ inputs.helper || 'computer-use' }}
           CMUX_CUA_SDK_TARBALL: ${{ runner.temp }}/sdk/cua-driver-sdk.tar.gz
           CMUX_CUA_ASSET_NO_STORE: "1"
           CMUX_CUA_ASSET_CACHE_DIR: ${{ runner.temp }}/cua-assets
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/unsigned"
-          ./scripts/cmux-next/build-cua-helper-dev.sh --out "$out"
-          sha256="$(awk '{print $1}' "$out/cmux-computer-use-dev-unsigned-macos-arm64.zip.sha256")"
+          case "$HELPER" in
+            computer-use)
+              script=scripts/cmux-next/build-cua-helper-dev.sh
+              asset=cmux-computer-use-dev-unsigned-macos-arm64.zip
+              ;;
+            remote)
+              script=scripts/cmux-next/build-cmux-remote-dev.sh
+              asset=cmux-remote-dev-unsigned-macos-arm64.zip
+              ;;
+            *) echo "::error::unsupported helper: $HELPER" >&2; exit 2 ;;
+          esac
+          "$script" --out "$out"
+          sha256="$(shasum -a 256 "$out/$asset" | awk '{print $1}')"
           echo "unsigned_sha256=$sha256" >> "$GITHUB_OUTPUT"
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
 
       - name: Upload the unsigned helper
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cua-helper-dev-unsigned
-          path: ${{ runner.temp }}/unsigned/cmux-computer-use-dev-unsigned-macos-arm64.zip
+          name: cmux-next-helper-dev-unsigned
+          path: ${{ runner.temp }}/unsigned
           compression-level: 0
           if-no-files-found: error
           retention-days: 3
@@ -179,6 +270,11 @@ jobs:
     name: Sign and publish the helper
     needs: build
     environment: release
+    # release has no required reviewer (only a branch policy), so this job
+    # never waits for a person while it holds the group.
+    concurrency:
+      group: cmux-next-cua-helper-dev-sign-sign-${{ inputs.helper || 'computer-use' }}
+      cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     permissions:
@@ -186,6 +282,8 @@ jobs:
     outputs:
       sha256: ${{ steps.sign.outputs.sha256 }}
       key: ${{ steps.sign.outputs.key }}
+      asset: ${{ steps.sign.outputs.asset }}
+      pin: ${{ steps.sign.outputs.pin }}
     steps:
       # Every script this job runs comes from main: the keychain tool and the
       # signer.
@@ -209,16 +307,18 @@ jobs:
       - name: Download the unsigned helper
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cua-helper-dev-unsigned
+          name: cmux-next-helper-dev-unsigned
           path: ${{ runner.temp }}/unsigned
 
       - name: Check the unsigned helper's digest
         env:
           WANT: ${{ needs.build.outputs.unsigned_sha256 }}
+          ASSET: ${{ needs.build.outputs.asset }}
         run: |
           set -euo pipefail
           [[ "$WANT" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::the build job gave no digest" >&2; exit 1; }
-          echo "$WANT  $RUNNER_TEMP/unsigned/cmux-computer-use-dev-unsigned-macos-arm64.zip" | shasum -a 256 -c -
+          [[ "$ASSET" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::the build job gave an invalid asset" >&2; exit 1; }
+          echo "$WANT  $RUNNER_TEMP/unsigned/$ASSET" | shasum -a 256 -c -
 
       - name: Import the Developer ID certificate
         env:
@@ -226,25 +326,44 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: ./scripts/ci/signing-keychain.sh create --keychain cua-helper-dev.keychain
 
-      # main's own signer (scripts/ci/sign-cua-helper-dev.sh): nothing from the
-      # feat-cmux-next build runs while the key is in the keychain; the zip is
-      # only data to codesign. No R2 key in this step.
+      # Main's selected signer is the only code that runs while the key is in
+      # the keychain; the feat-cmux-next zip is only data to codesign. No R2
+      # key is present in this step.
       - name: Sign and verify
         id: sign
         env:
+          HELPER: ${{ inputs.helper || 'computer-use' }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
           [[ -n "$APPLE_SIGNING_IDENTITY" ]] || { echo "::error::Missing APPLE_SIGNING_IDENTITY" >&2; exit 1; }
-          ./scripts/ci/sign-cua-helper-dev.sh \
-            "$RUNNER_TEMP/unsigned/cmux-computer-use-dev-unsigned-macos-arm64.zip" \
+          case "$HELPER" in
+            computer-use)
+              signer=./scripts/ci/sign-cua-helper-dev.sh
+              input=cmux-computer-use-dev-unsigned-macos-arm64.zip
+              asset=cmux-computer-use-dev-macos-arm64.zip
+              pin=cua-helper-dev.pin.json
+              ;;
+            remote)
+              signer=./scripts/ci/sign-cmux-remote-dev.sh
+              input=cmux-remote-dev-unsigned-macos-arm64.zip
+              asset=cmux-remote-dev-macos-arm64.zip
+              pin=cmux-remote-dev.pin.json
+              ;;
+            *) echo "::error::unsupported helper: $HELPER" >&2; exit 2 ;;
+          esac
+          "$signer" \
+            "$RUNNER_TEMP/unsigned/$input" \
             --identity "$APPLE_SIGNING_IDENTITY" \
             --keychain "$HOME/Library/Keychains/cua-helper-dev.keychain-db" \
             --out "$RUNNER_TEMP/signed"
-          pin="$RUNNER_TEMP/signed/cua-helper-dev.pin.json"
-          echo "sha256=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "$pin")" >> "$GITHUB_OUTPUT"
-          echo "key=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["r2_key"])' "$pin")" >> "$GITHUB_OUTPUT"
-          { echo '```json'; cat "$pin"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          pin_path="$RUNNER_TEMP/signed/$pin"
+          [[ -f "$RUNNER_TEMP/signed/$asset" && -f "$pin_path" ]] || { echo "::error::signer did not produce $asset and $pin" >&2; exit 1; }
+          echo "sha256=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "$pin_path")" >> "$GITHUB_OUTPUT"
+          echo "key=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["r2_key"])' "$pin_path")" >> "$GITHUB_OUTPUT"
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+          echo "pin=$pin" >> "$GITHUB_OUTPUT"
+          { echo '```json'; cat "$pin_path"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Delete the signing keychain
         if: always()
@@ -254,10 +373,8 @@ jobs:
       - name: Upload the pin and the signed helper
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cua-helper-dev-signed
-          path: |
-            ${{ runner.temp }}/signed/cua-helper-dev.pin.json
-            ${{ runner.temp }}/signed/cmux-computer-use-dev-macos-arm64.zip
+          name: cmux-next-helper-dev-signed
+          path: ${{ runner.temp }}/signed
           compression-level: 0
           if-no-files-found: error
           retention-days: 14
@@ -265,6 +382,8 @@ jobs:
   publish:
     name: Publish the helper
     needs: sign
+    # Waits for a cef-publish reviewer, so it holds no concurrency group: a
+    # wait nobody answers must never queue another dispatch.
     environment: cef-publish
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -283,16 +402,18 @@ jobs:
       - name: Download the signed helper
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cua-helper-dev-signed
+          name: cmux-next-helper-dev-signed
           path: ${{ runner.temp }}/signed
 
       - name: Check the signed helper's digest
         env:
           WANT: ${{ needs.sign.outputs.sha256 }}
+          ASSET: ${{ needs.sign.outputs.asset }}
         run: |
           set -euo pipefail
           [[ "$WANT" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::the sign job gave no digest" >&2; exit 1; }
-          echo "$WANT  $RUNNER_TEMP/signed/cmux-computer-use-dev-macos-arm64.zip" | sha256sum -c -
+          [[ "$ASSET" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::the sign job gave an invalid asset" >&2; exit 1; }
+          echo "$WANT  $RUNNER_TEMP/signed/$ASSET" | sha256sum -c -
 
       # CMUX_CEF_R2_ACCESS_KEY_ID is the cmux-cef-read token (403 on a write,
       # run 42028170328); CMUX_CEF_R2_WRITE_* is the cmux-cef-write token
@@ -306,24 +427,31 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: https://${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
           KEY: ${{ needs.sign.outputs.key }}
+          ASSET: ${{ needs.sign.outputs.asset }}
         run: |
           set -euo pipefail
           if [[ -z "$AWS_ACCESS_KEY_ID" || -z "$AWS_SECRET_ACCESS_KEY" ]]; then
-            echo "::error::the cef-publish environment has no CMUX_CEF_R2_WRITE_ACCESS_KEY_ID / CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY (the cmux-cef-write token); the signed helper and its pin are in this run's cua-helper-dev-signed artifact" >&2
+            echo "::error::the cef-publish environment has no CMUX_CEF_R2_WRITE_ACCESS_KEY_ID / CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY (the cmux-cef-write token); the signed helper and its pin are in this run's cmux-next-helper-dev-signed artifact" >&2
             exit 1
           fi
           for attempt in upload read-back; do
             echo "R2 $attempt"
             python3 scripts/ci/upload-r2-object.py \
-              --file "$RUNNER_TEMP/signed/cmux-computer-use-dev-macos-arm64.zip" \
+              --file "$RUNNER_TEMP/signed/$ASSET" \
               --endpoint-url "$R2_ENDPOINT" --bucket cmux-cef --key "$KEY" \
               --content-type application/zip --cache-control 'private, max-age=31536000, immutable' \
               --write-once
           done
 
   pin-pr:
-    name: Open the pin bump
-    needs: [build, sign, publish]
+    name: Open the ancestor pin bump
+    # An unmerged source PR owns its tree and must carry its own pin update;
+    # only an ancestor build may open a separate pin PR into feat-cmux-next.
+    if: needs.sdk.outputs.source_pr == ''
+    needs: [sdk, build, sign, publish]
+    concurrency:
+      group: cmux-next-cua-helper-dev-sign-pin-pr-${{ inputs.helper || 'computer-use' }}
+      cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
@@ -355,7 +483,7 @@ jobs:
       - name: Download the pin
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cua-helper-dev-signed
+          name: cmux-next-helper-dev-signed
           path: ${{ runner.temp }}/signed
 
       - name: Push the pin and open the PR
@@ -363,21 +491,32 @@ jobs:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           SOURCE_SHA: ${{ needs.build.outputs.sha }}
           SHA256: ${{ needs.sign.outputs.sha256 }}
+          PIN: ${{ needs.sign.outputs.pin }}
+          HELPER: ${{ inputs.helper || 'computer-use' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          pin=scripts/cmux-next/cua-helper-dev.pin.json
-          cp "$RUNNER_TEMP/signed/cua-helper-dev.pin.json" "$pin"
+          [[ "$PIN" =~ ^(cua-helper-dev|cmux-remote-dev)\.pin\.json$ ]] || { echo "::error::invalid pin name $PIN" >&2; exit 1; }
+          pin="scripts/cmux-next/$PIN"
+          cp "$RUNNER_TEMP/signed/$PIN" "$pin"
+          # The sparse checkout may not contain this first pin yet; intent-to-add
+          # makes the comparison include an untracked generated pin.
+          git add -N "$pin"
           if git diff --quiet -- "$pin"; then
             echo "feat-cmux-next already pins $SHA256" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           if [[ -z "$APP_TOKEN" ]]; then
-            echo "::warning::no App token; the pin is in the cua-helper-dev-signed artifact for a manual PR"
+            echo "::warning::no App token; the pin is in the cmux-next-helper-dev-signed artifact for a manual PR"
             exit 0
           fi
-          branch="cua-helper-dev-pin/${SHA256:0:12}"
-          title="cmux NEXT: DEV builds embed the Computer Use helper (dev) signed in CI (${SHA256:0:12})"
+          branch="${PIN%.pin.json}-pin/${SHA256:0:12}"
+          title="cmux NEXT: ${HELPER} helper (dev) signed in CI (${SHA256:0:12})"
+          case "$HELPER" in
+            computer-use) product="Computer Use" ;;
+            remote) product="cmux Remote" ;;
+            *) echo "::error::unsupported helper: $HELPER" >&2; exit 2 ;;
+          esac
           git add "$pin"
           git -c user.name="cmux helper signing" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -q -m "$title" -m "Built and signed from feat-cmux-next $SOURCE_SHA by $RUN_URL."
@@ -388,14 +527,14 @@ jobs:
           GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
             git push --force --quiet "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$branch"
           body="$(printf '%s\n' \
-            "Re-signs the dev Computer Use helper every DEV build embeds, from feat-cmux-next \`$SOURCE_SHA\`." \
+            "Re-signs the dev $product helper every DEV build embeds, from feat-cmux-next \`$SOURCE_SHA\`." \
             "Built, signed with the Developer ID certificate, verified and published to R2 by $RUN_URL." \
             "" \
             "Leo, 2026-11-05: \"Yes, re-sign it\"." \
             "" \
             "## Changelog" \
             "" \
-            "- DEV builds embed the current Computer Use helper (dev).")"
+            "- DEV builds embed the current $product helper (dev).")"
           url="$(GH_TOKEN="$APP_TOKEN" gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&head=${GITHUB_REPOSITORY_OWNER}:${branch}" --jq '.[0].html_url // empty')"
           if [[ -z "$url" ]]; then
             url="$(GH_TOKEN="$APP_TOKEN" gh api -X POST "repos/$GITHUB_REPOSITORY/pulls" \

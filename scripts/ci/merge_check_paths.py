@@ -29,6 +29,12 @@ again after each run, so a pattern that landed meanwhile counts. Not strict up-t
 queue: only a stale pull request gets cheap Linux runs, and nothing is rebased. gh-merge-green runs this gate again
 right before gh pr merge (the base may change a check path after the first pass).
 
+Before each dispatch it reads the pull request's mergeable state: a pull request GitHub reports as conflicting
+(mergeable false, or mergeable_state dirty) refuses with "conflicting: rebase" and dispatches nothing, since every
+run of it is red and gh pr merge refuses it. UNKNOWN (GitHub computes it lazily) is no evidence of a conflict: the
+gate goes on at once with a note, never polling for it; the next dispatch reads it again, and gh pr merge refuses a
+real conflict.
+
 --check-only (gh-merge-green --dry-run) says whether it would dispatch and dispatches nothing. Before the file
 is on the base (its read answers 404) the gate passes with a note. Each poll is one REST read of
 the head's combined status and one of the dispatched run (a dispatch whose answer names no workflow_run_id
@@ -150,6 +156,13 @@ class Api:
             run_id = None
         return run_id if isinstance(run_id, int) and run_id > 0 else None
 
+    def mergeable(self, number: str) -> str:
+        """CONFLICTING (mergeable false, or mergeable_state dirty), UNKNOWN (not computed yet) or MERGEABLE."""
+        data = self.json(f"repos/{self.repo}/pulls/{number}", "--jq", "{mergeable, mergeable_state}")
+        if data.get("mergeable") is False or data.get("mergeable_state") == "dirty":
+            return "CONFLICTING"
+        return "UNKNOWN" if data.get("mergeable") is None else "MERGEABLE"
+
     def run(self, run_id: int) -> dict:
         """The dispatched run's {status, conclusion}."""
         return self.json(f"repos/{self.repo}/actions/runs/{run_id}", "--jq", "{status, conclusion}")
@@ -189,6 +202,23 @@ def stale(api: Api, status: dict | None, tip: str, pats: list[str]) -> str:
     if changed:
         return f"{CONTEXT} ran at base {base[:12]}; {BRANCH} has changed the check path {changed[0]} since"
     return ""
+
+
+def conflicts(api: Api, number: str) -> str:
+    """Refused when GitHub reports the pull request as conflicting; else MERGEABLE or UNKNOWN, from one read.
+
+    2026-11-09: the #39027 try spent 4m39s and dispatched the fast gates, then gh pr merge refused ("the merge
+    commit cannot be cleanly created"). UNKNOWN (GitHub computes it lazily) is no evidence of a conflict, so the
+    gate goes on at once, with no re-read loop; gh pr merge still refuses a real conflict.
+    """
+    state = api.mergeable(number)
+    if state == "CONFLICTING":
+        raise Refused(f"conflicting: rebase #{number} onto its base (GitHub reports it cannot be merged cleanly); "
+                      "nothing was dispatched")
+    if state == "UNKNOWN":
+        print(f"note: GitHub is still computing whether #{number} merges cleanly; going on (gh pr merge refuses a "
+              "conflict)", file=sys.stderr)
+    return state
 
 
 def gate(api: Api, number: str, sha: str, branch: str, timeout: float, interval: float,
@@ -231,6 +261,8 @@ def gate(api: Api, number: str, sha: str, branch: str, timeout: float, interval:
             print(f"note: after dispatched run {runs}, {why}; dispatching {WORKFLOW} for #{number} again against "
                   f"the new tip {tip[:12]} ({int(left)}s of the {int(budget)}s wait budget left)",
                   file=sys.stderr)
+        # A conflict makes every run red and the merge impossible: check before each dispatch.
+        conflicts(api, number)
         runs += 1
         run_started = clock()
         # The first run keeps its own timeout (a slow fast gate may have spent the budget before it); any other

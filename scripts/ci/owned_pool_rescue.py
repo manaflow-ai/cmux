@@ -138,9 +138,16 @@ own; the sweeper finds them among the unfinished CI runs (owned_reruns()) and
 watches them like attempt 1, and a job stuck or refused there gets the bot's
 next re-run, which every runs-on sends to retry_runner (Blacksmith) from
 attempt 3 on, so a refusal costs two re-runs at most. cmux-next's bot attempt
-3 is the exception: it keeps macos-placement's mini label, so it is watched
+3 is the exception: a re-run of failed jobs keeps attempt 2's mini label, and
+a placement re-run (long_owned_wait()) places it afresh, so it is watched
 for refusals only and a refused one goes to Blacksmith as attempt 4
 (REFUSAL_RESCUE_ATTEMPT), three re-runs at most.
+
+A refusals-only watch leaves a long queue alone, and ends at its watch limit.
+So the sweeper also scans the unfinished cmux-next pull request runs for an
+owned job stalled past a bound, queued with no runner or held by a runner
+with no step progress, and moves it to Blacksmith when nothing is lost and
+Blacksmith has room (STALL_MOVE, stall_scan(), stall_move()).
 
 E2E runs (test-e2e.yml) are watched the same way. Its `runner` job runs
 e2e_runner_pool.py, which may pick an owned pool, and uploads the same marker
@@ -670,8 +677,8 @@ REFUSAL_SECONDS = 360
 # is watched whatever its attempt (owned_rerun()); the rescue's re-run of it is
 # the bot's, on Blacksmith.
 LAST_OWNED_ATTEMPT = 2
-# cmux-next's bot attempt 3 keeps macos-placement's mini label (a re-run reuses
-# attempt 1's outputs), so a lend drain can refuse it too, and before 2026-10-07
+# cmux-next's bot attempt 3 keeps macos-placement's mini label when it re-runs failed jobs (it reuses the earlier
+# outputs), or is placed afresh after a placement re-run (long_owned_wait()); either way a lend drain can refuse it too, and before 2026-10-07
 # nothing re-ran it (#18147's scheme compile, 02:23Z). It is watched for
 # refusals only: when every failed job of it was refused, its failed jobs are
 # re-run as attempt 4, which cmux-next.yml sends to Blacksmith. Minis-first
@@ -692,6 +699,20 @@ OPEN_HEAD_RULE = ("never cancelled: an open pull request's run at its head is ne
 UNSTARTED_STALL_SECONDS = 180
 # The log line that names an open-head run the failover cancels and re-runs (unstarted_failover()).
 OPEN_HEAD_FAILOVER = "open-head failover"
+# How long a cmux-next Mac job waits on an owned label, busy or not, before the open-head failover places its run
+# again (long_owned_wait()); next_macos_cascade.OWNED_REPLACE_MINUTES is the same figure. Only a placement re-run
+# moves it, so the placement reads the routes afresh, and only through the last attempt the bot's placement runs on
+# (CMUX_NEXT_LAST_PLACED_ATTEMPT): at most two re-placements of a run. On 2026-11-10 cmux#40330's run 42858473381
+# was placed on its attempt 2 at 17:32Z while Blacksmith 6 vCPU was stalled, so its fast tier and generated files
+# took glaeda-side-std-xcode-26.6, which was not dark (11 runners busy) but held 55 jobs, the oldest for 21 hours;
+# attempt 2 was the last placement, so nothing placed them again once Blacksmith moved.
+OWNED_REPLACE_SECONDS = 20 * 60
+# The last attempt cmux-next.yml's macos-placement runs on for a rescue bot (next_macos_cascade.LAST_PLACED_ATTEMPT).
+CMUX_NEXT_LAST_PLACED_ATTEMPT = 3
+# What the head's macos-placement `if` says when it runs on the bot's attempt 3: without it a re-run of attempt 2
+# would carry the old placement, so the failover gives attempt 2 no placement re-run.
+CMUX_NEXT_ATTEMPT_3_PLACEMENT = ("github.run_attempt <= 3 && contains(fromJSON('[\"github-actions[bot]\","
+                                 "\"cmux-bot[bot]\"]'), github.triggering_actor)")
 
 
 def owned_rerun(run: Mapping[str, Any]) -> bool:
@@ -2010,6 +2031,17 @@ class GitHub:
                 data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&per_page={count}")
                 found += [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
                           if isinstance(run, Mapping) and run.get("id") and owned_rerun(run)]
+        return found
+
+    def next_pull_runs(self, count: int) -> list[Mapping[str, Any]]:
+        """The unfinished cmux-next.yml pull request runs, for the stall move (stall_scan()): the same two listings
+        owned_reruns() makes every tick, so a scan between changes costs two 304s."""
+        name = CMUX_NEXT_WORKFLOW_PATH.rsplit("/", 1)[-1]
+        found: list[Mapping[str, Any]] = []
+        for status in ("queued", "in_progress"):
+            data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&per_page={count}")
+            found += [run for run in (data or {}).get("workflow_runs") or []
+                      if isinstance(run, Mapping) and run.get("id") and run.get("event") == "pull_request"]
         return found
 
     def portable_runs(self, count: int, oldest: dt.datetime, pages: int = 1) -> list[tuple[int, int]]:
@@ -3872,10 +3904,12 @@ def placement_rerun(workflow_text: str | None, jobs: Sequence[Mapping[str, Any]]
                    placement_key: str = CMUX_NEXT_PLACEMENT_KEY,
                    placement_job: str = CMUX_NEXT_PLACEMENT_JOB,
                    attempt_started_at: dt.datetime | None = None,
-                   portable: bool = False) -> tuple[PlacementRerun | None, str]:
+                   portable: bool = False, attempt: int = 1) -> tuple[PlacementRerun | None, str]:
     """(the placement re-run, why) for a cmux-next pull request run's open-head failover, or (None, why) when the
     workflow file at the head cannot show it (unread, unparsable, no CMUX_NEXT_PLACEMENT_KEY job) or the attempt has
-    no single finished, successful placement job with an id. With None the failover keeps the full re-run rule."""
+    no single finished, successful placement job with an id. With None the failover keeps the full re-run rule.
+    From `attempt` 2 the head's placement must also run on the bot's next attempt (CMUX_NEXT_ATTEMPT_3_PLACEMENT),
+    else the re-run would carry the old placement."""
     if not workflow_text:
         return None, "the workflow file at the head could not be read"
     try:
@@ -3885,6 +3919,8 @@ def placement_rerun(workflow_text: str | None, jobs: Sequence[Mapping[str, Any]]
     spec = {str(key): job for key, job in (document.get("jobs") or {}).items() if isinstance(job, Mapping)}
     if placement_key not in spec:
         return None, f"the workflow has no {placement_key} job"
+    if not portable and attempt >= 2 and CMUX_NEXT_ATTEMPT_3_PLACEMENT not in str(spec[placement_key].get("if") or ""):
+        return None, f"{placement_job} at the head does not run on the bot's attempt {attempt + 1}"
     if portable and "github.run_attempt" in str(spec[placement_key].get("if") or ""):
         # A historical head may allow the current placement but skip the bot's
         # next attempt. Without evaluating its arbitrary expression, we cannot
@@ -3963,7 +3999,8 @@ def failover_plan(api: GitHub, target: Target, jobs: Sequence[Mapping[str, Any]]
                   log: Callable[[str], None]) -> PlacementRerun | None:
     """The placement-only rerun for a supported workflow, or ``None``.
 
-    cmux-next keeps its original first-attempt plan. Portable light workflows
+    cmux-next re-runs the placement of attempt 1, and of a pull request run's attempt 2 when the head's placement
+    runs on the bot's attempt 3 (placement_rerun()). Portable light workflows
     use the same placement-only shape on any current pull-request attempt.
     The placement job must be proven current
     before the run can be cancelled; an older workflow without that graph
@@ -3976,7 +4013,10 @@ def failover_plan(api: GitHub, target: Target, jobs: Sequence[Mapping[str, Any]]
             return None
         key, name = PORTABLE_PLACEMENT_KEY, PORTABLE_PLACEMENT_JOB
     elif cmux_next:
-        if target.attempt != 1 or not (target.pr_number or push_tip_failover(target)):
+        # Attempt 1, and a pull request run's attempt 2 when the head places the bot's attempt 3
+        # (CMUX_NEXT_LAST_PLACED_ATTEMPT, placement_rerun()).
+        if not (target.attempt == 1 and (target.pr_number or push_tip_failover(target))
+                or 1 < target.attempt < CMUX_NEXT_LAST_PLACED_ATTEMPT and target.pr_number):
             return None
         key, name = CMUX_NEXT_PLACEMENT_KEY, CMUX_NEXT_PLACEMENT_JOB
     else:
@@ -3990,7 +4030,8 @@ def failover_plan(api: GitHub, target: Target, jobs: Sequence[Mapping[str, Any]]
         log(f"could not read {target.path} at {target.head_sha[:12]} ({error}); the failover re-runs every job")
         return None
     plan, why = placement_rerun(text, jobs, placement_key=key, placement_job=name,
-                                attempt_started_at=target.attempt_started_at, portable=portable)
+                                attempt_started_at=target.attempt_started_at, portable=portable,
+                                attempt=target.attempt)
     if plan is None:
         log(f"no placement re-run: {why}; the failover keeps the full re-run")
     return plan
@@ -3999,6 +4040,16 @@ def failover_plan(api: GitHub, target: Target, jobs: Sequence[Mapping[str, Any]]
 def job_key(job: Mapping[str, Any]) -> Any:
     """A job's key in a watcher's first_seen map: its id, else its name."""
     return job.get("id") if job.get("id") is not None else str(job.get("name") or "")
+
+
+def long_owned_wait(target: "Target", job: Mapping[str, Any], label: str, now: dt.datetime,
+                    first_seen: dt.datetime | None = None) -> bool:
+    """Whether a cmux-next pull request run's Mac job has waited OWNED_REPLACE_SECONDS on an owned (glaeda-) label,
+    on an attempt the bot's placement may place again (before CMUX_NEXT_LAST_PLACED_ATTEMPT). The label need not be
+    dark: a saturated one whose queue the job is not getting through is as stuck for the job."""
+    return (target.path == CMUX_NEXT_WORKFLOW_PATH and bool(target.pr_number)
+            and target.attempt < CMUX_NEXT_LAST_PLACED_ATTEMPT and label.startswith("glaeda-")
+            and queued_seconds(job, now, first_seen) >= OWNED_REPLACE_SECONDS)
 
 
 def started_nothing(pools: Mapping[str, Any], label: str) -> bool:
@@ -4113,7 +4164,9 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
       (MAX_JOB_PAGES full pages) proves nothing;
     - a job has waited UNSTARTED_STALL_SECONDS or more for a runner on a label that started nothing: the janitor's
       fresh snapshot shows nothing running there (started_nothing()), or nothing started there since the job began
-      waiting (label_quiet()). A job's wait starts at the later of its created_at and when a watch first saw it
+      waiting (label_quiet()). Or, for a cmux-next pull request run whose placement re-run is shown (failover_plan(),
+      never the settled re-run), a Mac job has waited OWNED_REPLACE_SECONDS on an owned label, busy or not
+      (long_owned_wait()), on attempt 1 or 2: the placement then runs again on the bot's next attempt. A job's wait starts at the later of its created_at and when a watch first saw it
       queued (`first_seen`, the watcher's; else this look's). A job that has waited less is looked at again once it
       has waited that long (one bounded sleep), not given up on.
 
@@ -4166,7 +4219,11 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
                 seen.setdefault(job_key(job), at)
         dead = [(job, label) for job, label in waiting if started_nothing(pools, label)
                 or label_quiet(snapshot, label, wait_start(job, seen.get(job_key(job))))]
-        if not dead:
+        # A cmux-next job that has waited OWNED_REPLACE_SECONDS on an owned label, busy or not, is placed again,
+        # but only by a placement re-run (checked below, once the plan is read).
+        long_wait = [] if dead else [(job, label) for job, label in waiting
+                                     if long_owned_wait(target, job, label, at, seen.get(job_key(job)))]
+        if not dead and not long_wait:
             return NO_FAILOVER
         if push and not planned:
             # A push run has no pull request to be open at: its open head is the branch tip (push_tip_failover()).
@@ -4177,12 +4234,20 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
         # The workflow file only now, once a label runs nothing (one read per look at most).
         if not planned:
             plan, planned = failover_plan(api, target, jobs, sleep, log), True
+        if not dead:
+            if plan is None:
+                return NO_FAILOVER
+            dead = long_wait
         if target.path in PORTABLE_LIGHT_WORKFLOW_PATHS and plan is None:
             # A legacy fixed-label workflow has no route to refresh.  Neither
             # a full rerun nor the settled-sibling path can move it, so retain
             # the run rather than cancel it back onto the same paid label.
             return NO_FAILOVER
         settled = any(failover_loses(job, plan) for job in jobs)
+        if settled and dead is long_wait:
+            # Only a placement re-run reads the routes afresh; the settled re-run of one job keeps the old placement
+            # and would only send it back to the same busy label.
+            return NO_FAILOVER
         if settled and target.path in PORTABLE_LIGHT_WORKFLOW_PATHS:
             log(f"run {target.run_id} cannot refresh portable placement without repeating a finished job; "
                 "a settled-only retry would keep the paid fallback, so the open head keeps the run")
@@ -4200,7 +4265,9 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
         job, label = max(dead, key=lambda pair: wait(pair[0]))
         waited = wait(job)
         if waited >= UNSTARTED_STALL_SECONDS:
-            idle = "runs nothing" if started_nothing(pools, label) else "has started nothing since it queued"
+            idle = ("runs nothing" if started_nothing(pools, label)
+                    else "has started nothing since it queued" if dead is not long_wait
+                    else f"has not started it in {OWNED_REPLACE_SECONDS // 60} min")
             stuck = f"{job.get('name') or job.get('id')} has waited {int(waited // 60)} min on `{label}`, which {idle}"
             if settled:
                 return Failover(f"no job of attempt {target.attempt} is running ({len(jobs) - 1} of {len(jobs)} "
@@ -4476,8 +4543,14 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
            log: Callable[[str], None], failed_only: bool = False,
            deadline: dt.datetime | None = None, refused: bool | None = None, refusal: bool = False,
            before_cancel: Callable[[], None] | None = None,
-           first_seen: Mapping[Any, dt.datetime] | None = None) -> str:
+           first_seen: Mapping[Any, dt.datetime] | None = None, stall: str = "",
+           stall_check: Callable[[Sequence[Mapping[str, Any]], dt.datetime], str] | None = None) -> str:
     """Cancel and re-run, unless the pull request has moved on. Returns what happened.
+
+    `stall` (stall_move(): why an owned cmux-next job is stalled) is the stall move's exception to OPEN_HEAD_RULE:
+    the open-head failover is not asked, the run's failed and cancelled jobs are re-run, and `stall_check` (the jobs
+    and the time, to "" while the stall still holds) runs in the guard right before the cancel (stall_guard()). A
+    run that finished meanwhile is left as it is.
 
     `first_seen` (the watcher's: job id -> when it first saw the job queued) dates a job's wait for the open-head
     failover (unstarted_failover()) when GitHub's job record has no created_at.
@@ -4547,11 +4620,19 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     gone = deleted_branch(api, target, run, sleep, log)
     if gone:
         return f"not rescued: {gone}; left as it is"
+    if stall and run.get("status") == "completed":
+        return "not rescued: the run finished before the stall move; its result stands"
     failover = ""
     plan: PlacementRerun | None = None
     only_job: int | None = None
     receipt: Callable[[], None] | None = None
-    if run.get("status") != "completed" and (target.pr_number or push_tip_failover(target) and not refusal):
+    if stall:
+        log(f"{STALL_MOVE}: {stall}; cancelling run {target.run_id} to re-run its failed and cancelled jobs")
+        receipt = stall_receipt(target, stall, log)
+        # Every finished job keeps its result; the stalled and waiting jobs (cancelled by the cancel) run again.
+        failed_only = True
+        before_cancel = stall_guard(api, target, sleep, log, before_cancel, stall_check, now)
+    elif run.get("status") != "completed" and (target.pr_number or push_tip_failover(target) and not refusal):
         # pull_moved() just read the pull request open at this head (or found no newer push run on the branch).
         # A cmux-next push run at its tip is moved only by the failover too: a bot's re-run of its failed jobs keeps
         # attempt 1's placement and rejoins the owned label's queue (bot_rerun_leaves_owned()). Run 40398277457 (PR #25446)
@@ -4621,6 +4702,8 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         nightly_cancel(api, target, sleep, log, before_cancel)
     except NightlyBusy as busy_now:
         return f"{NIGHTLY_BUSY} ({busy_now}); it started just before the cancel, and started delivery work is never cancelled"
+    except StallCleared as cleared:
+        return f"not rescued: {cleared}; the stall cleared before the cancel"
     except OpenHeadStarted as started_now:
         if not target.pr_number:
             return f"not rescued: run {target.run_id} was left at {target.push_branch}'s tip ({started_now})"
@@ -4639,7 +4722,8 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         # An error ends this rescue for good (gave_up()); the run's attempt is as GitHub has it, not a stopped job's.
         # An open-head failover's cancel is a pull request's run at its head: leave CANCEL_SENT unsettled, so a
         # successor finishes the re-run (rerun_intended()) instead of leaving the run cancelled.
-        if not failover:
+        # A stall move's cancel is one too.
+        if not failover and not stall:
             settled_here(api, target, log)
         raise
     # Not on a KeyboardInterrupt or SystemExit (GitHub cancelling the rescue job, its timeout): that job stopped here,
@@ -4919,7 +5003,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             light_log(f"hosted light rescue policy unavailable ({error}); primary owned-pool rescue continues")
             light_rescue = None
         outcomes = sweep(client, repository, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
-                         now=clock, log=light_log, side_seconds=side_seconds, light_rescue=light_rescue)
+                         now=clock, log=light_log, side_seconds=side_seconds, light_rescue=light_rescue,
+                         stall_destination=stall_destinations(env.get("STALL_RUNNER"), env.get("STALL_POOLS")))
         return finish("swept: " + (", ".join(f"{count} {outcome}" for outcome, count in sorted(outcomes.items()))
                                    or "no run needed a watch"))
     run_id = (env.get("WATCH_RUN_ID") or "").strip()
@@ -5182,6 +5267,419 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         log(f"attempt {target.attempt}: {'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
 
 
+# The stall move (stall_scan(), stall_move()). A cmux-next.yml run whose placement found no free Blacksmith slot
+# (REFUSALS_WATCH_MARKER), and the bot's attempt 3 of any cmux-next run, is watched for refusals only: a long queue
+# is left alone, because a re-run would only rejoin the same owned queue. Its watch ends at SIDE_WATCH_LIMIT_SECONDS,
+# and no listing takes a cmux-next pull request run up again after that, so a job stalled on an owned Mac stayed
+# stalled. On 2026-11-10, after an office power outage, the office uplink saturated (6 to 10 s RTT): the lent build
+# workers' ci-steps stalled on GitHub clones while holding glaeda capacity units, and the listener gate kept about half
+# the glaeda-side-std-xcode-26.6 listeners off. Run 42878905180 (PR #40461) had its generated files queued there from
+# 20:23Z to 22:26Z on attempt 3; run 42890452294 (PR #40479) had its fast tier and generated files queued there from
+# 20:07Z to 22:39Z on attempt 2, and generated files then spent 16 minutes in Checkout; run 42881668670 (PR #40562)
+# waited two hours on attempt 2 until its pull request merged. So every STALL_SCAN_TICKS ticks the sweeper reads every
+# unfinished cmux-next pull request run (GitHub.next_pull_runs(), the listing owned_reruns() already makes) for an
+# owned job stalled one of two ways (owned_stalls()):
+# - queued on a glaeda- label with no runner for STALL_QUEUE_SECONDS;
+# - in progress on an owned runner with no step progress (no step started or completed: last_progress()) for its
+#   current step's bound (step_stall_seconds()).
+# and moves it to Blacksmith (stall_move()) when nothing is lost and Blacksmith has room:
+# - the run is a same-repository pull request's, open at the run's head (rescue()'s pull_moved(): a superseded head
+#   is never re-run), and no nightly, DEV or promote build (never_fails_over(), rescue()'s started_delivery_work());
+# - no job of the attempt failed on its own (decided_failures(): a re-run of failed jobs would repeat it), and no job
+#   but the stalled ones is running or held by a runner (a cancel would kill it);
+# - each Blacksmith label the move's jobs may end on (stall_destinations()) is listed in the janitor's fresh snapshot, is not
+#   stalled, and has a slot for every owned job the move sends there, counting the jobs this sweeper moved within
+#   STALL_ROOM_WINDOW_SECONDS, which the snapshot may not show yet (stall_room()). On 2026-11-10 that label had 27
+#   jobs queued against its 10 slots: nothing moves then;
+# - at most STALL_MOVES_PER_SCAN runs a scan, STALL_MOVES_PER_SWEEP a sweeper, and STALL_MOVES_PER_RUN a run (one an
+#   attempt) per sweeper; a sweeper handing over ends a move between its rounds, never between a cancel and its re-run.
+# The move cancels the run and re-runs its failed and cancelled jobs (rescue() with `stall`). cmux-next.yml sends a
+# bot's re-run of failed jobs to Blacksmith only past attempt 3 (bot_rerun_leaves_owned(); its carried-placement
+# fallback takes the owned side label while github.run_attempt <= 3). From an earlier attempt the re-run rejoins the
+# owned label, so the move looks STALL_PASS_LOOK_SECONDS later: a mini that took a job meanwhile keeps the run there,
+# else the new attempt, whose jobs no runner has taken, is passed through the same way, at most until the attempt
+# past REFUSAL_RESCUE_ATTEMPT, on Blacksmith.
+STALL_MOVE = "stall move"
+# Shape (a): a job queued on an owned label this long is stalled. One p90 cmux-next swift-test on the std minis
+# (2368 s, p50 1962 s; glaeda's runner hook, SIGNING_DRAIN_OUTLASTS_RUNNING_JOBS), the longest owned cmux-next job, rounded
+# up: by then every job running on the label when it queued has had its p90 length to end, and generated-files'
+# own timeout-minutes is the same 40. It is under MAX_QUEUE_ROUNDS of QUEUE_ROUND_SECONDS (45 minutes), the longest
+# owned queue a picker ever plans, because a refusals-only run's placement planned none: it found no free slot.
+STALL_QUEUE_SECONDS = 40 * 60
+# Shape (b): no step progress. The runner's own setup steps (SETUP_STEPS, where glaeda's hook waits for capacity
+# units) get SETUP_WAIT_SECONDS, as a watch's setup hold does. A checkout of the reused workspace gets
+# STALL_CHECKOUT_SECONDS, any other step STALL_STEP_SECONDS. A sample of 14 green cmux-next pull request runs on
+# 2026-11-08 and 11-09 (169 owned-Mac steps): Checkout took at most 39 s (p90 35 s), so 10 minutes is a clone that
+# stopped (run 42890452294's took 16.5); the longest other step took 1298 s, and no owned cmux-next job may run a
+# step longer than the longest whole job the std minis ran over 10-29 to 10-31, 3203 s (n 1035, p99 2410 s; glaeda's
+# runner hook), so 55 minutes clears it.
+STALL_CHECKOUT_SECONDS = 10 * 60
+STALL_STEP_SECONDS = 55 * 60
+# Steps that only fetch: Checkout, the clean-up after a failed one, and its retry.
+STALL_CHECKOUT_STEP = re.compile(r"(?i)^(?:checkout\b|run actions/checkout@|retry checkout\b)")
+# A scan every this many sweeper ticks: one listing pair (shared with owned_reruns(), so usually a 304) and one jobs
+# read for each unfinished cmux-next pull request run whose attempt began at least STALL_MIN_AGE_SECONDS ago.
+STALL_SCAN_TICKS = 5  # as SIDE_FAILURE_TICKS: a few minutes late costs nothing against a 10-minute bound
+# No stall is shorter than the shortest bound above; an attempt younger than it is not read.
+STALL_MIN_AGE_SECONDS = min(SETUP_WAIT_SECONDS, STALL_CHECKOUT_SECONDS, STALL_QUEUE_SECONDS)
+# cmux-next.yml's macOS fallbacks past the bot's attempt 3 take one of two labels: swift-canary's and fast-tier's
+# read `vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26`, swift-test's and daemon-test's
+# `fromJSON(vars.RUNNER_POOLS).macos_26` alone. The workflow passes both variables (STALL_RUNNER, STALL_POOLS) and
+# stall_destinations() resolves them; with neither set, the pool is this one.
+STALL_DESTINATION = "blacksmith-6vcpu-macos-26"
+
+
+def stall_destinations(runner: str | None, pools: str | None) -> tuple[str, ...] | None:
+    """The Blacksmith labels the stall move's re-runs may take, from vars.MACOS_RUNNER_26 (`runner`) and
+    vars.RUNNER_POOLS (`pools`, JSON; its macos_26, or STALL_DESTINATION while it is unset). Every one must be a
+    picker Blacksmith label, else None and nothing moves: cloud_overflow_switch.py points MACOS_RUNNER_26 at an owned
+    pool during a failover, where a re-run would only rejoin an owned queue, and an unknown label's room cannot be
+    judged."""
+    base = STALL_DESTINATION
+    if (pools or "").strip():
+        try:
+            parsed = json.loads(pools or "")
+        except ValueError:
+            return None
+        found = parsed.get("macos_26") if isinstance(parsed, Mapping) else None
+        if not isinstance(found, str) or not found.strip():
+            # RUNNER_POOLS is set but names no macos_26: cmux-next.yml's swift-test and daemon-test would get an
+            # empty runs-on, so a re-run has nowhere to go.
+            return None
+        base = found.strip()
+    labels = tuple(sorted({base, (runner or "").strip() or base}))
+    return labels if all(label in simple_pool_picker.CAPACITY for label in labels) else None
+# The janitor writes its snapshot every 10 minutes; a move made within two of them may not be counted in it yet.
+STALL_ROOM_WINDOW_SECONDS = 20 * 60
+STALL_MOVES_PER_SCAN = 1
+# A run's moves a sweeper: one, and one more for an attempt the first left on the owned label (a pass-through whose
+# attempt a sibling job's runner held, so it stayed: that bot attempt 3 is refusals only, and nothing else moves it).
+STALL_MOVES_PER_RUN = 2
+# How long a pass-through attempt's owned jobs get to be taken by a mini before the move passes it through.
+STALL_PASS_LOOK_SECONDS = FAILOVER_LOOK_SECONDS
+
+
+@dataclasses.dataclass(frozen=True)
+class Stall:
+    """One owned job owned_stalls() found stalled: its name and id, its label, how (`queued`, or `step`: the
+    name of the step with no progress) and for how long."""
+
+    name: str
+    job_id: Any
+    label: str
+    seconds: float
+    step: str = ""
+
+    def __str__(self) -> str:
+        minutes = int(self.seconds // 60)
+        if self.step:
+            return f"{self.name} has made no step progress in {minutes} min ({self.step}) on `{self.label}`"
+        return f"{self.name} has waited {minutes} min for a runner on `{self.label}`"
+
+
+def last_progress(job: Mapping[str, Any]) -> dt.datetime | None:
+    """The newest of the job's start and its steps' starts and ends: when it last made step progress."""
+    marks = [parse_time(job.get("started_at"))]
+    for step in job.get("steps") or ():
+        if isinstance(step, Mapping):
+            marks += [parse_time(step.get("started_at")), parse_time(step.get("completed_at"))]
+    found = [mark for mark in marks if mark is not None]
+    return max(found) if found else None
+
+
+def current_step(job: Mapping[str, Any]) -> str:
+    """The name of the job's step in progress, else of its last step that started."""
+    steps = [step for step in job.get("steps") or () if isinstance(step, Mapping) and step.get("started_at")]
+    running = [step for step in steps if step.get("status") == "in_progress"]
+    chosen = running[-1] if running else steps[-1] if steps else None
+    return str((chosen or {}).get("name") or "")
+
+
+def step_stall_seconds(step: str) -> int:
+    """How long `step` may go with no step progress before its job counts as stalled."""
+    if step in SETUP_STEPS or not step:
+        return SETUP_WAIT_SECONDS
+    if STALL_CHECKOUT_STEP.search(step):
+        return STALL_CHECKOUT_SECONDS
+    return STALL_STEP_SECONDS
+
+
+def owned_mac(job: Mapping[str, Any]) -> str | None:
+    """The glaeda- (owned Mac) label a job asked for, if any."""
+    label = job_pool(job)
+    return label if label and label.startswith("glaeda-") else None
+
+
+def owned_stalls(jobs: Sequence[Mapping[str, Any]], now: dt.datetime) -> list[Stall]:
+    """The owned jobs stalled one of the stall move's two ways (see STALL_MOVE): queued with no runner for
+    STALL_QUEUE_SECONDS, or held by a runner with no step progress for step_stall_seconds()."""
+    found: list[Stall] = []
+    for job in jobs:
+        label = owned_mac(job)
+        if label is None or job.get("status") == "completed":
+            continue
+        name = str(job.get("name") or job.get("id"))
+        if waiting_for_runner(job):
+            waited = queued_seconds(job, now)
+            if waited >= STALL_QUEUE_SECONDS:
+                found.append(Stall(name, job_key(job), label, waited))
+        elif job_running(job):
+            last = last_progress(job)
+            step = current_step(job)
+            idle = 0.0 if last is None else (now - last).total_seconds()
+            if last is not None and idle >= step_stall_seconds(step):
+                found.append(Stall(name, job_key(job), label, idle, step or "its runner's setup"))
+    return found
+
+
+def stall_blockers(jobs: Sequence[Mapping[str, Any]], stalls: Sequence[Stall],
+                   attempt_started: dt.datetime | None) -> str:
+    """Why the stall move may not cancel the run now, or "": a job that failed on its own (a re-run of failed jobs
+    would repeat it), or a job other than the stalled ones running or held by a runner (the cancel would kill it)."""
+    decided = decided_failures(jobs, attempt_started)
+    if decided:
+        return f"{', '.join(decided)} already failed, and a re-run of the failed jobs would repeat it"
+    stalled = {stall.job_id for stall in stalls}
+    running = sorted(str(job.get("name") or job.get("id")) for job in jobs
+                     if job_running(job) and job_key(job) not in stalled)
+    if running:
+        return f"{', '.join(running)} still running, and the cancel would kill it"
+    return ""
+
+
+def stall_verdict(jobs: Sequence[Mapping[str, Any]], now: dt.datetime,
+                  attempt_started: dt.datetime | None) -> tuple[list[Stall], str]:
+    """(the stalled owned jobs, why the move must wait or "")."""
+    stalls = owned_stalls(jobs, now)
+    if not stalls:
+        return [], "no owned job is stalled"
+    return stalls, stall_blockers(jobs, stalls, attempt_started)
+
+
+def moved_jobs(jobs: Sequence[Mapping[str, Any]]) -> int:
+    """How many owned jobs a re-run of failed jobs sends to the move's destination: the unfinished owned ones (the
+    cancel makes them cancelled) and the failed or cancelled ones."""
+    return sum(1 for job in jobs if owned_mac(job) and (job.get("status") != "completed" or job.get("conclusion") in (
+        "failure", "cancelled", "timed_out")))
+
+
+def stall_room(snapshot: Mapping[str, Any] | None, now: dt.datetime, wanted: int, recent: int,
+               label: str = STALL_DESTINATION) -> str:
+    """Why `label` (the move's destination, STALL_DESTINATION by default) has no room for `wanted` more jobs, with
+    `recent` of this sweeper's moved jobs not yet counted, or "": the label is listed in a fresh snapshot, not stalled, and running + queued + recent + wanted fits its slots."""
+    if not isinstance(snapshot, Mapping) or not isinstance(snapshot.get("pools"), Mapping):
+        return "the janitor's pool snapshot is missing or stale, so Blacksmith's room is unknown"
+    entry = snapshot["pools"].get(label)
+    if not isinstance(entry, Mapping):
+        return f"the pool snapshot does not list {label}"
+    if blacksmith_states(snapshot, now).get(label) == "stalled":
+        return f"{label} is stalled (simple_pool_picker.stalled())"
+    try:
+        queued, running = max(0, int(entry.get("queued", 0))), max(0, int(entry.get("running", 0)))
+    except (TypeError, ValueError):
+        return f"the pool snapshot's {label} counts are unreadable"
+    slots = simple_pool_picker.CAPACITY[label]
+    if running + queued + recent + wanted > slots:
+        return (f"{label} has {running} running and {queued} queued"
+                + (f", and {recent} more moved there in the last {STALL_ROOM_WINDOW_SECONDS // 60} min" if recent else "")
+                + f", against its {slots} slots; {wanted} more would not fit")
+    return ""
+
+
+class StallCleared(Aborted):
+    """stall_guard(): the run changed before the stall move's cancel went out; nothing was cancelled."""
+
+
+def stall_guard(api: GitHub, target: Target, sleep: Callable[[float], None], log: Callable[[str], None],
+                before_cancel: Callable[[], None] | None,
+                check: Callable[[Sequence[Mapping[str, Any]], dt.datetime], str] | None,
+                now: Callable[[], dt.datetime]) -> Callable[[], None]:
+    """rescue()'s before_cancel for a stall move, right before the cancel and every re-send of it: the run must still
+    be this attempt and unfinished, and `check` on its jobs, read last, must still find the stall ("" ). Else the
+    cancel is dropped (StallCleared)."""
+    def guard() -> None:
+        if before_cancel is not None:
+            before_cancel()
+        run = read(lambda: api.run(target.run_id), sleep, log) or {}
+        attempt = int(run.get("run_attempt") or 0)
+        if attempt != target.attempt:
+            raise StallCleared(f"the run is at attempt {attempt}, not {target.attempt}")
+        if run.get("status") == "completed":
+            raise StallCleared("the run has finished")
+        jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        if len(jobs) >= MAX_JOB_PAGES * 100:
+            raise StallCleared(f"the run lists {len(jobs)} jobs, maybe more")
+        why = check(jobs, now()) if check is not None else ""
+        if why:
+            raise StallCleared(why)
+    return guard
+
+
+def stall_destination(target: Target) -> str:
+    """Where the stall move's re-run of failed jobs sends the owned jobs of `target`'s attempt."""
+    following = target.attempt + 1
+    if bot_rerun_leaves_owned(target.path, target.attempt):
+        return f"attempt {following} takes Blacksmith (cmux-next.yml's bot attempt past {REFUSAL_RESCUE_ATTEMPT})"
+    return (f"attempt {following} rejoins the owned label, and is passed through to Blacksmith unless a mini takes "
+            f"it within {STALL_PASS_LOOK_SECONDS} s")
+
+
+def stall_receipt(target: Target, why: str, log: Callable[[str], None]) -> Callable[[], None]:
+    """The stall move's receipt, given once its cancel went out: a notice annotation on the rescue's run and a log
+    line."""
+    line = (f"run {target.run_id} attempt {target.attempt} of PR #{target.pr_number} at {target.head_sha[:12]}: "
+            f"cancelled and its failed and cancelled jobs re-run because {why}; {stall_destination(target)}")
+
+    def emit() -> None:
+        log(f"{STALL_MOVE} receipt: {line}")
+        print(f"::notice title=Owned-pool stall move::{line}", flush=True)
+    return emit
+
+
+def pass_through_check(attempt_started: dt.datetime | None) -> Callable[[Sequence[Mapping[str, Any]], dt.datetime], str]:
+    """A pass-through attempt's stall check: an owned job still waits for a runner, nothing runs or is held by a
+    runner, and no job failed on its own."""
+    def check(jobs: Sequence[Mapping[str, Any]], at: dt.datetime) -> str:
+        if not any(owned_mac(job) and waiting_for_runner(job) for job in jobs):
+            return "no owned job waits for a runner"
+        return stall_blockers(jobs, (), attempt_started)
+    return check
+
+
+def stall_move(api: GitHub, target: Target, stalls: Sequence[Stall], *, now: Callable[[], dt.datetime],
+               sleep: Callable[[float], None], log: Callable[[str], None],
+               deadline: dt.datetime | None = None, stopped: Callable[[], bool] = lambda: False) -> str:
+    """Move `target`'s stalled owned jobs to Blacksmith (see STALL_MOVE): cancel the run and re-run its failed and
+    cancelled jobs, passing an attempt that rejoins the owned label through while no mini takes it. Returns what
+    happened. `stopped` (the sweeper is handing over) ends the move between rounds, never between a cancel and its
+    re-run. An attempt it leaves on the owned label is a later scan's to move again: that one's jobs are fresh, so
+    no scan finds them stalled while this move still acts on them."""
+    why = "; ".join(str(stall) for stall in stalls)
+    started = target.attempt_started_at
+
+    def first(jobs: Sequence[Mapping[str, Any]], at: dt.datetime) -> str:
+        found, blocked = stall_verdict(jobs, at, started)
+        return blocked or ("" if found else "no owned job is stalled any more")
+    check: Callable[[Sequence[Mapping[str, Any]], dt.datetime], str] = first
+    while True:
+        lands = bot_rerun_leaves_owned(target.path, target.attempt)
+        result = rescue(api, target, now=now, sleep=sleep, log=log, failed_only=True, deadline=deadline,
+                        stall=why, stall_check=check)
+        if lands or not result.startswith("re-ran the failed jobs"):
+            return result
+        target = dataclasses.replace(target, attempt=target.attempt + 1, refusals_only=True)
+        if stopped():
+            # The round before re-ran the run, so stopping here loses nothing; the next sweeper's scan finds it.
+            return f"{result}; the sweeper is handing over, so attempt {target.attempt} is left to the next one"
+        log(f"{result}; looking again in {STALL_PASS_LOOK_SECONDS}s for a mini to take attempt {target.attempt}")
+        sleep(STALL_PASS_LOOK_SECONDS)
+        if stopped():
+            return f"{result}; the sweeper is handing over, so attempt {target.attempt} is left to the next one"
+        run = read(lambda: api.run(target.run_id), sleep, log) or {}
+        if int(run.get("run_attempt") or 0) != target.attempt or run.get("status") == "completed":
+            return f"{result}; attempt {target.attempt} has moved on, so it is left as it is"
+        started = parse_time(run.get("run_started_at")) or target.attempt_started_at
+        target = dataclasses.replace(target, attempt_started_at=started)
+        check = pass_through_check(started)
+        jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        blocked = check(jobs, now())
+        if blocked:
+            return f"{result}; attempt {target.attempt} stays: {blocked}"
+        waiting = sorted(str(job.get("name") or job.get("id")) for job in jobs
+                         if owned_mac(job) and waiting_for_runner(job))
+        why = (f"{', '.join(waiting)} of attempt {target.attempt}, the stall move's re-run, still waits for a runner "
+               f"after {STALL_PASS_LOOK_SECONDS} s, passed through to Blacksmith")
+
+
+def stall_target(run: Mapping[str, Any], repository: str) -> Target | str:
+    """The stall move's target for an unfinished cmux-next.yml run from GitHub.next_pull_runs(), or why it is none:
+    a same-repository pull request run naming one pull request, no delivery run, on an attempt whose owned jobs may
+    be on the minis (the bot's attempts past REFUSAL_RESCUE_ATTEMPT take Blacksmith)."""
+    if run.get("path") != CMUX_NEXT_WORKFLOW_PATH or run.get("event") != "pull_request":
+        return f"a {run.get('event') or 'unknown'} run of {run.get('path') or 'an unknown workflow'}"
+    if run.get("status") == "completed":
+        return "finished"
+    if never_fails_over(str(run.get("path") or ""), run.get("event"), run.get("name"), run.get("display_title")):
+        return "a delivery run"
+    attempt = int(run.get("run_attempt") or 0)
+    actor = str((run.get("triggering_actor") or {}).get("login") or "")
+    if attempt < 1 or actor in RESCUE_ACTORS and attempt > REFUSAL_RESCUE_ATTEMPT:
+        return f"attempt {attempt} takes Blacksmith"
+    target = target_from_event({"workflow_run": {**run, "run_attempt": 1}}, repository)
+    if isinstance(target, str):
+        return target
+    return dataclasses.replace(target, attempt=attempt, refusals_only=True)
+
+
+def stall_scan(client: GitHub, repository: str, *, now: Callable[[], dt.datetime], log: Callable[[str], None],
+               moved: set[tuple[int, int]], moves: list[tuple[dt.datetime, int]],
+               start: Callable[[Target, list[Stall]], None],
+               destination: tuple[str, ...] | None = (STALL_DESTINATION,)) -> int:
+    """One scan of the unfinished cmux-next pull request runs for a stall (see STALL_MOVE). Starts at most
+    STALL_MOVES_PER_SCAN moves through `start`, never two for one attempt of a run nor more than STALL_MOVES_PER_RUN
+    for one run (`moved`: the run id and attempt each move started on), none past
+    STALL_MOVES_PER_SWEEP, and none at all without Blacksmith `destination` labels (stall_destinations()), each of
+    which must have room for every job the move sends (a job may take either)
+    (`moves`: when each move started and how many owned jobs it sends). Returns how many it started. Raises
+    READ_ERRORS on a failed listing; a failed read of one run's jobs only skips that run."""
+    if len(moves) >= STALL_MOVES_PER_SWEEP or destination is None:
+        return 0
+    started = 0
+    snapshot: Mapping[str, Any] | None = None
+    snapshot_read = False
+    for run in client.next_pull_runs(SWEEP_LISTING):
+        run_id = int(run.get("id") or 0)
+        attempt = int(run.get("run_attempt") or 0)
+        if not run_id or (run_id, attempt) in moved or \
+                sum(1 for moved_id, _ in moved if moved_id == run_id) >= STALL_MOVES_PER_RUN:
+            continue
+        at = now()
+        began = parse_time(run.get("run_started_at") or run.get("created_at"))
+        if began is None or (at - began).total_seconds() < STALL_MIN_AGE_SECONDS:
+            continue
+        target = stall_target(run, repository)
+        if isinstance(target, str):
+            continue
+        try:
+            jobs = client.jobs(run_id, target.attempt)
+        except READ_ERRORS as error:
+            log(f"[run {run_id}] {STALL_MOVE}: could not read attempt {target.attempt}'s jobs ({error}); next scan")
+            continue
+        if len(jobs) >= MAX_JOB_PAGES * 100:
+            continue
+        stalls, blocked = stall_verdict(jobs, at, target.attempt_started_at)
+        if not stalls:
+            continue
+        what = "; ".join(str(stall) for stall in stalls)
+        if blocked:
+            log(f"[run {run_id}] {STALL_MOVE} waits: {what}, but {blocked}")
+            continue
+        if not snapshot_read:
+            snapshot_read = True
+            try:
+                snapshot = client.pool_snapshot(at)
+            except Aborted:
+                raise
+            except Exception as error:  # noqa: BLE001 - an unread snapshot shows no room, so nothing moves
+                log(f"{STALL_MOVE}: could not read the pool snapshot ({type(error).__name__}: {error})")
+        recent = sum(count for when, count in moves
+                     if (at - when).total_seconds() < STALL_ROOM_WINDOW_SECONDS)
+        wanted = max(1, moved_jobs(jobs))
+        full = next((why for why in (stall_room(snapshot, at, wanted, recent, label) for label in destination)
+                     if why), "")
+        if full:
+            log(f"[run {run_id}] {STALL_MOVE} waits: {what}, but {full}")
+            continue
+        moved.add((run_id, target.attempt))
+        moves.append((at, wanted))
+        log(f"[run {run_id}] {STALL_MOVE}: {what}; moving {wanted} owned job(s) of attempt {target.attempt}")
+        start(target, stalls)
+        started += 1
+        if started >= STALL_MOVES_PER_SCAN or len(moves) >= STALL_MOVES_PER_SWEEP:
+            break
+    return started
+
+
 # The sweeper (SWEEP=1). The pickers of ci.yml, test-e2e.yml and test-ios.yml
 # upload an artifact named WATCH_MARKER when they place attempt 1 on an owned
 # pool, and ci-macos.yml's late-placement uploads LATE_WATCH_MARKER when it
@@ -5203,6 +5701,9 @@ SWEEP_TICK_SECONDS = 60
 # queues the next one in the concurrency group, so it starts as this one
 # ends, and one dropped cron still leaves one queued.
 SWEEP_SECONDS = 5 * 60 * 60
+# The stall move's cap a sweeper (stall_scan()): one move per STALL_QUEUE_SECONDS of its SWEEP_SECONDS on average
+# (7), so its moves never outrun one stalled run a queue bound, whatever the snapshot shows.
+STALL_MOVES_PER_SWEEP = SWEEP_SECONDS // STALL_QUEUE_SECONDS
 # Older runs are left alone: their watch would be past its limit. A run that
 # finished (a refusal) during a handover is still inside it, so the next
 # sweeper re-runs it.
@@ -5332,7 +5833,8 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
           sweep_seconds: int = SWEEP_SECONDS, tick_seconds: float = SWEEP_TICK_SECONDS,
           wait: Callable[[float], None] = time.sleep, light_retry: bool = False,
           side_seconds: int | None = None, running_code: Mapping[str, str] | None = None,
-          light_rescue: Callable[[], None] | None = None) -> dict[str, int]:
+          light_rescue: Callable[[], None] | None = None,
+          stall_destination: tuple[str, ...] | None = (STALL_DESTINATION,)) -> dict[str, int]:
     """Watch every marked run until `sweep_seconds` pass, or main's code changes (code_changed()).
     Returns outcome counts."""
     # The sweeper's own listings raise on a rate limit as before (a failed read is tried next
@@ -5355,6 +5857,8 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
     started = now()
     latest = started + dt.timedelta(seconds=sweep_seconds + RESCUE_GRACE_SECONDS)
     since = started - dt.timedelta(seconds=SWEEP_FINISHED_SECONDS)
+    stall_moved: set[tuple[int, int]] = set()  # (run, attempt) each of this sweeper's stall moves started on
+    stall_moves: list[tuple[dt.datetime, int]] = []  # each stall move's start and owned jobs
 
     def watch_sleep(delay: float) -> None:
         if stopping.wait(delay):
@@ -5436,6 +5940,33 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         threads.append(thread)
         watching[run_id] = thread
         return True
+
+    def move(target: Target, stalls: list[Stall]) -> None:
+        def say(text: str) -> None:
+            log(f"[run {target.run_id}] {text}")
+        try:
+            # Its waits are the rescue's own (`wait`, not the handover's): a started move always gets its re-run.
+            outcome = stall_move(client, target, stalls, now=now, sleep=wait, log=say, deadline=latest,
+                                 stopped=stopping.is_set)
+        except QuotaSpent as error:
+            outcome = "quota spent"
+            say(f"{STALL_MOVE} stopped: {error.why}")
+        except (*READ_ERRORS, Aborted) as error:
+            outcome = "gave up"
+            say(f"{STALL_MOVE} gave up: {error}")
+        except Exception as error:  # noqa: BLE001 - one run's bug must not end every other watch
+            outcome = "error"
+            say(f"{STALL_MOVE} error: {type(error).__name__}: {error}")
+        else:
+            say(f"{STALL_MOVE}: {outcome}")
+        with lock:
+            key = f"{STALL_MOVE}: {outcome.split(':')[0]}"
+            outcomes[key] = outcomes.get(key, 0) + 1
+
+    def start_move(target: Target, stalls: list[Stall]) -> None:
+        thread = threading.Thread(target=move, args=(target, stalls), name=f"stall-{target.run_id}", daemon=True)
+        thread.start()
+        threads.append(thread)
 
     if light_rescue is not None:
         import hosted_light_rescue
@@ -5544,6 +6075,19 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                         continue
                     if adopt(run_id, False, refusals_known=refusals_listed):
                         queued_seen.add((run_id, attempt))
+        if (looks - 1) % STALL_SCAN_TICKS == 0 and hasattr(client, "next_pull_runs"):
+            # A stalled cmux-next job no watch moves any more (STALL_MOVE): its watch was refusals only, or ended.
+            if low:
+                log(f"{remaining} API requests left: the stall scan waits for a later scan")
+            else:
+                try:
+                    if stall_destination is None and looks == 1:
+                        log(f"{STALL_MOVE}: vars.MACOS_RUNNER_26 or RUNNER_POOLS names no Blacksmith label, "
+                            "so nothing is moved")
+                    stall_scan(client, repository, now=now, log=log, moved=stall_moved, moves=stall_moves,
+                               start=start_move, destination=stall_destination)
+                except READ_ERRORS as error:
+                    log(f"could not list cmux-next pull request runs for the stall scan ({error}); next scan")
         ticks += 1
         for run_id, attempt in failed:
             # A marked run's own watch (or the re-run listing) already follows it. One whose watch has

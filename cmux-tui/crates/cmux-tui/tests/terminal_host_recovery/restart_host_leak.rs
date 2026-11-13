@@ -96,3 +96,34 @@ fn terminal_reap_survives_daemon_restarts_faster_than_the_grace() {
     let after = run_cat_workspace(&harness.socket, 900, "after-restarts");
     assert!(!after.is_empty(), "a new terminal opens");
 }
+
+/// The socket answers `identify` from its bind, while the owner still starts
+/// (`lifecycle_ready` false): an owner started with the reap option lists
+/// `terminal-reaper-active-v1` in that first answer. A change that starts or
+/// announces the reaper only after the bind fails here. It needs the
+/// debug-only `CMUX_TUI_TEST_STARTUP_DELAY_AFTER_BIND_MS` hook.
+#[test]
+#[cfg_attr(not(debug_assertions), ignore = "needs a debug-only startup hook")]
+fn terminal_reap_identify_during_owner_startup_lists_the_reaper() {
+    let mut harness = RecoveryHarness::start_unstarted("reaper-identify-startup");
+    harness.extra_args =
+        ["--terminal-reap-grace-seconds", "30"].iter().map(|arg| (*arg).to_string()).collect();
+    let mut command = harness.daemon_command();
+    command.env("CMUX_TUI_TEST_STARTUP_DELAY_AFTER_BIND_MS", "3000");
+    harness.child = Some(command.spawn().unwrap());
+    wait_for_socket(&harness.socket);
+    let identify = request(&harness.socket, serde_json::json!({"id": 1, "cmd": "identify"}));
+    assert_eq!(
+        identify["lifecycle_ready"], false,
+        "identify was not answered during the owner's startup: {identify}"
+    );
+    assert!(
+        identify["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|capability| capability == "terminal-reaper-active-v1"),
+        "an owner started with --terminal-reap-grace-seconds answered identify during its \
+         startup without terminal-reaper-active-v1: {identify}"
+    );
+}
