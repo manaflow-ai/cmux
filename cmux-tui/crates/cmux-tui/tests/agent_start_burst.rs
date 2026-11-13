@@ -446,7 +446,10 @@ fn long_holder_script(dir: &Path, index: usize, gate: &str) -> String {
 /// learn a new terminal. A holder that connects while the daemon still makes
 /// the other terminals can thus be counted as an outside connection, and the
 /// test would then not fill the lane. So each group of holders first waits
-/// behind one gate until each of its terminals runs and the daemon is idle.
+/// behind one gate until each of its terminals runs and the daemon is idle;
+/// then one connection of the test makes the accept loop read the terminals
+/// (a peer that it does not know makes it read them again), and the gate
+/// opens.
 struct Holders;
 
 impl Holders {
@@ -466,6 +469,9 @@ impl Holders {
             (first..last).all(|index| held.join(format!("{index}.ready")).exists())
         });
         assert!(ready, "setup: the terminals of the holders {first}..{last} did not all start");
+        let read = Control::admitted(&daemon.socket);
+        assert!(read.is_some(), "setup: the daemon refused the test's connection");
+        drop(read);
         gate.open();
         let wanted = u64::try_from(last).unwrap();
         wait_until(test_timeout(Duration::from_secs(60)), || {
@@ -619,8 +625,11 @@ fn agent_start_long_holders_leave_room_for_a_hook_and_a_typed_command() {
     let streams = Holders::start(&daemon, &mut control, 0, TERMINAL_LANE);
     let first_error = Holders::first_error(&daemon, 0, TERMINAL_LANE).unwrap_or_default();
     assert_eq!(
-        streams, wanted,
-        "setup: the daemon opened {streams} of the {wanted} event streams; a holder said {first_error:?}"
+        streams,
+        wanted,
+        "setup: the daemon opened {streams} of the {wanted} event streams; a holder said \
+         {first_error:?}; by kind {}",
+        control.kinds()
     );
     let before = control.connections();
     eprintln!(
