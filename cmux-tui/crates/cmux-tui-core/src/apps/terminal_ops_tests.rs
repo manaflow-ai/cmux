@@ -263,7 +263,7 @@ fn a_link_relays_bytes_both_ways_through_its_owner_only_socket() {
     });
     // A second client is refused while one is attached.
     let mut second = UnixStream::connect(&socket).unwrap();
-    cmux_unix_socket::read_timeout_or_ended(&second, Duration::from_secs(10)).unwrap();
+    cmux_tui_platform::read_timeout_or_ended(&second, Duration::from_secs(10)).unwrap();
     assert_eq!(second.read(&mut [0u8; 8]).unwrap(), 0, "refused");
     // The client leaving closes the link and removes the socket.
     drop(client);

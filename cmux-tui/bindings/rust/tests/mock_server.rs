@@ -103,7 +103,7 @@ fn failure(stream: &mut UnixStream, request: &Value, code: &str, message: &str, 
 /// wait. A look that does not block tells that case from a refusal on a
 /// connection that is open, which is a fault of the test. Call it only where
 /// one thread uses the connection: the look sets the nonblocking flag of the
-/// socket for its time. (This crate does not depend on cmux-unix-socket,
+/// socket for its time. (This crate does not depend on cmux-tui-platform,
 /// whose `read_timeout_or_ended` the workspace's other tests use.)
 fn read_timeout_or_ended(reader: &mut BufReader<UnixStream>, timeout: Duration) {
     let Err(refused) = reader.get_ref().set_read_timeout(Some(timeout)) else {

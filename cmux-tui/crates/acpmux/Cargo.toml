@@ -191,6 +191,8 @@ rcgen = "0.14"
 # Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
 tokio = { version = "1.52", features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
+# `read_timeout_or_ended`: a read timeout for a test socket whose peer can have closed first.
+cmux-tui-platform = { workspace = true, features = ["test-support"] }
 # The deterministic simulation's runtime (tests/sim.rs): hosts on one thread with simulated
 # time, a simulated network, crash and restart.
 turmoil = "0.7.2"

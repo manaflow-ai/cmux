@@ -8,10 +8,6 @@
 //! Tests must not put sockets under `$TMPDIR`: on macOS it is a
 //! `/var/folders/...` path of about 50 bytes. [`short_test_dir`] (feature
 //! `test-support`) gives a short directory under the canonical `/tmp`.
-//!
-//! Tests must not unwrap `set_read_timeout` on a socket whose peer can have
-//! closed first: macOS refuses the call there. `read_timeout_or_ended`
-//! (feature `test-support`) takes that refusal as the end of the socket.
 
 // The crash ratchet keeps this crate at zero production panics
 // (plans/cmux-next/crash-elimination.md section 6).
@@ -97,12 +93,6 @@ pub fn connect(path: &Path) -> io::Result<std::os::unix::net::UnixStream> {
 pub fn check_path(_path: &Path) -> io::Result<()> {
     Ok(())
 }
-
-/// Test support only: a read timeout for a test's socket whose peer can have closed first.
-#[cfg(all(unix, feature = "test-support"))]
-mod read_wait;
-#[cfg(all(unix, feature = "test-support"))]
-pub use read_wait::{ReadWait, read_timeout_or_ended};
 
 /// The guard [`short_test_dir`] returns.
 #[cfg(feature = "test-support")]

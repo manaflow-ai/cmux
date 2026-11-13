@@ -10,6 +10,8 @@ use std::io;
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
+use crate::platform::transport::Stream;
+
 /// What [`read_timeout_or_ended`] left on the socket.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReadWait {
@@ -37,8 +39,9 @@ pub enum ReadWait {
 /// a clone. The timeout is a property of the socket: a clone gets it too, as
 /// with `set_read_timeout`.
 ///
-/// Test support only: every dependent enables `test-support` from
-/// `[dev-dependencies]`, so no production build contains this function.
+/// Test support only: the module is behind the `test-support` feature,
+/// which a dependent enables only from `[dev-dependencies]`, so no
+/// production build contains this function.
 pub fn read_timeout_or_ended(stream: &UnixStream, timeout: Duration) -> io::Result<ReadWait> {
     settle(stream, stream.set_read_timeout(Some(timeout)))
 }
@@ -57,20 +60,12 @@ fn settle(stream: &UnixStream, set: io::Result<()>) -> io::Result<ReadWait> {
 }
 
 /// Whether a poll that never blocks says that `stream` can receive no more:
-/// a hang-up or an error of the socket. On Linux a peer that only ended its
-/// writes gives no hang-up, so this is `false` there; Linux does not refuse
-/// the timeout on such a socket, so no real refusal reaches this poll with
-/// that state.
+/// a hang-up or an error of the socket ([`Stream::peer_closed`], the poll
+/// that the daemon uses). On Linux a peer that only ended its writes gives
+/// no hang-up, so this is `false` there; Linux does not refuse the timeout
+/// on such a socket, so no real refusal reaches this poll with that state.
 fn ended(stream: &UnixStream) -> bool {
-    let mut poll = libc::pollfd {
-        fd: std::os::fd::AsRawFd::as_raw_fd(stream),
-        events: libc::POLLIN,
-        revents: 0,
-    };
-    // SAFETY: one pollfd for a descriptor this stream owns; a zero timeout
-    // never blocks.
-    let ready = unsafe { libc::poll(&mut poll, 1, 0) };
-    ready > 0 && poll.revents & (libc::POLLHUP | libc::POLLERR) != 0
+    Stream::peer_closed(stream)
 }
 
 #[cfg(test)]

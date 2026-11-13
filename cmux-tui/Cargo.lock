@@ -2168,6 +2168,7 @@ dependencies = [
  "cmux-tui-hooks",
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
+ "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vm",

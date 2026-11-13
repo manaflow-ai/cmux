@@ -3092,7 +3092,7 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
     oversized.extend_from_slice(&5_000u16.to_le_bytes());
     oversized.extend_from_slice(&1_000u16.to_le_bytes());
     write_frame(&mut renderer.stream, &Frame::new(MessageKind::ViewerSize, oversized)).unwrap();
-    cmux_unix_socket::read_timeout_or_ended(&renderer.stream, Duration::from_secs(5)).unwrap();
+    cmux_tui_platform::read_timeout_or_ended(&renderer.stream, Duration::from_secs(5)).unwrap();
     loop {
         match read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD) {
             Ok(None) | Err(ProtocolError::Truncated { .. }) | Err(ProtocolError::Io(_)) => break,

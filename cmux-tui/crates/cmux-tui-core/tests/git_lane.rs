@@ -315,7 +315,7 @@ impl Connection {
     /// lines that are left, then the close, with no wait. A refusal on a
     /// connection that is open is a fault of the test, and a panic here.
     fn read_line_in(&mut self, left: Duration, line: &mut String) -> std::io::Result<usize> {
-        cmux_unix_socket::read_timeout_or_ended(self.reader.get_ref(), left).unwrap();
+        cmux_tui_platform::read_timeout_or_ended(self.reader.get_ref(), left).unwrap();
         self.reader.read_line(line)
     }
 

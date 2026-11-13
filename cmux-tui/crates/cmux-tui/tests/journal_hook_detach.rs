@@ -40,7 +40,7 @@ fn wait_with_output(child: Child, budget: Duration) -> Option<std::process::Outp
 }
 
 fn read_request(stream: &UnixStream) -> String {
-    cmux_unix_socket::read_timeout_or_ended(stream, Duration::from_secs(3))
+    cmux_tui_platform::read_timeout_or_ended(stream, Duration::from_secs(3))
         .expect("set journal request read timeout");
     let mut line = String::new();
     BufReader::new(stream)

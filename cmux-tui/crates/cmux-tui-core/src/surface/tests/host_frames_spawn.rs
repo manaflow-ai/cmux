@@ -37,7 +37,7 @@ fn a_frame_demultiplexer_that_does_not_start_ends_the_connection() {
     wait_until("the link leaves Connected after the demultiplexer failed to start", || {
         surface.terminal_host_connection_state() != Some(TerminalHostConnectionState::Connected)
     });
-    cmux_unix_socket::read_timeout_or_ended(&host, Duration::from_secs(5)).unwrap();
+    cmux_tui_platform::read_timeout_or_ended(&host, Duration::from_secs(5)).unwrap();
     loop {
         match crate::terminal_host_protocol::read_frame(
             &mut host,

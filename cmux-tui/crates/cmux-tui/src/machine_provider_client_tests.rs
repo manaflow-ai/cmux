@@ -392,7 +392,7 @@ fn durable_notice_methods_are_rejected_without_the_capability() {
         let (mut stream, _) = listener.accept().expect("accept control socket");
         let mut reader = BufReader::new(stream.try_clone().expect("clone control socket"));
         accept_hello(&mut stream, &mut reader, "provider-secret");
-        cmux_unix_socket::read_timeout_or_ended(&stream, Duration::from_millis(250)).unwrap();
+        cmux_tui_platform::read_timeout_or_ended(&stream, Duration::from_millis(250)).unwrap();
         let mut unexpected = String::new();
         match reader.read_line(&mut unexpected) {
             Err(error)
