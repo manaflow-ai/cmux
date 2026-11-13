@@ -180,6 +180,38 @@ fn an_outside_connection_with_a_stream_keeps_its_slot_and_its_counts() {
     assert_eq!(held(&connections), (0, LONG));
 }
 
+/// A connection's reader can start a stream at the moment its dispatcher
+/// hands over a wait. The two starts take one long place, and the second one
+/// is not refused for the place that the first one took. The limit of 1 makes
+/// each second place a refusal. Without the lease's lock this fails only when
+/// the two threads meet between the claim and the change of state.
+#[test]
+fn two_starts_at_one_moment_on_one_connection_take_one_long_place() {
+    for round in 0..200 {
+        let connections = Arc::new(ConnectionStats::default());
+        let permit = claim_terminal_connection_from(&connections, 1).expect("a short slot");
+        let start = Arc::new(std::sync::Barrier::new(2));
+        let starts: Vec<_> = (0..2)
+            .map(|_| {
+                let lease = permit.lease().clone();
+                let start = start.clone();
+                std::thread::spawn(move || {
+                    start.wait();
+                    lease.become_long(1)
+                })
+            })
+            .collect();
+        for started in starts {
+            let result = started.join().expect("the thread of a start");
+            assert_eq!(result, Ok(()), "round {round}");
+        }
+        assert!(permit.lease().is_long());
+        assert_eq!(held(&connections), (0, 1), "round {round}");
+        drop(permit);
+        assert_eq!(held(&connections), (0, 0), "round {round}");
+    }
+}
+
 /// A long connection whose client hung up has no short slot to give back: the
 /// accept loop does not take it back, and it keeps its long place until its
 /// thread ends. A short connection whose client hung up is taken back as
@@ -317,6 +349,35 @@ fn at_the_bound_a_wait_and_an_event_stream_get_an_error_and_the_connection_goes_
         mux.control_clients.resource_wait_admission.active(),
         0,
         "a wait refused at the bound took a wait worker"
+    );
+    // A one-shot check (`timeout_ms` 0) ends at once: it is no long work, so
+    // the bound does not refuse it, in the two forms.
+    let one_shot = send(
+        "one-shot-exit-at-the-bound",
+        "terminal.wait_exit",
+        json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal_id,
+            "timeout_ms":"0",
+        }),
+        None,
+    );
+    assert_eq!(one_shot["ok"], true, "the bound refused a one-shot check: {one_shot}");
+    let legacy_check = json!({
+        "id":"legacy-check-at-the-bound",
+        "cmd":"wait-for",
+        "surface":surface.id,
+        "pattern":"cmux-pattern-that-never-matches",
+        "timeout_ms":0,
+    })
+    .to_string();
+    assert!(handle_connection_message(&mux, client, &legacy_check, &writer, &scheduler));
+    let checked = pop_json(&outbound);
+    assert_eq!(checked["id"], "legacy-check-at-the-bound", "{checked}");
+    assert!(
+        !checked["error"].as_str().is_some_and(|text| text.contains("limit 256")),
+        "the bound refused a one-shot `wait-for`: {checked}"
     );
     assert!(!permit.lease().is_long());
     assert_eq!(held(&connections), (1, LONG));
