@@ -248,7 +248,7 @@ public final class SettingsModels {
             await refresh()
         case "remove":
             guard let id = listedID(params) else { throw PageError.invalidParams("remove needs a listed id") }
-            try await mutate(.connectionsRemove, ["id": id])
+            try await remove(id)
         case "connectChatGPT":
             return try await connectChatGPT(id: params["id"]?.stringValue)
         case "cancelChatGPT":
@@ -279,6 +279,24 @@ public final class SettingsModels {
         }
         return .object([:])
     }
+
+    /// Removes a connection. A key or setup token cmux stored (`keychain:cmux-model-key/...`, read from
+    /// its route before the removal) leaves the Keychain once acpmux confirms; a reference cmux did not
+    /// create stays.
+    private func remove(_ id: String) async throws {
+        let environment = try requireDaemon()
+        let kind = connections.first { $0["id"]?.stringValue == id }?["kind"]?.stringValue
+        var reference: String?
+        if kind == "api-key" || kind == "claude-token" {
+            let route = try? JSONValue.parse(try await daemon(environment, .routeShow, ["id": id]))
+            reference = route?["secret"]?.stringValue.flatMap { $0.hasPrefix(Self.ownedReference) ? $0 : nil }
+        }
+        try await mutate(.connectionsRemove, ["id": id])
+        if let reference { await keys.delete(reference) }
+    }
+
+    /// The `keychain:` references cmux's own key store makes (``KeychainModelKeyStore``).
+    nonisolated static let ownedReference = "keychain:\(KeychainModelKeyStore.service)/"
 
     /// A connection id the last read listed.
     private func listedID(_ params: JSONValue) -> String? {

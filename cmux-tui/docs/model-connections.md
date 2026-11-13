@@ -233,3 +233,6 @@ the item. `cmux://settings/models` opens `#/settings/models` and `cmux://setting
 `_acpmux/connections.changed` note's `ConnectionsState` directly (no second read). A `chatgpt.wait`
 that acpmux refuses ends the attempt at once with acpmux's code (`chatgpt.unknown_attempt`); three
 calls with no answer end it as `unreachable`; both send `chatgpt.cancel {attempt}`.
+Removing an `api-key` or `claude-token` connection reads its route's secret reference
+(`_acpmux/route/show {id}`) first and, once `connections/remove` succeeds, deletes that Keychain
+item only when cmux created it (`keychain:cmux-model-key/...`).
