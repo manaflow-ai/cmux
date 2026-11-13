@@ -81,7 +81,8 @@ import Testing
                     let dump = (Array(0..<min(h, 8)) + Array(max(0, h - 8)..<h)).map { r in
                         "\(r):" + (0..<w).map { String(format: "%02x", a($0, r)) }.joined(separator: " ")
                     }.joined(separator: " | ")
-                    Issue.record("\(c): no katana over a round cap, w \(w) h \(h) body \(body) rows \(dump)")
+                    let shape = "w \(w) h \(h) body \(body) rows \(dump)"
+                    #expect(shape == "a katana over a round cap", "\(c)")
                 }
                 // Below the tip's curve (`SidebarGroupLineShape.tipLength`) the rail is its full width again.
                 let tip = Int((SidebarGroupLineShape.tipLength(width: frame.width) * Self.scale).rounded())
