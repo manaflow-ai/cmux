@@ -15,6 +15,7 @@
 use cmux_git::{Repository, parse};
 use cmux_tui_core::{Mux, SurfaceOptions, server};
 use serde_json::{Value, json};
+use std::ffi::OsStr;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
@@ -78,7 +79,7 @@ fn unique(prefix: &str) -> String {
 
 /// Runs the real git in `directory`, apart from the host's git config. Returns whether it
 /// ended with success.
-fn git_ended(directory: &Path, arguments: &[&str]) -> bool {
+fn git_ended<S: AsRef<OsStr>>(directory: &Path, arguments: &[S]) -> bool {
     Command::new(&fixture().real)
         .arg("-C")
         .arg(directory)
@@ -471,6 +472,40 @@ fn git_status_reply_is_what_the_status_child_says_of_each_form_of_head() {
     forms.check("a changed file, a staged file and an untracked file", &repo);
 
     forms.end();
+}
+
+/// A branch whose name ends in a Unicode space, and one whose name is not UTF-8, each beside
+/// a second branch that has the name that a loose read of the first gives. The reply is of
+/// the branch that HEAD is on, never of the second one.
+#[test]
+fn git_status_reply_is_of_the_branch_that_head_is_on_when_a_second_name_is_near() {
+    let world = World::new();
+    let mut forms = Forms::new();
+
+    // U+00A0 is white space for Rust, and 2 bytes of a name for git.
+    let repo = world.fresh_clone();
+    git(&repo, &["branch", "foo", "HEAD~1"]);
+    git(&repo, &["switch", "--quiet", "-c", "foo\u{a0}"]);
+    let spaced = forms.check("a name that ends in U+00A0, beside the name with no such end", &repo);
+
+    // Only a file system that takes each byte can hold a ref that is not UTF-8.
+    #[cfg(target_os = "linux")]
+    let lossy = {
+        use std::os::unix::ffi::OsStrExt;
+        let repo = world.fresh_clone();
+        git(&repo, &["branch", "b\u{fffd}d", "HEAD~1"]);
+        let name = OsStr::from_bytes(b"b\xffd");
+        assert!(git_ended(&repo, &[OsStr::new("branch"), name]), "no branch with a byte 0xff");
+        let target = OsStr::from_bytes(b"refs/heads/b\xffd");
+        let arguments = [OsStr::new("symbolic-ref"), OsStr::new("HEAD"), target];
+        assert!(git_ended(&repo, &arguments), "HEAD does not go to the branch with a byte 0xff");
+        forms.check("a branch name that is not UTF-8, beside its lossy name", &repo)
+    };
+
+    forms.end();
+    assert_eq!(spaced["branch"], json!("foo\u{a0}"), "{spaced}");
+    #[cfg(target_os = "linux")]
+    assert_eq!(lossy["branch"], json!("b\u{fffd}d"), "{lossy}");
 }
 
 /// A folder that is in no repository, and a bare repository: the error is the one that the
