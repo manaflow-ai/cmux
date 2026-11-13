@@ -74,6 +74,10 @@ Pipe values from 1Password; never paste or echo them.
 | `TURN_KEY_API_TOKEN` | same item, field `credential` | for TURN |
 | `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID` | the team's APNs auth key (`.p8`, PKCS#8 PEM), its key id and team `7WLXT3NR37`. Not set yet: no APNs key was found in 1Password (searched 2026-10-13). Until set, `notify` answers `configured:false`. One key signs pushes to every bundle in `APNS_TOPICS` (each push's topic is the bundle its phone registered), so it must be a team-scoped key: a key limited to one bundle gets `TopicDisallowed` for the others, which `notify` reports in `failures` | for push |
 | `STACK_SECRET_SERVER_KEY` | Stack server key of the env's primary project | optional; without it membership and invites use the caller's own token (always the case for the other projects) |
+| `SLACK_BOT_TOKEN` | 1Password `cmux NEXT Stable Slack bot token` (vault Shared), field `credential`: the Slack app that posts connectivity alerts (`chat:write`; invite it to both channels) | for connectivity alerts (else they are kept, not sent) |
+| `CONNECTIVITY_ALERT_CHANNEL` | Slack channel id for real team phones' incidents (PROTOCOL.md "Connectivity incidents") | for connectivity alerts |
+| `CONNECTIVITY_ALERT_TEST_CHANNEL` | Slack channel id for simulators and agent accounts | optional; unset drops their reports |
+| `CONNECTIVITY_ALERT_EXCLUDED_EMAILS` | extra team-domain accounts that are agents or services, comma-separated (`cmux-agent-*` is always excluded) | optional |
 
 ```bash
 op item get lqvg75d4awzbveq7ny5gyfeyd4 --fields notesPlain | grep -oE '[0-9a-f]{32}' | head -1 | tr -d '\n' \

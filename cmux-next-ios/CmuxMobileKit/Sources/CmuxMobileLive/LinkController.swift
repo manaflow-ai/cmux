@@ -56,6 +56,16 @@ public final class LinkController {
     nonisolated static let probeGrace: Duration = .milliseconds(500)
     @ObservationIgnored private var quickProbe = false
     @ObservationIgnored public var onLink: (@MainActor ((any MacLink)?) -> Void)?
+    /// Every phase change and every drop of a live link, for the connectivity incident detector.
+    @ObservationIgnored public var onSignal: (@MainActor (LinkSignal) -> Void)?
+
+    /// What ``onSignal`` reports.
+    public enum LinkSignal: Equatable, Sendable {
+        case phase(LinkMachine.Phase)
+        /// A live link died under the phone (its stream ended or a probe went unanswered); deliberate
+        /// redials (a resume, a transport switch, a retarget) are not drops.
+        case dropped(reason: String)
+    }
     /// Runs right after a dial, in the same detached step (no main actor):
     /// the coordinator opens the channels it needs first (`auth`, `daemon`)
     /// and sends its setup batch, so the live list needs no main-actor turn
@@ -166,12 +176,20 @@ public final class LinkController {
 
     public func send(_ event: LinkMachine.Event) {
         let wasBackgrounded = machine.isBackgrounded
+        let wasConnected = machine.phase.isConnected
         let effects = machine.handle(event)
+        switch event {
+        case .linkDropped(_, let reason), .probeFailed(_, let reason):
+            if wasConnected, !machine.phase.isConnected { onSignal?(.dropped(reason: reason)) }
+        default:
+            break
+        }
         quickProbe = (event == .foreground || event == .resume) && effects.contains { if case .probe = $0 { true } else { false } }
         if phase != machine.phase {
             log.info("link \(String(describing: self.machine.phase), privacy: .public)")
             phase = machine.phase
             events.phaseChanged(phase, macID: machine.target?.macID)
+            onSignal?(.phase(phase))
         }
         if media != machine.media {
             log.info("link media \(String(describing: self.machine.media), privacy: .public)")
