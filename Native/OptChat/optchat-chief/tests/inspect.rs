@@ -433,7 +433,6 @@ fn shared_runtime_assets_are_authenticated_and_path_safe() {
     let root = std::env::current_exe()
         .unwrap()
         .parent()
-        .and_then(|p| p.parent())
         .unwrap()
         .join("__runtime");
     std::fs::create_dir_all(&root).unwrap();
