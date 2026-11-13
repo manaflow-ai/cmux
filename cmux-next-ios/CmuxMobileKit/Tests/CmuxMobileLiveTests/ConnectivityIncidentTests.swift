@@ -66,7 +66,8 @@ import Testing
         #expect(open.network == "wifi")
         #expect(open.transport == "wireguard")
         // Still down: no second report.
-        #expect(reports(unreachable(&d, from: 60, to: 120)).isEmpty)
+        let stillDown = reports(unreachable(&d, from: 60, to: 120))
+        #expect(stillDown.isEmpty)
         let up = reports(d.link(macID: "m1", name: "Studio", .connected(transport: "wireguard"), at: at(130)))
         #expect(up.count == 1)
         #expect(up[0].id == open.id)
@@ -92,7 +93,8 @@ import Testing
         // The internet comes back; the Mac connects soon after: a phone outage, not a cmux one.
         var d2 = detector()
         _ = unreachable(&d2, to: 120, internet: false)
-        #expect(reports(d2.link(macID: "m1", name: "Studio", .connected(transport: "wireguard"), at: at(125))).isEmpty)
+        let reconnected = reports(d2.link(macID: "m1", name: "Studio", .connected(transport: "wireguard"), at: at(125)))
+        #expect(reconnected.isEmpty)
         // Still unreachable 30 s after the internet was last seen down (the check at 110): reported, and
         // its stretch starts there, not at the first failed dial.
         var d3 = detector()
@@ -104,7 +106,8 @@ import Testing
 
     @Test func aServiceThePhoneCannotReachIsSaid() throws {
         var d = detector()
-        let open = try #require(reports(unreachable(&d, to: 60, service: false)).first)
+        let opened = reports(unreachable(&d, to: 60, service: false))
+        let open = try #require(opened.first)
         #expect(open.serviceReachable == false)
     }
 
@@ -122,23 +125,33 @@ import Testing
         _ = d.link(macID: "m1", name: "Studio", Self.trying, at: at(0))
         _ = d.appActive(false, at: at(10))
         // Ten minutes in the background, the link never up.
-        for second in stride(from: 15.0, through: 600, by: 5) { #expect(d.tick(at: at(second)).isEmpty) }
+        for second in stride(from: 15.0, through: 600, by: 5) {
+            let out = d.tick(at: at(second))
+            #expect(out.isEmpty)
+        }
         _ = d.appActive(true, at: at(600))
-        #expect(d.tick(at: at(625)).isEmpty)
-        #expect(d.tick(at: at(630)) == [.check(macID: "m1")])
+        let at625 = d.tick(at: at(625))
+        #expect(at625.isEmpty)
+        let at630 = d.tick(at: at(630))
+        #expect(at630 == [.check(macID: "m1")])
         // The same for a phone without a network.
         var n = detector()
         _ = n.link(macID: "m1", name: "Studio", Self.trying, at: at(0))
         _ = n.network(nil, at: at(5))
-        for second in stride(from: 10.0, through: 300, by: 5) { #expect(n.tick(at: at(second)).isEmpty) }
+        for second in stride(from: 10.0, through: 300, by: 5) {
+            let out = n.tick(at: at(second))
+            #expect(out.isEmpty)
+        }
     }
 
     @Test func aNetworkChangeRestartsTheStretch() {
         var d = detector()
         _ = d.link(macID: "m1", name: "Studio", Self.trying, at: at(0))
         _ = d.network("cellular", at: at(25))
-        #expect(d.tick(at: at(50)).isEmpty)
-        #expect(d.tick(at: at(55)) == [.check(macID: "m1")])
+        let at50 = d.tick(at: at(50))
+        #expect(at50.isEmpty)
+        let at55 = d.tick(at: at(55))
+        #expect(at55 == [.check(macID: "m1")])
     }
 
     @Test(arguments: [
@@ -148,22 +161,27 @@ import Testing
     ])
     func anOpenIncidentEndsOnceWithWhy(state: Detector.LinkState, reason: Detector.Incident.EndReason) throws {
         var d = detector()
-        let open = try #require(reports(unreachable(&d, to: 60)).first)
+        let opened = reports(unreachable(&d, to: 60))
+        let open = try #require(opened.first)
         let end = reports(d.link(macID: "m1", name: "Studio", state, at: at(70)))
         #expect(end.map(\.state) == [.ended])
         #expect(end.first?.endReason == reason)
         #expect(end.first?.id == open.id)
-        #expect(reports(d.link(macID: "m1", name: "Studio", .connected(transport: "wireguard"), at: at(80))).isEmpty)
+        let afterEnd = reports(d.link(macID: "m1", name: "Studio", .connected(transport: "wireguard"), at: at(80)))
+        #expect(afterEnd.isEmpty)
     }
 
     @Test func goingToTheBackgroundOrLosingTheNetworkEndsOpenIncidents() throws {
         var d = detector()
-        _ = try #require(reports(unreachable(&d, to: 60)).first)
+        let openedD = reports(unreachable(&d, to: 60))
+        _ = try #require(openedD.first)
         let end = reports(d.appActive(false, at: at(65)))
         #expect(end.map(\.endReason) == [.appBackgrounded])
         var n = detector()
-        _ = try #require(reports(unreachable(&n, to: 60)).first)
-        #expect(reports(n.network(nil, at: at(65))).map(\.endReason) == [.networkLost])
+        let openedN = reports(unreachable(&n, to: 60))
+        _ = try #require(openedN.first)
+        let lost = reports(n.network(nil, at: at(65)))
+        #expect(lost.map(\.endReason) == [.networkLost])
     }
 
     // MARK: Unstable links
@@ -183,25 +201,31 @@ import Testing
     @Test func threeDropsInFiveMinutesAreAnUnstableLinkThenStableTenMinutesLater() throws {
         var d = detector()
         _ = connected(&d, at: 20)
-        #expect(drop(&d, at: 60).isEmpty)
-        #expect(drop(&d, at: 120).isEmpty)
+        let first = drop(&d, at: 60)
+        #expect(first.isEmpty)
+        let second = drop(&d, at: 120)
+        #expect(second.isEmpty)
         let third = drop(&d, at: 200)
         #expect(third.contains(.check(macID: "m1")))
-        let open = try #require(reports(d.reachability(macID: "m1", internet: true, service: true, at: at(201))).first)
+        let checked = reports(d.reachability(macID: "m1", internet: true, service: true, at: at(201)))
+        let open = try #require(checked.first)
         #expect(open.kind == .linkUnstable)
         #expect(open.drops == 3)
         #expect(open.startedAt == at(60))
         // More drops while it is open add nothing.
         _ = drop(&d, at: 260)
-        #expect(reports(d.tick(at: at(300))).isEmpty)
-        #expect(reports(d.tick(at: at(855))).isEmpty)
+        let at300 = reports(d.tick(at: at(300)))
+        #expect(at300.isEmpty)
+        let at855 = reports(d.tick(at: at(855)))
+        #expect(at855.isEmpty)
         let stable = reports(d.tick(at: at(860)))
         #expect(stable.map(\.state) == [.resolved])
         #expect(stable.first?.id == open.id)
         // Three more drops inside the 30-minute cooldown: not again.
         _ = drop(&d, at: 900)
         _ = drop(&d, at: 950)
-        #expect(!drop(&d, at: 1000).contains(.check(macID: "m1")))
+        let cooled = drop(&d, at: 1000)
+        #expect(!cooled.contains(.check(macID: "m1")))
     }
 
     @Test func dropsSpreadOverMoreThanFiveMinutesAreNot() {
@@ -239,8 +263,10 @@ import Testing
         _ = drop(&d, at: 100)
         let third = drop(&d, at: 140)
         #expect(third.contains(.check(macID: "m1")))
-        #expect(reports(d.reachability(macID: "m1", internet: false, service: false, at: at(141))).isEmpty)
-        #expect(reports(d.tick(at: at(160))).isEmpty)
+        let offline = reports(d.reachability(macID: "m1", internet: false, service: false, at: at(141)))
+        #expect(offline.isEmpty)
+        let later = reports(d.tick(at: at(160)))
+        #expect(later.isEmpty)
     }
 }
 
@@ -257,16 +283,20 @@ import Testing
         var box = ConnectivityIncidentOutbox()
         box.enqueue(incident("a"), simulations: [], at: t0)
         box.enqueue(incident("a", .resolved), simulations: [], at: t0)
-        #expect(box.next(at: t0)?.incident.state == .open)
+        let head = box.next(at: t0)
+        #expect(head?.incident.state == .open)
         box.finish(.failed, at: t0)
         // The head waits out its backoff; nothing behind it jumps the queue.
-        #expect(box.next(at: t0.addingTimeInterval(4)) == nil)
+        let waiting = box.next(at: t0.addingTimeInterval(4))
+        #expect(waiting == nil)
         #expect(box.retryAt == t0.addingTimeInterval(5))
-        #expect(box.next(at: t0.addingTimeInterval(5))?.incident.state == .open)
+        let retried = box.next(at: t0.addingTimeInterval(5))
+        #expect(retried?.incident.state == .open)
         box.finish(.failed, at: t0.addingTimeInterval(5))
         #expect(box.retryAt == t0.addingTimeInterval(35))
         box.finish(.sent, at: t0.addingTimeInterval(35))
-        #expect(box.next(at: t0.addingTimeInterval(35))?.incident.state == .resolved)
+        let second = box.next(at: t0.addingTimeInterval(35))
+        #expect(second?.incident.state == .resolved)
         box.finish(.refused, at: t0.addingTimeInterval(35))
         #expect(box.entries.isEmpty)
         #expect(box.open.isEmpty)
@@ -275,7 +305,8 @@ import Testing
     @Test func dropsAReportOlderThanAWeek() {
         var box = ConnectivityIncidentOutbox()
         box.enqueue(incident("a"), simulations: [], at: t0)
-        #expect(box.next(at: t0.addingTimeInterval(7 * 86_400 + 1)) == nil)
+        let stale = box.next(at: t0.addingTimeInterval(7 * 86_400 + 1))
+        #expect(stale == nil)
     }
 
     @Test func aRelaunchEndsWhatTheLastLaunchLeftOpen() throws {
@@ -286,7 +317,8 @@ import Testing
         let data = try JSONEncoder().encode(box)
         var relaunched = try JSONDecoder().decode(ConnectivityIncidentOutbox.self, from: data)
         relaunched.recoverRelaunch(at: t0.addingTimeInterval(3600))
-        let ended = try #require(relaunched.next(at: t0.addingTimeInterval(3600)))
+        let next = relaunched.next(at: t0.addingTimeInterval(3600))
+        let ended = try #require(next)
         #expect(ended.incident.state == .ended)
         #expect(ended.incident.endReason == .appRelaunched)
         #expect(ended.incident.observedAt == t0.addingTimeInterval(90))
