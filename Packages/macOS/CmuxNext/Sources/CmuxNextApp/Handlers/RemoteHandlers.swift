@@ -98,7 +98,7 @@ enum RemoteHandlers {
                     return nil
                 } catch {
                     if interactive { CloudPresenter.failure(error, in: CloudHandlers.window(context)) }
-                    return ActionWorkFailure(String(describing: error))
+                    return ActionWorkFailure(log: String(describing: error), reason: CloudStrings.errorText(error))
                 }
             }
             registry.track(work)

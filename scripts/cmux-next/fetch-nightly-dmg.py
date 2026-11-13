@@ -44,6 +44,12 @@ MAX_DMG_BYTES = 2 << 30
 MAX_IMAGE_BYTES = 8 << 30
 MAX_PLIST_BYTES = 64 << 20
 REFUSED_LINK = "ERROR: Dangerous symbolic link path was ignored : "
+# The file server answers 403 to Python's default User-Agent (Python-urllib/3.x); curl's and this get 200.
+USER_AGENT = "cmux-fetch-nightly-dmg/1 (scripts/cmux-next/fetch-nightly-dmg.py)"
+
+
+def get(url: str):
+    return urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}), timeout=60)
 SPARKLE = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
 
 
@@ -65,7 +71,7 @@ def newest_enclosure(feed: bytes) -> tuple[str, str, int]:
 def download(url: str, dest: Path, limit: int) -> None:
     tmp = dest.with_suffix(dest.suffix + ".partial")
     n = 0
-    with urllib.request.urlopen(url, timeout=60) as r, open(tmp, "wb") as f:
+    with get(url) as r, open(tmp, "wb") as f:
         while chunk := r.read(4 * 1024 * 1024):
             n += len(chunk)
             if n > limit:
@@ -204,7 +210,7 @@ def main(argv: list[str]) -> int:
     if a.dmg:
         dmg = a.dmg
     else:
-        with urllib.request.urlopen(a.feed, timeout=60) as r:
+        with get(a.feed) as r:
             version, url, length = newest_enclosure(r.read())
         dmg = a.out / url.rsplit("/", 1)[-1]
         if length > a.max_dmg_bytes:

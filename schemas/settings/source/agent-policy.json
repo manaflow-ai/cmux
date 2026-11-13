@@ -279,6 +279,8 @@
         "appearance.borders",
         "appearance.sidebarSurface",
         "appearance.chromeStyle",
+        "appearance.titleAreaTone",
+        "appearance.titleAreaContrast",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",

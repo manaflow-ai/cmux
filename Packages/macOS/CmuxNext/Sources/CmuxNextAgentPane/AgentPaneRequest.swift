@@ -61,8 +61,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// real gesture in the pane.
     case shellRun(command: String, cwd: String?)
     /// `harness.update {id}`: the chat card's Update (cx-1mbnu): this Mac's acpmux runs that agent
-    /// CLI's own update now and answers `{ok, version?, error?}`. Only with a real gesture.
-    case harnessUpdate(id: String)
+    /// CLI's own update now and answers `{ok, version?, error?}`. `harness.update {ids}`: the model
+    /// menus' Update all (Harness updates available): one click runs every listed agent's update in
+    /// one acpmux call, answering `{results: [{id, ok, version?, error?}]}` (`each`). Only with a
+    /// real gesture, which the one call spends once.
+    case harnessUpdate(ids: [String], each: Bool)
     /// `harness.restart {}`: the card's Restart Chat: this chat's agent restarts on the installed
     /// version and resumes (after its turn); answers `{restarted, after_turn}`. Only with a gesture.
     case harnessRestart
@@ -324,9 +327,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case dictationHandoff
     /// `dictation.sources`: the dictation apps this Mac has, for the mic's menu.
     case dictationSources
-    /// `dictation.watchMicrophone {on}`: a composer of the page has the keyboard (or none has any
-    /// more); while one has, the host says when another app holds the microphone (`micActivity`).
-    case watchMicrophone(Bool)
     /// `externalAccess.openSettings {kind}`: open the local Privacy & Security destination after a real click.
     case externalAccessOpenSettings(AgentPaneExternalAccessKind)
     /// `dictation.recording.upload {path}`: send a long recording the host gave the page to the
