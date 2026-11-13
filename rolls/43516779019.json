@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43516779019",
+  "recorded_at": "2026-11-13T22:17:05Z",
+  "reason": "cmux-tui f6335369e3d3 changes the image's cmux-tui (pinned 2d276389949d)",
+  "dry_run": false,
+  "cmux_tui": "f6335369e3d3360ca3d1d18cb09110021509a426",
+  "fixes": [
+    {
+      "sha": "0d38ff16b5d1232872c0b42acd658a2d53108228",
+      "mergedAt": "2026-11-13T21:41:50Z",
+      "subject": "Automations start when something happens: cmux automation create NAME --when pr-opened|agent-idle|agent-needs-input (#40461)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T22:17:05Z",
+    "snapshot_id": "sh-8d0b53c96a78458cb29b43fc5e54ef77",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43516779019): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "50aebf6f7e241adebbb9e6ea7d124c94ed978944",
+    "image": "cloud-native-auto-f6335369-43516779019-1",
+    "revision": "ci-43516779019-1",
+    "at": "2026-11-13T22:17:05Z"
+  },
+  "rolled_back": false
+}
