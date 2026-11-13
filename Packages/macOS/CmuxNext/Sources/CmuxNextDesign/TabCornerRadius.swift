@@ -70,7 +70,10 @@ extension Metrics {
     /// the bar are as round as a tab.
     public static var tabCornerRadius: CGFloat {
         let corners = Metrics.corners
-        if usesChromeRowCorner, tabStripCardRadius == nil || mainPaneRoundsFromTabs || CornerFlush.current.isOn {
+        // Chrome's ratio at every density, whether or not the card rounds from the tabs (Lucas 2026-11-13: the same
+        // roundness, in proportion, at every density; a large density's card capped at the window's radius made the
+        // tabs and rows fall back to the card's nested corner, flatter than the ratio).
+        if usesChromeRowCorner {
             return corners.radius(fitting: CGSize(width: tabHeight, height: tabHeight), radius: chromeRowCornerRadius(height: tabHeight))
         }
         let outer = tabStripCardRadius ?? corners.outer
