@@ -915,14 +915,18 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                     let _phase = gauges.phase("settle unadopted");
                     hub.settle_unadopted().await;
                 }
-                let _phase = gauges.phase("recover workflows");
-                hub.recover_workflows().await;
+                {
+                    let _phase = gauges.phase("recover workflows");
+                    hub.recover_workflows().await;
+                }
                 {
                     let hub = hub.clone();
                     let gauges = gauges;
                     hub.clone().scope.spawn_until_cancelled("restore-chat-logs", async move {
-                        let _phase = gauges.phase("all chat logs");
-                        hub.load_logs_async().await;
+                        {
+                            let _phase = gauges.phase("all chat logs");
+                            hub.load_logs_async().await;
+                        }
                         if hub.shutting_down() {
                             return;
                         }

@@ -22,47 +22,41 @@ pub fn verify_launchers(cfg: &mut Config) {
     verify_launchers_cached(cfg, route, &cache, &launcher_ok);
 }
 
-/// The launchers whose `--version` passed, by argv and binary (`cached_launcher_ok`).
+/// Successful checks of current launcher binaries, replaced once per verification pass.
 const CHECKS_FILE: &str = "launcher-checks.json";
 
-/// [`launcher_ok`], answered from `cache` when this argv's binary passed before and has not
-/// changed since (its size and modification time). A daemon start ran `sr --version` and its
-/// kin every time, up to 20 s each, before any chat could start; now only a new or changed
-/// binary is run. A failure is never kept: it may have been a loaded machine's slow start.
+/// Probe changed launchers in parallel, then publish one combined cache. Each pass keeps only
+/// successful current keys: updates and removed profiles cannot grow the file indefinitely.
+/// Reading and rewriting the file inside each parallel probe lost other probes' successes.
 fn verify_launchers_cached(
     cfg: &mut Config,
     route: Option<String>,
     cache: &std::path::Path,
     probe: &(dyn Fn(&[String]) -> std::result::Result<(), String> + Sync),
 ) {
-    verify_launchers_checked(cfg, route, &|argv| cached_launcher_ok(cache, argv, probe));
-}
-
-fn cached_launcher_ok(
-    cache: &std::path::Path,
-    argv: &[String],
-    probe: &(dyn Fn(&[String]) -> std::result::Result<(), String> + Sync),
-) -> std::result::Result<(), String> {
-    let key = launcher_key(argv);
-    let read = || -> Option<std::collections::BTreeSet<String>> {
-        serde_json::from_slice(&std::fs::read(cache).ok()?).ok()
-    };
-    if let Some(key) = &key
-        && read().is_some_and(|passed| passed.contains(key))
-    {
-        return Ok(());
-    }
-    probe(argv)?;
-    if let Some(key) = key {
-        let mut passed = read().unwrap_or_default();
-        passed.insert(key);
-        if let Ok(bytes) = serde_json::to_vec(&passed)
-            && let Err(e) = write_atomic(cache, &bytes)
-        {
-            tracing::debug!("launcher checks not saved: {e:#}");
+    let previous: std::collections::BTreeSet<String> = std::fs::read(cache)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
+    let passed = std::sync::Mutex::new(std::collections::BTreeSet::new());
+    verify_launchers_checked(cfg, route, &|argv| {
+        let key = launcher_key(argv);
+        if !key.as_ref().is_some_and(|key| previous.contains(key)) {
+            probe(argv)?;
         }
+        if let Some(key) = key {
+            passed.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(key);
+        }
+        Ok(())
+    });
+    let passed = passed.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
+    // A warm start with the same candidates needs no durable write.
+    if passed != previous
+        && let Ok(bytes) = serde_json::to_vec(&passed)
+        && let Err(e) = write_atomic(cache, &bytes)
+    {
+        tracing::debug!("launcher checks not saved: {e:#}");
     }
-    Ok(())
 }
 
 /// What a launcher check is of: its argv and its binary's size and modification time. None when
