@@ -553,9 +553,24 @@ pub(super) fn announce_later(hub: &Arc<Hub>) {
     tokio::spawn(async move { announce(&hub).await });
 }
 
+/// Refuses a credential or token read on an agent's connection: those secrets go to the app
+/// for a Cloud machine launch, never to an agent running on this Mac.
+pub(super) fn refuse_agent(m: &str, agent: bool) -> Result<(), RpcError> {
+    let secret =
+        matches!(m, method::MUX_CONNECTIONS_CREDENTIAL | method::MUX_CONNECTIONS_CHATGPT_TOKEN);
+    if secret && agent {
+        return Err(RpcError::invalid_params(
+            "a connection's credential is for the cmux app, never an agent's connection",
+        )
+        .with_data(json!({"reason": "connections.agent_refused"})));
+    }
+    Ok(())
+}
+
 pub(super) async fn handle(
     hub: &Arc<Hub>,
     origin: Origin,
+    agent: bool,
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
@@ -569,6 +584,7 @@ pub(super) async fn handle(
             "changing a connection or reading its token: only the unix socket may ask",
         ));
     }
+    refuse_agent(m, agent)?;
     let (dir, home) = routes::places(&*hub.config.read().await);
     let text = |key: &str| params.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
     let need = |key: &str| {
@@ -913,6 +929,16 @@ mod tests {
         assert!(routes::bindings(&d.home).disabled_connections.is_empty());
         // The switch of claude-login lives in the bindings, not a route file.
         assert!(routes::find(Some(&d.routes), "claude-login").is_err());
+    }
+
+    #[test]
+    fn an_agents_connection_reads_no_credential_or_token() {
+        for m in [method::MUX_CONNECTIONS_CREDENTIAL, method::MUX_CONNECTIONS_CHATGPT_TOKEN] {
+            let e = refuse_agent(m, true).unwrap_err();
+            assert_eq!(e.data.unwrap()["reason"], "connections.agent_refused", "{m}");
+            assert!(refuse_agent(m, false).is_ok(), "{m}: the app's own connection may");
+        }
+        assert!(refuse_agent(method::MUX_CONNECTIONS, true).is_ok(), "the list has no secret");
     }
 
     #[test]

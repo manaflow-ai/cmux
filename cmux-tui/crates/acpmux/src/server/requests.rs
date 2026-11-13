@@ -2853,7 +2853,10 @@ async fn dispatch_request_with_identity(
             reply
         }
         name if super::connections::METHODS.contains(&name) => {
-            heap(|| super::connections::handle(hub, conn.origin, name, &params)).await
+            // An agent's connection: one that proved its session, or declared it runs in one.
+            let agent = conn.caller().is_some()
+                || matches!(conn.declared(), Some(crate::cli_caller::Declared::Agent));
+            heap(|| super::connections::handle(hub, conn.origin, agent, name, &params)).await
         }
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
             // Recorded here, not on a peer: only a folder that exists here (`remote_guard.rs`).
