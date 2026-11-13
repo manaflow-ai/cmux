@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43356284246",
+  "recorded_at": "2026-11-13T03:22:53Z",
+  "reason": "cmux-tui 513c868c3aca changes the image's cmux-tui (pinned 0be5fa61122c)",
+  "dry_run": false,
+  "cmux_tui": "513c868c3acae4e47e7bff89ccdcfc14406a0be0",
+  "fixes": [
+    {
+      "sha": "513c868c3acae4e47e7bff89ccdcfc14406a0be0",
+      "mergedAt": "2026-11-13T15:34:13+13:00",
+      "subject": "perf(acpmux): faster daemon start and stop with many chats (#42226)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T03:22:53Z",
+    "snapshot_id": "sh-651dc8b330c44a45aeb58fd407391ba3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43356284246): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3ed30b2d1d3a58611c8ddc5776b10c4c333c6a76",
+    "image": "cloud-native-auto-513c868c-43356284246-1",
+    "revision": "ci-43356284246-1",
+    "at": "2026-11-13T03:22:53Z"
+  },
+  "rolled_back": false
+}
