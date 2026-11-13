@@ -416,6 +416,22 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
   };
 
   for (const name of Object.keys(engines) as (keyof typeof engines)[]) {
+    // VEHICLE (never merges): the message card itself (`.cv-agentmsg`, a 12px flex gap over its fold
+    // body), closed and opened near the bottom five times, by the same asserts as the run of commands.
+    test(`${name}: VEHICLE near the bottom: the message card closes and opens with nothing under it moving`, async () => {
+      browser = browsers[name];
+      const page = await open(true);
+      const failures: string[] = [];
+      for (let round = 0; round < 5; round += 1) {
+        const found = await bottomToggle(page, `message card ${round}`, '[data-row-id="msg"] .cv-agentmsg__toggle', "msg");
+        console.log(`VEHICLE ${name} message card round=${round}: ${found.length ? found.join(" ; ") : "no failure"}`);
+        failures.push(...found);
+        await toLatest(page);
+      }
+      expect(failures).toEqual([]);
+      await page.close();
+    });
+
     test(`${name}: near the bottom: Details and a run of commands open down and close with nothing under them moving`, async () => {
       browser = browsers[name];
       const page = await open(true);
