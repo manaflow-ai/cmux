@@ -7,6 +7,8 @@ import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
 import { TurnActionsContext } from "../../src/agent-session/acpmux/conversation/turnActions";
 import { setBookmarkTransport } from "../../src/agent-session/acpmux/threadMinimap/bookmarks";
+import { animateScroll } from "../../src/agent-session/acpmux/threadMinimap/scrollMotion";
+import { JUMP_CURVE } from "../../src/agent-session/acpmux/threadMinimap/model";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
 import "../../src/pages/shared/desktop.css";
 // The liquid glass next, as dev.tsx and the bundle load it: the user bubble is `.ui-glass`.
@@ -118,4 +120,16 @@ setBookmarkTransport(transport);
 (window as unknown as { __setPromptIndex: (read: typeof loadPromptIndex) => void }).__setPromptIndex = (read) => {
   loadPromptIndex = read;
   (window as unknown as { __showRows: (rows: AcpmuxRow[], extra?: Extra) => void }).__showRows(shownRows, shownExtra);
+};
+
+// The rail-lag browser harness drives the same RAF scroll clock as a prompt jump or step. This is
+// test-only plumbing: production callers continue to own the transcript's scroll target.
+(window as unknown as { __startRailMotion: (distance: number, duration: number) => void }).__startRailMotion = (
+  distance,
+  duration,
+) => {
+  const node = document.querySelector<HTMLElement>(".acpmux-scroll");
+  if (!node) return;
+  const target = Math.max(0, node.scrollTop - distance);
+  animateScroll(node, () => target, duration, JUMP_CURVE, undefined, undefined, { explicit: true });
 };
