@@ -183410,6 +183410,270 @@
         }
       }
     },
+    "compaction.completedCacheExpiry": {
+      "comment": "Agent pane: transcript note where cmux compacted the conversation on its own, before the prompt cache expired (Settings > Prompt Cache, Compact Before the Cache Expires); nobody typed /compact",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم ضغط المحادثة قبل انتهاء ذاكرة التخزين المؤقت للطلبات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razgovor sažet prije isteka keša upita"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samtalen er komprimeret, før prompt-cachen udløb"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unterhaltung komprimiert, bevor der Prompt-Cache ablief"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conversation compacted before the prompt cache expired"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conversación compactada antes de que caducara la caché de prompts"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conversation compactée avant l’expiration du cache des prompts"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conversazione compattata prima della scadenza della cache dei prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロンプトキャッシュの期限切れ前に会話を圧縮しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបង្រួមការសន្ទនា មុនពេលឃ្លាំងសម្ងាត់ប្រអប់បញ្ចូលផុតកំណត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프롬프트 캐시가 만료되기 전에 대화를 압축했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samtalen ble komprimert før prompt-hurtigbufferen utløp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozmowa skompaktowana przed wygaśnięciem pamięci podręcznej promptów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conversa compactada antes de o cache de prompts expirar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разговор сжат до истечения кеша запросов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บีบอัดบทสนทนาแล้วก่อนแคชพรอมต์หมดอายุ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konuşma, istem önbelleğinin süresi dolmadan sıkıştırıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розмову стиснуто до закінчення кешу запитів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã nén cuộc trò chuyện trước khi bộ nhớ đệm lời nhắc hết hạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已在提示缓存过期前压缩对话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已在提示快取過期前壓縮對話"
+          }
+        }
+      }
+    },
+    "compaction.runningCacheExpiry": {
+      "comment": "Agent pane: transcript note while cmux compacts the conversation on its own, before the prompt cache expires (Settings > Prompt Cache, Compact Before the Cache Expires); nobody typed /compact",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ ضغط المحادثة قبل انتهاء ذاكرة التخزين المؤقت للطلبات…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sažimanje razgovora prije isteka keša upita…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komprimerer samtalen, før prompt-cachen udløber…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unterhaltung wird komprimiert, bevor der Prompt-Cache abläuft …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compacting the conversation before the prompt cache expires…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compactando la conversación antes de que caduque la caché de prompts…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compactage de la conversation avant l’expiration du cache des prompts…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compattazione della conversazione prima della scadenza della cache dei prompt…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロンプトキャッシュの期限切れ前に会話を圧縮しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងបង្រួមការសន្ទនា មុនពេលឃ្លាំងសម្ងាត់ប្រអប់បញ្ចូលផុតកំណត់…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프롬프트 캐시가 만료되기 전에 대화를 압축하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komprimerer samtalen før prompt-hurtigbufferen utløper…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kompaktowanie rozmowy przed wygaśnięciem pamięci podręcznej promptów…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compactando a conversa antes de o cache de prompts expirar…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сжатие разговора до истечения кеша запросов…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังบีบอัดบทสนทนาก่อนแคชพรอมต์หมดอายุ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konuşma, istem önbelleğinin süresi dolmadan sıkıştırılıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стискання розмови до закінчення кешу запитів…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang nén cuộc trò chuyện trước khi bộ nhớ đệm lời nhắc hết hạn…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在提示缓存过期前压缩对话…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在提示快取過期前壓縮對話…"
+          }
+        }
+      }
+    },
     "compaction.completedAccountSwitch": {
       "comment": "Agent pane: transcript note where subrouter compacted the conversation and moved it to another subscription account",
       "extractionState": "manual",
