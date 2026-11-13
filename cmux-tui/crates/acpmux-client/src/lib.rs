@@ -135,6 +135,7 @@ struct MirrorState {
     whole: bool,
     walking: bool,
     seen: HashMap<(String, String), ListKey>,
+    touched: HashSet<(String, String)>,
     pending_wanted: VecDeque<ListKey>,
 }
 
@@ -629,6 +630,12 @@ where
 
     fn start_mirror_walk(&mut self, sid: &str) {
         if self.pages.contains_key(sid) {
+            if let Some(sub) = self.subscriptions.get_mut(sid)
+                && let Some(mirror) = sub.mirror.as_mut()
+            {
+                mirror.walking = true;
+                mirror.whole = false;
+            }
             return;
         }
         let page = {
@@ -636,6 +643,7 @@ where
             let Some(mirror) = sub.mirror.as_mut() else { return };
             mirror.walking = true;
             mirror.seen.clear();
+            mirror.touched.clear();
             Page {
                 sid: sid.to_owned(),
                 stream: sub.request.stream.clone(),
@@ -708,7 +716,9 @@ where
                 .held
                 .iter()
                 .filter(|(id, _)| {
-                    !mirror.seen.contains_key(*id) && !mirror.wanted.contains_key(*id)
+                    !mirror.seen.contains_key(*id)
+                        && !mirror.touched.contains(*id)
+                        && !mirror.wanted.contains_key(*id)
                 })
                 .map(|(_, key)| key.clone())
                 .collect();
@@ -718,6 +728,7 @@ where
             mirror.walking = false;
             mirror.whole = true;
             mirror.seen.clear();
+            mirror.touched.clear();
             (sub.cursor, stale)
         };
         for key in stale {
@@ -807,7 +818,7 @@ where
                     return;
                 }
                 let state = self.pages.remove(&sid).unwrap_or_default();
-                if matches!(state.purpose, PagePurpose::User) {
+                if matches!(state.purpose, PagePurpose::User | PagePurpose::MirrorWalk) {
                     page.rows.retain(|row| {
                         let Some(value) = serde_json::to_value(row).ok() else { return true };
                         let key = value
@@ -827,7 +838,16 @@ where
                 match state.purpose {
                     PagePurpose::User => {
                         self.push_change(Change::Page(page), Some(sid.clone()), frame_bytes, true);
-                        self.maybe_start_wanted(&sid);
+                        let restart_walk = self
+                            .subscriptions
+                            .get(&sid)
+                            .and_then(|sub| sub.mirror.as_ref())
+                            .is_some_and(|mirror| mirror.walking && !mirror.whole);
+                        if restart_walk {
+                            self.start_mirror_walk(&sid);
+                        } else {
+                            self.maybe_start_wanted(&sid);
+                        }
                     }
                     PagePurpose::MirrorWalk => self.accept_mirror_walk_page(page, frame_bytes),
                     PagePurpose::Wanted => self.accept_wanted_page(
@@ -1170,6 +1190,9 @@ where
                         && let Some(key) = key
                     {
                         let id = Self::row_identity(&key);
+                        if mirror.walking {
+                            mirror.touched.insert(id.clone());
+                        }
                         if live || mirror.wanted.contains_key(&id) {
                             mirror.held.insert(id, key);
                         } else {
@@ -1204,6 +1227,9 @@ where
                         && let Some(mirror) = sub.mirror.as_mut()
                     {
                         let id = (origin.clone(), chat_id.clone());
+                        if mirror.walking {
+                            mirror.touched.insert(id.clone());
+                        }
                         mirror.held.remove(&id);
                         mirror.wanted.remove(&id);
                     }
@@ -1255,6 +1281,12 @@ where
                         && let Some(chat_id) = raw.get("chatId").and_then(Value::as_str)
                     {
                         let origin = raw.get("origin").and_then(Value::as_str).unwrap_or("local");
+                        if let Some(sub) = self.subscriptions.get_mut(&sid)
+                            && let Some(mirror) = sub.mirror.as_mut()
+                            && mirror.walking
+                        {
+                            mirror.touched.insert((origin.to_owned(), chat_id.to_owned()));
+                        }
                         page.changed_keys.insert((origin.to_owned(), chat_id.to_owned()));
                     }
                 }
@@ -1834,6 +1866,147 @@ tail"#;
         client.received(&page);
         assert!(matches!(client.next_change(), Some(Change::Summary { .. })));
         assert!(matches!(client.next_change(), Some(Change::Whole { .. })));
+    }
+
+    fn ready_mirror() -> Client<Value> {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        while client.take_send().is_some() {}
+        client.subscribe_mirror(Sub::new("m", "list"), std::iter::empty(), false).unwrap();
+        let _ = client.take_send();
+        client
+    }
+
+    #[test]
+    fn mirror_walk_delta_touched_row_survives_reconcile() {
+        let mut client = ready_mirror();
+        let a = serde_json::json!({"chatId":"a","origin":"local","lastActivity":1,"state":"idle"});
+        let b = serde_json::json!({"chatId":"b","origin":"local","lastActivity":2,"state":"idle"});
+        let a_key = serde_json::json!({"chatId":"a","origin":"local","lastActivity":1});
+        let window = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({"sid":"m","cursor":1,"rows":[a,b],"hasBefore":false,"hasAfter":false,"edition":1}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&window);
+        let _ = client.next_change();
+        let _ = client.take_send().expect("first walk page");
+        let first_page = Frame::json(
+            FrameKind::Page,
+            &serde_json::json!({"sid":"m","rows":[a],"hasBefore":false,"hasAfter":true,"afterKey":a_key}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&first_page);
+        let _ = client.next_change();
+        let _ = client.take_send().expect("second walk page");
+        let moved_b =
+            serde_json::json!({"chatId":"b","origin":"local","lastActivity":3,"state":"idle"});
+        let delta = Frame::json(
+            FrameKind::Delta,
+            &serde_json::json!({"sid":"m","ops":[{"op":"summary","seq":2,"summary":moved_b}]}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&delta);
+        assert!(matches!(client.next_change(), Some(Change::Summary { .. })));
+        let second_page = Frame::json(
+            FrameKind::Page,
+            &serde_json::json!({"sid":"m","rows":[],"hasBefore":false,"hasAfter":false}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&second_page);
+        assert!(matches!(client.next_change(), Some(Change::Whole { .. })));
+        assert!(client.next_change().is_none());
+    }
+
+    #[test]
+    fn mirror_walk_delta_new_row_is_not_reconciled_away() {
+        let mut client = ready_mirror();
+        let _window = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({"sid":"m","cursor":1,"rows":[],"hasBefore":false,"hasAfter":false,"edition":1}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&_window);
+        let _ = client.next_change();
+        let _ = client.take_send().expect("walk page");
+        let new_row =
+            serde_json::json!({"chatId":"new","origin":"local","lastActivity":4,"state":"idle"});
+        let delta = Frame::json(
+            FrameKind::Delta,
+            &serde_json::json!({"sid":"m","ops":[{"op":"summary","seq":2,"summary":new_row}]}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&delta);
+        assert!(matches!(client.next_change(), Some(Change::Summary { .. })));
+        let page = Frame::json(
+            FrameKind::Page,
+            &serde_json::json!({"sid":"m","rows":[],"hasBefore":false,"hasAfter":false}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&page);
+        assert!(matches!(client.next_change(), Some(Change::Whole { .. })));
+        assert!(client.next_change().is_none());
+    }
+
+    #[test]
+    fn mirror_walk_drops_rows_changed_while_page_was_out() {
+        let mut client = ready_mirror();
+        let a = serde_json::json!({"chatId":"a","origin":"local","lastActivity":1,"state":"idle"});
+        let d = serde_json::json!({"chatId":"d","origin":"local","lastActivity":1,"state":"idle"});
+        let window = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({"sid":"m","cursor":1,"rows":[a,d],"hasBefore":false,"hasAfter":false,"edition":1}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&window);
+        let _ = client.next_change();
+        let _ = client.take_send().expect("walk page");
+        let newer_a =
+            serde_json::json!({"chatId":"a","origin":"local","lastActivity":2,"state":"idle"});
+        let delta = Frame::json(
+            FrameKind::Delta,
+            &serde_json::json!({"sid":"m","ops":[
+                {"op":"summary","seq":2,"summary":newer_a},
+                {"op":"gone","seq":3,"origin":"local","chatId":"d"}
+            ]}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&delta);
+        assert!(matches!(client.next_change(), Some(Change::Summary { .. })));
+        assert!(
+            matches!(client.next_change(), Some(Change::Gone { chat_id, .. }) if chat_id == "d")
+        );
+        let page = Frame::json(
+            FrameKind::Page,
+            &serde_json::json!({"sid":"m","rows":[a,d],"hasBefore":false,"hasAfter":false}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&page);
+        assert!(matches!(client.next_change(), Some(Change::Whole { .. })));
+        assert!(
+            !client.subscriptions["m"]
+                .mirror
+                .as_ref()
+                .unwrap()
+                .held
+                .contains_key(&("local".into(), "d".into()))
+        );
     }
 
     #[test]
