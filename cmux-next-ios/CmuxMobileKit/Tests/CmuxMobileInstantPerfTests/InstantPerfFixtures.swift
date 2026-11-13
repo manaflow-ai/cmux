@@ -143,6 +143,10 @@ struct AgentChatLog: Sendable {
     /// Each turn's id and the index of its last record (`turn_result`), oldest first.
     let turnIDs: [String]
     let turnEnds: [Int]
+    /// Records as acpmux sends them cut (`toolOutputMaxBytes`), made once per log and shared by
+    /// every fake over it: the Mac's cost of a page is not the phone's, and the fake's own cost
+    /// does not grow with the record (``InstantPerfAcpmux``).
+    let cuts = CutLines()
 
     var count: Int { records.count }
     var totalBytes: Int { bytes.reduce(0, +) }
@@ -345,14 +349,14 @@ enum AgentChatFixture {
 /// writing records while the phone is away. Pages are cut by index arithmetic, so the fake's
 /// own cost does not grow with the log's length; only the page it sends costs.
 /// `toolOutputMaxBytes` cuts a tool call record past it as acpmux does (`hub/tool_output_cut.rs`):
-/// each record's cut line is made once and kept, as the Mac's own cost is not the phone's.
+/// each record's cut line is made once per log and kept (``AgentChatLog/cuts``), as every other
+/// record is a prebuilt line: the Mac's own cost is not the phone's.
 final class InstantPerfAcpmux: @unchecked Sendable {
     let log: AgentChatLog
     private let lock = NSLock()
     private var visible: Int
-    /// Cut lines by record index and cap.
-    private var cutLines: [Int: [Int: String]] = [:]
-    /// Each `_acpmux/events` reply sent, oldest first: the record indices it held and its bytes.
+    /// Each page sent (`_acpmux/attach` and `_acpmux/events` replies), oldest first: the record
+    /// indices it held and its bytes.
     private var eventReplies: [(records: ClosedRange<Int>?, bytes: Int)] = []
 
     var eventReplyLog: [(records: ClosedRange<Int>?, bytes: Int)] { lock.withLock { eventReplies } }
@@ -390,7 +394,10 @@ final class InstantPerfAcpmux: @unchecked Sendable {
         case "_acpmux/watch":
             return [reply(#"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"codex","cwd":"/tmp/w","status":"idle"}]}"#)]
         case "_acpmux/attach":
-            return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"lastSeq":\#(end),\#(page(params, end: end).json)}"#)]
+            let (json, records) = page(params, end: end)
+            let data = reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"lastSeq":\#(end),\#(json)}"#)
+            lock.withLock { eventReplies.append((records, data.count)) }
+            return [data]
         case "_acpmux/events":
             let (json, records) = page(params, end: end)
             let data = reply("{\(json)}")
@@ -406,11 +413,9 @@ final class InstantPerfAcpmux: @unchecked Sendable {
         /// Record `index` as sent, and its bytes.
         func sent(_ index: Int) -> (line: String, bytes: Int) {
             guard let cutOver, cutOver > 0, log.bytes[index] > cutOver else { return (log.records[index], log.bytes[index]) }
-            let line = lock.withLock { cutLines[index]?[cutOver] } ?? {
-                let line = ToolOutputCutModel.cut(log.records[index], bytes: log.bytes[index], max: cutOver)
-                lock.withLock { cutLines[index, default: [:]][cutOver] = line }
-                return line
-            }()
+            let line = log.cuts.line(index, cap: cutOver) {
+                ToolOutputCutModel.cut(log.records[index], bytes: log.bytes[index], max: cutOver)
+            }
             return (line, line.utf8.count)
         }
         let limit = max((params["limit"] as? NSNumber)?.intValue ?? 400, 1)
@@ -458,6 +463,19 @@ final class InstantPerfAcpmux: @unchecked Sendable {
         }
         let json = #""hasMore":\#(more),"events":[\#(picked.map { sent($0).line }.joined(separator: ","))]"#
         return (json, picked.first.flatMap { first in picked.last.map { first...$0 } })
+    }
+}
+
+/// Cut record lines by index and cap (``AgentChatLog/cuts``).
+final class CutLines: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lines: [Int: [Int: String]] = [:]
+
+    func line(_ index: Int, cap: Int, make: () -> String) -> String {
+        if let line = lock.withLock({ lines[index]?[cap] }) { return line }
+        let line = make()
+        lock.withLock { lines[index, default: [:]][cap] = line }
+        return line
     }
 }
 
