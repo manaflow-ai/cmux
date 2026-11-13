@@ -5219,7 +5219,11 @@ function TranscriptView({
       if (movingUp && node.clientHeight > 0 && scrollRef.current.delta >= 0) {
         scrollRef.current = { top: node.scrollTop, delta: -node.clientHeight };
         scheduleScrollLeadReset();
-        flushSync(() => setScroll(scrollRef.current));
+        // Do not flush this render inside the passive input callback. WebKit applies the native
+        // wheel offset after the callback returns; forcing the lead mount against the old offset
+        // lets its measurement pass move the row under the reader before that wheel lands. React's
+        // end-of-input commit still primes the same lead before the next paint, after native scroll.
+        setScroll(scrollRef.current);
       }
       // Wheeling on at the top of the loaded rows scrolls nothing while older history pages in: the
       // reader's input, not only its scroll events, keeps the right-hand card held
