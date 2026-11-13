@@ -148,7 +148,10 @@ pub async fn run(config: HostConfig) -> Result<Stopped> {
     run_with_changes(config, crate::netwatch::changes()).await
 }
 
-async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::Receiver<u64>) -> Result<Stopped> {
+async fn run_with_changes(
+    config: HostConfig,
+    mut changes: tokio::sync::watch::Receiver<u64>,
+) -> Result<Stopped> {
     let tokens = Arc::new(Tokens::new(config.tokens.clone()));
     let mut services = config.services.clone();
     if let Some(pairing) = services.pairing.as_mut() {
@@ -712,7 +715,8 @@ mod tests {
     fn only_a_not_owner_refusal_of_the_registration_stops_hostd() {
         let refused = anyhow::Error::new(cmux_mobile_link::api::ApiError::Status {
             status: 403,
-            body: r#"{"error":{"code":"not_owner","message":"this deviceId belongs to another user"}}"#.into(),
+            body: r#"{"error":{"code":"not_owner","message":"this deviceId belongs to another user"}}"#
+                .into(),
         })
         .context("POST /v1/devices");
         assert!(not_owner(&refused));

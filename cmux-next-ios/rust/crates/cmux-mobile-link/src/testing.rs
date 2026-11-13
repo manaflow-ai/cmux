@@ -344,7 +344,9 @@ async fn answer_http(
     let line = head.lines().next().unwrap_or_default();
     let user = head.lines().find_map(|l| {
         let (name, value) = l.split_once(':')?;
-        name.eq_ignore_ascii_case("authorization").then(|| value.trim().strip_prefix("Bearer user:"))?.map(str::to_owned)
+        name.eq_ignore_ascii_case("authorization")
+            .then(|| value.trim().strip_prefix("Bearer user:"))?
+            .map(str::to_owned)
     });
     let authorized = user.is_some();
     let (status, reply) = if line.starts_with("GET /v1/health") {
