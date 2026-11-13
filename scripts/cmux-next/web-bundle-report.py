@@ -209,6 +209,13 @@ def load_bundle(
     metrics = {row["attributionMetric"] for row in rows if row["attributionMetric"] is not None}
     attribution_metric = next(iter(metrics)) if len(metrics) == 1 else ("mixed" if metrics else "unknown")
     reachable = sum(row["attributionValue"] for row in rows) if attribution_metric not in ("unknown", "mixed") else None
+    omitted = None
+    if "inputs" in raw and not is_rolldown:
+        omitted = sorted(
+            ({"path": name, "sourceBytes": int(details.get("bytes", 0))}
+             for name, details in source_inputs.items() if name not in modules),
+            key=lambda item: item["sourceBytes"], reverse=True,
+        )
     return {
         "name": name,
         "metafile": str(metafile),
@@ -217,6 +224,7 @@ def load_bundle(
         "attributionMetric": attribution_metric,
         "attributionValue": reachable,
         "reachableBytes": reachable if attribution_metric == "emitted" else None,
+        "omittedInputs": omitted,
         "outputs": sorted(output_rows, key=lambda item: item["bytes"], reverse=True),
         "modules": rows,
         "barrels": sorted(barrels, key=lambda item: item["attributionValue"], reverse=True),
@@ -254,6 +262,17 @@ def render_markdown(report: dict[str, Any]) -> str:
             value = f"{row['attributionValue']:,}" if known else "unknown"
             ratio = f"{row['ratio']:.2f}" if row["attributionMetric"] == "emitted" else "unknown"
             lines.append(f"| {bundle['name']} | `{row['path']}` | {row['sourceBytes']:,} | {value} | {row['attributionMetric']} | {ratio} | {', '.join(flags)} |")
+    lines += [
+        "", "## Resolved inputs omitted from outputs", "",
+        "These resolved source modules contribute no output. This demonstrates elimination in this graph;",
+        "their source sizes are not shipped savings. Missing resolved-input metadata is unknown.",
+        "", "| Bundle | omitted inputs | source bytes (not savings) |", "| --- | ---: | ---: |",
+    ]
+    for bundle in report["bundles"]:
+        omitted = bundle["omittedInputs"]
+        count = str(len(omitted)) if omitted is not None else "unknown"
+        size = f"{sum(item['sourceBytes'] for item in omitted):,}" if omitted is not None else "unknown"
+        lines.append(f"| {bundle['name']} | {count} | {size} |")
     lines += ["", "## Duplicate packages", "", "| Package | bundles | installed copies | module paths |", "| --- | ---: | ---: | ---: |"]
     for package, entries in sorted(report["duplicates"].items()):
         lines.append(f"| `{package}` | {len(entries['bundles'])} | {len(entries['instances'])} | {len(entries['paths'])} |")

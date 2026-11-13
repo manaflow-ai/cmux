@@ -144,6 +144,19 @@ class WebBundleReportTests(unittest.TestCase):
             self.assertIsNone(bundle["reachableBytes"])
             self.assertEqual(bundle["attributionMetric"], "unknown")
 
+    def test_omitted_source_is_not_counted_as_shipped_savings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metafile = root / "graph.json"
+            metafile.write_text(json.dumps({
+                "inputs": {"used.js": {"bytes": 100}, "omitted.js": {"bytes": 500}},
+                "outputs": {"entry.js": {"bytes": 40, "inputs": {"used.js": {"bytesInOutput": 40}}}},
+            }))
+            bundle = MODULE.load_bundle("graph", metafile, None)
+            self.assertEqual(bundle["omittedInputs"], [{"path": "omitted.js", "sourceBytes": 500}])
+            self.assertEqual(bundle["reachableBytes"], 40)
+            self.assertIsNone(bundle["shippedBytes"])
+
     def test_relative_inputs_use_metafile_source_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
