@@ -140,3 +140,12 @@ test("a pending ask that carries a question waits on an answer, not an allow", (
   const group = { individualPermission: { question: claude }, permissionGroups: [{ state: "pending" as const }] };
   expect(chatWaitsOn({ ...chat, ...group })).toBe("permission");
 });
+
+test("a question card needs no duplicate yellow waiting line", () => {
+  expect(within("question", <Thinking />)).toBe("");
+  expect(within("question", <Thinking starting />)).toBe("");
+  for (const wait of ["trust", "trustRemote", "permission", "secret"] as const) {
+    expect(within(wait, <Thinking />)).toContain("cv-waiting__pill");
+  }
+  expect(within(undefined, <Thinking />)).toContain("cv-thinking");
+});
