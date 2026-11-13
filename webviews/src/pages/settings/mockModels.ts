@@ -1,6 +1,7 @@
 // l10n-allow-file: fixture data (sample addresses, machine and team names), not shipped UI.
 // Fixture states of Settings > Models (ModelsCard.tsx) as the app's `cmux.settings.models.state`
 // answers them (cmux-tui/docs/model-connections.md), and the mock host's answer to the card's gestures.
+import { isClaudeToken } from "../../agent-session/shared/claudeSetupToken";
 import type { ModelConnection, ModelsRun, ModelsState } from "./ops";
 
 const codexLogin: ModelConnection = {
@@ -152,7 +153,7 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
       // The app opens a terminal tab running `claude setup-token`; the state does not change.
       return state;
     case "addClaudeToken": {
-      if (!/^sk-ant-oat\S*$/.test(run.token)) throw new Error("not a Claude setup token");
+      if (!isClaudeToken(run.token)) throw new Error("not a Claude setup token");
       const id = nextId("claude-token", connections);
       // The token itself never lands in the state: the app keeps it in the Keychain.
       return personal({

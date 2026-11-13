@@ -53,6 +53,8 @@ import {
 import { ScrollArea } from "../../ui/ScrollArea";
 import { quantizePickerRail } from "./pickerRailGeometry";
 import { type HarnessChoice, uniqueHarnesses, withoutVendor } from "./modelPickerModel";
+import { ClaudeConnectRow } from "./ClaudeConnectRow";
+import type { ClaudeConnectRowProps } from "./claudeConnect";
 import { pickerHeightBounds } from "./modelPickerLayout";
 type ModelChoice = {
   id: string;
@@ -351,6 +353,9 @@ const modelRow =
 /// The active row (pointer or arrows) has the hover wash; any other row gets it on hover.
 const rowFill = (active: boolean) => (active ? "bg-hover" : "bg-transparent hover:bg-hover");
 const emptyNote = "px-2.5 py-2 text-body text-muted";
+/// Whether the Claude Connect row (ClaudeConnectRow.tsx) leads `entry`'s section: its mark is the row's brand.
+const claudeConnectHere = (connect: ClaudeConnectRowProps | undefined, entry: Pick<HarnessChoice, "id" | "mark">) =>
+  !!connect && agentBrand(entry.mark ?? entry.id) === connect.brand;
 /// The update row's Update and Skip This Version: row-height text buttons, as wide as their words.
 const updateButton =
   "flex h-[var(--ui-row-height,28px)] flex-none cursor-default items-center rounded-[var(--ui-row-radius,5px)] border-0 px-2 font-[inherit] text-control text-fg";
@@ -388,6 +393,7 @@ export function ModelPicker(props: ModelPickerProps) {
     catalogRefresh,
     signedOut,
     onLogIn,
+    claudeConnect,
     usage,
     quick,
     detail,
@@ -953,6 +959,7 @@ export function ModelPicker(props: ModelPickerProps) {
         ...(signedOutHere && loginFor(entry) && onLogIn
           ? { logIn: () => onLogIn(entry.acpmuxHarness ?? entry.id, loginFor(entry)!) }
           : {}),
+        ...(claudeConnectHere(claudeConnect, entry) ? { connect: claudeConnect } : {}),
       });
     }
     // One tab per model family (QuickModelMenu's familyTabs): the entries that run one brand's
@@ -993,6 +1000,7 @@ export function ModelPicker(props: ModelPickerProps) {
     onLogIn,
     props.profiles,
     signedOut,
+    claudeConnect,
   ]);
   /// A compact-menu pick: this harness's model lands in place; another harness's starts a chat there.
   /// A searched row with an effort or fast mode lands as one combo, as the full picker's does.
@@ -1678,6 +1686,21 @@ export function ModelPicker(props: ModelPickerProps) {
                     ))}
                   </div>
                 )}
+                {selected &&
+                  !searching &&
+                  !starredView &&
+                  claudeConnect &&
+                  claudeConnectHere(claudeConnect, selected) && (
+                    <ClaudeConnectRow
+                      name={selected.name}
+                      mark={selected.mark ?? selected.id}
+                      connected={claudeConnect.connected}
+                      onConnect={() => {
+                        claudeConnect.onConnect();
+                        close();
+                      }}
+                    />
+                  )}
                 {selected && !searching && !starredView && selected.notInstalled ? (
                   <>
                     <div className={emptyNote}>{t("harnesses.notInstalled")}</div>

@@ -12,6 +12,7 @@
 // again. A Mac login Cloud threads cannot use (servesCloud false) says This Mac only (Revision 2).
 import { useEffect, useId, useRef, useState, type DragEvent } from "react";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
+import { isClaudeToken } from "../../../agent-session/shared/claudeSetupToken";
 import { Button } from "../../../ui/Button";
 import { Dialog } from "../../../ui/Dialog";
 import { Input } from "../../../ui/Input";
@@ -942,13 +943,8 @@ function KeyForm({
   );
 }
 
-/** Claude's setup token starts with this, and a pasted one has no whitespace in it. */
-const CLAUDE_TOKEN = /^sk-ant-oat\S*$/;
-
-/** Whether `token` reads as a Claude setup token (`claude setup-token` prints one). */
-export function isClaudeToken(token: string): boolean {
-  return CLAUDE_TOKEN.test(token);
-}
+/** Whether `token` reads as a Claude setup token; shared with the chat's model picker. */
+export { isClaudeToken };
 
 /** Add a Connection > Claude Code: step 1 opens a cmux terminal tab running `claude setup-token`,
  * step 2 takes the token it prints. The token leaves the page's state before it is sent. */
