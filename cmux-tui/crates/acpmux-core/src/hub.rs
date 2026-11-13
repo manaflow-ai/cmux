@@ -31,9 +31,14 @@ pub const DEFAULT_WINDOW_ROWS: usize = 100;
 pub const MAX_WINDOW_ROWS: usize = 400;
 const EVENT_CAPACITY: usize = 1024;
 static REFUSED_SOURCE_SUBMITS: AtomicU64 = AtomicU64::new(0);
+static REFUSED_ORIGINS: AtomicU64 = AtomicU64::new(0);
 
 pub fn refused_source_submits() -> u64 {
     REFUSED_SOURCE_SUBMITS.load(Ordering::Relaxed)
+}
+
+pub fn refused_origins() -> u64 {
+    REFUSED_ORIGINS.load(Ordering::Relaxed)
 }
 
 fn record_id_validate(record: &OriginRecord) -> Result<(), HubError> {
@@ -222,6 +227,7 @@ pub struct Hub {
     updates: Arc<UpdateQueue>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
+    origin_ids: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 
 /// Explicit name for the published summary hub used by later actors.
@@ -251,6 +257,7 @@ pub struct HubWriter {
     hydration: Option<disk::Hydration>,
     sources: HashMap<String, String>,
     pending_origin_removals: Vec<String>,
+    origin_ids: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 
 #[derive(Debug, Error)]
@@ -308,6 +315,8 @@ impl Hub {
     }
 
     pub fn with_log(index: SummaryIndex, log: Option<IndexLog>) -> (Self, HubWriter) {
+        let origin_ids =
+            Arc::new(Mutex::new(index.origins().map(|origin| origin.id.clone()).collect()));
         let published = Arc::new(ArcSwap::from_pointee(index));
         let updates = Arc::new(UpdateQueue::new());
         let subscribers = Arc::new(Mutex::new(Vec::with_capacity(EVENT_CAPACITY)));
@@ -323,6 +332,7 @@ impl Hub {
             updates: updates.clone(),
             subscribers: subscribers.clone(),
             history: history.clone(),
+            origin_ids: origin_ids.clone(),
         };
         let writer = HubWriter {
             #[cfg(test)]
@@ -350,6 +360,7 @@ impl Hub {
             hydration: None,
             sources: HashMap::new(),
             pending_origin_removals: Vec::new(),
+            origin_ids,
         };
         (hub, writer)
     }
@@ -385,6 +396,12 @@ impl Hub {
         }
         let record = OriginRecord { seq: 0, id: id.to_owned(), state, since, extra: None };
         record_id_validate(&record)?;
+        let mut ids = self.origin_ids.lock().map_err(|_| HubError::WriterGone)?;
+        if !ids.contains(id) && ids.len() >= 256 {
+            REFUSED_ORIGINS.fetch_add(1, Ordering::Relaxed);
+            return Err(HubError::OriginLimit);
+        }
+        ids.insert(id.to_owned());
         self.updates.enqueue(RowKey::new("origin", id), PendingUpdate::Origin { record })
     }
 
@@ -689,6 +706,7 @@ impl HubWriter {
         if self.published.load().origin(id).is_none()
             && self.published.load().origins().count() >= 256
         {
+            REFUSED_ORIGINS.fetch_add(1, Ordering::Relaxed);
             return Err(HubError::OriginLimit);
         }
         let current = self.published.load_full();
