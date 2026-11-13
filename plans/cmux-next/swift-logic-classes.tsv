@@ -1522,7 +1522,6 @@ CmuxNextApp	protocol	ChromiumAppProtocol	0	PLATFORM	0	0	Packages/macOS/CmuxNext/
 CmuxNextApp	struct	AssistiveClientRequests	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/CmuxApplication.swift	from class CmuxApplication:40: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	CmuxNextApp	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/CmuxNextApp+LaunchEnvironment.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	struct	CmuxNextApp	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/CmuxNextApp.swift	AppKit/SwiftUI view, host or thin daemon call site
-CmuxNextApp	extension	AgentTabStore	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/ComputerUse/AppComputerUseFocus.swift	from class AppComputerUseFocus:10: Computer Use focus, TCC setup or helper socket (macOS)
 CmuxNextApp	protocol	ComputerUseFocusing	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/ComputerUse/ComputerUseFocusing.swift	from protocol ComputerUseFocusing:6: Computer Use focus, TCC setup or helper socket (macOS)
 CmuxNextApp	protocol	ComputerUseSessionControlling	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/ComputerUse/ComputerUseSessionControlling.swift	from protocol ComputerUseSessionControlling:6: Computer Use focus, TCC setup or helper socket (macOS)
 CmuxNextApp	enum	ComputerUseSessionError	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/ComputerUse/ComputerUseSessionError.swift	Computer Use focus, TCC setup or helper socket (macOS)

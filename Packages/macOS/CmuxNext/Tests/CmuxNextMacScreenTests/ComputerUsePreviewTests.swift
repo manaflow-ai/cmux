@@ -179,8 +179,10 @@ import VideoToolbox
         #expect(CMSampleBufferGetPresentationTimeStamp(sample) == CMTime(value: 33_333, timescale: 1_000_000))
         var events: [ComputerUsePreviewStream.Event] = []
         let stream = ComputerUsePreviewStream(session: "chat-1", longSide: 800) { events.append($0) }
+        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .streaming))))
         stream.receive(.sample(sample))
         #expect(stream.displayLayer.sampleBufferRenderer.status != .failed)
+        events.removeAll()
         stream.receive(.event(.status(ComputerUsePreviewStatus(state: .blocked))))
         #expect(events == [.status(ComputerUsePreviewStatus(state: .blocked))])
     }
@@ -234,6 +236,32 @@ import VideoToolbox
         #expect(events.suffix(2) == [.status(ComputerUsePreviewStatus(state: .streaming)), .still(jpeg)])
     }
 
+    /// Frames show only while the worker says `streaming`: after `blocked` (or any other status)
+    /// no frame reaches the layer until the next `streaming`, and a closed channel clears the layer.
+    @Test func framesShowOnlyWhileStreaming() throws {
+        let encoded = try encodeOneFrame(width: 320, height: 200)
+        let format = try #require(ComputerUsePreviewStream.format(sps: encoded.sps, pps: encoded.pps))
+        let sample = try #require(ComputerUsePreviewStream.sample(encoded.avcc, format: format, microseconds: 1))
+        var events: [ComputerUsePreviewStream.Event] = []
+        let stream = ComputerUsePreviewStream(session: "chat-1", longSide: 800) { events.append($0) }
+        stream.receive(.sample(sample))
+        #expect(stream.framesShown == 0, "a frame before any status is not shown")
+        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .streaming))))
+        stream.receive(.sample(sample))
+        #expect(stream.framesShown == 1)
+        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .blocked))))
+        stream.receive(.sample(sample))
+        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .paused))))
+        stream.receive(.sample(sample))
+        #expect(stream.framesShown == 1, "no frame after blocked, nor after a later paused")
+        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .streaming))))
+        stream.receive(.sample(sample))
+        #expect(stream.framesShown == 2, "streaming again shows frames again")
+        #expect(events.count == 4)
+        stream.receive(.event(.closed))
+        #expect(events.last == .closed)
+    }
+
     /// Nothing reaches the presenter after `stop()`: no late frame, still or close of the old
     /// channel (a close would schedule a reopen of a stream nobody wants).
     @Test func nothingIsDeliveredAfterStop() {
@@ -268,12 +296,14 @@ import VideoToolbox
         // The reader asks for the backlog before each frame it may pass: full only at the 4th ask
         // (frame 4); frame 5 is not asked about (it waits for a keyframe), frame 6 finds room.
         let asks = OSAllocatedUnfairLock(initialState: 0)
+        var keyframeRequests = 0
         ComputerUsePreviewStream.read(ours, backlog: {
             asks.withLock { $0 += 1; return $0 == 4 ? ComputerUsePreviewStream.maximumPendingSamples : 0 }
-        }) { seen.add($0) }
+        }, askKeyframe: { keyframeRequests += 1 }) { seen.add($0) }
         close(ours)
         let times = seen.samples.map { CMSampleBufferGetPresentationTimeStamp($0).value }
         #expect(times == [1, 2, 3, 6, 7])
+        #expect(keyframeRequests == 1, "one keyframe request when it starts dropping")
     }
 
     // MARK: Helpers

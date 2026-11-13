@@ -46,6 +46,11 @@ public final class ComputerUsePreviewStream {
     /// Stills are shown only after a `streaming` or `still` status: never after `blocked` until the
     /// worker says the window may show again.
     private var acceptsStills = false
+    /// Frames are shown only after a `streaming` status, and not after any other status until the
+    /// next `streaming` (defence in depth: cmux Remote stops a blocked stream itself).
+    private var acceptsFrames = false
+    /// Frames enqueued into the layer so far (tests).
+    private(set) var framesShown = 0
 
     /// The most frames waiting for the main queue; past it the reader drops frames until a keyframe.
     nonisolated static let maximumPendingSamples = 3
@@ -61,9 +66,6 @@ public final class ComputerUsePreviewStream {
         displayLayer = AVSampleBufferDisplayLayer()
         displayLayer.videoGravity = .resizeAspect
     }
-
-    /// The picture's longest side this stream asked for.
-    public var requestedLongSide: Int { longSide }
 
     /// Opens the channel through `remote` and starts the reader thread, which sends the request and
     /// reads until the channel closes; an error closes the stream at once.
@@ -87,7 +89,9 @@ public final class ComputerUsePreviewStream {
                     // The request line, then the stream, all off the main actor.
                     if let request = try? JSONSerialization.data(withJSONObject: ["session": session, "long_side": longSide]),
                        RemoteSocket.writeAll(socket, request + Data([0x0A])) {
-                        Self.read(socket, backlog: { pending.withLock { $0 } }, deliver)
+                        Self.read(socket, backlog: { pending.withLock { $0 } }, askKeyframe: {
+                            _ = RemoteSocket.writeAll(socket, PreviewChannelLine.keyframeRequest)
+                        }, deliver)
                     } else {
                         deliver(.event(.closed))
                     }
@@ -137,11 +141,14 @@ public final class ComputerUsePreviewStream {
         let renderer = displayLayer.sampleBufferRenderer
         switch output {
         case .sample(let sample):
+            guard acceptsFrames else { return }
             if renderer.status == .failed { renderer.flush() }
             renderer.enqueue(sample)
+            framesShown += 1
         case .event(let event):
             switch event {
             case .status(let status):
+                acceptsFrames = status.state == .streaming
                 switch status.state {
                 case .blocked:
                     renderer.flush(removingDisplayedImage: true, completionHandler: nil)
@@ -154,7 +161,10 @@ public final class ComputerUsePreviewStream {
             case .still:
                 guard acceptsStills else { return }
             case .closed:
-                break
+                // The channel ended: its last picture does not linger while a new one opens.
+                renderer.flush(removingDisplayedImage: true, completionHandler: nil)
+                acceptsFrames = false
+                acceptsStills = false
             }
             onEvent(event)
         }
@@ -167,7 +177,10 @@ public final class ComputerUsePreviewStream {
     /// payload past the wire's limit ends the stream. While `backlog` (frames not yet enqueued) is
     /// at ``maximumPendingSamples`` the reader drops frames, and then every frame until a keyframe,
     /// so the decoder never gets a frame whose reference it lost.
-    nonisolated static func read(_ socket: Int32, backlog: () -> Int = { 0 }, _ deliver: @Sendable (Output) -> Void) {
+    /// `askKeyframe` runs once each time the reader starts dropping: it asks cmux Remote for a
+    /// keyframe, so the picture resumes at once instead of at the next scheduled one.
+    nonisolated static func read(_ socket: Int32, backlog: () -> Int = { 0 }, askKeyframe: () -> Void = {},
+                                 _ deliver: @Sendable (Output) -> Void) {
         var header = [UInt8](repeating: 0, count: 5)
         var format: CMVideoFormatDescription?
         var skipping = false
@@ -186,7 +199,10 @@ public final class ComputerUsePreviewStream {
             case ComputerUsePreviewWire.frame:
                 guard let format, let frame = ComputerUsePreviewWire.frame(data) else { break }
                 if frame.keyframe { skipping = false }
-                if !skipping, backlog() >= maximumPendingSamples { skipping = true }
+                if !skipping, backlog() >= maximumPendingSamples {
+                    skipping = true
+                    askKeyframe()
+                }
                 if !skipping, let sample = Self.sample(frame.avcc, format: format, microseconds: frame.microseconds) {
                     deliver(.sample(sample))
                 }
@@ -258,6 +274,13 @@ public final class ComputerUsePreviewStream {
         }
         return sample
     }
+}
+
+/// The lines the app sends on a preview channel after its request line.
+nonisolated struct PreviewChannelLine: Sendable {
+    /// `K`: frames were dropped; the next frame should be a keyframe (cmux Remote's
+    /// `PreviewStreamWire.keyframeRequest`; an older one ignores it).
+    static let keyframeRequest = Data("K\n".utf8)
 }
 
 /// What the worker says of a stream (`S` messages).

@@ -82,7 +82,7 @@ public final class ComputerUsePreviewOverlay: NSView {
 
     /// Whether `point` (window coordinates) is over the expanded view's picture.
     public func expandedPictureContains(windowPoint point: NSPoint) -> Bool {
-        guard presentation == .expanded, expanded.superview === self else { return false }
+        guard presentation == .expanded, expanded.superview === self, !isHiddenOrHasHiddenAncestor else { return false }
         return expanded.pictureFrame.contains(expanded.convert(point, from: nil))
     }
 

@@ -47,10 +47,10 @@ public final class ComputerUsePreviewPresenter {
         /// `streaming` or `still` again (the channel stays open; cmux Remote looks every 500 ms).
         var blocked = false
     }
-    /// The picture's long side asked of cmux Remote: the card at 2x its largest size, the expanded
-    /// view at the wire's largest.
-    private static let cardStreamLongSide = Int(ComputerUsePreviewLayout.maximumLongSide * 2)
-    private static let expandedStreamLongSide = 1600
+    /// The picture's long side asked of cmux Remote: the wire's largest, for the expanded view too,
+    /// so expanding moves the same stream's layer and never reopens it (no blank frame between). A
+    /// window smaller than this streams at its own size; the card's layer scales it down.
+    private static let streamLongSide = 1600
     /// The wait before the channel opens again after it closed: 1 s, doubling to 30 s while cmux
     /// Remote keeps refusing (an older host, or no worker), back to 1 s once a picture comes.
     private var retryDelay: Duration = .seconds(1)
@@ -182,17 +182,15 @@ public final class ComputerUsePreviewPresenter {
         current.overlay.present(presentation)
         // The stream runs while the preview is up, a blocked one too (cmux Remote sends nothing but
         // its status, and says when the window may show again); a hidden preview (a chip) streams
-        // nothing. The expanded view asks for a larger picture.
-        let side = presentation == .expanded ? Self.expandedStreamLongSide : Self.cardStreamLongSide
+        // nothing.
         if presentation == .hidden {
             current.stream?.stop()
             current.stream = nil
-        } else if current.stream?.requestedLongSide != side, !retrying {
-            current.stream?.stop()
-            current.stream = openStream(for: pick.session, longSide: side, overlay: current.overlay)
+        } else if current.stream == nil, !retrying {
+            current.stream = openStream(for: pick.session, longSide: Self.streamLongSide, overlay: current.overlay)
         }
         shown = current
-        followEscape(presentation == .expanded)
+        followEscape(escapeCloses(current))
     }
 
     private func openStream(for session: String, longSide: Int, overlay: ComputerUsePreviewOverlay) -> ComputerUsePreviewStream {
@@ -226,11 +224,15 @@ public final class ComputerUsePreviewPresenter {
                 break
             }
             current.overlay.isHidden = current.blocked
+            // A hidden (blocked) expanded view must not catch Escape.
+            followEscape(escapeCloses(current))
         case .still(let data):
             current.overlay.show(still: data)
         case .closed:
-            // cmux Remote went away or refused (an older host has no such channel): try again,
-            // waiting longer each time up to 30 s, and say so once.
+            // cmux Remote went away or refused (an older host has no such channel): the last
+            // picture goes (the stream cleared its layer), and the channel opens again after a
+            // wait that doubles up to 30 s; said once.
+            current.overlay.show(still: nil)
             current.stream = nil
             if !outageLogged {
                 outageLogged = true
@@ -294,6 +296,12 @@ public final class ComputerUsePreviewPresenter {
         registry.perform("computerUseFocus", invocation: ActionInvocation(arguments: ["session": .string(session)]))
     }
 
+    /// Whether Escape may close `shown`'s view: it is expanded, and on screen (not hidden because its
+    /// window is private).
+    private func escapeCloses(_ shown: Shown) -> Bool {
+        presentation(for: shown.surface) == .expanded && !shown.blocked && !shown.overlay.isHidden
+    }
+
     /// Escape closes the expanded view only while the pointer is over its picture. Anywhere else it
     /// goes on to the surface: in the agent's own terminal Escape interrupts Claude Code or Codex,
     /// and a preview must never swallow that. A click anywhere closes the expanded view too.
@@ -301,7 +309,7 @@ public final class ComputerUsePreviewPresenter {
         if on, escapeMonitor == nil {
             escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard event.keyCode == 53, let self, let current = self.shown, let window = current.overlay.window,
-                      event.window === window, self.presentation(for: current.surface) == .expanded,
+                      event.window === window, self.escapeCloses(current),
                       current.overlay.expandedPictureContains(windowPoint: window.mouseLocationOutsideOfEventStream) else { return event }
                 self.handle(.collapse)
                 return nil
