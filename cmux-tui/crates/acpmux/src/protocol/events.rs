@@ -57,6 +57,9 @@ pub struct AttachParams {
     pub event_stream: Option<bool>,
     /// False attaches without showing the chat (`hub/seen.rs`); default true.
     pub visible: Option<bool>,
+    /// False attaches showing the chat to a person who is away (`_acpmux/view` `attending`): it
+    /// sees nothing, so a reconnect while they are away keeps the chat's unread; default true.
+    pub attending: Option<bool>,
     /// Page forward from here (oldest first) when `beforeSeq` is absent.
     pub after_seq: Option<u64>,
     /// The newest `limit` records before this one.
@@ -107,6 +110,9 @@ pub struct AttachResult {
     /// with older records before it (`server/requests/turn_opener.rs`); null otherwise. An older
     /// acpmux leaves it out, and its client reads it with `_acpmux/events`.
     pub turn_opener: Option<SessionEvent>,
+    /// The attaching person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they
+    /// saw while attending; null before they saw any. An older acpmux leaves it out.
+    pub read_through: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -160,8 +166,60 @@ pub struct ViewParams {
     pub session_id: String,
     /// The attached client shows the chat (`hub/seen.rs`).
     pub visible: bool,
+    /// Its person attends the chat it shows: on screen, window key, input within the client's
+    /// idle window. Absent: true. A shown chat nobody attends stays shown, but its turns are
+    /// unread (`hub/seen.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attending: Option<bool>,
+    /// With `attending: false`, the log seq the client had at its person's last input: where the
+    /// chat is left off, when earlier than now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seen_seq: Option<u64>,
     /// An author changes only that person's presence (`hub/presence.rs`), not whether the
     /// chat counts as shown.
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<super::presence::AuthorMeta>,
+}
+
+/// `_acpmux/view`'s answer: the person's return when coming to attend put "New since you looked"
+/// on the chat (`hub/seen.rs`), so the client draws it without waiting for its list.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewDone {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_return: Option<crate::store::LastReturn>,
+}
+
+/// `_acpmux/seen`: the person had the chat's rows through `seq` on screen while attending it
+/// (`hub/seen.rs`). Moves their seen cursor forward only.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
+pub struct SeenParams {
+    pub session_id: String,
+    /// The newest log seq of a row that was on screen.
+    pub seq: u64,
+    /// Whose cursor: an author's, the owner's when absent.
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<super::presence::AuthorMeta>,
+}
+
+/// `_acpmux/seen`'s answer: the person's cursor after the request.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SeenDone {
+    pub read_through: u64,
+}
+
+/// `_acpmux/markUnread`: the person marks the chat unread; with `readThrough`, their seen cursor
+/// moves back to it (never forward).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
+pub struct MarkUnreadParams {
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_through: Option<u64>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<super::presence::AuthorMeta>,
 }
