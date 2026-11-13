@@ -48,3 +48,5 @@ export const followMotion = defineExperiment({
 });
 
 export type FollowMotionArm = keyof typeof followMotion.arms;
+
+// Vehicle only (never merges): this line changes nothing.
