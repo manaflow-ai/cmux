@@ -138,5 +138,7 @@ fn pr05d_removed_origin_batch() {
 fn pr05d_submit_time() {
     let (small, _) = submit_samples(20);
     let (god, god_all) = submit_samples(11_000);
+    assert!(god * 10 <= small * 12, "submit p95 exceeded 1.2x: {small} -> {god} ns");
+    assert!(god_all <= small * 2, "pooled submit p95 exceeded 2x: {small} -> {god_all} ns");
     gate("v2.pr05d.submit_time", small, god, god_all, "ns");
 }
