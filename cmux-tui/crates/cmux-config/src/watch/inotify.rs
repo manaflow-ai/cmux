@@ -344,7 +344,8 @@ impl Watches {
                         // new watch. When it fails, the entry events stay
                         // watched.
                         // VEHICLE, NEVER MERGES: a fallback that asks too much.
-                        let wide = mask | FILE_MASK | IN_MODIFY;
+                        // IN_ACCESS | IN_CLOSE_NOWRITE: the read side of an entry.
+                        let wide = mask | FILE_MASK | 0x0000_0011;
                         let _ = self.arm(&dir, wide, &interest.names, &mut pass);
                     }
                 }
