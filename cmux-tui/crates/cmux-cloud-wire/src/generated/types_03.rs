@@ -815,6 +815,17 @@ pub struct TeamMember {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamModelsPolicyState {
+    pub team: TeamId,
+    pub can_edit: bool,
+    pub own_connections: bool,
+    pub choose_runout: bool,
+    pub revision: i64,
+    pub updated_at: Option<i64>,
+    pub updated_by: Option<UserId>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicy {
     pub version: i64,
     pub values: TeamPolicyValues,
@@ -892,10 +903,4 @@ wire_enum! {
         LinkingUserRepos = "linking_user_repos",
         Installation = "installation",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamPolicyValuesGithubRepoScope {
-    pub value: TeamPolicyValuesGithubRepoScopeValue,
-    pub mode: PolicyMode,
 }

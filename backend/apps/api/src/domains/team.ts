@@ -72,7 +72,9 @@ const HTTP_ONLY_OPS: ReadonlySet<string> = new Set([
   "team.members.remove",
   // Team shared agent keys: the key travels only in the HTTP request and is sealed outside the reducer (team-agent-keys.ts).
   "team.agent_key.set",
-  "team.agent_key.remove"
+  "team.agent_key.remove",
+  // The members policy for model connections: a side table beside the shared agent keys (team-models-policy.ts).
+  "team.models_policy.set"
 ])
 
 /** Every audit record is also an `audit` row in the same commit (team-audit-rows.ts, team.audit.list). */
@@ -330,6 +332,14 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         const what = { set: "added", replaced: "replaced", removed: "removed" }[t.action ?? ""]
         if (!what || typeof t.by !== "string" || typeof t.agent !== "string") return reject("validation.invalid", "action, agent and by required")
         return withAudit({ ok: true, state, value: { audited: true }, audit: { summary: `Team shared ${t.agent} key ${what} by ${t.by} (generation ${t.generation})`, detail: params } }, state.team.id, ctx, op)
+      }
+      case "team.models_policy.audit": {
+        // TeamDO's own submit after an owner or admin changed the members policy for model connections (team-models-policy.ts).
+        if (p.kind !== "system" || p.identity !== "system:team" || !state.team) return reject("auth.forbidden", "internal op")
+        const t = params as { own_connections?: boolean; choose_runout?: boolean; revision?: number; by?: string }
+        if (typeof t.by !== "string" || typeof t.own_connections !== "boolean" || typeof t.choose_runout !== "boolean") return reject("validation.invalid", "own_connections, choose_runout and by required")
+        const summary = `Members policy for model connections set by ${t.by}: own connections ${t.own_connections ? "on" : "off"}, members choose the run-out ${t.choose_runout ? "on" : "off"} (revision ${t.revision})`
+        return withAudit({ ok: true, state, value: { audited: true }, audit: { summary, detail: params } }, state.team.id, ctx, op)
       }
       case "team.github.token_minted": {
         // Delivered by the team's own ConnectionDO outbox (integrations/github-tokens.ts): audit only.
