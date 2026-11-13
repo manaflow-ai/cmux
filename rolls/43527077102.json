@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43527077102",
+  "recorded_at": "2026-11-13T23:34:16Z",
+  "reason": "cmux-tui 8f7fbadb720a changes the image's cmux-tui (pinned 3dfac3b2a8b9)",
+  "dry_run": false,
+  "cmux_tui": "8f7fbadb720adf1d55d820e8cee78b3978c175c2",
+  "fixes": [
+    {
+      "sha": "6c157671c52b72bfcec9eaa730fd4e5fdc78c672",
+      "mergedAt": "2026-11-13T15:00:52-08:00",
+      "subject": "agent service v2: bound kin pager lookups and deeper rows (#42654)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T23:34:16Z",
+    "snapshot_id": "sh-39bae31182e94098a8f8511da08fae9b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43527077102): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c31121f46af779014abe80d2a94a232bf64edea9",
+    "image": "cloud-native-auto-8f7fbadb-43527077102-1",
+    "revision": "ci-43527077102-1",
+    "at": "2026-11-13T23:34:16Z"
+  },
+  "rolled_back": false
+}
