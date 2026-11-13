@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 mod read;
 mod seek;
@@ -34,11 +34,15 @@ pub(super) struct Head {
     data_end: u64,
     directory_bytes: usize,
     count: u64,
+    #[serde(default)]
+    last_key: Option<SortKey>,
+    #[serde(default)]
+    last_len: usize,
     // A constant-size first-window accelerator, never a dense directory.
     first_lengths: Vec<u16>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Checkpoint {
     key: SortKey,
     offset: u64,
@@ -123,6 +127,7 @@ fn read_u32(bytes: &[u8]) -> io::Result<u32> {
 pub struct DiskSnapshot {
     file: File,
     pub(super) head: Head,
+    pub(super) directory: OnceLock<Vec<Checkpoint>>,
 }
 
 /// One bounded physical piece, including its progress when filtering yields no rows.
@@ -132,7 +137,8 @@ pub struct SnapshotPiece {
     pub next_offset: u64,
     pub has_before: bool,
     pub has_after: bool,
-    /// All physical bytes read by this request, including sparse entries and seek.
+    /// Bytes read by the bounded page payload request. Sparse seek metadata is
+    /// cached separately and does not count against the response budget.
     pub bytes_read: usize,
 }
 
@@ -140,7 +146,6 @@ struct Position {
     offset: u64,
     ordinal: u64,
     record_len: Option<usize>,
-    bytes_read: usize,
 }
 
 struct BufferedRow {
@@ -234,7 +239,7 @@ impl DiskSnapshot {
         {
             return Err(codec::invalid("snapshot extent"));
         }
-        Ok(Some(Arc::new(Self { file, head })))
+        Ok(Some(Arc::new(Self { file, head, directory: OnceLock::new() })))
     }
 
     pub fn log_offset(&self) -> u64 {
