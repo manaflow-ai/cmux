@@ -166,6 +166,7 @@ pub use model_options::{
     current_effort, current_model, current_option, resolve_config_id, web_url, web_url_for_session,
 };
 pub mod ledger;
+mod list_order;
 mod model_hint;
 mod model_probe;
 mod models_view;
@@ -782,6 +783,8 @@ pub struct Hub {
     pub(super) events: list_guard::Events,
     /// A test's hold on list requests (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
+    /// This daemon's rows in list order, kept as they change (`list_order.rs`).
+    pub(super) list_order: list_order::ListOrder,
     /// Client requests every connection serves now, each holding its work slot
     /// (`server/in_flight.rs`, `Hub::requests_in_flight`).
     pub(crate) requests_in_flight: Arc<std::sync::atomic::AtomicUsize>,
@@ -1273,6 +1276,7 @@ impl Hub {
             inline_btw: StdMutex::new(HashMap::new()),
             events,
             list_guard: Default::default(),
+            list_order: Default::default(),
             requests_in_flight: Default::default(),
             usage_stats: Default::default(),
             ledger,
@@ -1918,6 +1922,8 @@ impl Hub {
     #[cfg(test)]
     pub(crate) fn edit_test_meta(&self, session: &Session, edit: impl FnOnce(&mut SessionMeta)) {
         edit(&mut session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        // A change no record carries, as any direct metadata write is (`list_order.rs`).
+        self.events.row_changed(session);
     }
 
     #[cfg(test)]
@@ -2566,6 +2572,9 @@ impl Hub {
             meta.composer_draft = draft.clone();
             meta.updated_at = now_ms();
         }
+        // It dates the chat with no record: told before the next list read, and placed again in
+        // the list's order (`list_order.rs`).
+        self.events.row_changed(session);
         self.chat_activity_cache.note(
             &session.id,
             "composer_draft",

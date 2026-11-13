@@ -9,6 +9,11 @@
 //! with 11,236 chats (10,874 closed) took 5.4 s for `ls --limit 5` and 6.1-7.3 s for
 //! `ls --limit 1000`, when a page was cut from a shared build of every row.
 //!
+//! A newest-first page by `limit` with the closed rows in it (the app's first page) is picked from
+//! a window of this daemon's rows kept in list order (`list_order.rs`) and the peers' rows that
+//! sort among them, so it sorts no chat and reads about its own rows: on 2026-11-12 sorting every
+//! chat for it made an 11,000-chat daemon's first page 1.36x a 525-chat one's (#42131).
+//!
 //! A read with no `limit` (the whole list, a filter of it, its byte pages, ACP's `session/list`)
 //! is picked the same way ([`ListRows`], `list_guard::bounded`): the rows it sends are built as
 //! they go, and it stops at its page's bytes. Leo, 2026-11-12: "Delete the pacer, the snapshot
@@ -34,6 +39,13 @@ enum Source {
 impl Unbuilt {
     fn local(session: Arc<Session>) -> Self {
         let (updated_at, status) = session.read_meta(|m| (m.updated_at, m.status.as_str()));
+        Self { source: Source::Own(session), updated_at, status: Some(status) }
+    }
+
+    /// This daemon's session where the kept order placed it (`list_order.rs`), by the `updatedAt`
+    /// it was placed by: a window of the order stays in its order.
+    fn placed(session: Arc<Session>, updated_at: u64) -> Self {
+        let status = session.read_meta(|m| m.status.as_str());
         Self { source: Source::Own(session), updated_at, status: Some(status) }
     }
 
@@ -120,15 +132,63 @@ impl Hub {
             drop(remote);
             rows.extend(self.mesh_book_rows(open).into_iter().map(Unbuilt::mirrored));
         }
-        // As `session_pages::sort_session_summaries` sorts.
-        rows.sort_by(|a, b| {
-            b.updated_at
-                .cmp(&a.updated_at)
-                .then_with(|| a.session_id().cmp(b.session_id()))
-                .then_with(|| a.peer().cmp(&b.peer()))
-        });
+        sort_rows(&mut rows);
         let states = if own_only { HashMap::new() } else { self.peer_link_states() };
         ListRows { rows, states }
+    }
+
+    /// The page `params` picks, and the rows it is picked from. A newest-first page by `limit`
+    /// of a list with its closed rows (the app's first page, and each page after it) is picked
+    /// from a window of the kept order (`list_order.rs`) from its cursor: the rows it may hold
+    /// and some more, not every chat. A window too short for the page (filters left too few of
+    /// its rows) is read again four times longer, until the page is full or the order ends. Any
+    /// other page is picked from every row.
+    fn picked_page(&self, params: &Value) -> Result<(ListRows, Picked), RpcError> {
+        let ordered = params.get("orderBy").is_some_and(|order| !order.is_null());
+        let limit = params.get("limit").and_then(Value::as_u64);
+        let limit = limit.and_then(|limit| usize::try_from(limit).ok());
+        let from = super::session_pages::page_from(params);
+        if let (Some(limit), Some(from)) = (limit, from)
+            && !ordered
+            && !excludes_closed(params)
+        {
+            let mut most = limit.saturating_add(WINDOW_ROOM);
+            loop {
+                let (own, all) = self.own_rows_from(from, most);
+                let list = self.window_rows(own, all, from);
+                let picked = pick_page(list.rows(), params)?;
+                // A cursor for the rest: the window held more of the page's rows than it takes.
+                if all || picked.next.as_ref().is_some_and(|next| !next.is_null()) {
+                    return Ok((list, picked));
+                }
+                most = most.saturating_mul(4);
+            }
+        }
+        let list = self.list_rows(excludes_closed(params), false);
+        let picked = pick_page(list.rows(), params)?;
+        Ok((list, picked))
+    }
+
+    /// The window `own` (the kept order's rows from `from`, all of them when `all`) and the peers'
+    /// rows that sort among them, sorted: the start of the list from `from`.
+    fn window_rows(&self, own: Vec<(Arc<Session>, u64)>, all: bool, from: Option<u64>) -> ListRows {
+        let last = if all { None } else { own.last().map(|(s, at)| (*at, s.id.clone())) };
+        let mut rows: Vec<Unbuilt> =
+            own.into_iter().map(|(s, at)| Unbuilt::placed(s, at)).collect();
+        // A peer's row sorts before the window's last own row when newer, or as new and a lower id.
+        let within = |r: &RemoteSession| {
+            let (at, id) = (r.summary.updated_ms(), r.summary.session_id());
+            from.is_none_or(|from| at <= from)
+                && last.as_ref().is_none_or(|(last_at, last_id)| {
+                    at > *last_at || (at == *last_at && id < last_id.as_str())
+                })
+        };
+        let remote = self.remote_sessions.snapshot();
+        rows.extend(remote.values().filter(|r| within(r)).cloned().map(Unbuilt::mirrored));
+        drop(remote);
+        rows.extend(self.mesh_book_rows(within).into_iter().map(Unbuilt::mirrored));
+        sort_rows(&mut rows);
+        ListRows { rows, states: self.peer_link_states() }
     }
 
     /// The rows of the page `params` asks for (`session_pages::pick_page`: filters, cursor, order
@@ -139,8 +199,7 @@ impl Hub {
         params: &Value,
         with_tools: bool,
     ) -> Result<(Vec<Value>, Option<Value>), RpcError> {
-        let list = self.list_rows(excludes_closed(params), false);
-        let Picked { rows: picked, next } = pick_page(list.rows(), params)?;
+        let (list, Picked { rows: picked, next }) = self.picked_page(params)?;
         let built = picked
             .iter()
             .filter_map(|&at| list.rows().get(at))
@@ -163,6 +222,22 @@ impl Hub {
         let text = |row: &Unbuilt| list.text(self, row, with_tools);
         super::list_guard::bounded(list.rows(), text, params, budget)
     }
+}
+
+/// The rows a window of the kept order holds past a page's `limit`: a filter or two may leave a
+/// few of them out without a second read.
+pub(super) const WINDOW_ROOM: usize = 64;
+
+/// Newest first, ties by id, then by peer (this daemon's own first), as
+/// `session_pages::sort_session_summaries` sorts: a stable sort, so of two rows alike the one put
+/// first stays first.
+fn sort_rows(rows: &mut [Unbuilt]) {
+    rows.sort_by(|a, b| {
+        b.updated_at
+            .cmp(&a.updated_at)
+            .then_with(|| a.session_id().cmp(b.session_id()))
+            .then_with(|| a.peer().cmp(&b.peer()))
+    });
 }
 
 /// `excludeStatus` holds `closed`.

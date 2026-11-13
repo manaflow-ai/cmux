@@ -71,8 +71,9 @@ async fn list_follow_bench() {
             app.call(method::MUX_SESSIONS, json!({})).await;
             read.push(started.elapsed());
         }
-        // Where a first page's time goes, each part alone, after a change as above.
-        let mut parts: [Vec<Duration>; 5] = Default::default();
+        // Where a first page's time goes, each part alone, after a change as above; and what
+        // sorting every chat costs, which a page no longer does (`list_order.rs`).
+        let mut parts: [Vec<Duration>; 4] = Default::default();
         let params = json!({"enabled": true, "limit": 200});
         for n in 0..20 {
             record(&hub, &format!("chat-{}", n % chats), "renamed");
@@ -80,26 +81,18 @@ async fn list_follow_bench() {
             let _ = hub.list_cursor();
             parts[0].push(started.elapsed());
             let started = Instant::now();
-            let list = hub.list_rows(false, false);
+            let (built, _) = hub.session_page_rows(&params, false).unwrap();
             parts[1].push(started.elapsed());
             let started = Instant::now();
-            let picked = crate::hub::session_pages::pick_page(list.rows(), &params).unwrap();
+            let _ = crate::hub::list_guard::serialize_in_order(&built);
             parts[2].push(started.elapsed());
             let started = Instant::now();
-            let built: Vec<Value> = picked
-                .rows
-                .iter()
-                .filter_map(|&at| list.rows().get(at))
-                .map(|row| list.value(&hub, row, false))
-                .collect();
+            let _ = hub.list_rows(false, false);
             parts[3].push(started.elapsed());
-            let started = Instant::now();
-            let _ = crate::hub::list_guard::serialize_in_order(&built);
-            parts[4].push(started.elapsed());
         }
-        let [cursor_at, rows_at, pick_at, build_at, text_at] = parts.map(p95);
+        let [cursor_at, page_at, text_at, sort_at] = parts.map(p95);
         eprintln!(
-            "PERF first page parts chats={chats}: list_cursor {cursor_at:?}, list_rows {rows_at:?}, pick_page {pick_at:?}, build {build_at:?}, serialize {text_at:?}"
+            "PERF first page parts chats={chats}: list_cursor {cursor_at:?}, rows picked and built {page_at:?}, serialize {text_at:?}; every chat sorted (not on a page) {sort_at:?}"
         );
         // The same first page after a rename, which changes its own row only (`append` sends it
         // with `Events::send_row`): the other closed rows keep their bytes.

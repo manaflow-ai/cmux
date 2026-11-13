@@ -167,6 +167,23 @@ pub(crate) fn pick_page<R: PageRow>(sorted: &[R], params: &Value) -> Result<Pick
     Ok(Picked { rows, next: Some(next.map_or(Value::Null, Value::String)) })
 }
 
+/// Where a newest-first page of `params` may start in the list, by `updatedAt`: from its top
+/// (`Some(None)`), or from the first row no newer than its `k` cursor's session
+/// (`Some(Some(at))`); every row before that is newer than the cursor, so none is on the page
+/// ([`SessionCursor::start`]). None for any other cursor: the page is picked from the whole list,
+/// which answers its error.
+pub(crate) fn page_from(params: &Value) -> Option<Option<u64>> {
+    match params.get("cursor") {
+        None | Some(Value::Null) => Some(None),
+        Some(Value::String(text)) => {
+            let cursor = SessionCursor::parse(text)?;
+            // A clamped stamp stands for every row at or past it, which sort first.
+            Some((cursor.updated_ms < MAX_STAMP).then_some(cursor.updated_ms))
+        }
+        Some(_) => None,
+    }
+}
+
 /// A page cut by bytes rather than by count, for a reply that has no `limit` to page by (ACP's
 /// `session/list`): of the rows whose paging `keys` are given, those after `cursor` (a
 /// `nextCursor` of this list) that `row` makes and whose `size`s fit in `budget`, at least one,
