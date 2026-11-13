@@ -32,18 +32,24 @@ extension NotificationConfigParser {
     }
 
     /// `notifications.sounds.lengths`: seconds per sound, as text (`"2.5"`, the string map's values) or a
-    /// number. A value that is not 0 to 30 seconds is dropped with a diagnostic; the others apply.
+    /// number. A value outside 0 to 30 seconds is clamped with a diagnostic, as every number setting is;
+    /// one that is not a number is dropped with a diagnostic. The others apply.
     private static func lengths(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> [String: Double] {
         guard let reader = ConfigFieldReader(root, at: ["notifications", "sounds", "lengths"], diagnostics: &diagnostics) else { return [:] }
         var lengths: [String: Double] = [:]
         for (name, value) in reader.members {
             let seconds = value.doubleValue ?? value.stringValue.flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }
-            guard let seconds, NotificationSoundPreferences.maxLengthRange.contains(seconds), !name.isEmpty else {
+            let range = NotificationSoundPreferences.maxLengthRange
+            guard let seconds, seconds.isFinite, !name.isEmpty else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "notifications.sounds.lengths.\(name)",
                                                       message: "expected seconds from 0 to 30, such as \"2.5\""))
                 continue
             }
-            lengths[name] = seconds
+            if !range.contains(seconds) {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "notifications.sounds.lengths.\(name)",
+                                                      message: "clamped to \(range.lowerBound)...\(range.upperBound)"))
+            }
+            lengths[name] = min(max(seconds, range.lowerBound), range.upperBound)
         }
         return lengths
     }

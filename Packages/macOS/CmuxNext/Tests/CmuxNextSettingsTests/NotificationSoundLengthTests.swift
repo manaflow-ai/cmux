@@ -25,11 +25,12 @@ struct NotificationSoundLengthTests {
         #expect(sounds.lengths == ["Long Chime": 2.5, "Fanfare": 0, "Ping": 1])
     }
 
-    @Test func aBadLengthIsDroppedWithADiagnosticAndTheOthersApply() {
+    @Test func aLengthPast30SecondsIsClampedAndOneThatIsNotANumberIsDropped() {
         let (sounds, diagnostics) = Self.sounds(["maxSeconds": 90, "lengths": ["Ping": "long", "Pop": "45", "Glass": "1.5"]])
-        #expect(sounds.maxSeconds == 0, "a cap past 30 s keeps its default")
-        #expect(sounds.lengths == ["Glass": 1.5])
-        #expect(Set(diagnostics.map(\.path)).isSuperset(of: ["notifications.sounds.lengths.Ping", "notifications.sounds.lengths.Pop"]))
+        #expect(sounds.maxSeconds == 30, "a cap past 30 s is clamped, as every number setting is")
+        #expect(sounds.lengths == ["Pop": 30, "Glass": 1.5], "a length past 30 s is clamped; text that is not a number is dropped")
+        #expect(Set(diagnostics.map(\.path)).isSuperset(of: ["notifications.sounds.maxSeconds", "notifications.sounds.lengths.Ping",
+                                                              "notifications.sounds.lengths.Pop"]))
     }
 
     @Test func aSoundsOwnLengthWinsOverTheCapAndZeroPlaysItToItsEnd() {
