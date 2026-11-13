@@ -2,6 +2,8 @@
 
 use crate::hub::HubError;
 mod list;
+#[cfg(test)]
+mod replay_gates;
 use crate::wire::{Cursor, Frame, FrameError, FrameKind, Hello, HelloReply, Limits, Page, Sub};
 pub use list::HubSource;
 use std::collections::VecDeque;
@@ -377,6 +379,10 @@ fn error_frame(request: &Frame, error: &ConnError) -> Result<Frame, ConnError> {
         ConnError::DuplicateSubscription(_) => "duplicate_sid",
         ConnError::TooManySubscriptions => "subscription_limit",
         ConnError::Frame(_) => "invalid_request",
+        ConnError::Hub(HubError::CursorGone) => "cursor_gone",
+        ConnError::Hub(
+            HubError::InvalidParams(_) | HubError::InvalidPage | HubError::InvalidWindow,
+        ) => "invalid_params",
         _ => "request_failed",
     };
     let mut fields = serde_json::Map::new();

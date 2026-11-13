@@ -25,6 +25,14 @@ import textwrap
 import unittest
 from pathlib import Path
 
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_env = importlib.util.spec_from_file_location(
+    "git_fixture_env",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_fixture_env.py"),
+)
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
+_git_fixture_env.loader.exec_module(git_fixture_env)
+
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts/cmux-next/ffi_caller_ratchet.py"
 GATE = ROOT / "scripts/cmux-next/prepush-gate.py"
@@ -82,11 +90,10 @@ def load(name: str, path: Path):
 class Fixture:
     def __init__(self) -> None:
         self.dir = Path(tempfile.mkdtemp(prefix="ffi-caller-ratchet-test-"))
-        self.git("init", "-q", "-b", "main")
+        self.env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
+        git_fixture_env.init_repo(self.dir, "-b", "main", env=self.env)
         self.git("config", "user.name", "t")
         self.git("config", "user.email", "t@example.com")
-        self.git("config", "maintenance.auto", "false")
-        self.git("config", "gc.auto", "0")
         self.write("scripts/cmux-next/ffi_caller_ratchet.py", SCRIPT.read_text())
         self.write(HEADER, HEADER_TEXT)
         self.write(SWIFT, SWIFT_TEXT)
@@ -94,9 +101,8 @@ class Fixture:
         self.write(BASELINE, BASELINE_TEXT)
 
     def git(self, *args: str) -> str:
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
         return subprocess.run(["git", "-C", str(self.dir), *args], check=True, capture_output=True, text=True,
-                              env=env).stdout.strip()
+                              env=self.env).stdout.strip()
 
     def write(self, path: str, text: str) -> None:
         file = self.dir / path

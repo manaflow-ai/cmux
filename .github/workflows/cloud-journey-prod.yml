@@ -16,8 +16,10 @@ name: Cloud journey (production, hourly)
 # A red run opens one issue per model, or rewrites the open one's body; the next green run of that model closes it.
 # Secrets: the production agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in the cmux-next-cloud-journey
 # environment (they shadow the repository's pair, the dev Stack account, which production rejects), and for the real
-# model the repository's CLAUDE_CODE_OAUTH_TOKEN. They reach the one run step through env; the journey sends them only
-# in headers and request bodies and scrubs them from its output.
+# model the repository's CLAUDE_CODE_OAUTH_TOKEN. The staging preclaim below runs in cmux-next-vm-image-dev with that
+# environment's staging pair and the same Claude token; production names stay intact.
+# They reach the one run step through env; the journey sends them only in headers and request bodies and scrubs them
+# from its output.
 #
 # The schedule registers from main; the scripts it runs always come from feat-cmux-next, never a pull request's head:
 # the job holds the production account and a Claude login, so no unreviewed code runs with them. Try a change with
@@ -139,14 +141,16 @@ jobs:
           fi
 
   # A staging-only measurement of the shipped Rust warm/ready path. It is deliberately separate from the production
-  # matrix: the existing cmux-next-cloud-journey environment is the only environment that holds the agent account's
-  # Claude setup-token secret, and this job never targets the production API or checks out a pull request head.
+  # matrix and runs in cmux-next-vm-image-dev, the staging environment whose CMUX_DOGFOOD_STACK_* pair cloud-chat-proof
+  # and machine-vault-e2e already sign in with; CLAUDE_CODE_OAUTH_TOKEN reaches it the same way it reaches
+  # machine-vault-e2e. cmux-next-cloud-journey shadows that pair with the production account, which staging refuses
+  # (EMAIL_PASSWORD_MISMATCH), so the job stays out of it. It never targets the production API or checks out a PR head.
   preclaim:
     if: github.repository_owner == 'manaflow-ai' && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next') && inputs.preclaim
     runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 60
     environment:
-      name: cmux-next-cloud-journey
+      name: cmux-next-vm-image-dev
       deployment: false
     permissions:
       contents: read
@@ -185,8 +189,8 @@ jobs:
           bun-version: "1.4.4"
       - name: Staging preclaim login burst
         env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CMUX_STAGING_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_STAGING_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -euo pipefail

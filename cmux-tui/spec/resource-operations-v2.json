@@ -8063,6 +8063,81 @@
       },
       "extra": false
     },
+    "SettingsEdit": {
+      "kind": "object",
+      "fields": {
+        "op": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "set",
+              "set_unset",
+              "reset",
+              "reset_unchanged"
+            ]
+          },
+          "description": "set and reset are settings.set and settings.reset; set_unset sets only while the file has no value at the path (JSON null is a value); reset_unchanged resets only while the file still holds value there (1 and 1.0 are one value)."
+        },
+        "key": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The dotted key (appearance.density; everything after shortcuts.bindings. is one action id)."
+        },
+        "path": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The key path, for keys that contain dots."
+        },
+        "value": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "The value to set (set, set_unset) or the value expected (reset_unchanged); reset takes none."
+        }
+      },
+      "extra": false
+    },
+    "SettingsEditChange": {
+      "kind": "object",
+      "fields": {
+        "keys": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Dotted keys whose effective or file value changed; the MutationResult revision is the settings revision."
+        },
+        "applied": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "description": "Indexes of the edits that applied, in order; a conditional edit whose condition did not hold is left out."
+        }
+      },
+      "extra": false
+    },
     "KeybindingEntry": {
       "kind": "object",
       "fields": {
@@ -14751,6 +14826,87 @@
       },
       "extra": false
     },
+    "BrowserImportReadResult": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "The reader's result: bookmarks, history entries, tabs, extensions, a search engine, a path, a bool or a setting, in the app's Codable shapes (dates as seconds since 2001); null when there is none."
+        },
+        "error": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "BrowserImportReadError"
+          },
+          "description": "Why the source did not read."
+        }
+      },
+      "extra": false
+    },
+    "BrowserImportSearchEngine": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "keyword": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "search": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The search address; {searchTerms} marks the typed text."
+        },
+        "suggest": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      },
+      "extra": false
+    },
+    "BrowserImportReadError": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "read, notBookmarks, open, query, copy, syntax, shape or tooLarge."
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      },
+      "extra": false
+    },
     "ConductorImportFound": {
       "kind": "object",
       "fields": {
@@ -17972,6 +18128,187 @@
         "selector.not_found",
         "selector.wrong_parent",
         "transport.closed",
+        "validation.invalid"
+      ]
+    },
+    "browser_import.read": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "reader": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "chromium.bookmarks",
+                "chromium.history",
+                "chromium.session_file",
+                "chromium.latest_session_file",
+                "chromium.session",
+                "chromium.search_engine",
+                "chromium.extensions",
+                "arc.bookmarks",
+                "firefox.bookmarks",
+                "firefox.history",
+                "firefox.session_file",
+                "firefox.session",
+                "firefox.search_engine",
+                "safari.bookmarks",
+                "safari.history",
+                "safari.search_engine",
+                "exported_history.looks_like",
+                "exported_history.parse",
+                "search_engine.setting",
+                "upload.append",
+                "upload.drop"
+              ]
+            },
+            "description": "The reader to run (the cmux-browser-import crate's ops::OPS), or upload.append / upload.drop (ops::UPLOAD_OPS), which hold and forget the bytes of files the app read from a folder macOS protects."
+          },
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of the file the reader reads (bookmarks, history database, session file, exported history); with upload, the file's name in the upload."
+          },
+          "base64": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "base64"
+            },
+            "description": "The file's bytes instead of path, for the readers of a file's bytes; for upload.append, the next chunk of the file name names."
+          },
+          "profile": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of the profile folder (session_file, search_engine, extensions); with upload, a folder in it (. is its top)."
+          },
+          "sessions": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of a Chromium profile's Sessions folder (latest_session_file); with upload, the folder's name in it."
+          },
+          "upload": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "An upload the app chose the id of (letters, digits and -): the files it sent from a folder macOS protects, held in the daemon's memory only. The reader reads its names instead of paths."
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The relative name of the file upload.append adds to (Sessions/Session_1, History.db-wal)."
+          },
+          "profileDirectory": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "Arc's profile folder name, whose spaces arc.bookmarks reads."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "Most history entries, newest first (default 5000)."
+          },
+          "head": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 0,
+              "max_length": 65536
+            },
+            "description": "The first bytes of a file, as text (exported_history.looks_like)."
+          },
+          "services": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The Mac's NSPreferredWebServices (safari.search_engine)."
+          },
+          "engine": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "BrowserImportSearchEngine"
+            },
+            "description": "An imported search engine (search_engine.setting)."
+          },
+          "builtIn": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "The built-in engines, id to search template (search_engine.setting)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Only origin user (the verified cmux app connection, gate A2) may send it: it makes the daemon read another browser's files by path. Any other origin is refused with origin.forbidden.",
+          "A path that is not absolute, has a .. component, or lies under the daemon's home's Library/Safari, Library/SafariTechnologyPreview, Library/Containers or Library/Group Containers (as written or with links resolved) is refused with validation.invalid: the app reads what a reader needs there itself and sends the bytes into an upload.",
+          "Every database on disk is read from a private copy; no source file is written. An upload is held in memory and never written to disk: a database in it is opened in memory with its WAL's committed frames applied.",
+          "An upload holds at most 256 MiB, all uploads together 512 MiB; an append past either drops the upload and answers {error: {kind: tooLarge}}. An upload idle for 5 minutes is dropped, and a read of a dropped one answers {error: {kind: read}}. A name in an upload that is absolute or climbs with .. is refused with validation.invalid."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "BrowserImportReadResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
         "validation.invalid"
       ]
     },
@@ -34116,6 +34453,88 @@
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "settings.edit": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "edits": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "SettingsEdit"
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "The edits, applied in order to the file text and published once."
+          },
+          "if_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The settings revision the caller saw; a mismatch is revision.conflict and writes nothing."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. Origin mcp may change only agent-settable schema keys (settings.agent_refused)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Applies every edit in order to the settings file text and publishes it once, with one revision and one settings-changed event (Swift CmuxConfigFile.apply). Each edit passes the checks of settings.set or settings.reset (schema kind, managed keys, agent policy, removed keys, the object-overlap rule); a refused edit refuses the whole op and writes nothing. A set_unset or reset_unchanged edit reads the file as the edits before it left it; when its condition does not hold it writes nothing and is not checked. A file that does not parse is never rewritten. Apps never get settings.edit."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SettingsEditChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "settings.agent_refused",
+        "settings.invalid",
+        "settings.managed",
+        "settings.removed",
         "validation.invalid"
       ]
     },

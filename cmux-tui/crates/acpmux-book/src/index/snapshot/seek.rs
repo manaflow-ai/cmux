@@ -11,7 +11,11 @@ impl DiskSnapshot {
             return Err(codec::invalid("snapshot checkpoint index"));
         }
         let mut bytes = [0; CHECKPOINT_BYTES];
-        read_at(&self.file, &mut bytes, self.head.data_end + (index * CHECKPOINT_BYTES) as u64)?;
+        read_at(
+            &self.file,
+            &mut bytes,
+            self.directory_offset() + (index * CHECKPOINT_BYTES) as u64,
+        )?;
         *bytes_read += bytes.len();
         let checkpoint = Checkpoint::decode(&bytes)?;
         if checkpoint.offset < HEADER_BYTES as u64

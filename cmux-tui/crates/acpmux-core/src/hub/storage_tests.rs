@@ -1,12 +1,12 @@
 use super::*;
-use acpmux_book::index::SortedSnapshot;
+use acpmux_book::index::{HOT_WINDOW_MS, SortedSnapshot};
 
 fn fixture(path: &std::path::Path, count: u64) {
     let mut index = SummaryIndex::new();
     for n in 0..count {
         let mut row = Summary::new(format!("row-{n:05}"));
         row.state = "closed".into();
-        row.last_activity = count - n;
+        row.last_activity = HOT_WINDOW_MS - n;
         index = index.apply(n + 1, row);
     }
     SortedSnapshot::write(path.join("index.snap"), &index).unwrap();

@@ -9801,6 +9801,16 @@ export class AcpmuxDirectClient {
             ? stillRunning(running.compaction, compaction)
             : compaction,
       });
+      // A compaction that went on into the turn that opened since is that turn's: it draws there, as
+      // its live line under what the turn holds, never back in the turn before it (Leo, 2026-11-09:
+      // "im still seeing compacting not be at the bottom").
+      if (
+        compaction.state === "running" &&
+        running &&
+        this.runningTurnId !== undefined &&
+        running.turnId !== this.runningTurnId
+      )
+        this.rows.placeAfterCurrent(id);
     } else if (event.kind === "plan") {
       const plan = planEntries(update.entries);
       const existing = this.planRow ? this.rows.get(this.planRow) : undefined;
@@ -10581,6 +10591,10 @@ export class AcpmuxDirectClient {
   get startedSession(): string | undefined {
     return this.creating ? undefined : this.selectedSessionId;
   }
+  /// The chat this pane's latest new chat took, and the visit (`selectionToken`) it was started
+  /// from: the prompts sent in that visit before the chat took its session are its own
+  /// (startingSends.ts `startingIn`).
+  startedChat: { sessionId: string; visit: number } | undefined;
   /** Changes on every selection, including leaving and returning to the same session. */
   get selectionToken(): number {
     return this.selectionGeneration;
@@ -12843,6 +12857,7 @@ export class AcpmuxDirectClient {
         if (sessionId && !this.closed) this.discard(sessionId);
         return undefined;
       }
+      if (sessionId) this.startedChat = { sessionId, visit: generation };
       return sessionId ? this.select(sessionId) : undefined;
     })();
     const tracked = started.finally(() => {

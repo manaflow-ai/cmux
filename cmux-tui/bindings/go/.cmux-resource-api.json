@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "9777aaa4ca272d35c048bcabc64e2d86f7a04385f1a5a2ffa4a5b87b22e1cc4d",
+  "catalog_sha256": "f6d8ceb33746c1f452dc9437614ba751df787693b597dc5c1862d2171b048eff",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -93,6 +93,9 @@
     },
     "browser.viewer.resize": {
       "class": "connection_control"
+    },
+    "browser_import.read": {
+      "class": "read"
     },
     "chief.continue": {
       "class": "mutation"
@@ -728,6 +731,9 @@
       "class": "mutation"
     },
     "session.window.title.set": {
+      "class": "mutation"
+    },
+    "settings.edit": {
       "class": "mutation"
     },
     "settings.get": {
