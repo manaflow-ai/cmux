@@ -29,9 +29,11 @@ extension ActionRegistry {
             parts.append(makeContextMenu(for: .browserProfile, target: ActionTargetRef(kind: .browserProfile, id: current),
                                          arguments: ["tab": .target(target)], customize: false))
         }
-        // A built menu drops a leading separator, so the one above Import from Browser is added here.
-        parts.append(makeContextMenu(for: .browserPage, target: target,
-                                     entries: [.action("importFromBrowser"), .action("browser.extensions.webStore")]))
+        // Without the profile's rows (an incognito tab) New Browser Profile and the tab's extensions stay, as page rows:
+        // neither touches a profile's data. A built menu drops a leading separator, so the one above them is added here.
+        let page: [ContextMenuEntry] = (profileActions ? [] : [.action("browserProfile.new")]) + [.action("importFromBrowser")]
+            + (profileActions ? [] : [.action("browser.extensions.manage")]) + [.action("browser.extensions.webStore")]
+        parts.append(makeContextMenu(for: .browserPage, target: target, entries: page))
         for part in parts where !part.items.isEmpty {
             if menu.items.last?.isSeparatorItem == false { menu.addItem(.separator()) }
             for item in part.items {

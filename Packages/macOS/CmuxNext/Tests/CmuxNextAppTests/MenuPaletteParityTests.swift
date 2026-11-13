@@ -173,8 +173,9 @@ import Testing
     @Test func everyBrowserToolbarProfileMenuRowHasAPaletteRow() {
         let services = Self.services()
         let palette = Self.paletteIDs(services.registry)
-        let gaps = Self.gaps(in: [("toolbar profile menu", Self.toolbarProfileMenu(services))], registry: services.registry,
-                             palette: palette)
+        let gaps = Self.gaps(in: [("toolbar profile menu", Self.toolbarProfileMenu(services)),
+                                  ("incognito toolbar profile menu", Self.toolbarProfileMenu(services, profileActions: false))],
+                             registry: services.registry, palette: palette)
         #expect(gaps.isEmpty, "\(gaps.count) toolbar profile menu rows with no palette row:\n\(gaps.joined(separator: "\n"))")
     }
 
@@ -219,11 +220,16 @@ import Testing
         #expect(profileRows.allSatisfy { $0.target?.id == "work" }, "rows on another profile: \(profileRows.map { "\($0.id) \($0.target?.id ?? "")" })")
     }
 
-    /// An incognito tab's data belongs to no profile: no row clears or deletes one.
+    /// An incognito tab's data belongs to no profile: no row clears or deletes one. New Browser Profile
+    /// and the tab's extensions, which touch no profile's data, stay.
     @Test func incognitoToolbarProfileMenuHasNoProfileRows() {
         let services = Self.services()
+        let registry = services.registry
+        registry.context = registry.descriptors.reduce(into: ActionContext()) { $0.formUnion($1.requires) }
         let menu = Self.toolbarProfileMenu(services, profileActions: false)
         let runs = Self.rows(menu, "").compactMap { ActionRegistry.menuRun(of: $0.1) }
         #expect(runs.allSatisfy { $0.target?.kind != .browserProfile }, "\(runs.map(\.id))")
+        let ids = Set(runs.map(\.id))
+        #expect(ids.isSuperset(of: ["browserProfile.new", "browser.extensions.manage", "importFromBrowser"]), "\(ids)")
     }
 }
