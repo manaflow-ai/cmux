@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43354319050",
+  "recorded_at": "2026-11-13T02:52:11Z",
+  "reason": "cmux-tui f0c33946d21d changes the image's cmux-tui (pinned 5f74c8090efe)",
+  "dry_run": false,
+  "cmux_tui": "f0c33946d21d0773946bc55690b5be2a3b9bfafb",
+  "fixes": [
+    {
+      "sha": "f0c33946d21d0773946bc55690b5be2a3b9bfafb",
+      "mergedAt": "2026-11-13T02:19:38Z",
+      "subject": "cmux-tui-core: the Rust panic ratchet is green again (no string index in the conversation-kind pre-check, no JSON index in window_record.put) (#42290)"
+    },
+    {
+      "sha": "b7e245ed072f58c4510c82a748506327cf4bbc21",
+      "mergedAt": "2026-11-12T17:53:59-08:00",
+      "subject": "base red: acpmux socket-ready startup is independent of durable setup (#42177)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T02:52:11Z",
+    "snapshot_id": "sh-aeaacd093b0a4a8f935285c803c26bb6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43354319050): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0bf6005f95d93c4533c10959322ec3d216c8abd0",
+    "image": "cloud-native-auto-f0c33946-43354319050-1",
+    "revision": "ci-43354319050-1",
+    "at": "2026-11-13T02:52:11Z"
+  },
+  "rolled_back": false
+}
