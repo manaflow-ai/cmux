@@ -7,7 +7,8 @@ import AppKit
 /// characters of its text as drawn (a closed Details hides its raw words), and, when it has them, its
 /// `role` and accessible `label` (`aria-label`, else the text `aria-labelledby` names). A capture's
 /// read-back checks what a person and VoiceOver get: a toast stack is a region named "Notifications".
-public enum PageDebugQuery {
+public struct PageDebugQuery {
+    public init() {}
     /// A page function of `selector`; it answers the elements as JSON text.
     public static let script = """
     return JSON.stringify([...document.querySelectorAll(selector)].map((el) => {
