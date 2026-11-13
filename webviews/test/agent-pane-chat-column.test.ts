@@ -631,6 +631,12 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const chat = newChat();
     thinks(chat, THOUGHT);
     const page = await open(chat, 900, 700, false, true);
+    // One more chunk, live: the thought streams now, so the line says Thinking. Without it the
+    // recorded chunks are all the line has heard, and a page that took SILENT_MS to load would
+    // rightly say "Waiting" (Thinking.tsx).
+    push(chat, "in", "agent_thought_chunk", {
+      ...update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "\n" } }),
+    });
     // Streaming: the Codex-style turn draws no row for the thought yet; the turn's live line at its foot says one of the default
     // The default status mode is Thinking only, with nothing to open.
     await page
