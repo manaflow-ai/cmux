@@ -931,7 +931,7 @@ fn current_pane() -> Pane {
 
 /// Terminals known to report SGR-Pixels mouse positions (cmux's terminals are Ghostty).
 fn terminal_reports_pixels() -> bool {
-    matches!(std::env::var("TERM_PROGRAM").as_deref(), Ok("ghostty" | "WezTerm"))
+    matches!(std::env::var("TERM_PROGRAM").as_deref(), Ok("cmux" | "ghostty" | "WezTerm"))
         || std::env::var_os("KITTY_WINDOW_ID").is_some()
 }
 

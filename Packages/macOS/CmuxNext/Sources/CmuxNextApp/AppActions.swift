@@ -59,7 +59,6 @@ enum AppActions {
         WindowMembershipHandlers.bind(into: registry, context: context)
         SidebarHandlers.bind(into: registry, context: context)
         VaultHandlers.bind(into: registry, context: context)
-        RightSidebarHandlers.bind(into: registry, context: context)
         SidebarSectionHandlers.bind(into: registry, context: context)
         SidebarHiddenSections.bind(into: registry, context: context)
         SidebarPriorityFeed.bind(into: registry, context: context)
@@ -193,7 +192,7 @@ enum AppActions {
         registry.bind("quit", invoke: { invocation in
             do {
                 let scripted = registry.isCapturingRefusal
-                let origin = try QuitPolicy.origin(for: invocation, scripted: scripted)
+                let origin = try QuitOrigin(for: invocation, scripted: scripted)
                 // A scripted quit saves unsaved documents first and refuses,
                 // naming them, when a save fails (R96 quit hook).
                 guard scripted, !services.quit.unsaved.unsaved().isEmpty else { return services.quit.requestQuit(origin) }

@@ -567,20 +567,22 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
     }
 }
 
-/// A relay's bulk copy, before the chat freezes. A folder a Move to Cloud seeded from this Mac
-/// (`--sync-seed-local`) goes as git, machine to machine: the second machine clones from GitHub
-/// and gets the seed's diff, then the first machine's changes since (`seed_cli::hop`); this
-/// Mac's folder is never read or written. A folder the hop cannot take (one copied rather than
-/// seeded, say) and any other folder copy machine to machine.
+/// A relay's bulk copy, before the chat freezes. A git folder goes as git, machine to machine
+/// (`seed_cli::hop`): the second machine clones from GitHub and gets the seed's diff when a Move
+/// to Cloud seeded it from this Mac (`--sync-seed-local`), else the first machine's own changes
+/// since its upstream (a chat that started on a Cloud machine), or only what changed since the
+/// chat left when it moves back to a machine that still has its folder. This Mac's folder is
+/// never read or written. A folder the hop cannot take (one copied rather than seeded, one with
+/// no GitHub remote, say) copies machine to machine, file by file.
 fn relay_bulk(sync: &Sync) -> Result<(), Failed> {
-    if let (Some(local), Some(from)) = (&sync.seed_local, &sync.from_socket) {
+    if let Some(from) = &sync.from_socket {
         let from_root = sync.local.to_string_lossy();
         let hopped = super::seed_cli::hop_bulk(
             from,
             &from_root,
             &sync.socket,
             &sync.remote,
-            local,
+            sync.seed_local.as_deref(),
             &sync.owner,
         );
         match hopped {
@@ -629,9 +631,8 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
                 )
             };
             // A folder the bulk pass sent as git sends its last changes as git too ([`relay_bulk`]).
-            if let Some(local) = &sync.seed_local
-                && super::seed_cli::hop_started(local, &sync.remote, &sync.owner)
-            {
+            let local = sync.seed_local.as_deref();
+            if super::seed_cli::hop_started(local, &sync.remote, &sync.owner) {
                 let from_root = sync.local.to_string_lossy();
                 let hopped = super::seed_cli::hop_frozen(
                     from,
@@ -702,7 +703,7 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
 /// say so, or does not answer `identify`.
 fn source_continues(socket: &std::path::Path) -> bool {
     let capability = cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_CONTINUES_CAPABILITY;
-    let identity = super::machine_gate::identify(socket);
+    let identity = super::machine_gate::reach(socket).ok();
     identity.as_ref().and_then(super::machine_gate::served).is_some_and(|s| s.contains(&capability))
 }
 
@@ -713,7 +714,7 @@ fn source_continues(socket: &std::path::Path) -> bool {
 fn target_vm_kind(args: &Args) -> Result<Option<String>, Failed> {
     let Some(kind) = &args.vm_kind else { return Ok(None) };
     let capability = cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY;
-    let identity = super::machine_gate::identify(&args.to);
+    let identity = super::machine_gate::reach(&args.to).ok();
     let served = identity.as_ref().and_then(super::machine_gate::served);
     if served.is_some_and(|served| served.contains(&capability)) {
         return Ok(Some(kind.clone()));
@@ -877,12 +878,15 @@ fn commit(
     // Bring Back Local from the new machine merges against the seed this Mac sent the first one.
     // Before the record clears: a run that dies here moves it on its next run.
     for sync in &args.syncs {
-        let (Some(seed_local), Some(from)) = (&sync.seed_local, &sync.from_socket) else {
+        let Some(from) = &sync.from_socket else { continue };
+        let Some(seed_local) = &sync.seed_local else {
+            // No folder of this Mac's: a hop's waiting record goes, nothing else is kept.
+            let _ = super::seed_cli::land(None, &sync.remote, &sync.owner);
             continue;
         };
         let local_root = sync.local.to_string_lossy();
         let moved =
-            super::seed_cli::land(seed_local, &sync.remote, &sync.owner).and_then(|landed| {
+            super::seed_cli::land(Some(seed_local), &sync.remote, &sync.owner).and_then(|landed| {
                 if landed {
                     return Ok(true);
                 }

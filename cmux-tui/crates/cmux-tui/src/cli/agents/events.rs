@@ -152,8 +152,8 @@ impl Cursor {
         let daemon = self.daemon.as_ref()?;
         let mut cursor =
             json!({"generation": daemon.generation, "revision": daemon.revision.to_string()});
-        if let Some(live) = &daemon.live {
-            cursor["live"] = json!(live);
+        if let (Some(live), Some(fields)) = (&daemon.live, cursor.as_object_mut()) {
+            fields.insert("live".to_owned(), json!(live));
         }
         Some(cursor)
     }

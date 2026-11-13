@@ -133,7 +133,7 @@ body {
   height: var(--group-editor-dot);
   padding: 0;
   border: 0;
-  border-radius: var(--ds-radius-sm);
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--page-text-2);
   outline: none;

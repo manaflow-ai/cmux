@@ -1,9 +1,9 @@
 // The agent pane on the shared page host (`cmux-page://cmux.agent/`, CmuxNextAgentPane
 // AgentPageProvider): the old `agentSession` methods become `cmux.agent.*` pane-protocol calls, and
 // the scripts the old host evaluated become events of the stream `cmux.agent.host.events`.
-import { setOutsideDictation, setOutsideLevel } from "./outsideDictation";
 import { deliverHandoffFailure } from "./dictation";
-import { createPageClient, isPageError, type PageClient } from "../../pages/shared/pageClient";
+import { createPageClient, isPageError, RECEIVE_NAME, type PageClient } from "../../pages/shared/pageClient";
+import { installNativeMenu } from "../../ui/nativeMenu";
 import { NativeError } from "./nativeError";
 import { receiveTransportEvent, type TransportEvent } from "./bridgeSocket";
 import { receiveModelCatalog } from "./modelCatalogHost";
@@ -55,6 +55,16 @@ export function pageHostClient(): PageClient | null {
   // Only a found client is kept: it owns the page's receive hook, so there is one per page.
   client ??= createPageClient();
   return client;
+}
+
+/// Tests: the page starts again with no page host client, as a new page does. A test that installs
+/// a fake `cmuxPage` handler calls it in its teardown, so a later test file's requests do not go to
+/// that fake through the kept client (its native menu and receive hook go with it).
+export function resetPageHostClientForTests(): void {
+  if (!client) return;
+  client = null;
+  installNativeMenu(null);
+  delete (globalThis as Record<string, unknown>)[RECEIVE_NAME];
 }
 
 /// Calls `method` on the page host. Rejects with a `NativeError` as the old bridge did: the host's
@@ -186,12 +196,6 @@ export function applyHostEvent(event: HostEvent): void {
       return setFloatingState(event.value);
     case "dictation":
       return bridge?.dictation?.(value);
-    case "micActivity":
-      // Another app's use of the microphone (outsideDictation.ts), while a composer watches.
-      return setOutsideDictation(event.value);
-    case "micLevel":
-      // Its input level, about 12 a second, only while the host meters it (outsideDictation.ts).
-      return setOutsideLevel(event.value);
     case "dictationHandoff":
       return deliverHandoffFailure(event.value);
     case "designSelection":
