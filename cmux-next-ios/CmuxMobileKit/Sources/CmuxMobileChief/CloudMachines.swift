@@ -277,11 +277,11 @@ public final class CloudMachinesModel {
             async let planned = account.read("cloud.plan.get")
             async let saved = account.read("cloud.snapshot.list")
             machines = try await Self.readMachines(account)
-            onMachinesChanged?()
             // A plan or snapshot read that fails keeps the list (the page hides what it lacks).
             plan = (try? await planned).flatMap(CloudMachinePlan.parse) ?? plan
             if let value = try? await saved { snapshots = CloudMachineSnapshot.list(value) }
             phase = .loaded
+            onMachinesChanged?()
         } catch is CancellationError {
             phase = before
         } catch {
@@ -292,23 +292,29 @@ public final class CloudMachinesModel {
 
     /// The machines alone (`cloud.machine.list`, paged), for the Workspaces list's poll: no plan
     /// and no snapshots. A failure keeps the machines and sets `.failed` only when none were read.
-    public func loadMachines() async {
-        if skipsLoad { return }
+    /// Whether this read answered (false: signed out, failed or cancelled; the machines are the
+    /// last ones read).
+    @discardableResult
+    public func loadMachines() async -> Bool {
+        if skipsLoad { return false }
         guard let account = account() else {
             phase = .failed(String(localized: "Sign in to cmux to see your Cloud machines."))
-            return
+            return false
         }
         let before = phase
         if machines.isEmpty, phase != .loaded { phase = .loading }
         do {
             machines = try await Self.readMachines(account)
-            onMachinesChanged?()
             phase = .loaded
+            onMachinesChanged?()
+            return true
         } catch is CancellationError {
             phase = before
+            return false
         } catch {
             // A failed poll keeps the page that read: only a first read with nothing to show fails it.
             if machines.isEmpty { phase = .failed(Self.message(error)) } else { phase = before == .loading ? .loaded : before }
+            return false
         }
     }
 

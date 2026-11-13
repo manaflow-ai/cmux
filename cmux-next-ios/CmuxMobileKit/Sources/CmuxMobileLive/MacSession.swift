@@ -65,6 +65,10 @@ final class MacSession {
     /// The size releases of the latest close, in flight: a later close waits for them, so it never
     /// closes the link before an earlier release is answered.
     var releasing: Task<Void, Never>?
+    /// When this session was forgotten (``LiveCoordinator/closeSession(_:)``): each live terminal's
+    /// attach then. Its closing release reaches a terminal only while it is still on that attach,
+    /// as the next session for the machine adopts the terminal and attaches it again.
+    var attachesAtClose: [ObjectIdentifier: ObjectIdentifier?]?
     var closeSerial = 0
     /// The link fed this Mac's data and connection state (cleared when it closes).
     var fedData = false

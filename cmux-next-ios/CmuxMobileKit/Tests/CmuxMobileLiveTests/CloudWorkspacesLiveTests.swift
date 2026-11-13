@@ -315,7 +315,7 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         live.applyCloudMachines([machine(.running)])
         await settle { store.macDataPhase(vm) == .live }
         cloud.lastCarrier(vm)?.drop()
-        await settle { live.cloudDropHolds.contains(vm) && live.sessions[vm]?.link.target == nil }
+        await settle { live.cloudDropHolds[vm] != nil && live.sessions[vm]?.link.target == nil }
         // A republish of the old list (not a read) never lifts the hold.
         live.applyCloudMachines([machine(.running)])
         await drain()
@@ -348,9 +348,17 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         }
         await settle { terminal.connectionState == .attached }
         let attachedBefore = states.count
+        // The old link stays open until the new session is served (its size release is held), so
+        // the new session's reattach pass sees the terminal still attached: only its channel's end
+        // (``DaemonTerminalSession/onChannelEnded``) can reattach it.
+        var gate: CheckedContinuation<Void, Never>?
+        live.releaseBeforeClose = { _ in await withCheckedContinuation { gate = $0 } }
         // Retry replaces the machine's session.
         live.retryCloud(vm)
-        await settle { live.sessions[vm] !== old && live.sessions[vm]?.servedLink != nil }
+        await settle { live.sessions[vm] !== old && live.sessions[vm]?.servedLink != nil && gate != nil }
+        #expect(terminal.connectionState == .attached, "still on the old link while it releases")
+        gate?.resume()
+        gate = nil
         let new = try #require(live.sessions[vm])
         #expect(new.terminals.contains { $0.session === terminal }, "the new session adopted the open terminal")
         // It left the gone session's link, then attached again through the new carrier (the second dial).
@@ -376,7 +384,7 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         let first = try #require(live.sessions[vm]?.servedLink)
         cloud.lastCarrier(vm)?.drop()
         // Held until a fresh list read says it still runs (it does): then dialed again.
-        await settle { live.cloudDropHolds.contains(vm) }
+        await settle { live.cloudDropHolds[vm] != nil }
         #expect(cloud.dials(vm) == 1, "no blind redial")
         live.applyCloudMachines([machine(.running)], fromRead: true)
         // A new link served (never the moment between links, when there is none).
@@ -670,6 +678,7 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         private let lock = NSLock()
         private var items: [String] = []
         func add(_ op: String) { lock.withLock { items.append(op) } }
+        func remove(_ op: String) { lock.withLock { items.removeAll { $0 == op } } }
         var all: [String] { lock.withLock { items } }
     }
 
@@ -726,6 +735,47 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         await settle { store.cloudMachines.first?.cloud?.status == .deleting }
         #expect(store.cloudMachines.first?.cloud?.status == .deleting)
         _ = await deleting.value
+    }
+
+    /// A drop hold (a Cloud carrier dropped; the machine may have idle-paused) is lifted only by a
+    /// list read that answers and began after the hold: a failed read, a cancelled one, and one
+    /// that began before the drop all keep it, so the phone never dials (and so wakes) a paused
+    /// machine on a stale "running".
+    @Test func onlyAGoodReadAfterTheDropLiftsItsHold() async {
+        let flags = OpsLog()
+        ServiceStub.install(host: host) { request in
+            guard Self.op(request) == "cloud.machine.list" else { return .init() }
+            if flags.all.contains("fail") { return .init(status: 503, body: #"{"error":{"code":"unavailable","message":"x"}}"#) }
+            return .init(body: Self.list([("vm_h", "running")]))
+        }
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let (live, cloud) = make(store: store, ops: OpsLog())
+        defer { live.stop() }
+        await cloud.refresh()
+        #expect(store.cloudMachines.map(\.id) == ["vm_h"])
+
+        // Held; the next read fails (its list is the stale "running"): still held.
+        live.holdCloudDial("vm_h")
+        flags.add("fail")
+        await cloud.refresh()
+        #expect(live.cloudDropHolds["vm_h"] != nil, "a failed read is no fresh word")
+
+        // A read cancelled on its way: still held.
+        flags.remove("fail")
+        let cancelled = Task { await cloud.refresh() }
+        cancelled.cancel()
+        await cancelled.value
+        #expect(live.cloudDropHolds["vm_h"] != nil, "a cancelled read is no fresh word")
+
+        // A read that began before a newer drop: it lifts only the holds placed before it began.
+        let stamp = live.cloudReadStamp
+        live.holdCloudDial("vm_h")
+        live.applyCloudMachines(store.cloudMachines, fromRead: true, readStamp: stamp)
+        #expect(live.cloudDropHolds["vm_h"] != nil, "a read older than the drop never lifts it")
+
+        // A good read that began after the drop: lifted.
+        await cloud.refresh()
+        #expect(live.cloudDropHolds["vm_h"] == nil)
     }
 
     @Test func startIsTheAccountsOwnOp() async {

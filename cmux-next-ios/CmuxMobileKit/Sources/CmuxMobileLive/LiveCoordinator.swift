@@ -93,7 +93,19 @@ public final class LiveCoordinator {
     /// Cloud machines whose carrier dropped, held out of dialing until a fresh list read: the
     /// service starts a paused machine when a person dials it, so a redial after an idle pause
     /// (whose list still said running) would wake the machine the pause just stopped.
-    @ObservationIgnored var cloudDropHolds: Set<String> = []
+    @ObservationIgnored var cloudDropHolds: [String: Int] = [:]
+    /// Stamps each hold (``cloudDropHolds``): a read lifts only the holds placed before it began,
+    /// never one a drop placed while it was in flight (its answer predates that drop).
+    @ObservationIgnored var cloudHoldSerial = 0
+
+    /// Holds a Cloud machine out of dialing until a list read that begins after now succeeds.
+    func holdCloudDial(_ machineID: String) {
+        cloudHoldSerial &+= 1
+        cloudDropHolds[machineID] = cloudHoldSerial
+    }
+
+    /// Where the holds stand when a list read begins (pass it back with that read's answer).
+    public var cloudReadStamp: Int { cloudHoldSerial }
     /// The Cloud machine the person opened last: linked first within the Cloud cap.
     @ObservationIgnored var touchedCloud: String?
     /// Releases a Cloud session's terminal sizes before its link closes (tests gate it).
@@ -777,6 +789,9 @@ public final class LiveCoordinator {
         guard let session = sessions.removeValue(forKey: id) else { return }
         let live = session.terminals.filter { $0.session != nil }
         if !live.isEmpty, !stopped { orphanedTerminals[id, default: []] += live }
+        session.attachesAtClose = Dictionary(uniqueKeysWithValues: live.compactMap { weak in
+            weak.session.map { (ObjectIdentifier($0), $0.attachIdentity) }
+        })
         session.pairingRetry?.cancel()
         for relay in session.cloudChats.values { relay.retire() }
         session.cloudChats.removeAll()

@@ -31,18 +31,23 @@ extension LiveCoordinator {
     /// The running Cloud machines this phone may dial now (not refused, Cloud dialer present).
     var dialableCloudMachines: [MacDevice] {
         guard cloudDialer != nil else { return [] }
-        return store.cloudMachines.filter { $0.isOnline && cloudRefusals[$0.id] == nil && !cloudDropHolds.contains($0.id) }
+        return store.cloudMachines.filter { $0.isOnline && cloudRefusals[$0.id] == nil && cloudDropHolds[$0.id] == nil }
     }
 
     /// The account's Cloud machines (`cloud.machine.list`, as `LiveCloudWorkspaces` reads it):
     /// listed beside the Macs, the running ones dialed lazily like Macs. A machine that left
     /// the list (deleted) closes its link and its rows go; one that stopped running closes
     /// its link and keeps its rows as last known.
-    /// `fromRead`: the machines come from a list read just made (not a republish of the last one):
-    /// a machine whose carrier dropped may be dialed again once such a read still says it runs.
-    public func applyCloudMachines(_ machines: [MacDevice], fromRead: Bool = false) {
+    /// `fromRead`: the machines come from a list read that succeeded just now (not a republish of
+    /// the last one, not a failed or cancelled read): a machine whose carrier dropped may be dialed
+    /// again once such a read still says it runs. `readStamp` (``cloudReadStamp`` when the read
+    /// began) limits that to the holds placed before the read; nil lifts every hold.
+    public func applyCloudMachines(_ machines: [MacDevice], fromRead: Bool = false, readStamp: Int? = nil) {
         let machines = machines.filter(\.isCloud)
-        if fromRead { cloudDropHolds = [] }
+        if fromRead {
+            let stamp = readStamp ?? Int.max
+            cloudDropHolds = cloudDropHolds.filter { $0.value > stamp }
+        }
         let before = Set(listedCloudMachines.map(\.id))
         listedCloudMachines = machines
         // A refusal that the list has since changed (paused, gone, started again) no longer holds.
@@ -183,8 +188,15 @@ extension LiveCoordinator {
     /// Every terminal of `session` releases its size, together, before its link closes.
     static func releaseTerminals(_ session: MacSession) async {
         // Started together, so the whole release takes one 2 s bound, not one per terminal.
-        let releases = session.terminals.compactMap(\.session).map { terminal in
-            Task { @MainActor in await terminal.releaseBeforeLinkCloses() }
+        let attaches = session.attachesAtClose
+        let releases = session.terminals.compactMap(\.session).compactMap { terminal -> Task<Void, Never>? in
+            guard let attaches else {
+                return Task { @MainActor in await terminal.releaseBeforeLinkCloses() }
+            }
+            // A forgotten session: only a terminal still on the attach it had then (not detached
+            // then, and not attached again since by the session that adopted it).
+            guard case .some(.some(let attach)) = attaches[ObjectIdentifier(terminal)] else { return nil }
+            return Task { @MainActor in await terminal.releaseBeforeLinkCloses(onlyThrough: attach) }
         }
         for release in releases { await release.value }
     }

@@ -23,11 +23,13 @@ extension LiveCoordinator {
 
     /// Connects a new Mac session to the coordinator.
     func wire(_ session: MacSession) {
+        // A Cloud machine whose carrier dropped is not dialed until a fresh list read says it still
+        // runs (``cloudDropHolds``): the controller asks before every dial, so its own retry after
+        // the drop cannot start a machine that just idle-paused, and a held dial is skipped quietly
+        // (not counted as a failed dial).
+        session.link.dialHeld = { [weak self] macID in self?.cloudDropHolds[macID] != nil }
         session.link.endpoint = { [weak self] macID in
-            // A Cloud machine whose carrier dropped is not dialed until a fresh list read says it
-            // still runs (``cloudDropHolds``): every dial asks here first, so the controller's own
-            // retry after the drop cannot start a machine that just idle-paused.
-            guard let self, !self.cloudDropHolds.contains(macID), let teamID = self.registeredTeamID else { return nil }
+            guard let self, let teamID = self.registeredTeamID else { return nil }
             return LinkEndpoint(baseURL: self.api.baseURL, teamID: teamID, deviceID: self.identity.link, macDeviceID: macID)
         }
         session.link.onLink = { [weak self, weak session] link in
@@ -175,11 +177,16 @@ extension LiveCoordinator {
             // paused machine for a person's dial, so a blind redial would undo an idle pause.
             // Only the session that still holds the machine: a replaced one's drop never holds its successor.
             if session.isCloud, session.link.target != nil, session.fedData, sessions[macID] === session {
-                cloudDropHolds.insert(macID)
+                holdCloudDial(macID)
                 onCloudLinkDropped?(macID)
                 Task { @MainActor [weak self, weak session] in
                     guard let self, let session, self.sessions[macID] === session else { return }
-                    if self.cloudDropHolds.contains(macID) { self.applyLinks() }
+                    // Its link closes now (not only when the team's links are next applied); the
+                    // read that lifts the hold targets it again.
+                    if self.cloudDropHolds[macID] != nil {
+                        session.link.send(.target(nil))
+                        self.applyLinks()
+                    }
                 }
             }
             Task {
@@ -585,10 +592,14 @@ extension LiveCoordinator {
         // one that made the terminal: a session the coordinator replaced for the same machine (a
         // team switch, Retry) is gone, and a cached terminal page must reattach on the new one.
         let machineID = owner.macID
+        // The link this terminal last opened its channel on: a channel end reattaches it only when a
+        // different link serves its machine now (not its own link, whose drop it learns of first).
+        let lastLink = AttachedLink()
         let terminal = DaemonTerminalSession(surface: surface, terminalID: terminalID, programName: program, clientInfo: info, open: { [weak self] in
             guard let link = await self?.currentServedLink(machineID) else {
                 throw LinkError(code: "no-link", message: "Not connected to the Mac")
             }
+            lastLink.set(ObjectIdentifier(link))
             let channel = try await link.openChannel(service: "daemon", args: [:])
             return DaemonClient(channel: channel)
         }, openInput: { [weak self] in
@@ -605,7 +616,8 @@ extension LiveCoordinator {
         // Its channel ended while a newer session already serves its machine (Retry, a team switch):
         // that session reattached its terminals before this one dropped, so reattach this one now.
         terminal.onChannelEnded = { [weak self, weak terminal] in
-            guard let self, let terminal, let current = self.sessions[machineID], current.servedLink != nil,
+            guard let self, let terminal, let current = self.sessions[machineID], let served = current.servedLink,
+                  ObjectIdentifier(served) != lastLink.get(),
                   current.terminals.contains(where: { $0.session === terminal }) else { return }
             terminal.reconnect()
         }
@@ -1212,3 +1224,12 @@ final class MultiMacFeedActions: FeedActions {
     }
 }
 #endif
+
+/// The link a terminal last opened its daemon channel on (set off the main actor by its opener).
+final class AttachedLink: @unchecked Sendable { // crash-allow: `id` is touched only under `lock`
+    private let lock = NSLock()
+    private var id: ObjectIdentifier?
+
+    func set(_ id: ObjectIdentifier) { lock.withLock { self.id = id } }
+    func get() -> ObjectIdentifier? { lock.withLock { id } }
+}

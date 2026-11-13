@@ -27,6 +27,8 @@ public final class LinkController {
     @ObservationIgnored private let dialer: any MacLinkDialer
     /// Resolves a Mac id to a dial endpoint (nil until the phone is registered).
     @ObservationIgnored public var endpoint: @MainActor (String) -> LinkEndpoint? = { _ in nil }
+    /// Whether a dial to this id is held off for now (``LiveCoordinator`` Cloud drop holds).
+    @ObservationIgnored public var dialHeld: @MainActor (String) -> Bool = { _ in false }
     @ObservationIgnored private let accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
     /// The last dial was refused with 401: the next dial mints a fresh token.
     @ObservationIgnored private var refreshTokenNextDial = false
@@ -211,6 +213,12 @@ public final class LinkController {
         case .dial(let generation, let macID, let transport):
             dialTask?.cancel()
             retryTask?.cancel()
+            // Held by the coordinator (a Cloud machine whose carrier dropped, until a fresh list read
+            // says it still runs): no dial, and no failure counted; the coordinator closes the link.
+            if dialHeld(macID) {
+                events.dialSkipped(macID: macID)
+                return
+            }
             guard var endpoint = endpoint(macID) else {
                 events.dialSkipped(macID: macID)
                 send(.dialFailed(generation: generation, reason: "not registered yet"))
