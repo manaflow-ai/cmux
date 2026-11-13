@@ -237,8 +237,10 @@ fn streams_that_came_before_their_terminals_give_the_slots_back() {
 /// its terminal's seat: it is open already, so it enters above the limit
 /// (`TerminalLane::enter`). Each later claim counts such connections: above
 /// the limit and at the limit a stream does not start and the error names
-/// the limit; one place under the limit, the stream starts. Each step is a
-/// count of the lane, with no clock.
+/// the limit; one place under the limit, the stream starts. Three of the four
+/// refusals come with fewer than 256 connections that claimed their place,
+/// so they prove that a claim counts the early ones. Each step is a count of
+/// the lane, with no clock.
 #[test]
 fn a_long_lane_above_its_limit_refuses_each_claim_until_it_is_under_it() {
     const EARLY: u64 = 3;
@@ -285,12 +287,16 @@ fn a_long_lane_above_its_limit_refuses_each_claim_until_it_is_under_it() {
         assert_eq!(held(&connections), (1, 1, lane), "a refused claim changes no count");
     };
     refused_with_the_bound(LONG + EARLY);
-    early.pop();
+    // 255 that claimed their place and the 3 early ones: a claim that did not
+    // count the early ones would get a place here.
+    long.pop();
     refused_with_the_bound(LONG + EARLY - 1);
-    early.clear();
+    early.pop();
+    refused_with_the_bound(LONG + EARLY - 2);
+    early.pop();
     refused_with_the_bound(LONG);
 
-    long.pop();
+    early.clear();
     assert_eq!(held(&connections), (1, 1, LONG - 1), "one place under the limit");
     start_stream(&next).expect("the lane is under its limit: the claim is taken");
     assert!(next.lease().is_long());
