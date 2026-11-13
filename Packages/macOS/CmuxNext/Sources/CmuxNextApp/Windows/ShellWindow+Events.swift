@@ -65,4 +65,6 @@ extension ShellWindow {
         cursorRectHold?.windowKeyStateWillChange(self)
         super.resignKey()
     }
+
+    @objc func hasKeyAppearance() -> Bool { NSApp.isActive } // PROBE, never merges: a private AppKit selector (Chromium's NativeWidgetMacNSWindow overrides it too)
 }

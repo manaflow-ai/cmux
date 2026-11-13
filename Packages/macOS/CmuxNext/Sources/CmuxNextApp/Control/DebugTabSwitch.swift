@@ -69,10 +69,7 @@ enum DebugTabSwitch {
 }
 
 extension SwitchFrameTimer {
-    /// A debug socket method over this timer (`debug.tab_switch`, `debug.new_workspace`): `action`
-    /// `start` or `stop` (else a read), then whether it records and its samples under `key`, each
-    /// with its content `kind` when one was set, and `confirms_ms` (the daemon's asynchronous confirms).
-    /// `key_changes: true` at `start`: the rows of the `stop` answer have their key window changes (`SwitchKeyChanges`) from the recording's `BenchSpans`.
+    /// A debug socket method over this timer (`debug.tab_switch`, `debug.new_workspace`): `action` `start` or `stop` (else a read), then whether it records and its samples under `key`, each with its content `kind` when one was set, and `confirms_ms` (the daemon's asynchronous confirms). `key_changes: true` at `start`: the rows of the `stop` answer have their key window changes (`SwitchKeyChanges`) from the recording's `BenchSpans`.
     func handle(_ params: [String: JSONValue], key: String) -> JSONValue {
         let action = params["action"]?.stringValue
         if action == "start" { start(); if params["key_changes"]?.boolValue == true { placeRows(); BenchSpans.begin() } }
@@ -82,6 +79,7 @@ extension SwitchFrameTimer {
             if index < kinds.count, kinds[index] != "unknown" { row["kind"] = .string(kinds[index]) }
             return .object(row)
         }
-        return ["recording": .bool(isRecording), key: .array(rows), "confirms_ms": .array(confirms.map { .number($0) })]
+        let probe = PointerHover.keyProbe(reset: action == "start").mapValues { JSONValue.number(Double($0)) } // PROBE, never merges
+        return ["recording": .bool(isRecording), key: .array(rows), "confirms_ms": .array(confirms.map { .number($0) }), "key_probe": .object(probe)]
     }
 }

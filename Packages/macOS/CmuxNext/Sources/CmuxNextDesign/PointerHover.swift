@@ -239,6 +239,13 @@ public final class PointerHover: NSObject {
         guard keyObserver == nil else { return }
         keyObserver = KeyWindowObserver()
     }
+
+    /// PROBE, never merges: how the key notices came since the last reset (`KeyWindowObserver.probe`).
+    public static func keyProbe(reset: Bool) -> [String: Int] {
+        let counts = keyObserver?.probe ?? [:]
+        if reset { keyObserver?.probe = [:] }
+        return counts
+    }
 }
 
 /// What a key-window change does to hover (`PointerHover`).
@@ -287,6 +294,10 @@ final class KeyWindowObserver {
     /// parent, by the page window's identifier. It keeps no window alive, a window that closes
     /// leaves it, and each key change that sees the page with a parent writes the entry again.
     private var homes: [ObjectIdentifier: PageHome] = [:]
+    /// PROBE, never merges: counts of the key notices by how they came.
+    var probe: [String: Int] = [:]
+
+    private func note(_ name: String) { probe[name, default: 0] += 1 }
 
     fileprivate init() {
         let window: @MainActor (Notification) -> NSWindow? = { $0.object as? NSWindow }
@@ -311,6 +322,8 @@ final class KeyWindowObserver {
     /// this pass, or no window of the app takes the key.
     private func resign(_ window: NSWindow?) {
         guard let window else { return }
+        note("resign")
+        if resigned != nil { note("resign_after_resign") }
         PointerHover.keyChanged(in: window)
         // A second resign with no become between them: the first window's key left the app's windows.
         if let earlier = resigned, earlier !== window { PointerHover.refresh(in: earlier) }
@@ -327,10 +340,16 @@ final class KeyWindowObserver {
         let (old, oldHome) = (resigned, resignedHome)
         (resigned, resignedHome) = (nil, nil)
         guard let window else { return }
+        note("become")
+        note(old == nil ? "become_alone" : "pair_in_one_pass")
         PointerHover.keyChanged(in: window)
         let newHome = home(of: window)
         if let old {
-            if let oldHome, oldHome === newHome { return }
+            if let oldHome, oldHome === newHome {
+                note(newHome === window ? "family_to_window" : "family_to_page")
+                return
+            }
+            note("pair_recomputed")
             PointerHover.refresh(in: old)
         }
         PointerHover.refresh(in: window)
@@ -382,6 +401,7 @@ final class KeyWindowObserver {
     private func settle() {
         settles = false
         guard let window = resigned else { return }
+        note("resign_alone")
         (resigned, resignedHome) = (nil, nil)
         PointerHover.refresh(in: window)
     }
