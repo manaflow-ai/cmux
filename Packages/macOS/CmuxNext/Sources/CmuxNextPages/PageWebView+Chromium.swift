@@ -185,7 +185,7 @@ extension PageWebView {
         page.readyResources = { [weak self] url in self?.readyChromiumResource(url) }
         do {
             for (method, params) in ChromiumPageHostBridge.setupCalls(handlers: handlers,
-                                                                       documentScripts: [chromiumZoomScript] + scripts.sources) {
+                                                                       documentScripts: scripts.sources) {
                 _ = try await page.devTools(method, params: params)
             }
             if descriptor.isAgentPage {
@@ -310,6 +310,7 @@ extension PageWebView {
             }
             chromiumSession.bridge.rebind()
             documentCommitted()
+            chromiumSession.bridge.evaluate(chromiumZoomScript)
         case .finished:
             documentFinished()
         case .crashed:
