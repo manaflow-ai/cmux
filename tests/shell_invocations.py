@@ -1050,9 +1050,16 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
     program = words[start]
     if program.text.rsplit("/", 1)[-1] == "time" and (program.quoted or had_prefix_assignment or wrappers
                                                        or "/" in program.text):
-        # A textual `time` is an external command after assignments or another wrapper; its availability and what it
-        # executes depend on PATH, so do not credit its operand as certain.
-        certain, any_program = False, True
+        # A textual `time` is an external command after assignments or another wrapper. Its operand is the program
+        # name passed to that executable, but whether the wrapper exists is uncertain.
+        operand = start + 1
+        while operand < len(words) and words[operand].text == "-p" and not words[operand].quoted:
+            operand += 1
+        if operand >= len(words):
+            return Invocation([program.text], False, False)
+        target = words[operand]
+        return Invocation([target.text.removeprefix("./"), *(w.text for w in words[operand + 1:])], False,
+                           _opaque(target))
     if _opaque(program) or program.text.startswith("$"):
         certain, any_program = False, True
     if program.text in _RUNS_ARGUMENTS or program.text in defined:
