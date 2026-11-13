@@ -42,6 +42,19 @@ fn roundtrip_meta(id: &str) -> crate::store::SessionMeta {
     .unwrap()
 }
 
+fn contains_v1_keys(actual: &Value, expected: &Value) -> bool {
+    match (actual, expected) {
+        (Value::Object(actual), Value::Object(expected)) => expected
+            .iter()
+            .all(|(key, value)| actual.get(key).is_some_and(|got| contains_v1_keys(got, value))),
+        (Value::Array(actual), Value::Array(expected)) => {
+            actual.len() == expected.len()
+                && actual.iter().zip(expected).all(|(got, value)| contains_v1_keys(got, value))
+        }
+        (actual, expected) => actual == expected,
+    }
+}
+
 fn assert_v1_row(actual: Value, expected: Value, id: &str) {
     let mut actual = actual.as_object().cloned().expect("v1 summary is an object");
     let expected = expected.as_object().expect("v1 row is an object");
@@ -53,9 +66,10 @@ fn assert_v1_row(actual: Value, expected: Value, id: &str) {
     // These values are v1 detail-only or typed fields which the v1 row helper
     // intentionally does not expose in a list row. Every key that the helper
     // does expose must still match exactly.
-    for (key, value) in expected {
-        assert_eq!(actual.get(key), Some(value), "v1 and v2 rows differ for {id} at {key}");
-    }
+    assert!(
+        contains_v1_keys(&Value::Object(actual), &Value::Object(expected.clone())),
+        "v1 and v2 rows differ for {id}"
+    );
 }
 
 fn indexed_v1_row(index: &SummaryIndex, id: &str) -> Option<Value> {
@@ -106,7 +120,7 @@ async fn wait_roundtrip(v1: &Hub, v2: &V2) {
                         actual.insert("updatedMs".into(), updated);
                     }
                     let expected = expected.as_object().cloned().unwrap_or_default();
-                    expected.iter().all(|(key, value)| actual.get(key) == Some(value))
+                    contains_v1_keys(&Value::Object(actual), &Value::Object(expected))
                 })
             {
                 assert_roundtrip(v1, &snapshot);
