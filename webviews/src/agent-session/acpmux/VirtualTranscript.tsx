@@ -74,10 +74,10 @@ import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type TailGlide } from "./conversation/tailGlide";
 import { finishCarry, notePinPass, pinLiveLine, refreshPinned } from "./conversation/pinnedLiveLine";
 import {
-  ARRIVAL_EASE,
-  arrivalStepMs,
   createFollowChase,
   type FollowChase,
+  ARRIVAL_EASE,
+  arrivalStepMs,
   sendMotionMs,
 } from "./conversation/followChase";
 import { followMotion } from "./conversation/followMotion.experiment";
@@ -90,7 +90,7 @@ import { followTrace } from "./followTrace";
 import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
-import { noteTranscriptMount, noteReplyUnpainted } from "./flickerLog";
+import { noteReplyUnpainted, noteTranscriptMount } from "./flickerLog";
 import { finalReplyId, REPLY_SETTLE_MS, replyUnpainted } from "./conversation/replyPainted";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { type Translate, useT } from "./i18n";
