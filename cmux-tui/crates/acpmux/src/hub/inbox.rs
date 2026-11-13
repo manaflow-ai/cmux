@@ -2141,8 +2141,11 @@ impl Hub {
             if removed.contains(&item.prompt_id) {
                 inbox.removed.insert(item.prompt_id.clone());
             }
+            // One taken out here since is out too, its record maybe not in the log yet (it
+            // waits while a restore owns the chat: review of #37284 at 07f76930, F1).
             if item.prompt_id.is_empty()
                 || removed.contains(&item.prompt_id)
+                || inbox.removed.contains(&item.prompt_id)
                 || inbox.trimmed.contains(&item.prompt_id)
                 || inbox.items.iter().any(|i| i.prompt_id == item.prompt_id)
             {
