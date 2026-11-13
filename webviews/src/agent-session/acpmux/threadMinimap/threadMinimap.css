@@ -67,7 +67,7 @@
   background: linear-gradient(to top, color-mix(in srgb, var(--agent-muted) 18%, transparent), transparent);
 }
 .acpmux-minimap__rail[data-shadow-variant="inset"]::after {
-  height: 16px;
+  height: var(--ds-space-4);
   box-shadow: inset 0 -1px var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 30%, transparent);
   background: linear-gradient(to top, color-mix(in srgb, var(--agent-text) 15%, transparent), transparent);
 }
