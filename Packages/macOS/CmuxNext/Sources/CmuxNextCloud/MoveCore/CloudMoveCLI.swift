@@ -256,10 +256,11 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// a start waiting on it goes on, and an abandoned copy is answered again by Rust's next warm.
     /// With `claimed`, it asks no warm: a reserve's or a claim's answer named that machine, and Rust answers the copy onto
     /// it unless a copy onto it is already in flight or given (keyed per machine, cmux-tui `spare_warm`).
+    /// With `ready`, likewise no warm: the platform said that spare became ready, and Rust answers its copy the same way.
     public func startChatWarmSpare(platform: URL, account: String, access: String, install: String, end: SpareWarmEnd? = nil,
-                                   claimed: String? = nil) async -> SpareWarm? {
+                                   claimed: String? = nil, ready: String? = nil) async -> SpareWarm? {
         struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
-        let request = Self.spareWarmRequest(platform: platform, account: account, end: end, claimed: claimed)
+        let request = Self.spareWarmRequest(platform: platform, account: account, end: end, claimed: claimed, ready: ready)
         guard let payload = try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]),
               let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation",
                                         stdin: Data((access + "\n" + install + "\n").utf8)),
@@ -270,13 +271,13 @@ public nonisolated struct CloudMoveCLI: Sendable {
     }
 
     /// The `warm-spare` request: a warm, the end of its copy (`end`), or the copy a reserve's or claim's machine asks for (`claimed`).
-    static func spareWarmRequest(platform: URL, account: String, end: SpareWarmEnd?, claimed: String?) -> [String: Any] {
+    static func spareWarmRequest(platform: URL, account: String, end: SpareWarmEnd?, claimed: String?, ready: String? = nil) -> [String: Any] {
         var request: [String: Any] = ["platform": platform.absoluteString, "account": account]
         switch end {
         case .installed(let machine): request["installed"] = machine
         case .finished(let machine): request["finished"] = machine
         case .abandoned(let machine): request["abandoned"] = machine
-        case nil: request["claimed"] = claimed
+        case nil: request["claimed"] = claimed; request["ready"] = claimed == nil ? ready : nil
         }
         return request
     }

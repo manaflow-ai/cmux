@@ -209,6 +209,8 @@ cmux-relay = { path = "../cmux-relay" }
 # Paused-clock tests of the Cloud dial's handshake wait.
 tokio = { workspace = true, features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
+# `read_timeout_or_ended`: a read timeout for a test socket whose peer can have closed first.
+cmux-tui-platform = { workspace = true, features = ["test-support"] }
 rusqlite.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]

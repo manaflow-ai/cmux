@@ -1921,3 +1921,9 @@
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker[data-kind="computer"]:has(.acpmux-team-tag) { flex-shrink: 1; }
 .acpmux-location-picker[data-kind="computer"] .acpmux-location-button:has(> .acpmux-team-tag) { max-width: none; }
 .acpmux-location-button:has(> .acpmux-team-tag) > .acpmux-location-label { flex: none; overflow: visible; }
+
+/* Composer chips keep the MacBook's wide aspect; menus keep their shared icon column. */
+:is(.acpmux-location-button, .acpmux-location-readonly) > .acpmux-icon.acpmux-macbook-icon {
+  width: calc(var(--ui-ghost-icon-size) * 1.25);
+  height: var(--ui-ghost-icon-size);
+}

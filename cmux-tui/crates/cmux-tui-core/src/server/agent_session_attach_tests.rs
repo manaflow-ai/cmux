@@ -1608,6 +1608,13 @@ fn typing_and_view_go_to_the_pinned_session_and_presence_streams_back() {
             "_acpmux/view",
             json!({"sessionId": SESSION, "visible": false}),
         ),
+        // The person away from the chat on screen (agent-session-attention-v1): acpmux keeps its
+        // turns unread, left off at the seq of their last input.
+        (
+            json!({"cmd":"agent-session-view","surface":surface,"visible":true,"attending":false,"seen_seq":41}),
+            "_acpmux/view",
+            json!({"sessionId": SESSION, "visible": true, "attending": false, "seenSeq": 41}),
+        ),
     ] {
         let reply = client.request(frame);
         assert_eq!(reply["ok"], json!(true), "{reply}");
