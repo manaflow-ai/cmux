@@ -152,6 +152,9 @@ pub(crate) struct State {
     pub(crate) initialized: bool,
     /// A background seed is reading the journal (`views.rs` `seed_time_breakdown`): at most one.
     pub(crate) seeding: bool,
+    /// A turn's end asked for the chat's one fold while a seed ran: that seed runs it before it
+    /// lets go, unless it installed a breakdown (review of #42481, F2: the ask was dropped).
+    pub(crate) backfill_asked: bool,
     /// The newest record the saved copy (`FILE`) covers: 0 when none was saved.
     pub(crate) saved_seq: u64,
     reducer: Reducer,
