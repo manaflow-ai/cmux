@@ -180,3 +180,44 @@ launched with that model and effort, and its requests carry the route id to the 
 connection first, then the rest of the order when `spread` is on, then the organization's. A
 connection that does not serve the model is skipped, never silently swapped for another model.
 If nothing serves it, the chat shows the Set up Cloud card above, naming the model.
+
+## Revision 2 (2026-11-12, Austin): no gateway; connections go straight to the machine
+
+Product decision: Cloud chats work through connections alone, with no inference gateway machine
+and no Mac gateway in the path. This supersedes the "Gateway" section and the
+`x-cmux-connection` header seam above (lane B's gateway work is not part of the integration).
+
+Connections (all held on the Mac: acpmux routes + Keychain references):
+- **Claude**: `claude-token`, the long-lived token from Claude Code's own `claude setup-token`
+  (the person runs it; cmux never implements Claude's OAuth). Settings > Models > Claude Code opens
+  a cmux terminal tab running `claude setup-token` and a paste field; the pasted value is checked
+  (`sk-ant-oat` prefix, no whitespace), stored in the Keychain, and only `keychain:ITEM` reaches
+  acpmux (`_acpmux/connections/claude_token.add {secret, label?}` -> state; kind `claude-token`,
+  provider anthropic, family claude). An Anthropic API key (`api-key`, anthropic) also serves Claude.
+- **Codex**: `chatgpt-plan` (Sign in with ChatGPT, lane A as built) or an OpenAI API key.
+- The existing Mac CLI logins (`codex-login`, `claude-login`) stay listed for local chats but do not
+  serve Cloud (`serves_cloud: false`) in this revision.
+
+Delivery (`_acpmux/connections/credential {id}` -> `{ "family", "kind", "env": {NAME: value},
+"expires_at": unix|null }`, local unix socket only, never logged):
+- claude-token -> `CLAUDE_CODE_OAUTH_TOKEN`; anthropic key -> `ANTHROPIC_API_KEY`;
+  openai key -> `OPENAI_API_KEY`; chatgpt-plan -> `CMUX_CHATGPT_ACCESS_TOKEN` (fresh, >= 10 min left).
+- At Cloud chat start the app picks the connection (picker's account if it serves Cloud, else the
+  first enabled Cloud-serving connection of that family in order), reads its credential, and sends
+  it over the machine session to the machine's acpmux with the agent launch. The machine's acpmux
+  keeps it in memory for that agent only (never on disk, never in the machine's model-plane env)
+  and launches the agent direct to the provider: it unsets the coderouter `ANTHROPIC_BASE_URL` /
+  `OPENAI_BASE_URL` and placeholder keys for that agent. Codex with chatgpt-plan runs with the
+  OpenAI-documented provider (`model_provider="openai_chatgpt_plan"`, base_url
+  `https://api.openai.com/v1`, `env_key="CMUX_CHATGPT_ACCESS_TOKEN"`, `wire_api="responses"`,
+  `requires_openai_auth=false`, `supports_websockets=false`, no `tool_search`).
+- ChatGPT refresh: the Mac holds the refresh token. While the app runs it pushes a new access token
+  to each machine with a live chatgpt-plan agent about 10 minutes before expiry
+  (`agent/credentials.update` on the machine's acpmux); the machine's acpmux restarts that Codex
+  app-server with the new token and resumes the thread (`thread/resume`), as OpenAI documents. If
+  the Mac is away past expiry, the chat says it needs this Mac to reconnect ChatGPT.
+- With no Cloud-serving connection for the family, the chat shows the Set up Cloud card
+  (Continue with ChatGPT / Set up Claude / Add an API key / Open Settings) and starts by itself
+  once one is added. Without a credential the machine falls back to today's coderouter path.
+- Organization: team shared keys (`team.agent_key.*`, served by the platform edge) stay listed;
+  the team gateway row is removed from the page.
