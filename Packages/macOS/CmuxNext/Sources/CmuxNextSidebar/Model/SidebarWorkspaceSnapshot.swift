@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextIcons
 package import Foundation
 
 /// The saved identity and appearance of a workspace row, and what sets its height and its Done fold: the
@@ -113,7 +114,8 @@ package nonisolated struct SidebarWorkspaceSnapshot: Codable, Hashable, Sendable
         // Off a page row, a favicon is the workspace's own image or SVG icon: its loading symbol keeps the column.
         // A row whose focused tab is a page (beside a chat or terminal) shows that page's favicon.
         case .favicon? where ws.kind != .browser && !Self.focusesPage(ws): icon = "symbol:photo"
-        case .favicon?, .pagePlaceholder?, .page?: icon = Self.pageIcon
+        case let .page(name)?: icon = Self.pageIcon + name.rawValue
+        case .favicon?, .pagePlaceholder?: icon = Self.pageIcon
         case nil: break
         }
         self.init(id: ws.id.rawValue, machineID: ws.machineID.rawValue, title: ws.title,
@@ -178,6 +180,8 @@ package nonisolated struct SidebarWorkspaceSnapshot: Codable, Hashable, Sendable
         case "symbol": return .symbol(rest, tint: tint.flatMap(GroupColor.init(rawValue:)))
         case "swatch": return GroupColor(rawValue: rest).map(WorkspaceIcon.swatch)
         case "emoji": return .emoji(rest, chip: tint.flatMap(GroupColor.init(rawValue:)))
+        // A cmux page's own icon (`WorkspaceIcon.page`): a Cloud desktop restores with its cloud, not the globe.
+        case "page": return .page(IconName(rest))
         default: return nil
         }
     }

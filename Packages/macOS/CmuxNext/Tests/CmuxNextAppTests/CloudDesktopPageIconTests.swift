@@ -21,11 +21,15 @@ import Testing
         #expect(BrowserTabIconState.pageIcon(mac.url) == .machineRemote)
     }
 
-    /// A row whose page is a cmux page with no favicon draws no site globe.
-    @Test func aCmuxPageRowDrawsNoSiteGlobe() throws {
-        let cloud = try #require(Self.cloudDesktop)
-        let row = try SidebarFaviconPlaceholderTests.row(id: 1, url: cloud.url.absoluteString, hasFavicon: false)
-        #expect(row.icon != .pagePlaceholder, "a Cloud desktop row drew the site globe")
+    /// A relaunch's saved row keeps the Cloud icon: it never comes back as the globe before the live tree arrives.
+    @Test func aCloudDesktopRowRestoresWithTheCloudIcon() throws {
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let row = SidebarWorkspace(id: WorkspaceID("cloud"), title: "chat-800dd580cab0487c", icon: .page(.cloud), kind: .browser)
+        let saved = SidebarSnapshot(sections: [SidebarSection(kind: .machine(machine), nodes: [.workspace(row)])],
+                                    profiles: [], activeProfileID: nil)
+        let decoded = try JSONDecoder().decode(SidebarSnapshot.self, from: JSONEncoder().encode(saved))
+        guard case let .workspace(restored)? = decoded.sidebarSections.first?.nodes.first else { Issue.record("no row"); return }
+        #expect(restored.icon == .page(.cloud))
     }
 
     /// The page face's icon is the row's icon and its hover card tab's: the Cloud icon, where the globe was.

@@ -398,13 +398,8 @@ public struct SidebarMapping {
 
     /// Whether `tab` is a site page (a browser tab on a host, not a New Tab page): the tabs that show a favicon.
     static func isSite(_ tab: TabModel?, newTabPages: Set<String>) -> Bool {
-        guard let tab, tab.kind == .browser, !newTabPages.contains(tab.id), !isCmuxPage(tab.url) else { return false }
+        guard let tab, tab.kind == .browser, !newTabPages.contains(tab.id) else { return false }
         return pageHost(tab.url) != nil
-    }
-
-    /// Whether `url` is a cmux page (`cmux://history`, `cmux://remote-view?...`): it has its own icon, never a site's.
-    static func isCmuxPage(_ url: String?) -> Bool {
-        url.flatMap { URL(string: $0)?.scheme?.lowercased() } == "cmux"
     }
 
     /// A page's host for the hover card's tab rows ("github.com"); nil for a blank or local page.
