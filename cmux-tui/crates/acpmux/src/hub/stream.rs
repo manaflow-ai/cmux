@@ -227,10 +227,15 @@ impl Hub {
                 }
                 _ => {
                     // A checklist is the turn's (the pane starts a new one at each prompt and turn).
-                    let turn = turn_id.as_deref().unwrap_or("-");
-                    if st.plan_turn.as_deref() != Some(turn) {
-                        st.plan_turn = Some(turn.to_owned());
-                        st.plan_shown = false;
+                    // Only an update read with its turn (a plan or tool call) can show the turn
+                    // changed: a usage tick, a call's update or a thought between a checklist and
+                    // its next update reads none, and is never a new turn's start.
+                    if matches!(kind, "plan" | "tool_call") {
+                        let turn = turn_id.as_deref().unwrap_or("-");
+                        if st.plan_turn.as_deref() != Some(turn) {
+                            st.plan_turn = Some(turn.to_owned());
+                            st.plan_shown = false;
+                        }
                     }
                     let mut plan_shown = st.plan_shown;
                     if cuts_reply(kind, update, &mut plan_shown) {

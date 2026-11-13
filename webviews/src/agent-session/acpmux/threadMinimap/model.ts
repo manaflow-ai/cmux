@@ -463,6 +463,11 @@ export const TRANSCRIPT_FADE_RAMP = 96;
 export const transcriptFadeReach = (distance: number) =>
   Math.max(0, Math.min(1, Math.round((distance / TRANSCRIPT_FADE_RAMP) * 100) / 100));
 
+/// The compact rail's bottom shadow follows the transcript's distance from its latest-message
+/// starting point. Keep this as a named model value so the rail and its gallery/tests share the same
+/// 96 px ramp as the transcript edge, including the latest-position deadband applied by the caller.
+export const railBottomShadowReach = (distanceFromLatest: number) => transcriptFadeReach(distanceFromLatest);
+
 /// Where the rail's list scrolls (its `scrollTop`) so the band, the prompts on screen (`first` to
 /// `last`), shows whole and clear of the fades: `current` while it already does; else the band's
 /// first row a third of the way down, as the Codex rail puts it, moved as little as it takes to show

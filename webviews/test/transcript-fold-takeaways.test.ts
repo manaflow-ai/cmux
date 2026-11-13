@@ -1,10 +1,19 @@
-// A completed turn folds its work and its earlier replies into one disclosure; only the final answer
-// stays in sight, as Codex ends a turn (Lawrence, 2026-11-11). The arms that keep every reply in sight
-// (Leo, 2026-11-06) are tested in turn-fold-keeps-replies.test.ts.
+// A completed turn folds its work into one disclosure; substantive replies stay in sight while short
+// narration folds with it. The arms that keep every reply in sight (Leo, 2026-11-06) are tested in
+// turn-fold-keeps-replies.test.ts.
 // Short narration between steps folds with them. While running, intermediate dialogue remains visible.
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { isTakeaway, turnFoldFor, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { isTakeaway, turnFoldFor, turnView, toggleTurnFold } from "../src/agent-session/acpmux/conversation/turns";
+
+/// These cases read a steered turn as one fold (turnFoldSteered `nested-open`); its in-order default,
+/// each message that came in mid-turn ending a fold, is turn-fold-in-order.test.ts's.
+const oneFoldPerTurn = () => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "turn-fold-steered": "nested-open" };
+};
+afterEach(() => {
+  if (globalThis.cmuxExperiments) delete (globalThis.cmuxExperiments as Record<string, string>)["turn-fold-steered"];
+});
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -16,7 +25,13 @@ const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRo
 });
 const ran = (id: string) =>
   row(id, "activity", {
-    items: [{ kind: "tool", text: "", tool: { id, title: id, kind: "execute", status: "completed" } }],
+    items: [
+      {
+        kind: "tool",
+        text: "",
+        tool: { id, title: id, kind: "execute", status: "completed" },
+      },
+    ],
   });
 const say = (id: string, text: string) => row(id, "assistant", { text });
 /// A user-facing answer with a list, as in Leo's screenshot (synthetic text).
@@ -46,9 +61,14 @@ const leosTurn = () => [
   summary(),
 ];
 
-test("only the final answer stays in sight; every earlier answer folds with the work, as Codex does", () => {
-  // Lawrence, 2026-11-11 standup: the closed fold "does not hide enough stuff" (turnFoldReplies `answer`).
-  expect(drawn(leosTurn())).toEqual(["user:u", "worked:worked-u", "assistant:second", "turnSummary:end"]);
+test("substantive answers stay in sight; short narration folds with the work", () => {
+  expect(drawn(leosTurn())).toEqual([
+    "user:u",
+    "worked:worked-u",
+    "assistant:first",
+    "assistant:second",
+    "turnSummary:end",
+  ]);
 });
 
 test("the one fold opens every intermediate answer and command in order", () => {
@@ -57,23 +77,16 @@ test("the one fold opens every intermediate answer and command in order", () => 
     "user:u",
     "worked:worked-u",
     "activity:ran-1",
-    "activity:ran-2",
-    "activity:ran-3",
-    "activity:ran-4",
     "assistant:first",
     "activity:ran-5",
-    "activity:ran-6",
     "assistant:second",
     "turnSummary:end",
   ]);
-  expect(drawn(leosTurn(), new Set(["worked-u"])).slice(1, 7)).toEqual([
-    "worked:worked-u",
-    "activity:ran-1",
-    "activity:ran-2",
-    "activity:ran-3",
-    "activity:ran-4",
-    "assistant:first",
-  ]);
+  // Runs with nothing drawn between them are one line, holding every call in order (Leo, 2026-11-12,
+  // ask-bc2af01f6e: "how come these aren't folded?"; transcript-run-seams.test.ts).
+  const open = turnView(rows, new Set(["worked-u"]), {});
+  expect(open.find((shaped) => shaped.id === "ran-1")?.joined).toEqual(["ran-1", "ran-2", "ran-3", "ran-4"]);
+  expect(open.find((shaped) => shaped.id === "ran-5")?.joined).toEqual(["ran-5", "ran-6"]);
 });
 
 test("Find opens the fold that holds the row", () => {
@@ -92,7 +105,7 @@ test("Find opens the fold that holds the row", () => {
   ).toBe("worked-u");
 });
 
-test("short narration between tools folds with them", () => {
+test("short narration folds with the turn and remains separate from its tool groups when opened", () => {
   const rows = [
     row("u", "user"),
     ran("read"),
@@ -104,28 +117,68 @@ test("short narration between tools folds with them", () => {
     summary(),
   ];
   expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:final", "turnSummary:end"]);
-  // Opened, each short note joins the runs around it, as in a running turn (turns.ts mergeShortNotes).
   const open = turnView(rows, new Set(["worked-u"]));
-  expect(open.map((shaped) => shaped.id)).not.toContain("check");
-  expect(open.find((shaped) => shaped.id === "read")?.joined).toEqual(["read", "check", "grep", "running", "test"]);
+  expect(
+    open.filter((shaped) => shaped.kind === "activity" || shaped.kind === "assistant").map((shaped) => shaped.id),
+  ).toEqual(["read", "check", "grep", "running", "test", "final"]);
+  expect(open.find((shaped) => shaped.id === "check")?.text).toBe("Let me check the host next.");
+  expect(open.find((shaped) => shaped.id === "running")?.text).toBe("Both audits still running.");
 });
 
-test("long reply, then a tool, then 'Pushed.': the long reply folds with the work, 'Pushed.' ends the turn", () => {
+test("long reply, then a tool, then 'Pushed.': both replies stay visible", () => {
   const rows = [row("u", "user"), ran("read"), answer("reply"), ran("git push"), say("pushed", "Pushed."), summary()];
-  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:pushed", "turnSummary:end"]);
+  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:reply", "assistant:pushed", "turnSummary:end"]);
 });
 
-test("completed compactions and subagent reports fold, while a refusal stays available", () => {
+test("a substantive answer with a table stays visible before a tool and its short receipt", () => {
+  const substantive = say(
+    "answer-before-tool",
+    "Small is slower because startup dominates.\n\n| lane | time |\n| --- | ---: |\n| small | 14s |\n| huge | 3s |\n\nThe larger lane amortizes the setup cost.",
+  );
+  const rows = [row("u", "user"), substantive, ran("ask-lane"), say("receipt", "I sent the question."), summary()];
+  expect(drawn(rows)).toEqual([
+    "user:u",
+    "worked:worked-u",
+    "assistant:answer-before-tool",
+    "assistant:receipt",
+    "turnSummary:end",
+  ]);
+  // The live projection uses the same rows before a summary arrives; it must not lose the answer
+  // while the tool is still running, then the completed projection above must preserve it on reload.
+  expect(drawn(rows.slice(0, -1), new Set(), true)).toEqual([
+    "user:u",
+    "working:working-u",
+    "assistant:answer-before-tool",
+    "activity:ask-lane",
+    "assistant:receipt",
+    "thinking:thinking-live",
+  ]);
+});
+
+test("completed compactions fold, while subagent lifecycle lines and refusals stay available", () => {
   const rows = [
     row("u", "user"),
     ran("read"),
-    row("compacted", "compaction", { compaction: { state: "completed", preTokens: 123_000, postTokens: 13_000 } }),
+    row("compacted", "compaction", {
+      compaction: {
+        state: "completed",
+        preTokens: 123_000,
+        postTokens: 13_000,
+      },
+    }),
     row("cef-done", "subagentDone", { text: "CEF audit" }),
     row("refused", "notice", { text: "The prompt was refused" }),
     answer("final"),
     summary(),
   ];
-  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "notice:refused", "assistant:final", "turnSummary:end"]);
+  expect(drawn(rows)).toEqual([
+    "user:u",
+    "worked:worked-u",
+    "subagentDone:cef-done",
+    "notice:refused",
+    "assistant:final",
+    "turnSummary:end",
+  ]);
 });
 
 test("a running turn draws as before: nothing folds", () => {
@@ -153,6 +206,18 @@ test("what reads as a takeaway: long prose, a question, a list or a link; not sh
   expect(isTakeaway(say("e", "Opened [#123](https://example.com/123)."))).toBe(true);
   expect(isTakeaway(say("f", "word ".repeat(60)))).toBe(true);
   expect(isTakeaway(say("g", "one\ntwo\nthree\nfour"))).toBe(true);
+  expect(isTakeaway(say("h", "First sentence. Second sentence. Third sentence."))).toBe(true);
+  expect(isTakeaway(say("i", "First sentence. Second sentence."))).toBe(true);
+  expect(isTakeaway(say("j", "Let me check. Running the tests."))).toBe(false);
+  expect(isTakeaway(say("k", "Let me check. Running the tests. Reading the logs."))).toBe(true);
+  expect(isTakeaway(say("l", "Let me check. The cache is stale."))).toBe(true);
+  expect(isTakeaway(say("m", "Small is slower because startup dominates."))).toBe(true);
+  expect(isTakeaway(say("n", "lane | time\n--- | ---\nsmall | 14s"))).toBe(true);
+  expect(isTakeaway(say("o", "Running two tasks is faster than one."))).toBe(true);
+  expect(isTakeaway(say("p", "Reading from cache is faster than disk."))).toBe(true);
+  expect(isTakeaway(say("q", "Let me check the logs; the cache is stale."))).toBe(true);
+  expect(isTakeaway(say("r", "Both audits are running."))).toBe(false);
+  expect(isTakeaway(say("s", "Running the tests."))).toBe(false);
 });
 
 test("Find opens the right fold past a prompt that failed to send mid-turn", () => {
@@ -196,6 +261,7 @@ test("a stopped turn says so on its one Worked for line", () => {
 });
 
 test("Find opens the right fold for a row after a summary a steer continued", () => {
+  oneFoldPerTurn();
   const rows = [
     row("u", "user"),
     ran("tool1"),
@@ -210,6 +276,10 @@ test("Find opens the right fold for a row after a summary a steer continued", ()
   ];
   const folds = drawn(rows).filter((entry) => entry.startsWith("worked:"));
   expect(folds).toEqual(["worked:worked-u"]);
+  const opened = turnView(rows, toggleTurnFold(rows, new Set(), "worked-u"));
+  expect(opened.find((entry) => entry.id === "worked-u")?.foldOpen).toBe(true);
+  expect(opened.some((entry) => entry.id === "tool1")).toBe(true);
+  expect(opened.some((entry) => entry.id === "tool3")).toBe(true);
   expect(
     turnFoldFor(
       rows,

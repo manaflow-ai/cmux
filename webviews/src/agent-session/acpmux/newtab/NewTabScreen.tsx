@@ -85,12 +85,14 @@ import {
   profileRows,
   recentChatCards,
   screenRows,
-  searchWords,
   inStrip,
   shellEntry,
   shortHost,
   type CreateKind,
   type ScreenRow,
+  searchWords,
+  arrowStep,
+  stripStep,
 } from "./screenModel";
 import { RowGlyph } from "./RowGlyph";
 import { fitCreateStrip } from "./createStripFit";
@@ -619,6 +621,8 @@ export function NewTabScreen(props: Props) {
     else openHarnessesPage();
   };
   const wholeSelection = useRef(false);
+  /// The create strip action last selected (by ←, →, Tab or the arrows): ↓ and ↑ enter the strip there.
+  const stripKind = useRef<CreateKind | undefined>(undefined);
   const composing = useRef(false);
   const inputReported = useRef(false);
   const inputReadyReported = useRef<string | undefined>(undefined);
@@ -1654,6 +1658,14 @@ export function NewTabScreen(props: Props) {
     wholeSelection.current =
       state.value !== "" && state.selectionStart === 0 && state.selectionEnd === state.value.length;
     const plain = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+    // On a create strip action (one line under the rows), ← and → step along the strip.
+    const sideways = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : undefined;
+    const along = plain && sideways ? stripStep(rows, current, sideways) : undefined;
+    if (along !== undefined) {
+      event.preventDefault();
+      pick(along);
+      return;
+    }
     const completion =
       plain && state.selectionStart === state.value.length && state.selectionEnd === state.value.length
         ? inlineCompletion(typed, rows)
@@ -1681,11 +1693,15 @@ export function NewTabScreen(props: Props) {
     // Until the arrows pick a row (the top row typing lights is not a pick), a prompt of several
     // lines, wrapped ones too, keeps ↑ and ↓ for the caret, as in the chat's composer: the rows
     // take them from the caret's first (↑) or last (↓) line. Once a row is picked, the arrows step
-    // the rows.
+    // the rows, and the create strip as one line under them (arrowStep).
     const step = kept < 0 && movesCaretInPrompt(event, state, input) ? undefined : listStep(event);
     if (step && rows.length) {
       event.preventDefault();
-      pick(stepSelection(current, step, rows.length));
+      const leaving = rows[current];
+      if (leaving?.type === "create" && inStrip(leaving)) stripKind.current = leaving.kind;
+      const strip = rows.filter(inStrip);
+      const column = strip.findIndex((row) => row.type === "create" && row.kind === stripKind.current);
+      pick(arrowStep(rows, current, step, Math.max(0, column)));
     } else if (step && dismissed !== undefined && text) {
       // Down or Up on closed suggestions opens them again.
       event.preventDefault();
@@ -2610,7 +2626,7 @@ export function NewTabScreen(props: Props) {
             )}
             {rows.some(inStrip) && (
               // The create actions the rows don't list (screenModel.ts): options still, so the arrow
-              // keys and the native popup reach them, drawn as one quiet line.
+              // keys (↓ to the line, ← and → along it) and the native popup reach them, drawn as one quiet line.
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
               <div ref={stripRef} className="nt-create-strip" role="group" aria-label={nt("create.label")}>
                 {rows.map((row, index) =>
