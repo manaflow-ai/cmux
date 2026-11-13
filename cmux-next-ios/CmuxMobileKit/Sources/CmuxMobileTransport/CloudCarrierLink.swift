@@ -162,8 +162,19 @@ public struct CloudCarrierDialer: MacLinkDialer {
             throw LinkError(code: "invalid_argument", message: "not a Cloud machine")
         }
         let session = try makeSession(machineID, token)
+        let deadline = deadlineMillis
         do {
-            try await session.connect(deadlineMs: deadlineMillis)
+            // A dial its caller stops waiting for (the controller cancels it: the link is no longer
+            // wanted, the app went to the background) closes its session at once: the carrier's
+            // close is final and cuts its dial short (the Rust dial does not see Swift's
+            // cancellation through the generated async glue), so it asks for no more grants.
+            try await withTaskCancellationHandler {
+                try await session.connect(deadlineMs: deadline)
+            } onCancel: {
+                // task-owner: one close of this dial's own session
+                Task.detached { await session.close() }
+            }
+            try Task.checkCancellation()
         } catch {
             await session.close()
             throw error
@@ -262,23 +273,10 @@ final class FFICloudCarrierSession: CloudCarrierSession, @unchecked Sendable { /
 
     init(carrier: CloudCarrier) { self.carrier = carrier }
 
-    /// A dial its caller stops waiting for (the controller cancels it: the link is no longer
-    /// wanted, the app went to the background) is stopped in Rust too: the generated async glue
-    /// does not pass Swift's cancellation on, so this closes the carrier, which is final and cuts
-    /// a dial in flight short. A carrier is made per dial, so nothing else uses it.
+    /// Cancellation is the dialer's: it closes this carrier when its caller stops waiting
+    /// (``CloudCarrierDialer/dial(_:transport:accessToken:)``).
     func connect(deadlineMs: UInt32) async throws {
-        let carrier = carrier
-        do {
-            try await withTaskCancellationHandler {
-                try await carrier.connect(deadlineMs: deadlineMs)
-            } onCancel: {
-                // task-owner: one bounded close of this dial's own carrier
-                Task.detached { await carrier.close() }
-            }
-        } catch let error as CmuxMobileError {
-            throw error.linkError
-        }
-        try Task.checkCancellation()
+        do { try await carrier.connect(deadlineMs: deadlineMs) } catch let error as CmuxMobileError { throw error.linkError }
     }
 
     func openStream() async throws -> any CloudCarrierByteStream {

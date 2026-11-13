@@ -171,7 +171,7 @@ final class EchoLineStream: CloudCarrierByteStream, @unchecked Sendable {
 
     /// A dial whose caller gives up (the controller cancels it) closes its carrier session, so the
     /// carrier stops asking the platform for grants for a link nobody wants.
-    @Test func aCancelledDialClosesItsSession() async throws {
+    @Test(.timeLimit(.minutes(1))) func aCancelledDialClosesItsSession() async throws {
         let session = HangingCarrierSession()
         let dialer = CloudCarrierDialer(makeSession: { _, _ in session })
         let endpoint = LinkEndpoint(baseURL: URL(fileURLWithPath: "/"), teamID: "t", deviceID: "d",
