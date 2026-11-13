@@ -35,6 +35,12 @@
 # be done. A timeout retry starts only when its whole limit fits before it, and a failed file's
 # retry is cut at it, so the step stays inside its job's timeout-minutes however many files
 # timed out.
+# CMUX_WEB_TEST_BASE_REDS: optional JSON (webviews_test_history.py known-reds: the names red on the base's
+# newest recorded push). A pull request's shard sets it: a failed or timed-out file whose every first-run red
+# is in it gets no alone retry, and its first run goes to react-apps-base-check, which judges every red as
+# before (and re-runs alone on the head any red it would charge to the change). Its retry could only pass a
+# test the base fails too: shard 2 of run 43374261361 spent 10 of its 25 min retrying three such files, one
+# a 600 s timeout. A missing or unreadable file skips nothing, so every red file is retried as before.
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
 # CMUX_WEB_TEST_BROWSER_JOBS: plain files that drive a real browser at once (default a quarter of the
@@ -55,7 +61,8 @@
 # 1/2 or 2/2). Sharding happens after the git-index file list is built, so every shard keeps the
 # same per-file process and Vite-cache isolation rules while covering a disjoint deterministic set.
 # Files with a recorded duration split by load, longest first; the rest by a stable hash of their
-# path, so a new file moves only itself (webviews_test_shards.py).
+# path, so a new file moves only itself (webviews_test_shards.py). CMUX_WEB_TEST_SHARD_HEAD_START
+# (`SHARD:SECONDS,...`, read by the split) gives a shard whose job does other work first that much less.
 # CMUX_WEB_TEST_DURATIONS: optional JSON manifest {file: seconds} of earlier runs. Every shard of one
 # run must read the same copy. With it, each Vite config warms on its shortest file and the files
 # start longest first, so a long file never runs last alone.
@@ -507,8 +514,22 @@ deadline_left() {
 timeout_retried=0
 timeout_retry_spent=0
 : > "$results/retry-passed"
+: > "$results/base-red"
+if [ "$retries" -ne 0 ] && [ -n "${CMUX_WEB_TEST_BASE_REDS:-}" ] && [ -s "$CMUX_WEB_TEST_BASE_REDS" ] && grep -qv '^PASS ' "$first"; then
+  history_py="$(dirname "$self")/webviews_test_history.py"
+  { python3 "$(dirname "$self")/webviews_test_results.py" "$first" "$results/first.json" &&
+    python3 "$history_py" base-red-files "$CMUX_WEB_TEST_BASE_REDS" --names "$results/first.json" > "$results/base-red"; } ||
+    : > "$results/base-red"
+fi
+base_red_skipped=0
 while read -r result file log; do
   if [ "$result" = PASS ] || [ "$retries" -eq 0 ] || { [ "$result" != TIMEOUT ] && [ "$retried" -ge "$retries" ]; }; then
+    printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
+    continue
+  fi
+  if grep -qxF -- "$file" "$results/base-red"; then
+    echo "NO RETRY $result $file: every red of its first run is red on the base's push too; react-apps-base-check judges it"
+    base_red_skipped=$((base_red_skipped + 1))
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     continue
   fi
@@ -628,6 +649,9 @@ if [ "${TAP_CI_ENABLED:-1}" != 0 ]; then
 fi
 
 echo "### webviews tests: $count files, $failed failed or timed out ($((retried + timeout_retried)) retried alone, $(wc -l < "$results/retry-passed" | tr -d ' ') passed alone)"
+if [ "$base_red_skipped" -gt 0 ]; then
+  echo "red on the base's push too, so not retried (react-apps-base-check judges them): $base_red_skipped"
+fi
 if [ -s "$results/retry-passed" ]; then
   echo "passed only when run alone (failed or timed out beside other files):"
   sed 's/^/  /' "$results/retry-passed"

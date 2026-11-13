@@ -39,8 +39,20 @@ pub const GATE_ROWS: &[GateRow] = &[
     },
     GateRow {
         pr: "2",
-        name: "v2.pr02.translate_properties_and_cost",
-        done_when: "fold(a ++ b) == apply(fold(a), b) over 10k random splits. Final reply visible in every interleaving. Translate cost per line 1.2x. The 1.1 GB JSONL shape translates in bounded memory (under 64 MB).",
+        name: "v2.pr02.translate_line",
+        done_when: "Translate cost per line is at most 1.2x god against small.",
+        measured: false,
+    },
+    GateRow {
+        pr: "2",
+        name: "v2.pr02.translate_line_full_state",
+        done_when: "Translate cost with the bounded open state is at most 1.2x god against small.",
+        measured: false,
+    },
+    GateRow {
+        pr: "2",
+        name: "v2.pr02.jsonl_peak_rss",
+        done_when: "The 1.1 GB JSONL shape stays under 64 MB RSS and within 1.2x god against small.",
         measured: false,
     },
     GateRow {
