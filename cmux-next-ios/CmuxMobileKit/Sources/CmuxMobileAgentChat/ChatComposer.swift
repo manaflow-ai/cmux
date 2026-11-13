@@ -423,8 +423,8 @@ struct ChatComposer: View {
             .disabled(true)
         } else {
             Menu {
-                // Checkmark buttons rather than an inline picker: an inline picker inside a
-                // menu section drops the section's header.
+                // Checkable toggles (`checkButton`) rather than an inline picker: an inline picker
+                // inside a menu section drops the section's header.
                 ForEach(store.models) { model in
                     checkButton(model.name, checked: model.id == store.currentModelID) { store.setModel(model.id) }
                 }
