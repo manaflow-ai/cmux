@@ -2550,7 +2550,12 @@ impl Hub {
             super::watches::before_purge(self, &session.id).await?;
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
             self.bg_purge(session).await?;
-            session.purged.store(true, Ordering::SeqCst);
+            {
+                // Under the breakdown's lock: a time breakdown save running now lands before the
+                // folder is deleted, and none starts after (`views.rs` `write_time_breakdown`).
+                let _breakdown = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+                session.purged.store(true, Ordering::SeqCst);
+            }
             // Its spend, title and folder leave the cost ledger with it (`hub/ledger`).
             self.ledger.purge(&session.id);
             self.remove_cached_closed_summary(&session.id);
@@ -2624,6 +2629,8 @@ impl Hub {
                 list_seq: 0,
             });
             drop(sessions);
+            // Its parent's row and the rows below it read it (#42091 F1).
+            self.note_rows_reading(session);
         }
         Ok(())
     }
