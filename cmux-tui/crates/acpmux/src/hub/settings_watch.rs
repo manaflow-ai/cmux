@@ -171,26 +171,43 @@ impl SettingsWatcher {
         // The kqueue watch arms itself again when a folder or file comes or goes.
     }
 
+    /// Watches each settings file's folder, as for macOS above, on notify's watcher.
+    ///
+    /// A folder made between the look and its ancestor's watch has no event (the watch came
+    /// after it), so after each new watch the folders are looked at again, until a look adds
+    /// none: the daemon starts this watch after its ready line, the moment a client may make
+    /// `~/.config/cmux` and its settings file, and a later write into that folder was missed.
     #[cfg(not(target_os = "macos"))]
     fn refresh(&self, files: &[PathBuf]) {
-        let mut wanted: Vec<PathBuf> = Vec::new();
-        let folders = files.iter().flat_map(|f| {
-            [f.parent().map(Path::to_path_buf), real(f).parent().map(Path::to_path_buf)]
-        });
-        for folder in folders.flatten() {
-            if let Some(existing) = folder.ancestors().find(|a| a.is_dir()) {
-                wanted.push(existing.to_path_buf());
-            }
-        }
         let mut watched = self.watched.lock().unwrap_or_else(|p| p.into_inner());
         let mut watcher = self.watcher.lock().unwrap_or_else(|p| p.into_inner());
         watched.retain(|dir| dir.is_dir());
-        for dir in wanted {
-            if dir.is_dir()
-                && !watched.contains(&dir)
-                && watcher.watch(&dir, notify::RecursiveMode::NonRecursive).is_ok()
-            {
-                watched.push(dir);
+        loop {
+            let mut wanted: Vec<PathBuf> = Vec::new();
+            let folders = files.iter().flat_map(|f| {
+                [f.parent().map(Path::to_path_buf), real(f).parent().map(Path::to_path_buf)]
+            });
+            for folder in folders.flatten() {
+                if let Some(existing) = folder.ancestors().find(|a| a.is_dir()) {
+                    wanted.push(existing.to_path_buf());
+                }
+            }
+            #[cfg(test)]
+            if let Some(mut hook) = tests::AFTER_LOOK.with(|hook| hook.borrow_mut().take()) {
+                hook();
+            }
+            let mut added = false;
+            for dir in wanted {
+                if dir.is_dir()
+                    && !watched.contains(&dir)
+                    && watcher.watch(&dir, notify::RecursiveMode::NonRecursive).is_ok()
+                {
+                    watched.push(dir);
+                    added = true;
+                }
+            }
+            if !added {
+                return;
             }
         }
     }
@@ -264,5 +281,40 @@ fn run(
         if closed {
             return;
         }
+    }
+}
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    thread_local! {
+        /// Run once, right after `refresh` first looks at which folders exist.
+        pub(super) static AFTER_LOOK: RefCell<Option<Box<dyn FnMut()>>> =
+            const { RefCell::new(None) };
+    }
+
+    /// `~/.config/cmux` made between `refresh`'s look (which found only the home) and the
+    /// home's watch: no event ever names it, so the folder must be watched by that same refresh,
+    /// or a later write of the settings file in place is never seen.
+    #[test]
+    fn a_folder_made_while_refresh_looks_is_watched_by_that_refresh() {
+        let base = tempfile::tempdir().unwrap();
+        let home = std::fs::canonicalize(base.path()).unwrap();
+        let folder = home.join(".config").join("cmux");
+        let file = folder.join("cmux-next.json");
+        let made = folder.clone();
+        AFTER_LOOK.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move || std::fs::create_dir_all(&made).unwrap()));
+        });
+        let watch = SettingsWatcher {
+            watcher: StdMutex::new(notify::recommended_watcher(|_| {}).unwrap()),
+            watched: StdMutex::new(Vec::new()),
+        };
+        watch.refresh(&[file]);
+        assert!(AFTER_LOOK.with(|hook| hook.borrow().is_none()), "the look never ran");
+        let watched = watch.watched.lock().unwrap().clone();
+        assert!(watched.contains(&folder), "{watched:?}");
     }
 }

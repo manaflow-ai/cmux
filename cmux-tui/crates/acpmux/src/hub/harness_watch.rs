@@ -213,15 +213,25 @@ impl HarnessWatcher {
         let mut watched = self.watched.lock().unwrap_or_else(|p| p.into_inner());
         // A removed folder's watch is gone with it: forget it so it returns.
         watched.retain(|dir| dir.is_dir());
+        // A folder made between its look and its parent's watch has no event (the watch came
+        // after it): after each new watch every folder is looked at again, until a look adds
+        // none (`settings_watch.rs` `refresh`).
         #[cfg(not(target_os = "macos"))]
         {
             let mut watcher = self.watcher.lock().unwrap_or_else(|p| p.into_inner());
-            for dir in wanted {
-                if dir.is_dir()
-                    && !watched.contains(&dir)
-                    && watcher.watch(&dir, notify::RecursiveMode::NonRecursive).is_ok()
-                {
-                    watched.push(dir);
+            loop {
+                let mut added = false;
+                for dir in &wanted {
+                    if dir.is_dir()
+                        && !watched.contains(dir)
+                        && watcher.watch(dir, notify::RecursiveMode::NonRecursive).is_ok()
+                    {
+                        watched.push(dir.clone());
+                        added = true;
+                    }
+                }
+                if !added {
+                    break;
                 }
             }
         }

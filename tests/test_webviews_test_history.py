@@ -137,6 +137,61 @@ class Known(unittest.TestCase):
         self.assertEqual((base, replay), ({TEST: True, f"{FILE} > new test": True}, [other]))
 
 
+class KnownReds(unittest.TestCase):
+    """A head shard skips the alone retry of a file whose every first-run red its base's newest recorded push has red
+    (run-webviews-tests.sh, CMUX_WEB_TEST_BASE_REDS)."""
+
+    def test_a_name_red_on_the_newest_push_at_its_inputs_is_a_known_red(self):
+        self.assertEqual(history.known_reds(runs(True, False), "same"), [TEST])
+        # A newer green at the same inputs answers green, as known() would.
+        self.assertEqual(history.known_reds(runs(False, True), "same"), [])
+        # A timed-out file names itself, and says nothing about its tests.
+        self.assertEqual(history.known_reds(runs(False, None), "same"), [FILE, TEST])
+        self.assertEqual(history.known_reds(runs(False, True, keys=["same", "other"]), "same"), [TEST])
+
+    def test_only_pushes_no_newer_than_the_base_count(self):
+        pushes = runs(False, True, keys=["k", "k"])  # times 1000 and 1001
+        self.assertEqual(history.known_reds(pushes, "k", before=1000), [TEST])
+        self.assertEqual(history.known_reds(pushes, "k", before=1001), [])
+        self.assertEqual(history.base_run(pushes, 1000.5)["sha"], "sha0")
+        self.assertEqual(history.base_run(pushes, 5000)["sha"], "sha1")
+        self.assertIsNone(history.base_run(pushes, 999))
+
+    def test_a_file_skips_only_when_every_red_it_names_is_red_on_the_base(self):
+        other = "test/other.test.ts"
+        head = {TEST: False, f"{FILE} > green": True, f"{other} > a": False, f"{other} > b": False, "test/gone.test.ts": False}
+        self.assertEqual(history.base_red_files({TEST, f"{other} > a", "test/gone.test.ts"}, head),
+                         [FILE, "test/gone.test.ts"])
+        self.assertEqual(history.base_red_files(set(), head), [])
+        self.assertEqual(history.base_red_files({TEST}, {FILE: True}), [])
+
+    def test_the_commands_write_and_read_the_base_reds_and_fail_safe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            saved = tmp / "history.json"
+            saved.write_text(json.dumps({"runs": runs(True, False, keys=["k", "k"])}))
+            out = tmp / "base-reds.json"
+            done = subprocess.run([sys.executable, str(SCRIPT), "known-reds", str(saved), "--before", "1001", "--out", str(out)],
+                                  capture_output=True, text=True, check=True)
+            self.assertIn("1 names red on the base's push sha1", done.stdout)
+            self.assertEqual(json.loads(out.read_text()), {"sha": "sha1", "inputs": "k", "red": [TEST]})
+            head = tmp / "head.json"
+            head.write_text(json.dumps({TEST: False, "test/new.test.ts > x": False}))
+            done = subprocess.run([sys.executable, str(SCRIPT), "base-red-files", str(out), "--names", str(head)],
+                                  capture_output=True, text=True, check=True)
+            self.assertEqual(done.stdout, f"{FILE}\n")
+            # No push at or before the base: no file at all.
+            none = tmp / "none.json"
+            subprocess.run([sys.executable, str(SCRIPT), "known-reds", str(saved), "--before", "1", "--out", str(none)],
+                           capture_output=True, text=True, check=True)
+            self.assertFalse(none.exists())
+            for bad in ["{not json", json.dumps({"red": [TEST]}), json.dumps({"inputs": "k", "red": "x"}), ""]:
+                (tmp / "bad.json").write_text(bad)
+                done = subprocess.run([sys.executable, str(SCRIPT), "base-red-files", str(tmp / "bad.json"), "--names",
+                                       str(head)], capture_output=True, text=True, check=True)
+                self.assertEqual(done.stdout, "", bad)
+
+
 class Inputs(unittest.TestCase):
     def git(self, repo, *args):
         return subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *args],
