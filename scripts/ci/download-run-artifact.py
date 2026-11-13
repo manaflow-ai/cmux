@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Download one artifact of the current workflow run over parallel HTTP ranges.
+"""Download a workflow run's artifact over parallel HTTP ranges.
 
-    download-run-artifact.py --name <artifact> --out <dir> [--connections 16]
+    download-run-artifact.py (--name <artifact> | --pattern <glob> | --artifact-id <id>) --out <dir>
+                             [--run-id <run>] [--connections 16]
 
 actions/download-artifact fetches the artifact's blob over one connection. On
 Blacksmith macOS runners one connection to the Azure blob store sustains about
@@ -10,7 +11,14 @@ job, while 16 ranged connections to the same URL finish in about 10 s
 (run 35801338411). The archive is checked against the artifact's recorded
 SHA-256 digest before it is extracted, exactly as download-artifact does.
 
-Needs GH_TOKEN with actions:read, GITHUB_REPOSITORY and GITHUB_RUN_ID.
+--run-id reads another run's artifacts (download-artifact's run-id), as the sign, deltas and dSYMs jobs do; it
+defaults to GITHUB_RUN_ID. --pattern downloads every artifact whose name matches the glob into the one --out
+(download-artifact's pattern with merge-multiple), and --artifact-id one artifact by id (its artifact-ids),
+refused unless it belongs to the run. On the signing Mac download-artifact's one stream took 7m06s for the
+prepared app, 8m20s for publish-nightly's variants and 5m57s for the deltas job's DMG (runs 43300596948,
+43318988406), all while the job held the whole Mac.
+
+Needs GH_TOKEN with actions:read and GITHUB_REPOSITORY, and GITHUB_RUN_ID without --run-id.
 """
 
 from __future__ import annotations
@@ -18,6 +26,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import email.utils
+import fnmatch
 import hashlib
 import json
 import os
@@ -54,8 +63,10 @@ def retryable(code: int) -> bool:
 
 RETRY_BUDGET_SECONDS = float(os.environ.get("CMUX_ARTIFACT_RETRY_BUDGET_SECONDS", "240"))
 # At most this many attempts per call, whatever the waits, so the calls' own time
-# (60 s timeouts) stays bounded too: 8 attempts of a call are at most 8 minutes.
-MAX_ATTEMPTS = 8
+# (60 s timeouts) stays bounded too: 8 attempts of a call are at most 8 minutes. A longer budget
+# (the sign stage's restore sets 1800 s) gets one more attempt per 120 s backoff step in it, so the
+# cap never ends the retries before the budget does (8 attempts gave up at 510 s of 1800).
+MAX_ATTEMPTS = max(8, int(RETRY_BUDGET_SECONDS // 120) + 5)
 sleep = time.sleep
 clock = time.monotonic
 # One wall-clock deadline for the whole download (lookup, redirect and its
@@ -90,6 +101,22 @@ def retry_wait(error: urllib.error.HTTPError, attempt: int, now: float | None = 
     return min(120.0, 10.0 * 2 ** (attempt - 1))
 
 
+def explain(error: urllib.error.HTTPError, what: str) -> None:
+    """Name why GitHub refused before giving up: a bare "403 Forbidden" hid whether two nightly-next sign
+    stages (runs 43129190893, 43139032769 on 2026-11-12) lost their finished build to a spent token
+    quota or to a permission."""
+    headers = error.headers or {}
+    limits = " ".join(f"{k}={headers.get(k)}" for k in
+                      ("X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "X-RateLimit-Resource",
+                       "Retry-After") if headers.get(k) is not None)
+    try:
+        body = (error.read() or b"")[:300].decode("utf-8", "replace").replace("\n", " ")
+    except Exception:  # noqa: BLE001 - a diagnostic never replaces the error it explains
+        body = ""
+    print(f"{what}: gave up on HTTP {error.code} {limits or '(no rate-limit headers)'} {body}".rstrip(),
+          file=sys.stderr)
+
+
 def with_retries(call, what: str):
     """Run call(); retry a refused or failed GitHub response until the shared deadline or MAX_ATTEMPTS."""
     global retry_deadline
@@ -100,11 +127,15 @@ def with_retries(call, what: str):
             return call()
         except urllib.error.HTTPError as error:
             if not retryable(error.code) or attempt >= MAX_ATTEMPTS:
+                explain(error, what)
                 raise
             if retry_deadline is None:
                 retry_deadline = clock() + RETRY_BUDGET_SECONDS
             wait = retry_wait(error, attempt)
             if clock() + wait > retry_deadline:
+                print(f"{what}: HTTP {error.code}; the next try ({wait:.0f}s away) is past this download's "
+                      f"{RETRY_BUDGET_SECONDS:.0f}s retry budget (CMUX_ARTIFACT_RETRY_BUDGET_SECONDS)", file=sys.stderr)
+                explain(error, what)
                 raise
             print(f"{what}: HTTP {error.code}; retrying in {wait:.0f}s (attempt {attempt})", file=sys.stderr)
             sleep(wait)
@@ -129,6 +160,36 @@ def find_artifact(repo: str, run_id: str, name: str, token: str) -> dict:
         raise SystemExit(f"artifact {name!r} not found in run {run_id}")
     # A re-run attempt can leave more than one; the newest belongs to the attempt that feeds this job.
     return max(matches, key=lambda a: a.get("created_at", ""))
+
+
+def find_artifacts(repo: str, run_id: str, pattern: str, token: str) -> list[dict]:
+    """Every unexpired artifact of the run whose name matches PATTERN, the newest of each name. One listing of
+    100: a run with more fails here, and download-artifact takes over (no page loop: a loop that reaches the
+    API through with_retries' sleep reads as polling to tests/test_ci_no_github_token_polling.py)."""
+    data = api_json(f"/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100", token)
+    listed = data.get("artifacts", [])
+    if int(data.get("total_count", len(listed))) > len(listed):
+        raise SystemExit(f"run {run_id} has {data.get('total_count')} artifacts, more than one listing reads")
+    newest: dict[str, dict] = {}
+    for artifact in listed:
+        name = artifact.get("name", "")
+        if artifact.get("expired") or not fnmatch.fnmatchcase(name, pattern):
+            continue
+        if name not in newest or artifact.get("created_at", "") > newest[name].get("created_at", ""):
+            newest[name] = artifact
+    if not newest:
+        raise SystemExit(f"no artifact matching {pattern!r} in run {run_id}")
+    return [newest[name] for name in sorted(newest)]
+
+
+def find_artifact_by_id(repo: str, run_id: str, artifact_id: str, token: str) -> dict:
+    artifact = api_json(f"/repos/{repo}/actions/artifacts/{urllib.request.quote(artifact_id)}", token)
+    owner = str((artifact.get("workflow_run") or {}).get("id") or "")
+    if owner != str(run_id):
+        raise SystemExit(f"artifact {artifact_id} belongs to run {owner or 'unknown'}, not {run_id}")
+    if artifact.get("expired"):
+        raise SystemExit(f"artifact {artifact_id} has expired")
+    return artifact
 
 
 def blob_url(artifact: dict, token: str) -> str:
@@ -210,28 +271,41 @@ def verify(path: str, artifact: dict) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--name", required=True)
+    which = parser.add_mutually_exclusive_group(required=True)
+    which.add_argument("--name")
+    which.add_argument("--pattern")
+    which.add_argument("--artifact-id")
     parser.add_argument("--out", required=True)
+    parser.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID"))
     parser.add_argument("--connections", type=int, default=16)
     args = parser.parse_args()
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    repo, run_id = os.environ.get("GITHUB_REPOSITORY"), os.environ.get("GITHUB_RUN_ID")
+    repo, run_id = os.environ.get("GITHUB_REPOSITORY"), args.run_id
     if not (token and repo and run_id):
-        raise SystemExit("GH_TOKEN, GITHUB_REPOSITORY and GITHUB_RUN_ID are required")
+        raise SystemExit("GH_TOKEN, GITHUB_REPOSITORY and GITHUB_RUN_ID (or --run-id) are required")
 
-    artifact = find_artifact(repo, run_id, args.name, token)
+    if args.name:
+        artifacts = [find_artifact(repo, run_id, args.name, token)]
+    elif args.pattern:
+        artifacts = find_artifacts(repo, run_id, args.pattern, token)
+    else:
+        artifacts = [find_artifact_by_id(repo, run_id, args.artifact_id, token)]
     os.makedirs(args.out, exist_ok=True)
-    with tempfile.TemporaryDirectory() as tmp:
-        archive = os.path.join(tmp, "artifact.zip")
-        started = time.monotonic()
-        download(artifact, token, archive, max(1, args.connections))
-        elapsed = time.monotonic() - started
-        print(f"downloaded {args.name} ({artifact['size_in_bytes']} bytes) in {elapsed:.1f}s")
-        verify(archive, artifact)
-        with zipfile.ZipFile(archive) as bundle:
-            bundle.extractall(args.out)
-            for info in bundle.infolist():
-                print(f"extracted {info.filename}")
+    for artifact in artifacts:
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = os.path.join(tmp, "artifact.zip")
+            started = time.monotonic()
+            download(artifact, token, archive, max(1, args.connections))
+            elapsed = time.monotonic() - started
+            print(f"downloaded {artifact['name']} ({artifact['size_in_bytes']} bytes) in {elapsed:.1f}s")
+            verify(archive, artifact)
+            # download-artifact puts an artifact-ids download (no name, no merge-multiple) in <path>/<name>/;
+            # match it, so the files land where the fallback would put them.
+            out = os.path.join(args.out, artifact["name"]) if args.artifact_id else args.out
+            with zipfile.ZipFile(archive) as bundle:
+                bundle.extractall(out)
+                for info in bundle.infolist():
+                    print(f"extracted {info.filename}")
 
 
 if __name__ == "__main__":

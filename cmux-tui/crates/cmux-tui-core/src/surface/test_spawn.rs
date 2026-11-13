@@ -162,6 +162,7 @@ impl Surface {
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation: Arc::from(format!("test-{id}")),
                 journal_capture_supported: true,
+                output_log: Default::default(),
                 #[cfg(unix)]
                 local_output: None,
                 journal_capture_epoch: AtomicU64::new(0),
@@ -209,7 +210,7 @@ impl Surface {
                 pending_host_binding: Mutex::new(None),
                 #[cfg(any(unix, windows))]
                 host_exit_record_path: None,
-                pid: Some(id as u32),
+                pid: terminal_runtime::terminal_seat(&mux, Some(id as u32)),
                 command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
                 cwd: opts.cwd,
                 exit: Mutex::new(None),
