@@ -79,6 +79,24 @@ test("a follow puts its rows in place, adds new ones and removes the gone", asyn
   expect(followed?.sessions).toEqual([row("b", 9, { title: "renamed" }), row("d", 7), row("a", 3)]);
 });
 
+test("a follow's row replaces only its own copy: a local chat and a peer's of the same id stay two rows", async () => {
+  const { pager, client } = scripted(
+    [],
+    { sessions: [row("s", 3), row("s", 2, { peer: "vm" })], listSeq: 5, listEpoch: "e1" },
+    {
+      follow: true,
+      sessions: [row("s", 9, { peer: "vm", title: "renamed" })],
+      gone: [],
+      listSeq: 6,
+      listEpoch: "e1",
+      more: false,
+    },
+  );
+  await listed(pager, client);
+  const followed = await pager.first();
+  expect(followed?.sessions).toEqual([row("s", 9, { peer: "vm", title: "renamed" }), row("s", 3)]);
+});
+
 test("a follow cut at its page size follows on from the position it reached", async () => {
   const { calls, pager, client } = scripted(
     [],
