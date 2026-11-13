@@ -101,9 +101,79 @@ time.sleep(10) # a turn whose end must never be awaited`);
       const actual = JSON.parse(readFileSync(out, "utf8"));
       expect(Number.isFinite(Date.parse(actual.at))).toBe(true);
       const fixture = JSON.parse(readFileSync(join(import.meta.dir, "cloud-journey-failure.fixture.json"), "utf8"));
-      // Only the wall-clock timestamp varies; every other byte is this executable's failure output.
+      // Only the wall-clock timestamp varies; the remaining JSON content matches (formatting may differ).
       expect({ ...actual, at: fixture.at }).toEqual(fixture);
       console.log(`producer failure contract: ${JSON.stringify({ ...actual, at: fixture.at })}`);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test.skipIf(!process.env.CMUX_JOURNEY_IMPORTER_FIXTURE)("producer failure fixture matches the importer's JSON content", () => {
+    // Supply the importer's checked-in fixture; this check needs no network or credentials.
+    const producer = JSON.parse(readFileSync(join(import.meta.dir, "cloud-journey-failure.fixture.json"), "utf8"));
+    const importer = JSON.parse(readFileSync(process.env.CMUX_JOURNEY_IMPORTER_FIXTURE!, "utf8"));
+    expect(producer).toEqual(importer);
+  });
+
+  test.each([
+    ["stub", ["--model", "stub"], "stub"],
+    ["gateway stub by default", ["--gateway", "machine"], "stub"],
+    ["gateway stub explicitly", ["--gateway", "machine", "--gateway-upstream", "stub"], "stub"],
+    ["gateway real", ["--gateway", "machine", "--gateway-upstream", "real"], "real"],
+    ["backend validation", ["--backend", "unknown"], "real"],
+    ["output mkdir", ["--out", "BLOCKED"], "real"],
+  ])("failure envelope survives %s", (_name, args, model) => {
+    const dir = mkdtempSync(join(tmpdir(), "journey-envelope-"));
+    try {
+      const probe = join(dir, "probe.json");
+      const blocked = join(dir, "not-a-directory");
+      writeFileSync(blocked, "file");
+      const flags = (args as string[]).map(a => a === "BLOCKED" ? blocked : a);
+      const result = spawnSync(process.execPath, [join(import.meta.dir, "cloud-journey.ts"),
+        ...flags, ...(flags.includes("--backend") ? [] : ["--backend", "production"]),
+        "--sign-in", "invalid", "--probe-out", probe], { encoding: "utf8", timeout: 5000,
+        env: { PATH: process.env.PATH } });
+      expect(result.status).not.toBe(0);
+      const actual = JSON.parse(readFileSync(probe, "utf8"));
+      expect(actual.outcome).toBe("fail");
+      expect(actual.model).toBe(model);
+      expect(actual.backend).toBe(flags.includes("--backend") ? "unknown" : "prod");
+      expect(actual).not.toHaveProperty("create_to_first_text_ms");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test("signal during deletion awaits the shared cleanup promise", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "journey-delete-cancel-"));
+    try {
+      const script = join(dir, "cancel.ts");
+      writeFileSync(script, `import { finishJourney, sharedCleanup } from ${JSON.stringify(join(import.meta.dir, "cloud-journey.ts"))};
+let calls = 0;
+const cleanup = sharedCleanup(async () => {
+  calls++;
+  console.log("deleting");
+  await new Promise<void>(resolve => process.stdin.once("data", () => resolve()));
+  console.log("deleted " + calls);
+});
+const onSignal = () => { console.log("signal received"); void cleanup().then(() => process.exit(0)); };
+process.on("SIGTERM", onSignal);
+process.on("SIGINT", onSignal);
+await finishJourney(cleanup, new Promise<void>(() => {}), onSignal);
+`);
+      const child = spawn(process.execPath, [script], { stdio: ["pipe", "pipe", "pipe"] });
+      let output = "";
+      let signalled = false;
+      let released = false;
+      const code = await new Promise<number | null>((resolve, reject) => {
+        const timer = setTimeout(() => { child.kill("SIGKILL"); reject(new Error("delete cancel fixture timed out")); }, 5000);
+        child.stdout.on("data", data => {
+          output += data.toString();
+          if (!signalled && output.includes("deleting")) { signalled = true; child.kill("SIGTERM"); }
+          if (!released && output.includes("signal received")) { released = true; child.stdin.end("finish delete"); }
+        });
+        child.on("error", reject);
+        child.on("close", code => { clearTimeout(timer); resolve(code); });
+      });
+      expect(code).toBe(0);
+      expect(output).toContain("deleted 1");
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
