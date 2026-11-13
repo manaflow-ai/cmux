@@ -4194,7 +4194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         excludingStableIdentitiesFromSessionSnapshot: excludedStableIdentities,
                         excludingWorkspaceIdsFromSessionSnapshot: excludedWorkspaceIds
                     )
-                    if let context = self.mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+                    if let context = self.mainWindowLifecycleCoordinator.registeredContext(windowId: windowId) {
                         excludedStableIdentities.formUnion(context.tabManager.liveStableIdentitySet())
                         excludedWorkspaceIds.formUnion(context.tabManager.liveWorkspaceIdSet())
                     }
@@ -4300,7 +4300,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 excludingWorkspaceIdsFromSessionSnapshot: excludedWorkspaceIds
             )
             createdWindowIds.append(windowId)
-            if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+            if let context = mainWindowLifecycleCoordinator.registeredContext(windowId: windowId) {
                 excludedStableIdentities.formUnion(context.tabManager.liveStableIdentitySet())
                 excludedWorkspaceIds.formUnion(context.tabManager.liveWorkspaceIdSet())
             }
