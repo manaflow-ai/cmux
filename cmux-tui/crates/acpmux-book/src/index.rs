@@ -23,6 +23,7 @@ use std::ops::Bound::{Excluded, Unbounded};
 mod codec;
 mod compaction;
 mod edition;
+pub mod folders;
 mod log;
 mod pages;
 pub use pages::{IndexPage, ListFilter, ReadSide};

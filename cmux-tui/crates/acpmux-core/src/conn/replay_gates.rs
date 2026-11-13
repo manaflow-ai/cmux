@@ -143,7 +143,8 @@ async fn replay_once(verbose: bool) -> (usize, usize) {
     let source = Arc::new(HubSource::new(Arc::new(hub)));
     let (client, server) = tokio::io::duplex(1024);
     let (server_reader, server_writer) = tokio::io::split(server);
-    let task = tokio::spawn(async move {
+    let scope = cmux_scope::Scope::new("list-replay-gate");
+    let task = scope.spawn(async move {
         let features = ["list".to_owned()];
         run(server_reader, server_writer, source, "v2-replay-gate", &features).await
     });
@@ -158,6 +159,7 @@ async fn replay_once(verbose: bool) -> (usize, usize) {
     drop(writer_io);
     drop(reader);
     task.await.unwrap().unwrap();
+    assert!(scope.close(Duration::from_secs(1)).await.joined());
     (replay.0, replay.1)
 }
 
@@ -185,7 +187,8 @@ async fn append_replay_sample(
     let source = Arc::new(HubSource::new(hub));
     let (client, server) = tokio::io::duplex(1024);
     let (server_reader, server_writer) = tokio::io::split(server);
-    let task = tokio::spawn(async move {
+    let scope = cmux_scope::Scope::new("list-replay-gate");
+    let task = scope.spawn(async move {
         let features = ["list".to_owned()];
         run(server_reader, server_writer, source, "v2-replay-gate", &features).await
     });
@@ -203,7 +206,7 @@ async fn append_replay_sample(
     assert!(first_delta.replay.is_some());
     let active = Arc::new(AtomicBool::new(true));
     let reader_active = active.clone();
-    let reader_task = tokio::spawn(async move {
+    let reader_task = scope.spawn(async move {
         let mut ended = false;
         while !ended {
             let frame = receive(&mut reader).await;
@@ -226,6 +229,7 @@ async fn append_replay_sample(
     let _ = timeout(Duration::from_secs(20), reader_task).await.unwrap().unwrap();
     drop(writer_io);
     task.await.unwrap().unwrap();
+    assert!(scope.close(Duration::from_secs(1)).await.joined());
     (elapsed, was_active)
 }
 

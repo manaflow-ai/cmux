@@ -213,6 +213,7 @@ impl ResourceOperation {
             Self::SettingsSet => "settings.set",
             Self::SettingsReset => "settings.reset",
             Self::SettingsResetAll => "settings.reset_all",
+            Self::SettingsEdit => "settings.edit",
             Self::BrowserDevicesList => "browser.devices.list",
             Self::BrowserDevicesAddCustom => "browser.devices.add_custom",
             Self::BrowserDevicesRemoveCustom => "browser.devices.remove_custom",
