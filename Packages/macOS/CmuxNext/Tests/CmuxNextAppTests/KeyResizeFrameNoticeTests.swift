@@ -60,10 +60,13 @@ struct KeyResizeFrameNoticeTests {
         let window: KeyResizeFrameNoticeLiveResizeWindow
         var afterCommit: [@MainActor () -> Void] = []
 
-        init(reduceMotion: Bool = false) {
+        /// `strip`: two more columns (p3, p4) and each column half the window wide, so the strip is 1.5 windows and has a
+        /// camera; `focused` p4 starts it scrolled to its end.
+        init(reduceMotion: Bool = false, strip: Bool = false, focused: PaneID = "p2") {
             _ = NSApplication.shared
-            let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
-            model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s", focusedPane: "p2")
+            var columns = [LayoutColumn(id: "c0", width: strip ? 0.5 : 1, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
+            if strip { columns += [LayoutColumn(id: "c1", width: 0.5, root: .leaf("p3")), LayoutColumn(id: "c2", width: 0.5, root: .leaf("p4"))] }
+            model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s", focusedPane: focused)
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = reduceMotion
             window = KeyResizeFrameNoticeLiveResizeWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -368,6 +371,97 @@ struct KeyResizeFrameNoticeTests {
 
         #expect(!screen.holdsContentForKeyResize, "the key hold outlived the spring a live window resize snapped")
         #expect(muted().isEmpty, "a live window resize in the key spring left \(muted().count) pane views without frame notices")
+    }
+
+    /// The same live window resize while the strip's camera is still on its way (the focus went to another column just
+    /// before the press): the resize snaps the panes, and the camera's frames go on. The key spring is over, so the key
+    /// hold and its frame notice hold end in the resize's turn, not at the camera's landing: the pane views post as in
+    /// any camera scroll, and a spring that starts before the camera lands is not taken for a key resize's.
+    @Test func aLiveWindowResizeEndsTheHoldWhileTheCameraStillMoves() throws {
+        let rig = Rig(strip: true, focused: "p4")
+        defer { rig.window.closeAfterTest() }
+        let screen = try rig.screen
+        func muted() -> [NSView] {
+            rig.root.context.hosts.values.flatMap(ResizeDragFrameNoticeTests.subtree).filter { !$0.postsFrameChangedNotifications }
+        }
+        func panesMove() -> Bool { screen.paneFrames.values.contains { $0.rect != $0.targetRect } }
+        func cameraMoves() -> Bool { screen.scroll.value != screen.scroll.target }
+        var frames = 0
+        while frames < 600, rig.frame() { frames += 1 }
+        // SETUP: at rest, the strip scrolled to its end for p4.
+        try #require(!screen.hasMotion && screen.scroll.value > 100, "SETUP: the strip of 3 half-width columns rests at offset \(screen.scroll.value) for p4")
+        // The focus goes to p2 in the first column: the camera springs back to the strip's start.
+        rig.model.focus("p2", notify: false)
+        rig.root.syncWithModel()
+        _ = rig.frame()
+        try #require(cameraMoves(), "SETUP: the focus move to p2 did not put the camera on a spring (offset \(screen.scroll.value), target \(screen.scroll.target))")
+        #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
+        _ = rig.frame()
+        // SETUP: the press is on its spring, and the camera is still on its own.
+        try #require(panesMove() && cameraMoves() && screen.holdsContentForKeyResize, "SETUP: after one frame of the press the panes \(panesMove() ? "move" : "rest") and the camera \(cameraMoves() ? "moves" : "rests")")
+        try #require(!muted().isEmpty, "a key resize on its spring holds no pane view's frame notices, so a live resize can end no hold")
+
+        let before = screen.frame.size
+        rig.window.isLive = true
+        rig.window.setContentSize(NSSize(width: 1100, height: 760))
+        rig.root.layoutSubtreeIfNeeded()
+        rig.window.isLive = false
+        // SETUP: the live resize gave the screen a new size and snapped the panes, and the camera still moves.
+        try #require(screen.frame.size != before, "SETUP: the window resize did not resize the screen (\(screen.frame.size))")
+        try #require(!panesMove(), "SETUP: the live resize did not snap the panes of the key spring")
+        try #require(cameraMoves() && screen.hasMotion, "SETUP: the camera does not move after the live resize (offset \(screen.scroll.value), target \(screen.scroll.target))")
+
+        #expect(!screen.holdsContentForKeyResize, "the key hold outlived the pane spring a live window resize snapped, for as long as the camera moves")
+        #expect(muted().count == 0, "a live window resize in the key spring left \(muted().count) pane views without frame notices while the camera moves")
+        // THE COUNT: a pane view resized now posts its one frame notice.
+        let host = try #require(rig.root.context.hosts["p2"])
+        let notices = Notices(watching: [host])
+        defer { notices.stop() }
+        host.setFrameSize(CGSize(width: host.frame.width - 4, height: host.frame.height))
+        #expect(notices.counts[ObjectIdentifier(host)] == 1, "a pane resized while the camera moves posted \(notices.counts[ObjectIdentifier(host)] ?? 0) frame notices, not 1")
+        // The camera lands: nothing is held at rest.
+        frames = 0
+        while frames < 600, rig.frame() { frames += 1 }
+        #expect(!screen.hasMotion && !screen.holdsContentForKeyResize && muted().isEmpty, "at the camera's landing \(muted().count) pane views post no frame notice")
+    }
+
+    /// The carried spring: a window resize that is not live (the sidebar's slide, a zoom of the window by a key)
+    /// carries the key spring into the new size (`reconcileAndScroll(keepsMotion:)`), so the key hold and its frame
+    /// notice hold stay: the resize's turn and each frame after it post nothing from the pane views, and the landing
+    /// posts once for each.
+    @Test func aWindowResizeThatCarriesTheKeySpringKeepsTheHoldToTheLanding() throws {
+        let rig = Rig()
+        defer { rig.window.closeAfterTest() }
+        let screen = try rig.screen
+        let chain = try rig.chain("p2")
+        let held = Array(chain.dropLast())
+        let page = try #require(rig.provider.views["p2"])
+        let readers = try #require(page.host.enclosingFrameNoticeReaders)
+        readers.add(page.host) {}
+        defer { readers.remove(page.host) }
+        let notices = Notices(watching: held)
+        defer { notices.stop() }
+        #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
+        for _ in 0..<3 { _ = rig.frame() }
+        // SETUP: the press is on its spring.
+        try #require(screen.hasMotion && screen.holdsContentForKeyResize, "SETUP: the press landed in 3 frames")
+
+        let before = screen.frame.size
+        rig.window.setContentSize(NSSize(width: 1100, height: 760))
+        rig.root.layoutSubtreeIfNeeded()
+        // SETUP: the resize gave the screen a new size and the spring goes on in it.
+        try #require(screen.frame.size != before, "SETUP: the window resize did not resize the screen (\(screen.frame.size))")
+        try #require(screen.paneFrames.values.contains { $0.rect != $0.targetRect }, "SETUP: the window resize did not carry the key spring")
+
+        #expect(screen.holdsContentForKeyResize, "a window resize that carried the key spring ended the key hold")
+        #expect(notices.total == 0, "the turn of a window resize that carried the key spring posted \(notices.total) frame notices from the pane views")
+        let spring = try Self.run(rig, pane: "p2", notices: notices)
+        #expect(spring.perFrame.allSatisfy { $0 == 0 }, "the frames after the window resize posted frame notices from the pane views: \(spring.perFrame)")
+        for view in held {
+            #expect(spring.landing[ObjectIdentifier(view)] == 1,
+                    "\(type(of: view)) posted \(spring.landing[ObjectIdentifier(view)] ?? 0) frame notices at the landing after a window resize, not 1")
+        }
+        #expect(!screen.holdsContentForKeyResize, "the key hold outlived its landing")
     }
 }
 
