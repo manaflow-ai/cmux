@@ -36,8 +36,6 @@ use std::time::{Duration, Instant};
 
 /// How long the viewer has to connect and say hello after the host starts.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
-/// Datagram size inside the link: the rd shard size minus the seal overhead fits one
-/// 1280-byte IPv6 minimum MTU path with headroom for a relay's framing.
 
 #[derive(Deserialize)]
 struct Viewer {

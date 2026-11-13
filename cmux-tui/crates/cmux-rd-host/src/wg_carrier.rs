@@ -116,7 +116,7 @@ pub struct Negotiation {
 impl Negotiation {
     pub fn new(role: Role) -> io::Result<Self> {
         let mut bytes = Zeroizing::new([0u8; 32]);
-        getrandom::fill(&mut *bytes).map_err(io::Error::other)?;
+        getrandom::fill(&mut *bytes).map_err(|_| io::Error::other("WG key generation failed"))?;
         let secret = StaticSecret::from(*bytes);
         let public = PublicKey::from(&secret).to_bytes();
         Ok(Self {
@@ -271,7 +271,9 @@ impl Negotiation {
                 self.outgoing.push_back(Control::WgReady);
             }
             if !self.committed
-                && self.started.is_some_and(|start| now.duration_since(start) >= READY_TIMEOUT)
+                && self
+                    .started
+                    .is_some_and(|start| now.saturating_duration_since(start) >= READY_TIMEOUT)
                 && !(self.ready_sent && self.peer_ready)
             {
                 self.fail(
