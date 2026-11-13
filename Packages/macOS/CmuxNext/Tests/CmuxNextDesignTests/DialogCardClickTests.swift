@@ -71,15 +71,21 @@ import Testing
         control.convert(NSPoint(x: control.bounds.midX, y: control.bounds.midY), to: nil)
     }
 
+    /// A person's click on `control`: the panel's own hit test from its content view must land on `control` (nothing
+    /// above it takes the click), then the control the click reached is pressed. The press goes through the control's
+    /// action, not AppKit's tracking loop: on a console-session display host a synthesized mouse-down never sees its
+    /// mouse-up in that loop (the click tests failed there on the base and the head alike), and the real pointer is
+    /// covered by scripts/cmux-next/close-question-click-live.py.
     private static func click(_ control: NSView, in panel: NSWindow) throws {
+        let root = try #require(panel.contentView)
         let point = middle(of: control)
-        func event(_ type: NSEvent.EventType) throws -> NSEvent {
-            try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                            windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
-        }
-        // The button's tracking loop reads the up from the queue, as it does for a real click.
-        NSApp.postEvent(try event(.leftMouseUp), atStart: true)
-        panel.sendEvent(try event(.leftMouseDown))
+        let hit = try #require(root.hitTest(root.superview?.convert(point, from: nil) ?? point), "a click at the control lands on nothing")
+        var reached: NSView? = hit
+        while let view = reached, !(view is NSControl) { reached = view.superview }
+        let pressed = try #require(reached as? NSControl, "a click at the control lands on \(type(of: hit)), not a control")
+        #expect(pressed === control, "a click at the control lands on another control: \(type(of: pressed))")
+        guard pressed === control else { return }
+        pressed.performClick(nil)
     }
 
     @Test func everyControlOfTheCardIsWhatAClickHits() throws {
