@@ -12,6 +12,7 @@ import { translate as t } from "../src/agent-session/acpmux/i18n";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -89,12 +90,8 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of kept) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(kept, { window: dom.window, scope });
 });
 
 const APP = "/Users/you/src/app";
@@ -132,7 +129,7 @@ async function mount({
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const { SignInContext } = await import("../src/agent-session/acpmux/signIn");
   const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
-  const { newWorktree, pickFolder } = await import("../src/agent-session/acpmux/startFolder");
+  const { newWorktree, pickFolder } = await import("../src/agent-session/acpmux/startFolderModel");
   const calls: Call[] = [];
   const callNative = async (method: string, params?: Record<string, unknown>) => {
     calls.push({ method, ...(params ? { params } : {}) });

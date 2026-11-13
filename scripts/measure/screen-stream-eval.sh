@@ -7,12 +7,15 @@
 #     --ref SHA --artifact artifacts/screen-stream-eval/results.json [--target-worker W] \
 #     [--arg=targets=rd,webrtc] [--arg=samples=200] [--arg=repeats=3] --timeout 5400
 #     (two Macs on one LAN: README.md, "Two Macs"; lan=IP or viewer-of=IP, with peer-token=HEX)
+#   On a Mac that must not build: bash scripts/measure/screen-stream-eval.sh prebuilt=DIR [targets=rd] ...
+#     (DIR holds the built tools; README.md, "Prebuilt tools"). They come from a fleet step with
+#     --arg=tools-only=1 --artifact artifacts/screen-stream-eval/tools.tar.gz (no console needed).
 # Output: SCREEN-STREAM-EVAL lines, the summary table, and artifacts/screen-stream-eval/results.json
 # (also each target's raw files and the host and viewer frames under that folder). No gate: it
 # reports, and exits non-zero only when it could not measure at all (3: no grant; 4: no target ran;
 # 5: no target measured a window).
 set -uo pipefail
-targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token="" input_frame_now=0
+targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token="" input_frame_now=0 prebuilt="" tools_only=0
 for arg in "$@"; do
   case "$arg" in
     targets=*) targets="${arg#targets=}" ;;
@@ -26,12 +29,26 @@ for arg in "$@"; do
     # input-frame-now=1: the rd host lifts its frame-rate cap after each input (--input-frame-now 1),
     # for a before/after against the default.
     input-frame-now=*) input_frame_now="${arg#input-frame-now=}" ;;
+    # prebuilt=DIR: copy the built tools from DIR instead of building any (README.md, "Prebuilt tools").
+    prebuilt=*) prebuilt="${arg#prebuilt=}" ;;
+    # tools-only=1: build the rd tools for prebuilt= into artifacts/screen-stream-eval/tools.tar.gz, and stop.
+    tools-only=*) tools_only="${arg#tools-only=}" ;;
     *) echo "screen-stream-eval.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
 [[ "$samples" =~ ^[0-9]+$ ]] || { echo "screen-stream-eval.sh: samples= is a number" >&2; exit 2; }
 [[ "$input_frame_now" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: input-frame-now= is 0 or 1" >&2; exit 2; }
 export EVAL_RD_INPUT_FRAME_NOW="$input_frame_now"
+if [[ -n "$prebuilt" ]]; then
+  prebuilt="$(cd "$prebuilt" 2>/dev/null && pwd)" || { echo "screen-stream-eval.sh: prebuilt= is not a directory" >&2; exit 2; }
+fi
+export EVAL_PREBUILT="$prebuilt"
+# The arguments a run inside the launcher app gets: prebuilt= as the absolute path, since the app's cwd is /.
+forward=()
+for arg in "$@"; do
+  case "$arg" in prebuilt=*) forward+=("prebuilt=$prebuilt") ;; *) forward+=("$arg") ;; esac
+done
+[[ "$tools_only" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: tools-only= is 0 or 1" >&2; exit 2; }
 [[ "$repeats" =~ ^[1-9][0-9]*$ ]] || { echo "screen-stream-eval.sh: repeats= is a number from 1" >&2; exit 2; }
 ipv4='^([0-9]{1,3}\.){3}[0-9]{1,3}$'
 for value in "$lan" "$viewer_of"; do
@@ -59,10 +76,31 @@ fi
 here="$root/scripts/measure/screen-stream-eval"
 out="$root/artifacts/screen-stream-eval"
 work="$root/.build/screen-stream-eval"
+# The run starts by removing $out and $work, so prebuilt tools may not live in either.
+case "$prebuilt/" in
+  "$out"/* | "$work"/*) echo "screen-stream-eval.sh: prebuilt= may not be inside $out or $work (the run removes both)" >&2; exit 2 ;;
+esac
 rm -rf "$out" "$work"
 mkdir -p "$out" "$work/bin"
 chmod 700 "$work"
 export EVAL_ROOT="$root" EVAL_BIN="$work/bin"
+
+if [[ "$tools_only" == 1 ]]; then
+  # The tools a prebuilt= Mac runs, as one folder `tools/` in tools.tar.gz. The Swift tools target
+  # macOS 14, so they run on a Mac older than this worker's SDK.
+  swift_target="$(uname -m)-apple-macos14.0"
+  for tool in preflight scene ocr; do
+    swiftc -O -target "$swift_target" -o "$EVAL_BIN/screen-eval-$tool" "$here/$tool.swift" || exit 4
+  done
+  swiftc -O -target "$swift_target" -o "$EVAL_BIN/cmux-rd-marker" \
+    "$root/cmux-tui/crates/cmux-rd-host/scripts/mac-marker/main.swift" || exit 4
+  bash "$here/targets/rd.sh" build || exit 4
+  git rev-parse HEAD >"$EVAL_BIN/rev"
+  mv "$EVAL_BIN" "$work/tools"
+  tar -czf "$out/tools.tar.gz" -C "$work" tools || exit 4
+  echo "SCREEN-STREAM-EVAL-TOOLS $(cat "$work/tools/rev") $(du -k "$out/tools.tar.gz" | cut -f1) KiB"
+  exit 0
+fi
 
 # The scene's timeline is 81 s from GO (scene.swift), then it holds the ocr screen until STOP; the
 # passive window starts at the viewer's first frame, GO follows it, so the window ends inside the hold.
@@ -78,6 +116,10 @@ run.setdefault("link", "loopback: host and viewer on one Mac")
 print(json.dumps(run))
 EOF
 }
+# The commit measured: the checkout's, or with prebuilt= the one DIR/rev names (the tools' build).
+rev() {
+  if [[ -n "$prebuilt" ]]; then cat "$prebuilt/rev" 2>/dev/null || echo unknown; else git rev-parse HEAD; fi
+}
 link_arg=()
 if [[ "$lan" =~ ^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\. ]]; then
   # A tailnet address (100.64.0.0/10): two Macs on one LAN reach each other directly, inside
@@ -88,7 +130,7 @@ elif [[ -n "$lan" ]]; then
   link_arg=(link "lan: host at $lan, viewer on a second Mac")
 fi
 run=$(run_json host "$(scutil --get ComputerName 2>/dev/null || hostname)" cpu "$(sysctl -n machdep.cpu.brand_string)" \
-  macos "$(sw_vers -productVersion)" rev "$(git rev-parse HEAD)" display "$display" samples "$samples" repeats "$repeats" \
+  macos "$(sw_vers -productVersion)" rev "$(rev)" display "$display" samples "$samples" repeats "$repeats" \
   rd_input_frame_now "$input_frame_now" \
   ${link_arg[@]+"${link_arg[@]}"})
 echo "SCREEN-STREAM-EVAL-MACHINE $run"
@@ -140,11 +182,17 @@ if [[ -n "$viewer_of" ]]; then
 fi
 
 echo "SCREEN-STREAM-EVAL-STAGE tools"
-for tool in preflight scene ocr; do
-  swiftc -O -o "$EVAL_BIN/screen-eval-$tool" "$here/$tool.swift" || { finish "could not build $tool.swift"; exit 4; }
-done
-swiftc -O -o "$EVAL_BIN/cmux-rd-marker" "$root/cmux-tui/crates/cmux-rd-host/scripts/mac-marker/main.swift" ||
-  { finish "could not build the marker"; exit 4; }
+if [[ -n "$prebuilt" ]]; then
+  for tool in screen-eval-preflight screen-eval-scene screen-eval-ocr cmux-rd-marker; do
+    cp "$prebuilt/$tool" "$EVAL_BIN/$tool" || { finish "prebuilt=: no $tool in $prebuilt"; exit 4; }
+  done
+else
+  for tool in preflight scene ocr; do
+    swiftc -O -o "$EVAL_BIN/screen-eval-$tool" "$here/$tool.swift" || { finish "could not build $tool.swift"; exit 4; }
+  done
+  swiftc -O -o "$EVAL_BIN/cmux-rd-marker" "$root/cmux-tui/crates/cmux-rd-host/scripts/mac-marker/main.swift" ||
+    { finish "could not build the marker"; exit 4; }
+fi
 granted() { grep -q '"accessibility":true' <<<"$1" && grep -q '"screen_recording":true' <<<"$1"; }
 grants=$("$EVAL_BIN/screen-eval-preflight")
 echo "SCREEN-STREAM-EVAL-GRANTS $grants"
@@ -152,6 +200,14 @@ if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
   # The step's own processes hold no grants (a step's binaries change every commit). Run this whole
   # eval again inside CmuxScreenEvalLauncher.app (launcher/), a stable app granted once at the console,
   # whose children get its grants. Its files live outside $work, which the inner run starts by removing.
+  if [[ -n "$prebuilt" ]]; then
+    # Installing the launcher compiles it, which a prebuilt= Mac does not do: it must be there already.
+    home=$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | sed -n 's/^NFSHomeDirectory: //p')
+    if [[ ! -x "$home/Applications/CmuxScreenEvalLauncher.app/Contents/MacOS/CmuxScreenEvalLauncher" ]]; then
+      finish "prebuilt=: this Mac's processes lack Screen Recording or Accessibility, and it has no CmuxScreenEvalLauncher.app to run in ($grants)"
+      exit 3
+    fi
+  fi
   launch="$root/.build/screen-stream-eval-launcher"
   rm -rf "$launch"
   mkdir -p "$launch"
@@ -173,7 +229,7 @@ if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
       follow=$!
       pids+=("$follow")
       open -W -n -g -a "$app" --stdout "$launch/out.log" --stderr "$launch/err.log" ${env_args[@]+"${env_args[@]}"} \
-        --env "CMUX_SCREEN_EVAL_PARENT=$$" --args "$root/scripts/measure/screen-stream-eval.sh" "$launch/status" "$@" || true
+        --env "CMUX_SCREEN_EVAL_PARENT=$$" --args "$root/scripts/measure/screen-stream-eval.sh" "$launch/status" ${forward[@]+"${forward[@]}"} || true
       sleep 1 # the last lines reach the follower
       kill "$follow" 2>/dev/null || true
       tail -n 80 "$launch/err.log" 2>/dev/null >&2

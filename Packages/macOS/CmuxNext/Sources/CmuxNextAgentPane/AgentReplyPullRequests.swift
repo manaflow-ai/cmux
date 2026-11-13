@@ -190,7 +190,7 @@ public final class AgentReplyPullRequests {
     /// minute later.
     private func stale(_ url: URL) -> Bool {
         guard let entry = entries[url], let tried = entry.tried else { return true }
-        let wait = entry.pullRequest.map { ["merged", "closed"].contains($0.state) ? settled : freshness } ?? retry
+        let wait = entry.pullRequest.map { ["merged", "closed", "not_planned"].contains($0.state) ? settled : freshness } ?? retry
         return now.instant() - tried >= wait
     }
 

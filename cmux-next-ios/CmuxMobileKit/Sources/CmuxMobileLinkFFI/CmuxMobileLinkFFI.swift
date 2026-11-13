@@ -425,6 +425,22 @@ private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt8: FfiConverterPrimitive {
+    typealias FfiType = UInt8
+    typealias SwiftType = UInt8
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt8 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: UInt8, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt16: FfiConverterPrimitive {
     typealias FfiType = UInt16
     typealias SwiftType = UInt16
@@ -450,6 +466,22 @@ fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
     }
 
     public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterInt32: FfiConverterPrimitive {
+    typealias FfiType = Int32
+    typealias SwiftType = Int32
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Int32 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Int32, into buf: inout [UInt8]) {
         writeInt(&buf, lower(value))
     }
 }
@@ -1972,6 +2004,373 @@ public func FfiConverterTypeLinkObserver_lower(_ value: LinkObserver) -> UInt64 
 
 
 
+
+
+/**
+ * One terminal's prediction.
+ */
+public protocol TerminalPredictionProtocol: AnyObject, Sendable {
+    
+    /**
+     * The smoothed round trip from keystroke to echo, before the first echo `None`.
+     */
+    func echoLatencyUs()  -> UInt64?
+    
+    /**
+     * Whether the overlay stays where it is until the next presented frame.
+     */
+    func holdsLayout()  -> Bool
+    
+    /**
+     * What to draw now on a row of `columns` cells with the live cursor at
+     * `cursor_column`, after withdrawing what aged out; `None` hides the overlay.
+     */
+    func layout(nowUs: UInt64, cursorColumn: Int32, columns: Int32)  -> PredictionLayout?
+    
+    /**
+     * The grid or the font changed under the glyphs with no output lost (a
+     * resize): what is drawn goes, and what the engine knows of the screen
+     * stays.
+     */
+    func layoutChanged(nowUs: UInt64)  -> Bool
+    
+    /**
+     * Output was lost or replaced before the terminal parsed it (a snapshot
+     * restore, a reattach): everything starts over.
+     */
+    func missedOutput(nowUs: UInt64)  -> Bool
+    
+    /**
+     * When the next change to what is drawn falls due, or `None` when
+     * nothing is drawn: the one timer of a terminal gone quiet.
+     */
+    func nextExpiryUs()  -> UInt64?
+    
+    /**
+     * Output from the remote, just before the terminal parses it.
+     */
+    func output(bytes: Data, nowUs: UInt64)  -> Bool
+    
+    /**
+     * A rendered frame reached the screen: held confirmations retire.
+     */
+    func presentedFrame(nowUs: UInt64)  -> Bool
+    
+    /**
+     * Whether a full-screen program already owns the screen, read from the
+     * terminal before the first keystroke.
+     */
+    func seedAlternateScreen(active: Bool) 
+    
+    /**
+     * One write of encoded input about to go to the remote (Ghostty's
+     * `io_write_cb`: one key press, a paste, a mouse report). Answers whether
+     * the overlay must be drawn again.
+     */
+    func sent(bytes: Data, nowUs: UInt64)  -> Bool
+    
+    /**
+     * Sets the setting and remoteness. A change starts over from a fresh
+     * engine; answers whether anything drawn went.
+     */
+    func set(enabled: Bool, remote: Bool)  -> Bool
+    
+    /**
+     * 0 disabled, 1 local surface, 2 listening, 3 link fast enough, 4
+     * alternate screen, 5 suspended, 6 predicting.
+     */
+    func status(nowUs: UInt64)  -> UInt8
+    
+    /**
+     * Time passed with no other event: withdraws what aged out.
+     */
+    func tick(nowUs: UInt64)  -> Bool
+    
+}
+/**
+ * One terminal's prediction.
+ */
+open class TerminalPrediction: TerminalPredictionProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_terminalprediction(self.handle, $0) }
+    }
+    /**
+     * Predicts only while `enabled` (the setting) and `remote` (the shell
+     * runs on another machine).
+     */
+public convenience init(enabled: Bool, remote: Bool) {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_terminalprediction_new(
+        FfiConverterBool.lower(enabled),
+        FfiConverterBool.lower(remote),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_terminalprediction(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * The smoothed round trip from keystroke to echo, before the first echo `None`.
+     */
+open func echoLatencyUs() -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprediction_echo_latency_us(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Whether the overlay stays where it is until the next presented frame.
+     */
+open func holdsLayout() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprediction_holds_layout(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * What to draw now on a row of `columns` cells with the live cursor at
+     * `cursor_column`, after withdrawing what aged out; `None` hides the overlay.
+     */
+open func layout(nowUs: UInt64, cursorColumn: Int32, columns: Int32) -> PredictionLayout?  {
+    return try!  FfiConverterOptionTypePredictionLayout.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprediction_layout(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowUs),
+        FfiConverterInt32.lower(cursorColumn),
+        FfiConverterInt32.lower(columns),$0
+    )
+})
+}
+    
+    /**
+     * The grid or the font changed under the glyphs with no output lost (a
+     * resize): what is drawn goes, and what the engine knows of the screen
+     * stays.
+     */
+open func layoutChanged(nowUs: UInt64) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprediction_layout_changed(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowUs),$0
+    )
+})
+}
+    
+    /**
+     * Output was lost or replaced before the terminal parsed it (a snapshot
+     * restore, a reattach): everything starts over.
+     */
+open func missedOutput(nowUs: UInt64) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprediction_missed_output(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowUs),$0
+    )
+})
+}
+    
+    /**
+     * When the next change to what is drawn falls due, or `None` when
+     * nothing is drawn: the one timer of a terminal gone quiet.
+     */
+open func nextExpiryUs() -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprediction_next_expiry_us(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Output from the remote, just before the terminal parses it.
+     */
+open func output(bytes: Data, nowUs: UInt64) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprediction_output(
+            self.uniffiCloneHandle(),
+        FfiConverterData.lower(bytes),
+        FfiConverterUInt64.lower(nowUs),$0
+    )
+})
+}
+    
+    /**
+     * A rendered frame reached the screen: held confirmations retire.
+     */
+open func presentedFrame(nowUs: UInt64) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprediction_presented_frame(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowUs),$0
+    )
+})
+}
+    
+    /**
+     * Whether a full-screen program already owns the screen, read from the
+     * terminal before the first keystroke.
+     */
+open func seedAlternateScreen(active: Bool)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprediction_seed_alternate_screen(
+            self.uniffiCloneHandle(),
+        FfiConverterBool.lower(active),$0
+    )
+}
+}
+    
+    /**
+     * One write of encoded input about to go to the remote (Ghostty's
+     * `io_write_cb`: one key press, a paste, a mouse report). Answers whether
+     * the overlay must be drawn again.
+     */
+open func sent(bytes: Data, nowUs: UInt64) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprediction_sent(
+            self.uniffiCloneHandle(),
+        FfiConverterData.lower(bytes),
+        FfiConverterUInt64.lower(nowUs),$0
+    )
+})
+}
+    
+    /**
+     * Sets the setting and remoteness. A change starts over from a fresh
+     * engine; answers whether anything drawn went.
+     */
+open func set(enabled: Bool, remote: Bool) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprediction_set(
+            self.uniffiCloneHandle(),
+        FfiConverterBool.lower(enabled),
+        FfiConverterBool.lower(remote),$0
+    )
+})
+}
+    
+    /**
+     * 0 disabled, 1 local surface, 2 listening, 3 link fast enough, 4
+     * alternate screen, 5 suspended, 6 predicting.
+     */
+open func status(nowUs: UInt64) -> UInt8  {
+    return try!  FfiConverterUInt8.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprediction_status(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowUs),$0
+    )
+})
+}
+    
+    /**
+     * Time passed with no other event: withdraws what aged out.
+     */
+open func tick(nowUs: UInt64) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprediction_tick(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowUs),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalPrediction: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = TerminalPrediction
+
+    public static func lift(_ handle: UInt64) throws -> TerminalPrediction {
+        return TerminalPrediction(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: TerminalPrediction) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalPrediction {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: TerminalPrediction, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalPrediction_lift(_ handle: UInt64) throws -> TerminalPrediction {
+    return try FfiConverterTypeTerminalPrediction.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalPrediction_lower(_ value: TerminalPrediction) -> UInt64 {
+    return FfiConverterTypeTerminalPrediction.lower(value)
+}
+
+
+
+
 /**
  * One complete video frame.
  */
@@ -2205,6 +2604,97 @@ public func FfiConverterTypeBrowserStats_lower(_ value: BrowserStats) -> RustBuf
 
 
 /**
+ * What to do on this launch.
+ */
+public struct ClassicCleanupPlan: Equatable, Hashable {
+    /**
+     * Classic Keychain items to delete, sorted.
+     */
+    public var keychainDeletes: [KeychainDelete]
+    /**
+     * Classic UserDefaults keys to remove, sorted.
+     */
+    public var defaultsDeletes: [String]
+    /**
+     * Items and keys left alone: NEXT's own, or not known to be classic.
+     */
+    public var kept: UInt32
+    /**
+     * Whether to record that the cleanup ran. False only when the Keychain could
+     * not be read: the next launch tries again.
+     */
+    public var markDone: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Classic Keychain items to delete, sorted.
+         */keychainDeletes: [KeychainDelete], 
+        /**
+         * Classic UserDefaults keys to remove, sorted.
+         */defaultsDeletes: [String], 
+        /**
+         * Items and keys left alone: NEXT's own, or not known to be classic.
+         */kept: UInt32, 
+        /**
+         * Whether to record that the cleanup ran. False only when the Keychain could
+         * not be read: the next launch tries again.
+         */markDone: Bool) {
+        self.keychainDeletes = keychainDeletes
+        self.defaultsDeletes = defaultsDeletes
+        self.kept = kept
+        self.markDone = markDone
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ClassicCleanupPlan: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeClassicCleanupPlan: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ClassicCleanupPlan {
+        return
+            try ClassicCleanupPlan(
+                keychainDeletes: FfiConverterSequenceTypeKeychainDelete.read(from: &buf), 
+                defaultsDeletes: FfiConverterSequenceString.read(from: &buf), 
+                kept: FfiConverterUInt32.read(from: &buf), 
+                markDone: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ClassicCleanupPlan, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeKeychainDelete.write(value.keychainDeletes, into: &buf)
+        FfiConverterSequenceString.write(value.defaultsDeletes, into: &buf)
+        FfiConverterUInt32.write(value.kept, into: &buf)
+        FfiConverterBool.write(value.markDone, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeClassicCleanupPlan_lift(_ buf: RustBuffer) throws -> ClassicCleanupPlan {
+    return try FfiConverterTypeClassicCleanupPlan.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeClassicCleanupPlan_lower(_ value: ClassicCleanupPlan) -> RustBuffer {
+    return FfiConverterTypeClassicCleanupPlan.lower(value)
+}
+
+
+/**
  * Dial options beyond the transport. Every field has a default, so
  * `ConnectOptions()` in Swift is the plain dial.
  */
@@ -2232,6 +2722,12 @@ public struct ConnectOptions: Equatable, Hashable {
      * rides RTP inside the tunnel (the "WireGuard only" comparison).
      */
     public var noWebrtcMedia: Bool
+    /**
+     * WireGuard: the person's "Ultra mode on cellular" setting. On, a dial
+     * made while the network is cellular (`set_cellular_path`) sends
+     * repair data, about 2-3x the bytes, so a lossy network costs no time.
+     */
+    public var ultraOnCellular: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2254,11 +2750,17 @@ public struct ConnectOptions: Equatable, Hashable {
         /**
          * WireGuard: no WebRTC media session beside the link, so browser video
          * rides RTP inside the tunnel (the "WireGuard only" comparison).
-         */noWebrtcMedia: Bool = false) {
+         */noWebrtcMedia: Bool = false, 
+        /**
+         * WireGuard: the person's "Ultra mode on cellular" setting. On, a dial
+         * made while the network is cellular (`set_cellular_path`) sends
+         * repair data, about 2-3x the bytes, so a lossy network costs no time.
+         */ultraOnCellular: Bool = false) {
         self.relayOnly = relayOnly
         self.blockUdp = blockUdp
         self.noVideoLane = noVideoLane
         self.noWebrtcMedia = noWebrtcMedia
+        self.ultraOnCellular = ultraOnCellular
     }
 
     
@@ -2280,7 +2782,8 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
                 relayOnly: FfiConverterBool.read(from: &buf), 
                 blockUdp: FfiConverterBool.read(from: &buf), 
                 noVideoLane: FfiConverterBool.read(from: &buf), 
-                noWebrtcMedia: FfiConverterBool.read(from: &buf)
+                noWebrtcMedia: FfiConverterBool.read(from: &buf), 
+                ultraOnCellular: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -2289,6 +2792,7 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
         FfiConverterBool.write(value.blockUdp, into: &buf)
         FfiConverterBool.write(value.noVideoLane, into: &buf)
         FfiConverterBool.write(value.noWebrtcMedia, into: &buf)
+        FfiConverterBool.write(value.ultraOnCellular, into: &buf)
     }
 }
 
@@ -2305,6 +2809,261 @@ public func FfiConverterTypeConnectOptions_lift(_ buf: RustBuffer) throws -> Con
 #endif
 public func FfiConverterTypeConnectOptions_lower(_ value: ConnectOptions) -> RustBuffer {
     return FfiConverterTypeConnectOptions.lower(value)
+}
+
+
+/**
+ * A Keychain delete: the service, and the account when the item had one.
+ */
+public struct KeychainDelete: Equatable, Hashable {
+    public var service: String
+    public var account: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(service: String, account: String?) {
+        self.service = service
+        self.account = account
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension KeychainDelete: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeKeychainDelete: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> KeychainDelete {
+        return
+            try KeychainDelete(
+                service: FfiConverterString.read(from: &buf), 
+                account: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: KeychainDelete, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.service, into: &buf)
+        FfiConverterOptionString.write(value.account, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeKeychainDelete_lift(_ buf: RustBuffer) throws -> KeychainDelete {
+    return try FfiConverterTypeKeychainDelete.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeKeychainDelete_lower(_ value: KeychainDelete) -> RustBuffer {
+    return FfiConverterTypeKeychainDelete.lower(value)
+}
+
+
+/**
+ * One generic-password item as the Keychain listed it. Either attribute may be
+ * missing or not UTF-8 (Swift passes `None` then).
+ */
+public struct KeychainLeftover: Equatable, Hashable {
+    public var service: String?
+    public var account: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(service: String?, account: String?) {
+        self.service = service
+        self.account = account
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension KeychainLeftover: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeKeychainLeftover: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> KeychainLeftover {
+        return
+            try KeychainLeftover(
+                service: FfiConverterOptionString.read(from: &buf), 
+                account: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: KeychainLeftover, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.service, into: &buf)
+        FfiConverterOptionString.write(value.account, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeKeychainLeftover_lift(_ buf: RustBuffer) throws -> KeychainLeftover {
+    return try FfiConverterTypeKeychainLeftover.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeKeychainLeftover_lower(_ value: KeychainLeftover) -> RustBuffer {
+    return FfiConverterTypeKeychainLeftover.lower(value)
+}
+
+
+/**
+ * One cell to draw. `standing`: 0 speculative (underlined), 1 confirmed
+ * (plain, held until its frame), 2 erased (the cell's background only).
+ */
+public struct PredictedGlyph: Equatable, Hashable {
+    /**
+     * One printable ASCII byte.
+     */
+    public var character: UInt8
+    public var standing: UInt8
+    /**
+     * Cells right of the live cursor; negative for a held confirmation.
+     */
+    public var offset: Int32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * One printable ASCII byte.
+         */character: UInt8, standing: UInt8, 
+        /**
+         * Cells right of the live cursor; negative for a held confirmation.
+         */offset: Int32) {
+        self.character = character
+        self.standing = standing
+        self.offset = offset
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PredictedGlyph: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePredictedGlyph: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PredictedGlyph {
+        return
+            try PredictedGlyph(
+                character: FfiConverterUInt8.read(from: &buf), 
+                standing: FfiConverterUInt8.read(from: &buf), 
+                offset: FfiConverterInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PredictedGlyph, into buf: inout [UInt8]) {
+        FfiConverterUInt8.write(value.character, into: &buf)
+        FfiConverterUInt8.write(value.standing, into: &buf)
+        FfiConverterInt32.write(value.offset, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePredictedGlyph_lift(_ buf: RustBuffer) throws -> PredictedGlyph {
+    return try FfiConverterTypePredictedGlyph.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePredictedGlyph_lower(_ value: PredictedGlyph) -> RustBuffer {
+    return FfiConverterTypePredictedGlyph.lower(value)
+}
+
+
+/**
+ * The run on the cursor row: `cell_count` cells from `leading_offset` (cells
+ * from the cursor), and the caret where typing continues, if it fits.
+ */
+public struct PredictionLayout: Equatable, Hashable {
+    public var leadingOffset: Int32
+    public var cellCount: Int32
+    public var caretOffset: Int32?
+    public var glyphs: [PredictedGlyph]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(leadingOffset: Int32, cellCount: Int32, caretOffset: Int32?, glyphs: [PredictedGlyph]) {
+        self.leadingOffset = leadingOffset
+        self.cellCount = cellCount
+        self.caretOffset = caretOffset
+        self.glyphs = glyphs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PredictionLayout: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePredictionLayout: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PredictionLayout {
+        return
+            try PredictionLayout(
+                leadingOffset: FfiConverterInt32.read(from: &buf), 
+                cellCount: FfiConverterInt32.read(from: &buf), 
+                caretOffset: FfiConverterOptionInt32.read(from: &buf), 
+                glyphs: FfiConverterSequenceTypePredictedGlyph.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PredictionLayout, into buf: inout [UInt8]) {
+        FfiConverterInt32.write(value.leadingOffset, into: &buf)
+        FfiConverterInt32.write(value.cellCount, into: &buf)
+        FfiConverterOptionInt32.write(value.caretOffset, into: &buf)
+        FfiConverterSequenceTypePredictedGlyph.write(value.glyphs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePredictionLayout_lift(_ buf: RustBuffer) throws -> PredictionLayout {
+    return try FfiConverterTypePredictionLayout.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePredictionLayout_lower(_ value: PredictionLayout) -> RustBuffer {
+    return FfiConverterTypePredictionLayout.lower(value)
 }
 
 
@@ -2981,6 +3740,54 @@ fileprivate struct FfiConverterOptionUInt32: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionInt32: FfiConverterRustBuffer {
+    typealias SwiftType = Int32?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterInt32.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterInt32.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionUInt64: FfiConverterRustBuffer {
+    typealias SwiftType = UInt64?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt64.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionInt64: FfiConverterRustBuffer {
     typealias SwiftType = Int64?
 
@@ -2997,6 +3804,30 @@ fileprivate struct FfiConverterOptionInt64: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
+    typealias SwiftType = String?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterString.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterString.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -3023,6 +3854,154 @@ fileprivate struct FfiConverterOptionTypeLinkObserver: FfiConverterRustBuffer {
         case 1: return try FfiConverterTypeLinkObserver.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypePredictionLayout: FfiConverterRustBuffer {
+    typealias SwiftType = PredictionLayout?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypePredictionLayout.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypePredictionLayout.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionSequenceTypeKeychainLeftover: FfiConverterRustBuffer {
+    typealias SwiftType = [KeychainLeftover]?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterSequenceTypeKeychainLeftover.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterSequenceTypeKeychainLeftover.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
+    typealias SwiftType = [String]
+
+    public static func write(_ value: [String], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterString.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [String]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeKeychainDelete: FfiConverterRustBuffer {
+    typealias SwiftType = [KeychainDelete]
+
+    public static func write(_ value: [KeychainDelete], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeKeychainDelete.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [KeychainDelete] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [KeychainDelete]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeKeychainDelete.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeKeychainLeftover: FfiConverterRustBuffer {
+    typealias SwiftType = [KeychainLeftover]
+
+    public static func write(_ value: [KeychainLeftover], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeKeychainLeftover.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [KeychainLeftover] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [KeychainLeftover]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeKeychainLeftover.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypePredictedGlyph: FfiConverterRustBuffer {
+    typealias SwiftType = [PredictedGlyph]
+
+    public static func write(_ value: [PredictedGlyph], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePredictedGlyph.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PredictedGlyph] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PredictedGlyph]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePredictedGlyph.read(from: &buf))
+        }
+        return seq
     }
 }
 
@@ -3206,6 +4185,63 @@ public func resetWarmState()async   {
             
         )
 }
+/**
+ * The device's network is cellular now, or not (iOS `NWPathMonitor`,
+ * `NWPath.usesInterfaceType(.cellular)`; every path update, the first one
+ * too). WireGuard dials made from now on turn ultra mode on when this is
+ * true and their `ConnectOptions::ultra_on_cellular` is set; a live link
+ * keeps its mode until it redials.
+ */
+public func setCellularPath(cellular: Bool)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_cellular_path(
+        FfiConverterBool.lower(cellular),$0
+    )
+}
+}
+/**
+ * Whether this launch should run the cleanup: the marker is missing, not a
+ * number, or from an older version of the rules.
+ */
+public func classicCleanupDue(marker: Int64?) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_classic_cleanup_due(
+        FfiConverterOptionInt64.lower(marker),$0
+    )
+})
+}
+/**
+ * The marker key, for Swift.
+ */
+public func classicCleanupMarkerKey() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_classic_cleanup_marker_key($0
+    )
+})
+}
+/**
+ * The plan for this launch. `bundle_id` is the running app's
+ * (`Bundle.main.bundleIdentifier`); `keychain` is every generic-password item
+ * the app can see, or `None` when the Keychain could not be read;
+ * `defaults_keys` are the keys of the app's own UserDefaults domain.
+ */
+public func classicCleanupPlan(bundleId: String, keychain: [KeychainLeftover]?, defaultsKeys: [String]) -> ClassicCleanupPlan  {
+    return try!  FfiConverterTypeClassicCleanupPlan_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_classic_cleanup_plan(
+        FfiConverterString.lower(bundleId),
+        FfiConverterOptionSequenceTypeKeychainLeftover.lower(keychain),
+        FfiConverterSequenceString.lower(defaultsKeys),$0
+    )
+})
+}
+/**
+ * The marker value to store once a plan with `mark_done` ran.
+ */
+public func classicCleanupVersion() -> Int64  {
+    return try!  FfiConverterInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_classic_cleanup_version($0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -3238,6 +4274,21 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_reset_warm_state() != 25219) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_cellular_path() != 64638) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_due() != 41191) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_marker_key() != 43577) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_plan() != 63419) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_version() != 33020) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {
@@ -3337,6 +4388,48 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_stats() != 19072) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_echo_latency_us() != 57421) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_holds_layout() != 8799) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_layout() != 5598) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_layout_changed() != 30951) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_missed_output() != 35151) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_next_expiry_us() != 27965) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_output() != 19667) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_presented_frame() != 41793) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_seed_alternate_screen() != 33416) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_sent() != 15695) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_set() != 27923) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_status() != 9701) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_tick() != 43253) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_terminalprediction_new() != 21303) {
         return InitializationResult.apiChecksumMismatch
     }
 

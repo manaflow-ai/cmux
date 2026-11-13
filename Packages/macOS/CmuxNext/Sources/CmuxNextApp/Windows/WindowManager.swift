@@ -203,7 +203,7 @@ final class WindowManager {
     /// The window's state, created on first use.
     func state(for windowID: String) -> WindowState {
         if let state = states[windowID] { return state }
-        let state = WindowState(id: windowID, focusInput: services.focusInput)
+        let state = registry.closeSelection.watch(WindowState(id: windowID, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction)
         states[windowID] = state
         return state
     }
@@ -273,7 +273,7 @@ final class WindowManager {
         if adopted == nil { placeLaunchWindow(document) }
         // The closed launch window stood for the saved window it would have become.
         if closedLaunchWindowID != nil, let front = adoptableFront(restoredRegistry) { restoreClosed.closed(front) }
-        for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record, focusInput: services.focusInput) }
+        for record in document.windows where states[record.id] == nil { states[record.id] = registry.closeSelection.watch(WindowState(record: record, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction) }
         rememberMachines(of: document)
         if !restoredRegistry.windows.isEmpty {
             registry.apply { registry in
@@ -321,6 +321,8 @@ final class WindowManager {
             let isFirstRun = firstWorkspace != nil && document.windows.isEmpty
             // One step at a time: Agents, then Bring your history once its window closed.
             await services.onboarding.showFirstRunSteps(isFirstRun: isFirstRun)
+            // Then, once per channel: `cmux` in Terminal that would not run this app.
+            await CLIInstallHandlers.offerAtLaunch(skipsOnboarding: services.environment.skipsOnboarding)
         }
         savedWindowsUnread = false
         recordSaver.scheduleSave()
@@ -380,6 +382,8 @@ final class WindowManager {
         restored.recency.first { id in restored.window(id).map { $0.isOpen && hasMirroredWorkspace($0) } == true }
     }
 
+    func restoresSession(_ id: String) -> Bool { registry.restoresSession(id, launchWindow: launchWindowID, saved: previousLaunch?.windowIDs) }
+
     // MARK: Controllers
 
     /// Creates the controller of registered window `id`.
@@ -393,7 +397,7 @@ final class WindowManager {
             placedWindows += 1
         }
         let controller = WindowController(state: state, services: services, frame: frame)
-        controller.window?.animationBehavior = Motion.panes.windowOpenBehavior(restoring: registry.isLaunching || !restored) // REOPEN-F2: a restore shows in place, never AppKit's zoom
+        controller.window?.animationBehavior = Motion.panes.windowOpenBehavior(restoring: restoresSession(window.id)) // REOPEN-F2: a restore shows in place; a new window opens like one (#38128)
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
         services.dragSession.installWorkspaceHandoff(on: controller)

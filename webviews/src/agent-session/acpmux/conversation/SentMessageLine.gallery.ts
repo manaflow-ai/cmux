@@ -174,19 +174,19 @@ const openTurn: Play = async (ctx) => {
   // Adjacent sends are one closed group ("Sent 7 messages", SentMessageLine.tsx `SentMessageGroup`).
   const groupHead = ".cv-sent-group .cv-message-group__head";
   const group = () => ctx.document.querySelector(groupHead);
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent") ?? run() ?? group());
-  if (!ctx.document.querySelector(".cv-sent") && run()?.getAttribute("aria-expanded") === "false")
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg") ?? run() ?? group());
+  if (!ctx.document.querySelector(".cv-sent-msg") && run()?.getAttribute("aria-expanded") === "false")
     await ctx.click({ selector: "button[data-message-run]" });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent") ?? group());
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg") ?? group());
   if (group()?.getAttribute("aria-expanded") === "false") await ctx.click({ selector: groupHead });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent"));
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg"));
 };
 
 /// Opens the turn, then its first sent row.
 const openFirst: Play = async (ctx) => {
   await openTurn(ctx);
-  await ctx.click({ selector: ".cv-sent" });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md"));
+  await ctx.click({ selector: ".cv-sent-msg .cv-agentmsg__toggle" });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-received__text .cv-md"));
 };
 
 export default agentPaneEntry({
@@ -209,9 +209,11 @@ export default agentPaneEntry({
         // Trusted clicks settle before the next step, so Raw is clicked where it rests. The message's
         // first line toggles the row, on the row (one line, #34464) or under it (stacked, #33249).
         await ctx.click({ text: /^net-retries: done$/ });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md h2"));
-        await ctx.click({ selector: ".cv-subsession__under .cv-subsession__toggle" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-shell"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-received__text .cv-md h2"));
+        await ctx.click({ selector: ".cv-sent-msg .cv-sent__raw > .cv-received__more" });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".cv-sent-msg :is(.cv-sent__raw, .cv-sent__call) [data-tool-id]"),
+        );
       },
     },
     "recorded-file": {
@@ -219,8 +221,35 @@ export default agentPaneEntry({
       snapshot: recordedFile(),
       play: async (ctx) => {
         await openTurn(ctx);
-        await ctx.click({ selector: ".cv-sent" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md h2"));
+        await ctx.click({ selector: ".cv-sent-msg .cv-agentmsg__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-received__text .cv-md h2"));
+      },
+    },
+    "large-receipt": {
+      note: "A 1,025-recipient MCP receipt is one closed group counting every recipient; open, it pages through every message row, 32 mounted at once.",
+      snapshot: chat([
+        user("Send the report to the documentation agents.", 2),
+        activity(
+          [
+            tool("mcp__cmux__acpmux_send", "other", "completed", {
+              inputSummary: JSON.stringify({ tag: "area=docs", text: "The report is ready." }),
+              output: JSON.stringify({
+                results: Array.from({ length: 1025 }, (_, index) => ({ index: 0, to: `docs-${index}`, ok: true })),
+              }),
+            }),
+          ],
+          1.8,
+        ),
+        assistant("The report went to every documentation agent.", 1.5),
+        summary(1.5, { status: "completed" }),
+      ]),
+      play: async (ctx) => {
+        await openTurn(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector('[data-send-page="next"]'));
+        await ctx.click({ selector: '[data-send-page="next"]' });
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".cv-sent-msg .cv-recipient")].some((n) => n.textContent === "docs-32"),
+        );
       },
     },
     "written-file": {
@@ -228,8 +257,8 @@ export default agentPaneEntry({
       snapshot: writtenFile(),
       play: async (ctx) => {
         await openTurn(ctx);
-        await ctx.click({ selector: ".cv-sent" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md h2"));
+        await ctx.click({ selector: ".cv-sent-msg .cv-agentmsg__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-received__text .cv-md h2"));
       },
     },
     failed: {

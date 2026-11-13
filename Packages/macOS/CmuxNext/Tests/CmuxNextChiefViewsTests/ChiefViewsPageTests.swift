@@ -1,6 +1,7 @@
 import CmuxNextAgentActivity
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextChiefViews
@@ -124,7 +125,7 @@ struct ChiefViewsPageTests {
     }
 
     @Test func actingOpsNeedAClickAndFleetSaysWhenUnset() async throws {
-        let defaults = try #require(UserDefaults(suiteName: "ChiefViewsPageTests.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "ChiefViewsPageTests.\(UUID().uuidString)"))
         let seen = Recorder()
         let provider = ChiefViewsPageProvider(host: .init(
             agents: { [] },
@@ -164,7 +165,7 @@ struct ChiefViewsPageTests {
     }
 
     @Test func landingAnswersFromItsReadForNinetySeconds() async throws {
-        let defaults = try #require(UserDefaults(suiteName: "ChiefViewsPageTests.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "ChiefViewsPageTests.\(UUID().uuidString)"))
         let counter = Counter()
         let clock = Recorder()
         let provider = ChiefViewsPageProvider(host: .init(

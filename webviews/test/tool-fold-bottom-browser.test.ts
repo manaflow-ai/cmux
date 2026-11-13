@@ -10,11 +10,16 @@
 // open's cost (the before and after numbers).
 //
 // Real Chromium from Playwright on the agent pane's gallery scene.
+//
+// The streaming and after-send scenes test the `runs` arm of live-turn-work, not the shipped `line` arm:
+// the calls they open are finished calls of a turn that still runs, which only `runs` draws
+// (support/liveTurnRuns.ts). The idle scene takes the shipped arms.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("tool-fold-bottom-browser.test.ts", async () => {
@@ -89,8 +94,15 @@ await requireBrowserLane("tool-fold-bottom-browser.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
     await installPaintedFrames(page);
     await page.addInitScript(() => localStorage.clear());
+    if (variant !== "idle") await pinLiveTurnRuns(page);
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant })}`);
     await page.locator(".acpmux-row").first().waitFor();
+    // The stage runs the variant's play (it opens the finished turn's "Worked for" line) only once
+    // its DOM has held still, and marks itself ready after. Settling before then let that click land
+    // after the wait: its rows slid in under the reader's click, the reply drawn over the edit line.
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+      timeout: 60_000,
+    });
     // The scene's play arms its hooks once the chat is drawn.
     const hook = { streaming: "cmuxGalleryStream", "after-send": "cmuxGallerySend" }[variant];
     if (hook)

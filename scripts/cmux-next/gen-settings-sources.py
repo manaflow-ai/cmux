@@ -9,9 +9,10 @@ script writes the copies the app's Swift modules compile in. Sources so far:
   (Swift: SettingsSchema+RetiredKeys.generated.swift, `SettingsSchema.retiredKeys`).
 - schemas/settings/source/<section>.json: the rows of one settings section. Swift gets the
   descriptors AND the parser constants (paths, defaults, ranges, choice values and enums, legacy
-  aliases), so a value has one definition. SECTIONS below maps each file to its Swift schema type
-  and each list's static var and owner type. schemas/settings/settings-schema.json is still
-  exported from Swift (SettingsSchemaExportTests); moving a section must not change it.
+  aliases), so a value has one definition. schemas/settings/generator/<section>.json maps the file to
+  its Swift schema type and each list's static var and owner type (one file per section).
+  schemas/settings/settings-schema.json is still exported from Swift (SettingsSchemaExportTests);
+  moving a section must not change it.
   scripts/cmux-next/settings-source-from-export.py drafts rows from that export.
 - schemas/settings/source/sections.json: the Settings sections in sidebar order (Swift: the
   SettingsSection enum, SettingsSection.generated.swift). Every row's section must be listed there.
@@ -29,7 +30,9 @@ script writes the copies the app's Swift modules compile in. Sources so far:
 
 A section source is {"$comment", "lists": [list]}. A list is one `static var` of the schema type:
 {name, section, group: text, note?, rows: [row]}; SettingsSchema.all concatenates the lists, so a
-group whose rows are not contiguous in the export is two lists with the same group text. A text is
+group whose rows are not contiguous in the export is two lists with the same group text. A section
+whose rows span several groups may name a `joined` var in its generator file: the generator writes it as the
+concatenation of every list in source order, so its readers keep one var (`descriptors`). A text is
 {key, text}: key is the string catalog key, or null for text that is not translated (a product
 name, a syntax example). A row:
 
@@ -72,7 +75,7 @@ name, a syntax example). A row:
                  generated files `public import` it).
                  Absent: plain string values, plus a `values` constant.
   swift_owner    the type that gets the row's constants. Absent: the list's owner type from
-                 SECTIONS, with prefixed names (<name>Path, <name>Default, <name>Range,
+                 its generator file, with prefixed names (<name>Path, <name>Default, <name>Range,
                  <name>Placeholder, <name>Values). "Type": that type with plain names (configPath,
                  fallback, range, placeholder, values), the hand-written parser's own names.
                  {"type": "Type", "prefixed": true}: that type with prefixed names.
@@ -152,211 +155,43 @@ extension SettingsSchema {{
 """.format(header=HEADER.format(c="//", src=RETIRED_SOURCE), rows="\n".join(rows))
 
 
-# Swift names per section source: the schema type, and each list's static var and the type that
-# owns its rows' constants (None: every row of the list names its own `swift_owner`). `joined`
-# (optional) names a static var that concatenates every list in source order. A choice
-# row's Swift enum is the row's `swift_enum` (see the module docstring).
+# Swift names per section source, one file per source in schemas/settings/generator/<stem>.json (one
+# file each, so two PRs that add sections never edit the same lines): the source, the generated Swift
+# file, the schema type, and each list's static var and the type that owns its rows' constants
+# (null: every row of the list names its own `swift_owner`). `joined` (optional) names a static var
+# that concatenates every list in source order. A choice row's Swift enum is the row's `swift_enum`
+# (see the module docstring). Output does not depend on the order, so the files load sorted by name.
 SCHEMA_DIR = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema"
 SECTIONS_SOURCE = "schemas/settings/source/sections.json"
 SECTIONS_SWIFT = SCHEMA_DIR + "/SettingsSection.generated.swift"
-SECTIONS = [
-    {
-        "source": "schemas/settings/source/updates.json",
-        "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Updates.generated.swift",
-        "type": "UpdateSettingsSchema",
-        "lists": {"updates": ("descriptors", "UpdatesSettings"),
-                  "announcements": ("announcements", "AnnouncementsSettings")},
-    },
-    {
-        "source": "schemas/settings/source/labs.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Labs.generated.swift",
-        "type": "LabsSettingsSchema",
-        "lists": {"labs": ("descriptors", "CmuxConfigSnapshot")},
-    },
-    {
-        "source": "schemas/settings/source/picker.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Picker.generated.swift",
-        "type": "PickerSettingsSchema",
-        "lists": {"picker": ("descriptors", "PickerPinnedSetting")},
-    },
-    {
-        "source": "schemas/settings/source/shortcut-hints.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+ShortcutHints.generated.swift",
-        "type": "ShortcutHintsSettingsSchema",
-        "lists": {"shortcutHints": ("descriptors", "ModifierHoldHintsSetting")},
-    },
-    {
-        "source": "schemas/settings/source/chats.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Chats.generated.swift",
-        "type": "ChatSettingsSchema",
-        "lists": {"chats": ("descriptors", "ChatSettings")},
-    },
-    {
-        "source": "schemas/settings/source/tasks.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Tasks.generated.swift",
-        "type": "TaskSettingsSchema",
-        "lists": {"tasks": ("descriptors", "TasksLayoutSetting")},
-    },
-    {
-        "source": "schemas/settings/source/screenshots.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Screenshots.generated.swift",
-        "type": "ScreenshotsSettingsSchema",
-        "lists": {"screenshots": ("descriptors", "ScreenshotsSettings")},
-    },
-    {
-        "source": "schemas/settings/source/hover-cards.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+HoverCards.generated.swift",
-        "type": "HoverCardSettingsSchema",
-        "lists": {"hoverCards": ("descriptors", "HoverCardSettings")},
-    },
-    {
-        "source": "schemas/settings/source/now-playing.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+NowPlaying.generated.swift",
-        "type": "NowPlayingSettingsSchema",
-        "lists": {"nowPlaying": ("descriptors", "NowPlayingSettings"), "newTab": ("newTabDescriptors", "NowPlayingSettings"),
-                  "pictureInPicture": ("pictureInPictureDescriptors", "NowPlayingSettings")},
-    },
-    {
-        "source": "schemas/settings/source/new-tab-widgets.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+NewTabWidgets.generated.swift",
-        "type": "NewTabWidgetSettingsSchema",
-        "lists": {"newTabWidgets": ("descriptors", "NewTabWidgetSettings")},
-    },
-    {
-        "source": "schemas/settings/source/color-transition.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+ColorTransition.generated.swift",
-        "type": "ColorTransitionSettingsSchema",
-        "lists": {"colorTransition": ("descriptors", "ColorTransitionSetting")},
-    },
-    {
-        "source": "schemas/settings/source/sessions.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Sessions.generated.swift",
-        "type": "SessionSettingsSchema",
-        "lists": {"sessions": ("descriptors", "SessionSettings"), "phone": ("phoneDescriptors", "SessionSettings")},
-    },
-    {
-        "source": "schemas/settings/source/agent-retry.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+AgentRetry.generated.swift",
-        "type": "AgentRetrySettingsSchema",
-        "lists": {"agentRetry": ("descriptors", "AgentRetrySettings")},
-    },
-    {
-        "source": "schemas/settings/source/subsessions.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Subsessions.generated.swift",
-        "type": "SubsessionSettingsSchema",
-        "lists": {"subsessions": ("descriptors", "SubsessionSettings")},
-    },
-    {
-        "source": "schemas/settings/source/agent-guidance.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+AgentGuidance.generated.swift",
-        "type": "AgentGuidanceSettingsSchema",
-        "lists": {"agentGuidance": ("descriptors", "AgentGuidanceSettings")},
-    },
-    {
-        "source": "schemas/settings/source/trust.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Trust.generated.swift",
-        "type": "TrustSettingsSchema",
-        "lists": {"trust": ("descriptors", "TrustSettings")},
-    },
-    {
-        "source": "schemas/settings/source/auto-archive.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+AutoArchive.generated.swift",
-        "type": "AutoArchiveSettingsSchema",
-        "lists": {"autoArchive": ("descriptors", "AutoArchiveSettings")},
-    },
-    {
-        "source": "schemas/settings/source/workspace-hibernation.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+WorkspaceHibernation.generated.swift",
-        "type": "WorkspaceHibernationSettingsSchema",
-        "lists": {"hibernation": ("descriptors", "WorkspaceHibernationSettings")},
-    },
-    {
-        "source": "schemas/settings/source/tabs.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Tabs.generated.swift",
-        "type": "TabSettingsSchema",
-        "lists": {"tabs": ("descriptors", "CmuxConfigSnapshot")},
-    },
-    {
-        "source": "schemas/settings/source/appearance.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Appearance.generated.swift",
-        "type": "AppearanceSettingsSchema",
-        "lists": {"appTheme": ("appTheme", None), "windowBackground": ("windowBackground", None), "tuning": ("tuning", None),
-                  "look": ("look", None), "chromeStyle": ("chromeStyle", None), "lookMotion": ("lookMotion", None),
-                  "panes": ("panes", None), "focusRing": ("focusRing", None)},
-    },
-    {
-        "source": "schemas/settings/source/motion.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Motion.generated.swift",
-        "type": "MotionSettingsSchema",
-        "lists": {"motion": ("descriptors", None)},
-    },
-    {
-        "source": "schemas/settings/source/surfaces.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Surfaces.generated.swift",
-        "type": "SurfaceSettingsSchema",
-        "lists": {"surfaces": ("descriptors", "SurfaceBackgroundSetting")},
-    },
-    {
-        "source": "schemas/settings/source/status-indicator.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+StatusIndicator.generated.swift",
-        "type": "StatusIndicatorSettingsSchema",
-        "lists": {"statusIndicator": ("descriptors", "StatusIndicatorConfigParser")},
-    },
-    {
-        "source": "schemas/settings/source/machine-colors.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+MachineColors.generated.swift",
-        "type": "MachineColorsSettingsSchema",
-        "lists": {"machineColors": ("descriptors", None)},
-    },
-    {
-        "source": "schemas/settings/source/sidebar.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Sidebar.generated.swift",
-        "type": "SidebarSettingsSchema",
-        "lists": {"sidebar": ("sidebar", None), "sidebar2": ("sidebar2", None), "sidebar3": ("sidebar3", None),
-                  "workspaceRows": ("workspaceRows", None), "terminalWorkspaceRows": ("terminalWorkspaceRows", None),
-                  "agentWorkspaceRows": ("agentWorkspaceRows", None), "browserWorkspaceRows": ("browserWorkspaceRows", None),
-                  "mixedWorkspaceRows": ("mixedWorkspaceRows", None)},
-    },
-    {
-        "source": "schemas/settings/source/feed.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Feed.generated.swift",
-        "type": "FeedSettingsSchema",
-        "lists": {"feed": ("descriptors", "FeedGitHubSettings")},
-    },
-    {
-        "source": "schemas/settings/source/browser.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Browser.generated.swift",
-        "type": "BrowserSettingsSchema",
-        "joined": "descriptors",
-        "lists": {"toolbar": ("toolbar", "BrowserToolbarButtonsSetting"), "engine": ("engine", "BrowserDefaultEngine"),
-                  "bookmarks": ("bookmarks", "BookmarksBarSetting"), "browserImport": ("browserImport", "BrowserImportSetting"),
-                  "agentInput": ("agentInput", "AgentMouseSetting"), "extensions": ("extensions", "BuiltInAdBlockerSetting"),
-                  "memory": ("memory", "BrowserHibernationSetting"), "remote": ("remote", "RemoteLocalhostSetting"),
-                  "addressBar": ("addressBar", "BrowserOmnibarSetting"), "links": ("links", "BrowserLinkClickSetting"),
-                  "openingLinks": ("openingLinks", "LinkRouting"), "files": ("files", "TextEditorSetting"),
-                  "passwords": ("passwords", "BrowserPasswordsSetting"),
-                  "verificationAutofill": ("verificationAutofill", "BrowserVerificationAutofillSetting")},
-    },
-    {
-        "source": "schemas/settings/source/browser-app.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+BrowserApp.generated.swift",
-        "type": "BrowserAppSettingsSchema",
-        "joined": "descriptors",
-        "lists": {"toolbar": ("toolbar", "BrowserAppSettingsSchema"), "addressBar": ("addressBar", "BrowserAppSettingsSchema"),
-                  "columns": ("columns", "BrowserAppSettingsSchema"), "window": ("window", "BrowserAppSettingsSchema"),
-                  "sidebar": ("sidebar", "BrowserAppSettingsSchema")},
-    },
-    {
-        "source": "schemas/settings/source/machines.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+Machines.generated.swift",
-        "type": "MachineSettingsSchema",
-        "lists": {"computerUse": ("computerUse", "ComputerUseSettings"), "freeModel": ("freeModel", "FreeModelSettings"),
-                  "sshLinks": ("sshLinks", "SSHLinkHostsSetting"), "cloud": ("cloud", "CloudNewWorkspaceSetting"),
-                  "mobile": ("mobile", "MobileSettings"), "macScreen": ("macScreen", "MacScreenSettings"),
-                  "macScreenDebug": ("macScreenDebug", "MacScreenDebugSettings"), "remote": ("remote", "RemoteSettings"),
-                  "deviceHub": ("deviceHub", "DeviceHubSettings"), "imessage": ("imessage", "CmuxConfigSnapshot")},
-    },
-]
+GENERATOR_DIR = "schemas/settings/generator"
+GENERATOR_FIELDS = {"source", "swift", "type", "lists", "joined"}
+
+
+def load_generator_sections():
+    """SECTIONS, read from GENERATOR_DIR: each file names its own source, Swift file and lists."""
+    sections = []
+    for name in sorted(os.listdir(os.path.join(ROOT, GENERATOR_DIR))):
+        if not name.endswith(".json"):
+            continue
+        src = GENERATOR_DIR + "/" + name
+        with open(os.path.join(ROOT, src), encoding="utf-8") as handle:
+            entry = json.load(handle)
+        if not isinstance(entry, dict) or not {"source", "swift", "type", "lists"} <= set(entry) <= GENERATOR_FIELDS:
+            fail(src, "fields are source, swift, type, lists and an optional joined")
+        if entry["source"] != "schemas/settings/source/" + name or not entry["swift"].startswith(SCHEMA_DIR + "/") \
+                or not entry["swift"].endswith(".generated.swift"):
+            fail(src, "source is schemas/settings/source/%s and swift a .generated.swift file in %s" % (name, SCHEMA_DIR))
+        lists = entry["lists"]
+        if not isinstance(lists, dict) or not lists or not all(
+                isinstance(value, list) and len(value) == 2 and isinstance(value[0], str)
+                and (value[1] is None or isinstance(value[1], str)) for value in lists.values()):
+            fail(src, "lists maps each list name to [static var, owner type or null]")
+        entry["lists"] = {key: tuple(value) for key, value in lists.items()}
+        sections.append(entry)
+    return sections
+
+
 SYMBOL = __import__("re").compile(r"^[a-z0-9]+(\.[a-z0-9]+)*$")
 MEMBER = __import__("re").compile(r"^[A-Z][A-Za-z0-9]*\.[a-z][A-Za-z0-9]*$")
 UNITS = {"points", "milliseconds", "seconds", "minutes", "days", "count", "fraction"}
@@ -651,7 +486,10 @@ def check_section(section, data, seen_keys, section_ids, src):
         fail(src, "unknown top-level fields %s" % sorted(set(data) - {"$comment", "lists"}))
     names = [entry["name"] for entry in data["lists"]]
     if sorted(names) != sorted(section["lists"]):
-        fail(src, "lists %s do not match the generator's SECTIONS %s" % (names, sorted(section["lists"])))
+        fail(src, "lists %s do not match its generator file's lists %s" % (names, sorted(section["lists"])))
+    list_vars = [var for var, _ in section["lists"].values()]
+    if len(set(list_vars)) != len(list_vars) or section.get("joined") in list_vars:
+        fail(src, "each list has its own var in its generator file, and the joined var is none of them")
     for entry in data["lists"]:
         if entry["section"] not in section_ids:
             fail(src, "unknown section %r" % entry["section"])
@@ -661,7 +499,7 @@ def check_section(section, data, seen_keys, section_ids, src):
         for row in entry["rows"]:
             check_row(src, row, seen_keys, idents)
             if section["lists"][entry["name"]][1] is None and "swift_owner" not in row:
-                fail(src, "%s: list %s has no owner type in SECTIONS, so the row needs a swift_owner" % (row["key"], entry["name"]))
+                fail(src, "%s: list %s has no owner type in its generator file, so the row needs a swift_owner" % (row["key"], entry["name"]))
     return data
 
 
@@ -969,7 +807,7 @@ PAGE_SOURCE = "schemas/settings/source/page-layout.json"
 PAGE_SWIFT = SCHEMA_DIR + "/SettingsSchema+PageLayout.generated.swift"
 PAGE_CATEGORIES_SWIFT = SCHEMA_DIR + "/SettingsSchema+PageLayoutCategories.generated.swift"
 PAGE_FIELDS = {"$comment", "default_category", "max_rows_per_card", "cards", "section_actions", "sidebar_sections"}
-PAGE_CATEGORY_FIELDS = {"id", "title", "symbol", "note", "groups", "lead", "trail", "actions", "aliases", "dev_only"}
+PAGE_CATEGORY_FIELDS = {"id", "title", "symbol", "note", "groups", "lead", "trail", "actions", "aliases", "legacy_ids", "dev_only"}
 PAGE_GROUP_FIELDS = {"group", "keys", "lead_keys", "title", "note"}
 ACTION_ID = __import__("re").compile(r"^[A-Za-z][A-Za-z0-9]*(\.[A-Za-z][A-Za-z0-9]*)*$")
 
@@ -997,7 +835,7 @@ def load_page_layout(section_ids):
     for section, ids in actions.items():
         if not isinstance(ids, list) or len(set(ids)) != len(ids) or not all(isinstance(i, str) and ACTION_ID.match(i) for i in ids):
             fail(src, "section_actions.%s is a list of unique action ids" % section)
-    category_ids, group_keys, claimed = [], set(), set()
+    category_ids, group_keys, claimed, legacy_ids = [], set(), set(), []
     for run in data["sidebar_sections"]:
         if set(run) != {"id", "title", "categories"} or not IDENT.match(run["id"]) or not run["categories"]:
             fail(src, "a sidebar section has id, title (or null) and a non-empty categories list: %r" % run.get("id"))
@@ -1024,6 +862,11 @@ def load_page_layout(section_ids):
                     fail(src, "%s.%s: unique ids of %s" % (cid, field, "cards" if known is cards else "sections"))
             if not isinstance(category.get("dev_only", False), bool):
                 fail(src, "%s.dev_only is a bool" % cid)
+            legacy = category.get("legacy_ids", [])
+            if not isinstance(legacy, list) or len(set(legacy)) != len(legacy) \
+                    or not all(isinstance(i, str) and IDENT.match(i) and i not in section_ids for i in legacy):
+                fail(src, "%s.legacy_ids: unique ids of retired categories (not sections)" % cid)
+            legacy_ids.extend(legacy)
             for index, group in enumerate(category["groups"]):
                 where = "%s group %d" % (cid, index)
                 if set(group) - PAGE_GROUP_FIELDS or not ("group" in group or "title" in group):
@@ -1039,6 +882,8 @@ def load_page_layout(section_ids):
                         if not isinstance(row, str) or not row or any(not part for part in row.split(".")) or row in claimed:
                             fail(src, "%s: bad row key or a row claimed twice: %r" % (where, row))
                         claimed.add(row)
+    if len(set(legacy_ids)) != len(legacy_ids) or set(legacy_ids) & set(category_ids):
+        fail(src, "a legacy id opens one category and is no category's own id")
     if data["default_category"] not in category_ids:
         fail(src, "default_category %r is not a category" % data["default_category"])
     return data
@@ -1098,6 +943,8 @@ public nonisolated struct SettingsPageLayout: Sendable {{
         public var aliases: [SettingsSection] = []
         /// Shown only in DEV builds: the page hides it when the host says it is not one.
         public var devOnly = false
+        /// Ids of retired categories (old `#/settings/<id>` links) that open this category.
+        public var legacyIDs: [String] = []
     }}
 
     /// A titled run of categories in the page's sidebar (the lead run is untitled).
@@ -1189,15 +1036,17 @@ def page_categories_swift(data):
                     if group.get("lead_keys"):
                         args.append("leadKeys: " + swift_list(group["lead_keys"]))
                     out.append("            GroupSpec(%s)," % ", ".join(args))
-                out.append("        ]" + ("," if any(category.get(f) for f in ("lead", "trail", "actions", "aliases", "dev_only")) else ""))
+                out.append("        ]" + ("," if any(category.get(f) for f in ("lead", "trail", "actions", "aliases", "dev_only", "legacy_ids")) else ""))
             else:
-                out.append("        groups: []" + ("," if any(category.get(f) for f in ("lead", "trail", "actions", "aliases", "dev_only")) else ""))
+                out.append("        groups: []" + ("," if any(category.get(f) for f in ("lead", "trail", "actions", "aliases", "dev_only", "legacy_ids")) else ""))
             rest = []
             for field, label in (("lead", "lead"), ("trail", "trail"), ("actions", "actions"), ("aliases", "aliases")):
                 if category.get(field):
                     rest.append("%s: %s" % (label, cases(category[field])))
             if category.get("dev_only"):
                 rest.append("devOnly: true")
+            if category.get("legacy_ids"):
+                rest.append("legacyIDs: " + swift_list(category["legacy_ids"]))
             if rest:
                 out.append("        " + ", ".join(rest))
             out.append("    )")
@@ -1347,8 +1196,8 @@ extension SettingsSchema {{
 def load_row_facts():
     src = FACTS_SOURCE
     data = load_json(src)
-    if set(data) != {"$comment", "kept_on_reset_all", "shared_with_browser", "validation"}:
-        fail(src, "fields are $comment, kept_on_reset_all, shared_with_browser, validation")
+    if set(data) != {"$comment", "kept_on_reset_all", "shared_with_browser", "validation", "former_defaults"}:
+        fail(src, "fields are $comment, kept_on_reset_all, shared_with_browser, validation, former_defaults")
     for field in ("kept_on_reset_all", "shared_with_browser"):
         if len(set(data[field])) != len(data[field]):
             fail(src, "%s lists a key twice" % field)
@@ -1365,6 +1214,12 @@ def load_row_facts():
     for domain in list(validation["keys"].values()) + list(validation["kinds"].values()) + [validation["default"]]:
         if not isinstance(domain, str) or not DOMAIN.match(domain):
             fail(src, "validation %r is portable or domain:<name>" % domain)
+    for key, values in data["former_defaults"].items():
+        check_key(src, key)
+        if not isinstance(values, list) or not values or any(isinstance(v, (dict, list)) or v is None for v in values):
+            fail(src, "former_defaults.%s lists one or more scalar values" % key)
+        if len(set(map(json.dumps, values))) != len(values):
+            fail(src, "former_defaults.%s lists a value twice" % key)
     return data
 
 
@@ -1396,11 +1251,19 @@ extension SettingsSchema {{
 {by_kind}
     ]
     static let defaultValidation = {default}
+
+    /// Each key's earlier defaults that held for a day or more: the one-time launch migration
+    /// (`forgetStoredDefaults`) drops a stored value equal to one, so the key follows its default again.
+    static let formerDefaults: [String: [JSONValue]] = [
+{former}
+    ]
 }}
 """.format(header=HEADER.format(c="//", src=FACTS_SOURCE),
            shared="\n".join(wrap([swift_string(k) for k in data["shared_with_browser"]], "        ")),
            kept="\n".join(wrap(kept, "        ")), by_key=table(data["validation"]["keys"]),
-           by_kind=table(data["validation"]["kinds"]), default=swift_string(data["validation"]["default"]))
+           by_kind=table(data["validation"]["kinds"]), default=swift_string(data["validation"]["default"]),
+           former="\n".join(wrap(["%s: [%s]" % (swift_string(k), ", ".join(json_value_swift(v) for v in values))
+                                  for k, values in data["former_defaults"].items()], "        ")))
 
 
 def check_sample(src, where, value):
@@ -1485,6 +1348,37 @@ def row_fact_outputs():
     return outputs
 
 
+SECTIONS = load_generator_sections()
+
+
+EXPORT = "schemas/settings/settings-schema.json"
+
+
+def export_key_drift(loaded):
+    """What the committed export (settings-schema.json, written by the Swift export on a Mac) says
+    that the sources do not: a source row missing from its rows, a row no source has, or a retired
+    key back in it. The export is a generated file, but a PR can carry one made from an older base
+    (#40382 merged an export from before agents.chats.coldArchive and with the retired
+    ui.animations.bounce), and the Mac check that compares it with a fresh export does not run on
+    every event. Every row comes from a source, so the key sets are equal; this reads only JSON, so
+    it runs everywhere --check does."""
+    path = os.path.join(ROOT, EXPORT)
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as handle:
+        exported = {row["key"] for row in json.load(handle)["rows"]}
+    sourced = {row["key"] for _, data in loaded for entry in data["lists"] for row in entry["rows"]}
+    retired = {entry["key"] for entry in load_retired()}
+    problems = []
+    if sourced - exported:
+        problems.append("source rows missing from the export: %s" % sorted(sourced - exported))
+    if exported - sourced - retired:
+        problems.append("export rows no source has: %s" % sorted(exported - sourced - retired))
+    if exported & retired:
+        problems.append("retired keys back in the export: %s" % sorted(exported & retired))
+    return problems
+
+
 def main():
     check = "--check" in sys.argv[1:]
     outputs = {RETIRED_SWIFT: retired_swift(load_retired())}
@@ -1527,6 +1421,12 @@ def main():
         else:
             os.remove(os.path.join(ROOT, path))
             print("removed " + path)
+    stale_export = export_key_drift(loaded)
+    if stale_export:
+        print("%s is not the sources' export (an export from another base?):\n  %s\nregenerate it: "
+              "scripts/cmux-next/regenerate-settings-exports.sh (a Mac or the PR's cmux-next-generated-patch artifact)"
+              % (EXPORT, "\n  ".join(stale_export)), file=sys.stderr)
+        return 1
     if drifted:
         print("generated settings copies differ from schemas/settings:\n  %s\nrun: python3 scripts/cmux-next/gen-settings-sources.py"
               % "\n  ".join(drifted), file=sys.stderr)

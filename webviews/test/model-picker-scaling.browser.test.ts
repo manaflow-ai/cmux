@@ -109,9 +109,17 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
         const thumbColor = () =>
           column.evaluate((node) => getComputedStyle(node, "::-webkit-scrollbar-thumb").backgroundColor);
         expect(await thumbColor()).toBe("rgba(0, 0, 0, 0)");
+        // The reader's own wheel: a scroll from script right after the click that opened the menu is
+        // the page's, and shows no thumb (scrollers.ts `isUserScroll`).
+        const box = (await column.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.wheel(0, 10_000);
+        await page.waitForFunction(() => {
+          const node = document.querySelector<HTMLElement>(".acpmux-cols-body > [role=listbox]")!;
+          return node.scrollTop + node.clientHeight >= node.scrollHeight - 1;
+        });
         const scroll = await column.evaluate((list) => {
           const node = list as HTMLElement;
-          node.scrollTop = node.scrollHeight;
           const last = node
             .querySelectorAll<HTMLElement>("[role=option]")
             .item(node.querySelectorAll("[role=option]").length - 1);
@@ -231,7 +239,10 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
         expect(layout.width).toBeLessThanOrEqual(360);
         expect(layout.contentWidth).toBeLessThanOrEqual(layout.bodyWidth + 1);
         expect(layout.names.length).toBeGreaterThan(4);
-        expect(layout.names.every((name) => name.width > 0 && name.ellipsis === "ellipsis")).toBe(true);
+        // Names wrap rather than truncate (the long-name contract above): each fits its column.
+        expect(
+          layout.names.every((name) => name.width > 0 && name.ellipsis === "clip" && name.content <= name.width + 1),
+        ).toBe(true);
       } finally {
         await page.close();
       }

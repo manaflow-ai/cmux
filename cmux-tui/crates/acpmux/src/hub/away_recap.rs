@@ -28,8 +28,9 @@
 //! - Only after `MIN_TURNS` turns, and `TURNS_BETWEEN` more since the last
 //!   recap (Claude Code's own limits), so a short chat gets none.
 //! - The person shows the chat again after `AWAY` or more: the recap is
-//!   logged as a `mux` `recap` record (`{text, awayMs}`), which clients draw
-//!   as a recap row. A turn since it was asked makes it stale: it is dropped.
+//!   logged as a `mux` `recap` record (`{text, awayMs, since}`), which clients
+//!   draw with the "New since you looked" divider at `since` (`seen.rs`). A
+//!   turn since it was asked makes it stale: it is dropped.
 //!
 //! The recap never goes to the model as a prompt and is never in Claude
 //! Code's transcript. `agents.chats.sessionRecap` (the app's chat settings
@@ -152,7 +153,7 @@ impl Hub {
         if away_for < AWAY {
             return;
         }
-        let turns = session.meta.lock().unwrap_or_else(|e| e.into_inner()).turn_count;
+        let (turns, since) = session.read_meta(|meta| (meta.turn_count, meta.seen_seq));
         let Some((text, at_turns)) = away.ready.take() else { return };
         if at_turns != turns || !self.recap_applies(session) {
             return;
@@ -163,7 +164,9 @@ impl Hub {
             session,
             "mux",
             "recap",
-            json!({"text": text, "awayMs": away_for.as_millis() as u64}),
+            // `since`: where the person left off, so a client draws the recap with its
+            // "New since you looked" divider instead of twice (`seen.rs`).
+            json!({"text": text, "awayMs": away_for.as_millis() as u64, "since": since}),
         );
     }
 
@@ -264,11 +267,19 @@ impl Hub {
     pub(super) fn watch_recaps(self: &Arc<Self>) {
         let mut events = self.subscribe();
         let hub = Arc::downgrade(self);
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("recap-events", async move {
             loop {
                 let ev = match events.recv().await {
                     Ok(ev) => ev,
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    // Turns may have ended unheard: every idle chat's recap is scheduled again,
+                    // which does nothing for one that wants none (rework stage 3, E4).
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        let Some(hub) = hub.upgrade() else { return };
+                        for session in hub.lagged_reader("recap-events", n) {
+                            hub.schedule_recap(&session);
+                        }
+                        continue;
+                    }
                     Err(broadcast::error::RecvError::Closed) => return,
                 };
                 let rec = &ev.record;
@@ -283,7 +294,7 @@ impl Hub {
         });
         let hub = Arc::downgrade(self);
         let wake = self.recap_wake.clone();
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("recap-timer", async move {
             loop {
                 let next = {
                     let Some(hub) = hub.upgrade() else { return };

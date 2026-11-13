@@ -340,6 +340,8 @@ pub struct PresentationSnapshot {
     pub saved_screen_groups: Vec<super::SavedScreenGroupRecord>,
     /// Keep-layout records of live tabs by public tab id (`kept_tab_store`).
     pub kept_tabs: HashMap<String, super::KeptTabRecord>,
+    /// Attention marks of live tabs by public tab id (`tab-attention-v1`).
+    pub tab_attention: HashMap<String, super::TabAttentionRecord>,
 }
 
 /// The nine tab group colors. Frontends render them as muted tints.
@@ -877,7 +879,16 @@ pub(crate) fn write_workspace_presentation(
         anyhow::ensure!(exists, "unknown workspace group {group}");
     }
     let mut record = read_workspace_presentation(transaction, workspace_key)?;
+    let before = record.clone();
     update.apply_to(&mut record);
+    if record == before {
+        // A repeated update (a script setting the same task status at ~10 Hz) writes no row and
+        // journals no fact.
+        if update.pinned.is_some() {
+            crate::state::sidebar_doc_sync::sync_from_legacy(transaction)?;
+        }
+        return Ok(());
+    }
     if record.is_empty() {
         transaction.execute(
             "DELETE FROM workspace_presentation WHERE workspace_key = ?1",
@@ -1244,12 +1255,7 @@ impl WorkspaceRegistry {
     /// Notification ids acknowledged as read on the shared console. A
     /// restart restores an unread marker only for unacknowledged ones.
     pub(crate) fn acked_notification_ids(&self) -> anyhow::Result<HashSet<String>> {
-        let db = self.connection.get();
-        let mut statement = db.prepare("SELECT notification_id FROM notification_acks")?;
-        let ids = statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<HashSet<_>, _>>()?;
-        Ok(ids)
+        acked_notification_ids_in(&self.connection.get())
     }
 
     /// Replace every tab group and membership (metadata-only changes that leave tab order alone).
@@ -1279,4 +1285,13 @@ impl WorkspaceRegistry {
         tx.commit()?;
         Ok(removed)
     }
+}
+
+/// The acknowledged notification ids, read on `db` (the registry's connection or the read-only one).
+pub(crate) fn acked_notification_ids_in(db: &Connection) -> anyhow::Result<HashSet<String>> {
+    let mut statement = db.prepare("SELECT notification_id FROM notification_acks")?;
+    let ids = statement
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<HashSet<_>, _>>()?;
+    Ok(ids)
 }

@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextHome
 @testable import CmuxNextHomeModel
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import CmuxNextHomeEngine
@@ -13,7 +14,7 @@ import CmuxNextHomeEngine
 @MainActor @Suite struct HomeFirstRunSwitchCardTests {
     private func defaults() -> UserDefaults {
         let name = "HomeFirstRunSwitchCardTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
+        let defaults = UserDefaults(testSuiteName: name)!
         defaults.removePersistentDomain(forName: name)
         return defaults
     }
@@ -47,10 +48,10 @@ import CmuxNextHomeEngine
     @Test func cardShowsLinesNoteOnlyOnConflictAndButtonsCallBack() {
         let card = HomeFirstRunSwitchCard(frame: NSRect(x: 0, y: 0, width: 340, height: 200))
         var keys = HomeSwitchKeys(tabByNumber: "⌃1…9", workspaceByNumber: "⌘1…9", nextPreviousTab: "⇧⌘[ ⇧⌘]",
-                                  nextPreviousWorkspace: nil, focusBackForward: "⌘[ ⌘]")
+                                  nextPreviousWorkspace: nil, focusBackForward: "⌥⌘, ⌥⌘.")
         card.apply(keys)
         #expect(!card.isHidden)
-        #expect(card.lineViews.map(\.keys.stringValue) == ["⌃1…9", "⌘1…9", "⇧⌘[ ⇧⌘]", "⌘[ ⌘]"], "an unbound key has no line")
+        #expect(card.lineViews.map(\.keys.stringValue) == ["⌃1…9", "⌘1…9", "⇧⌘[ ⇧⌘]", "⌥⌘, ⌥⌘."], "an unbound key has no line")
         #expect(card.note.isHidden && card.openSettings.isHidden)
         let plain = card.height(for: 340)
         keys.desktopConflict = true

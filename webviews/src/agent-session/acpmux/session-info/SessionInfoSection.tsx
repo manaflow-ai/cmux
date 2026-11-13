@@ -4,14 +4,15 @@
 // composer's context card). With `icon`, the head starts with it, so a section that is one
 // line lines up with the rows above it (the rail's top block, SessionInfo.tsx `RAIL_LAYOUT`).
 // `bare` draws the body alone, with no head: rows that need no title over them. Inside the panel's
-// list (SessionInfoGroup.tsx) it also has the six-dot handle that moves it anywhere in the panel, in
-// the panel's right gutter past its head's count (sessionInfo.css).
+// list (SessionInfoGroup.tsx) it also has the six-dot handle that moves it anywhere in the panel, at
+// its head's right end past the count, on the rows' right text edge (sessionInfo.css). The head is plain
+// text and a chevron with no fill; its chevron is one glyph that turns a quarter as the section folds.
 import type { ReactNode } from "react";
 import { Disclosure } from "../../../ui/Disclosure";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { useReorder } from "./SessionInfoGroup";
+import { useReorder } from "./sessionInfoGroupModel";
 import { movable } from "./sectionOrder";
 import type { SessionInfoSectionId } from "./sessionInfoState";
 
@@ -43,8 +44,9 @@ export function SessionInfoFold({
 }
 
 /// Six dots, drawn here (the icon pack has no grip glyph): two across and three down, 4px apart with
-/// 1.5px dots, the reference panel's size, in the panel's right gutter past the head's count, outside its
-/// pill (sessionInfo.css; Leo, 2026-11-06: "I do not like the layout and proportion of the dragger").
+/// 1.5px dots, the reference panel's size, at the head's right end past its count, ending on the rows'
+/// right text edge (sessionInfo.css; Leo, 2026-11-06: "I do not like the layout and proportion of the
+/// dragger"; 2026-11-07: "the grip and the lef tside aren't flush").
 const GRIP_DOTS = [0.75, 4.75, 8.75].flatMap((y) => [0.75, 4.75].map((x) => ({ x, y })));
 
 function ReorderHandle({ id, title }: { id: SessionInfoSectionId; title: string }) {
@@ -104,13 +106,7 @@ export function SessionInfoSection({
         <Icon name={icon} size={ROW_ICON} row fit className="acpmux-session-info-section__icon acpmux-row-glyph" />
       )}
       <span className="acpmux-session-info-section__title">{title}</span>
-      {foldable && (
-        <Icon
-          name={open ? "disclosure.expanded" : "disclosure.collapsed"}
-          size={12}
-          className="acpmux-session-info-section__fold"
-        />
-      )}
+      {foldable && <Icon name="disclosure.collapsed" size={12} className="acpmux-session-info-section__fold" />}
       {meta && <span className="acpmux-session-info-section__meta">{meta}</span>}
     </>
   );

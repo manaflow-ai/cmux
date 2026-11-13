@@ -71,6 +71,7 @@ impl ResourceOperation {
                 | Self::GitFilesList
                 | Self::GitFilesSearch
                 | Self::GitStatus
+                | Self::GitWorktreeSetup
                 | Self::HistoryEntriesList
                 | Self::HistoryVisitSummaries
                 | Self::WorkspaceList
@@ -114,8 +115,8 @@ impl ResourceOperation {
                 | Self::PaletteUsageGet
                 | Self::PaletteRank
                 | Self::StashList
+                | Self::ClassicImportPlan
                 | Self::ConductorImportPlan
-                | Self::CloudVmSnapshots
                 | Self::CloudVmFirewallList
                 | Self::CloudVmFirewallGet
                 | Self::CloudVmNetworks
@@ -127,6 +128,8 @@ impl ResourceOperation {
                 | Self::CloudOwnerHandoffs
                 | Self::CloudOwnerHarnessLoginCopy
                 | Self::CloudOwnerGithubApp
+                | Self::CloudMachineChatAccess
+                | Self::CloudOwnerTurns
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet

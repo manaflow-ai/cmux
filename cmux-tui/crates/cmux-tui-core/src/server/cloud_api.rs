@@ -30,13 +30,7 @@ pub(super) const CAPABILITY: &str = "cloud-api-v1";
 pub(super) const fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
-        Op::CloudVmResize
-            | Op::CloudVmSnapshot
-            | Op::CloudVmSnapshots
-            | Op::CloudVmDeleteSnapshot
-            | Op::CloudVmRestore
-            | Op::CloudVmFork
-            | Op::CloudVmScpEndpoint
+        Op::CloudVmScpEndpoint
             | Op::CloudVmTunnelEnroll
             | Op::CloudVmTunnelRevoke
             | Op::CloudVmTunnelAttach
@@ -66,10 +60,15 @@ pub(super) const fn handles(operation: ResourceOperation) -> bool {
             | Op::CloudOwnerHandoffBeginTurn
             | Op::CloudOwnerHarnessLoginCopy
             | Op::CloudOwnerGithubApp
+            | Op::CloudOwnerTurnCheckpoint
+            | Op::CloudOwnerTurnRewind
+            | Op::CloudOwnerTurns
             | Op::CloudPreviewsRefresh
             | Op::CloudPreviewsCreateLink
             | Op::CloudPreviewsRevokeLink
             | Op::CloudMachineIo
+            | Op::CloudMachineChatAccess
+            | Op::CloudMachineShareChat
     )
 }
 pub(super) fn handle(

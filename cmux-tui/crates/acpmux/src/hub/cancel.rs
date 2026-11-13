@@ -153,7 +153,7 @@ impl Hub {
             // shows each as held by it (`views.rs` `held_by_stop`).
             queue
                 .iter_mut()
-                .filter(|q| q.run.agent.is_some())
+                .filter(|q| q.goes_in_by_itself())
                 .map(|q| {
                     // One sent now waits too: the Stop came after it.
                     (q.held, q.sent_now) = (true, false);
@@ -376,6 +376,28 @@ impl Hub {
     ) -> Result<(), RpcError> {
         let running = self.stop_prompt_retry(session, prompt_id)?;
         self.cancel_matching(session, None, Some(running.as_deref().unwrap_or(prompt_id))).await
+    }
+
+    /// A `session/prompt` its client cancelled with `$/cancel_request` (`server/prompt_cancel.rs`):
+    /// out of the queue while it waits, else exactly its turn stopped, as a workflow's prompt is
+    /// (`cancel_prompt`). Its request runs on, so the turn ends as any other (`finish_turn`).
+    pub(crate) async fn stop_cancelled_prompt(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        prompt: &str,
+    ) {
+        if self.remove_queued(session, prompt) {
+            return;
+        }
+        if let Err(e) = self.cancel_prompt(session, prompt).await {
+            tracing::debug!(
+                target: crate::request_cancel::LOG_TARGET,
+                session = %session.id,
+                prompt,
+                "a cancelled prompt's stop: {}",
+                e.message
+            );
+        }
     }
 
     /// A Stop while Claude compacts ends the turn at once and withdraws the person's queued

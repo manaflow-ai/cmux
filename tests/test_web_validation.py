@@ -15,7 +15,13 @@ sys.path.insert(0, str(ROOT / "scripts/ci"))
 import web_validation as gate
 sys.path.insert(0, str(ROOT / "tests"))
 from runs_on_labels import unwrap_fork_pool_reads  # noqa: E402
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 class CmuxNextBaseWebVerdict(unittest.TestCase):
@@ -39,6 +45,8 @@ class CmuxNextBaseWebVerdict(unittest.TestCase):
             "  web:\n    needs: coalesce\n"
             "    # A yielded coalesce job (a newer push's run checks these commits) runs no checks.\n"
             "    if: ${{ needs.coalesce.outputs.run != 'false' }}\n"
+            "    # actions: read: the webview base replay reads the base's flake history artifact (ci-web.yml).\n"
+            "    permissions:\n      contents: read\n      actions: read\n"
             "    uses: ./.github/workflows/ci-web.yml\n    with:\n"
             "      web: ${{ 'true' }}\n      macos: ${{ 'false' }}\n      agent_session_web: ${{ 'true' }}\n",
             self.text,
@@ -231,15 +239,17 @@ class WebValidationTests(unittest.TestCase):
         cache. Blacksmith is a capped paid overflow now (2026-10-30), so the shards run at
         16 vCPU: 14% slower at p50 than 32 for half the price. There, four shards ran their
         dev-server files four at a time for 18-26 min each (p50 24.4 min, 2026-10-31), the
-        long pole from ask to merge for a webview fix, so they are eight. The base replay
-        (react-apps-base-check) takes one shard per head shard's results artifact."""
+        long pole from ask to merge for a webview fix, so they were eight. At eight the split
+        balanced each shard to about 1000 s of tests (2026-11-13), past a 20 min verdict, so
+        they are twelve (about 690 s each). The base replay (react-apps-base-check) takes one
+        shard per head shard's results artifact."""
         workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
         start = workflow.index("  react-apps-check-shard:")
         match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
         block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
         shards = [int(n) for n in re.findall(r"^          - shard: (\d+)$", block, re.MULTILINE)]
         counts = set(re.findall(r"^            shard_count: (\d+)$", block, re.MULTILINE))
-        self.assertEqual(len(shards), 8)
+        self.assertEqual(len(shards), 12)
         self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_16 }}", unwrap_fork_pool_reads(block))
         self.assertEqual(shards, list(range(1, len(shards) + 1)))
         self.assertEqual(counts, {str(len(shards))})
@@ -254,6 +264,24 @@ class WebValidationTests(unittest.TestCase):
                 body = block[block.index(f"- name: {step}"):]
                 body = body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
                 self.assertIn("if: matrix.shard == 1", body)
+
+    def test_a_shard_whose_engines_failed_is_red_without_running_its_tests(self):
+        """A failed engine install went on to the whole suite, 15-25 min, and the shard was red
+        anyway (run 43337871244): the tests now skip and the gate step names the engine step."""
+        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        start = workflow.index("  react-apps-check-shard:")
+        block = workflow[start : workflow.index("\n  react-apps-base-check:", start)]
+        def step(name):
+            body = block[block.index(f"- name: {name}\n"):]
+            return body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
+        self.assertIn("id: engines", step("Install headless engines"))
+        self.assertIn("if: ${{ !cancelled() && steps.engines.outcome != 'failure' }}", step("Test webviews"))
+        self.assertIn("steps.webview-tests.outcome != 'skipped'", step("Upload head webview results"))
+        gate = step("Fail on the gate checks")
+        self.assertIn("ENGINES: ${{ steps.engines.outcome }}", gate)
+        self.assertIn('"ENGINES|Install headless engines"', gate)
+        # The split starts shard 1 at the seconds its shard-only checks take.
+        self.assertIn('CMUX_WEB_TEST_SHARD_HEAD_START: "1:120"', step("Test webviews"))
 
     def test_pr_and_merge_group_checks_belong_to_ci(self):
         delegated = {"changes": {"result": "success", "outputs": {"required": "true"}},

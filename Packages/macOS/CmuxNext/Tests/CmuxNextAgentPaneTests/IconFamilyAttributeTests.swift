@@ -18,6 +18,11 @@ struct IconFamilyAttributeTests {
             == ["icon-family": "custom"])
     }
 
+    @Test func theOptionalNekoFamilySetsItsAttribute() {
+        #expect(AgentPaneTunables.attributes(topStripStyle: .default, iconFamily: .neko)
+            == ["icon-family": "neko"])
+    }
+
     /// Turning another tunable off adds its own attribute beside the family's; neither hides the other,
     /// and the pack still adds nothing of its own.
     @Test func anotherAttributeRidesAlongsideTheFamily() {
@@ -25,5 +30,7 @@ struct IconFamilyAttributeTests {
             == ["needs-you-pill": "off"])
         #expect(AgentPaneTunables.attributes(topStripStyle: .default, needsYouPill: false, iconFamily: .custom)
             == ["needs-you-pill": "off", "icon-family": "custom"])
+        #expect(AgentPaneTunables.attributes(topStripStyle: .default, needsYouPill: false, iconFamily: .neko)
+            == ["needs-you-pill": "off", "icon-family": "neko"])
     }
 }

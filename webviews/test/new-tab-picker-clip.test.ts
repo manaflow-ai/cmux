@@ -86,7 +86,8 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
     expect(geometry.frameHeight, "the columns stay within their height cap").toBeLessThanOrEqual(259);
     expect(geometry.columns).toHaveLength(3);
     for (const column of geometry.columns) {
-      expect(column.overflow, "each column scrolls independently").toBe("auto");
+      // `scroll` on the Model and options columns: their lane is always kept (cmuxterm-hq#7707).
+      expect(["auto", "scroll"], "each column scrolls independently").toContain(column.overflow);
       expect(column.height).toBeGreaterThan(0);
       expect(column.height).toBeLessThanOrEqual(geometry.frameHeight);
     }

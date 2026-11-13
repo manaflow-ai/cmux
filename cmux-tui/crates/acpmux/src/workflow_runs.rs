@@ -88,6 +88,12 @@ pub struct RunRecord {
     pub state: State,
     pub activities: BTreeMap<String, ActivityRecord>,
     pub outcome: Option<Result<Value, Value>>,
+    /// The Claude Code subagent (`{id, type}`, plain words) whose MCP call started the run
+    /// (`subagent_call.rs`): the run's commands run as that subagent's Bash would
+    /// (`cli::sender::SUBAGENT_ENV`). A label within the owner session, never a proof. Absent
+    /// in records of runs the chat itself, the person or an older build started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caller_subagent: Option<Value>,
 }
 
 /// Private, per-daemon run records, independent of any chat's purge-owned background folder.
@@ -341,13 +347,12 @@ fn valid_id(id: &str) -> bool {
 
 fn lock(dir: &Path) -> Result<File> {
     crate::config::private_state_dir(dir)?;
-    let mut options = OpenOptions::new();
-    options.read(true).write(true).create(true).truncate(false);
+    // Made in the held home (`home_fs`): a home replaced after the check above never gets the
+    // lock file (#41462 review F2).
+    let mut options = crate::home_fs::OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false).mode(0o600);
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-    }
+    options.custom_flags(libc::O_NOFOLLOW);
     let file = options.open(dir.join("record.lock"))?;
     file.lock().context("lock workflow record")?;
     Ok(file)

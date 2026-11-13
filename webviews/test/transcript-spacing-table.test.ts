@@ -15,6 +15,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { BUBBLE, FOOTER, TRANSCRIPT_SPACING } from "../src/agent-session/acpmux/transcriptSpacing";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { CLOCK_ON_LINE, pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
@@ -141,7 +142,13 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
       // A running turn lists a run's calls one line each; a finished one folds them ("Sent 3 messages").
       const sends = rowLines("Take the one-line row pitch");
       const short = paragraph("Briefs are out");
-      const commands = rowLines("gh pr checks 2210").length ? rowLines("gh pr checks 2210") : rowLines("Checked #2210");
+      // The run of commands, found by its command rows rather than their words: a command row reads
+      // as what the command did (commandActions.ts), not as its line.
+      const commands = lines(
+        [...document.querySelectorAll<HTMLElement>(".acpmux-activity")].find(
+          (row) => shown(row) && row.querySelector(".cv-command"),
+        ),
+      );
       /** The first line of the shown row of kind `kind` whose words read `text`, across spans: the
        * live line draws its verb in its own span ("Sending" | " message to …", #33241). */
       const rowLine = (text: string, kind: string) => {
@@ -221,6 +228,8 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
 
   const open = async (theme: string) => {
     const page = await browser.newPage({ viewport: { width: 1200, height: 1100 }, deviceScaleFactor: 2 });
+    // Measure the status rows without the optional header between them.
+    await pinArms(page, CLOCK_ON_LINE);
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "shipped", width: 1100, theme, reducedMotion: "true" })}`,

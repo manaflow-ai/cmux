@@ -1,15 +1,13 @@
 // l10n-allow-file: test fixtures, not shipped UI.
-// A turn's tokens split up (Leo, 2026-10-21: "usually anthropic talks about output instead of read
-// tokens... its ok if we show both, we just ought to split it up"; and "shouldnt the token text and
-// maybe time tho be less prominent? darker?"). The running line and a finished turn's Worked for
-// say output first, then all the model read (fresh input, cache reads and writes), each in its own
-// span, with the parts named on hover; the time sits in the quieter time span, not in the words.
+// Live lines keep elapsed time without token amounts, including the legacy split experiment.
+// Standalone token formatting and the turn's recorded usage data remain available.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { WorkedFor } from "../src/agent-session/acpmux/conversation/TurnRows";
-import { tokenDetail } from "../src/agent-session/acpmux/conversation/TurnTokens";
+import { TurnTokens } from "../src/agent-session/acpmux/conversation/TurnTokens";
+import { tokenDetail } from "../src/agent-session/acpmux/conversation/turnTokensModel";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -21,24 +19,29 @@ const text = (html: string) =>
     .replace(/\s+/g, " ")
     .trim();
 const SPLIT_SPAN =
-  /<span class="cv-worked__tokens is-split" title="Output 12\.4K · fresh input 18K · cache reads 2\.1M · cache writes 42K"><span class="cv-worked__tokens-part">↓ 12\.4K out<\/span><span class="cv-worked__tokens-part">↑ 2\.1M in<\/span><\/span>/;
+  /<span class="cv-worked__tokens is-split" title="Output 12\.4K · fresh input 18K · cache reads 2\.1M · cache writes 42K"><span class="cv-worked__tokens-part">↓ 12\.4K out<\/span><span class="cv-worked__tokens-part">↑ 60K in<\/span><\/span>/;
 
 for (const [name, line] of Object.entries(tokenLines))
-  test(`${name}: output first, then what the model read, named on hover`, () => {
-    // The live line says one count by default, as Claude Code's does (claude-code-tool-rows.test.tsx);
-    // its `split` arm keeps this look.
-    globalThis.cmuxExperiments = { "live-line-tokens": "split" };
-    let html: string;
-    try {
-      html = tokenLineMarkup(line, SPLIT);
-    } finally {
-      delete globalThis.cmuxExperiments;
-    }
-    expect(html).toMatch(SPLIT_SPAN);
-    expect(text(html)).toMatch(/· ↓ 12\.4K out ↑ 2\.1M in$/);
-    // The time is in its own quieter span.
-    expect(html).toMatch(/<span class="cv-worked__(label-)?time">35s<\/span>/);
-  });
+  for (const arm of ["total", "split"])
+    test(`${name}: the legacy ${arm} arm keeps time without a token counter`, () => {
+      const before = globalThis.cmuxExperiments;
+      globalThis.cmuxExperiments = { ...before, "live-line-tokens": arm };
+      let html: string;
+      try {
+        html = tokenLineMarkup(line, SPLIT);
+      } finally {
+        globalThis.cmuxExperiments = before;
+      }
+      expect(html).not.toContain("cv-worked__tokens");
+      expect(html).not.toContain("cv-worked__sep");
+      expect(text(html)).not.toMatch(/↓|↑|tokens|12\.4K|60K/);
+      // The time is in its own quieter span.
+      expect(html).toMatch(/<span class="cv-worked__(label-)?time">35s<\/span>/);
+    });
+
+test("standalone token formatting still shows output and uncached input with the full split on hover", () => {
+  expect(renderToStaticMarkup(<TurnTokens split={SPLIT} />)).toMatch(SPLIT_SPAN);
+});
 
 test("the hover names each part, compact in the pane's language", () => {
   expect(tokenDetail(translatorFor("en"), "en", SPLIT)).toBe(
@@ -58,8 +61,8 @@ const worked: AcpmuxRow = {
 const workedMarkup = (row: AcpmuxRow) =>
   renderToStaticMarkup(<WorkedFor row={row} expanded={false} onToggle={() => {}} />);
 
-test("a finished turn's Worked for says its time alone, in the quieter span, as Codex does", () => {
-  // Lucas, 2026-11-06: "just have 'Worked for 22s'". The tokens stay on the running line.
+test("a finished turn's Worked for includes its duration in the same label", () => {
+  // The disclosure shows its duration without a token counter.
   const html = workedMarkup({ ...worked, tokens: SPLIT });
   expect(text(html)).toBe("Worked for 1m 16s");
   expect(html).toContain(
@@ -77,16 +80,21 @@ test("a finished turn's Worked for says its time alone, in the quieter span, as 
   expect(text(workedMarkup({ ...worked, status: "cancelled" }))).toBe("You stopped after 1m 16s");
 });
 
-test("the time and both token parts take the tertiary text token, in tabular numerals", () => {
+test("inline durations inherit their label colour while separate elapsed times remain secondary", () => {
   const css = readFileSync(
     path.resolve(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"),
     "utf8",
   );
-  const at = css.indexOf("\n.cv-worked__time,\n.cv-worked__label-time {");
+  const at = css.indexOf("\n.cv-worked__time {");
   expect(at).toBeGreaterThan(-1);
   const rule = css.slice(at, css.indexOf("}", at));
   expect(rule).toContain("color: var(--cv-text-dim);");
   expect(rule).toContain("font-variant-numeric: tabular-nums;");
+  const labelAt = css.indexOf("\n.cv-worked__label-time {");
+  expect(labelAt).toBeGreaterThan(-1);
+  const labelRule = css.slice(labelAt, css.indexOf("}", labelAt));
+  expect(labelRule).toContain("color: inherit;");
+  expect(labelRule).toContain("font-variant-numeric: tabular-nums;");
 });
 
 // A finished connected turn has one Worked-for line, including its intermediate replies and
@@ -135,5 +143,9 @@ test("a steered turn keeps its tokens on the original prompt's fold", () => {
       takeaway("done"),
       ended(),
     ]),
-  ).toEqual([["worked-u", SPLIT]]);
+    // Split in order at the steer (turn-fold-in-order.test.ts), the fold after it carries none.
+  ).toEqual([
+    ["worked-u", SPLIT],
+    ["worked-s", undefined],
+  ]);
 });

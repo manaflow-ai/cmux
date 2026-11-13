@@ -31,7 +31,6 @@ pub const DAEMON_PID_FILE: &str = "/run/cmux-host/daemon.pid";
 pub const STATUS_FILE: &str = "/run/cmux-host/status.json";
 /// Operator breadcrumb: which layout the session host runs under.
 pub const LAYOUT_MARKER_FILE: &str = "/etc/cmux/daemon-layout";
-pub const GHOSTTY_VERSION_FILE: &str = "/etc/cmux/ghostty-version";
 pub const MACHINE_ID_FILE: &str = "/etc/machine-id";
 pub const DBUS_MACHINE_ID_FILE: &str = "/var/lib/dbus/machine-id";
 pub const RANDOM_SEED_FILE: &str = "/var/lib/systemd/random-seed";
@@ -101,8 +100,6 @@ pub struct Config {
     pub metadata_attempts: u32,
     pub metadata_timeout: Duration,
     pub daemon: DaemonOverride,
-    /// Opt in only on fresh Native-backed Cloud images. Requires root.
-    pub native_receiver: bool,
     /// Send the gratuitous ARP announce (off only in tests).
     pub announce: bool,
     /// `announce_interval_seconds`: repeat the announce this often while
@@ -130,7 +127,6 @@ impl Config {
             metadata_attempts: crate::metadata::DEFAULT_ATTEMPTS,
             metadata_timeout: crate::metadata::ATTEMPT_TIMEOUT,
             daemon: DaemonOverride::default(),
-            native_receiver: false,
             announce: true,
             announce_interval: DEFAULT_ANNOUNCE_INTERVAL,
             rearm_delay: HOUSEKEEPING_DELAY,

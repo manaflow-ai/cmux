@@ -2758,127 +2758,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux daemon"
+            "value": "cmux daemon"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خدمة acpmux"
+            "value": "خدمة cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux servis"
+            "value": "cmux servis"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux-tjeneste"
+            "value": "cmux-tjeneste"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux-Dienst"
+            "value": "cmux-Dienst"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Servicio de acpmux"
+            "value": "Servicio de cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Service acpmux"
+            "value": "Service cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Servizio acpmux"
+            "value": "Servizio cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux デーモン"
+            "value": "cmux デーモン"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សេវា acpmux"
+            "value": "សេវា cmux"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 데몬"
+            "value": "cmux 데몬"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux-tjeneste"
+            "value": "cmux-tjeneste"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usługa acpmux"
+            "value": "Usługa cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Serviço do acpmux"
+            "value": "Serviço do cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Служба acpmux"
+            "value": "Служба cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บริการ acpmux"
+            "value": "บริการ cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux hizmeti"
+            "value": "cmux hizmeti"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Служба acpmux"
+            "value": "Служба cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dịch vụ acpmux"
+            "value": "Dịch vụ cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 守护进程"
+            "value": "cmux 守护进程"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 常駐程式"
+            "value": "cmux 常駐程式"
           }
         }
       }
@@ -3014,268 +3014,6 @@
         }
       }
     },
-    "agentPane.daemonUpdate.notice.headline": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر تحديث %@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nije moguće ažurirati %@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke opdatere %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ konnte nicht aktualisiert werden"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't update %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo actualizar %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de mettre à jour %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile aggiornare %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ を更新できませんでした"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មិនអាចធ្វើបច្ចុប្បន្នភាព %@ បានទេ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@을(를) 업데이트할 수 없음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke oppdatere %@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nie udało się zaktualizować %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não foi possível atualizar %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось обновить %@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "อัปเดต %@ ไม่ได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ güncellenemedi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося оновити %@"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Không thể cập nhật %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法更新 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法更新 %@"
-          }
-        }
-      }
-    },
-    "agentPane.daemonUpdate.notice.rolledBackHeadline": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا يزال %@ على إصداره السابق"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ je i dalje na prethodnoj verziji"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ kører stadig sin tidligere version"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ist noch auf der vorherigen Version"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ is still on its previous version"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ sigue en su versión anterior"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ est toujours sur sa version précédente"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ è ancora alla versione precedente"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ は以前のバージョンのままです"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ នៅតែប្រើកំណែមុនរបស់វា"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@은(는) 아직 이전 버전입니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ er fortsatt på den forrige versjonen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ nadal ma poprzednią wersję"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ continua na versão anterior"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ всё ещё на прежней версии"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ยังใช้เวอร์ชันก่อนหน้า"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ hâlâ önceki sürümünde"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ досі на попередній версії"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ vẫn ở phiên bản trước"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 仍是之前的版本"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 仍是先前的版本"
-          }
-        }
-      }
-    },
     "agentPane.daemonUpdate.machines.offline": {
       "extractionState": "manual",
       "localizations": {
@@ -3403,6 +3141,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 已離線，恢復連線後將更新"
+          }
+        }
+      }
+    },
+    "agentPane.daemonUpdate.noAnswer": {
+      "comment": "A machine's update line: its ssh connection dropped (a timeout), so it could not be updated.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يستجب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije odgovorio"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svarede ikke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Antwort"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Didn't answer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No respondió"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "N'a pas répondu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non ha risposto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "応答がありませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនបានឆ្លើយតប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "응답하지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svarte ikke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie odpowiedział"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não respondeu"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не ответил"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ตอบสนอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yanıt vermedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не відповів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không phản hồi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有响应"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有回應"
           }
         }
       }
@@ -3665,6 +3535,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法更新 %1$@：%2$@"
+          }
+        }
+      }
+    },
+    "agentPane.daemonUpdate.notice.noAnswer": {
+      "comment": "Settings > Updates row line: %@ is the machine's name; its ssh connection dropped during its update.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يستجب %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nije odgovorio"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ svarede ikke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat nicht geantwortet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ didn't answer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no respondió"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n'a pas répondu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non ha risposto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ から応答がありませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ មិនបានឆ្លើយតប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 응답하지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ svarte ikke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nie odpowiedział"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não respondeu"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не ответил"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ไม่ตอบสนอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ yanıt vermedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не відповів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ không phản hồi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 没有响应"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 沒有回應"
           }
         }
       }
@@ -5632,6 +5634,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "允許一次"
+          }
+        }
+      }
+    },
+    "notifications.approval.allowAlways": {
+      "comment": "Button on an agent chat's approval banner: allows this tool call and later ones like it, as the chat's own Always allow does.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح دائمًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvijek dozvoli"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad altid"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Immer erlauben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always Allow"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir siempre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toujours autoriser"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti sempre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតជានិច្ច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "항상 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat alltid"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zawsze pozwalaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sempre Permitir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всегда разрешать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her Zaman İzin Ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завжди дозволяти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luôn cho phép"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "始终允许"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "永遠允許"
           }
         }
       }
@@ -9050,6 +9184,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "選擇"
+          }
+        }
+      }
+    },
+    "agentPane.personUnproven.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم التحقق من أنك أنت. جارٍ إعادة ربط هويتك بخدمة الوكلاء…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije potvrđeno da ste to vi. Vaš identitet se ponovo povezuje sa servisom agenata…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke bekræftet som dig. Forbinder din identitet til agenttjenesten igen…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht als du bestätigt. Deine Identität wird erneut mit dem Agentendienst verbunden…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se verificó que seas tú. Reconectando tu identidad con el servicio de agentes…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non vérifié comme étant vous. Reconnexion de votre identité au service d’agents…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non verificato come te. Ricollegamento della tua identità al servizio agenti…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたとして確認されていません。エージェントサービスとの本人確認を再接続しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនទាន់បានផ្ទៀងផ្ទាត់ថាជាអ្នកទេ។ កំពុងភ្ជាប់អត្តសញ្ញាណរបស់អ្នកទៅសេវាភ្នាក់ងារឡើងវិញ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "본인으로 확인되지 않았습니다. 에이전트 서비스에 본인 확인을 다시 연결하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke bekreftet som deg. Kobler identiteten din til agenttjenesten på nytt…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie potwierdzono, że to Ty. Ponowne łączenie Twojej tożsamości z usługą agentów…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não verificado como você. Reconectando sua identidade ao serviço de agentes…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не подтверждено, что это вы. Повторно подключаем вашу личность к службе агентов…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังไม่ได้ยืนยันว่าเป็นคุณ กำลังเชื่อมต่อตัวตนของคุณกับบริการเอเจนต์อีกครั้ง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siz olduğunuz doğrulanmadı. Kimliğiniz ajan hizmetine yeniden bağlanıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не підтверджено, що це ви. Повторно підключаємо вашу особу до служби агентів…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa xác minh là bạn. Đang kết nối lại danh tính của bạn với dịch vụ tác tử…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未验证为你本人。正在将你的身份重新连接到代理服务…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未驗證為你本人。正在將你的身分重新連接到代理服務…"
           }
         }
       }
@@ -26616,49 +26881,49 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "نسخ الرسالة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Kopiraj poruku"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Kopiér besked"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Nachricht kopieren"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy Message"
+            "value": "Copy message"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Copiar mensaje"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Copier le message"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Copia messaggio"
           }
         },
@@ -26670,73 +26935,73 @@
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ចម្លងសារ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "메시지 복사"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Kopier melding"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Kopiuj wiadomość"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Copiar mensagem"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Скопировать сообщение"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "คัดลอกข้อความ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Mesajı Kopyala"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Копіювати повідомлення"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Sao chép tin nhắn"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "拷贝信息"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "拷貝訊息"
           }
         }
@@ -34471,6 +34736,80 @@
         }
       }
     },
+    "agentPane.error.gitPushUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": { "state": "translated", "value": "تعذّر دفع الفرع؛ أعد الاتصال بالمحادثة وحاول مرة أخرى." }
+        },
+        "bs": {
+          "stringUnit": { "state": "translated", "value": "Granu nije moguće poslati; ponovo povežite razgovor i pokušajte ponovo." }
+        },
+        "da": {
+          "stringUnit": { "state": "translated", "value": "Grenen kunne ikke pushes; forbind chatten igen, og prøv igen." }
+        },
+        "de": {
+          "stringUnit": { "state": "translated", "value": "Der Branch konnte nicht gepusht werden; verbinde den Chat erneut und versuche es noch einmal." }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The branch could not be pushed; reconnect the chat and try again."
+          }
+        },
+        "es": {
+          "stringUnit": { "state": "translated", "value": "No se pudo subir la rama; vuelve a conectar el chat e inténtalo de nuevo." }
+        },
+        "fr": {
+          "stringUnit": { "state": "translated", "value": "Impossible d'envoyer la branche ; reconnectez la conversation et réessayez." }
+        },
+        "it": {
+          "stringUnit": { "state": "translated", "value": "Impossibile eseguire il push del branch; riconnetti la chat e riprova." }
+        },
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "ブランチをプッシュできませんでした。チャットを再接続して、もう一度お試しください。" }
+        },
+        "ko": {
+          "stringUnit": { "state": "translated", "value": "브랜치를 푸시할 수 없습니다. 채팅을 다시 연결한 후 다시 시도하세요." }
+        },
+        "nl": {
+          "stringUnit": { "state": "translated", "value": "De branch kon niet worden gepusht; verbind de chat opnieuw en probeer het nogmaals." }
+        },
+        "no": {
+          "stringUnit": { "state": "translated", "value": "Grenen kunne ikke pushes; koble til chatten på nytt og prøv igjen." }
+        },
+        "pl": {
+          "stringUnit": { "state": "translated", "value": "Nie można wypchnąć gałęzi; połącz ponownie czat i spróbuj jeszcze raz." }
+        },
+        "pt-BR": {
+          "stringUnit": { "state": "translated", "value": "Não foi possível enviar o branch; reconecte o chat e tente novamente." }
+        },
+        "ru": {
+          "stringUnit": { "state": "translated", "value": "Не удалось отправить ветку; переподключите чат и попробуйте снова." }
+        },
+        "sv": {
+          "stringUnit": { "state": "translated", "value": "Grenen kunde inte pushas; anslut chatten igen och försök igen." }
+        },
+        "th": {
+          "stringUnit": { "state": "translated", "value": "พุชสาขาไม่ได้ โปรดเชื่อมต่อแชทอีกครั้งแล้วลองใหม่" }
+        },
+        "tr": {
+          "stringUnit": { "state": "translated", "value": "Dal gönderilemedi; sohbeti yeniden bağlayıp tekrar deneyin." }
+        },
+        "uk": {
+          "stringUnit": { "state": "translated", "value": "Не вдалося надіслати гілку; повторно підключіть чат і спробуйте ще раз." }
+        },
+        "vi": {
+          "stringUnit": { "state": "translated", "value": "Không thể đẩy nhánh; hãy kết nối lại cuộc trò chuyện rồi thử lại." }
+        },
+        "zh-Hans": {
+          "stringUnit": { "state": "translated", "value": "无法推送分支；请重新连接聊天，然后重试。" }
+        },
+        "zh-Hant": {
+          "stringUnit": { "state": "translated", "value": "無法推送分支；請重新連線聊天，然後再試一次。" }
+        }
+      }
+    },
     "agentPane.error.gitWrite": {
       "extractionState": "manual",
       "localizations": {
@@ -36960,268 +37299,6 @@
         }
       }
     },
-    "agentPane.daemonUpdate.notice.details": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Details"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "التفاصيل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Detalji"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Detaljer"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Details anzeigen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Detalles"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Détails"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dettagli"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "詳細"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ព័ត៌មានលម្អិត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "자세히"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Detaljer"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Szczegóły"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Detalhes"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Подробнее"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "รายละเอียด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ayrıntılar"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Докладніше"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chi tiết"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "详细信息"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "詳細資訊"
-          }
-        }
-      }
-    },
-    "agentPane.daemonUpdate.notice.several": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't update %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر تحديث %@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nije moguće ažurirati %@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke opdatere %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ konnten nicht aktualisiert werden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo actualizar %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de mettre à jour %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile aggiornare %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ を更新できませんでした"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មិនអាចធ្វើបច្ចុប្បន្នភាព %@ បានទេ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@을(를) 업데이트할 수 없습니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke oppdatere %@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nie udało się zaktualizować: %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não foi possível atualizar %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось обновить: %@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "อัปเดต %@ ไม่ได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ güncellenemedi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося оновити: %@"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Không thể cập nhật %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法更新 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法更新 %@"
-          }
-        }
-      }
-    },
     "agentPane.daemonUpdate.machines.update": {
       "extractionState": "manual",
       "localizations": {
@@ -38397,6 +38474,1851 @@
           "stringUnit": {
             "state": "translated",
             "value": "頂部列（含名稱）"
+          }
+        }
+      }
+    },
+    "agentPane.menu.attachSelectionAsContext": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attach selection as context"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إرفاق التحديد كسياق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priloži odabir kao kontekst"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vedhæft markeringen som kontekst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auswahl als Kontext anhängen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adjuntar selección como contexto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Joindre la sélection comme contexte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allega selezione come contesto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択範囲をコンテキストとして添付"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់ជម្រើសជាបរិបទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택 항목을 컨텍스트로 첨부"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legg ved utvalget som kontekst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dołącz zaznaczenie jako kontekst"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anexar seleção como contexto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прикрепить выделение как контекст"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แนบส่วนที่เลือกเป็นบริบท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçimi Bağlam Olarak Ekle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Додати виділене як контекст"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đính kèm phần chọn làm ngữ cảnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将所选内容作为上下文附加"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將選取內容作為上下文附加"
+          }
+        }
+      }
+    },
+    "agentPane.menu.copyMessageAsMarkdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy message as Markdown"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ الرسالة بتنسيق Markdown"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiraj poruku kao Markdown"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiér besked som Markdown"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachricht als Markdown kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar mensaje como Markdown"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier le message en Markdown"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia messaggio come Markdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージをMarkdownとしてコピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចម្លងសារជា Markdown"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지를 Markdown으로 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopier melding som Markdown"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiuj wiadomość jako Markdown"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar mensagem como Markdown"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать сообщение как Markdown"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกข้อความเป็น Markdown"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesajı Markdown Olarak Kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копіювати повідомлення як Markdown"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sao chép tin nhắn dưới dạng Markdown"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷贝信息为 Markdown"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷貝訊息為 Markdown"
+          }
+        }
+      }
+    },
+    "agentPane.menu.pinAsChapter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin as chapter"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تثبيت كفصل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikači kao poglavlje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fastgør som kapitel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Kapitel anheften"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fijar como capítulo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Épingler comme chapitre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fissa come capitolo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "章としてピン留め"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ខ្ទាស់ជាជំពូក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "챕터로 고정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fest som kapittel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przypnij jako rozdział"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixar como capítulo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрепить как главу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปักหมุดเป็นบท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bölüm Olarak Sabitle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закріпити як розділ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghim làm chương"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定为章节"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定為章節"
+          }
+        }
+      }
+    },
+    "agentHarness.icon.needsAgent": {
+      "comment": "Set Agent Icon refusals; keep --arg text exactly",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سمِّ الوكيل باستخدام ‎--arg id=<agent>‎."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navedi agenta s --arg id=<agent>."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angiv agenten med --arg id=<agent>."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gib den Agenten mit --arg id=<agent> an."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the agent with --arg id=<agent>."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica el agente con --arg id=<agent>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indiquez l’agent avec --arg id=<agent>."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica l’agente con --arg id=<agent>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--arg id=<agent> でエージェントを指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ឈ្មោះភ្នាក់ងារដោយ --arg id=<agent>។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--arg id=<agent>로 에이전트를 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angi agenten med --arg id=<agent>."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wskaż agenta przez --arg id=<agent>."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Informe o agente com --arg id=<agent>."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажите агента: --arg id=<agent>."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบุเอเจนต์ด้วย --arg id=<agent>"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aracıyı --arg id=<agent> ile belirtin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажіть агента: --arg id=<agent>."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ định tác tử bằng --arg id=<agent>."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请用 --arg id=<agent> 指定智能体。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請用 --arg id=<agent> 指定代理。"
+          }
+        }
+      }
+    },
+    "agentHarness.icon.needsIcon": {
+      "comment": "Set Agent Icon refusals; keep --arg text exactly",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سمِّ الأيقونة باستخدام --arg icon=<emoji, SF Symbol name or agent mark>."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navedite ikonu pomoću --arg icon=<emoji, SF Symbol name or agent mark>."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angiv ikonet med --arg icon=<emoji, SF Symbol name or agent mark>."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gib das Symbol mit --arg icon=<emoji, SF Symbol name or agent mark> an."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the icon with --arg icon=<emoji, SF Symbol name or agent mark>."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica el icono con --arg icon=<emoji, SF Symbol name or agent mark>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indiquez l’icône avec --arg icon=<emoji, SF Symbol name or agent mark>."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica l’icona con --arg icon=<emoji, SF Symbol name or agent mark>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--arg icon=<emoji, SF Symbol name or agent mark> でアイコンを指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ឈ្មោះរូបតំណាងដោយ --arg icon=<emoji, SF Symbol name or agent mark>។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "--arg icon=<emoji, SF Symbol name or agent mark>로 아이콘을 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angi ikonet med --arg icon=<emoji, SF Symbol name or agent mark>."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podaj ikonę za pomocą --arg icon=<emoji, SF Symbol name or agent mark>."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indique o ícone com --arg icon=<emoji, SF Symbol name or agent mark>."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажите значок с помощью --arg icon=<emoji, SF Symbol name or agent mark>."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบุไอคอนด้วย --arg icon=<emoji, SF Symbol name or agent mark>"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Simgeyi --arg icon=<emoji, SF Symbol name or agent mark> ile belirtin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажіть значок за допомогою --arg icon=<emoji, SF Symbol name or agent mark>."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hãy chỉ định biểu tượng bằng --arg icon=<emoji, SF Symbol name or agent mark>."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请用 --arg icon=<emoji, SF Symbol name or agent mark> 指定图标。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請用 --arg icon=<emoji, SF Symbol name or agent mark> 指定圖示。"
+          }
+        }
+      }
+    },
+    "agentPane.menu.pointAtElement": {
+      "comment": "Agent chat right-click menu: starts the UI pointer picker, which points at a page element and attaches it to a composer. Holding Option shows the page's developer tools in its place.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإشارة إلى عنصر…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaži na element…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Peg på element…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Element zeigen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Point at Element…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Señalar elemento…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désigner un élément…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica elemento…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要素を指す…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចង្អុលទៅធាតុ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요소 가리키기…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pek på element…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wskaż element…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apontar para elemento…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Указать на элемент…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ชี้ที่องค์ประกอบ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öğeyi işaret et…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вказати на елемент…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trỏ vào phần tử…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指向元素…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指向元素…"
+          }
+        }
+      }
+    },
+    "agentPane.chatPerf.seconds": {
+      "comment": "A capture length that is not a whole number of seconds from 1 to the maximum (`cmux app chat perf --seconds`).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds must be a whole number from 1 to %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds は 1 から %lld までの整数にしてください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون الثواني عددًا صحيحًا من 1 إلى %lld"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sekunde moraju biti cijeli broj od 1 do %lld"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sekunder skal være et helt tal fra 1 til %lld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekunden müssen eine ganze Zahl von 1 bis %lld sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "los segundos deben ser un número entero de 1 a %lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "les secondes doivent être un nombre entier de 1 à %lld"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "i secondi devono essere un numero intero da 1 a %lld"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វិនាទីត្រូវតែជាចំនួនគត់ពី 1 ដល់ %lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "초는 1부터 %lld까지의 정수여야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sekunder må være et heltall fra 1 til %lld"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "liczba sekund musi być liczbą całkowitą od 1 do %lld"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "os segundos devem ser um número inteiro de 1 a %lld"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "секунды должны быть целым числом от 1 до %lld"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วินาทีต้องเป็นจำนวนเต็มตั้งแต่ 1 ถึง %lld"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "saniye 1 ile %lld arasında bir tam sayı olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "секунди мають бути цілим числом від 1 до %lld"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "số giây phải là số nguyên từ 1 đến %lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "秒数必须是 1 到 %lld 之间的整数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "秒數必須是 1 到 %lld 之間的整數"
+          }
+        }
+      }
+    },
+    "agentPane.chatPerf.needsTab": {
+      "comment": "Measuring a chat's page without naming the tab (`cmux app chat perf`).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the chat tab to measure."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計測するチャットのタブを指定してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّد علامة تبويب الدردشة المراد قياسها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navedite karticu chata koju treba izmjeriti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv den chatfane, der skal måles."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib den Chat-Tab an, der gemessen werden soll."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica la pestaña de chat que quieres medir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez l’onglet de discussion à mesurer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica la scheda della chat da misurare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមបញ្ជាក់ផ្ទាំងជជែកដែលត្រូវវាស់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "측정할 채팅 탭을 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angi chatfanen som skal måles."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wskaż kartę czatu do zmierzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indique a aba de chat a medir."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите вкладку чата для измерения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุแท็บแชทที่จะวัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ölçülecek sohbet sekmesini belirtin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкажіть вкладку чату для вимірювання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy chỉ định thẻ trò chuyện cần đo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请指定要测量的聊天标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請指定要測量的聊天分頁。"
+          }
+        }
+      }
+    },
+    "agentPane.chatPerf.notAgentChat": {
+      "comment": "Measuring a tab that is not an agent chat (a terminal or browser tab).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That tab isn't an agent chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのタブはエージェントチャットではありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامة التبويب هذه ليست دردشة وكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta kartica nije chat s agentom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den fane er ikke en agentchat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Tab ist kein Agent-Chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa pestaña no es un chat de agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet onglet n’est pas une discussion avec un agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella scheda non è una chat con un agente."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងនោះមិនមែនជាការជជែកជាមួយភ្នាក់ងារទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 탭은 에이전트 채팅이 아닙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den fanen er ikke en agentchat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta karta nie jest czatem z agentem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essa aba não é um chat de agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта вкладка не является чатом с агентом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บนั้นไม่ใช่แชทกับเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sekme bir ajan sohbeti değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця вкладка не є чатом з агентом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ đó không phải là cuộc trò chuyện với tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该标签页不是代理聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該分頁不是代理聊天。"
+          }
+        }
+      }
+    },
+    "agentPane.chatPerf.pageAsleep": {
+      "comment": "Measuring a chat whose hidden page the app froze to save power; measuring never wakes it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That chat's page is asleep while it's hidden, and measuring doesn't wake it. Show the chat, then measure it again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットのページは非表示の間スリープしており、計測では起こしません。チャットを表示してから、もう一度計測してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صفحة هذه الدردشة نائمة أثناء إخفائها، والقياس لا يوقظها. اعرض الدردشة، ثم قِسها مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stranica tog chata spava dok je skrivena, a mjerenje je ne budi. Prikažite chat, pa ga ponovo izmjerite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chattens side sover, mens den er skjult, og måling vækker den ikke. Vis chatten, og mål den så igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Seite dieses Chats schläft, solange sie verborgen ist, und das Messen weckt sie nicht. Zeige den Chat und miss ihn dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La página de ese chat está en reposo mientras está oculta, y medir no la despierta. Muestra el chat y vuelve a medirlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La page de cette discussion est en veille tant qu’elle est masquée, et la mesure ne la réveille pas. Affichez la discussion, puis mesurez-la à nouveau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pagina di quella chat è sospesa mentre è nascosta e la misurazione non la risveglia. Mostra la chat, poi misurala di nuovo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំព័រនៃការជជែកនោះកំពុងដេកពេលវាត្រូវបានលាក់ ហើយការវាស់មិនដាស់វាទេ។ សូមបង្ហាញការជជែក រួចវាស់ម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 채팅의 페이지는 숨겨져 있는 동안 잠들어 있으며, 측정은 페이지를 깨우지 않습니다. 채팅을 표시한 다음 다시 측정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siden til chatten sover mens den er skjult, og måling vekker den ikke. Vis chatten, og mål den så på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strona tego czatu jest uśpiona, gdy jest ukryta, a pomiar jej nie budzi. Pokaż czat, a potem zmierz go ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A página desse chat está adormecida enquanto está oculta, e medir não a desperta. Mostre o chat e meça novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Страница этого чата спит, пока скрыта, и измерение её не будит. Покажите чат, затем измерьте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าของแชทนั้นหลับอยู่ขณะถูกซ่อน และการวัดจะไม่ปลุกมัน แสดงแชท แล้ววัดอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin sayfası gizliyken uykuda ve ölçüm onu uyandırmaz. Sohbeti gösterin, sonra yeniden ölçün."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сторінка цього чату спить, поки прихована, і вимірювання її не будить. Покажіть чат, а потім виміряйте знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trang của cuộc trò chuyện đó đang ngủ khi bị ẩn, và việc đo không đánh thức nó. Hãy hiển thị cuộc trò chuyện rồi đo lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该聊天的页面在隐藏时处于休眠状态，测量不会唤醒它。请先显示该聊天，然后再测量。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該聊天的頁面在隱藏時處於休眠狀態，測量不會喚醒它。請先顯示該聊天，然後再測量。"
+          }
+        }
+      }
+    },
+    "agentPane.chatPerf.pageNotLoaded": {
+      "comment": "Measuring a chat whose page was never made this launch; measuring never opens it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That chat's page isn't loaded. Open the chat once, then measure it again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットのページは読み込まれていません。一度チャットを開いてから、もう一度計測してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صفحة هذه الدردشة غير محمّلة. افتح الدردشة مرة واحدة، ثم قِسها مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stranica tog chata nije učitana. Otvorite chat jednom, pa ga ponovo izmjerite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chattens side er ikke indlæst. Åbn chatten én gang, og mål den så igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Seite dieses Chats ist nicht geladen. Öffne den Chat einmal und miss ihn dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La página de ese chat no está cargada. Abre el chat una vez y vuelve a medirlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La page de cette discussion n’est pas chargée. Ouvrez la discussion une fois, puis mesurez-la à nouveau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pagina di quella chat non è caricata. Apri la chat una volta, poi misurala di nuovo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំព័រនៃការជជែកនោះមិនទាន់ផ្ទុកទេ។ សូមបើកការជជែកម្តង រួចវាស់ម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 채팅의 페이지가 로드되지 않았습니다. 채팅을 한 번 연 다음 다시 측정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siden til chatten er ikke lastet inn. Åpne chatten én gang, og mål den så på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strona tego czatu nie jest wczytana. Otwórz czat raz, a potem zmierz go ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A página desse chat não está carregada. Abra o chat uma vez e meça novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Страница этого чата не загружена. Откройте чат один раз, затем измерьте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าของแชทนั้นยังไม่ได้โหลด เปิดแชทหนึ่งครั้ง แล้ววัดอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin sayfası yüklenmedi. Sohbeti bir kez açın, sonra yeniden ölçün."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сторінку цього чату не завантажено. Відкрийте чат один раз, а потім виміряйте знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trang của cuộc trò chuyện đó chưa được tải. Hãy mở cuộc trò chuyện một lần rồi đo lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该聊天的页面尚未加载。请先打开一次该聊天，然后再测量。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該聊天的頁面尚未載入。請先開啟一次該聊天，然後再測量。"
+          }
+        }
+      }
+    },
+    "agentPane.chatPerf.noCapture": {
+      "comment": "Measuring a chat page whose web UI has no capture (an older page).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That chat's page can't measure itself. Update cmux, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットのページは計測に対応していません。cmux をアップデートしてから、もう一度お試しください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لصفحة هذه الدردشة قياس نفسها. حدّث cmux، ثم حاول مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stranica tog chata ne može sama sebe izmjeriti. Ažurirajte cmux, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chattens side kan ikke måle sig selv. Opdater cmux, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Seite dieses Chats kann sich nicht selbst messen. Aktualisiere cmux und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La página de ese chat no puede medirse. Actualiza cmux y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La page de cette discussion ne peut pas se mesurer. Mettez cmux à jour, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pagina di quella chat non può misurarsi. Aggiorna cmux, poi riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំព័រនៃការជជែកនោះមិនអាចវាស់ខ្លួនឯងបានទេ។ សូមធ្វើបច្ចុប្បន្នភាព cmux រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 채팅의 페이지는 스스로 측정할 수 없습니다. cmux를 업데이트한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siden til chatten kan ikke måle seg selv. Oppdater cmux, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strona tego czatu nie może się zmierzyć. Zaktualizuj cmux i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A página desse chat não consegue se medir. Atualize o cmux e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Страница этого чата не может себя измерить. Обновите cmux и попробуйте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าของแชทนั้นวัดตัวเองไม่ได้ อัปเดต cmux แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin sayfası kendini ölçemiyor. cmux'u güncelleyin, sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сторінка цього чату не може себе виміряти. Оновіть cmux і спробуйте знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trang của cuộc trò chuyện đó không tự đo được. Hãy cập nhật cmux rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该聊天的页面无法测量自身。请更新 cmux 后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該聊天的頁面無法測量自身。請更新 cmux 後再試一次。"
+          }
+        }
+      }
+    },
+    "agentPane.chatPerf.running": {
+      "comment": "Measuring a chat while another capture of the same chat runs.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That chat is already being measured. Try again when that capture ends."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチャットはすでに計測中です。その計測が終わってから、もう一度お試しください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجري قياس هذه الدردشة بالفعل. حاول مجددًا عند انتهاء ذلك القياس."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taj chat se već mjeri. Pokušajte ponovo kada to mjerenje završi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den chat bliver allerede målt. Prøv igen, når den måling er færdig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat wird bereits gemessen. Versuche es erneut, wenn diese Messung endet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese chat ya se está midiendo. Vuelve a intentarlo cuando termine esa medición."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette discussion est déjà en cours de mesure. Réessayez quand cette mesure sera terminée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella chat è già in fase di misurazione. Riprova quando quella misurazione finisce."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនោះកំពុងត្រូវបានវាស់រួចហើយ។ សូមព្យាយាមម្តងទៀតនៅពេលការវាស់នោះបញ្ចប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 채팅은 이미 측정 중입니다. 해당 측정이 끝나면 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den chatten blir allerede målt. Prøv igjen når den målingen er ferdig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat jest już mierzony. Spróbuj ponownie, gdy ten pomiar się zakończy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esse chat já está sendo medido. Tente novamente quando essa medição terminar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот чат уже измеряется. Попробуйте снова, когда это измерение закончится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนั้นกำลังถูกวัดอยู่แล้ว ลองอีกครั้งเมื่อการวัดนั้นสิ้นสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet zaten ölçülüyor. O ölçüm bitince yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей чат уже вимірюється. Спробуйте знову, коли це вимірювання завершиться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện đó đang được đo. Hãy thử lại khi lần đo đó kết thúc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该聊天正在测量中。请在本次测量结束后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該聊天正在測量中。請在本次測量結束後再試一次。"
+          }
+        }
+      }
+    },
+    "agentPane.chatPerf.noTab": {
+      "comment": "Measuring a chat (`cmux app chat perf`) in a tab that is not open.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That tab is no longer open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのタブはもう開いていません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تعد علامة التبويب هذه مفتوحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta kartica više nije otvorena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den fane er ikke længere åben."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Tab ist nicht mehr geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa pestaña ya no está abierta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet onglet n’est plus ouvert."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella scheda non è più aperta."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងនោះលែងបើកទៀតហើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 탭은 더 이상 열려 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den fanen er ikke lenger åpen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta karta nie jest już otwarta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essa aba não está mais aberta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта вкладка больше не открыта."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บนั้นไม่ได้เปิดอยู่แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sekme artık açık değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця вкладка більше не відкрита."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ đó không còn mở nữa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该标签页已不再打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該分頁已不再開啟。"
           }
         }
       }

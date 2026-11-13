@@ -2,13 +2,19 @@
 // An opened command's Shell block draws the command in its code colors (shellHighlight.ts) over its
 // output. The command is tokenized once per command string: output streaming under it, chunk by
 // chunk, never re-renders or re-tokenizes it, nor a sibling step's command.
-import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import * as highlight from "./shellHighlight";
 
 const realTokens = highlight.shellTokens;
+// mock.module replaces the module for the rest of the bun process: the real one goes back after this file.
+const realHighlight = { ...highlight };
+afterAll(async () => {
+  await mock.module("./shellHighlight", () => realHighlight);
+});
 let calls = 0;
 await mock.module("./shellHighlight", () => ({
   ...highlight,
@@ -18,7 +24,8 @@ await mock.module("./shellHighlight", () => ({
   },
 }));
 const { ShellBlock } = await import("./ShellBlock");
-const { Lines, OUTPUT_LINE_WINDOW } = await import("./BlockParts");
+const { Lines } = await import("./BlockParts");
+const { OUTPUT_LINE_WINDOW } = await import("./blockPartsModel");
 
 const { shellTokens, MAX_HIGHLIGHTED_COMMAND } = highlight;
 
@@ -61,10 +68,14 @@ beforeEach(() => {
   calls = 0;
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
-  for (const [key, value] of saved) scope[key] = value;
+  await settleReact();
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   dom?.window.close();
 });
 
@@ -277,17 +288,31 @@ test("a live suffix keeps its final line free of an extra newline", async () => 
   expect(container.querySelector(".cv-shell__output")?.textContent?.endsWith("line 500")).toBe(true);
 });
 
-test("past eight lines the output is capped to scroll, with Show all to lift the cap", async () => {
-  const output = Array.from({ length: 30 }, (_, at) => `case ${at + 1}`).join("\n");
+test("past eight lines the output scrolls in its box, with no Show all row", async () => {
+  // Leo 2026-11-12: "this is a really useless show all 9 lines".
+  const output = Array.from({ length: 9 }, (_, at) => `case ${at + 1}`).join("\n");
   await act(async () => root!.render(<ShellBlock command="bun test" output={output} />));
   const body = container.querySelector(".cv-shell__body")!;
   expect(body.getAttribute("data-preview")).toBe("cut");
-  // The count is the output's own lines; the command is its own block.
-  const more = [...container.querySelectorAll("button")].find((button) => button.textContent === "Show all 30 lines");
-  expect(Boolean(more)).toBe(true);
+  // Every line is drawn in the box, and no row under it offers to show them.
+  expect(body.textContent).toContain("case 9");
+  expect(container.querySelector(".cv-output-more")).toBeNull();
   // A command with no output yet draws no output box.
   await act(async () => root!.render(<ShellBlock command="sleep 5" live />));
   expect(container.querySelector(".cv-shell__body")?.textContent).toBe("");
+});
+
+test("Show less closes up a long output that Find in Chat opened", async () => {
+  const output = Array.from({ length: 1000 }, (_, at) => `case ${at + 1}`).join("\n");
+  await act(async () => root!.render(<ShellBlock command="bun test" output={output} reveal={1} />));
+  const shown = () => container.querySelector(".cv-shell__output")?.textContent ?? "";
+  expect(shown().startsWith("case 1\n")).toBe(true);
+  const less = [...container.querySelectorAll("button")].find((button) => button.textContent === "Show less")!;
+  await act(async () => less.click());
+  expect(shown().startsWith("case 601\n")).toBe(true);
+  expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Show all output")).toBe(
+    true,
+  );
 });
 
 test("while it runs, a reflow that grows the output keeps the newest line in view", async () => {

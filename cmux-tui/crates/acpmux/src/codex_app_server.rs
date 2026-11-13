@@ -21,6 +21,7 @@ use crate::codex_auth_file::{self, AccessFile};
 use cmux_json::JsonSet as _;
 
 mod background;
+mod message_phases;
 pub use background::TERMINATE;
 mod usage_limits;
 #[cfg(test)]
@@ -32,6 +33,7 @@ pub use usage_limits::{is_plan_snapshot, read_usage_limits, usage_limits};
 pub struct Translator {
     inner: cmux_codex_acp::Translator,
     background: Mutex<background::Background>,
+    message_phases: Mutex<message_phases::MessagePhases>,
     #[cfg(unix)]
     auth: Mutex<AuthGate>,
 }
@@ -348,12 +350,12 @@ impl Translator {
                     return released;
                 }
                 auth.held.extend(self.background().observe(raw));
-                auth.held.extend(self.inner.from_server(raw));
+                auth.held.extend(self.translate_server(raw));
                 return Vec::new();
             }
 
             if auth.enabled() && auth.initialize_id.as_ref() == raw.get("id") {
-                let out = self.inner.from_server(raw);
+                let out = self.translate_server(raw);
                 if raw.get("error").is_some() {
                     return out;
                 }
@@ -383,7 +385,7 @@ impl Translator {
                 match codex_auth_file::read() {
                     Ok(Some(file)) if auth.account_allowed(&file, None) => {
                         auth.held.extend(self.background().observe(raw));
-                        auth.held.extend(self.inner.from_server(raw));
+                        auth.held.extend(self.translate_server(raw));
                         return vec![auth.login_request(file)];
                     }
                     Ok(None) | Err(_) => {
@@ -400,7 +402,13 @@ impl Translator {
             }
         }
         let mut out = self.background().observe(raw);
-        out.extend(self.inner.from_server(raw));
+        out.extend(self.translate_server(raw));
+        out
+    }
+
+    fn translate_server(&self, raw: &Value) -> Vec<Out> {
+        let mut out = self.inner.from_server(raw);
+        self.message_phases.lock().unwrap_or_else(|e| e.into_inner()).enrich(raw, &mut out);
         out
     }
 
@@ -456,16 +464,30 @@ pub fn is_profile_launch(argv: &[String]) -> bool {
 /// (the composer's mic) from any app-server that accepts them: the library
 /// advertises `promptCapabilities.audio` only to Codex 0.145.0 or later, so
 /// an older `codex` keeps `audio: false` and the pane falls back to dictation.
+///
+/// Prompt suggestions follow the same global switch as Claude's
+/// (`agents.promptSuggestions`, read at each process start): on, each Codex
+/// chat has the same `prompt-suggestions` option, and its saved pick comes
+/// back with the chat's other options at respawn (`hub/lifecycle.rs`
+/// `replay_config`). The library asks Codex's own `thread/prediction/request`
+/// first and falls back to a hidden prediction fork while Codex answers it
+/// -32601 (cmux-codex-acp `src/translator/suggestions.rs`).
 pub fn translator() -> Arc<Translator> {
+    translator_with(crate::claude_stdio::prompt_suggestions::enabled_in_settings())
+}
+
+fn translator_with(prompt_suggestions: bool) -> Arc<Translator> {
     Arc::new(Translator {
         inner: cmux_codex_acp::Translator::new(Options {
             client_name: "acpmux".into(),
             client_title: "cmux".into(),
             client_version: env!("CARGO_PKG_VERSION").into(),
             audio_input: true,
+            prompt_suggestions,
             ..Options::default()
         }),
         background: Mutex::default(),
+        message_phases: Mutex::default(),
         #[cfg(unix)]
         auth: Mutex::new(AuthGate::new()),
     })
@@ -590,6 +612,56 @@ mod tests {
             .find_map(|m| m.to_value().get("result").cloned())
             .expect("initialize result");
         result["agentCapabilities"]["promptCapabilities"]["audio"] == json!(true)
+    }
+
+    /// A Codex chat after one completed turn, with the global switch `on`: its
+    /// session options, and what the app-server was asked after the turn.
+    fn chat_after_a_turn(on: bool) -> (Value, Vec<Value>) {
+        let tr = translator_with(on);
+        let start = split(tr.start());
+        let init = start.server[0]["id"].clone();
+        let list = split(tr.from_server(
+            &json!({"id": init, "result": {"userAgent": "acpmux/0.164.0 (Linux; x86_64)"}}),
+        ));
+        let list = list.server.iter().find(|m| m["method"] == "model/list").unwrap()["id"].clone();
+        split(tr.from_server(&json!({"id": list, "result": {"data": []}})));
+        let new = split(tr.from_client(
+            &json!({"jsonrpc": "2.0", "id": 1, "method": "session/new", "params": {"cwd": "/tmp", "mcpServers": []}}),
+        ));
+        let thread =
+            new.server.iter().find(|m| m["method"] == "thread/start").unwrap()["id"].clone();
+        let opened =
+            split(tr.from_server(&json!({"id": thread, "result": {"thread": {"id": "t"}}})));
+        let options = opened
+            .hub
+            .iter()
+            .find_map(|m| m.to_value().pointer("/result/configOptions").cloned())
+            .expect("session/new result");
+        let prompt =
+            split(tr.from_client(&json!({"jsonrpc": "2.0", "id": 2, "method": "session/prompt",
+            "params": {"sessionId": "t", "prompt": [{"type": "text", "text": "fix it"}]}})));
+        let turn =
+            prompt.server.iter().find(|m| m["method"] == "turn/start").unwrap()["id"].clone();
+        split(tr.from_server(&json!({"id": turn, "result": {"turn": {"id": "turn-1"}}})));
+        let done = split(tr.from_server(&json!({"method": "turn/completed",
+            "params": {"threadId": "t", "turn": {"id": "turn-1", "status": "completed", "items": []}}})));
+        (options, done.server)
+    }
+
+    #[test]
+    fn the_global_switch_gives_codex_chats_prompt_suggestions() {
+        let has_option = |o: &Value| {
+            o.as_array()
+                .unwrap()
+                .iter()
+                .any(|o| o["id"] == crate::claude_stdio::prompt_suggestions::OPTION)
+        };
+        let (options, asked) = chat_after_a_turn(true);
+        assert!(has_option(&options), "{options}");
+        assert!(asked.iter().any(|m| m["method"] == "thread/prediction/request"), "{asked:?}");
+        let (options, asked) = chat_after_a_turn(false);
+        assert!(!has_option(&options));
+        assert!(asked.iter().all(|m| m["method"] != "thread/prediction/request"), "{asked:?}");
     }
 
     #[test]

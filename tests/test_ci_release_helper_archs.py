@@ -9,6 +9,9 @@ import tempfile
 import unittest
 
 import yaml
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = yaml.safe_load((ROOT / '.github/workflows/ci-macos.yml').read_text())
@@ -41,7 +44,7 @@ def expression(text, context):
 
 
 def render(value, context):
-    return re.sub(r'\$\{\{\s*(.*?)\s*\}\}', lambda m: str(expression(m[1], context)), str(value))
+    return gh_expressions.STRIPPED.sub(lambda m: str(expression(m[1], context)), str(value))
 
 
 class ReleaseHelperArchitectures(unittest.TestCase):
@@ -53,7 +56,9 @@ class ReleaseHelperArchitectures(unittest.TestCase):
         self.bin.mkdir()
         self.app = self.root / 'build-universal/Build/Products/Release/cmux.app'
         for name in ['scripts/ci/release-build-archs.sh', 'scripts/ci/verify-binary-archs.sh',
-                     'scripts/install-prebuilt-ghostty-cli-helper.sh']:
+                     'scripts/install-prebuilt-ghostty-cli-helper.sh',
+                     # The Release build step sources its fleet-cache retry and reads the cache settings.
+                     'scripts/ci/lib/fleet-cache-fallback.sh', 'scripts/ci/fleet-compilation-cache.sh']:
             dest = self.root / name
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, dest)
@@ -127,7 +132,7 @@ for alias in cmux-tui acpmux; do
   ln -s cmux "$app/Contents/Resources/bin/$alias"
 done
 ''')
-        self.env = dict(os.environ, PATH=str(self.bin) + ':' + os.environ['PATH'])
+        self.env = dict(os.environ, PATH=str(self.bin) + ':' + os.environ['PATH'], RUNNER_TEMP=str(self.root))
         self.context = {'inputs': {'release_archs': 'default'}, 'vars': {'CI_RELEASE_BUILD_ARCHS': ''},
                         'steps': {}, 'needs': {}, 'github': {'token': 'fixture-no-token'}}
 

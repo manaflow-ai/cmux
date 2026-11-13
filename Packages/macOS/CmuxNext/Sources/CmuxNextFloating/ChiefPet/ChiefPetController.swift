@@ -71,6 +71,14 @@ public final class ChiefPetController {
     /// Message the Chief ran while `home.chiefPetEnabled` was off: the pet shows for this message only
     /// and goes when its reply box closes; the setting turning on keeps it.
     var transient = false
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Where `debug.chief_pet`'s drag holds the pointer, in screen points (nil: no press; ChiefPetController+Debug).
+    var debugPointer: CGPoint?
+    /// `debug.chief_pet` `motion`: the frames move as over an active cmux (a capture app is never active); Reduce Motion still stops them.
+    var debugMotion = false
+    /// When `motion` turned on (`CACurrentMediaTime`): a `snapshot`'s `at` counts from here.
+    var debugMotionStart: CFTimeInterval?
+    #endif
 
     /// `appIsActive`: whether cmux is the active app (the App passes `NSApp.isActive`; tests pin one).
     /// `notifications`: where AppKit posts the app's activation changes; tests give their own.
@@ -182,6 +190,9 @@ public final class ChiefPetController {
     /// cmux in the background, or Reduce Motion; then it shows its state's first frame and runs nothing.
     var characterMoves: Bool {
         guard isOn || transient, let panel, panel.isVisible, panel.occlusionState.contains(.visible) else { return false }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if debugMotion { return !reduceMotion() }
+        #endif
         return appIsActive() && !reduceMotion()
     }
 

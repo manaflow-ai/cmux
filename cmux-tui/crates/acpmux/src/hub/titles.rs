@@ -200,11 +200,19 @@ impl Hub {
     pub(super) fn watch_titles(self: &Arc<Self>) {
         let mut events = self.subscribe();
         let hub = Arc::downgrade(self);
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("title-events", async move {
             loop {
                 let ev = match events.recv().await {
                     Ok(ev) => ev,
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    // Turns may have ended unheard: every idle chat is asked again, which does
+                    // nothing for one that needs no title (rework stage 3, E4).
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        let Some(hub) = hub.upgrade() else { return };
+                        for session in hub.lagged_reader("title-events", n) {
+                            hub.title_after_turn(&session);
+                        }
+                        continue;
+                    }
                     Err(broadcast::error::RecvError::Closed) => return,
                 };
                 let rec = &ev.record;
@@ -344,7 +352,15 @@ impl Hub {
             ]
             .map(str::to_owned),
         );
-        match crate::agent::harness_command(harness, profile, &cwd, Some((program, args)), None) {
+        match crate::agent::harness_command_ready(
+            harness,
+            profile,
+            &cwd,
+            Some((program, args)),
+            None,
+        )
+        .await
+        {
             Ok(cmd) => Some(cmd),
             Err(e) => {
                 tracing::debug!("no title command for {harness}: {e}");

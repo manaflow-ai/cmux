@@ -46,6 +46,12 @@ import Testing
             return ((root["sidebar"] as? [String: Any])?["nowPlaying"] as? [String: Any])?["enabled"] as? Bool
         }
 
+        /// Whether cmux.json is there and parses as an object, so a missing or unreadable file never passes for "the key is absent".
+        func fileParses() -> Bool {
+            guard let data = try? Data(contentsOf: url), let root = try? JSONSerialization.jsonObject(with: data) else { return false }
+            return root is [String: Any]
+        }
+
         /// Waits for `condition` up to a deadline: the feed, the settings write and the reload run on tasks.
         func until(_ condition: () -> Bool, within timeout: Duration = .seconds(10)) async {
             let deadline = ContinuousClock.now + timeout
@@ -202,8 +208,11 @@ import Testing
         let h = try await make()
         defer { h.tearDown() }
         _ = h.services.registry.perform("nowPlaying.disableCard")
-        await h.until { !h.cardIsShown && h.savedEnabled() == false }
-        #expect(h.savedEnabled() == false, "Never Show Media Card left sidebar.nowPlaying.enabled on")
+        // Off is the default: the write removes the key (#38119), so cmux.json keeps no copy.
+        await h.until { !h.cardIsShown && h.fileParses() && h.savedEnabled() == nil && h.services.settings?.snapshot.nowPlaying.enabled == false }
+        #expect(h.fileParses(), "cmux.json is missing or does not parse")
+        #expect(h.savedEnabled() == nil, "Never Show Media Card left a copy of the default, off, in cmux.json")
+        #expect(h.services.settings?.snapshot.nowPlaying.enabled == false, "Never Show Media Card left sidebar.nowPlaying.enabled on")
         #expect(!h.cardIsShown)
         _ = h.services.registry.perform("nowPlaying.showCard")
         await h.until { h.cardIsShown && h.savedEnabled() == true }

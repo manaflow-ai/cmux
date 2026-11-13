@@ -40,6 +40,8 @@
   align-items: center;
   gap: 6px;
   margin-right: auto;
+  /* One line tall before its text arrives, so the status does not move when it does. */
+  min-height: 1lh;
   font-size: 12px;
   color: var(--page-text-2);
 }

@@ -14,7 +14,6 @@
 </p>
 
 <p align="center">
-  <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
   <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
@@ -404,7 +403,7 @@ cmux бесплатен и с открытым исходным кодом, и �
 
 Способы принять участие:
 
-- Подписывайтесь на нас в X для получения обновлений [@manaflowai](https://x.com/manaflowai), [@lawrencecchen](https://x.com/lawrencecchen) и [@austinywang](https://x.com/austinywang)
+- Подписывайтесь на нас в X для получения обновлений [@lawrencecchen](https://x.com/lawrencecchen) и [@austinywang](https://x.com/austinywang)
 - Присоединяйтесь к обсуждению в [Discord](https://discord.gg/xsgFEVrWCZ)
 - Создавайте и участвуйте в [GitHub issues](https://github.com/manaflow-ai/cmux/issues) и [обсуждениях](https://github.com/manaflow-ai/cmux/discussions)
 - Расскажите нам, что вы создаёте с помощью cmux
@@ -414,7 +413,6 @@ cmux бесплатен и с открытым исходным кодом, и �
 - [Discord](https://discord.gg/xsgFEVrWCZ)
 - [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
-- [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)

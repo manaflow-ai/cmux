@@ -18,9 +18,7 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .closesItsWindows)
 struct DaemonRecoveryNoticeTests {
     @MainActor private final class RecordingHost: CmuxToastHosting {
-        func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void) {}
-        func move(_ toast: CmuxToastView, to slot: Int) {}
-        func hide(_ toast: CmuxToastView, animated: Bool) {}
+        func show(_ toasts: [CmuxToastShown], in window: NSWindow, center: CmuxToastCenter) {}
     }
 
     private nonisolated struct Die: DaemonRequest {

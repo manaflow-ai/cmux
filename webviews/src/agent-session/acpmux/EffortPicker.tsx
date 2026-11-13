@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useId, useRef, useState } from "react";
-import type { Choice } from "./ComposerPickers";
+import type { Choice } from "./composerPickerModel";
 import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
 import { useT } from "./i18n";

@@ -129,6 +129,9 @@ def term_problem(term: str, texts: list[str]) -> str | None:
         return None if texts else f"{term}: no shipped file"
     base, _, exception = term.partition(" WITH ")
     for license_id in filter(None, (base, exception)):
+        # SPDX "or any later version" (`MPL-2.0+`, as imbl declares it): the shipped text is the
+        # named version's, so that version's signature decides.
+        license_id = license_id.removesuffix("+")
         if license_id not in SIGNATURES:
             return f"{license_id}: unknown license id (no text signature; review and add one)"
         if not any(matches(license_id, text) for text in texts):

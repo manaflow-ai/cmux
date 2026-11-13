@@ -38,10 +38,10 @@ pub static HOME_CHAT_SWITCHING: &[Binding] = &[
 pub static SCOPED_DEFAULTS: &[Binding] = &[
     Binding { keys: &[Shortcut { key: "k", modifiers: CMD }], command: "agentPane.searchChats", argument: None, arguments: &[], when: Some("surfaceKind != terminal && !codeEditorFocused"), source: "default" },
     Binding { keys: &[Shortcut { key: "r", modifiers: SHIFT | CMD }], command: "home.replyToSelection", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock"), source: "default" },
-    Binding { keys: &[Shortcut { key: "=", modifiers: CMD }], command: "home.zoomIn", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock"), source: "default" },
-    Binding { keys: &[Shortcut { key: "=", modifiers: SHIFT | CMD }], command: "home.zoomIn", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock"), source: "default" },
-    Binding { keys: &[Shortcut { key: "-", modifiers: CMD }], command: "home.zoomOut", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock"), source: "default" },
-    Binding { keys: &[Shortcut { key: "0", modifiers: CMD }], command: "home.zoomReset", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock"), source: "default" },
+    Binding { keys: &[Shortcut { key: "=", modifiers: CMD }], command: "home.zoomIn", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"), source: "default" },
+    Binding { keys: &[Shortcut { key: "=", modifiers: SHIFT | CMD }], command: "home.zoomIn", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"), source: "default" },
+    Binding { keys: &[Shortcut { key: "-", modifiers: CMD }], command: "home.zoomOut", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"), source: "default" },
+    Binding { keys: &[Shortcut { key: "0", modifiers: CMD }], command: "home.zoomReset", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"), source: "default" },
     Binding { keys: &[Shortcut { key: "w", modifiers: CMD }], command: "closeWorkspace", argument: None, arguments: &[], when: Some("sidebar.multiSelection"), source: "default" },
 ];
 
@@ -65,6 +65,8 @@ pub static PANE_FOCUS_ALIASES: &[Binding] = &[
 pub static FOCUS_HISTORY_ALIASES: &[Binding] = &[
     Binding { keys: &[Shortcut { key: "[", modifiers: CMD }], command: "focusHistoryBack", argument: None, arguments: &[], when: Some("surfaceKind != page && !codeEditorFocused"), source: "default" },
     Binding { keys: &[Shortcut { key: "]", modifiers: CMD }], command: "focusHistoryForward", argument: None, arguments: &[], when: Some("surfaceKind != page && !codeEditorFocused"), source: "default" },
+    Binding { keys: &[Shortcut { key: "-", modifiers: CTRL }], command: "focusHistoryBack", argument: None, arguments: &[], when: Some("surfaceKind != terminal"), source: "default" },
+    Binding { keys: &[Shortcut { key: "-", modifiers: CTRL | SHIFT }], command: "focusHistoryForward", argument: None, arguments: &[], when: Some("surfaceKind != terminal"), source: "default" },
 ];
 
 #[rustfmt::skip]
@@ -74,6 +76,8 @@ pub static ZOOM_ALIASES: &[Binding] = &[
 
 #[rustfmt::skip]
 pub static SPACE_ALIASES: &[Binding] = &[
+    Binding { keys: &[Shortcut { key: "\u{f702}", modifiers: CTRL | OPT | CMD }], command: "space.previous", argument: None, arguments: &[], when: Some("!codeEditorFocused"), source: "default" },
+    Binding { keys: &[Shortcut { key: "\u{f703}", modifiers: CTRL | OPT | CMD }], command: "space.next", argument: None, arguments: &[], when: Some("!codeEditorFocused"), source: "default" },
     Binding { keys: &[Shortcut { key: "[", modifiers: OPT | CMD }], command: "space.previous", argument: None, arguments: &[], when: Some("!codeEditorFocused"), source: "default" },
     Binding { keys: &[Shortcut { key: "]", modifiers: OPT | CMD }], command: "space.next", argument: None, arguments: &[], when: Some("!codeEditorFocused"), source: "default" },
     Binding { keys: &[Shortcut { key: "1", modifiers: CTRL | OPT | CMD }], command: "space.selectByNumber", argument: Some("1"), arguments: &[], when: None, source: "default" },
@@ -147,8 +151,6 @@ pub static YIELDS_TO_CODE_EDITOR: &[&str] = &[
 ];
 pub static YIELDS_TO_TERMINAL: &[&str] = &[
     "decreaseWorkspaceTerminalFontSize",
-    "focusHistoryBack",
-    "focusHistoryForward",
     "groupSelectedWorkspaces",
     "increaseWorkspaceTerminalFontSize",
     "resetWorkspaceTerminalFontSize",

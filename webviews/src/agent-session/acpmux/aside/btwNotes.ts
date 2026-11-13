@@ -4,6 +4,7 @@ export type BtwNote = {
   id: string;
   sessionId: string;
   question: string;
+  harness?: string;
   at: number;
   anchorId?: string;
   answer?: string;
@@ -11,7 +12,7 @@ export type BtwNote = {
   retry?(): void;
 };
 export type BtwRow = AcpmuxRow & { btw: BtwNote; dismissBtw(): void };
-type Ask = (question: string, sessionId: string) => Promise<string>;
+type Ask = (question: string, sessionId: string, harness?: string) => Promise<string>;
 
 /// UI-only asides never join the agent's transcript, prompt history, queue or turn reducer.
 /// A late answer belongs to its original chat and cannot resurrect a dismissed note.
@@ -27,11 +28,12 @@ export class BtwNotes {
   };
   snapshot = () => this.notes;
 
-  ask(sessionId: string, question: string, anchor: AcpmuxRow | undefined, ask: Ask): void {
+  ask(sessionId: string, question: string, anchor: AcpmuxRow | undefined, ask: Ask, harness?: string): void {
     const note: BtwNote = {
       id: `btw-${crypto.randomUUID()}`,
       sessionId,
       question,
+      ...(harness ? { harness } : {}),
       at: Date.now(),
       anchorId: anchor?.id,
     };
@@ -41,7 +43,7 @@ export class BtwNotes {
       if (!this.notes.some((entry) => entry.id === note.id)) return;
       this.finish(note.id, { answer: undefined, error: undefined, retry: undefined });
       Promise.resolve()
-        .then(() => ask(question, sessionId))
+        .then(() => ask(question, sessionId, harness))
         .then(
           (answer) => this.finish(note.id, { answer }),
           (failure: unknown) => {

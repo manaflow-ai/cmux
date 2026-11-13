@@ -40,7 +40,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private(set) lazy var reservedContent = WorkspaceSpareSlot<WorkspaceContentController>(owner: "WorkspaceSpare", on: services.mainWork, wanted: { [weak self] in
         self.map { $0.services.windows.active === $0 && $0.content != nil && $0.services.daemon.reservesWorkspace } ?? false
     }, reserve: { [weak self] in
-        self.flatMap { $0.services.agentTabs.reserveWorkspace(on: $0.services.daemon, cwd: WorkspaceSpawn().startFolder(roomFolder: $0.services.machines.local.store.profile($0.state.profileID)?.defaults?.cwd, local: true, daemonDefault: $0.services.daemon.defaultCwd)) }
+        self.flatMap { $0.services.agentTabs.reserveWorkspace(on: $0.services.daemon, cwd: WorkspaceSpawn().startFolder(roomFolder: $0.services.machines.local.store.profile($0.state.profileID)?.defaults?.cwd, local: true, daemonDefault: NewTerminalStart.defaultFolder(on: $0.services.daemon))) }
     }, build: { [weak self] model in
         self.map { window in BenchSpans.measure("cmdN.reserved.build.init") { WorkspaceContentController(workspace: model, daemon: window.services.daemon, services: window.services, state: window.state, parked: true) } }
     }, mount: { [weak self] content in BenchSpans.measure("cmdN.reserved.build.mount") { self?.root.contentHost.addHiddenSubview(content.contentView) } },
@@ -79,10 +79,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private(set) lazy var agentCursorTags = AgentCursorWindowTags(links: services.agentCursorTagLinks) { [weak self] in
         self?.agentCursor.stack?.host
     }
-    /// This window's right sidebar (`WindowController+RightSidebar`).
-    let rightSidebar: RightSidebarModel
-    /// Its view, made the first time it shows.
-    var rightSidebarView: RightSidebarView?
     /// A fullscreen page that has the whole screen (`WindowController+FullScreen`).
     var pagePresentation: BrowserPagePresentation?
     /// A full screen enter is under way (AppKit ignores a toggle until it ends).
@@ -97,7 +93,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         self.services = services
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
-        rightSidebar = RightSidebarModel(defaults: services.rightSidebarDefaults)
         SidebarProfileControl(services: services, state: state).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
         // The footer's Search button runs the one palette.open path (plans/cmux-next/sidebar-search.md).
         sidebar.container.sidebarView.onSearch = { [weak registry = services.registry] _ in
@@ -157,7 +152,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         observeRoom()
         observeSidebarHidden()
         followContentChanges()
-        if rightSidebar.isVisible { showRightSidebar() }
     }
 
     @available(*, unavailable)
@@ -259,8 +253,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func showWorkspace(requested: String?) {
         let machines = services.machines
         // A parked workspace that closed, whose machine left, or that moved to another window goes now.
-        let listed = Set(services.windows.registry.members(of: state.id))
-        for (id, controller) in parked where !listed.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace {
+        let unlisted = services.windows.registry.unlisted(parked.keys, in: state.id) // O(parked), never the window's whole list
+        for (id, controller) in parked where unlisted.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace {
             parked[id] = nil
             controller.teardown()
         }
@@ -320,7 +314,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // one draws in the same frame, its sidebar row already listed (a listed one pays no walk of every row) and selected.
         DebugWorkspaceSwitch.kind(self, controller === reserved ? "reserved" : controller === kept ? "warm" : "cold")
         DebugWorkspaceSwitch.mark(self, "content")
-        sidebar.sameTurn.syncNow(rows: (controller !== kept || controller === reserved) && !sidebar.model.lists(SidebarWorkspaceID(workspace.id)))
+        sidebar.sameTurn.syncNow(rows: sidebar.sameTurn.listsAnotherSpace(than: state.profileID.rawValue) || ((controller !== kept || controller === reserved) && !sidebar.model.lists(SidebarWorkspaceID(workspace.id))))
         DebugWorkspaceSwitch.mark(self, "sidebar")
         root.show(controller.contentView)
         DebugWorkspaceSwitch.mark(self, "root")
@@ -451,7 +445,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        pagePresentation = nil
+        pagePresentation = nil; chiefPanelView?.closeLauncher() // the floating Chief's own window goes with this one
         services.keyRouter.cancelChord()
         removeHistoryObserver()
         services.windows.windowWillClose(self)
@@ -480,6 +474,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     /// A pane policy that may hold cursor-rect invalidations (ShellWindow+Events.swift).
     weak var cursorRectHold: (any CursorRectHoldPolicy)?
+    let presses = WindowPressRouter() // what a press does before AppKit gets it (ShellWindow+Events.swift)
     /// The incognito badge in the top row while the sidebar is hidden.
     var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
     var sidebarHidden: Bool { (contentView as? WindowRootView)?.sidebarHidden ?? false }
@@ -492,23 +487,22 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
 
     /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
-    private var zoomState = WindowZoom()
+    private let zoomState = WindowZoom()
     override func zoom(_ sender: Any?) { if !zoomState.zoom(self) { super.zoom(sender) } }
     override var isZoomed: Bool { zoomState.isZoomingIn ?? super.isZoomed }
     func windowZoomFinished(_ generation: Int) { zoomState.end(generation) }
 
-    /// In an agent screenshot launch every frame stays on the test screen
-    /// (`WindowPlacement.containedOnTestScreen`), whichever path sets it.
-    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
-        super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag)
-    }
+    /// Every frame stays on the test screen in an agent screenshot launch, whichever path sets it
+    /// (`WindowPlacement.containedOnTestScreen`), and is kept as given with no display (`constrainsToScreen`).
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) { super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag) }
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { WindowPlacement.constrainsToScreen ? super.constrainFrameRect(frameRect, to: screen) : frameRect }
 
     /// The traffic lights, found once (`StandardWindowButtons`, cx-8w027.25).
     private var standardButtons = StandardWindowButtons()
-    override func standardWindowButton(_ b: NSWindow.ButtonType) -> NSButton? {
-        if let button = standardButtons.cached(b, in: self) { return button }
+    override func standardWindowButton(_ b: NSWindow.ButtonType) -> NSButton? { // perf-hot: 1ms motion-frame
+        if case .known(let button) = standardButtons.answer(b, in: self) { return button }
         let button = super.standardWindowButton(b)
-        standardButtons.store(button, for: b, in: self)
+        standardButtons.store(StandardWindowButtons.Found(button, for: b, in: self)) // Found reads AppKit before the store
         return button
     }
 
@@ -594,7 +588,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: { controller.focus.currentState().pane }, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }
         let accepted = holdingResponderReports { () -> Bool in let moved = BenchSpans.measure("window.makeFirstResponder") { super.makeFirstResponder(responder) }; editTeardown.pending = editTeardown.pending || moved; return moved }
-        if accepted { cursorRectHold?.firstResponderDidChange(in: self) }
+        if accepted { cursorRectHold?.firstResponderDidChange(in: self); (windowController as? WindowController)?.chiefPanelView?.firstResponderDidChange() }
         return accepted
     }
 }

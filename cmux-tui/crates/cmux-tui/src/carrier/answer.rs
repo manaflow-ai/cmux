@@ -1,7 +1,15 @@
 //! The carrier answer from cmux-platform (`POST /v1/cloud/machines/{id}/carrier`,
 //! cmux-platform#924 and #926): `{ok, value: {relay, slot, ticket,
-//! expires_at, grant?, daemon_key?}}`, and where it comes from. A dial needs
+//! expires_at, grant?, daemon_key?, ssh?}}`, and where it comes from. A dial needs
 //! `daemon_key`; a ticket-only refresh does not read it.
+//!
+//! `ssh` is the ssh backup carrier's candidate (cmux-platform `CarrierRoute.ts`,
+//! `SshEndpoint.ts` `sshCandidate`): `{host, port, user, hostKey}`, the
+//! machine's sshd on the team mesh, sent only to the machine's owner while
+//! the machine is a mesh member. A malformed one is dropped, never the
+//! answer: the relay works without it. Its key comes from
+//! `POST /v1/cloud/machines/{id}/ssh-endpoint` with `purpose: "carrier"`
+//! ([`CarrierSource::ssh_endpoint`]).
 //!
 //! A body with `noise_key` (base64url of the device's 32-byte Noise key)
 //! asks for a grant naming that key as well as the Connect ticket; an empty
@@ -19,13 +27,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use cmux_rd_link::dlink::TurnName;
 use serde_json::{Value, json};
 use url::Url;
 use zeroize::Zeroizing;
 
 use super::contract::Vmk;
 
-/// The longest ticket or grant accepted (cmux-remote's relay credential bound).
+/// The longest ticket accepted (cmux-remote's relay credential bound).
 const MAX_SECRET_BYTES: usize = 4096;
 /// One fetch's HTTP deadline (also bounded by the dial's own deadline).
 pub(super) const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
@@ -50,6 +59,181 @@ pub(super) struct CarrierAnswer {
     /// The grant's `vmk` claim, `None` when the grant has none (or none
     /// that is `owner` or `team`).
     pub vmk: Option<Vmk>,
+    /// `rd_link`: the platform turns on the desktop's datagram link
+    /// (cmuxterm-hq#7976) for this machine and names its STUN servers. `None`
+    /// (absent, or not an object): the desktop keeps every datagram on the stream.
+    pub rd_link: Option<RdLink>,
+    /// `ssh`: the ssh backup carrier's candidate, when the platform sent a
+    /// well-formed one.
+    pub ssh: Option<SshCandidate>,
+}
+
+/// The answer's ssh candidate: the machine's sshd at its team mesh address.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct SshCandidate {
+    /// An IP literal inside the team mesh (`cmux wg dial` dials literal IPs only).
+    pub host: std::net::IpAddr,
+    pub port: u16,
+    /// The login the carrier key is written for (`cmux`).
+    pub user: String,
+    /// `ssh-ed25519 <base64>`, the host key an earlier prepare read, or None.
+    /// The pin a dial writes is the ssh-endpoint answer's, which is fresh.
+    pub host_key: Option<String>,
+}
+
+/// A short-lived carrier key's route: `ssh-endpoint`'s answer with
+/// `purpose: "carrier"` (the key runs only the platform's `remote-link`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct SshEndpoint {
+    pub host: std::net::IpAddr,
+    pub port: u16,
+    pub user: String,
+    /// `ssh-ed25519 <base64>`: the pin.
+    pub host_key: String,
+    /// Unix seconds: sshd refuses the key after this.
+    pub expires_at: u64,
+}
+
+/// A login name ssh and an authorized_keys line take as one word.
+fn ssh_user(text: &str) -> bool {
+    !text.is_empty()
+        && text.len() <= 32
+        && text.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+        && !text.starts_with('-')
+}
+
+/// `ssh-ed25519 <base64 of the 51-byte key blob>`, normalized (no comment).
+pub(super) fn ed25519_host_key(text: &str) -> Option<String> {
+    use base64::engine::general_purpose::STANDARD;
+    let mut words = text.split_whitespace();
+    let (Some("ssh-ed25519"), Some(blob)) = (words.next(), words.next()) else { return None };
+    let bytes = STANDARD.decode(blob).ok()?;
+    let key = bytes
+        .strip_prefix(&[0, 0, 0, 11])
+        .and_then(|rest| rest.strip_prefix(b"ssh-ed25519"))
+        .and_then(|rest| rest.strip_prefix(&[0, 0, 0, 32]))?;
+    (key.len() == 32).then(|| format!("ssh-ed25519 {blob}"))
+}
+
+/// `ssh: {host, port, user, hostKey}`; anything malformed is no candidate.
+fn ssh_candidate(value: &Value) -> Option<SshCandidate> {
+    let ssh = value.get("ssh")?.as_object()?;
+    let host = ssh.get("host")?.as_str()?.parse().ok()?;
+    let port = u16::try_from(ssh.get("port")?.as_u64()?).ok().filter(|p| *p > 0)?;
+    let user = ssh.get("user")?.as_str().filter(|u| ssh_user(u))?.to_owned();
+    let host_key = match ssh.get("hostKey") {
+        None | Some(Value::Null) => None,
+        Some(key) => Some(ed25519_host_key(key.as_str()?)?),
+    };
+    Some(SshCandidate { host, port, user, host_key })
+}
+
+/// A 2xx `ssh-endpoint` body that is a live carrier key's route.
+fn carrier_key_route(body: &Value, now: u64) -> Option<SshEndpoint> {
+    if body.get("purpose").and_then(Value::as_str) != Some("carrier") {
+        return None;
+    }
+    let host = body.get("host")?.as_str()?.parse().ok()?;
+    let port = u16::try_from(body.get("port")?.as_u64()?).ok().filter(|p| *p > 0)?;
+    let user = body.get("username")?.as_str().filter(|u| ssh_user(u))?.to_owned();
+    let host_key = ed25519_host_key(body.get("hostPublicKey")?.as_str()?)?;
+    let expires_at = body.get("expiresAtUnix")?.as_u64().filter(|t| *t > now)?;
+    Some(SshEndpoint { host, port, user, host_key, expires_at })
+}
+
+/// Reads `ssh-endpoint`'s answer: 2xx is the bare `{host, port, username,
+/// hostPublicKey, expiresAtUnix, purpose}`, and it must say `purpose:
+/// "carrier"` (a platform without the purpose wrote a login key, which the
+/// carrier never uses) and not be expired at `now`. A refusal is `{ok:
+/// false, error: {code}}`, retryable on 408, 409 (the machine is starting),
+/// 429 and 5xx but 501 (sshd cannot take a short-lived key).
+pub(super) fn read_ssh_endpoint(
+    status: u16,
+    body: &Value,
+    now: u64,
+) -> Result<SshEndpoint, SourceError> {
+    if (200..300).contains(&status) {
+        return carrier_key_route(body, now)
+            .ok_or_else(|| SourceError::fatal("the ssh endpoint answer is not a carrier key's"));
+    }
+    let code =
+        body.get("error").and_then(|e| e.get("code")).and_then(Value::as_str).unwrap_or("http");
+    let retryable = matches!(status, 408 | 409 | 429 | 500 | 502..=599);
+    Err(SourceError { retryable, detail: format!("cmux-platform answered {status} {code}") })
+}
+
+/// The desktop datagram link's settings from the carrier answer.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct RdLink {
+    /// STUN servers, `host:port`.
+    pub stun: Vec<String>,
+    /// TURN relays over UDP with credentials minted for this answer: the link's
+    /// last path before the stream (cmux-rd-link prefers any direct path).
+    pub turn: Vec<TurnName>,
+}
+
+/// Most STUN servers read from an answer.
+const MAX_RD_LINK_STUN: usize = 4;
+/// Most TURN relays read from an answer.
+const MAX_RD_LINK_TURN: usize = 4;
+/// Longest TURN username or password taken.
+const MAX_TURN_CREDENTIAL: usize = 512;
+
+/// `host:port` with a nonzero port and only host-name characters.
+fn is_server(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 255
+        && s.rsplit_once(':').is_some_and(|(host, port)| {
+            !host.is_empty() && port.parse::<u16>().is_ok_and(|p| p > 0)
+        })
+        && s.bytes().all(|b| b.is_ascii_alphanumeric() || b".-:[]".contains(&b))
+}
+
+/// `turn: [{addr, username, password}, ..]`; a malformed entry is skipped.
+fn turn_relays(object: &serde_json::Map<String, Value>) -> Vec<TurnName> {
+    fn credential<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
+        v.get(key)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty() && s.len() <= MAX_TURN_CREDENTIAL)
+    }
+    object
+        .get("turn")
+        .and_then(Value::as_array)
+        .map(|relays| {
+            relays
+                .iter()
+                .filter_map(|r| {
+                    let addr = r.get("addr").and_then(Value::as_str).filter(|a| is_server(a))?;
+                    Some(TurnName {
+                        addr: addr.to_owned(),
+                        username: credential(r, "username")?.to_owned(),
+                        password: credential(r, "password")?.to_owned(),
+                    })
+                })
+                .take(MAX_RD_LINK_TURN)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// `rd_link: {stun: ["host:port", ..], turn: [..]}`; a malformed entry is
+/// skipped, and anything but an object leaves the link off.
+fn rd_link(value: &Value) -> Option<RdLink> {
+    let object = value.get("rd_link")?.as_object()?;
+    let stun = object
+        .get("stun")
+        .and_then(Value::as_array)
+        .map(|servers| {
+            servers
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|s| is_server(s))
+                .take(MAX_RD_LINK_STUN)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(RdLink { stun, turn: turn_relays(object) })
 }
 
 impl std::fmt::Debug for CarrierAnswer {
@@ -60,6 +244,8 @@ impl std::fmt::Debug for CarrierAnswer {
             .field("grant", &self.grant.is_some())
             .field("daemon_key", &self.daemon_key.is_some())
             .field("vmk", &self.vmk)
+            .field("rd_link", &self.rd_link)
+            .field("ssh", &self.ssh)
             .finish_non_exhaustive()
     }
 }
@@ -72,11 +258,11 @@ pub(super) struct SourceError {
 }
 
 impl SourceError {
-    fn retry(detail: impl Into<String>) -> Self {
+    pub(super) fn retry(detail: impl Into<String>) -> Self {
         Self { retryable: true, detail: detail.into() }
     }
 
-    fn fatal(detail: impl Into<String>) -> Self {
+    pub(super) fn fatal(detail: impl Into<String>) -> Self {
         Self { retryable: false, detail: detail.into() }
     }
 }
@@ -93,12 +279,15 @@ fn key_bytes(text: &str) -> Option<[u8; 32]> {
 }
 
 fn secret(value: &Value, name: &str) -> Result<Zeroizing<String>, String> {
+    secret_up_to(value, name, MAX_SECRET_BYTES)
+}
+
+/// [`secret`] up to `max` bytes: a grant may be as long as the session
+/// daemon reads (`cmux_link::carrier_grant::MAX_GRANT_BYTES`).
+fn secret_up_to(value: &Value, name: &str, max: usize) -> Result<Zeroizing<String>, String> {
     let text = value.get(name).and_then(Value::as_str).ok_or(format!("{name} is missing"))?;
-    if text.is_empty()
-        || text.len() > MAX_SECRET_BYTES
-        || !text.bytes().all(|b| (0x21..=0x7e).contains(&b))
-    {
-        return Err(format!("{name} is not 1 to 4096 visible ASCII bytes"));
+    if text.is_empty() || text.len() > max || !text.bytes().all(|b| (0x21..=0x7e).contains(&b)) {
+        return Err(format!("{name} is not 1 to {max} visible ASCII bytes"));
     }
     Ok(Zeroizing::new(text.to_owned()))
 }
@@ -147,11 +336,23 @@ pub(super) fn parse_answer(value: &Value) -> Result<CarrierAnswer, String> {
         value.get("expires_at").and_then(Value::as_u64).ok_or("expires_at is missing")?;
     let grant = match value.get("grant") {
         None | Some(Value::Null) => None,
-        Some(_) => Some(secret(value, "grant")?),
+        Some(_) => Some(secret_up_to(value, "grant", cmux_link::carrier_grant::MAX_GRANT_BYTES)?),
     };
     let daemon_key = value.get("daemon_key").and_then(Value::as_str).and_then(key_bytes);
     let vmk = grant.as_deref().and_then(|g| grant_vmk(g));
-    Ok(CarrierAnswer { relay, slot: slot.to_owned(), ticket, expires_at, grant, daemon_key, vmk })
+    let rd_link = rd_link(value);
+    let ssh = ssh_candidate(value);
+    Ok(CarrierAnswer {
+        relay,
+        slot: slot.to_owned(),
+        ticket,
+        expires_at,
+        grant,
+        daemon_key,
+        vmk,
+        rd_link,
+        ssh,
+    })
 }
 
 /// Reads one HTTP answer: `{ok: true, value}` is the carrier; anything else
@@ -178,6 +379,56 @@ pub(super) trait CarrierSource: Send + Sync {
         machine: &str,
         noise_key: Option<&[u8; 32]>,
     ) -> Result<CarrierAnswer, SourceError>;
+
+    /// Authorizes `public_key` (`ssh-ed25519 <base64>`) as a carrier key on
+    /// `machine` for a short while: `ssh-endpoint` with `purpose:
+    /// "carrier"`. A source without it has no ssh carrier.
+    async fn ssh_endpoint(
+        &self,
+        _machine: &str,
+        _public_key: &str,
+    ) -> Result<SshEndpoint, SourceError> {
+        Err(SourceError::fatal("this source mints no carrier ssh key"))
+    }
+
+    /// Runs `command` (`bash -c`, as the image's work user) on `machine` through the
+    /// Cloud exec route (`POST /v1/cloud/machines/{id}/exec`), within `timeout`: what
+    /// [`super::adopt`] uses on a machine that never registers on the relay. A source
+    /// without it adopts nothing.
+    async fn exec(
+        &self,
+        _machine: &str,
+        _command: &str,
+        _timeout: Duration,
+    ) -> Result<ExecReply, SourceError> {
+        Err(SourceError::fatal("this source runs no command"))
+    }
+}
+
+/// What an exec answered: its exit code and output.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct ExecReply {
+    pub exit_code: i64,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// The exec route's answer: `{exitCode, stdout, stderr}`, else its refusal
+/// (`{ok: false, error: {code, message}}`) as an error.
+pub(super) fn read_exec(status: u16, body: &Value) -> Result<ExecReply, SourceError> {
+    if (200..300).contains(&status)
+        && let Some(exit_code) = body.get("exitCode").and_then(Value::as_i64)
+    {
+        let text = |key: &str| body.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+        return Ok(ExecReply { exit_code, stdout: text("stdout"), stderr: text("stderr") });
+    }
+    let code = body.pointer("/error/code").and_then(Value::as_str).unwrap_or_default();
+    let detail = format!("exec answered HTTP {status} {code}");
+    if matches!(status, 408 | 429 | 500..=599) {
+        Err(SourceError::retry(detail))
+    } else {
+        Err(SourceError::fatal(detail))
+    }
 }
 
 /// The person's credential: re-read from the file on every fetch (it may be
@@ -208,7 +459,7 @@ impl Credential {
 }
 
 /// cmux-platform over HTTPS with the person's credential.
-pub(super) struct HttpSource {
+pub(crate) struct HttpSource {
     api: String,
     credential: Credential,
     /// A credential handed over later (`carrier serve`'s stdin), used in
@@ -248,6 +499,76 @@ impl HttpSource {
             None => self.credential.current(),
         }
     }
+
+    /// POSTs `body` to `path` on the platform with the person's credential
+    /// (and the team header): the status and the JSON body (`Null` when the
+    /// body is not JSON). No answer at all is a retry.
+    pub(super) async fn post(&self, path: &str, body: &Value) -> Result<(u16, Value), SourceError> {
+        self.post_within(path, body, FETCH_TIMEOUT).await
+    }
+
+    /// [`Self::post`] with its own `timeout` (an exec runs longer than a fetch).
+    async fn post_within(
+        &self,
+        path: &str,
+        body: &Value,
+        timeout: Duration,
+    ) -> Result<(u16, Value), SourceError> {
+        let credential = self.current()?;
+        let mut request = self
+            .client
+            .post(format!("{}{path}", self.api))
+            .timeout(timeout)
+            .bearer_auth(credential.as_str())
+            .json(body);
+        if let Some(team) = &self.team {
+            request = request.header(TEAM_HEADER, team);
+        }
+        let response =
+            request.send().await.map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
+        let status = response.status().as_u16();
+        Ok((status, response.json().await.unwrap_or(Value::Null)))
+    }
+
+    /// Who the current credential names, read afresh (a stdin token, else
+    /// the token file re-read now, else the environment's): `sub:<sub>` for
+    /// a JWT with a `sub` ([`token_subject`]), else `token:<sha-256 hex>` of
+    /// the whole credential, so two opaque credentials never count as one
+    /// person. `None` when there is no readable credential.
+    pub(super) fn identity(&self) -> Option<String> {
+        let token = self.current().ok()?;
+        Some(match token_subject(&token) {
+            Some(sub) => format!("sub:{sub}"),
+            None => {
+                use sha2::Digest as _;
+                let digest = sha2::Sha256::digest(token.as_bytes());
+                let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+                format!("token:{hex}")
+            }
+        })
+    }
+}
+
+/// The `sub` claim of a JWT credential, read without checking its
+/// signature (the platform checks the credential; this only tells whether a
+/// refreshed credential is the same person's). `None` for anything that is
+/// not a JWT with a string `sub`: a JWT has exactly three segments and its
+/// first is a JSON header naming an `alg`, so an opaque dotted credential
+/// whose middle segment happens to decode never borrows a `sub`.
+pub(super) fn token_subject(token: &str) -> Option<String> {
+    let mut segments = token.split('.');
+    let (Some(header), Some(payload), Some(_), None) =
+        (segments.next(), segments.next(), segments.next(), segments.next())
+    else {
+        return None;
+    };
+    let decode = |segment: &str| -> Option<Value> {
+        let bytes = Zeroizing::new(URL_SAFE_NO_PAD.decode(segment.trim_end_matches('=')).ok()?);
+        serde_json::from_slice(&bytes).ok()
+    };
+    decode(header)?.get("alg")?.as_str()?;
+    let claims = decode(payload)?;
+    claims.get("sub")?.as_str().filter(|sub| !sub.is_empty()).map(str::to_owned)
 }
 
 #[async_trait]
@@ -257,28 +578,47 @@ impl CarrierSource for HttpSource {
         machine: &str,
         noise_key: Option<&[u8; 32]>,
     ) -> Result<CarrierAnswer, SourceError> {
-        let credential = self.current()?;
         let body = match noise_key {
             Some(key) => json!({ "noise_key": key_text(key) }),
             None => json!({}),
         };
-        let mut request = self
-            .client
-            .post(format!("{}/v1/cloud/machines/{machine}/carrier", self.api))
-            .bearer_auth(credential.as_str())
-            .json(&body);
-        if let Some(team) = &self.team {
-            request = request.header(TEAM_HEADER, team);
-        }
-        let response =
-            request.send().await.map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
-        let status = response.status().as_u16();
-        let body: Value = response.json().await.unwrap_or(Value::Null);
+        let (status, body) =
+            self.post(&format!("/v1/cloud/machines/{machine}/carrier"), &body).await?;
         read_reply(status, &body)
+    }
+
+    async fn ssh_endpoint(
+        &self,
+        machine: &str,
+        public_key: &str,
+    ) -> Result<SshEndpoint, SourceError> {
+        let body = json!({ "publicKey": public_key, "purpose": "carrier" });
+        let (status, body) =
+            self.post(&format!("/v1/cloud/machines/{machine}/ssh-endpoint"), &body).await?;
+        read_ssh_endpoint(status, &body, now_unix())
+    }
+
+    async fn exec(
+        &self,
+        machine: &str,
+        command: &str,
+        timeout: Duration,
+    ) -> Result<ExecReply, SourceError> {
+        let ms = u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX);
+        let body = json!({ "command": command, "timeoutMs": ms });
+        // The request outlives the command by a little: the answer still has to come back.
+        let (status, body) = self
+            .post_within(
+                &format!("/v1/cloud/machines/{machine}/exec"),
+                &body,
+                timeout + FETCH_TIMEOUT,
+            )
+            .await?;
+        read_exec(status, &body)
     }
 }
 
-fn now_unix() -> u64 {
+pub(super) fn now_unix() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
@@ -328,24 +668,44 @@ impl TicketCache {
 /// a create's or spare claim's answer (`dial --answer-fd`, or serve's
 /// `{"carrier_answer":…}` stdin line). One connect attempt takes it; every
 /// later attempt asks the platform as before.
+///
+/// In `serve` ([`Self::for_identity`]) an answer is bound to whoever the
+/// current credential named when it arrived, and only a take while that
+/// credential is still current gets it: an answer handed over for one
+/// person is never used for another's dial.
 #[derive(Default)]
-pub(super) struct Prefetched(Mutex<Option<CarrierAnswer>>);
+pub(super) struct Prefetched {
+    held: Mutex<Option<(CarrierAnswer, Option<String>)>>,
+    identity: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>>,
+}
 
 impl Prefetched {
     pub(super) fn new(answer: Option<CarrierAnswer>) -> Self {
-        Self(Mutex::new(answer))
+        Self { held: Mutex::new(answer.map(|answer| (answer, None))), identity: None }
+    }
+
+    /// Answers bound to the identity `identity` reads at each put and take.
+    pub(super) fn for_identity(identity: Arc<dyn Fn() -> Option<String> + Send + Sync>) -> Self {
+        Self { held: Mutex::new(None), identity: Some(identity) }
     }
 
     /// Holds `answer` for the next attempt, in place of any held one.
     pub(super) fn put(&self, answer: CarrierAnswer) {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(answer);
+        let owner = self.identity.as_ref().and_then(|identity| identity());
+        *self.held.lock().unwrap_or_else(PoisonError::into_inner) = Some((answer, owner));
     }
 
     /// The held answer, once, while its ticket is good for at least the
     /// ticket margin at `now` (Unix seconds) and it has a grant. A stale or
-    /// grantless one is dropped, and the attempt asks the platform.
+    /// grantless one is dropped, and the attempt asks the platform. So is
+    /// one bound to an identity that is not the current one (or to none).
     pub(super) fn take(&self, now: u64) -> Option<CarrierAnswer> {
-        let answer = self.0.lock().unwrap_or_else(PoisonError::into_inner).take()?;
+        let (answer, owner) = self.held.lock().unwrap_or_else(PoisonError::into_inner).take()?;
+        if let Some(identity) = &self.identity
+            && (owner.is_none() || identity() != owner)
+        {
+            return None;
+        }
         (answer.grant.is_some() && TicketCache::usable(answer.expires_at, now)).then_some(answer)
     }
 

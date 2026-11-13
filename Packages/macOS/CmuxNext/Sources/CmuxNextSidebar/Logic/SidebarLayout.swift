@@ -79,6 +79,11 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         rows[position] = row
     }
 
+    /// Changes `rows[range]` in place, keys and frames kept (a splice's renumbering of the rows after it): no row is copied.
+    mutating func updateRows(_ range: Range<Int>, _ change: (inout SidebarRow) -> Void) {
+        for i in range { change(&rows[i]) }
+    }
+
     // Equal layouts draw the same: the key index is how lookups are found, not what is drawn.
     public static func == (lhs: SidebarLayout, rhs: SidebarLayout) -> Bool {
         lhs.rows == rhs.rows && lhs.totalHeight == rhs.totalHeight && lhs.gapY == rhs.gapY && lhs.gapHeight == rhs.gapHeight
@@ -167,9 +172,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         var shownEmptyMachine = false
 
         func openGapIfNeeded(section: SectionID, group: GroupID?, index: Int) {
-            guard gapY == nil, let gap = o.gap, gap.section == section, gap.group == group, gap.index == index else { return }
-            gapY = y
-            y += gapHeight + m.rowSpacing
+            Self.openGap(section: section, group: group, index: index, options: o, height: gapHeight, metrics: m, y: &y, gapY: &gapY)
         }
 
         // The session tree's chat history, never while filtering.
@@ -364,97 +367,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     ))
                     y += h + m.rowSpacing
                 case let .group(group):
-                    // The member rows in document order: workspaces with the group's link, tab and app items
-                    // (an item matches no workspace filter; a dragged item leaves its slot).
-                    let shown = Set(entry.children.map(\.id))
-                    let members = group.members.filter { member in
-                        switch member {
-                        case let .workspace(ws): shown.contains(ws.id)
-                        case let .item(item): !filtering && item.id != o.excludedItem
-                        }
-                    }
-                    let groupCollapsed = group.isCollapsed && !filtering
-                    // One member named as its group (`acpmux new --group X` names both X): the member's row alone, in
-                    // the header's place, where it draws as a live row (`SidebarLayout+SoleMember`).
-                    if let sole = Self.soleMember(group, members, hasSubgroups: subgroupParents.contains(group.id), options: o),
-                       let depth = Self.liveDepth(of: sole, members, in: group, collapsed: groupCollapsed,
-                                                  fold: SidebarDoneFoldID(section: section.id, group: group.id), options: o) {
-                        y = Self.appendSoleMember(sole, of: group, treeDepth: depth, section: section.id,
-                                                  parent: index, machine: machineLabel, options: o, metrics: m, to: &rows, y: y)
-                        // A drop gap in the group opens under the row, as it opened under the header: the row keeps the header's
-                        // slot under the pointer, and the header never returns mid-drag.
-                        openGapIfNeeded(section: section.id, group: group.id, index: 0)
-                        openGapIfNeeded(section: section.id, group: group.id, index: 1)
-                        return
-                    }
-                    var header = SidebarRow(
-                        key: .group(group.id), y: y, height: m.groupHeaderHeight, section: section.id,
-                        group: group.id, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
-                        isCollapsed: groupCollapsed, childCount: members.count, groupColor: group.color
-                    )
-                    header.depth = group.depth
-                    rows.append(header)
-                    // Every row appended below is this group's member: one level in from its header.
-                    let memberRowsStart = rows.count
-                    defer { for i in memberRowsStart..<rows.count { rows[i].depth = group.depth + 1 } }
-                    y += m.groupHeaderHeight + m.rowSpacing
-                    if groupCollapsed {
-                        // The selected workspace, and one selected here before, stay visible members of a collapsed
-                        // group: orientation without reopening it, and a click elsewhere removes no row.
-                        let kept = members.indices.compactMap { i -> (Int, SidebarWorkspace)? in
-                            guard case let .workspace(member) = members[i], o.shown(inCollapsed: group.id).contains(member.id) else { return nil }
-                            return entry.children.first(where: { $0.id == member.id }).map { (i, $0) }
-                        }
-                        for (n, (childIndex, ws)) in kept.enumerated() {
-                            let content = o.rowContent(ws, machine: machineLabel)
-                            let h = m.height(for: content)
-                            rows.append(SidebarRow(key: .workspace(ws.id), y: y, height: h, section: section.id, group: group.id,
-                                                   siblingIndex: childIndex, parentIndex: index, isLastInGroup: n == kept.count - 1,
-                                                   isCollapsed: false, childCount: 0, groupColor: group.color, content: content))
-                            y += h + m.rowSpacing
-                        }
-                        return
-                    }
-                    let fold = SidebarDoneFoldID(section: section.id, group: group.id)
-                    let drawn = Self.foldingDone(Self.treeOrder(Self.workspaceIDs(members), parents: o.sessionTree?.parents),
-                                                 workspace: { if case let .workspace(ws) = members[$0] { ws } else { nil } }, fold: fold, options: o)
-                    let foldedGap = Self.gapEntry(drawn, gap: o.gap, section: section.id, group: group.id, count: members.count)
-                    for (position, (childIndex, depth)) in drawn.enumerated() {
-                        if childIndex == foldedGap, let gap = o.gap { openGapIfNeeded(section: section.id, group: group.id, index: gap.index) }
-                        if childIndex < 0 {
-                            Self.appendFold(childIndex, fold, count: depth, parent: index, color: group.color, last: position == drawn.count - 1,
-                                            options: o, to: &rows, y: &y, metrics: m)
-                            continue
-                        }
-                        let member = members[childIndex]
-                        openGapIfNeeded(section: section.id, group: group.id, index: childIndex)
-                        guard case let .workspace(ws) = member else {
-                            guard case let .item(item) = member else { continue }
-                            // A link, tab or app member: the listed item's row (`.item`), indented under the group's line.
-                            let content = WorkspaceRowContent()
-                            let h = m.height(for: content)
-                            rows.append(SidebarRow(
-                                key: .item(item.id), y: y, height: h, section: section.id,
-                                group: group.id, siblingIndex: childIndex, parentIndex: index,
-                                isLastInGroup: position == drawn.count - 1,
-                                isCollapsed: false, childCount: 0, groupColor: group.color, content: content
-                            ))
-                            y += h + m.rowSpacing
-                            continue
-                        }
-                        var content = o.rowContent(ws, machine: machineLabel)
-                        content.treeDepth = depth
-                        let h = m.height(for: content)
-                        rows.append(SidebarRow(
-                            key: .workspace(ws.id), y: y, height: h, section: section.id,
-                            group: group.id, siblingIndex: childIndex, parentIndex: index,
-                            isLastInGroup: position == drawn.count - 1,
-                            isCollapsed: false, childCount: 0, groupColor: group.color, content: content
-                        ))
-                        y += h + m.rowSpacing
-                    }
-                    // The next row follows the last member by the row spacing alone (Leo 2026-10-21: no padding after groups).
-                    openGapIfNeeded(section: section.id, group: group.id, index: members.count)
+                    Self.appendGroup(group, children: entry.children, index: index, section: section.id,
+                                     hasSubgroups: subgroupParents.contains(group.id), filtering: filtering, machine: machineLabel,
+                                     options: o, metrics: m, gapHeight: gapHeight, to: &rows, y: &y, gapY: &gapY)
                 }
             }
             // Group by Folder lists groups, document items and every folder's rows as they are: no Done fold, no row limit.

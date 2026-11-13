@@ -27,6 +27,11 @@ public final class CloudAuth {
     public var isSignedIn: Bool { coordinator.isAuthenticated }
     public var isRestoring: Bool { coordinator.isRestoringSession }
     public var user: CMUXAuthUser? { coordinator.currentUser }
+    /// The signed-in account's platform user id (`user_…`, the API's `userIdFor`): the id a cmux-next
+    /// machine record names its `creator` by, never the Stack id in ``user``.
+    public var platformUserID: String? {
+        user.map { CloudAccessToken.backendUserID(stackProjectID: configuration.stackProjectID, stackUserID: $0.id) }
+    }
     /// The team cmux works in; every team-scoped feature reads it (``ActiveTeam``).
     @ObservationIgnored public let activeTeam: ActiveTeam
     /// The device's managed team (``ActiveTeam/managedTeamID``).
@@ -318,6 +323,13 @@ public final class CloudAuth {
     public func start() { coordinator.start() }
 
     public func awaitRestored() async { await coordinator.awaitBootstrapped() }
+
+    /// The signed-in person's access token once the stored session has restored (a cold launch asks before it
+    /// has); nil signed out.
+    public func restoredAccessToken() async -> String? {
+        await awaitRestored()
+        return isSignedIn ? (try? await tokens().access) : nil
+    }
 
     /// A coherent access/refresh pair for one API call.
     public func tokens() async throws -> (access: String, refresh: String) {

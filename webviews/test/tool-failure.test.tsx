@@ -8,7 +8,7 @@ import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow"
 import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
 import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
 import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroupRow";
-import { InStep } from "../src/agent-session/acpmux/conversation/ToolFailureCause";
+import { InStep } from "../src/agent-session/acpmux/conversation/toolFailureCauseModel";
 import { toolFailure } from "../src/agent-session/acpmux/conversation/toolFailure";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -188,6 +188,15 @@ test("a capitalised word is not an errno code, and a failed call that exited 0 b
 test("a large JSON error is read whole", () => {
   const big = JSON.stringify({ error: { message: "quota exceeded", data: "x".repeat(20_000) } });
   expect(toolFailure(call(big))?.cause).toBe("quota exceeded");
+});
+
+test("a 4 MiB failure keeps complete detail and shell output beyond the bounded cause scan", () => {
+  const body = `${"x".repeat(2 << 20)}\nunique middle diagnostic\n${"y".repeat(2 << 20)}\nError: failed`;
+  const output = `Exit code 1\n${body}`;
+  const failure = toolFailure(call(output));
+  expect(failure?.cause).toBe("failed");
+  expect(failure?.detail).toBe(output);
+  expect(failure?.output).toBe(body);
 });
 
 test("a folded run says how many of its calls failed", () => {

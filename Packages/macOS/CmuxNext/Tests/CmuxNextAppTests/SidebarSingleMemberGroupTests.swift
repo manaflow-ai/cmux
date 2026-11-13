@@ -297,6 +297,36 @@ import Testing
         #expect(try #require(open.row(for: .workspace(WorkspaceID("w-coord")))).standsForGroup)
     }
 
+    /// F1 of #36457 (ask-71821f1cda, Leo 2026-11-05: "when you're collapsing a group, the text needs to fade faster"):
+    /// collapsing a group drawn as its one row hides that row under the header that takes its place, so it fades on
+    /// `fadeOut` and slides under the header like any collapsed member (`SidebarRowTransition.isFolded`), not over the
+    /// whole `.move` spring as a closed workspace.
+    @Test func collapsingASameNameGroupFoldsItsOneRowUnderTheHeader() throws {
+        func nodes(collapsed: Bool) -> [SidebarNode] {
+            [.workspace(ws("w-loose", "loose")),
+             .group(SidebarGroup(id: GroupID("g-coord"), name: "release-coord", isCollapsed: collapsed, workspaces: [ws("w-coord", "release-coord")])),
+             .workspace(ws("w-below", "below"))]
+        }
+        let open = layout(nodes(collapsed: false)), closed = layout(nodes(collapsed: true))
+        let row = try #require(open.row(for: .workspace(WorkspaceID("w-coord"))))
+        try #require(row.standsForGroup && open.row(for: .group(GroupID("g-coord"))) == nil, "open: the one row, no header")
+        let header = try #require(closed.row(for: .group(GroupID("g-coord"))))
+        try #require(closed.row(for: .workspace(WorkspaceID("w-coord"))) == nil, "collapsed: the header alone")
+        #expect(SidebarRowTransition.isFolded(row, from: open, to: closed), "the collapse hides the one row")
+        #expect(SidebarRowTransition.foldedY(row, from: open, to: closed) == header.y, "it folds under the header")
+        let end = SidebarRowTransition.removeFrame(row, current: CGRect(x: 0, y: row.y, width: 200, height: row.height),
+                                                   runTop: row.y, from: open, to: closed)
+        #expect(end.minY == header.y)
+        #expect(end.height == row.height, "it slides under the header, not shut to nothing")
+        let below = try #require(open.row(for: .workspace(WorkspaceID("w-below"))))
+        #expect(!SidebarRowTransition.isFolded(below, from: open, to: layout(Array(nodes(collapsed: false).dropLast()))),
+                "a closed loose workspace still closes its slot")
+        // Opening it again unfolds the one row where the header was, at full height.
+        let target = CGRect(x: 0, y: row.y, width: 200, height: row.height)
+        let start = SidebarRowTransition.insertFrame(row, target: target, runTop: row.y, from: closed, to: open)
+        #expect(start == CGRect(x: 0, y: header.y, width: 200, height: row.height))
+    }
+
     /// The group's line runs along the one row, at the header bar's left edge, in the group's color.
     @Test func theOneRowCarriesTheGroupsLine() throws {
         let group = SidebarGroup(id: GroupID("g-coord"), name: "release-coord", color: .purple, workspaces: [ws("w-coord", "release-coord")])

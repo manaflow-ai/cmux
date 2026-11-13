@@ -11,7 +11,14 @@ the first text and to a visible composer, for the first chat and for each of `--
 (physical footprint of the app, its Chromium helpers and the WebKit processes it is responsible
 for, bench_memory.py) at launch, with one chat and with `--chats`; flings over `--rows` seeded rows; and
 typing latency in the composer (keydown to the next frame and to its paint, the page's own
-typingStats) for `--keys` keys sent with `debug.key`. With `--activate` the app runs active and the
+typingStats) for `--keys` keys sent with `debug.key`; and scroll ticks (Leo, 2026-11-07: "I do one
+tick up, one tick down ... it doesn't jolt as, like, the jumpy sort of spry, springy feel"): native
+scroll events at the chat (`debug.mouse` scroll, at the page view in Chromium), `--ticks` single ticks
+up and down of 120 px in 20 eased events 8 ms apart and one 3,000 px flick each way, over a
+`--tick-small-rows` chat and the `--rows` chat, once as a trackpad gesture (scroll phases) and once as
+plain pixel wheel events (a smoothing tool such as Mos), read with the page's `tick_watch`: frame
+intervals and work, the wheel events wheelGlide.ts took as notches, and the page's own offset writes
+during the input. With `--activate` the app runs active and the
 report adds which window holds the keys once the chat is focused (a Chromium page is its own child
 window). Runs on a fleet mini, never a laptop:
   agent-engine-bench.py --tag TAG --app BUNDLE [--modes own,page,chromium] [--chats 10] [--json FILE]
@@ -32,6 +39,8 @@ parser.add_argument("--flings", type=int, default=3)
 parser.add_argument("--rows", type=int, default=5000, help="seeded transcript rows")
 parser.add_argument("--fling-seconds", type=float, default=3, help="duration of each measured bottom-to-top fling")
 parser.add_argument("--target-hz", type=float, help="count lost refresh slots against this target instead of idle cadence")
+parser.add_argument("--ticks", type=int, default=6, help="single scroll ticks each way per variant (0: none)")
+parser.add_argument("--tick-small-rows", type=int, default=60, help="seeded rows of the small chat the ticks also run on")
 parser.add_argument("--settle", type=float, default=10)
 parser.add_argument("--activate", action="store_true", help="run the app active, to see which window takes the keys")
 parser.add_argument("--open", action="store_true",
@@ -155,6 +164,53 @@ def measured_fling(seed):
     fling["perf_stats"] = perf
     fling["frame_metrics"] = fling_metrics(fling, perf, seed, opts.rows, opts.fling_seconds, opts.target_hz)
     return fling
+
+
+def gesture(target, total, events, phased, errors):
+    """One scroll of `total` px (positive scrolls up) in `events` eased native events 8 ms apart; a
+    refused event's error goes into `errors`."""
+    weights = [(1 - index / events) ** 2 for index in range(events)]
+    whole = sum(weights)
+    start = time.monotonic()
+    for index, weight in enumerate(weights):
+        # Paced from the gesture's start, so a slow call does not stretch the spacing.
+        time.sleep(max(0.0, start + index * 0.008 - time.monotonic()))  # test harness: input pacing
+        params = dict(target, action="scroll", dy=total * weight / whole, hover=index == 0)
+        if phased:
+            params["phase"] = "began" if index == 0 else "ended" if index == events - 1 else "changed"
+        sent = rpc("debug.mouse", params)
+        if isinstance(sent, dict) and sent.get("error"):
+            errors.append(str(sent["error"])[:200])
+    time.sleep(0.4)  # test harness: the scroll comes to rest before the next one
+
+
+def scroll_ticks(rows):
+    """The page's frames while native scroll ticks and flicks move a `rows`-row chat, per input kind."""
+    seeded = pane("seed_rows", count=rows, timeout=60)
+    seed_error = seeded.get("error") if isinstance(seeded, dict) else "no seed reply"
+    time.sleep(3)  # test harness: the seeded transcript lays out
+    engine = pane("engine")
+    target = {"target": "page", "pane": engine.get("pane")} if engine.get("engine") == "cef" else {"pane": engine.get("pane")}
+    out = {"rows": rows, "seed": seeded}
+    for kind, phased in (("trackpad", True), ("wheel", False)):
+        errors = [f"seed_rows {rows}: {seed_error}"[:200]] if seed_error else []
+        started = pane("tick_watch")
+        if not started.get("started"):
+            errors.append(f"tick_watch start: {started.get('error') or started}"[:200])
+        for _ in range(opts.ticks):
+            gesture(target, 120, 20, phased, errors)
+            gesture(target, -120, 20, phased, errors)
+        gesture(target, 3000, 60, phased, errors)
+        gesture(target, -3000, 60, phased, errors)
+        watch = {"stop": True, **({"nominal_ms": 1000 / opts.target_hz} if opts.target_hz else {})}
+        out[kind] = pane("tick_watch", **watch)
+        if out[kind].get("error"):
+            errors.append(f"tick_watch stop: {out[kind]['error']}"[:200])
+        # A tick run is only a measurement when every event went in and the page saw them move it.
+        out[kind]["errors"] = errors[:5]
+        out[kind]["complete"] = not errors and bool(out[kind].get("moved_frames"))
+        print(f"ticks rows={rows} {kind}", json.dumps(out[kind]), flush=True)
+    return out
 
 
 def flings_complete(flings, requested):
@@ -341,6 +397,10 @@ def run_mode(mode):
     pane("fling", seconds=3, wait=True, timeout=60)  # warms the transcript's layout, not reported
     result["flings"] = [measured_fling(result["seed"]) for _ in range(opts.flings)]
     result["measurement_complete"] = flings_complete(result["flings"], opts.flings)
+    if opts.ticks > 0:
+        result["ticks"] = [scroll_ticks(rows) for rows in (opts.tick_small_rows, opts.rows)]
+        ticks_complete = all(t[kind].get("complete") for t in result["ticks"] for kind in ("trackpad", "wheel"))
+        result["measurement_complete"] = result["measurement_complete"] and ticks_complete
     more = [open_chat() for _ in range(opts.chats - 1)]
     result["more_chats"] = more
     time.sleep(opts.settle)  # test harness: the chats settle before they are measured
@@ -358,6 +418,9 @@ def run_mode(mode):
         "typing_keys": result["typing"].get("keys"), "focus": result["focus"],
         "fling_dropped_frames": [f.get("dropped_frames") for f in result["flings"]],
         "fling_p95_ms": [f.get("p95_ms") for f in result["flings"]],
+        "ticks": [{"rows": t["rows"], **{kind: {key: (t.get(kind) or {}).get(key) for key in
+                   ("complete", "frames", "work", "work_over_8ms", "notch_events", "js_writes", "js_write_max_px")}
+                   for kind in ("trackpad", "wheel")}} for t in result.get("ticks", [])],
     }
     return result
 

@@ -2,8 +2,7 @@
 //!
 //! On a Mac it lives in the login Keychain the way the other device keys do
 //! (a generic password, not synchronized, accessible after first unlock on
-//! this device only; `NativeDeviceSecret.swift` stores the native mesh key
-//! the same way), so the device id a grant admits (`carrier:<user>:<key
+//! this device only), so the device id a grant admits (`carrier:<user>:<key
 //! fingerprint>`) stays the same across dials. It is never a file.
 //!
 //! Elsewhere (a Linux dial, tests) the key is made for this one dial and

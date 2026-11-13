@@ -16,6 +16,7 @@ export default function CloudEnvironmentEditorContent() {
         get: (id) => postNative("cloud.environment.get", { id }),
         update: (id, patch) => postNative("cloud.environment.update", { id, patch }),
         derive: (options) => postNative("cloud.environment.derive", options),
+        create: (environment) => postNative("cloud.environment.create", { environment }),
       }),
   );
   useEffect(() => {
