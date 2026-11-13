@@ -40,7 +40,7 @@ final class MainWindowLifecycleCoordinator {
     }
 
     init(
-        maximumFrozenOrphanRecords: Int = SessionPersistencePolicy.maxWindowsPerSnapshot
+        maximumFrozenOrphanRecords: Int = SessionPersistencePolicy.maxOrphanedWindowRoutes
     ) {
         self.maximumFrozenOrphanRecords = max(0, maximumFrozenOrphanRecords)
     }
@@ -229,7 +229,7 @@ final class MainWindowLifecycleCoordinator {
 
     /// Returns the bounded orphan set that can occupy persisted window slots.
     func eligibleOrphanedRoutesForPersistence(
-        maximum: Int = SessionPersistencePolicy.maxWindowsPerSnapshot
+        maximum: Int = SessionPersistencePolicy.maxOrphanedWindowRoutes
     ) -> [RecoverableMainWindowRoute] {
         orphanedRoutes()
             .filter(\.isEligibleForSessionPersistence)
