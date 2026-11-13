@@ -36,6 +36,9 @@ Environment:
                                  the source and Mac environment identities
   CMUX_NEXT_OPTCHAT_CHIEF_RESULT_FILE  file this writes "reused" or "built" to,
                                  so the nightly saves only an entry it rebuilt
+  CMUX_NEXT_OPTCHAT_CHIEF_APP_SHARED_RUNTIME=1  compile the app inspector page
+                                 that imports the app's shared React runtime;
+                                 unset uses the self-contained standalone page
 USAGE
 }
 
@@ -59,6 +62,8 @@ done
 [[ -f "$crate/Cargo.toml" ]] || { echo "error: $crate is missing" >&2; exit 1; }
 commit="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)"
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "error: cannot determine the source commit" >&2; exit 1; }
+inspector_shared=0
+[[ "${CMUX_NEXT_OPTCHAT_CHIEF_APP_SHARED_RUNTIME:-0}" == 1 ]] && inspector_shared=1
 
 raw="${CMUX_NEXT_OPTCHAT_CHIEF_ARCHS:-${ARCHS:-$(uname -m)}}"
 archs=""
@@ -227,7 +232,7 @@ for target in "${targets[@]}"; do
   fi
   # An app build never ships the inspector's placeholder page: build.rs fails
   # when the page was not built (build-web-bundles.sh runs before this).
-  (cd "$crate" && OPTCHAT_BUILD_COMMIT="${commit:0:11}" OPTCHAT_REQUIRE_INSPECTOR_PAGE=1 CARGO_TARGET_DIR="$target_dir" \
+  (cd "$crate" && OPTCHAT_BUILD_COMMIT="${commit:0:11}" OPTCHAT_REQUIRE_INSPECTOR_PAGE=1 OPTCHAT_INSPECTOR_SHARED_RUNTIME="$inspector_shared" CARGO_TARGET_DIR="$target_dir" \
     cargo "+$toolchain" build --locked --release --bin optchat-chief --target "$target")
   slice="$target_dir/$target/release/optchat-chief"
   [[ -x "$slice" ]] || { echo "error: cargo did not produce $slice" >&2; exit 1; }

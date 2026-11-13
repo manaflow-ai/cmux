@@ -24,6 +24,7 @@ set -eu
 
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 INSPECTOR="Native/OptChat/optchat-chief/inspector/index.html"
+INSPECTOR_SHARED="Native/OptChat/optchat-chief/inspector/index.shared.html"
 # The build outputs that were committed before cx-vn5. Only their placeholders
 # (GENERATED.md) stay in the index.
 FORMER="Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane
@@ -56,5 +57,5 @@ cd "$ROOT"
 "$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh"
 # Plain TypeScript over two JSON files: no install and no build.
 bun web/scripts/export-next-docs.ts >/dev/null
-git add -A -- "$INSPECTOR" web/data/next-docs
-git status --short -- "$INSPECTOR" web/data/next-docs
+git add -A -- "$INSPECTOR" "$INSPECTOR_SHARED" web/data/next-docs
+git status --short -- "$INSPECTOR" "$INSPECTOR_SHARED" web/data/next-docs

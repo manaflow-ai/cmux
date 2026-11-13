@@ -1,6 +1,9 @@
-//! The memory inspector page (`inspector/index.html`, built by
-//! scripts/cmux-next/build-optchat-inspector-web.sh) is compiled into the
-//! binary (inspect/http.rs). This copies it into OUT_DIR. When it is missing
+//! The memory inspector pages (`inspector/index.html` and
+//! `inspector/index.shared.html`, built by
+//! scripts/cmux-next/build-optchat-inspector-web.sh) are compiled into the
+//! binary (inspect/http.rs). Standalone binaries use the self-contained page;
+//! cmux-next app builds set OPTCHAT_INSPECTOR_SHARED_RUNTIME=1 and use the
+//! page that imports the app-level runtime. This copies it into OUT_DIR. When it is missing
 //! (a checkout where nothing built the web bundles, a Testbox `cargo check`)
 //! a small placeholder page takes its place and the `optchat_inspector_placeholder`
 //! cfg is set, so the crate still builds and tests anywhere. An app or brain
@@ -14,22 +17,28 @@ const PLACEHOLDER: &str = "<!doctype html><meta charset=utf-8><title>Chief Memor
 into this binary (scripts/cmux-next/build-optchat-inspector-web.sh).</p>";
 
 fn main() {
+    let shared = std::env::var("OPTCHAT_INSPECTOR_SHARED_RUNTIME").as_deref() == Ok("1");
+    let page_name = if shared {
+        "index.shared.html"
+    } else {
+        "index.html"
+    };
     let page =
         PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR"))
             .join("inspector")
-            .join("index.html");
+            .join(page_name);
     let out =
         PathBuf::from(std::env::var("OUT_DIR").expect("cargo sets OUT_DIR")).join("inspector.html");
     println!("cargo:rerun-if-changed={}", page.display());
     println!("cargo:rerun-if-env-changed=OPTCHAT_REQUIRE_INSPECTOR_PAGE");
+    println!("cargo:rerun-if-env-changed=OPTCHAT_INSPECTOR_SHARED_RUNTIME");
     println!("cargo::rustc-check-cfg=cfg(optchat_inspector_placeholder)");
     match std::fs::read(&page) {
         Ok(bytes) => std::fs::write(&out, bytes).expect("write the inspector page into OUT_DIR"),
         Err(error) => {
             if std::env::var("OPTCHAT_REQUIRE_INSPECTOR_PAGE").as_deref() == Ok("1") {
                 panic!(
-                    "the memory inspector page {} is missing ({error}); run scripts/cmux-next/build-web-bundles.sh \
-                     (or build-optchat-inspector-web.sh) before an app or brain build",
+                    "the memory inspector page {} is missing ({error}); run scripts/cmux-next/build-optchat-inspector-web.sh before an app or brain build",
                     page.display()
                 );
             }

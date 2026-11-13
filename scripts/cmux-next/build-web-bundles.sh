@@ -130,6 +130,10 @@ if [ "$MODE" = from ]; then
     echo "error: generated file is stale; run scripts/cmux-next/build-optchat-inspector-web.sh and commit: $INSPECTOR/index.html" >&2
     exit 1
   fi
+  [ -f "$ROOT/$INSPECTOR/index.shared.html" ] || {
+    echo "error: generated app inspector page is missing; run scripts/cmux-next/build-optchat-inspector-web.sh" >&2
+    exit 1
+  }
   rm -f "$STAMP"
   # An --out-root tree holds only what the builders wrote. The files a commit keeps in these
   # directories (their GENERATED.md notes, which the app bundles) stay as the checkout has

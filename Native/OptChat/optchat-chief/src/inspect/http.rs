@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -27,8 +27,9 @@ use serde_json::json;
 
 use super::Inspector;
 
-/// The React page, one self-contained file (scripts/cmux-next/build-optchat-inspector-web.sh),
+/// The inspector page shell (scripts/cmux-next/build-optchat-inspector-web.sh),
 /// copied into OUT_DIR by build.rs; a placeholder when the bundle was not built.
+/// React itself is served from the app-level `__runtime` resource tree.
 pub const PAGE: &str = include_str!(concat!(env!("OUT_DIR"), "/inspector.html"));
 /// Whether this binary carries the placeholder page instead of the inspector
 /// (build.rs set `optchat_inspector_placeholder`: nothing built the bundle).
@@ -74,6 +75,7 @@ impl Running {
 
 struct Shared {
     inspector: Arc<Inspector>,
+    runtime_root: Option<PathBuf>,
     token: String,
     port: u16,
     /// Each ticket: when it was minted, and the session it bought once spent.
@@ -111,6 +113,7 @@ pub fn start(inspector: Arc<Inspector>, bind: SocketAddr, token: String) -> io::
     let addr = listener.local_addr()?;
     let shared = Arc::new(Shared {
         inspector,
+        runtime_root: runtime_root(),
         token: token.clone(),
         port: addr.port(),
         tickets: Mutex::new(HashMap::new()),
@@ -151,6 +154,49 @@ pub fn start(inspector: Arc<Inspector>, bind: SocketAddr, token: String) -> io::
             }
         })?;
     Ok(Running { addr, token })
+}
+
+const RUNTIME_FILES: [&str; 6] = [
+    "react-runtime.js",
+    "react.js",
+    "react-dom.js",
+    "react-dom-client.js",
+    "react-jsx-runtime.js",
+    "react-compiler-runtime.js",
+];
+
+/// Locate the one physical React runtime shipped by the app. The executable
+/// path is the authoritative packaged location; the sibling and source paths
+/// keep a directly-run standalone inspector usable without widening the
+/// server to arbitrary filesystem paths.
+fn runtime_root() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(bin) = exe.parent() {
+            candidates.push(bin.join("../markdown-viewer/webviews-app/__runtime"));
+            candidates.push(bin.join("__runtime"));
+            candidates.push(bin.join("../inspector/__runtime"));
+        }
+    }
+    candidates.push(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("inspector")
+            .join("__runtime"),
+    );
+    candidates.into_iter().find_map(|candidate| {
+        let root = std::fs::canonicalize(candidate).ok()?;
+        if !root.is_dir() {
+            return None;
+        }
+        RUNTIME_FILES
+            .iter()
+            .all(|name| {
+                root.join(name)
+                    .metadata()
+                    .is_ok_and(|metadata| metadata.is_file())
+            })
+            .then_some(root)
+    })
 }
 
 /// Writes `{"url", "token"}` to `file` (0600, through a rename) for the app.
@@ -444,6 +490,37 @@ fn text(status: u16, why: &str) -> Reply {
     )
 }
 
+fn runtime_reply(shared: &Shared, req: &Request) -> Reply {
+    if !shared.authorized(req) {
+        return text(401, "missing or wrong token");
+    }
+    let Some(root) = &shared.runtime_root else {
+        return text(404, "not found");
+    };
+    let Some(name) = req.path.strip_prefix("/__runtime/") else {
+        return text(404, "not found");
+    };
+    // Runtime names are generated and fixed. Reject traversal, nested paths,
+    // and arbitrary files even if a future resource tree contains them.
+    if !RUNTIME_FILES.contains(&name)
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains("..")
+    {
+        return text(404, "not found");
+    }
+    let Ok(path) = std::fs::canonicalize(root.join(name)) else {
+        return text(404, "not found");
+    };
+    if path.parent() != Some(root.as_path()) {
+        return text(404, "not found");
+    }
+    let Ok(body) = std::fs::read(path) else {
+        return text(404, "not found");
+    };
+    reply(200, "text/javascript; charset=utf-8", body)
+}
+
 const LOCKED: &str = "<!doctype html><meta charset=utf-8><title>Memory Inspector</title><body style=\"font:14px -apple-system,sans-serif;margin:24px\"><p>Open the Memory Inspector from cmux: Command-Shift-P, then <b>Chief: Open Memory Inspector</b>.</p>";
 
 /// Routes one request (no I/O: the tests call it directly).
@@ -472,6 +549,7 @@ fn route(shared: &Shared, req: &Request) -> Reply {
                 Err(e) => text(500, &e.to_string()),
             }
         }
+        path if path.starts_with("/__runtime/") => runtime_reply(shared, req),
         "/" | "/index.html" => {
             // Only a GET spends a ticket (a HEAD, a prefetch check, does not).
             if let Some(ticket) = req.query("ticket").filter(|_| req.method == "GET") {
@@ -563,7 +641,7 @@ fn respond_len(
         _ => "Error",
     };
     let mut head = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: {kind}\r\nContent-Length: {len}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; frame-ancestors 'none'\r\nConnection: close\r\n"
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {kind}\r\nContent-Length: {len}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; frame-ancestors 'none'\r\nConnection: close\r\n"
     );
     for (k, v) in headers {
         head.push_str(&format!("{k}: {v}\r\n"));

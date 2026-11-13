@@ -1526,6 +1526,10 @@ fi
 # bundle; a local reload bundles a cached build when one exists and otherwise
 # builds an app whose Chief does not answer (never Cargo on the developer Mac).
 if [[ -z "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" && -x "$PWD/scripts/cmux-next/build-optchat-chief.sh" ]]; then
+  # The app's Chief embeds the inspector page that imports the app-level
+  # shared React runtime. Binary-only builds leave this unset and use the
+  # self-contained standalone page.
+  export CMUX_NEXT_OPTCHAT_CHIEF_APP_SHARED_RUNTIME=1
   if optchat_cached="$("$PWD/scripts/cmux-next/build-optchat-chief.sh" --cached-only --print-path 2>/dev/null)"; then
     export CMUX_NEXT_OPTCHAT_CHIEF_BIN="$optchat_cached"
   elif "$PWD/scripts/cmux-next/build-optchat-chief.sh" --check-build-allowed; then
