@@ -160,7 +160,9 @@ impl Hub {
                     // Rows came (a list, a changed row) or the link is up: the peer's chats are
                     // read ahead soon (`peer_snapshot/warm.rs`).
                     let warms = match &notice {
-                        PeerNotice::Connected | PeerNotice::Sessions(_) => true,
+                        PeerNotice::Connected
+                        | PeerNotice::Sessions(_)
+                        | PeerNotice::SessionsPatch { .. } => true,
                         PeerNotice::SessionChanged { kind, .. } => kind != "purged",
                         _ => false,
                     };

@@ -113,6 +113,7 @@ impl Hub {
             additional_directories,
             person,
             wait_start,
+            throwaway,
             require_asking,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
@@ -354,7 +355,7 @@ impl Hub {
             }
             meta.name = match name {
                 Some(n) => {
-                    if sessions.values().any(|s| s.meta().name == n) {
+                    if sessions.values().any(|s| s.read_meta(|m| m.name == n)) {
                         return Err(RpcError::invalid_params(format!(
                             "session name {n:?} is taken"
                         )));
@@ -367,13 +368,14 @@ impl Hub {
                 // A pooled harness was started under its name: keep it.
                 None => match self
                     .pool_claimed_name(&id)
-                    .filter(|n| !sessions.values().any(|s| s.meta().name == *n))
+                    .filter(|n| !sessions.values().any(|s| s.read_meta(|m| m.name == *n)))
                 {
                     Some(n) => n,
                     None => unique_name_among(&sessions, agent),
                 },
             };
             meta.wait_start = wait_start;
+            meta.throwaway = throwaway;
             let session = self.make_session(meta);
             session.person.store(person, Ordering::SeqCst);
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =

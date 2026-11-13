@@ -45,10 +45,10 @@ import { type HeldAnswer, type QueuedMessageActionsValue } from "./conversation/
 import {
   AcpmuxDirectClient,
   type AcpmuxHostConfig,
+  type CarriedChat,
   harnessBlock,
   type HarnessBlock,
   isTrustRefusal,
-  type CarriedChat,
 } from "./direct";
 import { readHostTail } from "./tailCache";
 import { watchRestoredTail } from "./restoredTail";
@@ -307,13 +307,13 @@ import { runResume as runSubagentResume } from "./subagents/resumeState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
 import {
   type DoneLineCache,
+  endedInFailure,
   finishedTrayItems,
   type TrayItem,
   trayItemKey,
   trayItems,
   useSubagentTray,
   withSubagentLines,
-  endedInFailure,
 } from "./subagents/runningTray";
 import { lingeringTrayItems, trayItemEnd, useTrayLinger } from "./subagents/trayLinger";
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
@@ -540,8 +540,6 @@ import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
   cloudRunsHere,
-  cloudSendAfterCheck,
-  heldPromptShown,
   composerAgentLocal,
   cloudFolderGrants,
   cloudStartFolder,
@@ -553,6 +551,8 @@ import {
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
+  cloudSendAfterCheck,
+  heldPromptShown,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
@@ -626,9 +626,9 @@ import {
   oneKeyPerMessageRun,
   withHeldFolds,
   withoutHeldCalls,
-  lastTurnWorkedKeys,
   rowsToHold,
   withoutHeldRows,
+  lastTurnWorkedKeys,
 } from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
@@ -12766,7 +12766,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const hostLine = restartingAcpmux ? (
     hostWaitOrError
   ) : (
-    <HostRecoveringLine relinkingSince={relinkingSince} restoring={hostRestoring} otherwise={hostWaitOrError} />
+    <HostRecoveringLine
+      relinkingSince={relinkingSince}
+      restoring={hostRestoring}
+      failureShown={hostErrorSaid}
+      otherwise={hostWaitOrError}
+    />
   );
   // A pending Fork Conversation and its Cancel, in the dock and in Quick Chat alike: Quick Chat's
   // menu forks too (review of #36979).

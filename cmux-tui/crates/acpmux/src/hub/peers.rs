@@ -723,6 +723,7 @@ impl Hub {
             remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
             update_line: Default::default(),
             row: Default::default(),
+            list_seq: 0,
         });
     }
 
@@ -780,6 +781,31 @@ impl Hub {
         for summary in changed {
             self.announce_remote(peer, summary, "status");
         }
+    }
+
+    /// Peer `peer`'s whole list after a follow (`PeerNotice::SessionsPatch`), as the peer would
+    /// list it, each row as its text: each row it last listed, in its live form, unless `gone`
+    /// names it or `rows` holds it anew.
+    fn patched_peer_list(&self, peer: &str, rows: Vec<Arc<str>>, gone: &[String]) -> Vec<Arc<str>> {
+        #[derive(serde::Deserialize)]
+        struct Id {
+            #[serde(rename = "sessionId")]
+            session_id: Option<String>,
+        }
+        let id = |row: &Arc<str>| serde_json::from_str::<Id>(row).ok()?.session_id;
+        let mut out: std::collections::HashSet<String> = gone.iter().cloned().collect();
+        out.extend(rows.iter().filter_map(id));
+        let held = self.remote_sessions.snapshot();
+        let mut list: Vec<Arc<str>> = held
+            .live_of_peer(peer)
+            .filter(|row| {
+                let mux = session_receipt(row).map(|r| r.mux_session_id);
+                mux.is_some_and(|mux| !out.contains(&mux))
+            })
+            .map(|row| Arc::from(row.to_string()))
+            .collect();
+        list.extend(rows);
+        list
     }
 
     pub(super) fn apply_peer_notice(
@@ -840,6 +866,13 @@ impl Hub {
                     let first = self.peer(&peer).is_some_and(|p| p.link().attempts == 1);
                     self.save_after_drop(&peer, generation, first);
                     self.mark_peer_unreachable(&peer, generation);
+                }
+                PeerNotice::SessionsPatch { rows, gone } => {
+                    // The peer's whole list: the rows it last listed (a stale row as it was
+                    // before its link dropped), with the patch's rows in place and its gone rows
+                    // out. Applied as any whole list is, so what differs is announced.
+                    let list = self.patched_peer_list(&peer, rows, &gone);
+                    self.apply_peer_notice(&peer, generation, PeerNotice::Sessions(list));
                 }
                 PeerNotice::Sessions(list) => {
                     // The list can land after clients took their snapshot (an
@@ -1006,6 +1039,7 @@ impl Hub {
                             }),
                             update_line: Default::default(),
                             row: Default::default(),
+                            list_seq: 0,
                         });
                         return;
                     }
@@ -1068,6 +1102,7 @@ impl Hub {
                         remote: Some(RemoteRef { peer: peer.clone(), summary: summary.clone() }),
                         update_line: Default::default(),
                         row: Default::default(),
+                        list_seq: 0,
                     });
                     // The rest of its live asks that came before the session was listed, after
                     // the row.
@@ -1100,6 +1135,7 @@ impl Hub {
                         remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
                         update_line: Default::default(),
                         row: Default::default(),
+                        list_seq: 0,
                     });
                 }
                 PeerNotice::Notification { method: m, params, link } if m == "_acpmux/lagged" => {
@@ -1126,6 +1162,7 @@ impl Hub {
                             remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
                             update_line: Default::default(),
                             row: Default::default(),
+                            list_seq: 0,
                         });
                     }
                 }
@@ -1264,6 +1301,7 @@ impl Hub {
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                         update_line: Default::default(),
                         row: Default::default(),
+                        list_seq: 0,
                     });
                 }
             }
@@ -1742,7 +1780,8 @@ pub(super) fn listed_remote_row(
     states: &HashMap<String, &'static str>,
 ) -> Value {
     let mut summary = r.summary.clone();
-    summary.set("stale", Value::Bool(summary["stale"] == true));
+    let stale = summary.get("stale") == Some(&Value::Bool(true));
+    summary.set("stale", Value::Bool(stale));
     if let Some(state) = states.get(&r.peer) {
         summary.set("peerState", Value::String((*state).to_owned()));
     }

@@ -370,6 +370,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         claude_unstored: false,
         // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
         wait_start: false,
+        throwaway: false,
         hibernated_ms: 0,
         idle_launch: None,
         moved_to: None,

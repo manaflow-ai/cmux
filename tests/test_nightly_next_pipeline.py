@@ -390,7 +390,7 @@ PUSH = {"github.event_name": "push", "github.ref": "refs/heads/nightly-next", "g
 # What decide outputs for a pipelined push (const pipeline: a publishing nightly-next push, no pause, no notary
 # test; a push takes no dispatch input), and resolve's outputs for a build the run goes on to dispatch.
 PIPELINED = {
-    "decide": {"pipeline": "true", "track": "nightly-next", "should_build": "true", "should_publish": "true",
+    "decide": {"pipeline": "true", "one_job": "false", "track": "nightly-next", "should_build": "true", "should_publish": "true",
                "no_publish": "false", "notary_test": "false", "notary_paused": "false", "continue_only": "false",
                "republish_run": "", "fast_build": "false", "build_only": "false"},
     "resolve-nightly-cmux-tui-client": {"already_published": "false", "superseded": "", "build_sha": SHA},
