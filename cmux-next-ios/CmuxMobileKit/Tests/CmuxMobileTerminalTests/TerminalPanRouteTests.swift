@@ -178,6 +178,33 @@ import UIKit
         }
     }
 
+    /// man on macOS is a shell script: its job leader is `sh` running
+    /// `/usr/bin/man`, with less under it, so `foreground_executable` reads
+    /// `/bin/sh`. The Mac now also names the job's program
+    /// (`foreground_program`: `man`), and a ten-row drag sends ten keys. The
+    /// same reply without it (a Mac from before) still sends none, and a
+    /// wrapper script for Claude Code (`foreground_program` `claude`) or
+    /// node running it sends none either.
+    @Test(arguments: [
+        (#"{"ok":true,"data":{"foreground_executable":"/bin/sh","foreground_program":"man"}}"#, 10),
+        (#"{"ok":true,"data":{"foreground_executable":"/bin/sh"}}"#, 0),
+        (#"{"ok":true,"data":{"foreground_executable":"/bin/sh","foreground_program":"sh"}}"#, 0),
+        (#"{"ok":true,"data":{"foreground_executable":"/bin/sh","foreground_program":"claude"}}"#, 0),
+        (#"{"ok":true,"data":{"foreground_executable":"/usr/local/bin/node","foreground_program":"node"}}"#, 0),
+    ] as [(String, Int)])
+    func aDragOverManThroughShScrollsIt(reply: String, keys: Int) async throws {
+        let info = try #require(try JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any])
+        let rig = Rig()
+        try #require(rig.surface.surface != nil)
+        rig.surface.foregroundProgram = TerminalAlternateScroll.program(processInfo: info)
+        await rig.feed(Self.lessModes + "\u{1b}[H\u{1b}[2JLS(1)\r\n")
+        rig.sent = Data()
+        rig.pan()
+        await rig.settle()
+        print("pan-route man-through-sh reply=\(reply) arrows=\(rig.arrowKeys) bytes=\(rig.sent.count)")
+        #expect(rig.text == String(repeating: "\u{1b}OA", count: keys))
+    }
+
     /// A fling in less goes on as whole rows, one key each, and ends on a row:
     /// nothing of a row is left for the next drag.
     @Test func aFlingInLessEndsOnARow() async throws {
