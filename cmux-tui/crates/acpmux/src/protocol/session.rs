@@ -900,16 +900,39 @@ pub struct SessionsResult {
     /// done. Absent without `limit`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<Option<String>>,
-    /// A watch that sent `known` (`watch_delta.rs`): `sessions` holds only the rows new or
-    /// changed since, and the rest of the known rows stand.
+    /// A watch's reply: the list position it is current to (`hub/row_log.rs`). Every change after
+    /// it reaches the watcher as a `session_changed` with a higher `listSeq`; a row replaces the
+    /// one held only when its position is not lower.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub delta: Option<bool>,
-    /// With `delta`: the known sessions no longer listed.
+    pub list_seq: Option<u64>,
+    /// With `listSeq`: this daemon run's id for list positions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub removed: Option<Vec<String>>,
-    /// With `delta`: how many listed rows were left out as unchanged.
+    pub list_epoch: Option<String>,
+    /// A watch that sent `afterSeq`: `sessions` holds only the rows changed since, and `gone` the
+    /// rows that went; the client's other rows stand.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub unchanged: Option<u64>,
+    pub follow: Option<bool>,
+    /// With `follow`: cut at the page's size; `listSeq` is the last position it holds, and the
+    /// client follows again from there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub more: Option<bool>,
+    /// With `follow`: the rows that went since `afterSeq`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gone: Option<Vec<GoneRow>>,
+    /// A watch whose `afterSeq` the log could not follow (another daemon run, or older than its
+    /// oldest removal): this is the list's first page, and the client drops the rows it held.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset: Option<bool>,
+}
+
+/// A row that left the list since a follow's cursor.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GoneRow {
+    pub session_id: String,
+    /// The peer a remote session ran on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
 }
 
 /// A purged session: only its id is left.
@@ -940,4 +963,7 @@ pub struct SessionChanged {
     /// The peer a remote session runs on.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peer: Option<String>,
+    /// The list position this change took (`hub/row_log.rs`): the client's cursor for
+    /// `_acpmux/watch {afterSeq}` is the highest it applied.
+    pub list_seq: u64,
 }
