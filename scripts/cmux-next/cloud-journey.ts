@@ -815,8 +815,9 @@ export function rdFrame(type: 1 | 2, payload: Uint8Array): Buffer {
 /**
  * An empty viewer feedback datagram: the 16-byte header (cmux-rd-proto datagram.rs: version 1 in the high nibble, kind
  * 7 Feedback, the rest 0), then feedback.rs's payload with nothing acked, no recovery, no arrivals and no NACKs. The
- * host ends a session after 3 s without feedback (cmux-rd-host stream.rs LIVENESS_NS), sooner than a link through NAT
- * may come up.
+ * host keeps a session alive for a bounded 90 s without feedback
+ * (cmux-rd-host stream.rs REATTACH_GRACE_NS), so a viewer can reattach after
+ * a full network drop before the abandoned session is ended.
  */
 export const RD_FEEDBACK = Buffer.concat([Buffer.from([0x10, 7]), Buffer.alloc(14), Buffer.alloc(12)]);
 

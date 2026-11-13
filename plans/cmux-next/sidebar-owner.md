@@ -1003,6 +1003,17 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
 
+## Every button rounds as a tab (2026-11-12)
+
+Lawrence 2026-11-12 (msg 30562): "roundness of all buttons should match roundness of tabs/workspaces". One token,
+`Metrics.buttonCornerRadius`, is `Metrics.tabCornerRadius`, the corner workspace rows already share
+(`SidebarDensityTokens.rowCornerRadius`). In the sidebar the card buttons (`SidebarCardTextButton`, the update card's
+and Now Playing's controls, `SidebarAnswerButtons`) and the square `SidebarIconButton` take it; a card's own corner is
+the button corner plus its padding (concentric). The round x (`isRound`, Lawrence 2026-11-07), the drive indicator's
+capsule, badge and dot and the equalizer bars keep their shape (`radius-allow` on the line). Pages read the same corner as
+`--cmux-button-radius` through `--ds-radius-control`. Lint: `scripts/cmux-next/check-button-radius.py`. Tests:
+`ButtonCornerRadiusTests`, `WebThemeButtonRadiusTests`.
+
 ## 2 pt between list rows (2026-11-11)
 
 Lucas 2026-11-11: "1px spacing between workspace items is what i meant", then "lets change this to 2px". At
@@ -2168,6 +2179,13 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   Gallery: `AARestartToUpdateGalleryTests` (each layout, ready and installing, dark and light). 09f49ddeb6f keeps
   `height(for:)` a one-argument function for its callers: no visual change. Sidebar-Look: Leo 2026-11-10, "the
   nightly automatically downloads and installs/unpacks and you simply click and it restarts with the new version".
+- 2026-11-11 (fix/space-color-swatches, for a590): the space dot's menu opens with the space's name field and one row of
+  real color swatches (`MenuIdentityHeader`, as the group menu), in place of Rename Space… and the Color submenu whose
+  nine rows all drew as the same template dot. Set Space Theme and Reset Space Theme leave that submenu for rows of
+  their own. A colored space's dot draws its swatch color at full strength, no longer mixed toward the strip or dimmed
+  to 70% when not current (the current one has its chip). Gallery: `AASpaceColorMenuGalleryTests` (three header
+  variants, dots before/after dark and light).
+  Sidebar-Look: Leo 2026-11-11, "this colour selection for spaces is wack".
 - 2026-11-11 (a1074, Lawrence 8:04 PM "spacing here is not consistent anymore either"): Home to the first pin and pin
   to pin step at the workspace rows' pitch at every density. Sidebar-Look: Home, pinned rows and the Workspaces heading keep one row pitch.
 - 2026-11-12 (carries #41640 for the two-tone polish): the sidebar's full-height edge line and its hover and drag glow
