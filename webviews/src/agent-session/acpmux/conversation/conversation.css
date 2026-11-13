@@ -5720,13 +5720,6 @@ a.cv-sha:focus-visible {
   .acpmux-row--enter {
     animation: cv-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
   }
-  /* The first-frame hold is explicit because WebKit can materialize a short entrance after the
-     layout effect that normally pauses it. Keep the row transparent until that frame, then let the
-     same 80 ms arrival fade run from its first keyframe. */
-  .acpmux-row--enter[data-entrance-held] {
-    animation-play-state: paused;
-    opacity: 0;
-  }
   /* Live activity is absolutely placed by VirtualTranscript. Its first paint must not slide the
      visible transcript when a subagent or command arrives; the row's measured box is already in
      the layout, so only its ink fades in. Message rows keep their dedicated presentation motion. */
