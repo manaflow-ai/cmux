@@ -13,13 +13,16 @@ final class OfflineWorkspaceAlertUITests: XCTestCase {
 
         XCTAssertTrue(app.buttons.matching(identifier: "workspace.row.ws-cmux").firstMatch.waitForExistence(timeout: 30), "The list loaded.")
         let fold = app.descendants(matching: .any).matching(identifier: "workspaces.fold.mbp").firstMatch
-        for _ in 0..<4 where !(fold.exists && fold.isHittable) { app.swipeUp() }
         XCTAssertTrue(fold.waitForExistence(timeout: 10), "The offline Mac's fold line is listed.")
-        fold.tap()
+        // The collapsed list is too short to scroll, and its last line sits at the floating
+        // tab bar's edge, where XCUITest calls it not hittable: tap its center directly.
+        fold.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         let row = app.buttons.matching(identifier: "workspace.row.ws-zed").firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 10), "The fold opens the offline Mac's rows.")
-        for _ in 0..<4 where !row.isHittable { app.swipeUp() }
-        row.tap()
+        // Bring the opened row clear of the tab bar (lower 20% of the screen).
+        let floor = app.frame.height * 0.8
+        for _ in 0..<6 where row.frame.maxY > floor { app.swipeUp() }
+        row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 10), "An offline Mac's workspace shows the offline alert.")
