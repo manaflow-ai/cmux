@@ -249,6 +249,8 @@ extension LiveCoordinator {
             return nil
         }
         session.servedLink = link
+        serveSerial &+= 1
+        session.servedSerial = serveSerial
         session.acpmux.macLink = link
         bindWorkspaces(session, link, prepared: daemon)
         // A Cloud machine has no `version` service and no pairing (its carrier is the admission).
@@ -596,10 +598,10 @@ extension LiveCoordinator {
         // different link serves its machine now (not its own link, whose drop it learns of first).
         let lastLink = AttachedLink()
         let terminal = DaemonTerminalSession(surface: surface, terminalID: terminalID, programName: program, clientInfo: info, open: { [weak self] in
-            guard let link = await self?.currentServedLink(machineID) else {
+            guard let (link, serial) = await self?.currentServed(machineID) else {
                 throw LinkError(code: "no-link", message: "Not connected to the Mac")
             }
-            lastLink.set(ObjectIdentifier(link))
+            lastLink.set(serial)
             let channel = try await link.openChannel(service: "daemon", args: [:])
             return DaemonClient(channel: channel)
         }, openInput: { [weak self] in
@@ -616,8 +618,9 @@ extension LiveCoordinator {
         // Its channel ended while a newer session already serves its machine (Retry, a team switch):
         // that session reattached its terminals before this one dropped, so reattach this one now.
         terminal.onChannelEnded = { [weak self, weak terminal] in
-            guard let self, let terminal, let current = self.sessions[machineID], let served = current.servedLink,
-                  ObjectIdentifier(served) != lastLink.get(),
+            guard let self, let terminal, let current = self.sessions[machineID],
+                  Self.reattachesOnChannelEnd(served: current.servedLink == nil ? nil : current.servedSerial,
+                                              lastOpenedOn: lastLink.get()),
                   current.terminals.contains(where: { $0.session === terminal }) else { return }
             terminal.reconnect()
         }
@@ -632,8 +635,19 @@ extension LiveCoordinator {
     /// The session that holds `machineID` now (a terminal's channels open through it).
     func currentSession(_ machineID: String) -> MacSession? { sessions[machineID] }
 
-    /// The served link of the session that holds `machineID` now.
-    func currentServedLink(_ machineID: String) -> (any MacLink)? { sessions[machineID]?.servedLink }
+    /// The served link of the session that holds `machineID` now, with its serve number.
+    func currentServed(_ machineID: String) -> ((any MacLink), UInt64)? {
+        guard let session = sessions[machineID], let link = session.servedLink else { return nil }
+        return (link, session.servedSerial)
+    }
+
+    /// Whether a terminal whose channel ended reattaches at once: only when a link serves its
+    /// machine (`served`) that is not the one it last opened on (`lastOpenedOn`). Its own link's
+    /// drop is learned first by the terminal; that link's successor reattaches it as usual.
+    nonisolated static func reattachesOnChannelEnd(served: UInt64?, lastOpenedOn: UInt64?) -> Bool {
+        guard let served else { return false }
+        return served != lastOpenedOn
+    }
 
     /// Whether the phone holds (or is opening) a link to the Mac.
     public func isLinked(macID: String) -> Bool {
@@ -665,6 +679,8 @@ extension LiveCoordinator {
     public func touch(_ macID: String) {
         lastShown[macID] = ContinuousClock.now
         if isCloud(macID: macID) { touchedCloud = macID }
+        // A held machine opened: read the list now (its hold lifts only on a read).
+        if cloudDropHolds[macID] != nil { onCloudHoldsWaiting?() }
         applyLinks()
     }
 
@@ -1226,10 +1242,10 @@ final class MultiMacFeedActions: FeedActions {
 #endif
 
 /// The link a terminal last opened its daemon channel on (set off the main actor by its opener).
-final class AttachedLink: @unchecked Sendable { // crash-allow: `id` is touched only under `lock`
+final class AttachedLink: @unchecked Sendable { // crash-allow: `serial` is touched only under `lock`
     private let lock = NSLock()
-    private var id: ObjectIdentifier?
+    private var serial: UInt64?
 
-    func set(_ id: ObjectIdentifier) { lock.withLock { self.id = id } }
-    func get() -> ObjectIdentifier? { lock.withLock { id } }
+    func set(_ serial: UInt64) { lock.withLock { self.serial = serial } }
+    func get() -> UInt64? { lock.withLock { serial } }
 }

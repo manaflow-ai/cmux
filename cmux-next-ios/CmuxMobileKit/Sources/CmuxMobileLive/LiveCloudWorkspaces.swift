@@ -56,6 +56,8 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         coordinator.onCloudRefusal = { [weak self] _, _ in self?.refreshSoon() }
         // A carrier dropped: read the list now, so the machine is dialed again only if it still runs.
         coordinator.onCloudLinkDropped = { [weak self] _ in self?.refreshSoon() }
+        // The network came back, or a held machine was opened: read now (only a read lifts a hold).
+        coordinator.onCloudHoldsWaiting = { [weak self] in self?.refreshSoon() }
         // The Cloud Machines page changed the shared list (a delete, a start): the Workspaces list follows now.
         model.onMachinesChanged = { [weak self] in self?.publish() }
     }
@@ -117,7 +119,10 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
     /// on what it publishes): every `busyPoll`, then every `stuckPoll` once a change has run past
     /// `stuckAfter` (a machine that sticks in provisioning is not read every 4 s forever).
     private var pollInterval: Duration {
-        let busy = !creations.isEmpty || !starting.isEmpty || model.machines.contains { $0.status.isTransition }
+        // A held machine (its carrier dropped) is busy too: its hold waits for a good read, so a
+        // read that failed (the outage itself) is tried again soon, not a minute later.
+        let held = !(coordinator?.cloudDropHolds.isEmpty ?? true)
+        let busy = held || !creations.isEmpty || !starting.isEmpty || model.machines.contains { $0.status.isTransition }
         if busy, busySince == nil { busySince = .now }
         if !busy { busySince = nil }
         return Self.pollInterval(busy: busy, busyFor: busySince.map { .now - $0 }, busyPoll: busyPoll)

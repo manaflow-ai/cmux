@@ -196,6 +196,7 @@ extension LiveCoordinator {
             // A forgotten session: only a terminal still on the attach it had then (not detached
             // then, and not attached again since by the session that adopted it).
             guard case .some(.some(let attach)) = attaches[ObjectIdentifier(terminal)] else { return nil }
+            // `attach` is the serial the terminal was on at the close (``DaemonTerminalSession/attachIdentity``).
             return Task { @MainActor in await terminal.releaseBeforeLinkCloses(onlyThrough: attach) }
         }
         for release in releases { await release.value }

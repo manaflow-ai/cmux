@@ -778,6 +778,60 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(live.cloudDropHolds["vm_h"] == nil)
     }
 
+    /// A drop during a list read: that read's answer predates the drop, so it never lifts the
+    /// hold, even though it succeeds and says running.
+    @Test(.timeLimit(.minutes(1))) func aReadInFlightWhenTheCarrierDropsKeepsTheHold() async {
+        let flags = OpsLog()
+        let entered = OpsLog()
+        let gate = DispatchSemaphore(value: 0)
+        ServiceStub.install(host: host) { request in
+            guard Self.op(request) == "cloud.machine.list" else { return .init() }
+            if flags.all.contains("hold") {
+                entered.add("in")
+                gate.wait()
+            }
+            return .init(body: Self.list([("vm_h", "running")]))
+        }
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let (live, cloud) = make(store: store, ops: OpsLog())
+        defer { live.stop() }
+        await cloud.refresh()
+        flags.add("hold")
+        let reading = Task { await cloud.refresh() }
+        await settle { entered.all.contains("in") }
+        // The carrier drops while the read is out.
+        live.holdCloudDial("vm_h")
+        gate.signal()
+        await reading.value
+        #expect(live.cloudDropHolds["vm_h"] != nil, "a read that began before the drop never lifts it")
+    }
+
+    /// A held machine waits for a read: the network coming back, or the machine being opened, asks
+    /// for one at once (not at the next minute's poll).
+    @Test func theNetworkBackOrOpeningAHeldMachineAsksForARead() {
+        let store = emptyStore()
+        let live = coordinator(store: store, cloud: RecordingCloudDialer())
+        defer { live.stop() }
+        var asks = 0
+        live.onCloudHoldsWaiting = { asks += 1 }
+        live.networkPathChanged(.changed("wifi"))
+        #expect(asks == 0, "nothing held: no read asked")
+        live.holdCloudDial(vm)
+        live.networkPathChanged(.changed("wifi"))
+        #expect(asks == 1)
+        live.touch(vm)
+        #expect(asks == 2)
+    }
+
+    /// A terminal whose channel ended reattaches at once only when a link it did not open on serves
+    /// its machine (a replaced session's successor); never on its own link, nor with none.
+    @Test func aChannelEndReattachesOnlyOnANewerLink() {
+        #expect(!LiveCoordinator.reattachesOnChannelEnd(served: nil, lastOpenedOn: 3))
+        #expect(!LiveCoordinator.reattachesOnChannelEnd(served: 3, lastOpenedOn: 3))
+        #expect(LiveCoordinator.reattachesOnChannelEnd(served: 4, lastOpenedOn: 3))
+        #expect(LiveCoordinator.reattachesOnChannelEnd(served: 4, lastOpenedOn: nil))
+    }
+
     @Test func startIsTheAccountsOwnOp() async {
         let ops = OpsLog()
         ServiceStub.install(host: host) { request in

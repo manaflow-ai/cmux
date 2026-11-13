@@ -241,6 +241,22 @@ public final class CloudMachinesModel {
     /// The machines changed (a read, an action's optimistic change or its rollback): the Workspaces
     /// list, which shares this model, shows it at once instead of at its next poll.
     @ObservationIgnored public var onMachinesChanged: (@MainActor () -> Void)?
+    /// Numbers each machine list read; only one newer than the last applied replaces the list.
+    @ObservationIgnored private var readSerial = 0
+    @ObservationIgnored private var appliedReadSerial = 0
+
+    private func beginRead() -> Int {
+        readSerial += 1
+        return readSerial
+    }
+
+    /// Whether the read numbered `serial` may replace the list (none newer has).
+    private func applies(_ serial: Int) -> Bool {
+        guard serial > appliedReadSerial else { return false }
+        appliedReadSerial = serial
+        return true
+    }
+
     /// The DEBUG gallery's fixed page: it never reads the service.
     @ObservationIgnored var skipsLoad = false
 
@@ -273,10 +289,14 @@ public final class CloudMachinesModel {
         }
         let before = phase
         if machines.isEmpty, phase != .loaded { phase = .loading }
+        let serial = beginRead()
         do {
             async let planned = account.read("cloud.plan.get")
             async let saved = account.read("cloud.snapshot.list")
-            machines = try await Self.readMachines(account)
+            let read = try await Self.readMachines(account)
+            // An older read that answers after a newer one keeps nothing (the newer list stands).
+            guard applies(serial) else { return }
+            machines = read
             // A plan or snapshot read that fails keeps the list (the page hides what it lacks).
             plan = (try? await planned).flatMap(CloudMachinePlan.parse) ?? plan
             if let value = try? await saved { snapshots = CloudMachineSnapshot.list(value) }
@@ -303,10 +323,14 @@ public final class CloudMachinesModel {
         }
         let before = phase
         if machines.isEmpty, phase != .loaded { phase = .loading }
+        let serial = beginRead()
         do {
-            machines = try await Self.readMachines(account)
+            let read = try await Self.readMachines(account)
+            // An older read that answers after a newer one keeps nothing (the newer list stands).
+            guard applies(serial) else { return false }
+            machines = read
             phase = .loaded
-            onMachinesChanged?()
+            // Its caller (the Workspaces list's poll) publishes this read itself.
             return true
         } catch is CancellationError {
             phase = before

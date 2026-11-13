@@ -68,7 +68,10 @@ final class MacSession {
     /// When this session was forgotten (``LiveCoordinator/closeSession(_:)``): each live terminal's
     /// attach then. Its closing release reaches a terminal only while it is still on that attach,
     /// as the next session for the machine adopts the terminal and attaches it again.
-    var attachesAtClose: [ObjectIdentifier: ObjectIdentifier?]?
+    var attachesAtClose: [ObjectIdentifier: UInt64?]?
+    /// Which serve of this machine ``servedLink`` is (``LiveCoordinator/serveSerial``), so a
+    /// terminal tells its own link from a newer one by number, never by an object's address.
+    var servedSerial: UInt64 = 0
     var closeSerial = 0
     /// The link fed this Mac's data and connection state (cleared when it closes).
     var fedData = false

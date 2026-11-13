@@ -97,6 +97,11 @@ public final class LiveCoordinator {
     /// Stamps each hold (``cloudDropHolds``): a read lifts only the holds placed before it began,
     /// never one a drop placed while it was in flight (its answer predates that drop).
     @ObservationIgnored var cloudHoldSerial = 0
+    /// Numbers every link a session serves, across sessions (``MacSession/servedSerial``).
+    @ObservationIgnored var serveSerial: UInt64 = 0
+    /// Cloud machines are held and a list read could lift them (the network came back, a held
+    /// machine was opened): ``LiveCloudWorkspaces`` reads the list now.
+    @ObservationIgnored public var onCloudHoldsWaiting: (() -> Void)?
 
     /// Holds a Cloud machine out of dialing until a list read that begins after now succeeds.
     func holdCloudDial(_ machineID: String) {
@@ -374,6 +379,9 @@ public final class LiveCoordinator {
         case .changed(let path):
             log.info("network changed: \(path, privacy: .public)")
             if store.isOffline { store.isOffline = false }
+            // A Cloud machine held after its carrier dropped (the outage dropped it) waits for a list
+            // read: the network is back, so read now rather than at the next poll.
+            if !cloudDropHolds.isEmpty { onCloudHoldsWaiting?() }
             presence?.kick()
             guard let teamID = registeredTeamID else { return }
             // Every link roams in place (one signaling socket carries them all);
@@ -789,9 +797,9 @@ public final class LiveCoordinator {
         guard let session = sessions.removeValue(forKey: id) else { return }
         let live = session.terminals.filter { $0.session != nil }
         if !live.isEmpty, !stopped { orphanedTerminals[id, default: []] += live }
-        session.attachesAtClose = Dictionary(uniqueKeysWithValues: live.compactMap { weak in
+        session.attachesAtClose = Dictionary(live.compactMap { weak in
             weak.session.map { (ObjectIdentifier($0), $0.attachIdentity) }
-        })
+        }, uniquingKeysWith: { first, _ in first })
         session.pairingRetry?.cancel()
         for relay in session.cloudChats.values { relay.retire() }
         session.cloudChats.removeAll()

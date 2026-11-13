@@ -373,11 +373,11 @@ public final class DaemonTerminalSession: TerminalSession {
     /// sign-out, another team, its link cap, the machine leaving the list): its claimed size is
     /// released first and answered, as `stop` does, so the machine does not hold this phone's grid
     /// for the dropped-link grace. Bounded by 2 s; the attach itself is left to the link's close.
-    public func releaseBeforeLinkCloses(onlyThrough attach: ObjectIdentifier? = nil) async {
+    public func releaseBeforeLinkCloses(onlyThrough attach: UInt64? = nil) async {
         guard let client, attached, sizeClaimed else { return }
         // A release from a session that has since given this terminal to another: only while the
         // terminal is still on the attach it had then (never its new one's claim).
-        if let attach, ObjectIdentifier(client) != attach { return }
+        if let attach, attachSerial != attach { return }
         let surface = surface
         stopLeaseRefresh()
         sizeClaimed = false
@@ -720,6 +720,7 @@ public final class DaemonTerminalSession: TerminalSession {
             for event in held { apply(event) }
             attachRetries = 0
             attached = true
+            attachSerial &+= 1
             refusingInput = false
             everAttached = true
             handler?(.connection(.attached))
@@ -817,8 +818,11 @@ public final class DaemonTerminalSession: TerminalSession {
         onChannelEnded?()
     }
 
-    /// The attach the terminal is on now (nil: not attached), to tell a later attach apart.
-    public var attachIdentity: ObjectIdentifier? { attached ? client.map(ObjectIdentifier.init) : nil }
+    /// The attach the terminal is on now (nil: not attached), to tell a later attach apart: a
+    /// serial, never an object's address (a freed client's address can be reused by the next).
+    public var attachIdentity: UInt64? { attached ? attachSerial : nil }
+    /// Counts this terminal's attaches.
+    private var attachSerial: UInt64 = 0
 
     /// The terminal's channel ended (its link dropped). The coordinator reattaches it at once when
     /// another link already serves its machine (the session it opened on was replaced), since that

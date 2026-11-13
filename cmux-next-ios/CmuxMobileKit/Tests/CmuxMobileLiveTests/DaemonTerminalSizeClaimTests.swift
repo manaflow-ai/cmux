@@ -23,6 +23,23 @@ import Testing
         daemon.recorded.filter { $0["cmd"] as? String == cmd }
     }
 
+    /// A release scoped to an attach the terminal is no longer on (a forgotten session's, after
+    /// another session adopted and attached the terminal again) leaves its current claim alone; one
+    /// scoped to its current attach releases it.
+    @Test func aReleaseScopedToAnotherAttachLeavesTheClaim() async throws {
+        let daemon = FakeTerminalDaemon()
+        let session = session(daemon)
+        session.start { _ in }
+        session.resize(columns: 54, rows: 42)
+        try await waitUntil { commands(daemon, "resize-surface").count == 1 }
+        let current = try #require(session.attachIdentity)
+        await session.releaseBeforeLinkCloses(onlyThrough: current &+ 1)
+        try await settle()
+        #expect(commands(daemon, "release-surface-size").isEmpty, "not this attach: no release")
+        await session.releaseBeforeLinkCloses(onlyThrough: current)
+        try await waitUntil { commands(daemon, "release-surface-size").count == 1 }
+    }
+
     @Test func aHiddenTerminalReleasesItsSize() async throws {
         let daemon = FakeTerminalDaemon()
         let session = session(daemon)
