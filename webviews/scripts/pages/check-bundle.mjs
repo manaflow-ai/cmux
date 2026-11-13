@@ -90,7 +90,11 @@ try {
       const before = await readFile(path.join(baseline, name, "index.html"), "utf8");
       const after = await readFile(path.join(root, name, "index.html"), "utf8");
       const shared = await readFile(path.join(root, "__shared", "page-base.css"), "utf8").catch(() => "");
-      if (inlineStyles(before) !== shared + inlineStyles(after)) errors.push("Stylesheet differs from baseline");
+      const candidateInline = inlineStyles(after);
+      const effectiveCandidate = candidateInline.startsWith("\n")
+        ? `\n${shared}${candidateInline.slice(1)}`
+        : shared + candidateInline;
+      if (inlineStyles(before) !== effectiveCandidate) errors.push("Stylesheet differs from baseline");
     }
     const page = await context.newPage();
     if (hostStates[name])

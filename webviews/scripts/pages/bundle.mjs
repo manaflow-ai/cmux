@@ -10,6 +10,7 @@ import { artifactRuntimePlugin } from "../agent-pane/artifactRuntimePlugin.mjs";
 import { tailwindPlugin } from "../agent-pane/tailwindCompile.mjs";
 import { createJsonParsePlugin } from "../agent-pane/jsonParsePlugin.mjs";
 import { katexStylePlugin } from "../agent-pane/katexStylePlugin.mjs";
+import { factorSharedCss } from "./factor-shared-css.mjs";
 
 const [outdir, ...pages] = process.argv.slice(2);
 if (!outdir || !pages.length) throw new Error("usage: bundle.mjs OUTDIR PAGE...");
@@ -76,21 +77,13 @@ for (const page of pages) {
 // exact common prefix ending at a complete rule: this preserves both import order and the
 // cascade, while keeping each page's remainder isolated as before.
 const styleValues = [...pageStyles.values()];
-const firstStyle = styleValues[0] ?? "";
-let commonLength = 0;
-while (styleValues.every((style) => style.length > commonLength && style[commonLength] === firstStyle[commonLength])) {
-  commonLength += 1;
-}
-commonLength = firstStyle.lastIndexOf("}", commonLength - 1) + 1;
-if (commonLength <= 0) throw new Error("Pages CSS has no exact shared complete-rule prefix");
-const commonStyle = firstStyle.slice(0, commonLength);
+const { shared: commonStyle, remainders } = factorSharedCss(styleValues);
 await mkdir(path.join(outdir, "__shared"), { recursive: true });
 await writeFile(path.join(outdir, "__shared", "page-base.css"), commonStyle);
-for (const [page, style] of pageStyles) {
-  if (!style.startsWith(commonStyle)) throw new Error(`Pages CSS prefix changed for ${page}`);
-  await writeFile(path.join(outdir, page, "app.css"), style.slice(commonLength));
+for (const [index, page] of pages.entries()) {
+  await writeFile(path.join(outdir, page, "app.css"), remainders[index]);
 }
-console.error(`pages CSS shared prefix: ${commonLength} bytes across ${pages.length} pages`);
+console.error(`pages CSS shared prefix: ${Buffer.byteLength(commonStyle)} bytes across ${pages.length} pages`);
 await writeFile(path.join(outdir, "metafile.json"), JSON.stringify(result.metafile));
 console.error(`pages React compiler (${mode}): ${compiled.size} compiled; ${bailouts.length} diagnostics`);
 for (const item of bailouts) console.error(`${item.file}:${item.line ?? "?"}: ${item.reason}`);
