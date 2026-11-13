@@ -381,7 +381,7 @@ describe("the hub's application ping", () => {
     const pong = new Promise<string>((resolve) => mac.ws.addEventListener("message", (e) => typeof e.data === "string" && e.data === "pong" && resolve(e.data)))
     expect(await pong).toBe("pong")
     const hubs = (env as unknown as { TEAM_HUB: DurableObjectNamespace }).TEAM_HUB
-    type Live = { connected: boolean; lastPingAt: number | null; pings: boolean; connectedAt?: number | null }
+    type Live = { connected: boolean; lastPingAt: number | null; pings: boolean; connectedAt?: number | null; connects?: Array<number> }
     const hub = hubs.get(hubs.idFromName("user:tina")) as unknown as { macLiveness(owner: string, id: string, at?: number): Promise<Live> }
     const live = await hub.macLiveness("tina", macId)
     expect(live.connected).toBe(true)
