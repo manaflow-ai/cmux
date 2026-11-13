@@ -464,22 +464,43 @@ pub(crate) fn whole(d: &Delivery, since: &Since) -> bool {
 /// nothing that link can settle (review of #37284 at 27f3761b, F1): its machine's journal is
 /// listed, of its generation, and ends before its proof once the link's restores ran; the
 /// proof would start its work again ([`restarts`]); and no copy of its pinned session and
-/// generation is kept (`since`, what the link's restore read: `Store::ahead`). Such a proof
+/// generation is kept (`since`, what the link's restore read: `Store::ahead`); it came on an
+/// earlier link, and no Stop holds its prompt ([`held_by_stop`]). Such a proof
 /// goes back with the restore ([`whole`]); one the machine did not take (it refused the
 /// restore as another history) is neither restored nor held by any later link's journal, and
 /// 27f3761b left it waiting until it lapsed. It is delivered again instead ([`unprove`],
 /// [`again_request`]): a machine that holds its prompt answers with its first outcome, and one
 /// that lost it runs it, once. A machine whose journal holds the proof is read
 /// ([`Step::Check`]) and never gets here.
-pub(crate) fn unproven(d: &Delivery, ends: &HashMap<String, (u64, u64)>, since: &Since) -> bool {
+pub(crate) fn unproven(
+    d: &Delivery,
+    link: (u64, u64),
+    ends: &HashMap<String, (u64, u64)>,
+    since: &Since,
+) -> bool {
     let (Some(pin), Some(proof)) = (&d.pin, &d.proof) else { return false };
     let Some((generation, last)) = ends.get(&pin.session) else { return false };
     let through = proof.records.iter().filter_map(seq).max();
     let copy = since.get(&pin.session).is_some_and(|(g, _)| *g == pin.generation);
+    // Of a link before this one (`step`): a proof of this link's records is of this machine's
+    // own journal, which a listing read before them does not show yet.
+    let later = link > proof.link
+        || (proof.incarnation != incarnation() && !crate::hub::journal_restore::rules_of_4dcb());
     *generation == pin.generation
         && through.is_some_and(|t| t > *last)
         && restarts(&proof.records)
         && !copy
+        && later
+        && !held_by_stop(&proof.records, d.prompt_id())
+}
+
+/// Whether a Stop holds `prompt` where `records` of its life end: the last record that holds
+/// or resumes the queue for it holds it. A delivery again would run it though its Stop held it
+/// (the move simulation, seed 480): one held waits for a restore, or lapses visibly.
+fn held_by_stop(records: &[Value], prompt: &str) -> bool {
+    let holds =
+        |r: &&Value| matches!(kind(r), "queue_paused" | "queue_resumed") && affects(r, prompt);
+    records.iter().rev().find(holds).is_some_and(|r| kind(r) == "queue_paused")
 }
 
 /// `d` is delivered again as one never proven ([`unproven`]): its proof goes, since its
@@ -641,7 +662,7 @@ pub(crate) fn step_after_restore(
     old: bool,
 ) -> Step {
     match step(d, now, link, ends) {
-        Step::Wait if !old && unproven(d, ends, since) => Step::Unproven,
+        Step::Wait if !old && unproven(d, link, ends, since) => Step::Unproven,
         step => step,
     }
 }
