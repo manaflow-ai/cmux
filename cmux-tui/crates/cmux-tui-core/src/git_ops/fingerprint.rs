@@ -10,11 +10,15 @@
 //!
 //! The work tree is HEAD's tree plus the listed entries, so a file that
 //! `git status` does not list is covered by HEAD's id.
+//!
+//! A listed path is looked at and read only through the real folders of the
+//! work tree (`entry`): a link in a folder's place leads nowhere, in a work
+//! tree that was made so and when the link comes after git's listing.
 
 use std::path::{Path, PathBuf};
 
 use cmux_git::diff::ScopeError;
-use cmux_git::run;
+use cmux_git::run::{self, GitFailure};
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
 
@@ -22,6 +26,11 @@ use super::{MAX_SMALL_OUTPUT_BYTES, Repository, clamp, git_failed, open_failed};
 use crate::resource::ResourceError;
 
 mod content;
+#[cfg(unix)]
+mod entry;
+#[cfg(not(unix))]
+#[path = "fingerprint/entry_by_path.rs"]
+mod entry;
 
 const OPERATION: &str = "git.fingerprint";
 /// git output read from the listing run. Entries past it are not seen, as
@@ -93,11 +102,18 @@ pub(super) fn read(directory: &Path, fields: &Map<String, Value>) -> Result<Valu
     // record that a cut listing lost.
     records.pop();
     digest.put(if listing.truncated { b"cut".as_slice() } else { b"whole".as_slice() });
-    let mut work_tree = WorkTree { repository, files: content::Reader::new(), submodules: 0 };
+    let tree = entry::Tree::open(&repository.root).ok_or_else(|| {
+        ResourceError::operation_failed(
+            OPERATION,
+            "the work tree's folder cannot be opened",
+            json!({"code":"work_tree_unreadable"}),
+        )
+    })?;
+    let mut work_tree = WorkTree { repository, tree, files: content::Reader::new(), submodules: 0 };
     let mut records = records.into_iter();
     while let Some(record) = records.next() {
         let original = if record.starts_with(b"2 ") { records.next() } else { None };
-        entry(&mut digest, &mut work_tree, scope, record, original);
+        entry(&mut digest, &mut work_tree, scope, record, original)?;
     }
     Ok(json!({
         "fingerprint": digest.hex(),
@@ -114,7 +130,7 @@ fn entry(
     scope: Scope,
     record: &[u8],
     original: Option<&[u8]>,
-) {
+) -> Result<(), ResourceError> {
     let kind = record.first().copied();
     match kind {
         // `# branch.oid <commit>`: HEAD. The other headers name the branch
@@ -141,7 +157,7 @@ fn entry(
                 Scope::Uncommitted | Scope::Branch => (head, None),
                 Scope::Unstaged if unstaged => (index, None),
                 Scope::Staged if staged => (head, Some(index)),
-                Scope::Unstaged | Scope::Staged => return,
+                Scope::Unstaged | Scope::Staged => return Ok(()),
             };
             digest.put(b"tracked");
             digest.put(path);
@@ -155,10 +171,11 @@ fn entry(
                 }
                 None => {
                     digest.put(tree);
-                    // git says a file is deleted when a folder above it is
-                    // now a link; its path is not followed.
-                    let deleted = field(1).get(1) == Some(&b'D');
-                    digest.put(&work_tree.token(path, tree == b"160000", deleted));
+                    // No file in the work tree, by the mode or by the letter:
+                    // the index deleted it, or the work tree did. git says
+                    // so too when a folder above the path is now a link.
+                    let deleted = tree == b"000000" || field(1).get(1) == Some(&b'D');
+                    digest.put(&work_tree.token(path, tree == b"160000", deleted)?);
                 }
             }
         }
@@ -169,7 +186,7 @@ fn entry(
             digest.put(record);
             if scope.reads_work_tree() {
                 let path = record.splitn(11, |byte| *byte == b' ').last().unwrap_or_default();
-                digest.put(&work_tree.token(path, false, false));
+                digest.put(&work_tree.token(path, false, false)?);
             }
         }
         // `? <path>`: an untracked file. The listing run of the staged scope
@@ -178,7 +195,7 @@ fn entry(
             if let Some(path) = record.strip_prefix(b"? ") {
                 digest.put(b"untracked");
                 digest.put(path);
-                digest.put(&work_tree.token(path, false, false));
+                digest.put(&work_tree.token(path, false, false)?);
             }
         }
         _ => {
@@ -186,34 +203,53 @@ fn entry(
             digest.put(record);
         }
     }
+    Ok(())
 }
 
 /// The work tree side of the entries of one read.
 struct WorkTree<'a> {
     repository: &'a Repository,
+    tree: entry::Tree,
     files: content::Reader,
     submodules: usize,
 }
 
 impl WorkTree<'_> {
-    /// What stands for the content at `path`, a path of the listing.
-    fn token(&mut self, path: &[u8], submodule: bool, deleted: bool) -> Vec<u8> {
+    /// What stands for the content at `path`, a path of the listing. An
+    /// error is a read that gave no answer: the caller asks again.
+    fn token(
+        &mut self,
+        path: &[u8],
+        submodule: bool,
+        deleted: bool,
+    ) -> Result<Vec<u8>, ResourceError> {
         if deleted {
-            return b"none".to_vec();
+            return Ok(b"none".to_vec());
         }
-        let path = self.repository.root.join(path_from_bytes(path));
-        if submodule { self.submodule_head(&path) } else { self.files.token(&path) }
+        let relative = path_from_bytes(path);
+        // A path with a link, a file or nothing in a folder's place is not
+        // in the work tree.
+        let Some(entry) = self.tree.entry(&relative) else { return Ok(b"none".to_vec()) };
+        let path = self.repository.root.join(&relative);
+        if !submodule {
+            return Ok(self.files.token(&path, &entry));
+        }
+        if content::kind_of(&entry) != Some(content::Kind::Folder) {
+            return Ok(b"submodule none".to_vec());
+        }
+        self.submodule_head(&path)
     }
 
     /// The commit a checked-out submodule is on: the listing says only that
-    /// it is not the recorded one.
-    fn submodule_head(&mut self, checkout: &Path) -> Vec<u8> {
+    /// it is not the recorded one. `checkout` is a real folder of the work
+    /// tree; git runs there by its path.
+    fn submodule_head(&mut self, checkout: &Path) -> Result<Vec<u8>, ResourceError> {
         // With no `.git` there, git would answer for the repository above.
         if !checkout.join(".git").exists() {
-            return b"submodule none".to_vec();
+            return Ok(b"submodule none".to_vec());
         }
         if self.submodules >= MAX_SUBMODULE_READS {
-            return b"submodule past the bound".to_vec();
+            return Ok(b"submodule past the bound".to_vec());
         }
         self.submodules = self.submodules.saturating_add(1);
         let arguments = ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"];
@@ -227,9 +263,14 @@ impl WorkTree<'_> {
             run::DEADLINE,
         ) {
             Ok(output) => token.extend_from_slice(&output.stdout),
-            Err(_) => token.extend_from_slice(b"unread"),
+            // No commit there: a state of the checkout, which stays until
+            // the checkout changes.
+            Err(GitFailure::Exit(_)) => token.extend_from_slice(b"no commit"),
+            // git did not run or did not end. Digits made of that would
+            // move now and move back at the next good read.
+            Err(failure) => return Err(git_failed(OPERATION, &failure)),
         }
-        token
+        Ok(token)
     }
 }
 

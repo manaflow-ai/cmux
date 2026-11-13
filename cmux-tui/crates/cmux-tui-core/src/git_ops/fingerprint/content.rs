@@ -12,15 +12,19 @@
 //! [`MAX_FILE_BYTES`]. A file past a bound counts by its stat entry, so a
 //! folder of build output that no ignore rule covers costs one `lstat` a
 //! file, never a read.
+//!
+//! Each file is looked at and read as an [`Entry`]: through the open folders
+//! of the work tree, never through a link in a folder's place.
 
 use std::collections::HashMap;
-use std::fs::{Metadata, OpenOptions};
 use std::io::{ErrorKind, Read as _};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest as _, Sha256};
+
+use super::entry::{self, Entry, Stat};
 
 /// Files one read gives a content hash.
 const MAX_FILES: usize = 8192;
@@ -32,6 +36,15 @@ const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_KEPT: usize = 65536;
 /// git's bound for a racy entry on a file system with coarse time stamps.
 const RACY: Duration = Duration::from_secs(2);
+
+/// What a stat entry names.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Kind {
+    File,
+    Folder,
+    Link,
+    Special,
+}
 
 /// What `lstat` says of a file, as far as a write to the file moves it.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -52,10 +65,6 @@ struct Node {
 }
 
 impl Stamp {
-    fn of(metadata: &Metadata) -> Self {
-        Self { size: metadata.len(), modified: metadata.modified().ok(), node: node(metadata) }
-    }
-
     /// The later of the two time stamps: a write moves both, and a caller
     /// can set the first back.
     fn last_change(&self) -> Option<SystemTime> {
@@ -90,21 +99,66 @@ impl Stamp {
     }
 }
 
+/// The kind and the stamp that a stat entry gives. The entry of a name and
+/// the entry of the open file come from the same system struct, so a kept
+/// stamp is equal to the next look at the same file.
 #[cfg(unix)]
-fn node(metadata: &Metadata) -> Node {
-    use std::os::unix::fs::MetadataExt as _;
-    Node {
-        changed_seconds: metadata.ctime(),
-        changed_nanoseconds: metadata.ctime_nsec(),
-        inode: metadata.ino(),
-        device: metadata.dev(),
-        mode: metadata.mode(),
+fn seen(stat: &Stat) -> (Kind, Stamp) {
+    /// The system's number types differ by platform; each fits here.
+    fn wide<T: Into<i128>>(value: T) -> i128 {
+        value.into()
     }
+    /// A number that the system gives as signed or shorter, as its 64 bits.
+    fn bits(value: i128) -> u64 {
+        u64::try_from(value & i128::from(u64::MAX)).unwrap_or(0)
+    }
+    /// A time stamp of the system: seconds since 1970, which can be before
+    /// it, and the nanoseconds after that second.
+    fn time(seconds: i128, nanoseconds: i128) -> Option<SystemTime> {
+        let whole = Duration::from_secs(u64::try_from(seconds.unsigned_abs()).ok()?);
+        let second =
+            if seconds < 0 { UNIX_EPOCH.checked_sub(whole) } else { UNIX_EPOCH.checked_add(whole) };
+        second?.checked_add(Duration::from_nanos(u64::try_from(nanoseconds).ok()?))
+    }
+    let kind = match stat.st_mode & libc::S_IFMT {
+        libc::S_IFREG => Kind::File,
+        libc::S_IFDIR => Kind::Folder,
+        libc::S_IFLNK => Kind::Link,
+        _ => Kind::Special,
+    };
+    let node = Node {
+        changed_seconds: i64::try_from(wide(stat.st_ctime)).unwrap_or(0),
+        changed_nanoseconds: i64::try_from(wide(stat.st_ctime_nsec)).unwrap_or(0),
+        inode: bits(wide(stat.st_ino)),
+        device: bits(wide(stat.st_dev)),
+        mode: u32::try_from(wide(stat.st_mode)).unwrap_or(0),
+    };
+    let stamp = Stamp {
+        size: u64::try_from(wide(stat.st_size)).unwrap_or(0),
+        modified: time(wide(stat.st_mtime), wide(stat.st_mtime_nsec)),
+        node,
+    };
+    (kind, stamp)
 }
 
 #[cfg(not(unix))]
-fn node(_metadata: &Metadata) -> Node {
-    Node::default()
+fn seen(stat: &Stat) -> (Kind, Stamp) {
+    let kind = stat.file_type();
+    let kind = if kind.is_symlink() {
+        Kind::Link
+    } else if kind.is_dir() {
+        Kind::Folder
+    } else if kind.is_file() {
+        Kind::File
+    } else {
+        Kind::Special
+    };
+    (kind, Stamp { size: stat.len(), modified: stat.modified().ok(), node: Node::default() })
+}
+
+/// What `entry` is in the work tree; `None` when nothing is there.
+pub(super) fn kind_of(entry: &Entry<'_>) -> Option<Kind> {
+    entry.stat().map(|stat| seen(&stat).0)
 }
 
 struct Kept {
@@ -122,16 +176,20 @@ struct Cache {
 }
 
 impl Cache {
-    /// Keeps `kept` for `path` in a cache of at most `bound` hashes.
+    /// Keeps `kept` for `path` in a cache of at most `bound` hashes. A full
+    /// cache first drops the hashes of the read that is longest ago, and so
+    /// on; never those of the read that `kept` is of. So the work tree that
+    /// was checked longest ago pays, and a read keeps the hashes that it
+    /// comes to next.
     fn keep(&mut self, path: &Path, kept: Kept, bound: usize) {
-        if self.files.len() >= bound && !self.files.contains_key(path) {
-            // Keep what this read uses: at most MAX_FILES entries.
-            let read = kept.read;
-            self.files.retain(|_, held| held.read == read);
+        while self.files.len() >= bound && !self.files.contains_key(path) {
+            let Some(oldest) = self.files.values().map(|held| held.read).min() else { break };
+            if oldest == kept.read {
+                return;
+            }
+            self.files.retain(|_, held| held.read != oldest);
         }
-        if self.files.len() < bound || self.files.contains_key(path) {
-            self.files.insert(path.to_path_buf(), kept);
-        }
+        self.files.insert(path.to_path_buf(), kept);
     }
 }
 
@@ -159,24 +217,23 @@ impl Reader {
         Self { read: cache.reads, files: 0, bytes: 0, files_read: 0, bytes_read: 0 }
     }
 
-    /// What stands for the content at `path`. A link is never followed.
-    pub(super) fn token(&mut self, path: &Path) -> Vec<u8> {
-        let Ok(metadata) = std::fs::symlink_metadata(path) else { return b"none".to_vec() };
-        let kind = metadata.file_type();
-        if kind.is_symlink() {
-            let target = std::fs::read_link(path).unwrap_or_default();
-            let mut token = b"link ".to_vec();
-            token.extend_from_slice(&Sha256::digest(target.as_os_str().as_encoded_bytes()));
-            return token;
+    /// What stands for the content of `entry`, whose hash is kept by `path`.
+    /// A link is never followed.
+    pub(super) fn token(&mut self, path: &Path, entry: &Entry<'_>) -> Vec<u8> {
+        let Some(stat) = entry.stat() else { return b"none".to_vec() };
+        let (kind, stamp) = seen(&stat);
+        match kind {
+            Kind::File => {}
+            Kind::Link => {
+                let mut token = b"link ".to_vec();
+                token.extend_from_slice(&Sha256::digest(entry.link_target().unwrap_or_default()));
+                return token;
+            }
+            Kind::Folder => return b"folder".to_vec(),
+            Kind::Special => return b"special".to_vec(),
         }
-        if kind.is_dir() {
-            return b"folder".to_vec();
-        }
-        if !kind.is_file() {
-            return b"special".to_vec();
-        }
-        let stamp = Stamp::of(&metadata);
-        if let Some(hash) = self.within_bounds(stamp.size).then(|| self.hash(path, stamp)).flatten()
+        if let Some(hash) =
+            self.within_bounds(stamp.size).then(|| self.hash(path, entry, stamp)).flatten()
         {
             let mut token =
                 if stamp.executable() { b"program ".to_vec() } else { b"file ".to_vec() };
@@ -203,7 +260,7 @@ impl Reader {
 
     /// The file's SHA-256: the kept one while the stat entry stays and the
     /// kept one is not racy, else from the file's bytes.
-    fn hash(&mut self, path: &Path, stamp: Stamp) -> Option<[u8; 32]> {
+    fn hash(&mut self, path: &Path, entry: &Entry<'_>, stamp: Stamp) -> Option<[u8; 32]> {
         if let Some(kept) = cache().files.get_mut(path)
             && kept.stamp == stamp
             && kept.settled
@@ -212,7 +269,7 @@ impl Reader {
             return Some(kept.hash);
         }
         let started = SystemTime::now();
-        let (hash, bytes, stamp) = hash_file(path)?;
+        let (hash, bytes, stamp) = hash_file(entry)?;
         self.files_read = self.files_read.saturating_add(1);
         self.bytes_read = self.bytes_read.saturating_add(bytes);
         let kept = Kept { stamp, hash, settled: stamp.settled_at(started), read: self.read };
@@ -225,21 +282,10 @@ impl Reader {
 /// the open file from before the read. It follows no link and waits on no
 /// FIFO, and reads the file's extent at the open, so appends cannot keep it
 /// running.
-fn hash_file(path: &Path) -> Option<([u8; 32], u64, Stamp)> {
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
-    }
-    let file = options.open(path).ok()?;
-    let metadata = file.metadata().ok()?;
-    if !metadata.is_file() {
-        return None;
-    }
-    let stamp = Stamp::of(&metadata);
-    let mut file = file.take(metadata.len().min(MAX_FILE_BYTES));
+fn hash_file(entry: &Entry<'_>) -> Option<([u8; 32], u64, Stamp)> {
+    let file = entry.open()?;
+    let (Kind::File, stamp) = seen(&entry::stat_of(&file)?) else { return None };
+    let mut file = file.take(stamp.size.min(MAX_FILE_BYTES));
     let mut hasher = Sha256::new();
     let mut buffer = vec![0_u8; 64 * 1024];
     let mut bytes = 0_u64;
