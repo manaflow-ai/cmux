@@ -94,6 +94,12 @@ pub fn check_path(_path: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// Test support only: a read timeout for a test's socket whose peer can have closed first.
+#[cfg(all(unix, feature = "test-support"))]
+mod read_wait;
+#[cfg(all(unix, feature = "test-support"))]
+pub use read_wait::{ReadWait, read_timeout_or_ended};
+
 /// The guard [`short_test_dir`] returns.
 #[cfg(feature = "test-support")]
 pub use tempfile::TempDir as TestDir;
