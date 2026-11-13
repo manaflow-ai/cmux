@@ -53,6 +53,11 @@ final class FilePageOpener: FileOpening {
         Route(fileName: url.lastPathComponent, asText: asText)
     }
 
+    /// Whether a browser tab shows `url` (a rendered page or a preview), not a file page.
+    nonisolated static func opensInBrowserTab(_ url: URL, asText: Bool) -> Bool {
+        [.renderedPage, .preview].contains(route(for: url, userChose: false, asText: asText))
+    }
+
     /// `userChose` false for an agent's or a script's open (`cmux file open`): a markdown document
     /// is writable all the same; another document is writable only inside a root the user chose.
     /// `asText`: Open as Text, the code editor for a page cmux would render (``route(for:userChose:asText:)``).

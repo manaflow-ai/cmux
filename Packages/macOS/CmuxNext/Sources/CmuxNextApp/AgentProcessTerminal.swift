@@ -14,9 +14,6 @@ import CmuxNextDaemon
 struct AgentProcessTerminal {
     let services: AppServices
 
-    /// `move-tab`'s index for "after the last tab" (the daemon clamps it).
-    private static let appendIndex = 1 << 20
-
     /// Opens `viewer` beside chat tab `chat`; false when the chat is not found on the viewer's machine.
     func open(_ viewer: AgentPaneProcessViewer, beside chat: String) -> Bool {
         guard let machine = viewer.onChatMachine ? services.agentTabs.remoteMachineID(of: chat) : services.machines.local.machineID,
@@ -33,7 +30,8 @@ struct AgentProcessTerminal {
         let cwd = tab.cwd
         services.registry.track(Task { @MainActor in
             do {
-                let surface = try await Self.spawn(viewer, in: handle, workspace: workspace, cwd: cwd, connection: connection)
+                let surface = try await connection.createTerminal(atEndOf: handle, in: workspace, cwd: cwd, argv: viewer.argv, name: viewer.title,
+                                                                  env: viewer.environment)
                 // Placed once the tab exists, on the main actor: the placement closure is not Sendable.
                 if target == nil {
                     AgentBesidePlacement.placed(invocation, pane: chatPane, controller: services.paneController(for: chatPane),
@@ -47,16 +45,5 @@ struct AgentProcessTerminal {
             }
         })
         return true
-    }
-
-    /// Starts `viewer` as a new tab at the end of `pane`: `create-terminal` with its argv, which
-    /// lands in `workspace`'s active pane, then moved to `pane` when it landed in another one.
-    private static func spawn(_ viewer: AgentPaneProcessViewer, in pane: CmuxNextDaemon.PaneID, workspace: WorkspaceKey, cwd: String?,
-                              connection: DaemonConnection) async throws -> SurfaceID {
-        let created = try await connection.createTerminal(in: workspace, cwd: cwd, argv: viewer.argv, name: viewer.title,
-                                                          env: viewer.environment)
-        guard let surface = created.surface else { throw DaemonError.malformedResponse("create-terminal returned no surface") }
-        if created.pane != pane { try await connection.moveTab(surface, to: pane, index: appendIndex) }
-        return surface
     }
 }

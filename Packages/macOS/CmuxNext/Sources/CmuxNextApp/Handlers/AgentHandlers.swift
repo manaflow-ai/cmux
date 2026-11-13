@@ -487,10 +487,18 @@ enum AgentHandlers {
             paneless = opensPaneless
         case nil: throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path))
         }
-        let pane = paneless ? nil : context.paneController(invocation)
-        guard paneless || pane != nil else { return }
         // Open as Text applies on the file's machine, including Cloud Markdown.
         let asText = invocation["asText"]?.boolValue ?? (invocation["asText"]?.stringValue == "true")
+        // An agent's page or preview in its own workspace that no window shows: a browser tab shows it there, beside the agent (TabLifecycle); a file page needs a shown pane.
+        if !paneless, target == .tab, var agent = invocation.besideAgent, let model = context.daemonPane(invocation),
+           context.services.paneController(for: model) == nil, context.services.daemon(for: model).isLocal, let url = AgentPaneFileOpen.resolve(path),
+           FilePageOpener.opensInBrowserTab(url, asText: asText) {
+            agent.arguments = ["url": .string(url.absoluteString)]
+            if let engine = FilePageOpener.tabEngine(for: url) { agent.arguments["engine"] = .string(engine) }
+            return TabLifecycle.newBrowser(context, agent)
+        }
+        let pane = paneless ? nil : context.paneController(invocation)
+        guard paneless || pane != nil else { return }
         if let pane, !pane.daemon.isLocal {
             let url = URL(fileURLWithPath: path)
             switch rules.chatFileCheck(path: path, target: target.rawValue, remote: true) {
