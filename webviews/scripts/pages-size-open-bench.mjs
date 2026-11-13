@@ -312,6 +312,9 @@ function bootstrap({ name, state, api }) {
         ),
       ].some(enabled);
     }
+    // Files is a read-only directory listing: its usable state is the visible tree itself,
+    // and it intentionally has no button or link control in the production page.
+    if (name === "files") control = true;
     if (name === "chief-inspector")
       content = text.includes("Pages benchmark prompt") && visible(document.querySelector(".badges"));
     const busy = [...document.querySelectorAll('[aria-busy="true"],[role="progressbar"]')].some(visible);
