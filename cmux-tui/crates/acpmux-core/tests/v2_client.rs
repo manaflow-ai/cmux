@@ -1,10 +1,10 @@
 use acpmux_book::index::{Summary, SummaryIndex};
 use acpmux_client::{Change, Client};
-use acpmux_core::conn::{self, HubSource};
+use acpmux_core::conn::{self, ConnError, HubSource, Offer, OfferSink, Source};
 use acpmux_core::hub::Hub;
-use acpmux_core::wire::{self, Frame, FrameKind, Sub};
-use serde_json::Value;
-use std::sync::Arc;
+use acpmux_core::wire::{self, Cursor, Frame, FrameKind, Sub, Window};
+use serde_json::{Value, json};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream};
 
@@ -35,6 +35,109 @@ fn pair(hub: Arc<Hub>) -> (DuplexStream, tokio::task::JoinHandle<Result<(), conn
             async move { conn::run(reader, writer, source, "test", &["list".into()]).await },
         );
     (client, task)
+}
+
+fn source_pair(
+    source: Arc<dyn Source>,
+    surfaces: &[&str],
+) -> (DuplexStream, tokio::task::JoinHandle<Result<(), ConnError>>) {
+    let (client, server) = tokio::io::duplex(4096);
+    let (reader, writer) = tokio::io::split(server);
+    let surfaces = surfaces.iter().map(|surface| (*surface).to_owned()).collect::<Vec<_>>();
+    let task =
+        tokio::spawn(async move { conn::run(reader, writer, source, "test", &surfaces).await });
+    (client, task)
+}
+
+fn empty_window(sid: &str, cursor: u64) -> Frame {
+    Frame::json(
+        FrameKind::Window,
+        &Window::<Summary> {
+            sid: sid.to_owned(),
+            cursor,
+            rows: Vec::new(),
+            has_before: false,
+            has_after: false,
+            edition: 1,
+            origins: Vec::new(),
+            before_key: None,
+            after_key: None,
+        },
+    )
+    .unwrap()
+}
+
+#[derive(Default)]
+struct DeferredWindowSource {
+    sink: Mutex<Option<Arc<dyn OfferSink>>>,
+}
+
+impl Source for DeferredWindowSource {
+    fn subscribe(
+        &self,
+        sub: &Sub,
+        _person: Option<&[u8]>,
+        sink: Arc<dyn OfferSink>,
+    ) -> Result<(), ConnError> {
+        let mut held = self.sink.lock().unwrap();
+        if held.is_none() {
+            let not_ready = Frame::json(
+                FrameKind::Error,
+                &json!({"method":"sub","sid":sub.sid,"code":"not_ready"}),
+            )?;
+            assert_eq!(
+                sink.offer(&sub.sid, not_ready, sub.cursor.unwrap_or_default()),
+                Offer::Taken
+            );
+            *held = Some(sink);
+        } else {
+            assert_eq!(sink.offer(&sub.sid, empty_window(&sub.sid, 1), Cursor(1)), Offer::Taken);
+        }
+        Ok(())
+    }
+
+    fn resume(&self, _sid: &str, _cursor: Cursor) {}
+
+    fn end(&self, _sid: &str) {
+        self.sink.lock().unwrap().take();
+    }
+}
+
+struct DropAndReplaceSource {
+    generations: Mutex<usize>,
+}
+
+impl Default for DropAndReplaceSource {
+    fn default() -> Self {
+        Self { generations: Mutex::new(0) }
+    }
+}
+
+impl Source for DropAndReplaceSource {
+    fn subscribe(
+        &self,
+        sub: &Sub,
+        _person: Option<&[u8]>,
+        sink: Arc<dyn OfferSink>,
+    ) -> Result<(), ConnError> {
+        let mut generations = self.generations.lock().unwrap();
+        if *generations == 0 {
+            for _ in 0..5 {
+                let frame = Frame::new(FrameKind::Delta, vec![b'x'; wire::MAX_FRAME_BYTES - 5])?;
+                let _ = sink.offer(&sub.sid, frame, Cursor(1));
+            }
+            let old = empty_window(&sub.sid, 2);
+            assert_eq!(sink.offer(&sub.sid, old, Cursor(2)), Offer::UnknownSubscription);
+        } else {
+            assert_eq!(sink.offer(&sub.sid, empty_window(&sub.sid, 3), Cursor(3)), Offer::Taken);
+        }
+        *generations += 1;
+        Ok(())
+    }
+
+    fn resume(&self, _sid: &str, _cursor: Cursor) {}
+
+    fn end(&self, _sid: &str) {}
 }
 
 async fn hello<T>(client: &mut Client<T>, stream: &mut DuplexStream)
@@ -103,6 +206,110 @@ async fn client_reconnect_before_first_window_keeps_anchor() {
     let value: Value = frame.decode_json().unwrap();
     assert_eq!(value.pointer("/params/anchor"), Some(&Value::String("end".into())));
     assert!(value.pointer("/params/cursor").is_none());
+    drop(stream);
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn client_and_daemon_keep_not_ready_subscription_until_window() {
+    let source = Arc::new(DeferredWindowSource::default());
+    let (mut stream, task) = source_pair(source.clone(), &["chat"]);
+    let mut client = Client::<Summary>::connected_v2();
+    hello(&mut client, &mut stream).await;
+    client.subscribe(Sub::new("s", "chat:x")).unwrap();
+    send_bytes(&mut stream, client.take_send().unwrap()).await;
+
+    let not_ready = read_frame(&mut stream).await;
+    assert_eq!(not_ready.kind, FrameKind::Error);
+    let encoded = not_ready.encode();
+    assert_eq!(client.received(&encoded), encoded.len());
+    assert!(
+        matches!(client.next_change(), Some(Change::Error { code, .. }) if code == "not_ready")
+    );
+
+    let sink = source.sink.lock().unwrap().clone().unwrap();
+    assert_eq!(sink.offer("s", empty_window("s", 1), Cursor(1)), Offer::Taken);
+    let window = read_frame(&mut stream).await;
+    assert_eq!(window.kind, FrameKind::Window);
+    let encoded = window.encode();
+    assert_eq!(client.received(&encoded), encoded.len());
+    assert!(matches!(client.next_change(), Some(Change::Window(_))));
+    drop(stream);
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn client_and_daemon_replace_dropped_sid_and_ignore_old_frames() {
+    let source = Arc::new(DropAndReplaceSource::default());
+    let (mut stream, task) = source_pair(source, &["chat"]);
+    let mut client = Client::<Summary>::connected_v2();
+    hello(&mut client, &mut stream).await;
+    client.subscribe(Sub::new("s", "chat:x")).unwrap();
+    send_bytes(&mut stream, client.take_send().unwrap()).await;
+
+    let dropped = read_frame(&mut stream).await;
+    assert_eq!(dropped.kind, FrameKind::Dropped);
+    let encoded = dropped.encode();
+    assert_eq!(client.received(&encoded), encoded.len());
+    let Some(Change::Dropped { sid, new_sid: Some(new_sid), .. }) = client.next_change() else {
+        panic!("expected dropped change");
+    };
+    assert_eq!(sid, "s");
+    let request = client.take_send().expect("dropped subscription must be resubmitted");
+    let request_frame = Frame::from_encoded(&request).unwrap();
+    let request_value: Value = request_frame.decode_json().unwrap();
+    assert_eq!(request_value.pointer("/params/sid"), Some(&Value::String(new_sid)));
+    send_bytes(&mut stream, request).await;
+
+    let window = read_frame(&mut stream).await;
+    assert_eq!(window.kind, FrameKind::Window);
+    let encoded = window.encode();
+    assert_eq!(client.received(&encoded), encoded.len());
+    assert!(matches!(client.next_change(), Some(Change::Window(_))));
+    drop(stream);
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn client_and_daemon_credit_a_slow_taker_past_one_window() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    writer.apply(Summary::new("seed")).unwrap();
+    let hub = Arc::new(hub);
+    let mut client = Client::<Summary>::connected_v2();
+    let (mut stream, task) = pair(hub);
+    hello(&mut client, &mut stream).await;
+    client.subscribe(Sub::new("s", "list")).unwrap();
+    send_bytes(&mut stream, client.take_send().unwrap()).await;
+    let window = read_frame(&mut stream).await;
+    let encoded = window.encode();
+    assert_eq!(client.received(&encoded), encoded.len());
+    assert!(matches!(client.next_change(), Some(Change::Window(_))));
+
+    for n in 0..3_000 {
+        writer.apply(Summary::new(format!("chat-{n}"))).unwrap();
+    }
+    let mut data_bytes = 0_u64;
+    let mut credits = 0_u8;
+    for _ in 0..4_000 {
+        let frame = read_frame(&mut stream).await;
+        let encoded = frame.encode();
+        data_bytes = data_bytes.saturating_add(encoded.len() as u64);
+        assert_eq!(client.received(&encoded), encoded.len());
+        assert!(client.next_change().is_some());
+        while let Some(request) = client.take_send() {
+            let request_frame = Frame::from_encoded(&request).unwrap();
+            let value: Value = request_frame.decode_json().unwrap();
+            if value.get("method") == Some(&Value::String("credit".into())) {
+                credits = credits.saturating_add(1);
+            }
+            send_bytes(&mut stream, request).await;
+        }
+        if credits >= 2 {
+            break;
+        }
+    }
+    assert!(data_bytes > wire::CREDIT_WINDOW_BYTES);
+    assert!(credits >= 2, "slow taker should be fed past one credit window");
     drop(stream);
     task.await.unwrap().unwrap();
 }
