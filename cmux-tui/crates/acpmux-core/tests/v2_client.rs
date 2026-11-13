@@ -4,6 +4,7 @@ use acpmux_core::conn::{self, ConnError, HubSource, Offer, OfferSink, Source};
 use acpmux_core::hub::Hub;
 use acpmux_core::wire::{self, Cursor, Frame, FrameKind, Sub, Window};
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream};
@@ -459,4 +460,154 @@ async fn folder_move_is_one_live_delta_and_reconnect_starts_with_a_fresh_window(
     assert_eq!(client.skip_counters().unknown_op, 0);
     drop(stream);
     task.await.unwrap().unwrap();
+}
+
+fn apply_mirror_changes(
+    client: &mut Client<Summary>,
+    rows: &mut HashMap<(String, String), Summary>,
+) {
+    while let Some(change) = client.next_change() {
+        match change {
+            Change::Window(window) => {
+                rows.clear();
+                rows.extend(
+                    window
+                        .rows
+                        .into_iter()
+                        .map(|row| ((row.origin.clone(), row.chat_id.clone()), row)),
+                );
+            }
+            Change::Page(page) => {
+                rows.extend(
+                    page.rows
+                        .into_iter()
+                        .map(|row| ((row.origin.clone(), row.chat_id.clone()), row)),
+                );
+            }
+            Change::Summary { summary, .. } => {
+                rows.insert((summary.origin.clone(), summary.chat_id.clone()), summary);
+            }
+            Change::Left { summary, .. } => {
+                rows.remove(&(summary.origin.clone(), summary.chat_id.clone()));
+            }
+            Change::Gone { origin, chat_id, .. } => {
+                rows.remove(&(origin, chat_id));
+            }
+            _ => {}
+        }
+    }
+}
+
+fn feed_cut_bytes(
+    client: &mut Client<Summary>,
+    bytes: &[u8],
+    rows: &mut HashMap<(String, String), Summary>,
+    random: &mut u64,
+) {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        *random ^= *random << 13;
+        *random ^= *random >> 7;
+        *random ^= *random << 17;
+        let width = ((*random as usize) % 11).saturating_add(1);
+        let end = (offset + width).min(bytes.len());
+        let mut consumed = client.received(&bytes[offset..end]);
+        apply_mirror_changes(client, rows);
+        if consumed == 0 {
+            apply_mirror_changes(client, rows);
+            continue;
+        }
+        consumed = consumed.min(end - offset);
+        offset += consumed;
+    }
+    apply_mirror_changes(client, rows);
+}
+
+#[test]
+fn randomized_mirror_runs_against_hub_with_cut_frames() {
+    for seed in 1..=128_u64 {
+        let (hub, mut writer) = Hub::new(SummaryIndex::new());
+        for index in 0..12 {
+            let mut row = Summary::new(format!("chat-{index}"));
+            row.state = "idle".into();
+            row.last_activity = index;
+            writer.apply(row).unwrap();
+        }
+        let mut client = Client::<Summary>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: wire::Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        let mut rows = HashMap::new();
+        let mut random = seed;
+        feed_cut_bytes(&mut client, &hello, &mut rows, &mut random);
+        let mut sub = Sub::new("m", "list");
+        sub.view = Some(wire::ListView::Live);
+        client.subscribe_mirror(sub.clone(), std::iter::empty(), false).unwrap();
+        while client.take_send().is_some() {}
+
+        let window = hub.list_window(&sub).unwrap().encode();
+        feed_cut_bytes(&mut client, &window, &mut rows, &mut random);
+        while let Some(outbound) = client.take_send() {
+            let frame = Frame::from_encoded(&outbound).unwrap();
+            let request: wire::Request = frame.decode_json().unwrap();
+            if let wire::Request::Page(page) = request {
+                let reply = hub.page(&page).unwrap().encode();
+                feed_cut_bytes(&mut client, &reply, &mut rows, &mut random);
+            }
+        }
+
+        for step in 0..64_u64 {
+            let index = (random % 20) as usize;
+            let mut row = Summary::new(format!("chat-{index}"));
+            row.state = if step % 7 == 0 { "closed" } else { "idle" }.into();
+            row.last_activity = 100 + step;
+            let event = writer.apply(row.clone()).unwrap();
+            let delta = Frame::json(
+                FrameKind::Delta,
+                &serde_json::json!({
+                    "sid":"m",
+                    "ops":[{"op":"summary","seq":event.seq,"summary":row}]
+                }),
+            )
+            .unwrap()
+            .encode();
+            feed_cut_bytes(&mut client, &delta, &mut rows, &mut random);
+            while client.take_send().is_some() {}
+            let actual: HashMap<_, _> = rows
+                .iter()
+                .map(|(key, summary)| (key.clone(), serde_json::to_value(summary).unwrap()))
+                .collect();
+            let expected: HashMap<_, _> = hub
+                .snapshot()
+                .iter()
+                .filter(|summary| summary.is_live())
+                .map(|summary| {
+                    (
+                        (summary.origin.clone(), summary.chat_id.clone()),
+                        serde_json::to_value(summary.as_ref()).unwrap(),
+                    )
+                })
+                .collect();
+            if actual != expected {
+                let missing = expected
+                    .keys()
+                    .filter(|key| !actual.contains_key(*key))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let extra = actual
+                    .keys()
+                    .filter(|key| !expected.contains_key(*key))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                panic!(
+                    "seed {seed} step {step} row={} state={} missing={missing:?} extra={extra:?}",
+                    row.chat_id, row.state
+                );
+            }
+        }
+        hub.close();
+    }
 }

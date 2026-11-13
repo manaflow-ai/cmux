@@ -905,14 +905,9 @@ impl Hub {
                     crate::wire::PageSide::After => ReadSide::After,
                 },
             ),
-            None if request.before.is_none()
-                && request.after.is_none()
-                && request.filter.as_ref().is_some_and(|filter| {
-                    filter.family.is_some() || filter.folder.is_some() || filter.forks.is_some()
-                }) =>
-            {
-                (None, ReadSide::After)
-            }
+            // A bounded page without an anchor starts a mirror walk at the
+            // head. Filters may narrow it, but they are not required.
+            None if request.before.is_none() && request.after.is_none() => (None, ReadSide::After),
             _ => return Err(HubError::InvalidPage),
         };
         let index = self.snapshot();

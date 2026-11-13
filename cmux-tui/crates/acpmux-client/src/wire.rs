@@ -230,6 +230,8 @@ pub struct Sub {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub view: Option<ListView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rows: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filter: Option<ListFilter>,
 }
 
@@ -250,6 +252,7 @@ impl Sub {
             anchor: None,
             window: default_window(),
             view: None,
+            rows: None,
             filter: None,
         }
     }
