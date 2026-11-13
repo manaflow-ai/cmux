@@ -19,9 +19,14 @@
 // The first frames of a drag are not judged: one or two width changes close together can be a
 // scrollbar or a column settling, and the transcript reads a drag from its third step.
 //
-// Every assert is a count or a length in px read in a frame. No assert is on a time. The steps' own
-// longest gap decides only whether the run drove a drag at all (the transcript reads width steps as
-// one live resize while they come close together): a run that did not is driven again.
+// Every assert is a count or a length in px read in a frame. No assert is on a time. The drag's
+// clock is the test's (support/dragClock.ts), so the transcript reads the width steps as one live
+// resize on any runner, and ends it when the test's clock says so. The steps' longest gap on the
+// runner's own clock is printed, never checked.
+//
+// Two limits of that clock. The reads at rest are not on it: they wait for real frames, so a runner
+// too slow for them still makes the file red at its time limit. And each step is 16 ms on it, so a
+// transcript that ended a live resize after more than 16 ms but less than a real frame would pass.
 //
 // The drag asks for its next width only after the frame before it was read, so each frame's rows
 // are read at that frame's own width on any runner.
@@ -36,6 +41,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import type { Browser, BrowserType, Page } from "playwright";
+import { type DragClockWindow, installDragClock } from "./dragClock";
 import { probeEngineOrSkip } from "./requireBrowserLane";
 import { warmViteServer } from "./warmDevServer";
 
@@ -59,10 +65,11 @@ const SETTLING = 3;
 const WIDTH_PX = 1;
 /** A row's height and the room under it may be this far from theirs at rest: sub-pixel rounding. */
 const STILL_PX = 2;
-/** Steps this far apart (ms) or more did not drive a drag: the run is driven again, not judged. */
-const DRAG_GAP_MS = 100;
-/** How many times a case drives its drag before it says that no drag was driven. */
-const TRIES = 3;
+/** What the page's clock gains in each frame of a drag: one frame at 60 Hz. */
+const CLOCK_STEP_MS = 16;
+/** Frames the drag's clock runs on after the last width: 192 ms, past the 120 ms after which the
+ *  transcript ends a live resize. */
+const HOLD_FRAMES = 12;
 /** The pane's own module, at the path the page loaded it from (the dev server's root is webviews/). */
 const PERF_URL = "/src/agent-session/acpmux/perf.ts";
 
@@ -83,10 +90,11 @@ type FrameRead = {
 };
 type DragRun = {
   frames: FrameRead[];
-  /** The longest time between two width steps, ms. */
+  /** The longest time between two width steps on the runner's own clock, ms. Printed, never
+   *  checked: the page reads the drag's clock (`dragInPage`), so a slow runner drives the same drag. */
   gap: number;
 };
-type DragArgs = { from: number; to: number; steps: number; perfUrl: string };
+type DragArgs = { from: number; to: number; steps: number; perfUrl: string; clockStep: number; holdFrames: number };
 
 /// Runs in the page. Reads each mounted row at rest at each of `widths`, one width at a time.
 async function restInPage(widths: number[]): Promise<Record<number, RowRead[]>> {
@@ -132,7 +140,10 @@ async function restInPage(widths: number[]): Promise<Record<number, RowRead[]>> 
 
 /// Runs in the page. Sets the pane `from` wide and waits for rest, then gives it one new width each
 /// frame to `to`, and reads the rows and the frame's counts once each frame rendered.
-async function dragInPage({ from, to, steps, perfUrl }: DragArgs): Promise<DragRun> {
+///
+/// From the first width step until the drag's own timers ran, the page's clock gains `clockStep` ms
+/// a frame (support/dragClock.ts, which `open` put on the page).
+async function dragInPage({ from, to, steps, perfUrl, clockStep, holdFrames }: DragArgs): Promise<DragRun> {
   type PerfModule = typeof import("../../src/agent-session/acpmux/perf");
   const { acpmuxPerf } = (await import(/* @vite-ignore */ perfUrl)) as PerfModule;
   const root = document.getElementById("root")!;
@@ -164,6 +175,7 @@ async function dragInPage({ from, to, steps, perfUrl }: DragArgs): Promise<DragR
     }
     if (same < 20) throw new Error("the transcript did not come to rest in 900 frames");
   };
+  const clock = (window as unknown as DragClockWindow).dragClock!(clockStep);
   root.style.width = `${from}px`;
   await rest();
   const thread = scroller.querySelector<HTMLElement>(".acpmux-thread");
@@ -192,53 +204,71 @@ async function dragInPage({ from, to, steps, perfUrl }: DragArgs): Promise<DragR
   let gap = 0;
   let stepped = 0;
   let rendered = 0;
-  await new Promise<void>((done) => {
-    let index = 0;
-    const tick = () => {
-      if (index >= widths.length) {
-        done();
-        return;
-      }
-      if (index === 0) {
-        // The counts start at the drag's first width.
-        observer.takeRecords();
-        writes = 0;
-        mounts = 0;
-        rendered = rowRenders();
-      }
-      const width = widths[index]!;
-      root.style.width = `${width}px`;
-      const now = performance.now();
-      if (index > 0) gap = Math.max(gap, now - stepped);
-      stepped = now;
-      index += 1;
-      // A task posted from the frame's callback runs once that frame's rendering step finished.
-      const channel = new MessageChannel();
-      channel.port1.onmessage = () => {
-        try {
-          take(observer.takeRecords());
-          const renders = rowRenders();
-          frames.push({
-            width,
-            rows: read(),
-            renders: renders - rendered,
-            writes,
-            mounts,
-            flowed: thread.classList.contains("acpmux-thread--flow"),
-          });
-          rendered = renders;
+  clock.start();
+  try {
+    await new Promise<void>((done) => {
+      let index = 0;
+      const tick = () => {
+        if (index >= widths.length) {
+          done();
+          return;
+        }
+        if (index === 0) {
+          // The counts start at the drag's first width.
+          observer.takeRecords();
           writes = 0;
           mounts = 0;
-        } catch (error) {
-          failed = error;
+          rendered = rowRenders();
         }
-        // The next width only now: no frame begins before the frame before it was read.
-        requestAnimationFrame(tick);
+        const width = widths[index]!;
+        root.style.width = `${width}px`;
+        const now = clock.pageNow();
+        if (index > 0) gap = Math.max(gap, now - stepped);
+        stepped = now;
+        index += 1;
+        // A task posted from the frame's callback runs once that frame's rendering step finished.
+        const channel = new MessageChannel();
+        channel.port1.onmessage = () => {
+          try {
+            take(observer.takeRecords());
+            const renders = rowRenders();
+            frames.push({
+              width,
+              rows: read(),
+              renders: renders - rendered,
+              writes,
+              mounts,
+              flowed: thread.classList.contains("acpmux-thread--flow"),
+            });
+            rendered = renders;
+            writes = 0;
+            mounts = 0;
+          } catch (error) {
+            failed = error;
+          }
+          clock.advance();
+          // The next width only now: no frame begins before the frame before it was read.
+          requestAnimationFrame(tick);
+        };
+        channel.port2.postMessage(0);
       };
-      channel.port2.postMessage(0);
-    };
-    requestAnimationFrame(tick);
-  });
+      requestAnimationFrame(tick);
+    });
+    // The width holds: the drag's clock goes on until the live resize's own timer ran. Each step is
+    // a task after a frame's rendering, where the browser runs a timer too.
+    for (let count = 0; count < holdFrames; count += 1) {
+      await new Promise<void>((shown) => {
+        requestAnimationFrame(() => {
+          const channel = new MessageChannel();
+          channel.port1.onmessage = () => shown();
+          channel.port2.postMessage(0);
+        });
+      });
+      clock.advance();
+    }
+  } finally {
+    await clock.end();
+  }
   await rest();
   observer.disconnect();
   if (failed !== undefined) throw failed;
@@ -296,6 +326,7 @@ export async function dragFlows({ file, engine, engineName, configFile }: DragFl
     const page = await browser!.newPage({ viewport: { width: 1000, height: 2400 } });
     await page.goto(`http://127.0.0.1:${port}${pagePath}`);
     await page.waitForFunction(() => "__debug" in window);
+    await page.evaluate(installDragClock);
     await page.evaluate((px) => {
       document.getElementById("root")!.style.width = `${px}px`;
     }, width);
@@ -320,19 +351,16 @@ export async function dragFlows({ file, engine, engineName, configFile }: DragFl
   ] as const) {
     test(`the browser rewraps a chat's rows in each frame while its pane gets ${name}: no row renders, no row's place is written`, async () => {
       const still = await atRest();
-      let run: DragRun | undefined;
-      const slow: number[] = [];
-      for (let attempt = 0; attempt < TRIES && !run; attempt += 1) {
-        const page = await open(from);
-        const drove = await page.evaluate(dragInPage, { from, to, steps: STEPS, perfUrl: PERF_URL });
-        await page.close();
-        if (drove.gap < DRAG_GAP_MS) run = drove;
-        else slow.push(drove.gap);
-      }
-      if (!run)
-        throw new Error(
-          `${file}: no drag was driven in ${TRIES} runs (the longest gaps between two width steps, ms: ${slow.join(", ")}): no verdict`,
-        );
+      const page = await open(from);
+      const run = await page.evaluate(dragInPage, {
+        from,
+        to,
+        steps: STEPS,
+        perfUrl: PERF_URL,
+        clockStep: CLOCK_STEP_MS,
+        holdFrames: HOLD_FRAMES,
+      });
+      await page.close();
       const judged = run.frames.slice(SETTLING);
       const heights = (rows: RowRead[]) => Math.round(sum(rows.map((row) => row.height)));
       const seen = {
@@ -352,7 +380,6 @@ export async function dragFlows({ file, engine, engineName, configFile }: DragFl
           rows: run.frames[0]!.rows.length,
           framesJudged: judged.length,
           gapMs: run.gap,
-          driven: slow.length + 1,
           flowFrames: run.frames.filter((frame) => frame.flowed).length,
           rendersByFrame: run.frames.map((frame) => frame.renders),
           writesByFrame: run.frames.map((frame) => frame.writes),
