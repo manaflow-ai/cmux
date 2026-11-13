@@ -3,9 +3,10 @@
 //! lane, any other client holds a slot of the session alone.
 //!
 //! The decision reads the terminals' seats (`diagnostics/terminal_seats.rs`)
-//! and nothing else. It takes no `Mux`: the session state and its lock are
-//! out of its reach, so the accept loop cannot wait for a commit and cannot
-//! answer from a stale set of terminals.
+//! and, for a session with no seat while a host starts a terminal, the
+//! parent of one process. It takes no `Mux`: the session state and its lock
+//! are out of its reach, so the accept loop cannot wait for a commit and
+//! cannot answer from a stale set of terminals.
 
 use std::sync::Arc;
 
