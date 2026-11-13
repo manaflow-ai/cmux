@@ -332,8 +332,8 @@ impl acpmux_core::hub::PageProvider for V1PageProvider {
             };
         }
         let rows = self.hub.remote_sessions.snapshot();
-        let row = rows.of_peer(&key.origin).find(|row| row.receipt.mux_session_id == key.chat_id);
-        row.map(|row| summary_from_remote(&key.origin, &row.summary).map(Arc::new).map(Some))
+        let row = rows.of_peer(&key.origin).find(|row| row.1.receipt.mux_session_id == key.chat_id);
+        row.map(|row| summary_from_remote(&key.origin, &row.1.summary).map(Arc::new).map(Some))
             .unwrap_or(Ok(None))
     }
 }

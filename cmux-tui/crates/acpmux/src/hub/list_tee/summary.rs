@@ -345,7 +345,11 @@ pub(super) fn summary_from_remote(peer: &str, row: &super::super::PeerRow) -> io
     summary.folder =
         value.get("cwd").and_then(Value::as_str).map(|path| path.trim_end_matches('/').to_owned());
     summary.pinned = value.get("pinned").and_then(Value::as_bool).unwrap_or(false);
-    let mut opaque = extra(value).as_object().cloned().unwrap_or_default();
+    let mut opaque = value
+        .as_object()
+        .map(extra)
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
     for key in ["stale", "lastSeen", "stuckReason", "stuckSince", "stuckError"] {
         opaque.remove(key);
     }
