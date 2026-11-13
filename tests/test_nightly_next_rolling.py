@@ -129,12 +129,27 @@ class RollingRuleTests(unittest.TestCase):
         go, _ = decide(head_runs=[run(7, 45, status="waiting")], jobs=gated, waited_minutes=5)
         self.assertFalse(go)
 
-    def test_a_published_run_is_done_even_while_its_deltas_run(self):
-        """Run 40799674473 published at 34 min and ran deltas until 47: the feed already had it."""
+    def test_a_published_run_still_holds_the_push_group_while_its_tail_runs(self):
+        """Run 40799674473 published at 34 min and ran deltas until 47. The feed had it, but the run held
+        the push group until 47, so a promotion before then got the run waiting on it cancelled."""
         published = {8: [job("publish-nightly", "completed", 13, "r"),
                          job("generate-nightly-deltas (arm64)", "in_progress", 13, "mac")]}
         go, reason = decide(head_runs=[run(8, 47)], jobs=published, waited_minutes=5)
+        self.assertFalse(go, reason)
+        go, reason = decide(head_runs=[run(8, 47, status="completed")], jobs=published, waited_minutes=5)
         self.assertTrue(go, reason)
+
+    def test_the_loop_s_retry_holds_the_push_group(self):
+        """Review of e39fee31: a retry (workflow_dispatch, 'Retry nightly-next (N of 2)') takes the push
+        group; another dispatch on nightly-next (a sign stage, a resume) does not."""
+        retry = run(17, 20, event="workflow_dispatch", display_title="Retry nightly-next (1 of 2)", head_sha="e" * 40)
+        sign = run(18, 20, event="workflow_dispatch", display_title="Sign nightly-next run 1 attempt 1", head_sha="e" * 40)
+        for holder, holds in ((retry, True), (sign, False)):
+            with self.subTest(title=holder["display_title"]):
+                go, reason = rolling.decide(NOW, head=HEAD, head_runs=[], jobs_of=lambda r: BUILDING, promotions=[],
+                                            oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)),
+                                            starts=[holder])
+                self.assertEqual(go, not holds, reason)
 
     def test_a_fresh_promotion_counts_as_building(self):
         promo = run(9, 3, status="in_progress", display_title="Promote nightly-next to " + WAITING)
@@ -276,7 +291,7 @@ class OneStartPerWindowTests(unittest.TestCase):
         self.assertFalse(go, reason)
         listing = [p for p in api.paths if "branch=nightly-next" in p]
         self.assertEqual(len(listing), 1)
-        self.assertIn("event=push", listing[0])
+        self.assertNotIn("event=", listing[0], "the loop's retries are dispatches; one listing reads both")
         self.assertNotIn("head_sha=", listing[0])
 
 
