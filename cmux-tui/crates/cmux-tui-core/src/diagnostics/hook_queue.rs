@@ -322,9 +322,16 @@ fn add_dropped_events(directory: &Path, events: u64) -> io::Result<()> {
 }
 
 fn add_count(path: &Path, events: u64) -> io::Result<()> {
-    let mut file = open_spool_file(path)?;
-    file.lock()?;
-    let total = read_count(&file).unwrap_or(0).saturating_add(events);
+    add_count_in(open_spool_file(path)?, events)
+}
+
+/// [`add_count`] on the count file opened as `file`.
+fn add_count_in(file: File, events: u64) -> io::Result<()> {
+    use cmux_file_lock::{FileLock, Kind};
+    // Unlocked when it drops, not only closed: a child the server forked meanwhile keeps no lock.
+    let mut lock = FileLock::take(file, Kind::Exclusive)?;
+    let file = lock.file_mut();
+    let total = read_count(file).unwrap_or(0).saturating_add(events);
     file.set_len(0)?;
     file.seek(SeekFrom::Start(0))?;
     writeln!(file, "{total}")
@@ -461,5 +468,27 @@ mod tests {
         assert!(hook_spool_dir(&root.join("s.sock")).is_err());
         assert!(!root.join(HOOK_SPOOL_DIR).exists());
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(all(test, unix))]
+mod count_lock_tests {
+    use super::*;
+
+    /// A count's lock is free once the count is written, also while a child the server forked
+    /// meanwhile has the descriptor: else `server-stats` reads the count as 0 and the next
+    /// hook's count waits.
+    #[test]
+    fn a_written_count_leaves_its_lock_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = crate::fork_tests::Scratch::new("hook_queue");
+        let path = dir.path().join("dropped-events");
+        let count = open_spool_file(&path).unwrap();
+        let keeper = crate::fork_tests::Keeper::fork();
+        add_count_in(count, 2).unwrap();
+        let free = crate::fork_tests::free(&path);
+        drop(keeper);
+        assert!(free, "the count left its lock held");
+        add_count(&path, 3).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "5\n");
     }
 }
