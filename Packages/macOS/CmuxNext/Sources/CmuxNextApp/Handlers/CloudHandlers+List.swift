@@ -33,9 +33,8 @@ extension CloudHandlers {
             // activation, so a loaded store is current: no request. One that has
             // not loaded yet takes the same refresh the sidebar's does.
             // One loaded for another team than the signed-in one is not loaded.
-            // A script's list (a sandboxed Run's cleanup) is read again once it is older than `scriptListAge`, so a create
-            // whose answer was lost is in it; `listed_at_ms` says when it was read (#39022 review at b1bfb468, F1).
-            if cloud.isSignedIn, !cloud.hasLoadedCurrentMachines { await cloud.refresh() } else if cloud.isSignedIn { await cloud.refresh(ifOlderThan: scriptListAge) }
+            // A script's list (a Run's cleanup) older than 30 s is read again; `listed_at_ms` says when (#39022 b1bfb468 F1).
+            if cloud.isSignedIn, !cloud.hasLoadedCurrentMachines { await cloud.refresh() } else if cloud.isSignedIn { await cloud.refresh(ifOlderThan: .seconds(30)) }
             return machineListFields(context, loaded: cloud.hasLoadedCurrentMachines)
         }
     }
@@ -43,8 +42,6 @@ extension CloudHandlers {
     /// How long a run waits for the store's first load before it answers
     /// `loaded: false`: inside `action.run`'s 40 s result deadline.
     static let listLoadWait: Duration = .seconds(25)
-    /// How old a store's list a script's `cloud list-machines` answers before it reads the list again.
-    static let scriptListAge: Duration = .seconds(30)
 
     /// `cloud list-machines`' result: `loaded`, `machines` (one object per
     /// machine in the store), `count`, `creating` and `account`.
@@ -79,8 +76,7 @@ extension CloudHandlers {
         // client sends), else for the person alone.
         let list: [String: Any] = ["loaded": loaded, "team": cloud.auth.teamID != nil, "signedIn": cloud.isSignedIn,
                                    "machines": machines, "creating": creating]
-        return CloudHandlerRules().fields("cloud_handler_machine_list", ["list": list]).merging(["account": listAccount(cloud.isSignedIn, cloud.auth.user?.id, cloud.auth.teamID),
-                                                                                         "listed_at_ms": cloud.currentListReadMs.map(ActionResultValue.int) ?? .null]) { $1 }
+        return CloudHandlerRules().fields("cloud_handler_machine_list", ["list": list]).merging(["account": listAccount(cloud.isSignedIn, cloud.auth.user?.id, cloud.auth.teamID), "listed_at_ms": cloud.currentListReadMs.map(ActionResultValue.int) ?? .null]) { $1 }
     }
     static func listAccount(_ signedIn: Bool, _ user: String?, _ team: String?) -> ActionResultValue { .object(["signed_in": .bool(signedIn), "user_id": user.map(ActionResultValue.string) ?? .null, "team_id": team.map(ActionResultValue.string) ?? .null]) }
 }
