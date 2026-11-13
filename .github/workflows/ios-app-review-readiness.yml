@@ -1,0 +1,191 @@
+name: iOS App Review readiness
+
+# Finds every iOS App Store release blocker we can see before App Review does,
+# on every push to main, instead of one blocker per rejection. The run's
+# conclusion is the readiness answer: `gate` fails when any check below fails.
+#
+#   urls                 the listing's support / marketing / privacy URLs are
+#                        under https://cmux.com/, the support URL is not the
+#                        home page, and each answers 200
+#   asc-readiness        App Store Connect's own readiness checks for the
+#                        configured App Store version (read-only)
+#   binary-entitlements  the App Store build signs no Network Extension / VPN
+#                        entitlement and strips the packet tunnel extension
+#
+# No paths filter: every main push must leave a run behind. asc-readiness
+# needs the `release` environment, which releases its secrets only to main
+# (and v* tags), so the workflow does not run on pull requests.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-app-review-readiness-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  urls:
+    name: App Store listing URLs
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # ci-guards.yml runs the other iOS script tests; these two run here so
+      # the gate's own checks are tested wherever the gate runs.
+      - name: Test the readiness checks
+        run: |
+          set -euo pipefail
+          python3 tests/test_check_app_store_urls.py
+          python3 tests/test_check_app_store_binary_entitlements.py
+
+      - name: Check App Store listing URLs
+        run: python3 ios/scripts/check_app_store_urls.py
+
+  binary-entitlements:
+    name: App Store binary entitlements
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check App Store entitlements and embedded extensions
+        run: python3 ios/scripts/check_app_store_binary_entitlements.py
+
+  runners:
+    uses: ./.github/workflows/resolve-runners.yml
+
+  asc-readiness:
+    name: App Store Connect readiness
+    # The App Store Connect key: GitHub releases it only to protected refs
+    # (the environment's deployment branch policy: main, tags v*).
+    environment: release
+    needs: runners
+    # It holds the App Store Connect key, so the capability map's answer is used only
+    # when it is the Blacksmith label: the map reads CMUX_CI_RUNNER_OVERRIDES, which may
+    # name any machine (tests/test_ci_fork_runner_routing.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26"]'), fromJSON(needs.runners.outputs.map).macos_26_ios) && fromJSON(needs.runners.outputs.map).macos_26_ios || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+      ASC_APP_ID: ${{ vars.IOS_APPSTORE_APP_ID }}
+      ASC_TIMEOUT_SECONDS: "120"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Install asc CLI
+        run: |
+          set -euo pipefail
+          BREW_BIN="$(command -v brew || true)"
+          if [ -z "$BREW_BIN" ] && [ -x /opt/homebrew/bin/brew ]; then
+            BREW_BIN=/opt/homebrew/bin/brew
+          fi
+          if [ -z "$BREW_BIN" ] && [ -x /usr/local/bin/brew ]; then
+            BREW_BIN=/usr/local/bin/brew
+          fi
+          if [ -z "$BREW_BIN" ]; then
+            echo "Homebrew is required to install asc CLI" >&2
+            exit 1
+          fi
+          "$BREW_BIN" list asc >/dev/null 2>&1 || "$BREW_BIN" install asc
+          dirname "$BREW_BIN" >> "$GITHUB_PATH"
+
+      - name: Verify asc CLI
+        run: |
+          set -euo pipefail
+          command -v asc
+          asc --version
+
+      - name: Materialize App Store Connect API key
+        run: |
+          set -euo pipefail
+          if [ -z "${ASC_API_KEY_ID:-}" ] || [ -z "${ASC_API_ISSUER_ID:-}" ] || [ -z "${ASC_API_KEY_P8_BASE64:-}" ]; then
+            echo "Missing App Store Connect API key secrets" >&2
+            exit 1
+          fi
+          if [ -z "${ASC_APP_ID:-}" ]; then
+            echo "Missing configured app id repository variable" >&2
+            exit 1
+          fi
+          KEY_DIR="$RUNNER_TEMP/appstoreconnect/private_keys"
+          KEY_PATH="$KEY_DIR/AuthKey_${ASC_API_KEY_ID}.p8"
+          mkdir -p "$KEY_DIR"
+          printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          {
+            echo "ASC_API_KEY_PATH=$KEY_PATH"
+            echo "ASC_KEY_ID=$ASC_API_KEY_ID"
+            echo "ASC_ISSUER_ID=$ASC_API_ISSUER_ID"
+            echo "ASC_PRIVATE_KEY_PATH=$KEY_PATH"
+          } >> "$GITHUB_ENV"
+
+      # Read-only: no --build-number/--build-id, --prepare-submission,
+      # --stage-dry-run or --submit, so the script runs only `asc validate`
+      # (version, IAP, subscriptions) and validates the checked-in metadata and
+      # screenshots locally. It uploads, attaches and submits nothing.
+      - name: Validate App Store readiness (read-only)
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -nE 's/^[[:space:]]*CMUX_IOS_APPSTORE_MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' ios/Config/Shared.xcconfig | tail -n 1)"
+          echo "App Store version: $VERSION" | tee -a "$GITHUB_STEP_SUMMARY"
+          ./ios/scripts/validate-app-store-release.sh \
+            --app "$ASC_APP_ID" \
+            --version "$VERSION" \
+            --strict
+
+      - name: Cleanup App Store Connect key
+        if: always()
+        run: rm -f "${ASC_API_KEY_PATH:-}"
+
+  gate:
+    name: iOS App Review readiness gate
+    if: always()
+    needs: [urls, binary-entitlements, runners, asc-readiness]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require every readiness check
+        env:
+          URLS: ${{ needs.urls.result }}
+          ENTITLEMENTS: ${{ needs.binary-entitlements.result }}
+          RUNNERS: ${{ needs.runners.result }}
+          ASC: ${{ needs.asc-readiness.result }}
+        run: |
+          set -euo pipefail
+          failed=0
+          for pair in "urls=$URLS" "binary-entitlements=$ENTITLEMENTS" "runners=$RUNNERS" "asc-readiness=$ASC"; do
+            name="${pair%%=*}"
+            result="${pair#*=}"
+            echo "$name: $result"
+            if [ "$result" != "success" ]; then
+              echo "::error::$name is $result; the iOS App Store release is not ready"
+              failed=1
+            fi
+          done
+          exit "$failed"
