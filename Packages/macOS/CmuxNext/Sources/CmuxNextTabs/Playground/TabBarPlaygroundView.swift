@@ -123,10 +123,9 @@ public final class TabBarPlaygroundView: NSView {
 }
 
 extension TabBarPlaygroundView {
-    /// A row's height on the page.
+    /// A row's height on the page: its own preferred height (``TabBarPlaygroundRow``), else the tab strip's.
     static func rowHeight(for content: NSView) -> CGFloat {
-        content is TabBarPlaygroundTrailingRows ? TabBarPlaygroundTrailingRows.preferredHeight
-            : content is ConcentricCornerPlaygroundRow ? ConcentricCornerPlaygroundRow.preferredHeight : TabStripView.preferredHeight
+        (content as? any TabBarPlaygroundRow).map { type(of: $0).preferredHeight } ?? TabStripView.preferredHeight
     }
 }
 
