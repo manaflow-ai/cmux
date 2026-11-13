@@ -509,7 +509,7 @@ fn a_workspace_commit_that_moves_the_focus_states_the_screen_and_the_pane_that_c
 /// How long the test looks for a free lock before it says that the lock is held for the whole
 /// stop of the journal writer. It is a give-up limit for the failing case, not a time budget: a
 /// lock that is free is seen at the first look. It is shorter than the journal writer's deadline
-/// of a test build (2 s), so the stopped commit still passes after the release.
+/// of a test build (30 s), so the stopped commit still passes after the release.
 const HELD_VERDICT_AFTER: Duration = Duration::from_millis(500);
 
 /// True when `free` holds at some look before [`HELD_VERDICT_AFTER`].

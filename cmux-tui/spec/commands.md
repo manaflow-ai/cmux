@@ -10115,6 +10115,16 @@ shows the chat (`_acpmux/view`; a new attachment counts as shown). Both answer
 is `agent_session.bad_request`. An observation attachment may send
 `agent-session-view` but never `agent-session-typing` (`agent_session.read_only`).
 
+`agent-session-attention-v1` (advertised with it) adds two optional params to
+`agent-session-view`: `attending` (boolean: the person attends the chat their
+window shows, on screen, window key, input within the pane's idle window) and
+`seen_seq` (number: the chat's log seq at their last input). Both go to acpmux's
+`_acpmux/view` as `attending` and `seenSeq`: a chat shown to a person who is away
+keeps its turns unread, left off at `seen_seq` (acpmux `hub/seen.rs`). The
+answer is acpmux's, `{lastReturn?: {since, turns}}` when coming back to attend
+put "New since you looked" on the chat. An app sends them only to a daemon that
+advertises the capability.
+
 A connection that echoed `agent-session-presence-v1` in `set-client-info` then
 gets `{event:"agent-session-presence", surface, presence}` on every change (one
 that did not never gets it), where `presence` is acpmux's `_acpmux/presence`

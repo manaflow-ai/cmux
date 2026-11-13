@@ -186,6 +186,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("catalog.get", Request),
         untyped("catalog.refresh", Request),
         untyped("catalog.changed", Notification),
+        // First-request transport upgrade, answered before framed v2 traffic.
+        untyped(method::MUX_V2, Request),
         // Embedded tailnet controls (also report not_built in unsupported builds).
         untyped(method::MUX_TAILNET_LOGIN, Request),
         untyped(method::MUX_TAILNET_LOGOUT, Request),
@@ -210,9 +212,10 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<SessionsParams, SessionsResult>(method::MUX_SESSIONS),
         request::<events::AttachParams, events::AttachResult>(method::MUX_ATTACH),
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),
-        request::<events::ViewParams, events::Done>(method::MUX_VIEW),
+        request::<events::ViewParams, events::ViewDone>(method::MUX_VIEW),
         request::<presence::TypingParams, events::Done>(method::MUX_TYPING),
-        request::<events::SessionRef, events::Done>(method::MUX_MARK_UNREAD),
+        request::<events::MarkUnreadParams, events::Done>(method::MUX_MARK_UNREAD),
+        request::<events::SeenParams, events::SeenDone>(method::MUX_SEEN),
         request::<events::WatchParams, session::SessionsResult>(method::MUX_WATCH),
         untyped(method::MUX_RENAME, Request),
         untyped(method::MUX_REGISTER, Request),
