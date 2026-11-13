@@ -6,9 +6,8 @@ import CmuxNextServer
 import CmuxNextSettings
 import Foundation
 
-/// App health's popover entry. There is no native footer view: the sidebar notice card of the
-/// restore lane ("Restoring sessions...", lane/app-session-self-heal) is the trigger, and calls
-/// ``open(over:)``, which shows the React popover (`cmux-page://cmux.server-cards/#/app-health`,
+/// App health's popover entry. Its triggers are the sidebar footer's line (``AppHealthIndicatorView``)
+/// and the "Restoring sessions…" card's Details; each calls ``open(over:)``, which shows the React popover (`cmux-page://cmux.server-cards/#/app-health`,
 /// webviews/src/app-health) in a floating card panel, as the server's Health card opens. The
 /// state any trigger needs is ``AppHealth/snapshot`` and ``AppHealth/headline``.
 @MainActor
@@ -87,4 +86,45 @@ struct AppHealthStrings {
         String(localized: "appHealth.part.acpmux", defaultValue: "Connection to the session service", table: "AppHealth", bundle: .module)
     }
     static var pageHost: String { String(localized: "appHealth.part.pageHost", defaultValue: "Page server", table: "AppHealth", bundle: .module) }
+
+    /// The page parts' names in plain words: a page's own name is its resource ("agent-pane"), which reads as
+    /// code ("Agent pane"); the agent chat is what the person calls it.
+    static func pageLabel(resource: String, fallback: String) -> String {
+        switch resource {
+        case "agent-pane":
+            String(localized: "appHealth.part.agentChat", defaultValue: "Agent chat", table: "AppHealth", bundle: .module)
+        default: fallback
+        }
+    }
+
+    /// The footer line, as the web's indicator says it: what is wrong with which part, in a sentence the
+    /// person can act on ("Agent chat isn't responding": the click opens Repair now; "Reloading Agent chat…":
+    /// the app is on it), or with no unhealthy part the newest queued action ("Reconnecting; will close
+    /// Background task when back"). A part that is only slow has no line (``AppHealth/headline(of:)``).
+    static func line(_ headline: AppHealth.Headline) -> String? {
+        if let label = headline.label, let state = headline.state {
+            switch state {
+            case .healthy, .slow: break
+            case .stuck:
+                return String(format: String(localized: "appHealth.line.stuck", defaultValue: "%@ isn’t responding", table: "AppHealth", bundle: .module), label)
+            case .repairing:
+                return String(format: String(localized: "appHealth.line.repairing", defaultValue: "Repairing %@…", table: "AppHealth", bundle: .module), label)
+            case .failed:
+                return String(format: String(localized: "appHealth.line.failed", defaultValue: "%@ needs a repair", table: "AppHealth", bundle: .module), label)
+            }
+        }
+        return headline.pending.map {
+            String(format: String(localized: "appHealth.pending", defaultValue: "Reconnecting; will %@ when back", table: "AppHealth", bundle: .module), $0)
+        }
+    }
+
+    static func state(_ state: AppHealth.State) -> String? {
+        switch state {
+        case .healthy: nil
+        case .slow: String(localized: "appHealth.state.slow", defaultValue: "Slow", table: "AppHealth", bundle: .module)
+        case .repairing: String(localized: "appHealth.state.repairing", defaultValue: "Repairing", table: "AppHealth", bundle: .module)
+        case .stuck: String(localized: "appHealth.state.stuck", defaultValue: "Not responding", table: "AppHealth", bundle: .module)
+        case .failed: String(localized: "appHealth.state.failed", defaultValue: "Needs a repair", table: "AppHealth", bundle: .module)
+        }
+    }
 }

@@ -17,6 +17,7 @@ fn call(command: AppCommand) -> (&'static str, Value) {
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
         | AppCommand::Renderers { .. }
+        | AppCommand::ChatPerf { .. }
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
         | AppCommand::Live(_)
@@ -502,10 +503,14 @@ fn busy_is_retried_only_when_the_app_says_nothing_ran() {
     assert!(retry_before_running(&json!({ "code": "busy", "data": { "not_run": true } })));
     assert!(!retry_before_running(&json!({ "code": "busy", "data": { "state": "in_progress" } })));
     assert!(!retry_before_running(&json!({ "code": "busy" })));
-    // #32724: a timeout before the work started, and a read barrier on a reconnecting daemon,
-    // are asked again too; one that may have started is not.
+    // #32724: a timeout before the work started, and a read barrier on a reconnecting daemon
+    // (`state: not_run`), are asked again too; one that may have started is not, and neither is
+    // an `unavailable` the app decided (`refusal_tests.rs`).
     assert!(retry_before_running(&json!({ "code": "timeout", "data": { "state": "not_run" } })));
-    assert!(retry_before_running(&json!({ "code": "unavailable", "data": { "not_run": true } })));
+    assert!(retry_before_running(
+        &json!({ "code": "unavailable", "data": { "not_run": true, "state": "not_run" } })
+    ));
+    assert!(!retry_before_running(&json!({ "code": "unavailable", "data": { "not_run": true } })));
     assert!(!retry_before_running(
         &json!({ "code": "timeout", "data": { "state": "in_progress" } })
     ));
@@ -1201,6 +1206,7 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
         | AppCommand::Renderers { .. }
+        | AppCommand::ChatPerf { .. }
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
         | AppCommand::Live(_)
@@ -1446,22 +1452,42 @@ fn open_dash_from_a_program_in_a_terminal_is_interactive() {
     // `cmux --quiet open --link -` with the URL on stdin. Stdin is the URL, not the person:
     // stdout alone tells, or the tab opens in the background and Enter seems to do nothing.
     let link = args(&["--link", "--caller", "gh", "-"]);
-    assert!(open_is_interactive(&link, false, true));
-    assert!(!open_is_interactive(&link, false, false), "an agent's pipe stays in the background");
+    assert!(open_is_interactive(&link, false, true, true));
+    assert!(
+        !open_is_interactive(&link, false, false, false),
+        "an agent's pipe stays in the background"
+    );
     let mut stdin = "https://github.com/login/device\n".as_bytes();
     let environment = std::collections::HashMap::new();
-    let AppCommand::Open { requests, .. } =
-        parse_open_with(&link, open_is_interactive(&link, false, true), &environment, &mut stdin)
-            .unwrap()
-    else {
+    let AppCommand::Open { requests, .. } = parse_open_with(
+        &link,
+        open_is_interactive(&link, false, true, true),
+        &environment,
+        &mut stdin,
+    )
+    .unwrap() else {
         panic!("expected open command")
     };
     assert_eq!(requests[0].method, "browser.open_link");
     assert_eq!(requests[0].params["focus"], true);
     // A typed `cmux open URL` still needs both; `-` after `--` is a path, not stdin.
-    assert!(open_is_interactive(&args(&["https://a.example/"]), true, true));
-    assert!(!open_is_interactive(&args(&["https://a.example/"]), false, true));
-    assert!(!open_is_interactive(&args(&["--", "-"]), false, true));
+    assert!(open_is_interactive(&args(&["https://a.example/"]), true, true, true));
+    assert!(!open_is_interactive(&args(&["https://a.example/"]), false, true, true));
+    assert!(!open_is_interactive(&args(&["--", "-"]), false, true, true));
+}
+
+#[test]
+fn open_dash_from_a_program_with_its_output_elsewhere_is_interactive() {
+    // Lawrence 2026-11-12: `pscale auth login` in a cmux-next terminal printed its device URL,
+    // and no page showed. pscale (Go's `exec.Command("open", url).Run()`, as pkg/browser does)
+    // runs `open` with stdin and stdout on /dev/null, so the shim's `cmux open --link -` has no
+    // terminal on either. The process still has the person's terminal as its controlling
+    // terminal, which an agent's command (run with no terminal) does not: the page takes the focus.
+    let link = args(&["--link", "--caller", "pscale", "-"]);
+    assert!(open_is_interactive(&link, false, false, true), "a program in the person's terminal");
+    assert!(!open_is_interactive(&link, false, false, false), "an agent's command has no terminal");
+    // A typed `cmux open URL` with its output redirected stays as it was: stdin and stdout tell.
+    assert!(!open_is_interactive(&args(&["https://a.example/"]), true, false, true));
 }
 
 #[test]
@@ -1755,6 +1781,9 @@ fn page_verbs_send_the_caller() {
 
 #[path = "right_tests.rs"]
 mod right;
+
+#[path = "refusal_tests.rs"]
+mod refusal;
 
 #[test]
 fn only_reads_and_keyed_runs_are_resent_after_a_dropped_connection() {
@@ -2076,7 +2105,7 @@ fn a_request_to_an_app_that_does_not_answer_ping_ends_at_its_window() {
 #[test]
 fn a_not_run_refusal_is_retried_inside_the_cli() {
     let refused = json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
-        "message": "the daemon connection closed", "data": { "not_run": true, "retry_after_ms": 1 } } });
+        "message": "the daemon connection closed", "data": { "not_run": true, "state": "not_run", "retry_after_ms": 1 } } });
     let answered = json!({ "id": 1, "ok": true, "result": { "machines": [] } });
     let (socket, app) = fake_app(vec![refused.clone(), refused, answered]);
     let mut stream = connect(&socket).unwrap();
@@ -2113,7 +2142,7 @@ fn a_daemon_that_comes_back_after_5_s_is_waited_for() {
             let since = *first.get_or_insert_with(Instant::now);
             let answer = if since.elapsed() < back_after {
                 json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
-                    "message": "the daemon connection closed", "data": { "not_run": true, "retry_after_ms": 100 } } })
+                    "message": "the daemon connection closed", "data": { "not_run": true, "state": "not_run", "retry_after_ms": 100 } } })
             } else {
                 json!({ "id": 1, "ok": true, "result": { "machines": [] } })
             };
@@ -2160,7 +2189,7 @@ fn a_short_caller_keeps_its_own_deadline() {
             line.clear();
             asked += 1;
             let refused = json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
-                "message": "the daemon connection closed", "data": { "not_run": true, "retry_after_ms": 50 } } });
+                "message": "the daemon connection closed", "data": { "not_run": true, "state": "not_run", "retry_after_ms": 50 } } });
             if writeln!(writer, "{refused}").is_err() {
                 break;
             }

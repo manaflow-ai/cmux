@@ -5,18 +5,21 @@
 use super::*;
 use serde_json::Value;
 
-/// Replays a fixture: each turn end checks whether the chat is offered its rewrite then, and the
-/// offer is logged the way the hub logs it.
+/// Replays a fixture: each prompt starts its own turn, each turn end ends the latest prompt's turn
+/// and checks whether the chat is offered its rewrite then, and the offer is logged the way the
+/// hub logs it.
 fn replay(name: &str, transcript: &str) {
     let mut coach = Coach::default();
     let mut offers = 0;
+    let mut latest = String::new();
     for (n, line) in transcript.lines().filter(|l| !l.trim().is_empty()).enumerate() {
         let step: Value = serde_json::from_str(line).unwrap();
         if let Some(prompt) = step["prompt"].as_str() {
-            coach.prompt(prompt);
+            latest = format!("p{n}");
+            coach.prompt(&latest, prompt);
         }
         if let Some(end) = step["turn_end"].as_str() {
-            let offer = coach.turn_ended(end == "completed");
+            let offer = coach.turn_ended(&latest, end == "completed");
             assert_eq!(offer, step["expect_offer"] == true, "{name} line {}", n + 1);
             if offer {
                 offers += 1;
@@ -79,10 +82,13 @@ fn corrections_and_redirects_are_told_apart_from_ordinary_prompts() {
 #[test]
 fn a_rewrite_is_asked_once_for_its_own_offer() {
     let mut coach = Coach::default();
-    for text in ["build it", "no, in rust", "actually use tokio", "still wrong, use the pool", "ok"]
+    for (n, text) in
+        ["build it", "no, in rust", "actually use tokio", "still wrong, use the pool", "ok"]
+            .into_iter()
+            .enumerate()
     {
-        coach.prompt(text);
-        coach.turn_ended(true);
+        coach.prompt(&format!("p{n}"), text);
+        coach.turn_ended(&format!("p{n}"), true);
     }
     assert!(coach.take_ask("o1").is_none(), "no offer yet");
     coach.offer("o1".into());
@@ -94,9 +100,11 @@ fn a_rewrite_is_asked_once_for_its_own_offer() {
     coach.ask_failed();
     assert!(coach.take_ask("o1").is_some(), "a failed ask may be asked again");
     // Corrections after the offer are not counted, and no second offer comes.
-    for text in ["no, the other one", "still wrong", "actually revert it", "fine"] {
-        coach.prompt(text);
-        assert!(!coach.turn_ended(true));
+    for (n, text) in
+        ["no, the other one", "still wrong", "actually revert it", "fine"].into_iter().enumerate()
+    {
+        coach.prompt(&format!("q{n}"), text);
+        assert!(!coach.turn_ended(&format!("q{n}"), true));
     }
 }
 
@@ -110,11 +118,11 @@ fn the_model_reads_the_first_prompt_and_corrections_only() {
     let long = "x".repeat(MAX_PROMPT_CHARS * 2);
     assert!(rewrite_prompt(&long, &[]).len() < MAX_PROMPT_CHARS + 1000);
     let mut coach = Coach::default();
-    coach.prompt(&long);
-    coach.prompt(&format!("no, {long}"));
+    coach.prompt("long", &long);
+    coach.prompt("long-no", &format!("no, {long}"));
     assert_eq!(coach.corrections[0].chars().count(), MAX_PROMPT_CHARS + 1);
     for n in 0..MAX_KEPT + 4 {
-        coach.prompt(&format!("no, try {n}"));
+        coach.prompt(&format!("try-{n}"), &format!("no, try {n}"));
     }
     assert_eq!(coach.corrections.len(), MAX_KEPT);
     assert_eq!(coach.count, MAX_KEPT + 5);
@@ -128,4 +136,59 @@ fn a_rewrite_answer_is_cleaned() {
     assert_eq!(clean_rewrite("```\nAdd a toggle.\n```").as_deref(), Some("Add a toggle."));
     let long = "y".repeat(MAX_REWRITE_CHARS + 10);
     assert_eq!(clean_rewrite(&long).unwrap().chars().count(), MAX_REWRITE_CHARS + 1);
+}
+
+/// Three corrections, the last still running: the person queues their go-ahead behind it. The
+/// correction's turn ending is not the go-ahead's (cmux#38893 review, `prompt_coach.rs:821`).
+#[test]
+fn a_queued_go_ahead_settles_only_its_own_turn() {
+    let mut coach = Coach::default();
+    for (id, text) in
+        [("p0", "add retries"), ("p1", "no, only on 5xx"), ("p2", "still wrong, use the helper")]
+    {
+        coach.prompt(id, text);
+        assert!(!coach.turn_ended(id, true));
+    }
+    coach.prompt("p3", "actually cap it at 30 seconds");
+    coach.prompt("p4", "great, ship it");
+    assert!(!coach.turn_ended("p3", true), "the correction's turn: the person did not move on yet");
+    assert!(coach.turn_ended("p4", true), "the go-ahead's own turn");
+}
+
+/// The person's go-ahead waits while an agent's (or a peer's) turn runs: that turn ends with an id
+/// the person never sent, so it decides nothing and leaves the go-ahead for its own turn.
+#[test]
+fn a_turn_no_person_started_leaves_the_persons_prompt_alone() {
+    let mut coach = Coach::default();
+    for (id, text) in [
+        ("p0", "add retries"),
+        ("p1", "no, only on 5xx"),
+        ("p2", "still wrong"),
+        ("p3", "I meant a cap"),
+    ] {
+        coach.prompt(id, text);
+        coach.turn_ended(id, true);
+    }
+    coach.prompt("p4", "thanks, looks right");
+    assert!(!coach.turn_ended("agent-turn", true), "an agent's turn");
+    assert!(coach.turn_ended("p4", true), "the person's own turn still counts");
+    // A stopped turn drops its prompt: it never counts later.
+    let mut stopped = Coach::default();
+    for (id, text) in
+        [("p0", "no, use the pool"), ("p1", "no, in rust"), ("p2", "no, keep the old name")]
+    {
+        stopped.prompt(id, text);
+    }
+    stopped.prompt("p3", "ok good");
+    assert!(!stopped.turn_ended("p3", false));
+    assert!(!stopped.turn_ended("p3", true), "settled once");
+}
+
+/// A resend of a prompt still waiting for its turn (a client retry, same id) counts once.
+#[test]
+fn a_resent_prompt_counts_once() {
+    let mut coach = Coach::default();
+    coach.prompt("p0", "no, the other file");
+    coach.prompt("p0", "no, the other file");
+    assert_eq!(coach.count(), 1);
 }

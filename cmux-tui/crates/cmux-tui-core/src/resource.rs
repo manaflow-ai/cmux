@@ -184,6 +184,8 @@ pub enum ResourceOperation {
     DiffCommentsList,
     #[serde(rename = "diff.comments.save")]
     DiffCommentsSave,
+    #[serde(rename = "diff.comments.send")]
+    DiffCommentsSend,
     #[serde(rename = "git.branches")]
     GitBranches,
     #[serde(rename = "git.commit")]
@@ -626,6 +628,12 @@ pub enum ResourceOperation {
     CloudOwnerHarnessLoginCopy,
     #[serde(rename = "cloud.owner.github_app")]
     CloudOwnerGithubApp,
+    #[serde(rename = "cloud.owner.turn_checkpoint")]
+    CloudOwnerTurnCheckpoint,
+    #[serde(rename = "cloud.owner.turn_rewind")]
+    CloudOwnerTurnRewind,
+    #[serde(rename = "cloud.owner.turns")]
+    CloudOwnerTurns,
     #[serde(rename = "cloud.previews.refresh")]
     CloudPreviewsRefresh,
     #[serde(rename = "cloud.previews.create_link")]
@@ -634,6 +642,10 @@ pub enum ResourceOperation {
     CloudPreviewsRevokeLink,
     #[serde(rename = "cloud.machine.io")]
     CloudMachineIo,
+    #[serde(rename = "cloud.machine.chat_access")]
+    CloudMachineChatAccess,
+    #[serde(rename = "cloud.machine.share_chat")]
+    CloudMachineShareChat,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]

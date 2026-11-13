@@ -29,8 +29,10 @@ public final class DaemonHealthSink: Sendable {
 
     private struct State {
         var receiver: (@Sendable (Signal) -> Void)?
-        /// Signals before the first ``bind(_:)`` (at most ``earlyLimit``).
+        /// Signals before the first ``bind(_:)`` (at most ``earlyLimit`` before it starts), and those
+        /// that arrive while it delivers them, so a newer signal never passes an older one.
         var early: [Signal] = []
+        var binding = false
         var timedOut = false
     }
 
@@ -42,12 +44,28 @@ public final class DaemonHealthSink: Sendable {
     /// Sends every signal to `receiver` from now on, on the thread that saw it; the signals that came
     /// before go first.
     public func bind(_ receiver: @escaping @Sendable (Signal) -> Void) {
-        let early = state.withLock { state -> [Signal] in
-            state.receiver = receiver
+        state.withLock { $0.binding = true }
+        // Drains until nothing waits, then takes over: a signal noted meanwhile queues behind the
+        // ones being delivered. At most `earlyLimit` passes; past them the receiver takes over and the
+        // rest goes once (a signal noted during that last batch may then pass it).
+        for _ in 0..<Self.earlyLimit {
+            let batch = state.withLock { state -> [Signal] in
+                guard !state.early.isEmpty else {
+                    (state.receiver, state.binding) = (receiver, false)
+                    return []
+                }
+                defer { state.early = [] }
+                return state.early
+            }
+            guard !batch.isEmpty else { return }
+            for signal in batch { receiver(signal) }
+        }
+        let rest = state.withLock { state -> [Signal] in
+            (state.receiver, state.binding) = (receiver, false)
             defer { state.early = [] }
             return state.early
         }
-        for signal in early { receiver(signal) }
+        for signal in rest { receiver(signal) }
     }
 
     /// Hands every signal on to `sink` (a launch's first attempt to the service that takes it over).
@@ -57,7 +75,7 @@ public final class DaemonHealthSink: Sendable {
 
     public func note(_ signal: Signal) {
         let receiver = state.withLock { state -> (@Sendable (Signal) -> Void)? in
-            if state.receiver == nil, state.early.count < Self.earlyLimit { state.early.append(signal) }
+            if state.receiver == nil, state.binding || state.early.count < Self.earlyLimit { state.early.append(signal) }
             return state.receiver
         }
         receiver?(signal)

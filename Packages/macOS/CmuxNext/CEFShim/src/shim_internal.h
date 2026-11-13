@@ -166,6 +166,8 @@ int NextInternalDevToolsId(int browser_id);
 // CMUX_SHIM_DEVTOOLS_EVENT. True when the message is consumed (a raw-send
 // reply), so it never reaches OnDevToolsMethodResult.
 bool ForwardDevToolsMessage(int browser_id, const void* message, size_t message_size);
+// The open DevTools frontend whose own id is `browser_id` (devtools_call_target.h); null when none.
+CefRefPtr<CefBrowser> DevToolsFrontendById(int browser_id);
 // The browser closed: drop its watch, raw-send mark and id counter.
 void ForgetDevToolsProtocol(int browser_id);
 

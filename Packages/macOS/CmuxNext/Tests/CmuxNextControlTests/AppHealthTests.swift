@@ -117,6 +117,42 @@ struct AppHealthTests {
         #expect(action?.action == .restartPageHost)
     }
 
+    @Test(.enabled(if: linked)) func aRestoreThatMakesProgressHoldsReplacementsAtOnceAndAStalledOneDoesNot() {
+        let clock = ManualClock()
+        let health = AppHealth(clock: clock)
+        #expect(!health.holdsReplace)
+        // The first progress line holds: no start loop needs to be seen first.
+        health.noteDaemonRestoring(pid: 42)
+        #expect(health.holdsReplace)
+        clock.advance(by: .seconds(119))
+        #expect(health.holdsReplace)
+        // No progress for the model's bound: stuck, no longer protected.
+        clock.advance(by: .seconds(1))
+        #expect(!health.holdsReplace)
+        health.noteDaemonRestoring(pid: 42)
+        health.noteDaemonReady(pid: 42)
+        #expect(!health.holdsReplace, "a ready owner is no restore to protect")
+    }
+
+    /// Codex's review of #39247 (F2): the start-loop hold ended only on ready, so a daemon that loops
+    /// and then stalls kept every automatic replacement held for the rest of the app's life.
+    @Test(.enabled(if: linked)) func aStartLoopHoldEndsWhenTheDaemonStallsToo() async {
+        let clock = ManualClock()
+        let health = AppHealth(clock: clock)
+        health.register(AppHealth.sessionDaemonID, kind: .sessionDaemon, label: "Session service")
+        health.noteDaemonStarted()
+        health.noteDaemonStarted()
+        health.noteDaemonStarted()
+        await Self.snapshot(of: health) { snapshot in
+            snapshot["receipts"]?.arrayValue?.contains { $0["action"]?.stringValue == AppHealth.Repair.holdReplace.rawValue } == true
+        }
+        #expect(health.holdsReplace)
+        clock.advance(by: .seconds(119))
+        #expect(health.holdsReplace)
+        clock.advance(by: .seconds(1))
+        #expect(!health.holdsReplace, "a loop that makes no progress for the bound is stuck, not protected")
+    }
+
     @Test(.enabled(if: linked)) func theSnapshotIsPublishedOnlyWhenItChanges() {
         let health = AppHealth(clock: ManualClock())
         let published = AppHealthTestBox(0)
@@ -131,6 +167,22 @@ struct AppHealthTests {
         #expect(published.value == 3)
         #expect(Self.state(health.snapshot, "page:1") == nil)
     }
+
+    /// A part that is only slow (a busy Mac late on a page's heartbeat) gives the indicator no line: it still
+    /// answers, and if it stops it turns stuck and is repaired (Leo, 2026-11-11: "slow indicator on the
+    /// bottom left is uselsss"). Pure: no model needed.
+    @Test func aSlowPartAloneHasNoHeadline() {
+        func part(_ id: String, _ state: String, since: Double = 0) -> JSONValue {
+            ["id": .string(id), "kind": "page", "label": "Agent chat", "state": .string(state), "detail": "", "canRepair": true, "sinceMs": .number(since)]
+        }
+        func snapshot(_ parts: [JSONValue], pending: [JSONValue] = []) -> JSONValue {
+            ["worst": "slow", "parts": .array(parts), "receipts": [], "pending": .array(pending), "pendingMore": 0]
+        }
+        #expect(AppHealth.headline(of: snapshot([part("page:1", "slow")])) == nil)
+        #expect(AppHealth.headline(of: snapshot([part("page:1", "slow"), part("page:2", "stuck", since: 5)]))?.partID == "page:2")
+        let queued = AppHealth.headline(of: snapshot([part("page:1", "slow")], pending: [["id": "i", "label": "close Background task", "sinceMs": 1]]))
+        #expect(queued?.partID == nil && queued?.pending == "close Background task")
+    }
 }
 
 /// A value a `@Sendable` closure writes and the test reads.
@@ -141,4 +193,5 @@ final class AppHealthTestBox<Value: Sendable>: Sendable {
         get { state.withLock { $0 } }
         set { state.withLock { $0 = newValue } }
     }
+
 }

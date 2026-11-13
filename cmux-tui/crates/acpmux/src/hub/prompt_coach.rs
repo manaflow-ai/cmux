@@ -48,7 +48,9 @@ fn read_log(hub: &Hub, sid: &str, id: &str) -> LogRead {
                 if let Some(text) = person_text(&e.msg) {
                     first.get_or_insert_with(|| text.to_owned());
                     if !offered {
-                        replay.prompt(text);
+                        // Its id keeps a logged resend counted once; a record with none is its own.
+                        let id = e.msg.get("promptId").and_then(Value::as_str).map(str::to_owned);
+                        replay.prompt(&id.unwrap_or_else(|| format!("seq-{}", e.seq)), text);
                     }
                 }
             }
@@ -65,17 +67,24 @@ fn read_log(hub: &Hub, sid: &str, id: &str) -> LogRead {
 }
 
 impl Hub {
-    /// A person's prompt to `session` (`server/requests.rs`), checked once as it is sent.
-    pub(crate) fn coach_prompt(&self, session: &Session, text: &str) {
-        session.coach.lock().unwrap_or_else(|e| e.into_inner()).prompt(text);
+    /// A person's prompt `prompt_id` to `session` (`PromptOptions::coach`), checked once as it
+    /// is sent, by the id its turn will end with.
+    pub(super) fn coach_prompt(&self, session: &Session, prompt_id: &str, text: &str) {
+        session.coach.lock().unwrap_or_else(|e| e.into_inner()).prompt(prompt_id, text);
     }
 
-    /// A turn of `session` ended: once the chat qualifies, its offer is logged, unless an earlier
-    /// daemon run logged one already. Off the turn's path; no model is asked.
-    pub(super) fn coach_turn_ended(self: &Arc<Self>, session: &Arc<Session>, completed: bool) {
+    /// The turn of `session`'s prompt `prompt_id` ended: once the chat qualifies, its offer is
+    /// logged, unless an earlier daemon run logged one already. Off the turn's path; no model is
+    /// asked.
+    pub(super) fn coach_turn_ended(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        prompt_id: &str,
+        completed: bool,
+    ) {
         let id = {
             let mut coach = session.coach.lock().unwrap_or_else(|e| e.into_inner());
-            if !coach.turn_ended(completed) {
+            if !coach.turn_ended(prompt_id, completed) {
                 return;
             }
             let id = uuid::Uuid::now_v7().to_string();
@@ -85,21 +94,35 @@ impl Hub {
         let hub = self.clone();
         let session = session.clone();
         tokio::spawn(async move {
+            // The offer an earlier daemon run logged, by its id (`None` inside when it has none),
+            // and what the chat's log says of it.
             let earlier = {
                 let hub = hub.clone();
                 let sid = session.id.clone();
                 tokio::task::spawn_blocking(move || {
-                    let mut found = false;
-                    let _ = hub.store.scan_kinds(&sid, &["coach_offer"], &mut |_| {
-                        found = true;
+                    let mut found = None;
+                    let _ = hub.store.scan_kinds(&sid, &["coach_offer"], &mut |e| {
+                        found =
+                            Some(e.msg.get("coachId").and_then(Value::as_str).map(str::to_owned));
                         false
                     });
-                    found
+                    found.map(|id| id.map(|id| (read_log(&hub, &sid, &id).restored, id)))
                 })
                 .await
-                .unwrap_or(true)
+                // An unread log may hold one: log none rather than a second.
+                .unwrap_or(Some(None))
             };
-            if earlier {
+            if let Some(earlier) = earlier {
+                // The chat holds what `read_log` finds for the logged offer, never this one that was
+                // not logged: its corrections from the log while its rewrite is still to make.
+                let mut coach = session.coach.lock().unwrap_or_else(|e| e.into_inner());
+                if coach.offered() == Some(id.as_str()) {
+                    match earlier {
+                        Some((Some(restored), _)) => *coach = restored,
+                        Some((None, logged)) => coach.offer_made(logged),
+                        None => coach.forget_offer(),
+                    }
+                }
                 return;
             }
             let count = session.coach.lock().unwrap_or_else(|e| e.into_inner()).count();
@@ -195,6 +218,14 @@ impl Hub {
         if let Ok(session) = self.resolve(id) {
             *session.coach.lock().unwrap_or_else(|e| e.into_inner()) = Default::default();
         }
+    }
+
+    /// The coach offer `id`'s chat holds now, logged or found in its log (tests).
+    #[doc(hidden)]
+    pub fn coach_offered(&self, id: &str) -> Option<String> {
+        let session = self.resolve(id).ok()?;
+        let coach = session.coach.lock().unwrap_or_else(|e| e.into_inner());
+        coach.offered().map(str::to_owned)
     }
 
     /// Writes prompt coach rewrites with `rewriter` instead of the small model (tests).

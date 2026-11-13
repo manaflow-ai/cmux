@@ -13,8 +13,9 @@ public extension PageNativeOp {
     static let historyNavigate = "cmux.app.history.navigate"
     /// Built in for every page: `{g}`, the page is done with forwarded gesture `g`.
     static let swipeRelease = "cmux.app.swipe.release"
-    /// Built in for every page (app health, webviews/src/pages/shared/pageHealth.ts): `{handled}`, the
-    /// page is alive and has handled that many key and pointer presses; answers null.
+    /// Built in for every page (app health, webviews/src/pages/shared/pageHealth.ts): `{handled, edits?}`,
+    /// the page is alive, has handled that many key and pointer presses, and holds unsaved edits now
+    /// (`edits: true`, `[data-cmux-unsaved-edits]`); answers null.
     static let pageHeartbeat = "cmux.page.heartbeat"
     /// Host to page, `{}` → `{saved}`: the page saves its scroll and draft now; the host reloads it next.
     static let pageSaveState = "cmux.page.save_state"
@@ -30,7 +31,7 @@ extension PageRouter {
         case PageNativeOp.pageHeartbeat:
             guard !closed else { throw PageError.closed }
             let handled = params["handled"]?.doubleValue.flatMap { $0.isFinite && $0 >= 0 ? UInt64(min($0, 9_007_199_254_740_991)) : nil } ?? 0
-            heartbeat?(handled)
+            heartbeat?(handled, params["edits"]?.boolValue == true)
             return .null
         case PageNativeOp.titleBarDoubleClick:
             guard !closed else { throw PageError.closed }
