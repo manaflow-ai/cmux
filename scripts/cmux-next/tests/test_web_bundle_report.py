@@ -273,6 +273,17 @@ class WebBundleReportTests(unittest.TestCase):
             }))
             self.assertEqual(MODULE.load_bundle("bundle", metafile, None)["commonjs"], [])
 
+    def test_development_names_include_camel_case_fixture_and_shipped_debug_page(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metafile = self.write_bundle(root, "pages", [
+                ("src/mockFixture.ts", 100, 80),
+                ("src/summary/chatGallery.ts", 100, 80),
+                ("src/pages/debug-settings/main.ts", 100, 80),
+            ])
+            bundle = MODULE.load_bundle("pages", metafile, None)
+            self.assertEqual(len(bundle["devInputs"]), 3)
+
     def test_zero_byte_package_wrapper_does_not_count_as_another_copy(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

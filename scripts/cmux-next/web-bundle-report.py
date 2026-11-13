@@ -172,7 +172,8 @@ def load_bundle(
         if row["commonjs"]:
             commonjs.append(row)
         lowered = path.lower()
-        if "/gallery/" in lowered or ".test." in lowered or "/fixtures/" in lowered:
+        row["developmentNamed"] = any(token in lowered for token in ("gallery", "fixture", "debug", ".test."))
+        if row["developmentNamed"]:
             dev_inputs.append(row)
         rows.append(row)
     rows_by_source = {source_paths[row["path"]]: row for row in rows if row["path"] in source_paths}
@@ -260,8 +261,8 @@ def render_markdown(report: dict[str, Any]) -> str:
                 flags.append(f"barrel({row['barrel']})")
             if row["commonjs"]:
                 flags.append("commonjs")
-            if "/gallery/" in row["path"].lower() or ".test." in row["path"].lower() or "/fixtures/" in row["path"].lower():
-                flags.append("dev-only")
+            if row["developmentNamed"]:
+                flags.append("development-named (review usage)")
             known = row["attributionMetric"] not in ("unknown", "mixed")
             value = f"{row['attributionValue']:,}" if known else "unknown"
             ratio = f"{row['ratio']:.2f}" if row["attributionMetric"] == "emitted" else "unknown"
@@ -337,7 +338,7 @@ def main() -> int:
         if bundle["commonjs"]:
             findings.append(f"CommonJS inputs in {bundle['name']}: {len(bundle['commonjs'])}")
         if bundle["devInputs"]:
-            findings.append(f"dev-only input reached production in {bundle['name']}: {len(bundle['devInputs'])}")
+            findings.append(f"development-named input reached production in {bundle['name']}: {len(bundle['devInputs'])} (review usage; names do not establish that code is unused)")
     duplicates = {
         package: {"bundles": sorted(package_bundles[package]), "paths": sorted(package_paths[package])}
         for package in sorted(package_bundles)
