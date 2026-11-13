@@ -14,7 +14,10 @@
 //! is watched again, and a watch no longer needed is removed. An inotify watch is on an inode,
 //! so without this a replaced folder's edits went unseen until restart, a link to a folder made
 //! later was never followed, and a refresh that dropped a folder kept its watch (Codex review of
-//! #42548, F1 and F2; cmux#42565 for the login environment).
+//! #42548, F1 and F2; cmux#42565 for the login environment). Not followed: an existing ancestor
+//! of an existing folder replaced under its name (`mv ~/.config ...` while `~/.config/cmux`
+//! exists); its parents are not watched, so the old watch keeps the moved folder until restart.
+//! Watching every ancestor would wake each watch for every entry made in `$HOME`.
 //!
 //! Not `notify`'s inotify watcher: it always asks for `IN_OPEN` (notify 8.2), so a watched folder
 //! that every program opens files in sent an event per open. The harness profile watch watches
@@ -180,9 +183,14 @@ impl QuietDirs {
                         look_again = true;
                         continue;
                     }
-                    let path = event.name.map_or_else(|| dir.clone(), |n| dir.join(n));
                     let self_event =
                         event.mask.intersects(EventMask::MOVE_SELF | EventMask::DELETE_SELF);
+                    // A watched folder's own attributes (a chmod or touch of `$HOME` or `/etc`)
+                    // change nothing it holds: not sent.
+                    if event.name.is_none() && !self_event {
+                        continue;
+                    }
+                    let path = event.name.map_or_else(|| dir.clone(), |n| dir.join(n));
                     let entry = !event
                         .mask
                         .intersects(EventMask::MODIFY | EventMask::CLOSE_WRITE | EventMask::ATTRIB);
@@ -293,7 +301,14 @@ impl State {
                     continue;
                 }
                 let new = !self.armed.contains_key(&path);
-                let Ok(wd) = self.watches.add(&path, mask(kind)) else { continue };
+                let wd = match self.watches.add(&path, mask(kind)) {
+                    Ok(wd) => wd,
+                    Err(e) => {
+                        // Looked at again on the next event that may change it.
+                        tracing::debug!("quiet dirs: cannot watch {}: {e}", path.display());
+                        continue;
+                    }
+                };
                 // A kind change keeps the folder's watch (the kernel replaces its mask).
                 if let Some(old) =
                     self.armed.insert(path.clone(), Armed { wd: wd.clone(), kind, id })
