@@ -5,9 +5,10 @@
 //! in the working tree and untracked files no ignore rule hides. Each is
 //! folded into its first path component; a component with more below it is a
 //! directory, and so is a lone component that is a real folder on disk (a
-//! submodule). A symlink is never one: a path below a link is no candidate,
-//! so a link has no path below it here and stays a leaf. Directories come
-//! first, then names case-insensitively.
+//! submodule). A symlink is never one at the look at the candidates: the
+//! daemon reaches each candidate through real folders only, so no candidate
+//! is below a link, and a link stays a leaf. Directories come first, then
+//! names case-insensitively.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -15,7 +16,7 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use super::Repository;
-use super::files::{Folders, candidates, folder};
+use super::files::{Folders, candidates, folder, spelled};
 use super::work_tree_entry::Kind;
 use crate::resource::ResourceError;
 
@@ -33,11 +34,11 @@ pub(super) fn list(
         .and_then(Value::as_u64)
         .map_or(DEFAULT_LIMIT, |limit| usize::try_from(limit).unwrap_or(MAX_LIMIT))
         .clamp(1, MAX_LIMIT);
-    let listed = folder(repository, directory, OPERATION)?;
-    let (paths, cut) = candidates(repository, directory, &listed, OPERATION)?;
+    let below = folder(repository, directory, OPERATION)?;
+    let (paths, cut) = candidates(repository, directory, &below, OPERATION)?;
     // A symlink is a leaf, as git records it: following one could list a folder
     // outside the repository. Only a real folder (a submodule) is a directory.
-    let mut folders = Folders::of(repository, &listed);
+    let mut folders = Folders::of(repository, &below);
     // name -> is a directory
     let mut children: BTreeMap<&str, bool> = BTreeMap::new();
     for path in &paths {
@@ -49,8 +50,9 @@ pub(super) fn list(
             continue;
         }
         let directory = children.entry(name).or_insert(false);
-        // Paths below the name: a folder, and no link (no candidate is below a
-        // link). A lone name is a directory only when it is a real folder.
+        // Paths below the name: it was a real folder at the look at the
+        // candidates (the daemon reached them through it). A lone name is a
+        // directory only when it is a real folder.
         if !*directory && (nested || folders.kind(name) == Some(Kind::Folder)) {
             *directory = true;
         }
@@ -73,7 +75,7 @@ pub(super) fn list(
         .collect();
     Ok(json!({
         "root": repository.root.to_string_lossy(),
-        "folder": listed,
+        "folder": spelled(repository, &below),
         "entries": entries,
         "truncated": cut || total > limit,
     }))

@@ -15,9 +15,12 @@
 //! - `git.files.search` and `git.files.list` say of a listed name if it is a folder (a
 //!   submodule). A link is a file whatever its target is, also when git lists tracked paths
 //!   below its name. A name below a link is no folder and no search result, also when the
-//!   link took a folder's place after git's listing. A path below a link is no match in the
-//!   search's count and gives no name in the list, with and without a file of its name behind
-//!   the link, and also when the folder that is searched or listed became the link.
+//!   link took a folder's place after git's listing. git gives the names, and the daemon
+//!   itself looks if a listed path is there, through real folders only. A path that it cannot
+//!   reach so is no match in the search's count, no result, and gives no name in the list:
+//!   a path below a link, with and without a file of its name behind the link, also when the
+//!   folder that is searched or listed became the link; a path below a folder that cannot be
+//!   read; a path with more than 128 folders above its name.
 //!
 //! The git on `PATH` is a stand-in that is the real git. After a child that lists the
 //! untracked files (`ls-files --others`) it runs `.git/after-untracked-listing` of the work
