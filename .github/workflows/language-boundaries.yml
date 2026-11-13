@@ -4,16 +4,21 @@ name: language boundaries
 # (2026-11-10): "imessage home lives in swift, chat ui lives in react, acpmux/cmux-tui lives in rust, cmux cloud
 # core should be rust (together with cmux-tui/acpmux) and should have very minimal in swift." A pull request into
 # feat-cmux-next or main that deletes or moves an area's files out of its language, adds a foreign language there,
-# or adds Swift to a Swift-minimal area fails the `language-boundaries` check unless Leo approved the port (the
+# or adds Swift to a Swift-minimal area is flagged by the `language-boundaries` check unless Leo approved the port (the
 # `leo-approved-port` label added by teamleaderleo plus his `leo-approved-port:` PR comment, not a review; the
 # script's docstring has the limit). A pull request anywhere that removes Swift and adds React/web code (a Swift-to-
-# React port) fails too unless Lawrence or Leo added `react-port-ok` (Lawrence, relayed by Leo, 2026-11-11: "also
+# React port) is flagged too unless Lawrence or Leo added `react-port-ok` (Lawrence, relayed by Leo, 2026-11-11: "also
 # let's not move stuff to react anymore unless we talk about it / swift->rust is usually fine though"). Adding or
 # removing a label re-runs it.
 #
 # scripts/ci/language_boundaries.py decides, run from the base commit with the base's manifest, never the pull
 # request's code; the head is read only as a list of changed files. It runs on pull_request_target, so this file is
 # the base's too: a pull request cannot edit the check that judges it. Same shape as classic-frozen-guard.yml.
+#
+# Advisory only: it never blocks a pull request. The check step runs with continue-on-error, so a boundary it finds
+# (or a listing it cannot read) shows as the step's failure and its annotations, while the job and the check stay
+# green. Leo, 2026-11-12, after a teammate's PR was told to get `leo-approved-port`: "lucas ran into this which is
+# weird. we shouldnt have that". The agents' merge gate still reads the same manifest.
 on:
   pull_request_target:
     branches: [main, feat-cmux-next]
@@ -50,6 +55,8 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Check the changed files against the language boundaries
+        # Advisory: a finding annotates the run but never fails the check (header).
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}

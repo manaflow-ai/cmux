@@ -186,7 +186,8 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
            agent_session_id TEXT NOT NULL,
            applied_sequence INTEGER NOT NULL CHECK(applied_sequence >= 0),
            ended INTEGER NOT NULL CHECK(ended IN (0, 1)),
-           committed_revision INTEGER NOT NULL CHECK(committed_revision >= 0)
+           committed_revision INTEGER NOT NULL CHECK(committed_revision >= 0),
+           hook_order TEXT CHECK(hook_order IS NULL OR json_valid(hook_order))
          );
          CREATE TABLE IF NOT EXISTS resource_agent_hook_apply_cursor (
            id INTEGER PRIMARY KEY CHECK(id = 1),
@@ -279,6 +280,21 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
                WHERE json_extract(value, '$.kind') = 'terminal' LIMIT 1
              )
              WHERE terminal_id IS NULL",
+            [],
+        )?;
+    }
+    let has_hook_order = transaction
+        .prepare("PRAGMA table_info(resource_agent_hook_state)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "hook_order");
+    if !has_hook_order {
+        // Rows from before this column order by journal sequence until the
+        // session's next stamped hook event.
+        transaction.execute(
+            "ALTER TABLE resource_agent_hook_state ADD COLUMN hook_order TEXT
+               CHECK(hook_order IS NULL OR json_valid(hook_order))",
             [],
         )?;
     }
@@ -436,6 +452,9 @@ pub(crate) struct AgentHookProjectionState {
     pub agent_session_id: String,
     pub applied_sequence: u64,
     pub ended: bool,
+    /// The latest hook stamp of the session, so the hook order holds across
+    /// a session restart (`resource_agent_hook_state.hook_order`, JSON).
+    pub order: crate::agent_hooks::HookOrderStamp,
 }
 
 pub(super) fn migrate_resource_agent_projections(
@@ -1028,21 +1047,28 @@ impl WorkspaceRegistry {
         if let Some(hook_state) = hook_state {
             let applied_sequence = i64::try_from(hook_state.applied_sequence)
                 .context("agent hook sequence exceeds SQLite range")?;
+            let hook_order = (!hook_state.order.is_empty())
+                .then(|| serde_json::to_string(&hook_state.order))
+                .transpose()
+                .context("agent hook order")?;
             tx.execute(
                 "INSERT INTO resource_agent_hook_state(
-                   terminal_id, agent_session_id, applied_sequence, ended, committed_revision
-                 ) VALUES(?1, ?2, ?3, ?4, ?5)
+                   terminal_id, agent_session_id, applied_sequence, ended, committed_revision,
+                   hook_order
+                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT(terminal_id) DO UPDATE SET
                    agent_session_id = excluded.agent_session_id,
                    applied_sequence = excluded.applied_sequence,
                    ended = excluded.ended,
-                   committed_revision = excluded.committed_revision",
+                   committed_revision = excluded.committed_revision,
+                   hook_order = excluded.hook_order",
                 params![
                     terminal_id.as_str(),
                     hook_state.agent_session_id,
                     applied_sequence,
                     hook_state.ended,
                     sqlite_revision,
+                    hook_order,
                 ],
             )?;
         }
