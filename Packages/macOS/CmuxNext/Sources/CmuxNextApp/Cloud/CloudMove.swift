@@ -281,7 +281,7 @@ struct CloudMove {
               suffix: String = "", progress: CloudMoveProgress? = nil) async throws -> (folder: String, chat: String) {
         var last = CloudMoveCLI.Answer(ok: false)
         for root in services.cloud.move.workRoots {
-            let remote = Self.remote(folder, under: root, suffix: suffix)
+            let remote = folder.remote(under: root, suffix: suffix)
             do {
                 last = try await SeedProgress.feed({ [root = folder.root, to = remote.folder] in
                     try await cli.seedPush(socket: socket, local: root, remote: to, stderrLine: $0)
@@ -295,13 +295,6 @@ struct CloudMove {
             guard last.errorCode == "fs.permission_denied" else { break }
         }
         throw CloudMoveFailure.syncing(last, machine: machine, retry: retry)
-    }
-
-    /// `folder`'s place under `root` on a machine, its folder name ending in `suffix` (``sync``).
-    static func remote(_ folder: CloudMoveFolder, under root: String, suffix: String) -> (folder: String, chat: String) {
-        let remote = folder.remote(under: root)
-        guard !suffix.isEmpty else { return remote }
-        return (remote.folder + suffix, remote.folder + suffix + String(remote.chat.dropFirst(remote.folder.count)))
     }
 
     /// The chat's folder on this Mac: the `path` argument (the CLI makes a
@@ -396,9 +389,7 @@ struct CloudMove {
         }
     }
 
-    private func toast(_ id: String, _ message: String, duration: Duration, retry: (@MainActor () -> Void)? = nil, working: Bool = false) {
-        Self.toast(services, id, message, duration: duration, retry: retry, working: working)
-    }
+    private func toast(_ id: String, _ message: String, duration: Duration, working: Bool = false) { Self.toast(services, id, message, duration: duration, working: working) }
     /// A run's working toast (Moving, Bringing back) never times out: its result replaces it (a fixed 10 minutes ended it mid-copy).
     static let working = CmuxToast.untilClosed
 

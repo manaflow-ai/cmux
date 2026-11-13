@@ -2,7 +2,9 @@
 //! Back Local and a chat start's machine steps. The app runs the cmux-tui CLIs and git, reads its
 //! defaults and the disk, observes its main-actor state, and asks here what each means.
 
-use cmux_cloud_start_core::moves::{autosize, cli, folder, ledger, pin, progress, seed, targets, wait};
+use cmux_cloud_start_core::moves::{
+    autosize, cli, folder, ledger, pin, progress, seed, targets, wait,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 

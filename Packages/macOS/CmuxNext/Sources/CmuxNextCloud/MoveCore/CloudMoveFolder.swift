@@ -96,6 +96,17 @@ public nonisolated struct CloudMoveFolder: Sendable, Equatable, Decodable {
         let reply = CloudMoveCore().call("folder_remote", Request(root: root, subpath: subpath, workRoot: workRoot), as: Reply.self)
         return (reply?.folder ?? workRoot, reply?.chat ?? workRoot)
     }
+
+    /// ``remote(under:)`` with its folder name ending in `suffix` (Move to Another Machine's ``targetSuffix(machineID:session:)``).
+    public func remote(under workRoot: String, suffix: String) -> (folder: String, chat: String) {
+        let plain = remote(under: workRoot)
+        guard !suffix.isEmpty else { return plain }
+        return (plain.folder + suffix, plain.folder + suffix + String(plain.chat.dropFirst(plain.folder.count)))
+    }
+
+    /// A move to another machine's folder suffix: a folder of its own per machine and per chat, so two chats of one folder never
+    /// seed over each other there. Whole ids: time-ordered ids share their first characters for hours.
+    public static func targetSuffix(machineID: String, session: String) -> String { "-" + machineID + "-" + session }
 }
 
 /// Where the Cloud toggle (`cloud.newWorkspacesInCloud`) sends a person's New Workspace: nil keeps it on this Mac;
