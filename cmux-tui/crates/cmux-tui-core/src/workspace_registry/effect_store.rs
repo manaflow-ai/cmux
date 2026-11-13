@@ -907,7 +907,8 @@ impl WorkspaceRegistry {
     /// under the same key.
     /// Commit a projected patch and its effect receipt. Public `deltas` that
     /// the journal already states are dropped first; `restates_all` says
-    /// they restate every live resource, so they may seed the public fold.
+    /// they restate every live resource, so the public fold is complete
+    /// after them.
     #[allow(clippy::too_many_arguments)]
     pub fn commit_resource_effect_patch(
         &mut self,

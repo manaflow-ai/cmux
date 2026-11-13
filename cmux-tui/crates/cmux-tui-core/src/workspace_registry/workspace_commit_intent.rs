@@ -33,7 +33,8 @@ pub(crate) struct WorkspaceCommitIntent {
     /// The resource topology before this commit (with `project_resource`).
     previous_topology: Option<ResourceTopologySnapshot>,
     /// What the journal states for each workspace before this commit (the public fold at its head, read at
-    /// prepare on the registry's thread), or `None` while the fold is unseeded. The commit journals only the
+    /// prepare on the registry's thread), or `None` when the journal head could not be read. A fold that was lost
+    /// and started again holds no workspace before its first workspace commit. The commit journals only the
     /// workspace upserts the fold does not state already (#32408).
     stated_workspaces: Option<(u64, HashMap<String, Value>)>,
     session_id: SessionPublicId,
@@ -373,8 +374,10 @@ impl WorkspaceCommitIntent {
             )?;
             // Only what the journal does not state already (#32408): each upsert is compared, decorated as the
             // journal writes it, with the public fold read at prepare. The commit's own workspace always goes
-            // when extra rows ran (a metadata commit changes only its decorations). With the fold unseeded,
-            // or behind this commit's base revision, every workspace is stated, as before.
+            // when extra rows ran (a metadata commit changes only its decorations). With no fold, or one
+            // behind this commit's base revision, every workspace is stated, as before; a fold that was
+            // lost and started again holds none, so the first workspace commit after it states each one
+            // one time and the fold holds them from then on.
             let stated = self
                 .stated_workspaces
                 .as_ref()

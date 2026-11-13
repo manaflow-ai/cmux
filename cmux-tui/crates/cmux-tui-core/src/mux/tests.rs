@@ -43,6 +43,8 @@ mod dock_columns;
 mod exit_snapshot_cost;
 mod history_agent_fold;
 mod input_queue_backstop;
+#[cfg(unix)]
+mod journal_after_lost_fold;
 mod journal_lane_full;
 mod journal_roster;
 mod journal_seal_cost;

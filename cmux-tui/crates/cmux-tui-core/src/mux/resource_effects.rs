@@ -295,7 +295,7 @@ impl Mux {
 
     /// [`Self::commit_full_resource_projection_with_mutation`] for a terminal
     /// just created as `surface` in the workspace whose key is
-    /// `workspace_key`: once the public fold is seeded, only the workspace
+    /// `workspace_key`: only the workspace
     /// the surface is in now (a concurrent move can bind it elsewhere) and
     /// the requested one are projected, as
     /// [`Self::created_view_projection_locked`] does for an effect commit, so
@@ -326,7 +326,7 @@ impl Mux {
                     .and_then(|pane| state.screen_of(pane))
                     .and_then(|(workspace, _)| state.workspaces.get(workspace))
                     .map(|workspace| workspace.public_id.clone());
-                let scope = placed.filter(|_| registry.public_fold_seeded()).map(|placed| {
+                let scope = placed.map(|placed| {
                     let requested = state
                         .workspace_by_key(workspace_key)
                         .map(|workspace| workspace.public_id.clone())

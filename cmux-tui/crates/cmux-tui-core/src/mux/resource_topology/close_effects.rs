@@ -571,8 +571,7 @@ impl Mux {
             ResourceOperation::TabClose
                 | ResourceOperation::PaneClose
                 | ResourceOperation::ScreenClose
-        ) && plan.workspace_close.is_none()
-            && registry.public_fold_seeded();
+        ) && plan.workspace_close.is_none();
         let mut projection = match target_workspace {
             Some(workspace) if scoped => self.resource_effect_projection_scoped_locked(
                 &registry,

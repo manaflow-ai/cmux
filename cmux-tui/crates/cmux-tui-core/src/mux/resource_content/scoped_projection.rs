@@ -149,8 +149,9 @@ impl Mux {
     }
 
     /// The projection for a commit whose result is `result`: a created view
-    /// changed one workspace, so once the public fold is seeded (a full
-    /// projection seeds it) only that workspace is projected.
+    /// changed one workspace, so only that workspace is projected. That does
+    /// not wait for the registry's fold of the journal: the fold only drops
+    /// values the journal states already, and a fold that was lost drops none.
     pub(crate) fn created_view_projection_locked(
         &self,
         registry: &WorkspaceRegistry,
@@ -158,7 +159,7 @@ impl Mux {
         result: Value,
     ) -> anyhow::Result<ResourceEffectProjection> {
         match created_view_workspace(&result) {
-            Some(workspace) if registry.public_fold_seeded() => {
+            Some(workspace) => {
                 let rows = created_view_rows(registry, state)?;
                 self.resource_effect_projection_scoped_rows_locked(
                     registry,
@@ -168,7 +169,7 @@ impl Mux {
                     result,
                 )
             }
-            _ => self.resource_effect_projection_locked(registry, state, result),
+            None => self.resource_effect_projection_locked(registry, state, result),
         }
     }
 
@@ -185,12 +186,12 @@ impl Mux {
         let mut workspaces = Vec::with_capacity(views.len());
         for view in views {
             match created_view_workspace(view) {
-                Some(workspace) if registry.public_fold_seeded() => {
+                Some(workspace) => {
                     if !workspaces.contains(&workspace) {
                         workspaces.push(workspace);
                     }
                 }
-                _ => return self.resource_effect_projection_locked(registry, state, result),
+                None => return self.resource_effect_projection_locked(registry, state, result),
             }
         }
         let rows = created_view_rows(registry, state)?;

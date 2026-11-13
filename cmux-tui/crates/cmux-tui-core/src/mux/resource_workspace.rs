@@ -173,15 +173,16 @@ impl Mux {
             anyhow::Ok((plan, before, tabs))
         });
         let (mut plan, before, tabs) = prepared?;
+        let full_projection = plan.restates_all;
         let committed = persist_public_topology_result(operation, &mut plan.result, &plan.deltas)
             .and_then(|()| {
                 // After the result took its public value from the full deltas.
                 if plan.prunes_stated
                     && let Some(deltas) = registry.prune_stated_projection_deltas(&plan.deltas)?
                 {
+                    // Pruned deltas no longer restate every resource; `full_projection` keeps
+                    // that the plan did.
                     plan.deltas = deltas;
-                    // Pruned deltas no longer restate every resource.
-                    plan.restates_all = false;
                 }
                 anyhow::Ok(())
             })
@@ -219,7 +220,7 @@ impl Mux {
         } else {
             self.subscribers.publish_deferred_session_paths(session_paths);
         }
-        if plan.restates_all && !commit.replayed {
+        if full_projection && !commit.replayed {
             registry.record_full_projection_fold(commit.revision, &plan.deltas);
         }
         // `apply` consumes the plan; keep what the tree delta needs.

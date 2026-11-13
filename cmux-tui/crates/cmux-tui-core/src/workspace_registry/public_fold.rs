@@ -10,9 +10,18 @@
 //! for every replaying consumer, so it is dropped before the journal append.
 //!
 //! The fold catches up from the journal before each use, so a commit by any
-//! path keeps it exact. It starts empty (nothing is dropped) and is seeded
-//! from the next full projection, whose upserts are the complete live set.
-//! A journal gap or any read failure clears it, which only disables pruning.
+//! path keeps it exact: it holds a value only when the journal states that
+//! value now. It need not hold every live resource. A daemon start, a commit
+//! whose receipt did not come, a journal gap and a read failure lose it; the
+//! next use starts it again empty at the journal head. An empty fold drops
+//! nothing, and each later commit adds the values its own record states, so
+//! no commit waits for a full projection before it may be scoped. (Before,
+//! a lost fold sent the next create or close to the full projection, which
+//! wrote one journal value for each live resource of the session.)
+//!
+//! A full projection makes the fold complete (it then holds every live
+//! resource). Only the debug cross-check reads that: a complete fold can
+//! say that the journal does not state a resource, a partial one cannot.
 
 use std::collections::HashMap;
 
@@ -24,9 +33,28 @@ const TRACKED_RESOURCES: [&str; 6] = ["workspace", "screen", "pane", "tab", "ter
 pub(super) struct PublicTopologyFold {
     revision: u64,
     values: HashMap<(String, String), Value>,
+    /// Whether `values` holds every live topology resource (a full projection was folded since
+    /// the fold started). Read through [`Self::holds_every_resource`] only.
+    complete: bool,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Reads of [`PublicTopologyFold::holds_every_resource`] on this thread.
+    static COMPLETE_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 impl PublicTopologyFold {
+    /// Whether the fold holds every live topology resource, so a resource it does not hold is
+    /// one the journal does not state. No commit path may depend on this: pruning needs only
+    /// the values the fold holds. The debug cross-check is its one reader, and
+    /// `complete_reads_for_test` counts each read.
+    fn holds_every_resource(&self) -> bool {
+        #[cfg(test)]
+        COMPLETE_READS.with(|reads| reads.set(reads.get() + 1));
+        self.complete
+    }
+
     fn apply(&mut self, changes: &Value) {
         let Some(changes) = changes.as_array() else { return };
         for change in changes {
@@ -196,8 +224,9 @@ impl WorkspaceRegistry {
         Ok(Value::Array(kept))
     }
 
-    /// The workspace values the journal states now (after catching up), keyed by public id, or `None` while the
-    /// fold is unseeded or cannot catch up. A copy for a commit that prunes its workspace upserts against it
+    /// The workspace values the fold holds now (after catching up), keyed by public id: each is what the journal
+    /// states for that workspace, and a workspace that is absent is one the fold cannot speak for. `None` when
+    /// the journal head cannot be read. A copy for a commit that prunes its workspace upserts against it
     /// inside its transaction (`WorkspaceCommitIntent`, which may run on the journal writer, away from the
     /// registry). The fold reads that commit back from the journal at its next catch-up, as it does every other
     /// commit.
@@ -213,15 +242,26 @@ impl WorkspaceRegistry {
         Some((fold.revision, workspaces))
     }
 
-    /// Whether the fold holds a complete topology to prune against.
-    pub(crate) fn public_fold_seeded(&self) -> bool {
-        self.public_fold.is_some()
+    /// Whether the fold holds every live topology resource (a full projection was folded).
+    #[cfg(test)]
+    pub(crate) fn public_fold_complete_for_test(&self) -> bool {
+        self.public_fold.as_ref().is_some_and(|fold| fold.complete)
+    }
+
+    /// Reads of the fold's `complete` flag on this thread (see
+    /// `PublicTopologyFold::holds_every_resource`).
+    #[cfg(test)]
+    pub(crate) fn complete_reads_for_test() -> u64 {
+        COMPLETE_READS.with(std::cell::Cell::get)
     }
 
     /// Record a committed resource revision whose journaled changes were
-    /// `journaled`. When they are the unpruned changes of a full topology
-    /// projection (`full_projection`), they are the complete live set and
-    /// seed an empty fold.
+    /// `journaled`. When they are the changes of a full topology projection
+    /// (`full_projection`), the fold holds every live resource after them:
+    /// each upsert of the projection is one the fold held with that value
+    /// (pruned) or one that `journaled` states. That needs the prune and
+    /// this call to see the same fold: each commit path runs both in one
+    /// hold of the registry.
     pub(super) fn record_public_fold(
         &mut self,
         previous_revision: u64,
@@ -262,19 +302,24 @@ impl WorkspaceRegistry {
             Some(fold) if fold.revision == previous_revision => {
                 fold.apply(journaled);
                 fold.revision = revision;
+                fold.complete |= full_projection;
             }
+            // Not at this commit's base: lost. The next use starts it again at the journal head.
             Some(_) => self.public_fold = None,
-            None if full_projection => {
+            // Lost, and not started again when this commit pruned (the journal head could not
+            // be read): the record's own values are what the journal states at `revision`.
+            // Whether they are every live resource is not known here, so it is not complete.
+            None => {
                 let mut fold = PublicTopologyFold { revision, ..Default::default() };
                 fold.apply(journaled);
                 self.public_fold = Some(fold);
             }
-            None => {}
         }
     }
 
     /// `deltas` without the projection upserts the journal already states,
-    /// or `None` while the fold is unseeded (nothing to prune against).
+    /// or `None` when the fold is lost and cannot start again (the journal
+    /// head cannot be read): nothing to prune against.
     pub(crate) fn prune_stated_projection_deltas(
         &mut self,
         deltas: &Value,
@@ -286,64 +331,89 @@ impl WorkspaceRegistry {
         self.prune_stated_topology_deltas(deltas).map(Some)
     }
 
-    /// [`Self::record_public_fold`] for a resource patch commit at
-    /// `revision` whose `journaled` changes are a full topology projection's
-    /// (`Mux::commit_resource_mutation_plan`, which does not prune against
-    /// the fold): they seed an empty fold.
+    /// A resource patch commit at `revision` journaled the changes of a full
+    /// topology projection (`Mux::commit_resource_mutation_plan` and
+    /// `Mux::commit_full_resource_projection_locked`, which record no other
+    /// way): the fold holds every live resource after it. `journaled` is
+    /// what the record states, pruned or not.
     pub(crate) fn record_full_projection_fold(&mut self, revision: u64, journaled: &Value) {
-        // A seeded fold reads this commit back from the journal; only an
-        // empty one (or one that cannot catch up) is seeded from it.
-        self.catch_up_public_fold();
-        if self.public_fold.as_ref().is_some_and(|fold| fold.revision >= revision) {
-            return;
-        }
-        self.public_fold = None;
-        self.record_public_fold(revision.saturating_sub(1), revision, journaled, true);
-    }
-
-    /// Apply every resource record committed since the fold's revision, or
-    /// clear the fold when the journal cannot supply them.
-    fn catch_up_public_fold(&mut self) {
-        let Some(mut fold) = self.public_fold.take() else { return };
-        let caught_up = (|| -> anyhow::Result<bool> {
-            loop {
-                let head = current_resource_revision(&self.connection.get())?;
-                if fold.revision == head {
-                    return Ok(true);
-                }
-                if fold.revision > head {
-                    return Ok(false);
-                }
-                let page = self.resource_events_after(fold.revision)?;
-                if page.batches.is_empty() {
-                    return Ok(false);
-                }
-                for batch in page.batches {
-                    if batch.previous_revision != fold.revision {
-                        return Ok(false);
-                    }
-                    fold.apply(&batch.changes);
-                    fold.revision = batch.revision;
+        match self.public_fold.as_ref().map(|fold| fold.revision) {
+            // Held before this commit: it reads the commit back from the journal. Each upsert
+            // of the projection is then one it held with that value (pruned) or one the record
+            // states.
+            Some(held) if held < revision => {
+                if self.catch_up_public_fold()
+                    && let Some(fold) = self.public_fold.as_mut()
+                {
+                    fold.complete = true;
                 }
             }
-        })();
-        if matches!(caught_up, Ok(true)) {
-            self.public_fold = Some(fold);
+            // Started again at the head after this commit: it does not hold the record's values.
+            Some(_) => {}
+            // Lost, and not started again when the commit pruned: start it from the record.
+            None => {
+                self.record_public_fold(revision.saturating_sub(1), revision, journaled, true);
+            }
         }
     }
 
-    /// The value the journal states for one topology resource, or `None`
-    /// when the fold is unseeded or behind the store (no catch-up: callers
-    /// hold only a shared registry borrow).
+    /// Apply every resource record committed since the fold's revision. A fold that is lost, or
+    /// that the journal cannot bring to its head (a gap, a read failure), starts again empty at
+    /// the head: it then drops nothing, which is exact at any revision. Returns whether the fold
+    /// held before the call is the one held after it.
+    fn catch_up_public_fold(&mut self) -> bool {
+        let held = self.public_fold.take().and_then(|fold| self.caught_up(fold));
+        let kept = held.is_some();
+        self.public_fold = held.or_else(|| {
+            let revision = current_resource_revision(&self.connection.get()).ok()?;
+            Some(PublicTopologyFold { revision, ..Default::default() })
+        });
+        kept
+    }
+
+    /// `fold` with every resource record after its revision applied, or `None` when the journal
+    /// cannot supply them.
+    fn caught_up(&self, mut fold: PublicTopologyFold) -> Option<PublicTopologyFold> {
+        loop {
+            let head = current_resource_revision(&self.connection.get()).ok()?;
+            if fold.revision == head {
+                return Some(fold);
+            }
+            if fold.revision > head {
+                return None;
+            }
+            let page = self.resource_events_after(fold.revision).ok()?;
+            if page.batches.is_empty() {
+                return None;
+            }
+            for batch in page.batches {
+                if batch.previous_revision != fold.revision {
+                    return None;
+                }
+                fold.apply(&batch.changes);
+                fold.revision = batch.revision;
+            }
+        }
+    }
+
+    /// What the journal states for one topology resource: `Some(Some(value))`, `Some(None)` when
+    /// it states none, or `None` when the fold cannot tell (it is lost, behind the store, or
+    /// does not hold the resource and is not complete). No catch-up: callers hold only a shared
+    /// registry borrow. The debug cross-check is the one caller.
     pub(crate) fn stated_topology_value(&self, resource: &str, id: &str) -> Option<Option<Value>> {
         let fold = self.public_fold.as_ref()?;
         let head = current_resource_revision(&self.connection.get()).ok()?;
-        (fold.revision == head)
-            .then(|| fold.values.get(&(resource.to_string(), id.to_string())).cloned())
+        if fold.revision != head {
+            return None;
+        }
+        match fold.values.get(&(resource.to_string(), id.to_string())) {
+            Some(value) => Some(Some(value.clone())),
+            None => fold.holds_every_resource().then_some(None),
+        }
     }
 
-    /// The value the journal states for one topology resource, after
-    /// catching up; `None` while the fold is unseeded.
+    /// The value the fold holds for one topology resource, after catching
+    /// up; `None` when the fold is lost and cannot start again.
     #[cfg(test)]
     pub(crate) fn stated_topology_value_for_test(
         &mut self,

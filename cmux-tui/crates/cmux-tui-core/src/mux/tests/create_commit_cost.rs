@@ -237,8 +237,8 @@ fn file_session(workspaces: usize) -> FileSession {
     });
     assert_eq!(mux.with_state(|state| state.workspaces.len()), workspaces);
     assert!(
-        mux.workspace_registry.lock().unwrap().public_fold_seeded(),
-        "the public fold is not seeded: the creates of this test would run the full projection"
+        mux.workspace_registry.lock().unwrap().public_fold_complete_for_test(),
+        "the public fold is not complete: the creates of this test would state the session again"
     );
     FileSession { mux, root, target }
 }
@@ -325,7 +325,7 @@ fn arms(workspaces: usize) -> Arms {
     mux.workspace_registry.lock().unwrap().abandon_effect_commit();
     let (no_fold, no_fold_surface) =
         counted_create(&mux, || mux.split(other_pane, SplitDir::Down, None).unwrap());
-    // The full projection of the split above seeded the fold again.
+    // The fold started again, empty, at the split above; the measure below reads no fold.
     let empty = empty_workspace_record(&mux);
     let arms = Arms { split, tab, workspace, no_fold, empty };
     eprintln!("empty workspace with focus at {workspaces} workspaces: {:?}", arms.empty);

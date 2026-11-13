@@ -306,15 +306,16 @@ impl Mux {
         // walk that meets a change outside its scope falls back to the full projection, as for a
         // tab close; the other closes of this path keep the full projection.
         let projection = match closed_workspace {
-            Some((workspace, index)) if registry.public_fold_seeded() => self
-                .resource_effect_projection_scoped_rows_locked(
-                    &registry,
-                    &mut plan.state,
-                    &[workspace],
-                    WorkspaceRows::From(index),
-                    json!({}),
-                )?,
-            _ => self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?,
+            Some((workspace, index)) => self.resource_effect_projection_scoped_rows_locked(
+                &registry,
+                &mut plan.state,
+                &[workspace],
+                WorkspaceRows::From(index),
+                json!({}),
+            )?,
+            None => {
+                self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?
+            }
         };
         let committed: TopologyCloseCommit = registry.commit_topology_close(
             request.mutation,
