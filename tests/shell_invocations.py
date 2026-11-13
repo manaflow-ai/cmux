@@ -882,13 +882,14 @@ def _opaque(word: Token) -> bool:
 
 
 def _assignment_uncertain(word: Token) -> bool:
-    return _ASSIGNMENT.match(word.text) is not None and word.assignment_prefix_quoted
+    match = _ASSIGNMENT.match(word.text)
+    return match is not None and (word.assignment_prefix_quoted or (match.group(2) is not None and word.quoted))
 
 
 def _is_assignment(word: Token) -> bool:
     """Whether bash takes the word as a prefix assignment: NAME, `[` and `=` unquoted (`"X=1" cmd` runs X=1)."""
     match = _ASSIGNMENT.match(word.text)
-    if match is None or word.assignment_prefix_quoted:
+    if match is None or word.assignment_prefix_quoted or (match.group(2) is not None and word.quoted):
         return False
     if match.group(2) is None:
         return word.plain >= match.end()
@@ -1017,7 +1018,9 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
     wrapper_assignment = False
     while start < len(words) and not _opaque(words[start]):
         name = words[start].text
-        if name in _WRAPPERS and (name != "time" or not words[start].quoted):
+        time_reserved = name == "time" and not words[start].quoted and not had_prefix_assignment \
+            and (not wrappers or all(wrapper == "time" for wrapper in wrappers))
+        if name in _WRAPPERS and (name != "time" or time_reserved):
             program, sure = _unwrap(words, start, _WRAPPERS[name])
         elif name in _SHELLS and not words[start].quoted:
             program, sure = _shell_script(words, start)
@@ -1045,6 +1048,11 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
     if start >= len(words):
         return None  # only assignments and redirections: nothing is run (a substitution's commands are separate)
     program = words[start]
+    if program.text.rsplit("/", 1)[-1] == "time" and (program.quoted or had_prefix_assignment or wrappers
+                                                       or "/" in program.text):
+        # A textual `time` is an external command after assignments or another wrapper; its availability and what it
+        # executes depend on PATH, so do not credit its operand as certain.
+        certain, any_program = False, True
     if _opaque(program) or program.text.startswith("$"):
         certain, any_program = False, True
     if program.text in _RUNS_ARGUMENTS or program.text in defined:
