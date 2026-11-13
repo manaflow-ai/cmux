@@ -1402,9 +1402,11 @@ def first_operand(args: list[str], options: Options) -> int | None:
 # Past this many levels of one command running another, what it runs counts as unreadable.
 _NEST_LIMIT = 4
 _SOURCES = {"source", "."}
+# Replacement mode (-I/--replace) can turn input into executable text, even inside a literal shell argument.
+# Optional-value options (--eof/--max-lines) are not this grammar's required-value options. Leave both unreadable.
 _XARGS_OPTIONS = Options(
-    values=_options("-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s", "--arg-file", "--delimiter",
-                    "--eof", "--replace", "--max-lines", "--max-args", "--max-procs", "--max-chars",
+    values=_options("-a", "-d", "-E", "-L", "-n", "-P", "-s", "--arg-file", "--delimiter",
+                    "--max-args", "--max-procs", "--max-chars",
                     "--process-slot-var"),
     flags=_options("-0", "-r", "-t", "-p", "-x", "--null", "--no-run-if-empty", "--verbose",
                    "--interactive", "--exit"),

@@ -661,6 +661,17 @@ class TagGate(unittest.TestCase):
                 run = "CMD='gh release create v1 dist/x'; " + runner
                 self.assertTrue(publishes({"run": run}), run)
 
+    def test_xargs_replacement_text_and_optional_values_may_publish(self) -> None:
+        commands = (
+            "printf 'gh release create v1 dist/x\\n' | xargs -I{} sh -c '{}'",
+            "printf 'gh\\n' | xargs -I{} {} release create v1 dist/x",
+            "xargs --eof gh release create v1 dist/x", "xargs --max-lines gh release create v1 dist/x",
+            "printf 'gh\\n' | xargs --replace {} release create v1 dist/x",
+        )
+        for run in commands:
+            with self.subTest(run=run):
+                self.assertTrue(publishes({"run": run}), run)
+
     def test_a_wrapped_gh_api_release_write_is_classified_like_a_direct_one(self) -> None:
         write = "gh api repos/o/r/releases -X POST"
         field = "gh api repos/o/r/releases -f tag=v1"
