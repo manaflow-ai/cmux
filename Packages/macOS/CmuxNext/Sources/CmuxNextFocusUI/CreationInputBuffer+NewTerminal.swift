@@ -9,15 +9,20 @@
 /// - With no stand-in (a daemon from before `terminal-placement-env-v1`), the focus names the terminal of the press
 ///   until the reply: a key typed while the person did nothing since the press is the creation's (``ticket(newest:over:)``).
 /// - Made: the keys are the daemon tab's of the new terminal (``tab(_:)``). The stand-in's id names no tab after the swap.
-///   Until the store lists that tab the keys go into the stand-in's view, which is that terminal's own, so the hold
-///   waits for nothing more. With no stand-in the hold waits for the tab while it holds such a key, at most its limit
-///   (`CreationInputBuffer.awaitsMadeTerminal`); with no tab then they are lost, and no terminal gets them (``lost(_:)``).
+///   Until the store lists that tab the keys go into the stand-in's view, which is that terminal's own and sends them by
+///   the terminal's id (a local daemon with `terminal-input-while-creating-v1`), so the hold waits for nothing more.
+///   With no stand-in, or with one whose view cannot send before its terminal exists (``silentStandIns``), the hold
+///   waits for the tab while it holds such a key, at most its limit (`CreationInputBuffer.awaitsMadeTerminal`); with no
+///   tab then they are lost, and no terminal gets them (``waitsForTab(_:standIn:)``).
 /// - Refused: the keys go with the creation, into no terminal (``resolve(_:landed:madeTab:)``).
 /// - Past the reply bound the keys run as typed, as every creation's do (cmux-ad m12): the creation is off this list.
 @MainActor
 struct NewTerminalKeys {
     /// The tickets, until one is refused, closed by the person or past the reply bound.
     var tickets: Set<Int> = []
+    /// The tickets whose stand-in's view sends no key before its terminal exists (a daemon that does not queue such input:
+    /// another machine's): a key typed into that view is dropped with it when the daemon's tab takes its place.
+    var silentStandIns: Set<Int> = []
     /// What names the daemon's tab of each made terminal: nil until the store lists that tab.
     private var made: [Int: @MainActor () -> String?] = [:]
 
@@ -38,10 +43,14 @@ struct NewTerminalKeys {
     /// The daemon's tab of the terminal the creation behind `ticket` made, once the store lists it.
     func tab(_ ticket: Int) -> String? { made[ticket].flatMap { $0() } }
 
-    /// The creation behind `ticket` made a terminal that the store lists no tab of. At the hold's end (its limit, or the
-    /// focus left the content) its keys go to its stand-in's lane; with none they have no terminal: they are counted and
-    /// never typed, as a stranded workspace's (the terminal of the press is not theirs).
+    /// The creation behind `ticket` made a terminal that the store lists no tab of.
     func lost(_ ticket: Int) -> Bool { made[ticket].map { $0() == nil } ?? false }
+
+    /// The keys of `ticket` (`standIn`: it has a stand-in's lane) have no terminal to go to until the store lists the made
+    /// terminal's tab: no stand-in, or one whose view cannot send them. The hold waits for that tab while it holds such a
+    /// key; at its end (its limit, or the focus left the content) they are counted and never typed, as a stranded
+    /// workspace's (the terminal of the press is not theirs). With a stand-in that sends, they go into its view at once.
+    func waitsForTab(_ ticket: Int, standIn: Bool) -> Bool { (!standIn || silentStandIns.contains(ticket)) && lost(ticket) }
 }
 
 extension CreationInputBuffer {

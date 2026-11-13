@@ -78,7 +78,7 @@ public final class CreationInputBuffer {
     /// `earlyTab`: the tab of the new terminal's view when that view takes keys before the reply
     /// (its keys reach the daemon by terminal id, which queues them, cx-wb5.78).
     /// `tab`: the provisional tab the creation shows, so a close of it can cancel the hold (`cancel(tab:)`).
-    /// `machine`: the machine the creation's terminal is on (its keys reach it there when its view is gone). `newTerminal`: a New Terminal Tab, which owns the keys typed for it (``NewTerminalKeys``).
+    /// `machine`: the machine the creation's terminal is on (its keys reach it there when its view is gone). `newTerminal`: a New Terminal Tab, which owns the keys typed for it (``NewTerminalKeys``); `standInSends`: its stand-in's view sends keys by the terminal's id before the daemon made it.
     /// `newWorkspace`: the creation makes a new workspace with its terminal; the keys typed for it wait until the window
     /// shows that workspace with its terminal, also after the person left it (``shownWorkspaceToWaitFor``,
     /// ``leftWorkspaceWithKeys``), and are dropped when it fails or has not shown by the hold's limit
@@ -88,7 +88,7 @@ public final class CreationInputBuffer {
     /// `pressTerminal`, `personMoves`: a new workspace's: the terminal that had the keyboard at the press, and the count of
     /// the person's focus choices then (``FocusState/personMoveSeq``, ``pressLanes``).
     public func open(generation: UInt64, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil, newWorkspace: Bool = false,
-                     newTerminal: Bool = false, pressTerminal: HeldLane? = nil, personMoves: UInt64 = 0, at start: ContinuousClock.Instant = .now) -> Ticket {
+                     newTerminal: Bool = false, standInSends: Bool = true, pressTerminal: HeldLane? = nil, personMoves: UInt64 = 0, at start: ContinuousClock.Instant = .now) -> Ticket {
         nextID += 1
         (newestCreation, newestOpenedAt) = (nextID, start)
         if newWorkspace, let pressTerminal { pressLanes[nextID] = (pressTerminal, personMoves) }
@@ -96,7 +96,7 @@ public final class CreationInputBuffer {
         pending[nextID] = generation
         newestGeneration = generation
         if newWorkspace { workspaceTickets.insert(nextID) }
-        if newTerminal { newTerminals.tickets.insert(nextID); laneMachines[nextID] = machine }
+        if newTerminal { newTerminals.tickets.insert(nextID); laneMachines[nextID] = machine; if !standInSends { newTerminals.silentStandIns.insert(nextID) } }
         if let earlyTab { earlyTabs[nextID] = earlyTab }
         if let tab { tabs[nextID] = tab; laneTabs[nextID] = tab; laneMachines[nextID] = machine }
         if let tab { madeTabs.insert(tab) }
@@ -306,9 +306,9 @@ public final class CreationInputBuffer {
         return true
     }
 
-    private func isStranded(_ id: Int?) -> Bool { id.map { strandedWorkspaces.contains($0) || (laneTabs[$0] == nil && newTerminals.lost($0)) } ?? false } // or a made terminal with no tab and no stand-in
-    /// The hold has a key of a made New Terminal Tab that has no stand-in and no tab in the store yet (the reply came before `tab-added`): flushed now the key is lost, so the hold waits for the tab, at most its limit. No other key makes it wait.
-    public var awaitsMadeTerminal: Bool { events.contains { key in key.creation.map { laneTabs[$0] == nil && newTerminals.lost($0) } ?? false } }
+    private func isStranded(_ id: Int?) -> Bool { id.map { strandedWorkspaces.contains($0) || newTerminals.waitsForTab($0, standIn: laneTabs[$0] != nil) } ?? false } // or a made terminal with no tab and no stand-in that sends
+    /// The hold has a key of a made New Terminal Tab with no tab in the store yet (the reply came before `tab-added`) and no stand-in that sends it: flushed now the key is lost, so the hold waits for the tab, at most its limit. No other key makes it wait.
+    public var awaitsMadeTerminal: Bool { events.contains { key in key.creation.map { newTerminals.waitsForTab($0, standIn: laneTabs[$0] != nil) } ?? false } }
 
     public func awaits(_ generation: UInt64) -> Bool { awaited.contains(generation) }
 

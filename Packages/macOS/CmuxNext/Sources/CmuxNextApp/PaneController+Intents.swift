@@ -197,7 +197,7 @@ extension PaneController {
             }
         }
         let pending = BenchSpans.measure("newTerminal.intend") { command.intendNow(on: daemon, cwd: agentCwd) }
-        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, tab: pending.tab, machine: daemon.machineID, newTerminal: true)
+        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, tab: pending.tab, machine: daemon.machineID, newTerminal: true, standInSends: daemon.queuesCreatingInput)
         if selectHere { selectWhenReported(surface: pending.surface) }
         // After the workspace's create before it (a Ctrl-` on a split still in flight names that split's pane once the
         // daemon made it), as Cmd-D, New Column and New Row go (`WorkspaceContentController.pendingCreate`).

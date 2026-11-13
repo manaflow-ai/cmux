@@ -103,6 +103,25 @@ import Testing
         #expect(ends == ["run", "type 1 into tab_9"], "\(ends)")
     }
 
+    /// A stand-in whose view sends no key before its terminal exists (a daemon that does not queue such input: another
+    /// machine's): typed into that view, the keys are dropped with it. So the hold waits for the daemon's tab as with no
+    /// stand-in, the keys go into that tab, and with no tab at the hold's end they are counted and go into no terminal
+    /// (review of the fix: with no wait, they went into the stand-in's view and were lost with no count).
+    @Test func theKeysOfAStandInThatSendsNothingWaitForTheMadeTerminalsTab() throws {
+        for listed in [true, false] {
+            let buffer = CreationInputBuffer(began: .now), store = Store()
+            let ticket = buffer.open(generation: 7, tab: "pending_tab_1", machine: "remote", newTerminal: true, standInSends: false)
+            buffer.capture(try Self.key("l"), focusedTab: "pending_tab_1")
+            #expect(!buffer.awaitsMadeTerminal, "the hold waits for a tab before the create's reply")
+            buffer.resolve(ticket, awaitsFocus: true, madeTab: { store.tab })
+            #expect(buffer.awaitsMadeTerminal, "the hold does not wait for the tab of a made terminal whose stand-in sends nothing")
+            if listed { store.tab = "tab_9" }
+            #expect(buffer.awaitsMadeTerminal == !listed, "listed \(listed): the wait does not follow the store")
+            let ends = Self.ends(buffer.take(focused: "other") { _, _ in false })
+            #expect(ends == (listed ? ["type 1 into tab_9"] : []) && buffer.untypedTerminalKeys == (listed ? 0 : 1), "listed \(listed): \(ends), \(buffer.untypedTerminalKeys) counted")
+        }
+    }
+
     /// The daemon made the tab, the store does not list it by the hold's end, and there is no stand-in (an older daemon):
     /// no terminal is the keys' own. They are lost: counted, and no terminal gets them (not the terminal of the press).
     @Test func theKeysOfAMadeTerminalWithNoTabAndNoStandInAreLostAndGoIntoNoTerminal() throws {
