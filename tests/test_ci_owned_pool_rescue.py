@@ -7566,9 +7566,12 @@ class OpenHeadPlacementRerun(unittest.TestCase):
                     job("cmux-next fast tier", labels=[SIDE_STD], created=-240), *[make() for make in extra]]
         return jobs
 
+    # A Blacksmith 6 vCPU label with a free slot: a long owned wait is placed again only onto one (replace_room()).
+    FREE_BLACKSMITH = {BLACKSMITH: {"queued": 0, "running": 2, "oldest_queued_minutes": 0}}
+
     def world(self, jobs, *, running=0, workflow=CMUX_NEXT_FIXTURE, extra=None):
         clock = Clock()
-        pools = {SIDE_STD: {"queued": 17, "running": running, "oldest_queued_minutes": 60}}
+        pools = {SIDE_STD: {"queued": 17, "running": running, "oldest_queued_minutes": 60}, **self.FREE_BLACKSMITH}
         api = FakeAPI(clock, jobs, workflow=workflow,
                       snapshot=lambda seconds: {"generated_at": stamp(seconds), "pools": pools},
                       rerun_jobs=lambda seconds: [job("cmux-next fast tier", labels=[BLACKSMITH])])
@@ -7671,7 +7674,8 @@ class OpenHeadPlacementRerun(unittest.TestCase):
                 def snapshot(seconds):
                     # Busy, not dark: the label started a job 30 s before every look.
                     return {"generated_at": stamp(seconds), rescue.LABEL_STARTED_KEY: {SIDE_STD: stamp(seconds - 30)},
-                            "pools": {SIDE_STD: {"queued": 55, "running": 11, "oldest_queued_minutes": 1267}}}
+                            "pools": {SIDE_STD: {"queued": 55, "running": 11, "oldest_queued_minutes": 1267},
+                                      **self.FREE_BLACKSMITH}}
                 api.snapshot = snapshot
                 result, lines = self.run_rescue(api, clock, target)
                 if moved:
@@ -7681,6 +7685,48 @@ class OpenHeadPlacementRerun(unittest.TestCase):
                                         for line in lines), lines)
                 else:
                     assert_left_at_open_head(self, api, result, number=27797)
+
+    def test_a_long_owned_wait_keeps_its_place_while_no_blacksmith_slot_is_free(self):
+        # 2026-11-11, run 42977303192 (cmux#40643): both cascade labels stalled, so each placement re-run put
+        # generated files back on glaeda-side-std-xcode-26.6, last in its queue (34 and 41 min lost, 119 min to its
+        # verdict). Without a free slot on a cascade label the busy owned label keeps the job where it is.
+        stalled = {"blacksmith-12vcpu-macos-26": {"queued": 18, "running": 0, "oldest_queued_minutes": 630},
+                   BLACKSMITH: {"queued": 10, "running": 0, "oldest_queued_minutes": 17}}
+        full = {BLACKSMITH: {"queued": 3, "running": 10, "oldest_queued_minutes": 2}}
+        free_large = {"blacksmith-12vcpu-macos-26": {"queued": 0, "running": 1, "oldest_queued_minutes": 0},
+                      BLACKSMITH: {"queued": 10, "running": 0, "oldest_queued_minutes": 17}}
+        for name, blacksmith, moved in (("stalled", stalled, False), ("full", full, False), ("unlisted", {}, False),
+                                        ("12 vCPU free", free_large, True), ("6 vCPU free", self.FREE_BLACKSMITH, True)):
+            with self.subTest(name):
+                clock, api, target = self.world(self.shape(), running=11)
+                rows = self.shape()(0)
+                rows[-1] = job("cmux-next fast tier", labels=[SIDE_STD],
+                               created=-(rescue.OWNED_REPLACE_SECONDS + 60))
+                api.jobs_at = api.rerun_jobs = lambda seconds, rows=rows: [dict(row) for row in rows]
+
+                def snapshot(seconds, blacksmith=blacksmith):
+                    return {"generated_at": stamp(seconds), rescue.LABEL_STARTED_KEY: {SIDE_STD: stamp(seconds - 30)},
+                            "pools": {SIDE_STD: {"queued": 55, "running": 11, "oldest_queued_minutes": 120},
+                                      **blacksmith}}
+                api.snapshot = snapshot
+                result, lines = self.run_rescue(api, clock, target)
+                if moved:
+                    self.assertIn(f"rerun-job:{self.PLACEMENT_ID}", api.calls, (result, api.calls))
+                else:
+                    assert_left_at_open_head(self, api, result, number=27797)
+                    self.assertNotIn("cancel", api.calls)
+                    self.assertTrue(any("it keeps its place" in line for line in lines), lines)
+
+    def test_replace_room_names_a_free_cascade_label(self):
+        now = START
+        snap = {"generated_at": stamp(0), "pools": {BLACKSMITH: {"queued": 0, "running": 9}}}
+        self.assertEqual(rescue.replace_room(snap, now), BLACKSMITH)
+        snap["pools"][BLACKSMITH] = {"queued": 1, "running": 9}
+        self.assertEqual(rescue.replace_room(snap, now), "", "a queue ahead is no free slot")
+        snap["pools"]["blacksmith-6vcpu-macos-15"] = {"queued": 0, "running": 0}
+        self.assertEqual(rescue.replace_room(snap, now), "", "macOS 15 is no cascade label")
+        self.assertEqual(rescue.replace_room(None, now), "")
+        self.assertEqual(rescue.replace_room({"pools": None}, now), "")
 
     def test_long_owned_wait_is_only_for_owned_labels_on_placed_attempts(self):
         _, _, target = self.world(self.shape())
