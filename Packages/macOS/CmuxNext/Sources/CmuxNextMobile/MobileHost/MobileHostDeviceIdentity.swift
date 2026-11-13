@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 import CryptoKit
 
 /// This Mac's mobile device id for one account: a UUID in
@@ -55,7 +56,7 @@ public struct MobileHostDeviceIdentity: Sendable {
     public func deviceID() throws -> String {
         let machine = hostUUID().map { Self.machineTag(owner: owner, hostUUID: $0) }
         if let id = Self.readID(file) {
-            let stored = (try? String(contentsOf: machineFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let stored = (try? String(blockingContentsOf: machineFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
             guard let machine, let stored, !stored.isEmpty, stored != machine else {
                 // Same computer, or a record from before the machine check: keep it (and record this computer).
                 if let machine, stored != machine { try write(machine, to: machineFile) }
@@ -88,7 +89,7 @@ public struct MobileHostDeviceIdentity: Sendable {
     func adoptsLegacy() -> Bool {
         guard fileManager().fileExists(atPath: legacyFile.path) else { return false }
         let list = directory.appendingPathComponent(MobileHostPairedDevicesFile.fileName, isDirectory: false)
-        guard let data = try? Data(contentsOf: list) else { return true }
+        guard let data = try? Data(blockingContentsOf: list) else { return true }
         guard let users = MobileHostPairedDevicesFile.storedUserIDs(in: data) else { return true }
         return users.contains(owner)
     }
@@ -119,7 +120,7 @@ public struct MobileHostDeviceIdentity: Sendable {
     }
 
     private static func readID(_ url: URL) -> String? {
-        guard let text = try? String(contentsOf: url, encoding: .utf8),
+        guard let text = try? String(blockingContentsOf: url, encoding: .utf8),
               let id = UUID(uuidString: text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
         return id.uuidString.lowercased()
     }
@@ -127,7 +128,7 @@ public struct MobileHostDeviceIdentity: Sendable {
     private func write(_ text: String, to url: URL) throws {
         try fileManager().createDirectory(at: directory, withIntermediateDirectories: true,
                                           attributes: [.posixPermissions: 0o700])
-        try Data(text.utf8).write(to: url, options: .atomic)
+        try Data(text.utf8).blockingWrite(to: url, options: .atomic)
         try fileManager().setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 }

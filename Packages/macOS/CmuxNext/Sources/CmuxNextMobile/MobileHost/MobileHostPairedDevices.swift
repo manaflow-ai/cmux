@@ -473,7 +473,7 @@ public final class MobileHostPairedDevicesFile: Sendable {
     /// The stored lists when the file is the one this app saved last (its seal matches and it is the
     /// list in force in this run), else none: a save keeps only lists that still count.
     private func trustedAccounts() -> [MobileHostPairedDevices] {
-        guard let data = try? Data(contentsOf: file), case .digest(let sealed) = seal.read(),
+        guard let data = try? Data(blockingContentsOf: file), case .digest(let sealed) = seal.read(),
               sealed == MobileHostPairingSeal.digest(data), inForce.withLock({ $0.map { $0 == sealed } ?? true }) else { return [] }
         return Self.accounts(in: data) ?? []
     }
