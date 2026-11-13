@@ -617,6 +617,56 @@ mod tests {
         );
     }
 
+    /// A cancelled or timed-out start ends everything it started, not only the `cmux` it ran:
+    /// a start's own children (an ssh, a waiting chat) would hold the machine and its pipes
+    /// (#39022 review at a5563b2d, follow-up).
+    #[test]
+    fn a_cancelled_start_ends_the_processes_it_started() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = std::env::temp_dir().join(format!("cloud-runs-group-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("cmux");
+        let pid_file = dir.join("descendant.pid");
+        // The start leaves a child of its own running (off its pipes, so they end with the
+        // start), then waits.
+        std::fs::write(
+            &exe,
+            format!(
+                "#!/bin/sh\nsleep 30 </dev/null >/dev/null 2>&1 &\necho $! > {}\nwait\n",
+                pid_file.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let verbs = AppVerbs {
+            exe: Some(exe),
+            socket: PathBuf::from("/tmp/daemon.sock"),
+            app_socket: None,
+            elsewhere: Mutex::default(),
+        };
+        let cancel = AtomicBool::new(false);
+        let ran = std::thread::scope(|scope| {
+            let call = scope
+                .spawn(|| verbs.cmux(&["cloud", "start-chat"], None, STEP_BOUND, Some(&cancel)));
+            let began = Instant::now();
+            while !pid_file.exists() && began.elapsed() < Duration::from_secs(10) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            cancel.store(true, Ordering::Release);
+            call.join().unwrap()
+        });
+        assert_eq!(ran.code, None, "a cancelled start has no exit code");
+        let pid: libc::pid_t = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        // SAFETY: signal 0 only asks whether the pid is alive; it sends nothing.
+        let alive = || unsafe { libc::kill(pid, 0) } == 0;
+        let began = Instant::now();
+        while alive() && began.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!alive(), "the start's own child outlived the cancel");
+    }
+
     #[test]
     fn a_reply_is_the_runs_answer_and_names_its_machine() {
         let got = outcome(Some(0), Ok(json!({ "reply": "hi", "machine_id": "m1" })), false, false);
