@@ -1164,7 +1164,12 @@ function shapedTurn(
     // the agent reads it (Leo, 2026-11-09: "i hate the way when i send off a message it seems to move
     // up and under your current running tool call or whatever").
     const runs = foldBackgroundRuns(messaged, expanded);
-    const body = sinceAboveWorked(supersededFooters(runs, turn, endedByPerson, user.at, live));
+    // The person's steer still on its way (the pane's own row, before acpmux's record) is held after the
+    // body; its stretch's footer comes in the frame it is drawn, as for one acpmux recorded.
+    const sending = live ? held.filter(sentSteer) : [];
+    const body = sinceAboveWorked(
+      supersededFooters(runs, sending.length ? [...turn, ...sending] : turn, endedByPerson, user.at, live),
+    );
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const liveLine = held.length && body.at(-1)?.below ? body.splice(-1) : [];
@@ -2454,17 +2459,19 @@ function supersededFooters(
   for (let index = 0; index < turn.length; index += 1) {
     const row = turn[index]!;
     // A steer still waiting is the person's too: while the turn runs its footer comes with it (below).
-    const waiting = row.steer === "waiting" && personCameIn({ ...row, steer: "landed" });
-    if (!personCameIn(row) && !waiting) continue;
+    // A steer the agent has not read yet: acpmux's record of it (`waiting`), or the pane's own row
+    // still on its way (`sentSteer`).
+    const unread = row.steer === "waiting" ? personCameIn({ ...row, steer: "landed" }) : live && sentSteer(row);
+    if (!personCameIn(row) && !unread) continue;
     const at = (out ?? drawn).findIndex((each) => each.id === row.id);
-    if (row.steer === "waiting") {
-      // A steer the person sent that the agent has not read yet: while the turn runs its footer comes
-      // with it, right above where it is drawn (or where the held rows after the body start).
-      if (live && sentByPerson(row) && !row.failed) close(index, at < 0 ? bodyEnd() : at, row.id);
+    if (unread) {
+      // While the turn runs its footer comes with it, right above where it is drawn (or where the
+      // held rows after the body start).
+      if (live && sentByPerson(row) && !row.failed) close(index, at < 0 ? bodyEnd() : at, steerKey(row));
       continue;
     }
     if (at < 0) from = index + 1;
-    else if (close(index, at, row.id)) lastSteer = index;
+    else if (close(index, at, steerKey(row))) lastSteer = index;
   }
   if (endedByPerson && !turn.some((row) => row.kind === "turnSummary"))
     close(turn.length, undefined, turn.at(-1)?.id ?? "end");
@@ -2780,6 +2787,14 @@ function liveCompaction(drawn: readonly AcpmuxRow[]): AcpmuxRow | undefined {
 /// message, a task's result or harness bookkeeping.
 const sentByPerson = (row: AcpmuxRow) =>
   row.kind === "user" && !row.incoming && !row.received && !row.untyped && row.from === undefined;
+
+/// The pane's own row for a steer the person sent into the running turn, before acpmux's record of it.
+const sentSteer = (row: AcpmuxRow) =>
+  row.kind === "user" && row.pending === true && row.delivery?.queued === true && sentByPerson(row) && !row.failed;
+
+/// What a steer's stretch footer is keyed by: its prompt, which the pane's row and acpmux's record of
+/// it share, so the footer stays the same row from the send on (`superseded-<key>`).
+const steerKey = (row: AcpmuxRow) => row.promptId ?? row.delivery?.promptId ?? row.id;
 
 /// When the person sent `row`, on the events' clock (a call's `endedAt`): the pane's send time while
 /// it has one, moved off this computer's clock by `clockOffset` (the snapshot's `clockOffsetMs`,

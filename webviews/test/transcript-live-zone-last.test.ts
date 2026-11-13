@@ -120,6 +120,19 @@ for (const family of ["claude", "codex"]) {
     expect(sent.indexOf(`${SUPERSEDED}-u-2`)).toBe(sent.indexOf("u-2") - 1);
     expect(landed.slice(0, landed.indexOf("u-2") + 1)).toEqual(sent.slice(0, sent.indexOf("u-2") + 1));
   });
+
+  // Review of #39825 (F1): the footer comes in the frame the pane draws its own row for the steer, before
+  // acpmux's record of it, and is the same row (by its prompt) once the record replaces that row.
+  test(`${family}: the footer comes with the pane's own row for the steer, the same one when acpmux records it`, () => {
+    const body = [prompt, row("act-1", "activity", 1, { items: [call("c-0", "Run tests", "execute", 1, 2)] }), reply];
+    const delivery = { state: "sending", promptId: "p-2", sessionId: "s", sentAt: at(10), queued: true } as const;
+    const sending = ids(
+      view([...body, row("local-p-2", "user", 10, { text: "Also check the queue", pending: true, delivery })], family),
+    );
+    const recorded = ids(view([...body, steer("waiting", { promptId: "p-2", delivery })], family));
+    expect(sending.indexOf(`${SUPERSEDED}-p-2`)).toBe(sending.indexOf("local-p-2") - 1);
+    expect(recorded.slice(0, recorded.indexOf("u-2"))).toEqual(sending.slice(0, sending.indexOf("local-p-2")));
+  });
 }
 
 test("a compaction running when the person sends stays the live line, under the prompt", () => {
