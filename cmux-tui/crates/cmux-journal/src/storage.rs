@@ -128,12 +128,21 @@ impl Storage for FsStorage {
     }
 }
 
-/// The lock file, locked; closing it releases the lock.
+/// The lock file, locked until this drops. The drop unlocks before the file
+/// closes: a child another thread started meanwhile keeps a copy of the open
+/// file until it execs or exits, and a close alone would leave the lock held
+/// in that copy.
 struct FsLock {
     _file: std::fs::File,
 }
 
 impl StorageLock for FsLock {}
+
+impl Drop for FsLock {
+    fn drop(&mut self) {
+        let _ = self._file.unlock();
+    }
+}
 
 /// A file and its size, so an append writes at a known offset with no seek.
 struct FsFile {
