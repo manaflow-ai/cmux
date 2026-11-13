@@ -117,6 +117,27 @@ fn an_app_that_places_terminals_gets_the_caller_and_no_target() {
 }
 
 #[test]
+fn a_terminal_the_app_does_not_place_opens_the_tab_in_its_own_pane() {
+    // The app refuses the run it was to place (its window shows a page, or it
+    // does not know the terminal): the tab opens in the terminal's own pane,
+    // never in the daemon's default pane, which follows the person's focus.
+    let run = Run::app(AppMode::PlacesTerminalsOnPage)
+        .cli(&["--json", "browser", "open", URL], Some(CALLER_TERMINAL));
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let [first, second] = run.runs()[..] else {
+        panic!("the refused run and the one in the terminal's pane expected: {:?}", run.app)
+    };
+    assert!(first["params"].get("target").is_none(), "{first}");
+    assert_eq!(second["params"]["target"], format!("tab:{CALLER_TAB}"), "{second}");
+    assert_ne!(second["params"]["idempotency_key"], first["params"]["idempotency_key"]);
+    assert!(
+        !run.daemon.iter().any(|r| r["operation"] == "tab.get" && r["params"]["tab"] == "current"),
+        "the daemon's default pane was read: {:?}",
+        run.daemon
+    );
+}
+
+#[test]
 fn without_an_app_a_terminals_browser_tab_opens_in_its_own_pane() {
     // A plain cmux-tui session or a Cloud machine: the daemon's active pane
     // follows the person's focus, so the CLI names the caller's own pane.
@@ -347,6 +368,9 @@ enum AppMode {
     /// `Workspace`, and the app places terminal callers itself
     /// (`system.identify` reports `caller_placement` 2).
     PlacesTerminals,
+    /// `PlacesTerminals`, with the window on a page: openBrowser with no
+    /// target is refused.
+    PlacesTerminalsOnPage,
 }
 
 struct Finished {
@@ -523,14 +547,14 @@ fn app_response(mode: AppMode, request: &Value) -> Value {
             "terminal_id": params["caller"]["terminal_id"], "workspace": WORKSPACE,
             "screen": SCREEN, "pane": PANE, "tab": CALLER_TAB},
             "beside": {"pane": null, "placement": "new_column"}});
-        if matches!(mode, AppMode::PlacesTerminals) {
+        if matches!(mode, AppMode::PlacesTerminals | AppMode::PlacesTerminalsOnPage) {
             identity["caller_placement"] = json!(2);
         }
         return json!({"id": request["id"], "ok": true, "result": identity});
     }
     let refused = match mode {
         AppMode::Workspace | AppMode::PlacesTerminals => false,
-        AppMode::Home | AppMode::HomeNoReveal => {
+        AppMode::Home | AppMode::HomeNoReveal | AppMode::PlacesTerminalsOnPage => {
             params["action"] == "openBrowser" && params.get("target").is_none()
         }
         AppMode::Refuse => true,
