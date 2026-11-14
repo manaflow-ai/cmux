@@ -126,6 +126,9 @@ extension TerminalSurface {
                 ensureRendererPresented()
             }
         } else {
+            if renderHealth == .notRendering {
+                rendererPresentationPhase = .awaitingFirstPresentation
+            }
             rendererPresentationState.recoveryAttempted = false
             setOcclusion(false)
         }
@@ -162,11 +165,15 @@ extension TerminalSurface {
         )
     }
 
+    /// Applies a portal visibility transition with an explicit readiness state.
     @MainActor
     func setRendererPortalVisible(_ visible: Bool, presentationReady: Bool) {
         let wasVisible = rendererPortalVisible
         rendererPortalVisible = visible
         if !visible {
+            if renderHealth == .notRendering {
+                rendererPresentationPhase = .awaitingFirstPresentation
+            }
             rendererPresentationState.inFlightToken = nil
             rendererPresentationState.recoveryAttempted = false
             if renderHealth != .shellExited {
