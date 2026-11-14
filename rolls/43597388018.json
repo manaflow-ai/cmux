@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43597388018",
+  "recorded_at": "2026-11-14T13:09:18Z",
+  "reason": "cmux-tui fa35e366a1b2 changes the image's cmux-tui (pinned f9893c1fe84b)",
+  "dry_run": false,
+  "cmux_tui": "fa35e366a1b25bcbf31a3596491c2a7a5a053bf2",
+  "fixes": [
+    {
+      "sha": "fa35e366a1b25bcbf31a3596491c2a7a5a053bf2",
+      "mergedAt": "2026-11-14T04:38:39-08:00",
+      "subject": "ci: cmux-next guards green again (cmux-rd-windows, short timeouts, iPhone clips, job budget) (#43021)"
+    },
+    {
+      "sha": "a772ecaa73f5e8fdb57cecd41f0a8e0ce8aa3785",
+      "mergedAt": "2026-11-14T04:34:48-08:00",
+      "subject": "Extensions: cmux.time.zone for any time zone, and local time that isn't UTC in the sandbox (#42984)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T13:09:18Z",
+    "snapshot_id": "sh-563ad1fad81448e3a36b6d6af0333f29",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43597388018): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "dbdf10f8692a357c63b1bf6caffe4e6ee11e861c",
+    "image": "cloud-native-auto-fa35e366-43597388018-1",
+    "revision": "ci-43597388018-1",
+    "at": "2026-11-14T13:09:18Z"
+  },
+  "rolled_back": false
+}
