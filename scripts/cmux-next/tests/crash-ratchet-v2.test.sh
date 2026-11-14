@@ -153,6 +153,10 @@ mkdir -p "$src/odd"
 printf 'fn t() { a.unwrap(); }\n' > "$src/odd/place.rs"
 g add -A
 out="$(ratchet)" || fail "an unwrap in an out-of-line cfg(test) module (or below one) counted: $out"
+# The same with a relative --repo: a #[path] target is normalized, so it must match a file path that is not
+# (2026-11-08: `--repo .` counted cmux-vnc's #[path = "session_backpressure.rs"] tests as unwrap 0 -> 28).
+out="$(cd "$tmp" && python3 scripts/cmux-next/crash_ratchet.py --repo . 2>&1)" \
+  || fail "with --repo ., an unwrap in a #[path] cfg(test) module counted: $out"
 printf 'pub mod shell;\n#[cfg(any(test, feature = "x"))]\nmod helpers;\n' > "$src/lib.rs"
 printf 'mod test_pty;\npub fn f() {}\n' > "$src/shell.rs"
 rm -r "$src/shell/watch" "$src/odd"

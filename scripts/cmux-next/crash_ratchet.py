@@ -1029,7 +1029,7 @@ def rust_test_modules(paths):
                 files.add(target)
                 folders.add(os.path.dirname(target) if os.path.basename(target) == "mod.rs" else target[:-3])
                 continue
-            module = os.path.join(owner, decl.group("name"))
+            module = os.path.normpath(os.path.join(owner, decl.group("name")))
             files.update((module + ".rs", os.path.join(module, "mod.rs")))
             folders.add(module)
     return files, folders
@@ -1047,7 +1047,10 @@ def scan_rust(repo, scan, exported):
             continue
         if not name.endswith(".rs") or name in ("tests.rs",) or name.endswith("_tests.rs") or name.endswith("_test.rs"):
             continue
-        if path in test_files or any(path.startswith(folder + os.sep) for folder in test_folders):
+        # Both sides normalized: a #[path] target goes through normpath, and a relative --repo (`.`) leaves
+        # `./` on every path, so 28 cmux-vnc test unwraps counted as code (2026-11-08).
+        norm = os.path.normpath(path)
+        if norm in test_files or any(norm.startswith(folder + os.sep) for folder in test_folders):
             continue
         rel = os.path.relpath(path, crates).split(os.sep)[0]  # the crate
         text = open(path, encoding="utf-8", errors="replace").read()
