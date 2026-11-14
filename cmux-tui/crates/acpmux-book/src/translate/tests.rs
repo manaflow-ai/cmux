@@ -541,12 +541,15 @@ fn th_ten_thousand_random_splits_restore_identical_ops_and_final_replies() {
         assert_eq!(whole, split);
         assert_eq!(view, split_view);
         let expected_queue: BTreeSet<u64> = pending.iter().map(|id| prompt_hash(id)).collect();
+        // The ops carry each entry, not the list's order: the mirror is compared by id.
+        let whole_queue: BTreeMap<u64, QueueEntry> =
+            whole.queue.iter().map(|entry| (entry.id_hash, *entry)).collect();
         assert_eq!(
-            whole.queue.keys().copied().collect::<BTreeSet<_>>(),
+            whole_queue.keys().copied().collect::<BTreeSet<_>>(),
             expected_queue,
             "seed {seed}"
         );
-        assert_eq!(view.queue, whole.queue, "seed {seed}");
+        assert_eq!(view.queue, whole_queue, "seed {seed}");
         assert_settled_group_out(&view);
         assert_disjoint_group_ranges(&split_view);
         let mut floor = 0;

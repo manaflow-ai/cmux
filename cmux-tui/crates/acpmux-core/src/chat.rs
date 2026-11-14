@@ -210,26 +210,23 @@ impl Request {
     fn bytes(&self) -> usize {
         let held = match self {
             Self::Wake | Self::Close { .. } => 0,
-            Self::Sub { sub, .. } => std::mem::size_of::<stream::ChatSub>() + sub.sid.len(),
+            Self::Sub { sub, .. } => size_of::<stream::ChatSub>() + sub.sid.len(),
             Self::Resume { sid, .. } | Self::End { sid, .. } => sid.len(),
             Self::Page { page, .. } => {
-                std::mem::size_of::<Page>()
-                    + page.sid.len()
-                    + page.stream.as_str().len()
-                    + std::mem::size_of::<Reply>()
+                size_of::<Page>() + page.sid.len() + page.stream.as_str().len() + size_of::<Reply>()
             }
             Self::Blob { blob, .. } => {
-                std::mem::size_of::<Blob>()
+                size_of::<Blob>()
                     + blob.id.len()
                     + blob.stream.as_str().len()
                     + blob.prompt.as_ref().map_or(0, String::len)
                     + blob.from.as_ref().map_or(0, String::len)
-                    + std::mem::size_of::<Reply>()
+                    + size_of::<Reply>()
             }
             #[cfg(test)]
             Self::SetPerson(person) => person.folds.len() * 8,
         };
-        std::mem::size_of::<Self>() + held
+        size_of::<Self>() + held
     }
 }
 
