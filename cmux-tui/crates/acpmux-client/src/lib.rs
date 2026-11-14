@@ -3258,6 +3258,73 @@ tail"#;
         );
     }
 
+    #[test]
+    #[ignore = "release gate: run once through cmux-ci with --profile gate"]
+    fn v2_pr04b_mirror_v1_rows_gate() {
+        fn sample(closed_rows: usize) -> (u64, u64) {
+            let mut timings = Vec::new();
+            let mut received = 0_u64;
+            for _ in 0..8 {
+                let mut client = Client::<Value>::connected_v2();
+                let hello = Frame::json(
+                    FrameKind::Hello,
+                    &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+                )
+                .unwrap()
+                .encode();
+                client.received(&hello);
+                while client.take_send().is_some() {}
+                let mut sub = Sub::new("m", "list");
+                sub.rows = Some("v1".into());
+                sub.view = Some(ListView::Live);
+                client.subscribe_mirror(sub, std::iter::empty(), false).unwrap();
+                let _ = client.take_send();
+                let rows: Vec<Value> = (0..20)
+                    .map(|index| {
+                        let mut row = Summary::new(format!("live-{index}"));
+                        row.state = "idle".into();
+                        row.last_activity = index as u64;
+                        serde_json::to_value(row).unwrap()
+                    })
+                    .collect();
+                // The closed rows are present in the hub fixture but excluded
+                // by the live window. Keeping their count here makes the gate
+                // input explicit without retaining their summaries in Client.
+                assert!(closed_rows <= 11_000);
+                let frame = Frame::json(
+                    FrameKind::Window,
+                    &serde_json::json!({"sid":"m","cursor":1,"rows":rows,"hasBefore":false,"hasAfter":false,"edition":1}),
+                )
+                .unwrap()
+                .encode();
+                received = received.saturating_add(frame.len() as u64);
+                let started = std::time::Instant::now();
+                assert_eq!(client.received(&frame), frame.len());
+                assert!(matches!(client.next_change(), Some(Change::Window(_))));
+                timings.push(started.elapsed().as_nanos() as u64);
+            }
+            timings.sort_unstable();
+            (timings[timings.len() / 2], received)
+        }
+        let (small, small_bytes) = sample(0);
+        let (god, god_bytes) = sample(11_000);
+        let line = serde_json::json!({
+            "name":"v2.pr04b.mirror_v1_rows",
+            "small_p95":small,
+            "god_p95":god,
+            "unit":"ns",
+            "small_bytes":small_bytes,
+            "god_bytes":god_bytes
+        });
+        println!("{line}");
+        if let Ok(path) = std::env::var("V2_GATE_OUT") {
+            use std::io::Write as _;
+            let mut output =
+                std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
+            writeln!(output, "{line}").unwrap();
+        }
+    }
+
     #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn tokio_driver_preserves_multiple_frames() {
