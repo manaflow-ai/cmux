@@ -194,16 +194,26 @@ final class ListStressRig: NSObject {
         try? await Task.sleep(for: .seconds(1))
         shell.workspacesPath = [ws]
         try? await Task.sleep(for: .seconds(2))
+        logMemory("terminals-list")
         var streaming = 0
         for tab in terminals {
             WorkspaceDemoDirector.shared.post(.activate(tab.id))
             try? await Task.sleep(for: .seconds(2))
+            logMemory("terminals-shown-\(tab.id)")
             guard settings.streams, let model = shell.terminalTabs.model(forTabID: tab.id) else { continue }
             model.session.send(Data("\u{3}stream 1000000 20\r".utf8))
             streaming += 1
         }
+        logMemory("terminals-before-hide")
         shell.workspacesPath = []
         try? await Task.sleep(for: .seconds(1))
+        logMemory("terminals-hidden-1s")
+        Task { @MainActor in
+            for (wait, mark) in [(4, 5), (10, 15), (15, 30), (30, 60)] {
+                try? await Task.sleep(for: .seconds(wait))
+                self.logMemory("terminals-hidden-\(mark)s")
+            }
+        }
         let warm = terminals.filter { shell.terminalTabs.model(forTabID: $0.id) != nil }.count
         log.notice("FRAMELOG list-stress terminals hidden=\(terminals.count, privacy: .public) warm=\(warm, privacy: .public) streaming=\(streaming, privacy: .public)")
     }
