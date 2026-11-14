@@ -83,7 +83,12 @@ async fn mid_turn(
     samples
 }
 
+/// Ignored: a wall-clock percentile bound depends on the load beside it (cmux-source-scan
+/// `timing_ratio`). The default run's check is `hub::watch::idle_tests::
+/// a_written_line_shows_from_its_file_event_before_any_timed_check`, on the paused clock.
+/// `cargo test -p acpmux --test hub_integration mid_turn_lines -- --ignored --nocapture`
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore]
 async fn mid_turn_lines_reach_the_chat_within_100_ms_p95() {
     let (_hub, mut c, root, file, id, _sid) = watched_claude().await;
     let mut samples = mid_turn(&mut c, &file, &root.join("project"), &id, 100).await;
