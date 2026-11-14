@@ -84,6 +84,21 @@
 #                          chat-40 chat-200 chat-40-stream tabs-30 tabs-30-stream
 #                          tabs-80 diff-2400 diff-2400-pan artifacts-40 feed-ref
 #           SUMMARY.md gets one row per window; the artifact keeps listperf/.
+#   energy
+#           build, plus the battery and memory bench (cmux-next-ios/verify/energy.md):
+#           each case launches the Demo app in mock mode on a list rig screen
+#           (CMUX_MOBILE_LIST_*), lets it settle, then samples the app process
+#           once a second with macOS `top` (CPU %, idle wakeups, POWER, the
+#           energy impact Activity Monitor shows, and MEM, its footprint).
+#           Optional arguments (each one `--arg`):
+#             base=SHA     also build SHA and run every case on both apps, base
+#                          then head, on the one simulator (as listperf's base=)
+#             reps=N       repetitions of every case (1-5, default 1)
+#             seconds=S    seconds sampled per case (10-1800, default 30)
+#             cases=A,B    cases by label (default: every case but drift-30m):
+#                          idle-home idle-home-5000 idle-chat-400 tabs-10
+#                          scroll-chat-200 stream-chat background-home drift-30m
+#           SUMMARY.md gets one row per run; the artifact keeps energy/.
 #
 # Isolation: the step makes its own simulator device set under its checkout
 # (`simctl --set`), so it never lists, boots or deletes another simulator, and
@@ -99,7 +114,7 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
   "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg bench --artifact artifacts/ios-sim/evidence.zip"
 
 mode="${1:-build}"
-case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|chief-live-perf|chief-live-perf-baseline|listperf) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, chief-live-perf, chief-live-perf-baseline or listperf, got '$mode'" >&2; exit 2 ;; esac
+case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|chief-live-perf|chief-live-perf-baseline|listperf|energy) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, chief-live-perf, chief-live-perf-baseline, listperf or energy, got '$mode'" >&2; exit 2 ;; esac
 if [[ "$mode" == release-build && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: release-build takes no further arguments" >&2; exit 2
 fi
@@ -176,6 +191,44 @@ if [[ "$mode" == listperf ]]; then
     esac
   done
 fi
+# energy's cases (label, screen, phase, seconds or "-", settings). The phase is what the app does
+# while it is sampled: idle (holding the screen), scroll (the rig's passes), stream (a long answer
+# streaming), background (another app in front). A seconds column overrides seconds=.
+energy_table=(
+  "idle-home        home    idle        -     LIST_COUNT=20 LIST_PASSES=0"
+  "idle-home-5000   home    idle        -     LIST_COUNT=5000 LIST_PASSES=0"
+  "idle-chat-400    chat    idle        -     LIST_COUNT=400 LIST_PASSES=0"
+  "tabs-10          tabs    idle        -     LIST_COUNT=10 LIST_PASSES=0"
+  "scroll-chat-200  chat    scroll      -     LIST_COUNT=200 LIST_PASSES=50 LIST_SETTLE=1"
+  "stream-chat      chat    stream      -     LIST_COUNT=40 LIST_STREAM=1 LIST_PASSES=0"
+  "background-home  home    background  -     LIST_COUNT=20 LIST_PASSES=0"
+  "drift-30m        home    idle        1800  LIST_COUNT=20 LIST_PASSES=0"
+)
+energy_reps=1 energy_seconds=30
+energy_cases=(idle-home idle-home-5000 idle-chat-400 tabs-10 scroll-chat-200 stream-chat background-home)
+if [[ "$mode" == energy ]]; then
+  for sel in "${@:2}"; do
+    case "$sel" in
+      base=*)
+        listperf_base="${sel#base=}"
+        [[ "$listperf_base" =~ ^[0-9a-f]{40}$ ]] || { echo "cmux-next-ios-sim.sh: base= wants a 40-character commit SHA, got '$listperf_base'" >&2; exit 2; } ;;
+      reps=*)
+        energy_reps="${sel#reps=}"
+        [[ "$energy_reps" =~ ^[1-5]$ ]] || { echo "cmux-next-ios-sim.sh: reps= wants 1 to 5, got '$energy_reps'" >&2; exit 2; } ;;
+      seconds=*)
+        energy_seconds="${sel#seconds=}"
+        [[ "$energy_seconds" =~ ^[0-9]+$ && "$energy_seconds" -ge 10 && "$energy_seconds" -le 1800 ]] ||
+          { echo "cmux-next-ios-sim.sh: seconds= wants 10 to 1800, got '$energy_seconds'" >&2; exit 2; } ;;
+      cases=?*)
+        IFS=',' read -r -a energy_cases <<< "${sel#cases=}"
+        for item in "${energy_cases[@]}"; do
+          printf '%s\n' "${energy_table[@]}" | awk '{ print $1 }' | grep -qxF -- "$item" ||
+            { echo "cmux-next-ios-sim.sh: no energy case '$item'" >&2; exit 2; }
+        done ;;
+      *) echo "cmux-next-ios-sim.sh: energy takes base=SHA, reps=N, seconds=S and cases=LIST, got '$sel'" >&2; exit 2 ;;
+    esac
+  done
+fi
 if [[ ${#ui_suites[@]} -gt 0 && ${#kit_only[@]} -eq 0 ]]; then run_kit=0; fi
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -184,7 +237,7 @@ cd "$root"
 # CMUX_MOBILE_LIST_SCREEN; summarize.py reads its frame log). A tree without it
 # would launch the ordinary app and time out on every case, so refuse up front.
 listperf_rig=(cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/ListStressRig.swift cmux-next-ios/verify/feedperf/summarize.py)
-if [[ "$mode" == listperf ]]; then
+if [[ "$mode" == listperf || "$mode" == energy ]]; then
   for f in "${listperf_rig[@]}"; do
     [[ -f "$f" ]] || { echo "cmux-next-ios-sim.sh: listperf needs $f in the head; this tree has no list frame-rate rig" >&2; exit 2; }
   done
@@ -409,7 +462,7 @@ note "- build: $((SECONDS - t0)) s (FFI + xcodegen + Demo simulator app), bundle
 
 # --- listperf: the base app -------------------------------------------------
 base_app=""
-if [[ "$mode" == listperf && -n "$listperf_base" ]]; then
+if [[ ( "$mode" == listperf || "$mode" == energy ) && -n "$listperf_base" ]]; then
   t0=$SECONDS
   # A fleet step's checkout has no origin: the base comes the way the step's own commit
   # does (glaeda's mirror, the host reference, else GitHub by URL; cmux#31442).
@@ -785,6 +838,58 @@ PY
   [[ "${listperf_status:-0}" -eq 0 ]] || note "- listperf: FAILED (a run did not finish or measured no windows; see listperf/)"
 fi
 
+# --- Battery and memory (energy) -------------------------------------------
+if [[ "$mode" == energy ]]; then
+  t0=$SECONDS
+  en="$out/energy"
+  mkdir -p "$en"
+  sides=(head)
+  [[ -z "$base_app" ]] || sides=(base head)
+  note ""
+  note "## Battery and memory (Demo build, mock mode, ${device_type##*.} on ${runtime##*.}; cmux-next-ios/verify/energy.md)"
+  note ""
+  note "| Run | Phase | s | CPU % | Idle wakeups/s | POWER | MEM start MB | MEM end MB | MEM max MB |"
+  note "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+  for rep in $(seq 1 "$energy_reps"); do
+    for case_name in "${energy_cases[@]}"; do
+      line="$(printf '%s\n' "${energy_table[@]}" | awk -v c="$case_name" '$1 == c')"
+      read -r _label screen phase case_seconds settings <<< "$line"
+      [[ "$case_seconds" != "-" ]] || case_seconds="$energy_seconds"
+      for side in "${sides[@]}"; do
+        run="$side-$case_name-r$rep"
+        side_app="$app"
+        [[ "$side" == head ]] || side_app="$base_app"
+        envs=(SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1 "SIMCTL_CHILD_CMUX_MOBILE_LIST_SCREEN=$screen")
+        for kv in $settings; do envs+=("SIMCTL_CHILD_CMUX_MOBILE_$kv"); done
+        # A clean install of this side's app: no data container carried over from the other side.
+        simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+        simctl uninstall "$udid" "$bundle_id" >/dev/null 2>&1 || true
+        simctl install "$udid" "$side_app"
+        # `simctl launch` prints "BUNDLE: PID"; the simulator's app is a process of this Mac, so top sees it.
+        pid="$(env "${envs[@]}" xcrun simctl --set "$sims" launch --terminate-running-process "$udid" "$bundle_id" \
+          -cmuxMobile.setupComplete YES -cmux-mobile-no-restore | awk -F': ' '{ print $NF }' | tr -dc '0-9')"
+        if [[ -z "$pid" ]]; then echo "$run: no PID from simctl launch"; energy_status=1; continue; fi
+        # The rig opens its screen (up to ~8 s for tabs and chat), then settles; the scroll case's passes start after.
+        sleep 12
+        if [[ "$phase" == background ]]; then
+          simctl launch "$udid" com.apple.Preferences >/dev/null 2>&1 || { echo "$run: could not put Settings in front"; energy_status=1; }
+          sleep 3
+        fi
+        # One sample a second for case_seconds, plus top's first sample (dropped: its rates are since launch).
+        top -l "$(( case_seconds + 1 ))" -s 1 -pid "$pid" -stats pid,cpu,idlew,power,mem >"$en/$run.top.txt" 2>&1 || true
+        simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+        simctl terminate "$udid" com.apple.Preferences >/dev/null 2>&1 || true
+        python3 -I cmux-next-ios/verify/energy_summary.py "$en/$run.top.txt" "$pid" "$run" "$phase" >"$en/$run.json" ||
+          { echo "$run: no samples"; energy_status=1; continue; }
+        python3 -I cmux-next-ios/verify/energy_summary.py --row "$en/$run.json" | tee -a "$summary"
+      done
+    done
+  done
+  simctl uninstall "$udid" "$bundle_id" >/dev/null 2>&1 || true
+  note "- energy: $((SECONDS - t0)) s; sides: ${sides[*]}; reps: $energy_reps; samples: energy/"
+  [[ "${energy_status:-0}" -eq 0 ]] || note "- energy: FAILED (a run had no PID or no samples; see energy/)"
+fi
+
 # --- Pairing by QR code ----------------------------------------------------
 if [[ "$mode" == pair-e2e ]]; then
   t0=$SECONDS
@@ -854,5 +959,6 @@ if [[ "${test_status:-0}" -ne 0 ]]; then exit "$test_status"; fi
 if [[ "${ui_status:-0}" -ne 0 ]]; then exit "$ui_status"; fi
 if [[ "${pair_status:-0}" -ne 0 ]]; then exit "$pair_status"; fi
 if [[ "${listperf_status:-0}" -ne 0 ]]; then exit "$listperf_status"; fi
+if [[ "${energy_status:-0}" -ne 0 ]]; then exit "$energy_status"; fi
 
 if [[ "${perf_status:-0}" -ne 0 ]]; then exit "$perf_status"; fi
