@@ -1,0 +1,41 @@
+name: Set up Ghostty Zig
+description: >-
+  Install the Zig that a Ghostty submodule's build.zig.zon names
+  (minimum_zig_version). ghostty-next's is the one libghostty-vt, and so every
+  in-tree cmux-tui and acpmux build, compiles with. Resolve and install in one
+  place so the copies in each workflow cannot drift apart.
+
+inputs:
+  source:
+    description: >-
+      The Ghostty submodule whose build.zig.zon sets the version: ghostty-next
+      (libghostty-vt for cmux-tui and acpmux) or ghostty (the Mac app's
+      GhosttyKit). The caller must have checked it out.
+    required: false
+    default: ghostty-next
+
+outputs:
+  version:
+    description: The Zig version installed, for steps that check `zig version`.
+    value: ${{ steps.resolve.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve Ghostty Zig version
+      id: resolve
+      shell: bash
+      env:
+        GHOSTTY_ZIG_SOURCE: ${{ inputs.source }}
+      # The script finds the repository root from its own path, so this works
+      # from any working directory.
+      run: |
+        set -euo pipefail
+        version="$(bash "$GITHUB_ACTION_PATH/../../../scripts/ghostty-zig-version.sh")"
+        [[ -n "$version" ]]
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+
+    - name: Install Zig
+      uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+      with:
+        version: ${{ steps.resolve.outputs.version }}

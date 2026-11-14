@@ -506,6 +506,52 @@ def test_consumer_diagnostic_uses_run_content_line() -> None:
     ], failures
 
 
+
+def test_shared_setup_action_after_init_passes() -> None:
+    """The shared action resolves and installs the Zig; it needs only the init before it."""
+    failures = failures_for(
+        """\
+        name: fixture
+        on: workflow_dispatch
+        jobs:
+          build:
+            runs-on: ubuntu-latest
+            steps:
+              - uses: actions/checkout@v6
+              - name: Init ghostty submodule
+                run: bash scripts/ci/init-submodule.sh ghostty-next
+              - name: Install zig
+                id: ghostty-zig-version
+                uses: ./.github/actions/setup-ghostty-zig
+        """,
+        name="cmux-tui.yml",
+    )
+
+    assert failures == [], failures
+
+
+def test_shared_setup_action_before_init_fails() -> None:
+    """The action runs scripts/ghostty-zig-version.sh, so it counts as a consumer in any workflow."""
+    failures = failures_for(
+        """\
+        name: fixture
+        on: workflow_dispatch
+        jobs:
+          build:
+            runs-on: ubuntu-latest
+            steps:
+              - uses: actions/checkout@v6
+              - name: Install zig
+                uses: ./.github/actions/setup-ghostty-zig
+              - name: Init ghostty submodule
+                run: git submodule update --init --depth 1 ghostty-next
+        """,
+    )
+
+    assert len(failures) == 1, failures
+    assert "before Ghostty submodule init" in failures[0], failures
+
+
 if __name__ == "__main__":
     test_non_executing_mentions_do_not_require_ghostty()
     test_executing_consumer_before_init_fails()
@@ -526,4 +572,6 @@ if __name__ == "__main__":
     test_retrying_init_script_for_ghostty_next_satisfies_the_guard()
     test_an_unparseable_step_that_runs_no_zig_consumer_is_not_a_failure()
     test_one_step_initializing_both_ghostty_sources_is_one_init()
+    test_shared_setup_action_after_init_passes()
+    test_shared_setup_action_before_init_fails()
     print("all Ghostty Zig workflow guard tests passed")

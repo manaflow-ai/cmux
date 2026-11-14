@@ -70,17 +70,9 @@ jobs:
       - name: Init ghostty-next submodule (sets the Zig version)
         run: git submodule update --init --depth 1 ghostty-next
 
-      - name: Resolve Zig version
-        id: zig
-        shell: bash
-        env:
-          GHOSTTY_ZIG_SOURCE: ghostty-next
-        run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
-
       - name: Install zig
-        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: ${{ steps.zig.outputs.version }}
+        id: zig
+        uses: ./.github/actions/setup-ghostty-zig
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust

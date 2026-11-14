@@ -59,6 +59,7 @@ on:
       - cmux-tui/relays/cloudflare-do/**
       - cmux-tui/crates/cmux-remote-protocol/**
       - .github/actions/setup-cmux-tui-rust/**
+      - .github/actions/setup-ghostty-zig/**
       - .github/actions/runner-cargo-home/**
       - .github/workflows/cloudflare-relay.yml
   push:
@@ -69,6 +70,7 @@ on:
       - cmux-tui/relays/cloudflare-do/**
       - cmux-tui/crates/cmux-remote-protocol/**
       - .github/actions/setup-cmux-tui-rust/**
+      - .github/actions/setup-ghostty-zig/**
       - .github/actions/runner-cargo-home/**
       - .github/workflows/cloudflare-relay.yml
   workflow_dispatch:
@@ -373,19 +375,9 @@ jobs:
           sudo apt-get install -y clang libclang-dev pkg-config
       - name: Set up cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
-      - name: Resolve Ghostty Zig version
-        id: ghostty-zig-version
-        env:
-          GHOSTTY_ZIG_SOURCE: ghostty-next
-        run: |
-          set -euo pipefail
-          version="$(bash ./scripts/ghostty-zig-version.sh)"
-          [[ -n "$version" ]]
-          echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Set up Zig for Ghostty
-        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: ${{ steps.ghostty-zig-version.outputs.version }}
+        id: ghostty-zig-version
+        uses: ./.github/actions/setup-ghostty-zig
       - name: Build Linux cmux-tui for the journeys
         working-directory: cmux-tui
         env:
