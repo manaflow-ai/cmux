@@ -442,14 +442,14 @@
         },
         {
           "key": "tabs.toolbarButtons",
-          "note": "The actions pinned as buttons next to a pane's tab bar \"...\", in tab bar order (catalog action ids).",
+          "note": "The actions pinned as buttons at a pane's tab bar trailing end, in tab bar order (catalog action ids).",
           "title": {
             "key": "settings.tabs.toolbarButtons",
             "text": "Tab Bar Buttons"
           },
           "help": {
             "key": "settings.tabs.toolbarButtons.help",
-            "text": "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."
+            "text": "Actions shown as buttons at the tab bar's trailing end. Pin or unpin one from Show in Tab Bar in the tab bar's right-click menu."
           },
           "kind": "ordered_choices",
           "swift_owner": "PaneToolbarButtonsSetting",
@@ -505,7 +505,7 @@
             "pin",
             "more"
           ],
-          "page_hidden": "action ids; toggled from the tab bar's More menu (Show in Tab Bar)"
+          "page_hidden": "action ids; toggled from the tab bar's right-click menu (Show in Tab Bar)"
         },
         {
           "key": "appearance.metrics.tabFontSize",

@@ -52,17 +52,17 @@ public struct WorkspaceAddressSuggestions: View {
                             .frame(width: 24, height: 24)
                             .foregroundStyle(theme.colors.secondaryLabel)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(hit.title).font(.system(size: 17, weight: .semibold)).lineLimit(1)
+                            Text(hit.title).font(.body.weight(.semibold)).lineLimit(1)
                                 .foregroundStyle(theme.colors.label)
                             if let subtitle = hit.subtitle, !subtitle.isEmpty {
-                                Text(subtitle).font(.system(size: 13)).lineLimit(1)
+                                Text(subtitle).font(.footnote).lineLimit(1)
                                     .foregroundStyle(theme.colors.secondaryLabel)
                             }
                         }
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 16)
-                    .frame(height: 57)
+                    .frame(minHeight: 57)
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
@@ -74,10 +74,10 @@ public struct WorkspaceAddressSuggestions: View {
 
     private func header(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 15, weight: .semibold))
+            .font(.subheadline.weight(.semibold))
             .foregroundStyle(theme.colors.secondaryLabel)
             .padding(.horizontal, 32)
-            .frame(height: 40, alignment: .bottomLeading)
+            .frame(minHeight: 40, alignment: .bottomLeading)
             .padding(.bottom, 4)
             .accessibilityAddTraits(.isHeader)
     }
@@ -86,10 +86,10 @@ public struct WorkspaceAddressSuggestions: View {
         let text = editing.query.trimmingCharacters(in: .whitespacesAndNewlines)
         return VStack(alignment: .leading, spacing: 0) {
             Text("New Tab")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(theme.colors.secondaryLabel)
                 .padding(.horizontal, 32)
-                .frame(height: 40, alignment: .bottomLeading)
+                .frame(minHeight: 40, alignment: .bottomLeading)
                 .padding(.bottom, 4)
                 .accessibilityAddTraits(.isHeader)
             Button {
@@ -102,7 +102,7 @@ public struct WorkspaceAddressSuggestions: View {
                         .foregroundStyle(theme.colors.secondaryLabel)
                         .frame(width: 30)
                         .padding(.leading, 3)
-                    Text(text).font(.system(size: 17)).lineLimit(1)
+                    Text(text).font(.body).lineLimit(1)
                         .foregroundStyle(theme.colors.label)
                         .padding(.leading, 15)
                     Spacer(minLength: 0)
@@ -110,7 +110,7 @@ public struct WorkspaceAddressSuggestions: View {
                         CmuxSpinner().padding(.trailing, 4)
                     }
                 }
-                .frame(height: 52)
+                .frame(minHeight: 52)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)

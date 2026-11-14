@@ -813,6 +813,7 @@ impl Surface {
             },
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
+                pid: terminal_runtime::terminal_seat(&mux, snapshot.pid, &terminal_public_id),
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation,
                 journal_capture_supported,
@@ -855,7 +856,6 @@ impl Surface {
                 host_identity: Some(host_identity),
                 pending_host_binding: Mutex::new(Some(pending_host_binding)),
                 host_exit_record_path: Some(host_exit_record_path),
-                pid: terminal_runtime::terminal_seat(&mux, snapshot.pid),
                 command: snapshot.command,
                 cwd: snapshot_cwd.map(|path| path.to_string_lossy().into_owned()),
                 exit: Mutex::new(None),

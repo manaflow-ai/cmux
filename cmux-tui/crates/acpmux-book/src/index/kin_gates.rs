@@ -136,8 +136,14 @@ fn kin_table_change_gate() {
     title.title = "changed title".to_owned();
     let writes = AtomicUsize::new(0);
     let unchanged = god.kin().replace_counted(Some(&old), Some(&title), &writes);
-    assert_eq!(writes.load(AtomicOrdering::Relaxed), 0);
-    assert_eq!(&unchanged, god.kin());
+    assert_eq!(writes.load(AtomicOrdering::Relaxed), 1);
+    assert_eq!(
+        unchanged
+            .folder_rows(&FolderKey::new("local", "release-gate"))
+            .and_then(|rows| rows.values().next())
+            .map(|row| row.title.as_str()),
+        Some("changed title")
+    );
 }
 
 #[test]
@@ -184,6 +190,8 @@ fn page_gate(name: &str, family: bool, anchored: bool) {
     );
     assert_eq!(a.parent_steps, b.parent_steps);
     assert!(a.rows_read <= 51 && b.rows_read <= 51);
+    let lookup_bound = if family { 51 + 64 + 1 } else { 1 };
+    assert!(a.lookups <= lookup_bound && b.lookups <= lookup_bound);
     assert_eq!((a.bytes_read, b.bytes_read), (0, 0));
     check(name, paired(|| read(&small), || read(&god)), 1.2, 2.0, None);
 }

@@ -25,8 +25,8 @@ use cmux_remote::client::WorkspaceClient;
 use cmux_remote::connection::ReconnectPolicy;
 use cmux_remote::crypto::ClientAuthMode;
 use cmux_remote::identity::{
-    ClientIdentityStore, EnrollmentInvitation, EnrollmentRelayAccess, KnownDaemon, KnownDaemonAuth,
-    MAX_INVITATION_URI_BYTES, credential_free_route_hint, default_state_dir,
+    BoundDevice, ClientIdentityStore, EnrollmentInvitation, EnrollmentRelayAccess, KnownDaemon,
+    KnownDaemonAuth, MAX_INVITATION_URI_BYTES, credential_free_route_hint, default_state_dir,
 };
 use cmux_remote::provider::{
     Dialer, IrohPathMode, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL,
@@ -112,6 +112,7 @@ fn run_inner(
         Some("rpc") => run_rpc(&args[1..]),
         Some("enroll") => run_enroll(&args[1..], load_config),
         Some("known-daemons") => run_known_daemons(&args[1..]),
+        Some("remote-device-key") => run_device_key(args.get(1..).unwrap_or_default()),
         Some("remote-probe") => run_probe(&args[1..]),
         Some("remote-link") => run_remote_link(&args[1..]),
         Some("remote-sidecar") => run_remote_sidecar(&args[1..]),
@@ -208,6 +209,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("rpc") => client.rpc_help,
         Some("enroll") => client.enroll_help,
         Some("known-daemons") => client.known_daemons_help,
+        Some("remote-device-key") => client.device_key_help,
         Some("remote-probe") => client.remote_probe_help,
         Some("remote-link") => client.remote_link_help,
         Some("remote-stop") => catalog().remote.remote_stop_help,
@@ -1536,10 +1538,16 @@ fn start_wireguard(
     Ok(Arc::new(net))
 }
 
-/// The ultra mode Settings asks for (`remote.ultraMode`, read at each tunnel
-/// start); `CMUX_WG_ULTRA` still wins over it ([`cmux_wg::UltraMode::resolve`]).
-fn ultra_setting() -> Option<cmux_wg::UltraMode> {
-    cmux_tui_core::user_settings::ultra_mode().then_some(cmux_wg::UltraMode::SETTING)
+/// The ultra choice Settings asks for (`remote.ultra`, Auto by default, read
+/// at each tunnel start); `CMUX_WG_ULTRA` still wins over it
+/// ([`cmux_wg::UltraChoice::resolve`]).
+fn ultra_setting() -> cmux_wg::UltraChoice {
+    use cmux_tui_core::user_settings::{UltraConnection, ultra};
+    match ultra() {
+        UltraConnection::Off => cmux_wg::UltraChoice::Off,
+        UltraConnection::Auto => cmux_wg::UltraChoice::AUTO,
+        UltraConnection::Always => cmux_wg::UltraChoice::ALWAYS,
+    }
 }
 
 fn read_wireguard_config(path: &Path) -> anyhow::Result<cmux_wg::WgConfig> {

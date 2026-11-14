@@ -3193,8 +3193,28 @@ jobs:
           # one verify-cdn-publication reads.
           find assets/cmux-tui -maxdepth 1 -type f -name 'cmux-tui-*' -printf '%f\n' |
             xargs -P 8 -I{} bash -c 'upload "assets/cmux-tui/$1" "cmux-tui/$GITHUB_SHA/$1" application/octet-stream' _ {}
-          upload assets/cmux-tui/manifest.json "cmux-tui/$GITHUB_SHA/manifest.json" application/json
-          echo "Published: https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json (from tree $KEY)"
+          # The same commit on two branches at once (the app FFI re-pin's
+          # staging ref, then app-ffi-repin) adopts it twice; the manifests
+          # differ only in the run that wrote them. Keep the other run's when it
+          # is the same adoption (adopt_cmux_tui_commit.py same-publication).
+          manifest_key="cmux-tui/$GITHUB_SHA/manifest.json"
+          status=0
+          python3 scripts/ci/upload-r2-object.py --write-once --conflict-exit-code 75 --file assets/cmux-tui/manifest.json \
+            --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries --key "$manifest_key" --content-type application/json \
+            --cache-control "public, max-age=31536000, immutable" || status=$?
+          if [[ "$status" == 75 ]]; then
+            python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
+              --key "$manifest_key" --download-to "$RUNNER_TEMP/published-manifest.json"
+            if ! python3 scripts/ci/adopt_cmux_tui_commit.py same-publication \
+                assets/cmux-tui/manifest.json "$RUNNER_TEMP/published-manifest.json"; then
+              echo "::error title=immutable-r2-conflict::$manifest_key holds another publication of this commit; repair it deliberately"
+              exit 1
+            fi
+            echo "::notice title=commit already adopted::keeping the same adoption another run published at https://files.cmux.com/$manifest_key"
+          elif [[ "$status" != 0 ]]; then
+            exit "$status"
+          fi
+          echo "Published: https://files.cmux.com/$manifest_key (from tree $KEY)"
 
   # A published tree re-runs every run that deferred to it: each built nothing,
   # and its re-run writes its own commit manifest (adopt-commit-manifest). The
@@ -4333,6 +4353,13 @@ jobs:
 
   # After publish and verify-publish, as before point-machine-channel-early: it moves the channel when
   # the early job skipped or failed, and otherwise finds it current and keeps it.
+  # A push that builds nothing (its tree already published, as a PR-first merge's tree is by the lane
+  # head's run, or another run owns its key) has no build-linux, publish or verify-publish, so it
+  # moves the channel from the manifest adopt-commit-manifest wrote (or found) instead: the fat
+  # cmux-tui/<sha>/ names, the first URL updater/channel.rs allowed_urls accepts. No machine/ copy of
+  # such a commit exists (only point-machine-channel-early uploads one, from this run's build-linux).
+  # 93d73d7b (run 43479235288) adopted its manifest at 18:07:54Z and, before this, the channel waited
+  # for the next built commit at 18:22Z. The channel still never moves back (web-ota-pointer.py newer).
   point-machine-channel:
     # R2 credentials. Only a base branch's publish (which moves the channels) records a
     # deployment; a lane branch's commit-addressed upload logs none on its PR.
@@ -4340,8 +4367,8 @@ jobs:
       name: artifacts
       deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: point the Cloud machine channel at this commit
-    needs: [publish, verify-publish]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.verify-publish.result == 'success' }}
+    needs: [publish, verify-publish, adopt-commit-manifest]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 35  # 15 for the Cloud machine channel, at most 15 more for the Linux release file
     permissions:
@@ -4360,6 +4387,7 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
           GH_TOKEN: ${{ github.token }}  # gh run download, for the Linux release file
+          VERIFY_PUBLISH: ${{ needs.verify-publish.result }}
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/machine-channel"
@@ -4377,6 +4405,11 @@ jobs:
           # serves, so CI signs only bytes equal to this run's own build artifacts (GitHub's artifact store,
           # --binaries-dir). Bytes another run uploaded first are not signed by this one. Delivery for the
           # installers, not a gate: a failure is a warning and never holds the Cloud machine channel above.
+          # A run that built nothing (an adopted manifest) has no build artifacts to sign against.
+          if [[ "$VERIFY_PUBLISH" != success ]]; then
+            echo "This run built nothing: the next built push signs its own Linux release file."
+            exit 0
+          fi
           lr="$dir/linux-release"
           mkdir -p "$lr" && chmod 700 "$lr"
           export lr GITHUB_SHA GITHUB_RUN_ID GITHUB_REPOSITORY

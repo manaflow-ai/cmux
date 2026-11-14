@@ -238,6 +238,13 @@ pub(super) fn mark_unread(hub: &Hub, params: &Value) -> Result<Value, RpcError> 
     Ok(json!({}))
 }
 
+/// `_acpmux/markRead {sessionId}`: the person marks a chat read without showing it (cmux's
+/// `chat.mark_read`, an App Store app's Mark Read); answered once the mark is on disk.
+pub(super) fn mark_read(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
+    hub.mark_read_answered(&*hub.resolve(session_key(params)?)?)?;
+    Ok(json!({}))
+}
+
 /// `_acpmux/seen {sessionId, seq}`: the person (`_meta.acpmux.author`, the owner when none) had
 /// the chat's rows through `seq` on screen while attending it. Moves their seen cursor forward
 /// only, clamped to the chat's newest record (`hub/seen.rs` `mark_read_through`). Answers
