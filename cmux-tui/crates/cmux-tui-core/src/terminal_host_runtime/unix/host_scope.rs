@@ -151,6 +151,15 @@ fn cgroup_names_scope(cgroup: &str, pid: u32) -> bool {
 mod tests {
     use super::*;
 
+    /// The parent of a host is read whatever bytes the name of its program
+    /// has.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_parent_of_a_host_is_read_for_each_program_name() {
+        let child = cmux_tui_platform::CutNameChild::start("host-scope").expect("child");
+        assert_eq!(parent_pid(child.id()), Some(std::process::id()));
+    }
+
     /// The move is complete only when the host's own cgroup names its scope:
     /// the host forks the shell right after Launch, and a shell forked
     /// before the move stays in the daemon unit (cx-6so.49 Cloud proof:

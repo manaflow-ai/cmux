@@ -148,6 +148,16 @@ fn parent_process_id(_pid: u32) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The parent of a process is read whatever bytes the name of its
+    /// program has.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_parent_of_an_ancestor_is_read_for_each_program_name() {
+        let child = crate::CutNameChild::start("codex-parent").expect("child");
+        assert_eq!(parent_process_id(child.id()), Some(std::process::id()));
+    }
+
     #[test]
     fn codex_app_server_daemon_is_recognized_only_by_its_daemon_argv() {
         let argv = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
