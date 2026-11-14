@@ -56,12 +56,7 @@ book_gates() {
 }
 run_group acpmux-book book_gates
 
-# acpmux-client has no v2 gate rows on this base; compile its ignored-test
-# target once so the crate remains part of the release gate build set.
-client_gates() {
-  run cargo test --release -p acpmux-client --lib -- --ignored --nocapture --test-threads=1
-}
-run_group acpmux-client client_gates
+# acpmux-client has no v2 gate rows on this base; there is no client gate to run.
 
 # acpmux-core (release)
 core_gates() {

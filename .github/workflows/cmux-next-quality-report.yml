@@ -122,7 +122,7 @@ jobs:
       - name: Run v2 gate measures
         if: steps.done.outputs.cache-hit != 'true'
         continue-on-error: true
-        timeout-minutes: 30
+        timeout-minutes: 15
         working-directory: cmux-tui
         run: |
           set -o pipefail
@@ -186,25 +186,6 @@ jobs:
           python3 -I scripts/cmux-next/quality-report.py "${report_args[@]}"
           cat "$out/quality-summary.md" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Fail when a marked v2 gate has no measure
-        if: steps.done.outputs.cache-hit != 'true'
-        run: |
-          set -euo pipefail
-          report="$RUNNER_TEMP/quality/v2-god-small.json"
-          test -s "$report" || { echo "v2 gate home did not write $report" >&2; exit 1; }
-          python3 - "$report" <<'PY'
-          import json
-          import sys
-
-          with open(sys.argv[1], encoding="utf-8") as stream:
-              rows = json.load(stream)["rows"]
-          failed = [row for row in rows if row.get("status") == "failed"]
-          if failed:
-              for row in failed:
-                  print(f"v2 gate failed: {row['name']}: {row.get('reason', 'unknown reason')}", file=sys.stderr)
-              raise SystemExit(1)
-          PY
-
       # The public artifact has no signature names (quality-report.py public_report); they go to the sticky only.
       - name: Keep the metrics JSON
         if: steps.done.outputs.cache-hit != 'true'
@@ -251,3 +232,22 @@ jobs:
         with:
           path: ${{ runner.temp }}/quality-report-marker
           key: ${{ steps.day.outputs.key }}
+
+      - name: Fail when a marked v2 gate has no measure
+        if: steps.done.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/quality/v2-god-small.json"
+          test -s "$report" || { echo "v2 gate home did not write $report" >&2; exit 1; }
+          python3 -I - "$report" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              rows = json.load(stream)["rows"]
+          failed = [row for row in rows if row.get("status") == "failed"]
+          if failed:
+              for row in failed:
+                  print(f"v2 gate failed: {row['name']}: {row.get('reason', 'unknown reason')}", file=sys.stderr)
+              raise SystemExit(1)
+          PY

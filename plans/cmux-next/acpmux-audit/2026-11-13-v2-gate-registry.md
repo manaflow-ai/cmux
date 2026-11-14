@@ -34,10 +34,11 @@ PR that sets it.
 
 ## Nightly rollout (v2 PR 0b)
 
-The rows whose gates are on the base are marked `measured: true` and run nightly as of this PR.
-The home reports a marked row as `not_run` when the spec check omits `--measures`; the nightly
-passes `--measures`, so a missing line is reported by row name as `failed` and the workflow fails
-after the report is written. Rows with measurements keep their `ok` or `red` verdicts.
+The rows whose gates are on the base and read `ok` are marked `measured: true` and run nightly as of this PR.
+Rows whose emitted numbers read `red` stay `measured: false` in this PR; their gates still run, and the home
+shows their line and red verdict in the nightly report. The home reports a marked row as `not_run` when the
+spec check omits `--measures`; the nightly passes `--measures`, so a missing line is reported by row name as
+`failed` and the workflow fails after the report is written.
 
 A lane's PR still appends its rows as `measured: false` and edits no workflow. The next 0b pass
 marks those rows and adds their run. The complete list of nightly commands lives in

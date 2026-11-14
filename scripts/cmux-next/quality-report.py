@@ -438,6 +438,7 @@ def god_vs_small(doc: Any, why: Optional[str]) -> Dict[str, Any]:
         return {"source": None, "limit": GOD_SMALL_LIMIT, "rows": [], "failing": [], "worst_ratio": None,
                 "why": why or "the god-vs-small input has no rows"}
     rows = []
+    failing = []
     for r in raw:
         if not isinstance(r, dict):
             continue
@@ -447,14 +448,19 @@ def god_vs_small(doc: Any, why: Optional[str]) -> Dict[str, Any]:
         if not isinstance(ratio, (int, float)):
             ratio = round(god / small, 3) if isinstance(small, (int, float)) and small > 0 and isinstance(god, (int, float)) else None
         status = r.get("status")
+        status_given = isinstance(status, str)
         if not isinstance(status, str):
             status = "skipped" if ratio is None else ("ok" if ratio <= GOD_SMALL_LIMIT else "red")
         reason = r.get("reason")
-        rows.append({"name": str(r.get("name") or "?"), "small_p95": small, "god_p95": god, "ratio": ratio,
+        name = str(r.get("name") or "?")
+        rows.append({"name": name, "small_p95": small, "god_p95": god, "ratio": ratio,
                      "status": status, "reason": reason if isinstance(reason, str) else None})
+        if (status == "red" if status_given else
+                isinstance(ratio, (int, float)) and ratio > GOD_SMALL_LIMIT):
+            failing.append(name)
     ratios = [r["ratio"] for r in rows if isinstance(r["ratio"], (int, float))]
     return {"source": "god-vs-small", "limit": GOD_SMALL_LIMIT, "rows": rows,
-            "failing": [r["name"] for r in rows if isinstance(r["ratio"], (int, float)) and r["ratio"] > GOD_SMALL_LIMIT],
+            "failing": failing,
             "worst_ratio": max(ratios) if ratios else None, "why": None if rows else "the god-vs-small input has no rows"}
 
 

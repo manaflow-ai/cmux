@@ -312,6 +312,15 @@ class Inputs(unittest.TestCase):
         self.assertEqual(got["worst_ratio"], 1.25)
         self.assertEqual(qr.god_vs_small(None, "no input given")["why"], "no input given")
 
+    def test_god_vs_small_uses_home_status_for_v2_rows(self):
+        got = qr.god_vs_small({"rows": [
+            {"name": "bounded-ok", "small_p95": 10, "god_p95": 30, "status": "ok"},
+            {"name": "god-max-red", "small_p95": 10, "god_p95": 10, "status": "red",
+             "reason": "god p95 exceeds absolute maximum"},
+            {"name": "degenerate", "small_p95": 10, "god_p95": 13},
+        ]}, None)
+        self.assertEqual(got["failing"], ["god-max-red", "degenerate"])
+
     def test_god_vs_small_keeps_skipped_rows_in_markdown(self):
         r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [])
         r["god_vs_small"] = qr.god_vs_small({"rows": [
