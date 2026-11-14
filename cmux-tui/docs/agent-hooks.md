@@ -21,6 +21,63 @@ sends no hook when a permission dialog is dismissed with Esc, so this proof,
 or the agent's own status report (OSC 7501 `blocked`, then `idle` or
 `working`), is the only evidence that the agent stopped waiting.
 
+## One notification per agent event
+
+A hook event that waits on the person (approval, question, plan review), a
+finished turn and a reported error each post one notification. Some agents
+also print their own notification for the same event. The daemon drops that
+copy only for agents whose hooks post both a permission wait and a finished
+turn:
+
+| hook source | permission hook | finished-turn hook | OSC 7501 `app` names |
+| --- | --- | --- | --- |
+| `claude` | `PermissionRequest` | `Stop` | `claude`, `claude-code`, `claude_code`, `claudecode` |
+| `codex` | `PermissionRequest` | `Stop` | `codex`, `codex-cli`, `codex_cli`, `openai-codex` |
+| `opencode` | `permission.asked` | `session.idle` | `opencode`, `open-code`, `open_code` |
+
+A later change can add `muse`, `hermes-agent` and `rovodev` after a check on a
+real build shows that their hooks fire at every permission prompt.
+
+The rules apply only while the terminal has a live hook session of one of
+these sources: a hook event of that source set the session's fence, and no
+`SessionEnd` (or the screen seeing the agent leave) ended it.
+
+- **Desktop notifications (OSC 9, OSC 777, OSC 99).** They name no app and no
+  kind, so the daemon drops one only as the copy of a hook notification. A
+  desktop notification is dropped when the same terminal's hooks posted a
+  permission or finished-turn notification at most 2 s before it, or post one
+  at most 2 s after it. To see a hook notification that comes after it, the
+  daemon holds the desktop notification for 2 s, and then posts it.
+  - **Delay.** While a `claude`, `codex` or `opencode` hook session is live in
+    a terminal, every desktop notification of that terminal posts 2 s late.
+    This includes the notifications of other programs in the terminal, for
+    example a background job's OSC 9.
+  - **Match by time only.** A desktop notification names no app and no kind,
+    so the daemon cannot tell whose it is. A background job's OSC 9 that
+    comes within 2 s of a Claude permission or finished-turn hook
+    notification in the same terminal is dropped as its copy.
+  - **No loss in the hold.** A held notification posts at once when the
+    terminal's output ends, when a view client (a TUI or the app) attaches
+    or detaches, and when the daemon stops by any path (`server stop`,
+    `--end-terminals`, a restart handoff, a signal, the last client or the
+    starter leaving). A posted
+    notification is durable: when no client is attached, `notification list`
+    shows it, also after the restart. A plain client that connects for one
+    request (a CLI call, a status query or a hook emit) and closes does not
+    end the hold.
+- **OSC 7501 alerts.** A `done` alert or a `blocked` alert with
+  `kind=permission` is dropped when the record's app (its own or an
+  ancestor's) is one of the agent's `app` names (case does not matter). A
+  record of another app or with no app, a `blocked` alert of another kind
+  (sign-in, question, plain input) and an `error` alert post.
+
+Every notification of a terminal whose hooks are from another source posts
+at once: for example `gemini`, whose permission callback `Notification` is no
+approval, or `cursor`, which has no permission hook. A direct hook-source
+report through the socket names no hook source, so after it nothing is
+dropped. The hook source is kept in memory only: after a daemon restart
+nothing is dropped or held until the agent's next hook event.
+
 ## Agents in a tmux session started elsewhere
 
 An agent can run in a tmux session whose server was started outside

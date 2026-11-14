@@ -311,12 +311,18 @@ impl Mux {
         for job in jobs {
             job.post(self);
         }
+        // Desktop notifications held for the agent dedupe window post now,
+        // while the terminal still has its tab.
+        if let Some(terminal) = surface.terminal_public_id() {
+            self.release_agent_desktop_notifications_of(terminal);
+        }
     }
 
     /// After the terminal readers stopped: let what they queued commit (until
     /// `deadline`), then take no more.
     pub(super) fn finish_terminal_publications(&self, deadline: Instant) {
         self.terminal_publisher.finish(deadline);
+        self.release_all_agent_desktop_notifications();
     }
 }
 

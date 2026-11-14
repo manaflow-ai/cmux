@@ -299,6 +299,48 @@ pub(crate) struct TerminalNotification {
     /// `Info` for OSC 9, 777 and 99 and an OSC 7501 record that finished; one
     /// that waits on the user is a `Warning`, one that failed an `Error`.
     pub level: crate::NotificationLevel,
+    /// What in the output asked for it.
+    pub origin: TerminalNotificationOrigin,
+}
+
+/// What in a terminal's output asked for a notification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TerminalNotificationOrigin {
+    /// OSC 9, OSC 777 or OSC 99: the program's own desktop notification.
+    Desktop,
+    /// An OSC 7501 record's alert: the state it reached, for a wait on the
+    /// person what it waits for, and the app the record shows.
+    ProgramStatus {
+        state: ghostty_vt::ProgramStatusState,
+        kind: Option<ghostty_vt::ProgramStatusKind>,
+        app: Option<String>,
+    },
+}
+
+impl TerminalNotificationOrigin {
+    /// Whether this is surely the copy of what the live hooks of an agent
+    /// that reports itself in OSC 7501 as one of `agent_apps`
+    /// (`agent_hooks::notifying_hook_source_apps`) post: a 7501 permission
+    /// wait or done of a record whose app (its own or an ancestor's) is that
+    /// agent. The hooks post those as `agent_hook_notification`. A record of
+    /// another app or without one, a wait the hooks do not report (sign-in,
+    /// plain input, a question) and a failure are no copies. A desktop
+    /// notification carries no app: it is a copy only when a hook
+    /// notification comes near it in time (`mux/agent_desktop_holds.rs`).
+    pub(crate) fn duplicates_agent_hooks(&self, agent_apps: &[&str]) -> bool {
+        use ghostty_vt::{ProgramStatusKind, ProgramStatusState};
+        let Self::ProgramStatus { state, kind, app } = self else { return false };
+        let hooks_post = match state {
+            ProgramStatusState::Done => true,
+            ProgramStatusState::Blocked => *kind == Some(ProgramStatusKind::Permission),
+            _ => false,
+        };
+        hooks_post
+            && app.as_deref().is_some_and(|app| {
+                let app = app.trim();
+                agent_apps.iter().any(|agent| agent.eq_ignore_ascii_case(app))
+            })
+    }
 }
 
 impl TerminalNotification {
@@ -312,7 +354,12 @@ impl TerminalNotification {
             title = body.chars().take(MAX_NOTIFICATION_TITLE_CHARS).collect();
             body = String::new();
         }
-        Some(Self { title, body, level: crate::NotificationLevel::Info })
+        Some(Self {
+            title,
+            body,
+            level: crate::NotificationLevel::Info,
+            origin: TerminalNotificationOrigin::Desktop,
+        })
     }
 
     /// The notification an OSC 7501 record asks for.
@@ -326,6 +373,11 @@ impl TerminalNotification {
             title: alert.title.chars().take(MAX_NOTIFICATION_TITLE_CHARS).collect(),
             body: alert.body.chars().take(MAX_NOTIFICATION_BODY_CHARS).collect(),
             level,
+            origin: TerminalNotificationOrigin::ProgramStatus {
+                state: alert.state,
+                kind: alert.kind,
+                app: alert.app,
+            },
         }
     }
 }

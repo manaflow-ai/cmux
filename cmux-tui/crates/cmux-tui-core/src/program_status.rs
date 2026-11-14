@@ -97,6 +97,10 @@ pub(crate) struct ProgramStatusAlert {
     pub(crate) body: String,
     /// `Blocked`, `Error` or `Done`.
     pub(crate) state: ProgramStatusState,
+    /// What a `Blocked` record waits for, when it said.
+    pub(crate) kind: Option<ProgramStatusKind>,
+    /// The app the record shows (its own or an ancestor's), when one said.
+    pub(crate) app: Option<String>,
 }
 
 /// The records of one terminal, keyed by record id (`""` is the root).
@@ -224,6 +228,8 @@ impl ProgramStatusRecords {
             title: shown_text(&format!("{name} {verb}"), MAX_TITLE_CHARS),
             body: record.message.clone().unwrap_or_default(),
             state: record.state,
+            kind: record.kind,
+            app: self.app_of(id).map(str::to_owned),
         };
         if self.alerts.len() == MAX_PENDING_ALERTS {
             self.alerts.remove(0);

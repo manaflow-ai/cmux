@@ -187,6 +187,13 @@ fn disconnect_client_with_notice(
     } else {
         record.writer.close();
     }
+    // A view client that announced its attach left: a desktop notification
+    // held for the agent dedupe window posts now. A plain client (a CLI
+    // call, a status query or a hook emit) closes after each request, so it
+    // keeps the hold.
+    if record.announced_attached {
+        mux.post_held_agent_desktop_notifications();
+    }
     mux.emit(MuxEvent::ClientDetached(client));
     true
 }
@@ -306,4 +313,32 @@ pub fn detach_size_participant(
 
 pub fn detach_control_client(mux: &Arc<Mux>, client: u64) -> bool {
     disconnect_client(mux, client, true)
+}
+
+#[cfg(test)]
+impl Mux {
+    /// Test seam: a plain control client (a CLI call, a status query or a
+    /// hook emit) connects and closes, and never attaches a view. Returns
+    /// whether the close found the client.
+    pub(crate) fn connect_and_close_a_plain_client_for_test(self: &Arc<Self>) -> bool {
+        let outbound = Arc::new(super::BoundedOutbound::default());
+        let writer = MessageWriter::new(super::QueuedSink { outbound, control: None });
+        let client = self.control_clients.register(super::ClientTransport::Unix, writer);
+        disconnect_client(self, client, false)
+    }
+
+    /// Test seam: a view client (a TUI or the app) that announced its attach
+    /// leaves. Returns whether the close found the client.
+    pub(crate) fn connect_and_close_a_view_client_for_test(self: &Arc<Self>) -> bool {
+        use crate::panic_free::RecoverPoison;
+        let outbound = Arc::new(super::BoundedOutbound::default());
+        let writer = MessageWriter::new(super::QueuedSink { outbound, control: None });
+        let client = self.control_clients.register(super::ClientTransport::Unix, writer);
+        if let Some(record) =
+            self.control_clients.state.lock().recover_poison().clients.get_mut(&client)
+        {
+            record.announced_attached = true;
+        }
+        disconnect_client(self, client, false)
+    }
 }

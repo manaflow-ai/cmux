@@ -284,6 +284,8 @@ pub(super) fn wait_for_initial_browser_resize(
 
 fn announce_client_attached(mux: &Mux, client: u64) -> anyhow::Result<bool> {
     if let Some((transport, name, kind)) = mux.control_clients.announce_attached(client)? {
+        // A desktop notification held for the agent dedupe window posts now.
+        mux.post_held_agent_desktop_notifications();
         mux.emit(MuxEvent::ClientAttached { client, transport, name, kind });
         return Ok(true);
     }
