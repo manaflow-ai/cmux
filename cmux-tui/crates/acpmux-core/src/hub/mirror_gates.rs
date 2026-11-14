@@ -186,10 +186,20 @@ const LOCAL_SAMPLES: usize = 30;
 
 /// One sample: a unit of [`MAX_UNIT_CHANGES`] changes queued for the first
 /// origin, then a local row; the time from the local row's submit to the end
-/// of the writer turn that writes and publishes both.
-fn local_sample(fixture: &mut Fixture) -> u128 {
+/// of the writer turn that writes and publishes both. Without `unit`, the
+/// local row alone.
+fn local_sample(fixture: &mut Fixture, unit: bool) -> u128 {
     let cursor = fixture.next;
     fixture.next += 1;
+    if !unit {
+        let started = Instant::now();
+        fixture
+            .hub
+            .submit(row("local", format!("local-{:05}", cursor % 20), cursor))
+            .expect("local row");
+        fixture.writer.process_batch();
+        return started.elapsed().as_nanos().max(1);
+    }
     let changes = (0..MAX_UNIT_CHANGES)
         .map(|n| UnitChange::Summary(Box::new(row("peer-00", format!("big-{n:05}"), cursor))))
         .collect();
@@ -220,25 +230,32 @@ fn local_sample(fixture: &mut Fixture) -> u128 {
 fn pr08_mirror_local_row() {
     let mut small = fixture(20, 1, 20);
     let mut god = fixture(11_000, 30, 16_000);
-    local_sample(&mut small);
-    local_sample(&mut god);
+    local_sample(&mut small, true);
+    local_sample(&mut god, true);
     let mut small_rounds = Vec::new();
     let mut god_rounds = Vec::new();
+    let mut alone_rounds = Vec::new();
     let mut pooled = Vec::new();
     for _ in 0..LOCAL_ROUNDS {
-        let mut samples: Vec<u128> = (0..LOCAL_SAMPLES).map(|_| local_sample(&mut small)).collect();
+        let mut samples: Vec<u128> =
+            (0..LOCAL_SAMPLES).map(|_| local_sample(&mut small, true)).collect();
         small_rounds.push(p95(&mut samples));
-        let mut samples: Vec<u128> = (0..LOCAL_SAMPLES).map(|_| local_sample(&mut god)).collect();
+        let mut samples: Vec<u128> =
+            (0..LOCAL_SAMPLES).map(|_| local_sample(&mut god, true)).collect();
         pooled.extend_from_slice(&samples);
         god_rounds.push(p95(&mut samples));
+        let mut samples: Vec<u128> =
+            (0..LOCAL_SAMPLES).map(|_| local_sample(&mut god, false)).collect();
+        alone_rounds.push(p95(&mut samples));
     }
     let small_p95 = small_rounds.into_iter().min().unwrap_or(1);
     let god_p95 = god_rounds.into_iter().min().unwrap_or(1);
     let god_all = p95(&mut pooled);
+    let alone_p95 = alone_rounds.into_iter().min().unwrap_or(1);
     let counts = god.hub.mirror_counts();
     assert_eq!(counts.full + counts.held + counts.out_of_order + counts.join_refused, 0);
     let line = format!(
-        "{{\"name\":\"v2.pr08.mirror_local_row\",\"small_p95\":{small_p95},\"god_p95\":{god_p95},\"god_p95_all\":{god_all},\"unit_changes\":{MAX_UNIT_CHANGES},\"unit\":\"ns\"}}"
+        "{{\"name\":\"v2.pr08.mirror_local_row\",\"small_p95\":{small_p95},\"god_p95\":{god_p95},\"god_p95_all\":{god_all},\"alone_p95\":{alone_p95},\"unit_changes\":{MAX_UNIT_CHANGES},\"unit\":\"ns\"}}"
     );
     eprintln!("{line}");
     if let Ok(path) = std::env::var("V2_GATE_OUT")
