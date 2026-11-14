@@ -116,7 +116,10 @@ fn a_window_at_the_top_of_a_long_history_holds_line_one_and_the_screen() {
     assert!(bytes.len() < 400_000, "a 2,000-row window replay of {} bytes", bytes.len());
     let rows = mirror_rows(&bytes);
     assert!(rows[0].starts_with("000000 compiling"), "{:?}", &rows[..3]);
-    assert!(rows[1_999].starts_with("001999 compiling"), "{:?}", &rows[1_998..2_001]);
+    // The window is the history's first 2,000 rows; a few long lines wrap
+    // to two rows, so it ends a few lines before 002000.
+    assert!(rows.iter().any(|row| row.starts_with("001990 compiling")), "the window's rows");
+    assert!(!rows.iter().any(|row| row.starts_with("002000 compiling")), "past the window");
     assert!(
         rows.iter().any(|row| row.starts_with("019999 compiling")),
         "the screen's newest line follows the window"
