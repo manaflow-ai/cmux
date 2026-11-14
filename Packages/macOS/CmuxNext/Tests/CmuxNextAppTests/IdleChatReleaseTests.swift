@@ -188,7 +188,7 @@ import Testing
         #expect(AgentPaneWakeState(atLatest: true).place == .some(nil), "a chat left at its latest message reopens there")
         #expect(AgentPaneWakeState().place == nil)
         #expect(!AgentPaneWakeState(shell: true, shellText: "ls", atLatest: true).holdsOnlyPlace)
-        #expect(!AgentPaneWakeState(folds: .init(session: "s", expanded: ["t1"]), atLatest: true).holdsOnlyPlace)
+        #expect(!AgentPaneWakeState(atLatest: true, folds: .init(session: "s", expanded: ["t1"])).holdsOnlyPlace)
 
         let adoption = { (wake: AgentPaneWakeState?) in
             AgentPaneSpareAdoption(thisMac: true, session: "s-1", newTabPage: false, seeded: false,
