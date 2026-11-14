@@ -178,6 +178,9 @@ results = {"schema": "cmux.screen-stream-eval/1", "run": run, "scenarios": ["idl
 EOF
   python3 -I "$here/eval.py" summary "$out/results.json" "$out/summary.md"
   cat "$out/summary.md"
+  # Includes only explicit eval outputs, never the host's authentication token.
+  tar -czf "$work/evidence.tar.gz" -C "$out" .
+  cp "$work/evidence.tar.gz" "$out/evidence.tar.gz"
 }
 
 if [[ -n "$viewer_of" ]]; then
@@ -423,6 +426,14 @@ for name in "${names[@]}"; do
     touch "$stop"
     wait "$scene" || err "scene $rep exited $? ($(tail -1 "$EVAL_STATE/scene.log"))"
     bash "$script" host-stop
+    if [[ "$name" == rd ]]; then
+      evidence="$dir/rd-evidence-$rep"
+      mkdir -p "$evidence"
+      for file in "$raw" "$EVAL_STATE/timing.jsonl" "$EVAL_STATE/netem-stats.json"; do
+        [[ ! -f "$file" ]] || cp "$file" "$evidence/"
+      done
+      [[ ! -d "$EVAL_STATE/quality" ]] || cp -R "$EVAL_STATE/quality" "$evidence/"
+    fi
 
     echo "SCREEN-STREAM-EVAL-STAGE $name ocr $rep/$repeats"
     if [[ -s "$dir/host-$rep.png" && -s "$dir/viewer-frame-$rep" ]]; then

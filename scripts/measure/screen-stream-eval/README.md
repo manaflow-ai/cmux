@@ -16,6 +16,10 @@ for 100 ms), for a before/after against a run without it at the same commit.
 `netem-rtt-ms`, `netem-loss-pct`, and `netem-seed` add a deterministic user-space relay to the `rd`
 target's loopback connection. The relay applies half the RTT in each direction and seeded UDP loss;
 TCP is delayed but not dropped. This measurement mode is rejected for two-Mac runs.
+The viewer explicitly registers its UDP socket with the relay and advertises the relay's
+port in Hello, so downstream media and upstream feedback both traverse shaping.
+`netem-stats.json` records cumulative received, dropped and sent counts in each direction;
+these are path diagnostics, not a matched wire-bandwidth comparison with another target.
 
 `.github/workflows/screen-stream-eval.yml` runs it every day at the feat-cmux-next tip, started by
 main's `screen-stream-eval-dispatch.yml` (scheduled workflows run only from the default branch). It
@@ -131,8 +135,16 @@ appear under `targets.petal` in the same schema.
 
 `artifacts/screen-stream-eval/results.json` (schema `cmux.screen-stream-eval/1`, the docstring of
 `eval.py`) and `summary.md`. For `rd`, each window's additive `extra.netem_metrics` records timing
-attempts, received frames, skips, IDRs, P frames, bytes, bitrate, on-time FPS, and paired-image PSNR
-when the source PNG and viewer PPM have matching dimensions. Missing or unpaired values remain null.
+per-encode attempts, emitted frames, skips, IDRs, P frames, received video/FEC bytes and bitrate.
+Decoded FPS counts successful decoder output. On-time FPS counts frames decoded within 100 ms
+of the source's captured display-frame timestamp, joined to decoder completion by the exact
+encode-request key. It requires a same-host clock and complete, non-truncated timing records;
+protocol encode-start timestamps alone do not establish capture latency. Missing evidence is null.
+These are headless decoder endpoints, not visible pane or phone presentation metrics.
+Quality uses a bounded 128x64 luma ROI, matched by timestamp and exact encoded access-unit bytes.
+A source PNG and last viewer image with equal dimensions do not establish frame identity.
+Five source samples at most are recorded per host session, and quality is not extrapolated to
+other scene phases. `evidence.tar.gz` retains raw decode/timing records and matched ROI samples.
 Each target also leaves its raw files under
 `artifacts/screen-stream-eval/NAME/`, on the worker: the latency JSON and, per repeat N, `window-N.json`, `phases-N.jsonl`,
 `host-N.png`, `viewer-frame-N`, `ocr-N.json`, and the logs, with pairing links redacted.

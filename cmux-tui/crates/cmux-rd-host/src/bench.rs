@@ -165,6 +165,9 @@ struct Viewer {
     /// Host capture time (host monotonic us) of the frame that showed the marker.
     marker_capture_us: u64,
     frames: u64,
+    decoded_frames: u64,
+    eval_decode: Option<crate::eval::DecodeLog>,
+    eval_quality: Option<crate::eval::Quality>,
     bytes: u64,
     decode_ms: Vec<f64>,
     decode_errors: u64,
@@ -234,6 +237,20 @@ impl Viewer {
                         self.decode_ms.push((t1 - t0) as f64 / 1e6);
                         match decoded {
                             Ok(Some(picture)) => {
+                                self.decoded_frames += 1;
+                                if let Some(log) = self.eval_decode.as_mut() {
+                                    log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
+                                }
+                                if let Some(quality) = self.eval_quality.as_mut() {
+                                    if let Some(pixels) = picture.with_luma(crate::eval::roi) {
+                                        quality.decoded(
+                                            u64::from(frame.frame),
+                                            frame.body.t_capture_us,
+                                            &frame.body.access_unit,
+                                            &pixels,
+                                        );
+                                    }
+                                }
                                 let origin = self.marker_origin;
                                 let read = picture.with_luma(|y, stride| {
                                     marker::decode_luma_at(y, stride, true, origin)
@@ -259,6 +276,20 @@ impl Viewer {
                     self.decode_ms.push((t1 - t0) as f64 / 1e6);
                     match decoded {
                         Ok(Some(yuv)) => {
+                            self.decoded_frames += 1;
+                            if let Some(log) = self.eval_decode.as_mut() {
+                                log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
+                            }
+                            if let Some(quality) = self.eval_quality.as_mut() {
+                                if let Some(pixels) = crate::eval::roi(yuv.y(), yuv.strides().0) {
+                                    quality.decoded(
+                                        u64::from(frame.frame),
+                                        frame.body.t_capture_us,
+                                        &frame.body.access_unit,
+                                        &pixels,
+                                    );
+                                }
+                            }
                             // OpenH264 lends its picture only for this call, so a snapshot
                             // converts every frame: use --snapshot for pictures, not timing.
                             if self.want_snapshot {
@@ -544,6 +575,14 @@ pub fn run(opts: &Opts) -> Res<()> {
     let addr: SocketAddr = opts.str_or("addr", "127.0.0.1:4103").parse()?;
     let samples: usize = opts.num_or("samples", 300)?;
     let carrier = opts.str_or("carrier", "udp");
+    let eval_local = opts.num_or("eval-local", 0u8)? == 1;
+    let eval_relay = opts.num_or("eval-netem-relay", 0u8)? == 1;
+    if (eval_local || eval_relay) && (!addr.ip().is_loopback() || opts.get("link").is_some()) {
+        return Err("local eval requires a loopback socket address, without --link".into());
+    }
+    if eval_relay && carrier != "udp" {
+        return Err("--eval-netem-relay requires --carrier udp".into());
+    }
     // key (default) | click | scroll: which input moves the marker (cloud browser page);
     // none: a passive window (`run_passive`).
     let input = opts.str_or("input", "key");
@@ -566,7 +605,19 @@ pub fn run(opts: &Opts) -> Res<()> {
         } else {
             None
         };
-        let udp_port = udp.as_ref().map(|(s, _)| s.local_addr().map(|a| a.port())).transpose()?;
+        let udp_port = udp
+            .as_ref()
+            .map(|(s, _)| -> io::Result<u16> {
+                if eval_relay {
+                    // Teach the local relay our actual endpoint before Hello. The relay
+                    // consumes this empty probe; advertise its port for downstream media.
+                    s.send_to(&[], addr)?;
+                    Ok(addr.port())
+                } else {
+                    Ok(s.local_addr()?.port())
+                }
+            })
+            .transpose()?;
         (ViewerIo::Socket { tcp, reader: FrameReader::default(), udp }, udp_port)
     };
     let mut v = Viewer {
@@ -579,6 +630,9 @@ pub fn run(opts: &Opts) -> Res<()> {
         marker_at_ns: 0,
         marker_capture_us: 0,
         frames: 0,
+        decoded_frames: 0,
+        eval_decode: eval_local.then(crate::eval::DecodeLog::default),
+        eval_quality: if eval_local { crate::eval::Quality::from_env() } else { None },
         bytes: 0,
         decode_ms: Vec::new(),
         decode_errors: 0,
@@ -794,8 +848,17 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
     };
     let (c0, t_begin) = (cpu_s(), now_ns());
     let frames_start = v.frames;
+    let decoded_start = v.decoded_frames;
+    let bytes_start = v.bytes;
+    // The measured window starts after first frame. Preserve that distinction.
+    if let Some(log) = v.eval_decode.as_mut() {
+        log.records.clear();
+        log.truncated = false;
+    }
     let mut series = Vec::new();
     let (mut bytes, mut frames, mut decode_from) = (v.bytes, v.frames, v.decode_ms.len());
+    let mut bucket_start = t_begin;
+    let mut decoded = v.decoded_frames;
     let mut next = t_begin + 1_000_000_000;
     while now_ns() - t_begin < duration_ns && v.ended.is_none() {
         v.pump(next.saturating_sub(now_ns()).max(1_000_000))?;
@@ -807,10 +870,14 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
             "unix_ms": unix_ms(),
             "bytes": v.bytes - bytes,
             "frames": v.frames - frames,
+            "decoded_frames": v.decoded_frames - decoded,
+            "duration_ms": (now_ns() - bucket_start) as f64 / 1e6,
             "decode_ms": pct(&mut v.decode_ms[decode_from..].to_vec()),
             "host_stats": v.stats.last(),
         }));
         (bytes, frames, decode_from) = (v.bytes, v.frames, v.decode_ms.len());
+        decoded = v.decoded_frames;
+        bucket_start = now_ns();
     }
     let secs = (now_ns() - t_begin) as f64 / 1e9;
     let fps = v.frames.saturating_sub(frames_start) as f64 / secs.max(f64::EPSILON);
@@ -820,6 +887,14 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         "input": "none",
         "welcome": v.welcome,
         "seconds": secs,
+        "bytes": v.bytes - bytes_start,
+        "decoded_frames": v.decoded_frames - decoded_start,
+        "eval_clock": v.eval_decode.as_ref().map(|_| "same-host protocol monotonic microseconds"),
+        "eval_begin_us": v.eval_decode.as_ref().map(|_| t_begin / 1000),
+        "eval_end_us": v.eval_decode.as_ref().map(|_| now_ns() / 1000),
+        "decode_records": v.eval_decode.as_ref().map(|log| &log.records),
+        "decode_records_truncated": v.eval_decode.as_ref().map(|log| log.truncated),
+        "quality_samples": v.eval_quality.as_ref().map(|quality| &quality.samples),
         "first_frame_ms": first_frame_ms,
         "fps": fps,
         "series": series,

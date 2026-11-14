@@ -40,7 +40,9 @@ host_start() {
   [[ "${EVAL_RD_INPUT_FRAME_NOW:-0}" == 1 ]] && host_flags+=(--input-frame-now 1)
   : >"$EVAL_STATE/timing.jsonl"
   rm -f "$EVAL_STATE/timing.offset"
-  CMUX_RD_TIMING_LOG="$EVAL_STATE/timing.jsonl" "$rd" host --owner owner --bind "${EVAL_BIND:-127.0.0.1}" ${host_flags[@]+"${host_flags[@]}"} --port "$port" \
+  mkdir -p "$EVAL_STATE/quality"
+  chmod 700 "$EVAL_STATE/quality"
+  CMUX_RD_EVAL_QUALITY="$EVAL_STATE/quality" CMUX_RD_TIMING_LOG="$EVAL_STATE/timing.jsonl" "$rd" host --owner owner --bind "${EVAL_BIND:-127.0.0.1}" ${host_flags[@]+"${host_flags[@]}"} --port "$port" \
     --token-fd 3 3< <(cat "$EVAL_STATE/token") >>"$EVAL_STATE/host.log" 2>&1 &
   echo $! >"$EVAL_STATE/host.pid"
   for _ in $(seq 1 100); do
@@ -74,7 +76,7 @@ netem_start() {
     --listen-host 127.0.0.1 --listen-port "$netem_port" \
     --upstream-host 127.0.0.1 --upstream-port "$port" \
     --rtt-ms "$EVAL_NETEM_RTT_MS" --loss-pct "${EVAL_NETEM_LOSS_PCT:-0}" \
-    --seed "${EVAL_NETEM_SEED:-1}" >>"$EVAL_STATE/netem.log" 2>&1 &
+    --seed "${EVAL_NETEM_SEED:-1}" --stats-path "$EVAL_STATE/netem-stats.json" >>"$EVAL_STATE/netem.log" 2>&1 &
   echo $! >"$EVAL_STATE/netem.pid"
   for _ in $(seq 1 100); do
     grep -q 'netem: listening' "$EVAL_STATE/netem.log" && return 0
@@ -89,8 +91,15 @@ netem_start() {
 
 bench() {
   local bench_port=$port
-  [[ -n "${EVAL_NETEM_RTT_MS:-}" ]] && bench_port=$netem_port
-  "$rd" bench --addr "${EVAL_PEER:-127.0.0.1}:$bench_port" --user owner --token-fd 3 "$@" 3< <(cat "$EVAL_STATE/token")
+  local eval_flags=()
+  if [[ -z "${EVAL_PEER:-}" || "${EVAL_PEER}" == 127.0.0.1 ]]; then
+    eval_flags+=(--eval-local 1)
+  fi
+  if [[ -n "${EVAL_NETEM_RTT_MS:-}" ]]; then
+    bench_port=$netem_port
+    eval_flags+=(--eval-netem-relay 1)
+  fi
+  CMUX_RD_EVAL_QUALITY="$EVAL_STATE/quality" "$rd" bench "${eval_flags[@]}" --addr "${EVAL_PEER:-127.0.0.1}:$bench_port" --user owner --token-fd 3 "$@" 3< <(cat "$EVAL_STATE/token")
 }
 
 case "$verb" in
@@ -207,6 +216,9 @@ EOF
   window-report)
     # window-report RAW OUT: the per-second rows on the host's wall clock (EVAL_PEER_WALL_OFFSET_MS).
     raw=$1 out=$2
+    if [[ -f "$EVAL_STATE/netem.pid" ]]; then
+      kill -USR1 "$(cat "$EVAL_STATE/netem.pid")"
+    fi
     python3 -I - "$raw" "$out" "${EVAL_PEER_WALL_OFFSET_MS:-0}" <<'EOF'
 import json, os, sys
 lines = open(sys.argv[1]).read().strip().splitlines()
@@ -215,6 +227,7 @@ if not lines:
 raw = json.loads(lines[-1])
 offset = float(sys.argv[3])
 series = [{"unix_ms": round(s["unix_ms"] + offset), "bytes": s["bytes"], "frames": s["frames"],
+           "duration_ms": s.get("duration_ms"),
            "decode_ms": (s.get("decode_ms") or {}).get("p50"),
            "encode_ms": (s.get("host_stats") or {}).get("encode_ms_p50")} for s in raw["series"]]
 first = None

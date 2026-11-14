@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import argparse
 import heapq
+import ipaddress
+import json
+from pathlib import Path
 import random
 import signal
 import socket
@@ -26,17 +29,25 @@ class DelayedUDP:
         self.upstream = upstream
         self.rng = random.Random(seed)
         self.bench: tuple[str, int] | None = None
-        self.events: list[tuple[float, int, bytes, tuple[str, int]]] = []
+        self.events: list[tuple[float, int, bytes, tuple[str, int], str]] = []
         self.cv = threading.Condition()
         self.seq = 0
         self.stop = False
+        self.probes = 0
+        self.counts = {direction: {key: 0 for key in ("received", "dropped", "sent", "bytes_received", "bytes_sent")}
+                       for direction in ("upstream", "downstream")}
 
     def enqueue(self, payload: bytes, addr: tuple[str, int], target: tuple[str, int]) -> None:
+        direction = "downstream" if addr == self.upstream else "upstream"
+        counts = self.counts[direction]
+        counts["received"] += 1
+        counts["bytes_received"] += len(payload)
         if self.loss and self.rng.random() < self.loss:
+            counts["dropped"] += 1
             return
         with self.cv:
             self.seq += 1
-            heapq.heappush(self.events, (time.monotonic() + self.delay_s, self.seq, payload, target))
+            heapq.heappush(self.events, (time.monotonic() + self.delay_s, self.seq, payload, target, direction))
             self.cv.notify()
 
     def sender(self) -> None:
@@ -46,7 +57,7 @@ class DelayedUDP:
                     self.cv.wait()
                 if self.stop and not self.events:
                     return
-                due, _, payload, target = self.events[0]
+                due, _, payload, target, direction = self.events[0]
                 wait = due - time.monotonic()
                 if wait > 0:
                     self.cv.wait(wait)
@@ -54,6 +65,8 @@ class DelayedUDP:
                 heapq.heappop(self.events)
             try:
                 self.sock.sendto(payload, target)
+                self.counts[direction]["sent"] += 1
+                self.counts[direction]["bytes_sent"] += len(payload)
             except OSError:
                 return
 
@@ -68,8 +81,13 @@ class DelayedUDP:
                 if self.bench is not None:
                     self.enqueue(payload, addr, self.bench)
             else:
-                self.bench = addr
-                self.enqueue(payload, addr, self.upstream)
+                # Explicit zero-byte eval registration is consumed locally. It
+                # precedes Hello and is not part of the seeded loss sequence.
+                if not payload:
+                    self.bench = addr
+                    self.probes += 1
+                elif addr == self.bench:
+                    self.enqueue(payload, addr, self.upstream)
 
     def close(self) -> None:
         with self.cv:
@@ -118,9 +136,12 @@ def main() -> int:
     parser.add_argument("--rtt-ms", type=float, required=True)
     parser.add_argument("--loss-pct", type=float, required=True)
     parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--stats-path", type=Path)
     args = parser.parse_args()
     if args.rtt_ms < 0 or args.loss_pct < 0 or args.loss_pct > 100:
         parser.error("rtt-ms must be non-negative and loss-pct must be in [0, 100]")
+    if not all(ipaddress.ip_address(host).is_loopback for host in (args.listen_host, args.upstream_host)):
+        parser.error("eval relay requires numeric loopback endpoints")
     delay_s = args.rtt_ms / 2000.0
     upstream = (args.upstream_host, args.upstream_port)
     tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -134,11 +155,23 @@ def main() -> int:
     udp_thread.start()
     stop = threading.Event()
 
+    def stats(_signum=None, _frame=None) -> None:
+        if args.stats_path is not None:
+            obj = {"seed":args.seed,"rtt_ms":args.rtt_ms,"loss_pct":args.loss_pct,
+                   "unix_ms":time.time_ns() // 1_000_000,"probes":udp_relay.probes,
+                   "directions":udp_relay.counts}
+            temporary = args.stats_path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(obj))
+            temporary.replace(args.stats_path)
+
     def shutdown(_signum, _frame) -> None:
+        stats()
         stop.set()
         udp_relay.close()
         tcp.close()
 
+    signal.signal(signal.SIGUSR1, stats)
+    stats()
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
     print(f"netem: listening {args.listen_host}:{args.listen_port} -> {args.upstream_host}:{args.upstream_port} rtt_ms={args.rtt_ms:g} loss_pct={args.loss_pct:g} seed={args.seed}", flush=True)
