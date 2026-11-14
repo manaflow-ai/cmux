@@ -109,13 +109,8 @@ pub(super) struct CopyArgs {
     pub(super) json: bool,
 }
 
-fn take_value(args: &[String], index: &mut usize, option: &str) -> anyhow::Result<String> {
-    let value = args
-        .get(*index)
-        .cloned()
-        .ok_or_else(|| anyhow!(catalog().remote_client.option_needs_value(option)))?;
-    *index += 1;
-    Ok(value)
+fn take_value(args: &mut std::slice::Iter<'_, String>, option: &str) -> anyhow::Result<String> {
+    args.next().cloned().ok_or_else(|| anyhow!(catalog().remote_client.option_needs_value(option)))
 }
 
 /// Splits `exec`'s argv at the first `--`: exec options and connect options
@@ -126,7 +121,8 @@ pub(super) fn parse_exec_args(args: &[String]) -> anyhow::Result<ExecArgs> {
         .iter()
         .position(|argument| argument == "--")
         .ok_or_else(|| anyhow!(messages.exec_needs_command))?;
-    let (options, argv) = (&args[..split], &args[split + 1..]);
+    let (options, argv) = args.split_at(split);
+    let argv = argv.get(1..).unwrap_or_default();
     if argv.is_empty() {
         return Err(anyhow!(messages.exec_needs_command));
     }
@@ -138,13 +134,11 @@ pub(super) fn parse_exec_args(args: &[String]) -> anyhow::Result<ExecArgs> {
         timeout_seconds: None,
         argv: argv.to_vec(),
     };
-    let mut index = 0;
-    while index < options.len() {
-        let argument = options[index].as_str();
-        index += 1;
-        match argument {
+    let mut options = options.iter();
+    while let Some(argument) = options.next() {
+        match argument.as_str() {
             "--cwd" => {
-                let cwd = take_value(options, &mut index, "--cwd")?;
+                let cwd = take_value(&mut options, "--cwd")?;
                 if !cwd.starts_with('/') {
                     return Err(anyhow!(messages.exec_cwd_absolute));
                 }
@@ -153,7 +147,7 @@ pub(super) fn parse_exec_args(args: &[String]) -> anyhow::Result<ExecArgs> {
                 }
             }
             "--env" => {
-                let pair = take_value(options, &mut index, "--env")?;
+                let pair = take_value(&mut options, "--env")?;
                 let (key, value) = pair
                     .split_once('=')
                     .filter(|(key, _)| !key.is_empty())
@@ -162,7 +156,7 @@ pub(super) fn parse_exec_args(args: &[String]) -> anyhow::Result<ExecArgs> {
             }
             "--tty" | "-t" => parsed.tty = true,
             "--timeout-seconds" => {
-                let seconds = take_value(options, &mut index, "--timeout-seconds")?
+                let seconds = take_value(&mut options, "--timeout-seconds")?
                     .parse::<u64>()
                     .ok()
                     .filter(|seconds| *seconds > 0)
@@ -172,7 +166,7 @@ pub(super) fn parse_exec_args(args: &[String]) -> anyhow::Result<ExecArgs> {
                 parsed.timeout_seconds = Some(seconds);
             }
             option if REMOTE_VALUE_OPTIONS.contains(&option) => {
-                let value = take_value(options, &mut index, option)?;
+                let value = take_value(&mut options, option)?;
                 parsed.connect.extend([option.to_owned(), value]);
             }
             other => parsed.connect.push(other.to_owned()),
@@ -198,18 +192,16 @@ pub(super) fn parse_cp_args(args: &[String]) -> anyhow::Result<CopyArgs> {
     let mut connect = Vec::new();
     let mut positionals = Vec::new();
     let mut json = false;
-    let mut index = 0;
-    while index < args.len() {
-        let argument = args[index].as_str();
-        index += 1;
-        match argument {
+    let mut args = args.iter();
+    while let Some(argument) = args.next() {
+        match argument.as_str() {
             "--" => {
-                positionals.extend(args[index..].iter().cloned());
+                positionals.extend(args.by_ref().cloned());
                 break;
             }
             "--json" => json = true,
             option if REMOTE_VALUE_OPTIONS.contains(&option) => {
-                let value = take_value(args, &mut index, option)?;
+                let value = take_value(&mut args, option)?;
                 connect.extend([option.to_owned(), value]);
             }
             option if option.starts_with('-') => connect.push(option.to_owned()),
@@ -396,7 +388,7 @@ fn spawn_stdin_reader() -> anyhow::Result<tokio::sync::mpsc::Receiver<StdinChunk
             loop {
                 let chunk = match stdin.read(&mut buffer) {
                     Ok(0) | Err(_) => StdinChunk::End,
-                    Ok(read) => StdinChunk::Data(buffer[..read].to_vec()),
+                    Ok(read) => StdinChunk::Data(buffer.get(..read).unwrap_or_default().to_vec()),
                 };
                 let end = matches!(chunk, StdinChunk::End);
                 if sender.blocking_send(chunk).is_err() || end {

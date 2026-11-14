@@ -109,28 +109,29 @@ fn run_inner(
     usage: &str,
     load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
-    if remote_help_requested(&args[1..]) {
+    let rest = args.get(1..).unwrap_or_default();
+    if remote_help_requested(rest) {
         print!("{}", remote_help(args.first().map(String::as_str)));
         return Ok(());
     }
     match args.first().map(String::as_str) {
-        Some("connect") => run_connect(&args[1..], None, load_config),
-        Some("ssh") => run_ssh(&args[1..], load_config),
-        Some("forward") => run_forward(&args[1..]),
-        Some("dial-tcp") => run_dial_tcp(args.get(1..).unwrap_or_default()),
-        Some("browser-proxy") => run_browser_proxy(&args[1..]),
-        Some("rpc") => run_rpc(&args[1..]),
-        Some("remote-exec") => run_exec(&args[1..]),
-        Some("remote-cp") => run_cp(&args[1..]),
-        Some("enroll") => run_enroll(&args[1..], load_config),
-        Some("known-daemons") => run_known_daemons(&args[1..]),
-        Some("remote-probe") => run_probe(&args[1..]),
-        Some("remote-link") => run_remote_link(&args[1..]),
-        Some("remote-sidecar") => run_remote_sidecar(&args[1..]),
-        Some("remote-stop") => run_remote_stop(&args[1..]),
-        Some("remote-update-need") => run_update_need(&args[1..]),
-        Some("install-self") => run_install_self(&args[1..]),
-        Some("wg") => run_wg(&args[1..]),
+        Some("connect") => run_connect(rest, None, load_config),
+        Some("ssh") => run_ssh(rest, load_config),
+        Some("forward") => run_forward(rest),
+        Some("dial-tcp") => run_dial_tcp(rest),
+        Some("browser-proxy") => run_browser_proxy(rest),
+        Some("rpc") => run_rpc(rest),
+        Some("remote-exec") => run_exec(rest),
+        Some("remote-cp") => run_cp(rest),
+        Some("enroll") => run_enroll(rest, load_config),
+        Some("known-daemons") => run_known_daemons(rest),
+        Some("remote-probe") => run_probe(rest),
+        Some("remote-link") => run_remote_link(rest),
+        Some("remote-sidecar") => run_remote_sidecar(rest),
+        Some("remote-stop") => run_remote_stop(rest),
+        Some("remote-update-need") => run_update_need(rest),
+        Some("install-self") => run_install_self(rest),
+        Some("wg") => run_wg(rest),
         Some("remote") => Err(anyhow!(catalog().remote_client.remote_lifecycle_help)),
         _ => Err(anyhow!("unknown remote command\n\n{usage}")),
     }
