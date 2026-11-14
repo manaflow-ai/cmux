@@ -932,6 +932,17 @@ fn v2_pr03c_append_behind_page_split() {
     let (god, small) = god_and_small();
     let (mut god, mut small) = (appender(&rt, god), appender(&rt, small));
     let name = "v2.pr03c.append_behind_page_split";
+    // The book's files outside `rows/`, each side: what an append may rewrite or sync.
+    for (label, side) in [("small", &small), ("god", &god)] {
+        let mut files = Vec::new();
+        files_under(&side.reader.fixture.chat.book(), &mut files);
+        files.sort();
+        for path in files {
+            let size = fs::metadata(&path).unwrap().len();
+            let shown = path.strip_prefix(side.reader.fixture.chat.book()).unwrap().display();
+            println!("{name} side={label} file={shown} bytes={size}");
+        }
+    }
     for cold in [true, false] {
         let (mut small_splits, mut god_splits) = (Vec::new(), Vec::new());
         for round in 0..ROUNDS {
