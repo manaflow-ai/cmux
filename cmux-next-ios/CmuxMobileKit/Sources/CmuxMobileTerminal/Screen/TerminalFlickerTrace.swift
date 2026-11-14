@@ -19,9 +19,9 @@ import UIKit
 /// - `blank`: frames with nothing legible: a full-screen app's grid with no
 ///   text, or a shell page showing background where it has rows.
 /// - `note`: frames that show the letterbox note ("53×25 · set by …").
-/// - `band`: frames where a full-screen app's grid leaves background
-///   between the toolbar and its first row (informational: the keyboard
-///   hiding over a grid that has not grown yet).
+/// - `band`: frames where a full-screen app's grid leaves more than a row
+///   of background between the toolbar and its first row (informational:
+///   the keyboard hiding over a grid the Mac has not grown yet).
 /// - `snap`: frames where the rows moved while the composer stood still.
 /// - `rev`: frames where a shell's rows moved against the keyboard.
 /// - `sized`: frames where the surface changed size.
@@ -145,7 +145,7 @@ final class TerminalFlickerTrace: NSObject {
             value = now.gridTop + CGFloat(now.gridRows) * now.cellHeight - now.stackTop
             if now.noteShown { count("note") }
             if !now.held, now.nonBlankRows == 0 { count("blank") }
-            if !now.held, now.gridTop > now.clipTop + 1 { count("band") }
+            if !now.held, now.gridTop - now.clipTop > now.cellHeight { count("band") }
         } else {
             value = now.stackTop - now.contentBottom
             if now.legibleBlank { count("blank") }

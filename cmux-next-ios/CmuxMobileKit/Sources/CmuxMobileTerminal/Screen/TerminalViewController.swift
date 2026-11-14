@@ -195,6 +195,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// What the dock shows (key row, composer) and the soft keyboard's state.
     private var dock = TerminalDockVisibility()
     private var tuiSizing = TerminalTUISizing()
+    /// The old grid's rows, kept on the composer until the Mac's replay at
+    /// the settled rows is in (`TerminalTUIGridHold`).
+    private var tuiGridHold = TerminalTUIGridHold()
+    private var tuiGridHoldExpiry: Task<Void, Never>?
     #if DEBUG
     /// DEBUG frame pacing while the page is dragged or decelerates: the gap
     /// between scroll callbacks (one per displayed frame while moving) and
@@ -860,6 +864,29 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
     }
 
+    /// No answer within `TerminalTUIGridHold.cap` (the Mac kept its grid):
+    /// the area shows the page's rows.
+    private func armGridHoldExpiry() {
+        tuiGridHoldExpiry?.cancel()
+        tuiGridHoldExpiry = nil
+        guard tuiGridHold.heldRows != nil else { return }
+        tuiGridHoldExpiry = Task { @MainActor [weak self] in
+            try? await ContinuousClock().sleep(for: TerminalTUIGridHold.cap)
+            guard let self, !Task.isCancelled, self.tuiGridHold.heldRows != nil else { return }
+            sizingLog.notice("grid hold expired: no replay at \(self.tuiRows, privacy: .public) rows")
+            self.releaseGridHold()
+        }
+    }
+
+    private func releaseGridHold() {
+        guard tuiGridHold.heldRows != nil else { return }
+        tuiGridHold.release()
+        tuiGridHoldExpiry?.cancel()
+        tuiGridHoldExpiry = nil
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+    }
+
     private func sendResize(_ size: TerminalResizeSettle.Size, why: String) {
         sizingLog.notice("resize \(size.columns, privacy: .public)x\(size.rows, privacy: .public) cause=\(why, privacy: .public)\(self.model.isTUI ? "-tui" : "", privacy: .public) attached=\(self.model.connectionState.isAttached, privacy: .public) (TUI \(self.model.isTUI, privacy: .public))")
         model.session.resize(columns: size.columns, rows: size.rows)
@@ -1464,6 +1491,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return
         }
         if replayDone {
+            // The Mac's grid at the settled rows is parsed: the area takes
+            // them now, behind the held frame, which the next present lets go.
+            releaseGridHold()
             model.mirrorPlaced()
             if let started = replayStartedAt {
                 sizingLog.notice("replay done bytes=\(self.replayBytes, privacy: .public) ms=\(Int((CACurrentMediaTime() - started) * 1000), privacy: .public)")
@@ -1728,11 +1758,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let newTUIRows = tuiSizing.rows(restingStackTop: restingStackTop, chromeTop: chromeTop, cellHeight: cellHeight)
         // The phone claims its own grid; only the rendering follows the Mac's.
         let columns = layout.phoneColumns
+        if newTUIRows != tuiRows, model.isTUI, tuiRows > 0 {
+            tuiGridHold.rowsChanged(from: tuiRows, to: newTUIRows, shownRows: appliedHostRows ?? model.session.remoteRows)
+            armGridHoldExpiry()
+        }
         if newTUIRows != tuiRows || columns != gridColumns {
             tuiRows = newTUIRows
             gridColumns = columns
-            tuiHeight.constant = CGFloat(tuiRows) * cellHeight
         }
+        // The area keeps the grid on screen until the Mac's new one is in.
+        let areaHeight = CGFloat(tuiGridHold.rows(page: tuiRows)) * cellHeight
+        if tuiHeight.constant != areaHeight { tuiHeight.constant = areaHeight }
         if columns > 0 { measuredGrid(columns: columns, rows: newTUIRows) }
         applyContentWidth()
         applyTUIPlacement()
@@ -2240,6 +2276,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             tuiSelection.clear()
             tuiScroll.stopMomentum()
             tuiSizing.tuiEnded()
+            tuiGridHold.release()
             scrollView.isScrollEnabled = true
             scrollView.topEdgeEffect.style = .soft
             tuiClip.isHidden = true
@@ -3192,7 +3229,7 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         return TerminalHostGridLayout(viewportWidth: view.bounds.width - 2 * Self.sidePadding, cell: cell,
                                       scale: view.window?.screen.scale ?? surface.renderScale, hostColumns: remoteColumns,
                                       hostRows: remoteColumns == nil ? nil : appliedHostRows ?? model.session.remoteRows,
-                                      visibleRows: tuiRows)
+                                      visibleRows: tuiGridHold.rows(page: tuiRows))
     }
 
     /// The page's scrollable width: the mirror plus its side padding.
