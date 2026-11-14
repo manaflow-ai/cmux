@@ -233,10 +233,9 @@ fn own_tree_the_stop_marker_is_not_written_through_a_link() {
 #[cfg(unix)]
 const KEPT: &str = "a file that is not a file of the setup\n";
 
-/// A new folder with a folder `git-folder` in it. The file `elsewhere/file` of the new folder,
-/// with the text [`KEPT`], has a second name: `name` in `git-folder`.
+/// A new folder with the folders `git-folder`, `elsewhere` and `root` in it.
 #[cfg(unix)]
-fn folder_with_a_second_name_in_its_git_folder_at(name: &str) -> PathBuf {
+fn folder_with_a_git_folder() -> PathBuf {
     let mut bytes = [0_u8; 6];
     getrandom::fill(&mut bytes).unwrap();
     let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
@@ -244,6 +243,14 @@ fn folder_with_a_second_name_in_its_git_folder_at(name: &str) -> PathBuf {
     fs::create_dir_all(top.join("git-folder")).unwrap();
     fs::create_dir_all(top.join("elsewhere")).unwrap();
     fs::create_dir_all(top.join("root")).unwrap();
+    top
+}
+
+/// A folder of [`folder_with_a_git_folder`]. Its file `elsewhere/file`, with the text [`KEPT`],
+/// has a second name: `name` in `git-folder`.
+#[cfg(unix)]
+fn folder_with_a_second_name_in_its_git_folder_at(name: &str) -> PathBuf {
+    let top = folder_with_a_git_folder();
     fs::write(top.join("elsewhere/file"), KEPT).unwrap();
     fs::hard_link(top.join("elsewhere/file"), top.join("git-folder").join(name)).unwrap();
     top
@@ -256,10 +263,11 @@ fn text_elsewhere(top: &Path) -> String {
 }
 
 /// The marker's text is not used, so the marker's open writes nothing: a file that has the
-/// marker's name as a second name keeps its text, and the marker is there.
+/// marker's name as a second name keeps its text and its 2 names.
 #[cfg(unix)]
 #[test]
 fn own_tree_the_stop_marker_changes_no_file_with_a_second_name() {
+    use std::os::unix::fs::MetadataExt as _;
     let top = folder_with_a_second_name_in_its_git_folder_at(CANCEL_FILE);
     // The status of a setup that this session host did not start.
     let status = r#"{"state":"running","started_ms":1}"#;
@@ -267,8 +275,26 @@ fn own_tree_the_stop_marker_changes_no_file_with_a_second_name() {
 
     stop(&place_in(&top));
 
-    let marker = top.join("git-folder").join(CANCEL_FILE).exists();
-    assert_eq!((text_elsewhere(&top).as_str(), marker), (KEPT, true));
+    let names = fs::metadata(top.join("elsewhere/file")).map_or(0, |file| file.nlink());
+    assert_eq!((text_elsewhere(&top).as_str(), names), (KEPT, 2));
+    fs::remove_dir_all(top).unwrap();
+}
+
+/// The stop makes the marker when there is none: the setup of the other session host looks for
+/// the marker's name.
+#[cfg(unix)]
+#[test]
+fn own_tree_the_stop_marker_is_made_when_there_is_none() {
+    let top = folder_with_a_git_folder();
+    // The status of a setup that this session host did not start.
+    let status = r#"{"state":"running","started_ms":1}"#;
+    fs::write(top.join("git-folder").join(STATUS_FILE), status).unwrap();
+    let marker = top.join("git-folder").join(CANCEL_FILE);
+    let before = marker.exists();
+
+    stop(&place_in(&top));
+
+    assert_eq!((before, marker.exists()), (false, true));
     fs::remove_dir_all(top).unwrap();
 }
 
@@ -308,7 +334,29 @@ fn own_tree_a_teardown_log_with_a_second_name_is_made_new() {
         (KEPT, false, true),
         "the log: {log}"
     );
+    // The reply has the lines of the new log from its start.
+    let output = reply["output"].as_str().unwrap_or_default();
+    assert!(output.starts_with("$ touch ran\n"), "{reply}");
     assert_eq!(reply["state"], "succeeded", "{reply}");
     assert!(top.join("root/ran").exists(), "the teardown did not run");
+    fs::remove_dir_all(top).unwrap();
+}
+
+/// A log with one name is the setup's own log: a teardown writes at its end, and the reply has
+/// the teardown's lines only.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_log_with_one_name_keeps_its_lines() {
+    let top = folder_with_a_git_folder();
+    let log_path = top.join("git-folder").join(LOG_FILE);
+    fs::write(&log_path, "a line of the setup\n").unwrap();
+
+    let reply = teardown(&place_in(&top), Some("touch ran")).unwrap_or_default();
+
+    let log = fs::read_to_string(&log_path).unwrap_or_default();
+    assert!(log.starts_with("a line of the setup\n$ touch ran\n"), "the log: {log}");
+    let output = reply["output"].as_str().unwrap_or_default();
+    assert!(output.starts_with("$ touch ran\n"), "{reply}");
+    assert_eq!(reply["state"], "succeeded", "{reply}");
     fs::remove_dir_all(top).unwrap();
 }

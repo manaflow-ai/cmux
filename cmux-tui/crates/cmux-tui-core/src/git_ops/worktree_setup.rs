@@ -723,8 +723,9 @@ fn open_as_own(options: &mut OpenOptions, path: &Path) -> Option<File> {
 /// and for writes at its end, and makes it when there is none
 /// ([`open_as_own`]). A log that has a second name is not written: its
 /// lines would go into the file at that name too. The log's name is then
-/// removed and the log is made new, as the second name of a JSON file is
-/// ([`write_own`]): what comes to the name after the removal stops the open.
+/// removed and the log is made new with create-new, as the `.partial` file
+/// of a JSON file is ([`write_own`]): what comes to the name after the
+/// removal stops the open.
 fn open_log(git_dir: &Path) -> Option<File> {
     let path = git_dir.join(LOG_FILE);
     let mut options = OpenOptions::new();
