@@ -198,13 +198,21 @@ public final class GlassMenu {
         guard parentMenu == nil else { return }
         let done = onClose
         onClose = nil
+        // The item's menu is held strongly here: `NSMenuItem.menu` is weak, and once `holdsSelf`
+        // lets go nothing else may keep the NSMenu (the sidebar holds its GlassMenu weakly), so
+        // reading `item.menu` on the next turn found nil and the row's action never ran (review
+        // P1-F1 of #41538). The root menu is held too, which keeps a submenu's chain alive.
+        let owner = item?.menu
+        let rootMenu = menu
         // A run-loop callout, as the profile menu's open is: the row's action runs outside any
         // event the menu handled.
         MainRunLoopBlock.perform {
             done?()
-            guard let item, let owner = item.menu else { return }
-            let index = owner.index(of: item)
-            if index >= 0 { owner.performActionForItem(at: index) }
+            withExtendedLifetime(rootMenu) {
+                guard let item, let owner else { return }
+                let index = owner.index(of: item)
+                if index >= 0 { owner.performActionForItem(at: index) }
+            }
         }
     }
 }

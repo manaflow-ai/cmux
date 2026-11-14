@@ -108,4 +108,41 @@ import Testing
         #expect(row.trailingView is ThemedImageView)
         #expect((list.view(at: 1) as? PopupRowView)?.trailingView == nil)
     }
+
+    /// Review P1-F1 of #41538: a picked row runs after the menu closes even when nothing else holds
+    /// the menu (the sidebar keeps its account menu weakly, and `NSMenuItem.menu` is weak), in a
+    /// submenu too.
+    @Test func aPickedRowRunsWhenNothingElseHoldsTheMenu() throws {
+        let target = GlassMenuActionTarget()
+        do {
+            let menu = NSMenu()
+            menu.autoenablesItems = false
+            let settings = menu.addItem(
+                withTitle: "Settings…", action: #selector(GlassMenuActionTarget.run(_:)), keyEquivalent: ",")
+            settings.target = target
+            let glass = GlassMenu(menu: menu)
+            #expect(glass.runKeyEquivalent(try Self.key(",", .command)))
+        }
+        do {
+            let menu = NSMenu()
+            menu.autoenablesItems = false
+            let more = menu.addItem(withTitle: "More", action: nil, keyEquivalent: "")
+            let sub = NSMenu()
+            sub.autoenablesItems = false
+            let team = sub.addItem(
+                withTitle: "Team", action: #selector(GlassMenuActionTarget.run(_:)), keyEquivalent: "t")
+            team.target = target
+            more.submenu = sub
+            #expect(GlassMenu(menu: menu).runKeyEquivalent(try Self.key("t", .command)))
+        }
+        #expect(target.ran.isEmpty, "the row ran inline, before the menu closed")
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {}
+        _ = CFRunLoopRunInMode(.defaultMode, 0, false)
+        #expect(target.ran == ["Settings…", "Team"])
+    }
+}
+
+@MainActor final class GlassMenuActionTarget: NSObject {
+    var ran: [String] = []
+    @objc func run(_ sender: NSMenuItem) { ran.append(sender.title) }
 }
