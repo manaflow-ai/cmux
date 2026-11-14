@@ -40,3 +40,43 @@ pub mod store;
 pub use inventory::{Facts, Repo, Worktree};
 pub use policy::{Action, Pressure, Verdict};
 pub use store::{Manifest, Store};
+
+/// Test-only: a forked child that keeps a copy of every descriptor of this process, the way a
+/// child another daemon thread forks keeps them until it execs. A file lock that is let go only
+/// by a close stays held through such a copy.
+#[cfg(all(test, unix))]
+pub(crate) mod test_fork {
+    /// The child; dropping this kills and reaps it.
+    ///
+    /// Fork safety: a test binary runs many threads, so the child of `fork` may make only
+    /// async-signal-safe calls. It calls `pause` in a loop and nothing else: it never returns from
+    /// [`Keeper::fork`], allocates, takes a lock, unwinds or calls `_exit` or `exit` itself. The
+    /// parent's drop ends it with SIGKILL (from outside the child) and reaps it with `waitpid`.
+    pub(crate) struct Keeper(libc::pid_t);
+
+    impl Keeper {
+        pub(crate) fn fork() -> Keeper {
+            // SAFETY: the child calls only pause, which is async-signal-safe, until SIGKILL ends it.
+            let child = unsafe { libc::fork() };
+            assert!(child >= 0, "fork failed");
+            if child == 0 {
+                loop {
+                    // SAFETY: as above.
+                    unsafe { libc::pause() };
+                }
+            }
+            Keeper(child)
+        }
+    }
+
+    impl Drop for Keeper {
+        fn drop(&mut self) {
+            let mut status = 0;
+            // SAFETY: `self.0` is this test's own child and `status` outlives the call.
+            unsafe {
+                libc::kill(self.0, libc::SIGKILL);
+                libc::waitpid(self.0, &mut status, 0);
+            }
+        }
+    }
+}

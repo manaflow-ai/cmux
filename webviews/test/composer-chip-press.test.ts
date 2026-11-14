@@ -358,6 +358,8 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
               background: style.backgroundColor,
               boxShadow: style.boxShadow,
               radius: parseFloat(style.borderTopLeftRadius),
+              // The button radius that the page resolves (desktop.css), not a number of this test.
+              control: parseFloat(style.getPropertyValue("--ds-radius-control")),
               height: rect.height,
             };
           });
@@ -366,9 +368,10 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
         // No pill at rest: the label and chevron only (Leo 2026-10-19, the Claude app's chips).
         expect(value.background, `${PILL_STAGE.chips[index]} draws no fill at rest`).toBe("rgba(0, 0, 0, 0)");
         expect(value.boxShadow, `${PILL_STAGE.chips[index]} draws no edge at rest`).toBe("none");
-        expect(value.radius, `${PILL_STAGE.chips[index]} is pill-shaped`).toBeGreaterThanOrEqual(
-          value.height / 2 - 0.5,
-        );
+        // Every button rounds as a tab (Lawrence 2026-11-12, a660569b1c62): the chip's corner is
+        // the button radius, not half its height.
+        expect(value.control, "the page resolves the button radius").toBeGreaterThan(0);
+        expect(value.radius, `${PILL_STAGE.chips[index]} takes the button radius`).toBe(value.control);
         expect(value.height, `${PILL_STAGE.chips[index]} remains a usable target`).toBeGreaterThanOrEqual(24);
       }
 

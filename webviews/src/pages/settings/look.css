@@ -4,22 +4,22 @@
    and on the rows' text edge; a sidebar with its own faint fill and a divider. Loaded last
    (page.css), so these rules win over refined.css's at equal weight.
 
-   Every line takes the window sidebar's edge line color (WebTheme --cmux-sidebar-line: "the same
-   colour as the main cmux sidebar line, so that it all matches"); the page's own faint ink before
-   the host speaks. Borders: None clears it. This replaces refined.css's one background for page and
-   sidebar with no divider (user, 2026-10-30). */
+   The cards' outlines, their rows' hairlines and the controls' edges are lines inside the page: the
+   theme's separator (--ds-color-separator), the hairline every list draws. A line that parts the
+   page's chrome from its content (the stacked strip's bottom line, a folder tab's rim) is the
+   window's chrome divider (--ds-color-divider: WebTheme --cmux-chrome-divider, the sidebar's edge
+   line and the split lines; an older app's --cmux-sidebar-line), so it matches the window's
+   ("the same colour as the main cmux sidebar line, so that it all matches"). Borders: None clears
+   both. This replaces refined.css's one background for page and sidebar with no divider (user,
+   2026-10-30). */
 :root[data-settings-look="refined"] {
-  --polish-edge: var(
-    --cmux-sidebar-line,
-    light-dark(
-      color-mix(in srgb, var(--polish-ink) 10%, transparent),
-      color-mix(in srgb, var(--polish-ink) 8%, transparent)
-    )
-  );
+  --polish-edge: var(--ds-color-separator);
+  --polish-divider: var(--ds-color-divider);
 }
 
 :root[data-settings-look="refined"]:is([data-borders="none"], [data-cmux-borders="none"]) {
   --polish-edge: transparent;
+  --polish-divider: transparent;
 }
 
 :root[data-settings-look="refined"]:is([data-borders="none"], [data-cmux-borders="none"]) .settings {
@@ -31,6 +31,8 @@
   --look-nav-height: var(--cmux-sidebar-row-height, var(--grid-row));
   --look-nav-radius: var(--cmux-sidebar-row-radius, var(--ds-radius-md));
   --look-nav-inset: var(--cmux-sidebar-row-inset, var(--ds-space-3));
+  --look-nav-font-size: var(--cmux-sidebar-row-font-size, var(--text-body));
+  --look-nav-gap: var(--cmux-sidebar-row-gap, calc(var(--ds-space-1) / 2));
   --look-card-fill: color-mix(in srgb, var(--polish-ink) 3%, transparent);
   --look-line: var(--polish-edge);
   --look-row-pad-y: var(--ds-space-3);
@@ -48,7 +50,6 @@
   --ds-radius-md: 8px;
   --ds-radius-lg: 10px;
   --ds-radius-xl: 14px;
-  --ds-radius-control: 8px;
 }
 
 /* Titles as Codex and ChatGPT weigh them: the sidebar's "Settings" at the title size, under the
@@ -88,18 +89,107 @@
   pointer-events: none;
 }
 
-/* Its rows are the window sidebar's list rows at every density (#39984: Codex's 30 px row, 10 px
-   corner and 8 px content inset at Default), with a small gap so the current row's fill and a
-   hovered one below it never read as one block. The current one fills; its weight stays, so
-   selecting never widens its name. */
+/* The title area tone (Leo 2026-11-12: "fixing up the whole, like, polish of the two-tone mode").
+   Under Subtle Tone (WebTheme --cmux-chrome-tone 1) the window's chrome is a shade apart from the
+   content, and so is this page's sidebar (--cmux-sidebar-surface, the same shade). The current
+   category is then a folder tab, as the window's selected tab is (Palette.folderTabFill): the
+   content's own surface (--cmux-folder-fill: the page's colour in an opaque window, clear over a
+   picture), cut out of the shade and running into the panel, so the tab and the content read as one
+   surface and never as a grey pill on the chrome. Under One Color (0, the default) and from an app
+   that sends no tone, none of this applies: the row keeps its selection fill and the shade stays one
+   shadow around the panel, as before.
+
+   The shade is cut where the tab is, not painted over, because over a picture the tab must show the
+   window's glass as the panel does. Three pieces draw it, each where the sidebar's clip keeps it in
+   the column: the scroll area's spread shadow everywhere in the sidebar outside the scroll area, the
+   tab's own spread shadow inside it (the scroller clips that one to its box and it scrolls with the
+   rows), and the panel's shadow only for the corners outside the panel's rounding. The scroller's
+   edge fade would fade the shade with the rows, so it does not fade under the tone.
+
+   `data-settings-folder-tab` on the root picks the join (gallery appearance.two-tone):
+   - folder (no attribute, the default): the content fill, no rim, square where it meets the panel;
+   - folder-rim: the same, with the chrome divider along its outer sides;
+   - lifted: the content fill at the row's own size and corners, raised by the low elevation;
+   - pill: the selection fill on the shade (the look before the tone joined it). */
+@media (min-width: 601px) {
+  @container style(--cmux-chrome-tone: 1) {
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings::before {
+      clip-path: inset(-100vmax -100vmax -100vmax 0);
+    }
+
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .sidebar-scroll {
+      box-shadow: 0 0 0 100vmax var(--cmux-sidebar-surface, transparent);
+    }
+
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .sidebar-scroll-viewport {
+      -webkit-mask-image: none;
+      mask-image: none;
+    }
+
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .sidebar-scroll-viewport:not(:has(.section-link[aria-current])) {
+      background: var(--cmux-sidebar-surface, transparent);
+    }
+
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings :is(.section-link[aria-current], .section-link[aria-current]:hover) {
+      position: relative;
+      background: var(--cmux-folder-fill, transparent);
+    }
+
+    /* The press sink would lift the tab into its own layer, over the rows its shadow runs under. */
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[aria-current]:active {
+      transform: none;
+    }
+
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings .section-link[aria-current]::before {
+      content: "";
+      position: absolute;
+      z-index: var(--layer-backdrop);
+      inset: 0;
+      border-radius: inherit;
+      box-shadow: 0 0 0 100vmax var(--cmux-sidebar-surface, transparent);
+      pointer-events: none;
+    }
+
+    /* folder and folder-rim: the tab runs on to the panel's edge (the sidebar's, past the list's end
+       padding), square where it meets it. The row is `width: 100%` (styles.css), so it grows by that
+       padding; a margin alone left the panel's colour a gap short of the panel. */
+    :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"], [data-settings-folder-tab="lifted"]) .settings .section-link[aria-current] {
+      width: calc(100% + var(--ds-space-3));
+      margin-right: calc(var(--ds-space-3) * -1);
+      border-radius: var(--look-nav-radius) 0 0 var(--look-nav-radius);
+    }
+
+    :root[data-settings-look="refined"][data-settings-folder-tab="folder-rim"] .settings .section-link[aria-current]::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      box-shadow:
+        inset var(--cmux-hairline-ring) 0 0 var(--polish-divider),
+        inset 0 var(--cmux-hairline-ring) 0 var(--polish-divider),
+        inset 0 calc(-1 * var(--cmux-hairline-ring)) 0 var(--polish-divider);
+      pointer-events: none;
+    }
+
+    :root[data-settings-look="refined"][data-settings-folder-tab="lifted"] .settings .section-link[aria-current] {
+      box-shadow: var(--elevation-1);
+    }
+  }
+}
+
+/* Its rows are the window sidebar's list rows at every density (the host's --cmux-sidebar-row-*: height,
+   corner, content inset, title size and the gap between rows; Lucas 2026-11-13). The list keeps its own width and
+   side margin. The current
+   one fills; its weight stays, so selecting never widens its name. */
 :root[data-settings-look="refined"] .settings .section-link {
   min-height: var(--look-nav-height);
   padding: 0 var(--look-nav-inset);
   border-radius: var(--look-nav-radius);
+  font-size: var(--look-nav-font-size);
 }
 
 :root[data-settings-look="refined"] .settings .sidebar-section {
-  gap: calc(var(--ds-space-1) / 2);
+  gap: var(--look-nav-gap);
 }
 
 /* Hover follows the pointer at once, as a native sidebar's does (Lucas 2026-11-11: a quick pass
@@ -410,7 +500,7 @@
 @media (max-width: 600px) {
   :root[data-settings-look="refined"] .settings > .sidebar {
     border-right: 0;
-    border-bottom: 1px solid var(--look-line);
+    border-bottom: 1px solid var(--polish-divider);
     background: var(--cmux-sidebar-surface, transparent);
   }
 

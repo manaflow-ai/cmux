@@ -14,8 +14,8 @@ import { FileKindIcon } from "../chips/FileKindIcon";
 import { usePathInfo } from "../chips/linkStore";
 import { useMessageScope } from "../chips/messageScope";
 import { isDeniedPath, pathName } from "../chips/paths";
-import { PreviewMore } from "./BlockParts";
 import { usePreview } from "./blockPartsModel";
+import { useMoreBelow } from "./moreBelow";
 import { ExpandRow } from "./ExpandRow";
 import { CodeLines } from "./CodeBlock";
 import { CopyButton } from "./CopyButton";
@@ -80,6 +80,7 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
   const t = useT();
   const lines = read.end - read.start + 1;
   const preview = usePreview(lines, reveal);
+  const body = useMoreBelow<HTMLDivElement>(read.code);
   const numbers = useMemo(
     () => Array.from({ length: lines }, (_, index) => read.start + index).join("\n"),
     [lines, read.start],
@@ -98,7 +99,7 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
         </span>
         <CopyButton text={read.code} label={t("code.copy")} className={`${cornerAction()} cv-edit-diff__copy`} />
       </div>
-      <div className="cv-filepeek__body" data-preview={preview.attribute}>
+      <div ref={body} className="cv-filepeek__body" data-preview={preview.attribute}>
         <div className="cv-filepeek__code">
           <pre className="cv-filepeek__gutter" aria-hidden data-find-skip>
             {numbers}
@@ -106,7 +107,6 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
           <CodeLines code={read.code} path={read.path} />
         </div>
       </div>
-      <PreviewMore preview={preview} />
     </div>
   );
 }

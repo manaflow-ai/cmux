@@ -180,7 +180,8 @@ impl Hub {
         // copy here) is that copy: its name is the chat's own, not another's to step around.
         // Another chat with the name still holds it.
         let holds = |s: &Arc<Session>, n: &str| {
-            s.meta().name == n && !(replace_durable && s.id == meta.id && self.moved_away(s))
+            s.read_meta(|m| m.name == n)
+                && !(replace_durable && s.id == meta.id && self.moved_away(s))
         };
         if let Some(n) = &name {
             crate::session_name::validate(n).map_err(RpcError::invalid_params)?;
@@ -326,7 +327,7 @@ impl Hub {
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
         self.update_live_session_index(&session);
         // A session that came may be another row's parent: every closed row is built again.
-        self.events.changed();
+        self.session_came(&session);
         // Indexed again once published: a lookup before that found no session and dropped it.
         self.child_tags.note(&session);
         self.offers.forget(&meta.id);

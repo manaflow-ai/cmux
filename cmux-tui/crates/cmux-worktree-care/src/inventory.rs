@@ -539,7 +539,8 @@ pub const MERGE_TREE_MEMORY: u64 = 768 << 20;
 /// Nonblocking host-wide lock shared by daemon and standalone scans. Busy or
 /// unreadable means unknown, never a remembered negative answer. The lock is
 /// independent of the pass lock, which daemon callers already hold.
-fn merge_tree_claim(dir: Option<&Path>) -> Option<std::fs::File> {
+/// Its drop unlocks before it closes, so a child the daemon forked meanwhile keeps no lock.
+fn merge_tree_claim(dir: Option<&Path>) -> Option<cmux_file_lock::FileLock> {
     let dir = dir.map(Path::to_path_buf).or_else(crate::Store::default_dir)?;
     std::fs::create_dir_all(&dir).ok()?;
     let mut options = std::fs::OpenOptions::new();
@@ -550,8 +551,7 @@ fn merge_tree_claim(dir: Option<&Path>) -> Option<std::fs::File> {
         options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
     let file = options.open(dir.join(".merge-tree.lock")).ok()?;
-    file.try_lock().ok()?;
-    Some(file)
+    cmux_file_lock::FileLock::try_take(file, cmux_file_lock::Kind::Exclusive).ok()
 }
 
 /// Whether history in this repository can differ from what its ids say:
@@ -869,5 +869,21 @@ mod care_tests {
         assert!(within_squash_limit("128"));
         assert!(!within_squash_limit("129"));
         assert!(!within_squash_limit("not-a-count"));
+    }
+
+    /// A merge check lets go of the host's merge-tree lock, also while a child the daemon
+    /// forked meanwhile has the descriptor: else the next squash check reads "unknown".
+    #[cfg(unix)]
+    #[test]
+    fn a_dropped_merge_tree_claim_is_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = crate::store::care_tests::scratch("forked-merge-tree");
+        let claim = merge_tree_claim(Some(&dir)).expect("a free merge-tree lock");
+        let keeper = crate::test_fork::Keeper::fork();
+        drop(claim);
+        let next = merge_tree_claim(Some(&dir));
+        drop(keeper);
+        assert!(next.is_some(), "a dropped merge-tree claim left the lock held");
+        drop(next);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

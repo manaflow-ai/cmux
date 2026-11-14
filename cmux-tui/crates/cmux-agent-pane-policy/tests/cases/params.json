@@ -587,7 +587,9 @@
     "maxBytes": 1,
     "kinds": 1,
     "eventStream": 1,
-    "visible": 1
+    "visible": 1,
+    "waitLogs": 1,
+    "settled": 1
    }
   },
   "mode_fields": null,

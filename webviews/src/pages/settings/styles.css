@@ -616,7 +616,8 @@ mark {
   gap: 0;
   padding: var(--ds-space-1);
   border: 1px solid var(--border);
-  border-radius: var(--ds-radius-lg);
+  /* Concentric: the segment's corner plus the track's padding. */
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-1));
   margin: 0;
   min-width: 0;
 }
@@ -629,7 +630,7 @@ mark {
   white-space: nowrap;
   min-height: var(--ds-control-compact);
   padding: 0 var(--ds-space-3);
-  border-radius: var(--ds-radius-sm);
+  border-radius: var(--ds-radius-control);
   background: transparent;
   cursor: default;
 }
@@ -666,7 +667,7 @@ mark {
 .link-button:not(.ui-btn),
 .icon-button:not(.ui-btn) {
   border: 1px solid var(--border-strong);
-  border-radius: var(--ds-radius-md);
+  border-radius: var(--ds-radius-control);
   background: transparent;
   min-height: var(--ds-control-row);
   padding: var(--ds-space-1) var(--ds-space-3);

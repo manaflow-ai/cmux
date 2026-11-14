@@ -95,9 +95,10 @@ impl Hub {
             }
         }
         let caller_selected_id = fixed_id.is_some();
-        // Harness discovery and launcher checks finish in the background. Bounded: a startup that
-        // never ends (a wedged agent host's adoption) answers with its phase, not silence.
-        self.wait_startup_within(super::startup::NEW_SESSION_STARTUP_WAIT).await?;
+        // Harness discovery and launcher checks finish in the background; a new chat waits for
+        // them only, never for another chat's adoption or log (`startup.rs`). Bounded: a
+        // preparation that never ends answers with its phase, not silence.
+        self.wait_spawn_ready_within(super::startup::NEW_SESSION_STARTUP_WAIT).await?;
         // Mutations wait for the complete index. A later durable check also refuses
         // malformed or partially written chats that the startup loader could not install.
         if caller_selected_id {
@@ -127,6 +128,7 @@ impl Hub {
             additional_directories,
             person,
             wait_start,
+            throwaway,
             require_asking,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
@@ -368,7 +370,7 @@ impl Hub {
             }
             meta.name = match name {
                 Some(n) => {
-                    if sessions.values().any(|s| s.meta().name == n) {
+                    if sessions.values().any(|s| s.read_meta(|m| m.name == n)) {
                         return Err(RpcError::invalid_params(format!(
                             "session name {n:?} is taken"
                         )));
@@ -381,13 +383,14 @@ impl Hub {
                 // A pooled harness was started under its name: keep it.
                 None => match self
                     .pool_claimed_name(&id)
-                    .filter(|n| !sessions.values().any(|s| s.meta().name == *n))
+                    .filter(|n| !sessions.values().any(|s| s.read_meta(|m| m.name == *n)))
                 {
                     Some(n) => n,
                     None => unique_name_among(&sessions, agent),
                 },
             };
             meta.wait_start = wait_start;
+            meta.throwaway = throwaway;
             let session = self.make_session(meta);
             session.person.store(person, Ordering::SeqCst);
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
@@ -405,8 +408,9 @@ impl Hub {
         };
         let (session, created_stops) = session;
         self.update_live_session_index(&session);
-        // A session that came may be another row's parent: every closed row is built again.
-        self.events.changed();
+        // A session that came may be another row's parent: every closed row is built again. Its
+        // `created` record, below, notes the rows that read it (`Hub::note_rows_reading`).
+        self.events.all_rows_stale();
         let creation_guard = CreationGuard::new(self.clone(), session.clone(), created_stops);
         if let Err(e) = self.write_meta(&session) {
             // Leave the instance registered until CreationGuard finishes its purge;
@@ -1735,7 +1739,10 @@ impl Hub {
         {
             return Ok(child.clone());
         }
-        self.wait_startup().await;
+        // Its own host first, when one ran at the start (a second agent would take its turn),
+        // then what any agent start needs; never every other chat's adoption (`startup.rs`).
+        self.wait_adopted(session).await;
+        self.wait_spawn_ready().await;
         let meta = session.meta();
         let agent = meta.harness.clone();
         let (profile, defaults) = {
