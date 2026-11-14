@@ -175,6 +175,15 @@ nonisolated enum AcpmuxPaneMethods {
         // other builds' chats, never their worktrees. acpmux takes all three only from a
         // connection that proved the person key, never a remote device or a peer.
         "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
+        // The composer's Run on N agents (direct.ts planFanout, runOnAgents/; acpmux
+        // server/plan_build.rs): the typed prompt started as 2 to 4 sub-sessions of a chat in the
+        // pane's scope, each in a new worktree under the chat's own policy, so it needs the
+        // person's gesture as a send does (``gestureRules``), with a ticket bound to that exact
+        // prompt and those agents (``AgentPaneGestureIntent``). Each variant names only a harness,
+        // a model and an effort, never a folder or a command. Keep's `removeOthers` closes the
+        // other runs and removes only the worktrees acpmux made for them, each archived first, with
+        // its branch kept. acpmux takes it only from a connection that proved the person key.
+        "_acpmux/plan/fanout",
         // Model races: candidates and reviewer run only under the selected parent chat's
         // existing authorization and isolated worktree guard (acpmux hub/races.rs).
         "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
@@ -322,7 +331,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override",
-        "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
+        "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep", "_acpmux/plan/fanout",
         "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
         "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
         "_acpmux/cold_archive", "_acpmux/prompt_coach",
@@ -454,6 +463,8 @@ nonisolated enum AcpmuxPaneMethods {
         // Build answers the plan approval or starts the plan in new worktrees. Compare and Keep
         // need none: Keep only archives chats the person's Build started.
         "_acpmux/plan/build": .always,
+        // Run on N agents starts sub-sessions that run the prompt: a send's gesture.
+        "_acpmux/plan/fanout": .always,
         // Run on a bigger machine's Run sends the chat's command, and the files the person ticked, to
         // another machine: only on the person's click or Return in its panel.
         "_acpmux/run_elsewhere/start": .always,

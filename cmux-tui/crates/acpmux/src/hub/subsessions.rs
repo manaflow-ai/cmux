@@ -335,7 +335,14 @@ impl Hub {
     pub(super) fn offer_link(&self, parent: &Session, title: Option<&str>) -> SubsessionLink {
         let depth = self.lineage_depth(&parent.meta()).saturating_add(1);
         let base = short_name_of(title, "task");
-        SubsessionLink { started_by: parent.id.clone(), short_name: base, depth, offered: true }
+        SubsessionLink {
+            started_by: parent.id.clone(),
+            short_name: base,
+            depth,
+            offered: true,
+            worktree: None,
+            plan_build_change: None,
+        }
     }
 
     /// The limits in force for the session with meta `m`.
@@ -681,6 +688,17 @@ impl Hub {
             short_name: short.clone(),
             depth,
             offered: false,
+            worktree: worktree.as_ref().map(|kept| crate::store::MadeWorktree {
+                root: kept.made.root.clone(),
+                pin: kept.made.root_pin,
+                born: kept.made.root_held.as_deref().and_then(crate::store::MadeWorktree::born_of),
+                branch: kept.made.branch.clone(),
+                // The commit it was made from, not the branch's name: a renamed, deleted or moved
+                // branch never changes what the run is compared against.
+                base: kept.made.base_commit.clone().or_else(|| Some(kept.made.base.clone())),
+                stamp: kept.made.stamp.clone(),
+            }),
+            plan_build_change: None,
         };
         if req.fork {
             let sub = super::fork::SubsessionFork { link, lineage, checked: &cwd };

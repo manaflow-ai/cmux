@@ -22,7 +22,11 @@
 //!   with git that runs nothing the repository names (`subsession_worktree::git_by`).
 //! - `keep` archives every other build's chat (the `archived` tag, as the sidebar's Archive). Its
 //!   worktree and branch stay: worktree care archives a quiet worktree before it removes one
-//!   (`worktree_care.rs`), so no unpushed work is deleted here.
+//!   (`worktree_care.rs`), so no unpushed work is deleted here. With `removeOthers` (the
+//!   composer's runs) the other builds' chats close and their worktrees go now
+//!   (`plan_discard`), archived first by worktree care so each can be restored.
+//! - `prompt` is the composer's Run on N agents: the same builds from a prompt the person typed,
+//!   sent to each build as it is, one build per variant (a harness, and its model and effort).
 
 use super::{Hub, Session};
 use crate::rpc::RpcError;
@@ -34,6 +38,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+/// What a Keep finds: the run kept now, or the same run kept before (a retry, which finishes
+/// what an earlier Keep left undone), and the build's other runs.
+pub(crate) enum Kept {
+    Now(Arc<Session>, Vec<Arc<Session>>),
+    Already(Arc<Session>, Vec<Arc<Session>>),
+}
+
 /// The `mux` record kind on the plan's chat.
 pub const RECORD_KIND: &str = "plan_build";
 /// The tag on the kept build, for the chat lists only: which build is kept is the plan's own
@@ -43,6 +54,12 @@ pub const KEPT_TAG: &str = "planBuildKept";
 pub(crate) const ARCHIVED_TAG: &str = "archived";
 /// Most harnesses one compare starts: the card offers two.
 pub const MAX_COMPARE: usize = 3;
+/// Most variants one composer prompt runs on: each is a worktree and an agent's turn.
+pub const MAX_RUNS: usize = 4;
+/// The longest a Keep waits on the other builds' worktrees going.
+const DISCARD_LIMIT: Duration = Duration::from_secs(20);
+/// Between two tries at a worktree a closing agent still works in.
+const DISCARD_RETRY: Duration = Duration::from_secs(2);
 /// Most files a build's change lists; its totals count them all.
 const MAX_FILES: usize = 200;
 /// The longest one build's git read takes before it is given up.
@@ -87,6 +104,8 @@ pub enum Target {
     Here,
     Worktree,
     Compare,
+    /// The composer's Run on N agents: a typed prompt, no plan approval.
+    Prompt,
 }
 
 impl Target {
@@ -95,6 +114,7 @@ impl Target {
             "here" => Some(Self::Here),
             "worktree" => Some(Self::Worktree),
             "compare" => Some(Self::Compare),
+            "prompt" => Some(Self::Prompt),
             _ => None,
         }
     }
@@ -104,6 +124,34 @@ impl Target {
             Self::Here => "here",
             Self::Worktree => "worktree",
             Self::Compare => "compare",
+            Self::Prompt => "prompt",
+        }
+    }
+}
+
+/// One build's agent: a harness, and the model and effort it runs (None: the harness's default).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Variant {
+    pub harness: String,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+}
+
+impl Variant {
+    pub fn harness(harness: impl Into<String>) -> Self {
+        Self { harness: harness.into(), model: None, effort: None }
+    }
+
+    /// The build's chat name: `build-<harness>` for a compare, `run-<harness>[-<model>]` for a
+    /// prompt's run, `build-plan` for one build.
+    fn chat_name(&self, target: Target) -> String {
+        match target {
+            Target::Compare => format!("build-{}", self.harness),
+            Target::Prompt => match &self.model {
+                Some(model) => format!("run-{}-{model}", self.harness),
+                None => format!("run-{}", self.harness),
+            },
+            _ => "build-plan".to_owned(),
         }
     }
 }
@@ -189,6 +237,20 @@ pub(crate) fn option_of(request: &Value, kind: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// The start of a composer run's build id (`_acpmux/plan/fanout`), the only build whose Keep
+/// removes the other runs' worktrees (`removeOthers`). A plan approval's builds are `build-<id>`.
+pub(crate) const RUN_PREFIX: &str = "run-";
+
+/// Whether the worktree recorded for a run is still at its path: a Keep's retry tries again only
+/// those, not the runs an earlier Keep removed.
+pub(crate) fn worktree_left(run: &Session) -> bool {
+    let m = run.meta();
+    m.subsession
+        .as_ref()
+        .and_then(|l| l.worktree.as_ref())
+        .is_some_and(|w| w.root.symlink_metadata().is_ok())
+}
+
 /// The harnesses a compare runs when the caller names none: the chat's, then the other of
 /// Claude and Codex.
 pub(crate) fn compare_harnesses(chat: &str) -> Vec<String> {
@@ -196,8 +258,12 @@ pub(crate) fn compare_harnesses(chat: &str) -> Vec<String> {
     vec![chat.to_owned(), other.to_owned()]
 }
 
-/// The first prompt of a build: the plan, and where the build runs.
+/// The first prompt of a build: the plan, and where the build runs. A prompt's run gets the
+/// prompt as the person typed it.
 pub(crate) fn build_prompt(plan: &str, chat_name: &str, target: Target) -> String {
+    if target == Target::Prompt {
+        return plan.to_owned();
+    }
     let compared = if target == Target::Compare {
         " Another agent builds the same plan in a worktree of its own; the person compares the two and keeps one."
     } else {
@@ -255,8 +321,10 @@ pub(crate) fn parse_numstat(text: &str, change: &mut Change) {
 fn read_change(root: &Path, base: &str) -> Result<Change, String> {
     use crate::subsession_worktree::git_by;
     let by = Instant::now() + GIT_LIMIT;
+    // A base git no longer has (a branch renamed or deleted since, in a run recorded before its
+    // commit was) says so: never HEAD, which would hide every committed change.
     let from = git_by(root, &["merge-base", "HEAD", base], by)
-        .or_else(|_| git_by(root, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], by))?;
+        .map_err(|_| format!("its base {base} is no longer in the repository"))?;
     if from.is_empty() || from.starts_with('-') {
         return Err("no commit to compare against".into());
     }
@@ -341,15 +409,15 @@ impl Hub {
         Some((record, builds))
     }
 
-    /// Starts the builds of `plan` from `parent` (`worktree`: one, `compare`: one per harness),
-    /// recorded on `parent` as `build_id` ([`PlanBuildRecord`]). The starts that failed come back
-    /// as `{harness, error}`.
+    /// Starts the builds of `plan` from `parent` (`worktree`: one, `compare` and `prompt`: one
+    /// per variant), recorded on `parent` as `build_id` ([`PlanBuildRecord`]). The starts that
+    /// failed come back as `{harness, model, error}`.
     pub(crate) async fn start_plan_builds(
         self: &Arc<Self>,
         parent: &Arc<Session>,
         plan: &str,
         target: Target,
-        harnesses: &[String],
+        variants: &[Variant],
         build_id: &str,
         local: bool,
     ) -> (Vec<Value>, Vec<Value>) {
@@ -358,19 +426,17 @@ impl Hub {
         let mut started = Vec::new();
         let mut failed = Vec::new();
         let mut entries = Vec::new();
-        for harness in harnesses {
-            let name = match target {
-                Target::Compare => format!("build-{harness}"),
-                _ => "build-plan".to_owned(),
-            };
+        for variant in variants {
+            let harness = &variant.harness;
             let req = super::subsessions::StartRequest {
                 prompt: prompt.clone(),
-                name: Some(name),
+                name: Some(variant.chat_name(target)),
                 harness: Some(harness.clone()),
-                model: None,
-                effort: None,
+                model: variant.model.clone(),
+                effort: variant.effort.clone(),
                 cwd: None,
                 worktree: true,
+                // A plan build is no model race (`hub/races.rs`): the person's own build.
                 owner_authorized_race: false,
                 race_id: None,
                 fork: false,
@@ -397,6 +463,8 @@ impl Hub {
                         "name": reply.get("name"),
                         "shortName": reply.get("shortName"),
                         "harness": reply.get("harness"),
+                        "model": variant.model,
+                        "effort": variant.effort,
                         "branch": reply.pointer("/worktree/branch"),
                         "root": reply.pointer("/worktree/root"),
                         "base": reply.pointer("/worktree/base"),
@@ -405,6 +473,7 @@ impl Hub {
                 }
                 Err(e) => failed.push(json!({
                     "harness": harness,
+                    "model": variant.model,
                     "error": e.message,
                     "reason": e.data.as_ref().and_then(|d| d.get("reason")).cloned(),
                 })),
@@ -445,15 +514,22 @@ impl Hub {
         for (s, entry) in &builds {
             let m = s.meta();
             let archived = m.tags.contains_key(ARCHIVED_TAG);
-            // The root and base its start recorded: git runs nowhere a chat's agent names.
-            let branch = m.worktree.as_ref().and_then(|w| w.branch.clone());
-            let root = entry.root.clone();
-            let base = entry.base.clone();
+            // acpmux's own records only, never a tag an agent can set: the worktree the run's
+            // start made (its lineage), else the plan's record of it, so git runs nowhere a
+            // chat's agent names.
+            let made = m.subsession.as_ref().and_then(|l| l.worktree.as_ref());
+            let root = made.map(|w| w.root.clone()).or_else(|| entry.root.clone());
+            let branch = made
+                .map(|w| w.branch.clone())
+                .filter(|b| !b.is_empty())
+                .or_else(|| m.worktree.as_ref().and_then(|w| w.branch.clone()));
+            let base = made.and_then(|w| w.base.clone()).or_else(|| entry.base.clone());
             let mut row = json!({
                 "sessionId": s.id,
                 "name": m.name,
                 "shortName": m.subsession.as_ref().map(|l| l.short_name.clone()),
                 "harness": m.harness,
+                "model": m.model_request,
                 "status": build_status(
                     m.status,
                     m.last_turn.as_ref().map(|t| t.get("status").and_then(Value::as_str).unwrap_or("")),
@@ -464,11 +540,35 @@ impl Hub {
                 "base": base,
                 "root": root,
             });
-            let read = match (root, base) {
-                (Some(root), Some(base)) => {
-                    tokio::task::spawn_blocking(move || read_change(&root, &base))
-                        .await
-                        .unwrap_or_else(|e| Err(e.to_string()))
+            // A run whose worktree a Keep removed: what Compare read of it right before.
+            let saved = m
+                .subsession
+                .as_ref()
+                .and_then(|l| l.plan_build_change.clone())
+                .filter(|_| root.as_ref().is_none_or(|r| r.symlink_metadata().is_err()));
+            let read = match (saved, root, base) {
+                (Some(Value::Object(saved)), _, _) => {
+                    for (k, v) in saved {
+                        row.set(&k, v);
+                    }
+                    rows.push(row);
+                    continue;
+                }
+                (_, Some(root), Some(base)) => {
+                    // Only from the worktree the run was made in: a folder put at its path since
+                    // (another checkout, the branch re-added) is not this run's change.
+                    let made = made.cloned();
+                    tokio::task::spawn_blocking(move || {
+                        // Checked before and after the read: a folder swapped in while git read
+                        // by path is never shown as the run's change.
+                        let same = || compare_identity(made.as_ref());
+                        same()?;
+                        let change = read_change(&root, &base)?;
+                        same()?;
+                        Ok(change)
+                    })
+                    .await
+                    .unwrap_or_else(|e| Err(e.to_string()))
                 }
                 _ => Err("this build has no worktree recorded".to_owned()),
             };
@@ -492,43 +592,276 @@ impl Hub {
         Ok(json!({"buildId": build_id, "keptSessionId": kept, "builds": rows}))
     }
 
-    /// Records `keep` as the kept build of `build_id` and returns it with the other builds.
-    /// `keep` must be one of them; keeping the kept build again answers the same, and keeping
-    /// another after one was kept is refused (`plan_build.already_kept`).
+    /// The builds of `build_id` other than `keep`, after checking `keep` is one of them, and
+    /// records `keep` as the kept build on the plan's record ([`PlanBuildRecord::kept`]). A build
+    /// keeps one run: keeping it again answers [`Kept::Already`] (a retry finishes what the first
+    /// Keep left), and keeping another is refused (`plan_build.already_kept`), so two panes that
+    /// chose different runs never discard each other's.
     pub(crate) fn plan_keep_others(
         &self,
         parent: &Session,
         build_id: &str,
         keep: &str,
-    ) -> Result<(Arc<Session>, Vec<Arc<Session>>), RpcError> {
-        let (_, builds) = self.plan_builds(parent, build_id).ok_or_else(|| {
+    ) -> Result<Kept, RpcError> {
+        let (record, builds) = self.plan_builds(parent, build_id).ok_or_else(|| {
             RpcError::not_found(format!("no plan build {build_id:?} in this chat"))
         })?;
         let kept =
             builds.iter().find(|(s, _)| s.id == keep).map(|(s, _)| s.clone()).ok_or_else(|| {
                 RpcError::invalid_params("keep must be one of this plan build's chats")
             })?;
-        {
+        match record.kept.as_deref() {
+            Some(earlier) if earlier == keep => {
+                // A retry removes runs only once the winner is on disk: a save of it another
+                // change's copy carried may have failed after this Keep's own went through.
+                self.meta_barrier(parent)?;
+                let others = builds.into_iter().map(|(s, _)| s).filter(|s| s.id != keep);
+                return Ok(Kept::Already(kept, others.collect()));
+            }
+            Some(_) => {
+                return Err(refused(
+                    "plan_build.already_kept",
+                    "another run of this build was already kept",
+                ));
+            }
+            None => {}
+        }
+        let mark = |kept: Option<&str>| {
             let mut meta = parent.meta.lock().unwrap_or_else(|e| e.into_inner());
             let records = Arc::make_mut(&mut meta.plan_builds);
-            let Some(record) = records.iter_mut().find(|r| r.build_id == build_id) else {
-                return Err(RpcError::not_found(format!(
-                    "no plan build {build_id:?} in this chat"
-                )));
+            if let Some(record) = records.iter_mut().find(|r| r.build_id == build_id) {
+                record.kept = kept.map(str::to_owned);
+            }
+        };
+        mark(Some(keep));
+        // A winner that was not saved was not chosen: the next Keep, of this run or another,
+        // chooses again and saves before it removes anything. Left in memory, a retry took it
+        // as kept and removed the other runs while the disk named no winner.
+        if let Err(e) = self.save_meta_answered(parent) {
+            mark(None);
+            return Err(e);
+        }
+        Ok(Kept::Now(kept, builds.into_iter().map(|(s, _)| s).filter(|s| s.id != keep).collect()))
+    }
+
+    /// Saves in each of `runs`' lineage its change from `compare` (a `plan_compare` reply read
+    /// before a Keep removes their worktrees), so Compare still shows it once they are gone. A run
+    /// whose read failed keeps what it had.
+    pub(crate) fn plan_keep_changes(&self, runs: &[Arc<Session>], compare: &Value) {
+        let rows = compare.get("builds").and_then(Value::as_array);
+        for run in runs {
+            let Some(row) = rows
+                .and_then(|r| r.iter().find(|b| b["sessionId"] == run.id.as_str()))
+                .filter(|b| b.get("error").is_none())
+            else {
+                continue;
             };
-            match record.kept.as_deref() {
-                Some(earlier) if earlier != keep => {
-                    return Err(refused(
-                        "plan_build.already_kept",
-                        "another build of this plan was already kept",
-                    ));
+            let change = json!({
+                "added": row["added"],
+                "removed": row["removed"],
+                "files": row["files"],
+                "moreFiles": row["moreFiles"],
+            });
+            if let Some(link) =
+                run.meta.lock().unwrap_or_else(|e| e.into_inner()).subsession.as_mut()
+            {
+                link.plan_build_change = Some(change);
+            }
+            self.save_meta(run);
+        }
+    }
+
+    /// The builds a Keep let go, gone now: each chat closes, then worktree care archives its
+    /// worktree and only then removes it (`cmux_worktree_care::archive::reclaim`: the manifest,
+    /// and a bundle of work found only there, are saved before `git worktree remove`), with no
+    /// quiet time to wait out: the person chose to drop it. The branch stays, so a removed run
+    /// is restorable (`_acpmux/worktree/restore` by its archive id). A worktree counts as
+    /// removed only when care's pass archived it; one care left (in use, unarchivable, or an
+    /// agent still letting go of its folder) is tried again for at most [`DISCARD_LIMIT`], then
+    /// stays. Answers each build's `{sessionId, removed, archive?, error?}`.
+    pub(crate) async fn plan_discard(self: &Arc<Self>, others: &[Arc<Session>]) -> Vec<Value> {
+        let mut left: Vec<(String, PathBuf)> = Vec::new();
+        let mut made_at: std::collections::HashMap<PathBuf, crate::store::MadeWorktree> =
+            Default::default();
+        let mut rows = Vec::new();
+        for s in others {
+            if let Err(e) = self.kill(s, false).await {
+                tracing::warn!(session = %s.id, error = %e.message, "plan build close");
+            }
+            // Only the worktree the daemon made at its start, recorded in its lineage then, for a
+            // chat the plan's record names (`others`): never a folder it was opened in, and never
+            // one the tags name (an agent may write those).
+            let m = s.meta();
+            let link = m.subsession.as_ref();
+            // And only while the folder at its path is still that worktree: one made again there
+            // after it went (its inode reused, or another branch) stays.
+            let made = link.and_then(|l| l.worktree.clone());
+            let Some(made) = made else {
+                rows.push(
+                    json!({"sessionId": s.id, "removed": false, "error": "no worktree of its own"}),
+                );
+                continue;
+            };
+            let checked = made.clone();
+            match tokio::task::spawn_blocking(move || still_made(&checked)).await {
+                Ok(Ok(())) => {
+                    left.push((s.id.clone(), made.root.clone()));
+                    made_at.insert(made.root.clone(), made);
                 }
-                _ => record.kept = Some(keep.to_owned()),
+                Ok(Err(why)) => {
+                    tracing::warn!(session = %s.id, root = %made.root.display(), why, "plan build worktree kept");
+                    rows.push(json!({"sessionId": s.id, "removed": false, "error": why}));
+                }
+                Err(e) => {
+                    rows.push(json!({"sessionId": s.id, "removed": false, "error": e.to_string()}))
+                }
             }
         }
-        self.save_meta_answered(parent)?;
-        Ok((kept, builds.into_iter().map(|(s, _)| s).filter(|s| s.id != keep).collect()))
+        // Checked again inside worktree care, before it acts and right before each folder goes:
+        // a worktree made at a path since the check above is never removed in its place.
+        let made_at = Arc::new(made_at);
+        let still: Arc<cmux_worktree_care::procs::Still> = {
+            let made_at = Arc::clone(&made_at);
+            Arc::new(move |path: &Path, at: &Path| match made_at.get(path) {
+                Some(made) => still_made_at(made, at).map_err(str::to_owned),
+                None => Err("not a worktree this build made".to_owned()),
+            })
+        };
+        let by = Instant::now() + DISCARD_LIMIT;
+        let mut last_error: std::collections::HashMap<String, String> = Default::default();
+        while !left.is_empty() {
+            let only: Vec<PathBuf> = left.iter().map(|(_, root)| root.clone()).collect();
+            // Each worktree care's pass acted on, by its folder, with the archive id it reported:
+            // a folder gone after care said it went is removed, whatever the archive says.
+            let mut archives: std::collections::HashMap<String, Option<String>> =
+                Default::default();
+            match self.care_discard(only, Arc::clone(&still)).await {
+                Ok(report) => {
+                    for item in report.get("items").and_then(Value::as_array).into_iter().flatten()
+                    {
+                        let Some(path) = item.get("path").and_then(Value::as_str) else {
+                            continue;
+                        };
+                        if item.pointer("/outcome/ok") == Some(&json!(true)) {
+                            let archive = item.pointer("/outcome/archive").and_then(Value::as_str);
+                            archives.insert(path.to_owned(), archive.map(str::to_owned));
+                        } else if let Some(reason) = item
+                            .pointer("/outcome/error")
+                            .or_else(|| item.pointer("/verdict/reason"))
+                            .and_then(Value::as_str)
+                        {
+                            last_error.insert(path.to_owned(), reason.to_owned());
+                        }
+                    }
+                }
+                Err(e) => {
+                    for (_, root) in &left {
+                        last_error.insert(root.to_string_lossy().into_owned(), e.message.clone());
+                    }
+                }
+            }
+            left.retain(|(id, root)| {
+                if root.exists() {
+                    // Another folder at its path now: it stays, with no more tries.
+                    if let Err(why) = still(root, root) {
+                        rows.push(json!({"sessionId": id, "removed": false, "error": why}));
+                        return false;
+                    }
+                    return true;
+                }
+                rows.push(match archives.remove(&*root.to_string_lossy()) {
+                    Some(Some(archive)) => {
+                        json!({"sessionId": id, "removed": true, "archive": archive})
+                    }
+                    Some(None) => json!({"sessionId": id, "removed": true}),
+                    // Gone from its path but not through this archive: care's own reason when it
+                    // gave one (a worktree git could not remove stays aside, and that says where),
+                    // else nothing here says its work was kept.
+                    None => json!({"sessionId": id, "removed": false,
+                    "error": last_error.get(&*root.to_string_lossy()).cloned().unwrap_or_else(
+                        || "its folder went without an archive from here".to_owned(),
+                    )}),
+                });
+                false
+            });
+            if left.is_empty() || Instant::now() + DISCARD_RETRY > by {
+                break;
+            }
+            tokio::time::sleep(DISCARD_RETRY).await;
+        }
+        for (id, root) in left {
+            let error = last_error
+                .remove(&*root.to_string_lossy())
+                .unwrap_or_else(|| "it stays".to_owned());
+            tracing::warn!(session = %id, root = %root.display(), %error, "plan build worktree kept");
+            rows.push(json!({"sessionId": id, "removed": false, "error": error}));
+        }
+        rows
     }
+}
+
+/// Whether Compare may read a run's change from the folder at `made.root`: the worktree its
+/// start made ([`still_made`]). Off unix no folder identity is recorded, and Compare only reads,
+/// so it reads by path there, as it did before identities were checked; Keep's removal still
+/// refuses such a folder (`plan_discard`).
+fn compare_identity(made: Option<&crate::store::MadeWorktree>) -> Result<(), String> {
+    match made {
+        Some(made) if cfg!(unix) => still_made(made)
+            .map_err(|why| format!("the folder at its path is not this run's worktree now: {why}")),
+        _ => Ok(()),
+    }
+}
+
+/// Whether the folder at `made.root` is still the worktree a run's start made: the same device,
+/// inode and creation time, and on the branch it was made on (read from its git files, running nothing). A
+/// folder that fails either is not removed for the run.
+pub(crate) fn still_made(made: &crate::store::MadeWorktree) -> Result<(), &'static str> {
+    still_made_at(made, &made.root)
+}
+
+/// [`still_made`] of the folder now at `at`: the worktree moved aside to go
+/// (`cmux_worktree_care::archive`), or at its own path.
+pub(crate) fn still_made_at(
+    made: &crate::store::MadeWorktree,
+    at: &Path,
+) -> Result<(), &'static str> {
+    let born =
+        || std::fs::File::open(at).ok().and_then(|f| crate::store::MadeWorktree::born_of(&f));
+    // Off unix a folder's identity is not recorded (`CwdPin`): nothing proves the folder is the
+    // one made, so Keep leaves it, and says why.
+    if !cfg!(unix) {
+        return Err("this system keeps no record of which folder was made; it stays");
+    }
+    if made.pin.is_none()
+        || crate::cwd_pin::CwdPin::of(at) != made.pin
+        || made.born.is_some_and(|t| born() != Some(t))
+    {
+        return Err("the folder at its path is no longer the worktree it was made in");
+    }
+    // With neither a stamp nor a creation time, its device and inode are all that is left, and a
+    // file system hands a freed inode out again: a worktree made again at its path would pass.
+    if made.stamp.is_none() && made.born.is_none() {
+        return Err(
+            "nothing recorded tells this worktree from one made again at its path; it stays",
+        );
+    }
+    // An agent writes these: read bounded, so a FIFO or a link to `/dev/zero` there never
+    // hangs or grows the daemon.
+    use cmux_worktree_care::bounded::{GIT_FILE_BYTES, read_text};
+    let dot_git = read_text(&at.join(".git"), GIT_FILE_BYTES).unwrap_or_default();
+    let admin = dot_git.trim().strip_prefix("gitdir: ").map(|dir| at.join(dir));
+    let read = |name: &str| admin.as_ref().and_then(|a| read_text(&a.join(name), GIT_FILE_BYTES));
+    // A worktree made again at its path is registered again, without the stamp this one got
+    // (`MadeWorktree::stamp`), whatever inode the file system gave its folder.
+    let stamp = || read(crate::subsession_worktree::MADE_STAMP);
+    if made.stamp.as_ref().is_some_and(|s| stamp().as_deref().map(str::trim) != Some(s)) {
+        return Err("the folder at its path is no longer the worktree it was made in");
+    }
+    let head = read("HEAD");
+    if head.as_deref().map(str::trim) != Some(&format!("ref: refs/heads/{}", made.branch)) {
+        return Err("its worktree is no longer on the branch it was made on");
+    }
+    Ok(())
 }
 
 #[cfg(test)]

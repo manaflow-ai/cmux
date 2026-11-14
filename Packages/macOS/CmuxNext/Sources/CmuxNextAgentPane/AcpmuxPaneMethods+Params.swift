@@ -118,7 +118,11 @@ nonisolated extension AcpmuxPaneMethods {
         // and Codex for a compare.
         "_acpmux/plan/build": (["sessionId", "permissionId", "target", "_meta"], []),
         "_acpmux/plan/compare": (["sessionId", "buildId"], []),
-        "_acpmux/plan/keep": (["sessionId", "buildId", "keep"], []),
+        // `removeOthers`: Run on N agents' Keep removes the other runs' worktrees (acpmux archives
+        // each first and keeps its branch).
+        "_acpmux/plan/keep": (["sessionId", "buildId", "keep", "removeOthers"], []),
+        // `variants`: 2 to 4 of `{harness, model?, effort?}`; `_meta`: only the run's ticket.
+        "_acpmux/plan/fanout": (["sessionId", "prompt", "variants", "_meta"], []),
         "_acpmux/handoff_prepare": (["sessionId", "harness", "handoffKey"], []),
         "_acpmux/handoff_get": (["sessionId", "handoffId"], []),
         "_acpmux/handoff_draft": (["handoffId", "revision", "draftKey", "capsule", "checkpoint"], []),
@@ -209,13 +213,25 @@ nonisolated extension AcpmuxPaneMethods {
         let setting = settingMethods.contains(method)
         let denied = setting ? [] : modeFields ?? []
         if params.keys.contains(where: denied.contains) { return true }
+        // A run's harness, model and effort are spawn parameters, as a start's model is: each one
+        // id (``isModelID(_:)``); the daemon refuses them too.
+        if method == "_acpmux/plan/fanout", let variants = params["variants"] {
+            guard let list = variants as? [Any] else { return true }
+            for variant in list {
+                guard let fields = variant as? [String: Any] else { return true }
+                for key in ["harness", "model", "effort"] {
+                    if let id = fields[key], !(id is NSNull), !isModelID(id) { return true }
+                }
+            }
+        }
         guard let rawMeta = params["_meta"] else { return false }
         guard let meta = rawMeta as? [String: Any] else { return true }
         // A redeeming frame: R1 first (nothing but the ticket in _meta), then the gesture rule.
         if setting, meta["cmuxGesture"] != nil { return meta.keys.contains { $0 != "cmuxGesture" } }
         // A permission answer's `_meta` holds the pick's ticket and nothing else, as does a plan
-        // build's (it answers the plan approval).
-        if method == "_acpmux/permission_respond" || method == "_acpmux/plan/build" || method == "chat.fix_from_link" {
+        // build's (it answers the plan approval) and a run's.
+        if method == "_acpmux/permission_respond" || method == "chat.fix_from_link" || method == "_acpmux/plan/build"
+            || method == "_acpmux/plan/fanout" {
             return Set(meta.keys) != [gestureTicketKey]
         }
         // A prompt held for the folder trust answer redeems its ticket beside its acpmux.promptId.

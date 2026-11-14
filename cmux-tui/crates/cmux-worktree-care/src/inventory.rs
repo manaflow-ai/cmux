@@ -691,7 +691,10 @@ fn sparse(root: &Path, overrides: &[Override], git_dir: &Path) -> Option<Sparse>
     let cone =
         git::try_line(root, overrides, &["config", "--type=bool", "core.sparseCheckoutCone"])
             .is_none_or(|value| value == "true");
-    let text = std::fs::read_to_string(git_dir.join("info/sparse-checkout")).ok()?;
+    let text = crate::bounded::read_text(
+        &git_dir.join("info/sparse-checkout"),
+        crate::bounded::PATTERNS_BYTES,
+    )?;
     let patterns = text.lines().map(str::to_string).filter(|line| !line.is_empty()).collect();
     Some(Sparse { cone, patterns })
 }
@@ -768,7 +771,7 @@ fn last_activity<'a>(
 
 /// The time, in milliseconds, of the last entry of a reflog.
 pub(crate) fn reflog_time(path: &Path) -> Option<u64> {
-    let text = std::fs::read_to_string(path).ok()?;
+    let text = crate::bounded::read_text(path, crate::bounded::REFLOG_BYTES)?;
     let line = text.lines().rev().find(|line| !line.trim().is_empty())?;
     let (identity, _) = line.split_once('\t').unwrap_or((line, ""));
     let mut parts = identity.rsplitn(3, ' ');

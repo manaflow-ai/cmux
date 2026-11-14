@@ -703,6 +703,73 @@ pub struct SubsessionLink {
     /// it but does not prompt, stop or close it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub offered: bool,
+    /// The worktree its start made for it (`start_session` with `worktree: true`), set by the
+    /// daemon then and never by a tag: the only folder a plan build's Keep may remove for it
+    /// (`hub/plan_build.rs` `plan_discard`), and only while that folder is still this one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "MadeWorktree::or_path"
+    )]
+    pub worktree: Option<MadeWorktree>,
+    /// Its change as Compare read it right before a Keep removed its worktree (`added`,
+    /// `removed`, `files`, `moreFiles`), set by the daemon: Compare shows it once the folder is
+    /// gone, where a read would find nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_build_change: Option<Value>,
+}
+
+/// A sub-session's worktree as its start made it: its top folder, that folder's device and inode
+/// right after git added it, its creation time, and the branch it was made on. A folder later at
+/// `root` is this worktree only while all of them still hold (`hub/plan_build.rs` `still_made`):
+/// one made again at the same path after this one went (which may get the same inode) is never
+/// removed in its place.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MadeWorktree {
+    pub root: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pin: Option<crate::cwd_pin::CwdPin>,
+    /// Nanoseconds since the epoch at which the folder was created, where the file system says.
+    /// A u64 (good to the year 2554): serde's untagged buffer (`or_path`) holds no u128, and a
+    /// lineage it cannot read hides the whole chat from every list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub born: Option<u64>,
+    pub branch: String,
+    /// The commit it was made from, the base its change is read against (`_acpmux/plan/compare`):
+    /// recorded here, where no request writes it, not in the `planBuildBase` tag an agent can.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+    /// The random stamp written in its registration folder when it was made
+    /// (`subsession_worktree::MADE_STAMP`): a worktree made again at its path has none, even where
+    /// it got the same inode and the file system records no creation time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stamp: Option<String>,
+}
+
+impl MadeWorktree {
+    /// The record, or the top folder alone as a session saved before the record was (its
+    /// `worktree` a path): a record with no identity, so nothing is ever removed for it.
+    fn or_path<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Self>, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Saved {
+            Made(MadeWorktree),
+            Path(PathBuf),
+        }
+        Ok(Option::<Saved>::deserialize(d)?.map(|saved| match saved {
+            Saved::Made(made) => made,
+            Saved::Path(root) => {
+                Self { root, pin: None, born: None, branch: String::new(), base: None, stamp: None }
+            }
+        }))
+    }
+
+    /// The creation time of the folder `held` is open on, in nanoseconds since the epoch.
+    pub fn born_of(held: &File) -> Option<u64> {
+        let created = held.metadata().ok()?.created().ok()?;
+        u64::try_from(created.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos()).ok()
+    }
 }
 
 /// Limit overrides of one session; `None` inherits its parent's, then the

@@ -42,15 +42,27 @@ pub fn breaks_params_rule(
     if params.keys().any(|k| contains(denied, k)) {
         return true;
     }
+    // A run's harness, model and effort are spawn parameters, as a start's model is: each one
+    // id, never a flag, a space or a shell character (the daemon refuses them too).
+    if method == "_acpmux/plan/fanout"
+        && params.get("variants").is_some_and(|variants| !are_variant_ids(variants))
+    {
+        return true;
+    }
     let Some(raw_meta) = params.get("_meta") else { return false };
     let Some(meta) = raw_meta.as_object() else { return true };
     if setting && meta.contains_key(&p.gesture_ticket_key) {
         return meta.keys().any(|k| *k != p.gesture_ticket_key);
     }
     // A permission answer's `_meta` holds the pick's ticket and nothing else, as
-    // does a plan build's (it answers the plan approval).
-    if matches!(method, "_acpmux/permission_respond" | "_acpmux/plan/build" | "chat.fix_from_link")
-    {
+    // do a plan build's (it answers the plan approval) and a run's.
+    if matches!(
+        method,
+        "_acpmux/permission_respond"
+            | "chat.fix_from_link"
+            | "_acpmux/plan/build"
+            | "_acpmux/plan/fanout"
+    ) {
         return meta.len() != 1 || !meta.contains_key(&p.gesture_ticket_key);
     }
     // A prompt held for the folder trust answer redeems its ticket beside its
@@ -82,6 +94,19 @@ pub fn is_model_id(value: &Value) -> bool {
         && model.len() <= MAXIMUM_MODEL_ID_BYTES
         && !model.starts_with('-')
         && model.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-/:@[]+".contains(&b))
+}
+
+/// A run list's `harness`, `model` and `effort`, where given: each [`is_model_id`]
+/// (AcpmuxPaneMethods+Params.swift `breaksParamsRule`).
+pub fn are_variant_ids(variants: &Value) -> bool {
+    let Some(list) = variants.as_array() else { return false };
+    list.iter().all(|variant| {
+        variant.as_object().is_some_and(|v| {
+            ["harness", "model", "effort"]
+                .iter()
+                .all(|key| v.get(*key).is_none_or(|id| id.is_null() || is_model_id(id)))
+        })
+    })
 }
 
 /// A session/prompt with every `_meta` inside its prompt blocks removed, at

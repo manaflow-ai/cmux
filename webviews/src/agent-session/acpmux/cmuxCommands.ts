@@ -22,6 +22,7 @@ export type CmuxCommand = SlashCommand & {
     | "cd"
     | "resume"
     | "login"
+    | "runOn"
     | "customize";
   descriptionKey?: SlashCommand["descriptionKey"];
 };
@@ -87,6 +88,14 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     hint: "<harness>",
     source: "cmux",
     action: "continue",
+  },
+  {
+    name: "run-on",
+    description: "",
+    descriptionKey: "runOn.slash",
+    hint: "<prompt>",
+    source: "cmux",
+    action: "runOn",
   },
   {
     name: "fork",
@@ -339,6 +348,7 @@ export function cmuxCommandRefusal(
     case "passThrough":
     case "resume":
     case "login":
+    case "runOn":
       return undefined;
     case "customize":
       // The agent edits this machine's cmux: a chat on a Cloud machine would change that machine's,

@@ -1207,6 +1207,9 @@ impl Hub {
         }
         self.end_foreground_subagents(session);
         self.set_status(session, SessionStatus::Running);
+        // Once it runs: a Compare that reads the parent's record sees it working, never a fresh
+        // `done` from before its status changed.
+        self.subsession_turn_started(session, &turn_id);
         self.watch_silent_turn(session, &turn_id).await;
         // Tests only: a pause right before the write (`full_access_bound::WriteSeam`).
         #[cfg(test)]

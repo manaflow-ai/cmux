@@ -75,6 +75,144 @@ fn numstat_counts_and_caps_the_list() {
 }
 
 #[test]
+fn a_prompt_run_is_sent_as_typed_and_named_by_its_variant() {
+    assert_eq!(build_prompt("Fix the login", "shop", Target::Prompt), "Fix the login");
+    assert_eq!(Target::parse("prompt"), Some(Target::Prompt));
+    let opus = Variant {
+        harness: "claude".into(),
+        model: Some("opus".into()),
+        effort: Some("high".into()),
+    };
+    assert_eq!(opus.chat_name(Target::Prompt), "run-claude-opus");
+    assert_eq!(Variant::harness("codex").chat_name(Target::Prompt), "run-codex");
+    assert_eq!(Variant::harness("codex").chat_name(Target::Compare), "build-codex");
+    assert_eq!(Variant::harness("codex").chat_name(Target::Worktree), "build-plan");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_worktree_is_still_made_only_with_its_folder_and_branch() {
+    let dir = std::env::temp_dir().join(format!("acpmux-still-made-{}", uuid::Uuid::now_v7()));
+    let (root, admin) = (dir.join("wt"), dir.join("repo/.git/worktrees/wt"));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&admin).unwrap();
+    std::fs::write(root.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
+    std::fs::write(admin.join("HEAD"), "ref: refs/heads/cmux/run-1\n").unwrap();
+    std::fs::write(admin.join(crate::subsession_worktree::MADE_STAMP), "0f1e2d").unwrap();
+    let made = crate::store::MadeWorktree {
+        root: root.clone(),
+        pin: crate::cwd_pin::CwdPin::of(&root),
+        born: crate::store::MadeWorktree::born_of(&std::fs::File::open(&root).unwrap()),
+        branch: "cmux/run-1".to_owned(),
+        base: None,
+        stamp: Some("0f1e2d".to_owned()),
+    };
+    assert_eq!(still_made(&made), Ok(()));
+    // Another stamp in its registration: not the worktree made.
+    let other = crate::store::MadeWorktree { stamp: Some("abcdef".to_owned()), ..made.clone() };
+    assert!(still_made(&other).is_err());
+    // Where the file system records no creation time, the stamp alone decides.
+    let no_time = crate::store::MadeWorktree { born: None, ..made.clone() };
+    assert_eq!(still_made(&no_time), Ok(()));
+    assert!(still_made(&crate::store::MadeWorktree { born: None, ..other.clone() }).is_err());
+    // With neither, nothing tells it from a worktree made again at its path: it stays.
+    let neither = crate::store::MadeWorktree { stamp: None, ..no_time.clone() };
+    assert!(still_made(&neither).unwrap_err().contains("nothing recorded"));
+    // An agent's FIFO in the stamp's place never hangs the check, and is no stamp.
+    let stamp_file = admin.join(crate::subsession_worktree::MADE_STAMP);
+    std::fs::remove_file(&stamp_file).unwrap();
+    let c = std::ffi::CString::new(stamp_file.to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+    let started = std::time::Instant::now();
+    assert!(still_made(&made).is_err());
+    assert!(started.elapsed() < std::time::Duration::from_secs(2), "a FIFO blocked the check");
+    std::fs::remove_file(&stamp_file).unwrap();
+    std::fs::write(&stamp_file, "0f1e2d").unwrap();
+    // Its agent moved it to another branch: no longer the worktree made for the run.
+    std::fs::write(admin.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+    assert!(still_made(&made).is_err());
+    std::fs::write(admin.join("HEAD"), "ref: refs/heads/cmux/run-1\n").unwrap();
+    // No identity recorded: nothing proves the folder is the one made.
+    assert!(still_made(&crate::store::MadeWorktree { pin: None, ..made.clone() }).is_err());
+    // Another folder at its path, with the same git files: not the one made.
+    std::fs::rename(&root, dir.join("away")).unwrap();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::copy(dir.join("away/.git"), root.join(".git")).unwrap();
+    assert!(still_made(&made).is_err());
+    // Removed and made again at its path, registered again under the same name, where the file
+    // system gives the new folder the same inode and records no creation time (Linux CI's): its
+    // registration has no stamp, so it is not the one made either.
+    std::fs::remove_dir_all(&root).unwrap();
+    std::fs::remove_dir_all(dir.join("away")).unwrap();
+    std::fs::remove_dir_all(&admin).unwrap();
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&admin).unwrap();
+    std::fs::write(root.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
+    std::fs::write(admin.join("HEAD"), "ref: refs/heads/cmux/run-1\n").unwrap();
+    let same_inode = crate::store::MadeWorktree {
+        pin: crate::cwd_pin::CwdPin::of(&root),
+        born: None,
+        ..made.clone()
+    };
+    assert!(still_made(&same_inode).is_err());
+    // A record from before stamps were written, with no creation time either, is refused too.
+    let unstamped = crate::store::MadeWorktree { stamp: None, ..same_inode.clone() };
+    assert!(still_made(&unstamped).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Compare reads by path off unix, where no folder identity is recorded, and refuses a folder that
+/// is not the one made on unix. Keep's removal refuses it everywhere (`still_made`).
+#[test]
+fn compare_checks_the_folder_only_where_its_identity_is_recorded() {
+    let made = crate::store::MadeWorktree {
+        root: std::env::temp_dir().join(format!("acpmux-no-such-run-{}", uuid::Uuid::now_v7())),
+        pin: None,
+        born: None,
+        branch: "cmux/run-1".to_owned(),
+        base: None,
+        stamp: None,
+    };
+    assert!(still_made(&made).is_err());
+    assert_eq!(compare_identity(Some(&made)).is_ok(), !cfg!(unix));
+    assert_eq!(compare_identity(None), Ok(()));
+}
+
+/// An agent's FIFO at `.git` or `HEAD` never hangs Compare or Keep: `still_made` reads both
+/// bounded and refuses what is no regular file, at once.
+#[cfg(unix)]
+#[test]
+fn a_fifo_at_its_git_files_never_hangs_the_identity_check() {
+    let fifo = |path: &std::path::Path| {
+        let c = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+    };
+    let dir = std::env::temp_dir().join(format!("acpmux-fifo-made-{}", uuid::Uuid::now_v7()));
+    let (root, admin) = (dir.join("wt"), dir.join("repo/.git/worktrees/wt"));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&admin).unwrap();
+    std::fs::write(root.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
+    fifo(&admin.join("HEAD"));
+    // Stamped, so the check reads on past the stamp to HEAD and `.git`.
+    std::fs::write(admin.join(crate::subsession_worktree::MADE_STAMP), "0f1e2d").unwrap();
+    let made = crate::store::MadeWorktree {
+        root: root.clone(),
+        pin: crate::cwd_pin::CwdPin::of(&root),
+        born: crate::store::MadeWorktree::born_of(&std::fs::File::open(&root).unwrap()),
+        branch: "cmux/run-1".to_owned(),
+        base: None,
+        stamp: Some("0f1e2d".to_owned()),
+    };
+    let started = std::time::Instant::now();
+    assert!(still_made(&made).is_err(), "a FIFO at HEAD is no branch");
+    std::fs::remove_file(root.join(".git")).unwrap();
+    fifo(&root.join(".git"));
+    assert!(still_made(&made).is_err(), "a FIFO at .git names no admin folder");
+    assert!(started.elapsed() < std::time::Duration::from_secs(2), "a FIFO blocked the check");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn a_plan_only_in_the_acp_subject_is_read_too() {
     let ask = json!({"sessionId": "s", "subject": {"type": "tool_call", "toolCall": {
         "kind": "switch_mode", "rawInput": {"plan": "Step one"}}}});

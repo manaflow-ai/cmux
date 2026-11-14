@@ -15,8 +15,9 @@ import Testing
         return registry
     }()
 
-    static func commandReturn(_ resolved: FocusState.Resolved, editing: Bool) throws -> String {
-        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 1,
+    static func commandReturn(_ resolved: FocusState.Resolved, editing: Bool,
+                              modifiers: NSEvent.ModifierFlags = [.command]) throws -> String {
+        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 1,
                                                   windowNumber: 0, context: nil, characters: "\r",
                                                   charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
         var focus = FocusState()
@@ -28,6 +29,12 @@ import Testing
 
     @Test func theChatComposerGetsCommandReturn() throws {
         #expect(try Self.commandReturn(.agentPage(pane: "pane_agent", tab: "tab_agent"), editing: true) == "deliver")
+    }
+
+    /// Command-Option-Return is the chat composer's Run on several agents (sendMenuModel.ts).
+    @Test func theChatComposerGetsCommandOptionReturn() throws {
+        #expect(try Self.commandReturn(.agentPage(pane: "pane_agent", tab: "tab_agent"), editing: true,
+                                       modifiers: [.command, .option]) == "deliver")
     }
 
     @Test func theHomeComposerGetsCommandReturn() throws {

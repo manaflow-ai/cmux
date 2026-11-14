@@ -803,6 +803,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/plan/fanout",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/process/background",
       "params": {
         "$ref": "#/types/ProcessBackgroundParams"
