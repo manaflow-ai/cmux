@@ -38,7 +38,7 @@ final class AppsService {
     private var machineCatalog: MachineCatalogPublisher?
     init(services: AppServices) {
         self.services = services
-        transport = DaemonAppsTransport(daemon: services.daemon, feeds: [.agentChats()], inventoryRoutes: { [weak machines = services.machines] in
+        transport = DaemonAppsTransport(daemon: services.daemon, feeds: [.agentChats(), .media { [weak services] in services?.cache.pageRequests.sidebarSources.nowPlaying }], inventoryRoutes: { [weak machines = services.machines] in
             machines?.agentInventoryWatchRoutes() ?? []
         })
         client = AppsClient(transport: transport)
@@ -71,7 +71,7 @@ final class AppsService {
         let memory = AgentMemorySearchHandler(enabled: { [weak services] in
             services?.settings?.snapshot.agentMemoryEnabled ?? false
         }, index: BundledAgentMemoryIndex.bundled())
-        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats()]))
+        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats(), MediaAppOps.card({ [weak services] in services?.cache.pageRequests.sidebarSources.nowPlaying }, perform: { [weak services] in services?.cache.pageRequests.sidebarSources.perform($0) })]))
         if machineCatalog == nil {
             machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
                 machines?.catalogSource()

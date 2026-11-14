@@ -293,7 +293,12 @@ export function generate(): Record<string, string> {
     "memory.search": { scope: "memory:read", class: "read" },
     // The older name of chat.list for a customize section's thread list: the daemon answers it
     // from the same chat index as chat.list (apps/routing.rs), shaped {chats: [...]}.
-    "agent_chat.list": { scope: "agent_chat:read", class: "read" }
+    "agent_chat.list": { scope: "agent_chat:read", class: "read" },
+    // What plays in cmux, from the Now Playing card's sources (cmux's player, a browser tab, another
+    // app while sidebar.nowPlaying.otherApps is on), answered by the Mac app (MediaAppOps). media.control
+    // runs only on a tap (PLAYBACK_OPS in cmux-app-manifest capabilities.rs).
+    "media.get": { scope: "media:read", class: "read" },
+    "media.control": { scope: "media:control", class: "mutation" }
   }
   Object.assign(scopes, hostOps)
   const signals = loadSignals(scopes, types)

@@ -244,6 +244,8 @@
     "mail.send",
     "mail.thread.get",
     "mail.threads.peek",
+    "media.control",
+    "media.get",
     "memory.search",
     "memory_app.cycle_variant",
     "memory_app.open",

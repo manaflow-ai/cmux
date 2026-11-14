@@ -177,9 +177,16 @@ pub const PANEL_OPS: &[&str] = &["fs.pick"];
 /// marks a chat read or pins it only in answer to a tap, never on its own.
 pub const PERSON_MARK_OPS: &[&str] = &["chat.mark_read", "chat.pin"];
 
+/// Ops that start, stop or move what plays: an app plays, pauses or skips
+/// only in answer to a tap, so no extension starts sound on its own.
+pub const PLAYBACK_OPS: &[&str] = &["media.control"];
+
 /// Whether an app call of `op` needs a live user gesture.
 pub fn needs_gesture(op: &str) -> bool {
-    VIEW_STATE_OPS.contains(&op) || PANEL_OPS.contains(&op) || PERSON_MARK_OPS.contains(&op)
+    VIEW_STATE_OPS.contains(&op)
+        || PANEL_OPS.contains(&op)
+        || PERSON_MARK_OPS.contains(&op)
+        || PLAYBACK_OPS.contains(&op)
 }
 
 /// The escalation of `op`, if it has one.
@@ -497,6 +504,12 @@ mod tests {
         assert_eq!(row["escalation"]["scope"], "workspace:execute");
         assert!(row["consent"].as_str().is_some_and(|t| !t.is_empty()));
         assert_eq!(table.describe("tab.focus").expect("tab.focus")["gesture"], true);
+        let media = table.describe("media.control").expect("media.control");
+        assert_eq!(
+            (media["scope"].as_str(), media["risk"].as_str(), media["gesture"].as_bool()),
+            (Some("media:control"), Some("sensitive"), Some(true))
+        );
+        assert_eq!(table.describe("media.get").expect("media.get")["gesture"], false);
         let never = table.never().next().expect("a never op");
         assert_eq!(table.describe(never).expect("never row")["never"], true);
         assert_eq!(table.describe("made.up"), None);

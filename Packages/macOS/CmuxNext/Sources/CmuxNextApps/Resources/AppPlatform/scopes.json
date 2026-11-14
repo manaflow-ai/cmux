@@ -973,6 +973,14 @@
       "scope": "mail:read",
       "class": "read"
     },
+    "media.control": {
+      "scope": "media:control",
+      "class": "mutation"
+    },
+    "media.get": {
+      "scope": "media:read",
+      "class": "read"
+    },
     "memory_app.cycle_variant": {
       "scope": "memory_app:write",
       "class": "mutation"

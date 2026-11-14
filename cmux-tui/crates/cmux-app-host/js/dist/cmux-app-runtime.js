@@ -1861,6 +1861,95 @@
         pollFloorSeconds: 60,
         staleAfterSeconds: 300
       },
+      "media.now_playing": {
+        docs: "What plays in cmux now, the track the Now Playing card shows: cmux's own player, else a browser tab playing aloud, else another music app while sidebar.nowPlaying.otherApps is on (media.get). The Mac app pushes media.changed when the track, its play state, its position jump or its artwork changes, so the runtime never polls it; between pushes, move the position on from position_ms with rate yourself.",
+        scopes: [
+          "media:read"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          properties: {}
+        },
+        value: {
+          type: "object",
+          required: [
+            "track"
+          ],
+          properties: {
+            track: {
+              description: "What plays, or null while nothing does.",
+              oneOf: [
+                {
+                  type: "null"
+                },
+                {
+                  type: "object",
+                  required: [
+                    "title",
+                    "artist",
+                    "playing",
+                    "rate",
+                    "position_ms",
+                    "can_previous",
+                    "can_next"
+                  ],
+                  properties: {
+                    title: {
+                      type: "string"
+                    },
+                    artist: {
+                      type: "string",
+                      description: "The artist, or the site a browser tab plays from; may be empty."
+                    },
+                    artwork: {
+                      type: "string",
+                      description: "The artwork as a small data:image/png;base64 URL, for Image(); absent without artwork."
+                    },
+                    playing: {
+                      type: "boolean"
+                    },
+                    position: {
+                      type: "number",
+                      description: "Seconds in at position_ms; absent for a live stream."
+                    },
+                    duration: {
+                      type: "number",
+                      description: "The length in seconds; absent when unknown or endless."
+                    },
+                    rate: {
+                      type: "number",
+                      description: "How fast the position moves while playing (1 is normal speed)."
+                    },
+                    position_ms: {
+                      type: "number",
+                      description: "When position was read, in Unix milliseconds."
+                    },
+                    can_previous: {
+                      type: "boolean"
+                    },
+                    can_next: {
+                      type: "boolean"
+                    },
+                    source: {
+                      type: "string",
+                      description: "The name of the other app that plays; absent for cmux's own player and tabs."
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        read: {
+          op: "media.get"
+        },
+        push: [
+          "media.changed"
+        ],
+        pollFloorSeconds: 5,
+        staleAfterSeconds: 60
+      },
       "workspace.list": {
         docs: "The workspaces of the current session in sidebar order (workspace.list). The daemon pushes workspace.changed on every tree change, so the runtime never polls it.",
         scopes: [
