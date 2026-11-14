@@ -65,3 +65,14 @@ fn a_spelled_out_boolean_takes_its_value_and_leaves_the_positional_alone() {
     let on = build_args(&words("--loud true hello"), &input(), &json!(["text"])).unwrap();
     assert_eq!(on, json!({ "loud": true, "text": "hello" }));
 }
+
+#[test]
+fn help_is_a_flag_of_its_own_and_built_in_words_are_never_a_short_form() {
+    let help = |text: &str| super::asks_help(&words(text));
+    assert!(help("--help") && help("hello -h"));
+    assert!(!help("--text -h") && !help("-- --help") && !help("hello"));
+    for word in ["share", "chat", "agent", "workspace", "--x"] {
+        assert!(!super::short_form_word(word), "{word}");
+    }
+    assert!(super::short_form_word("demo"));
+}

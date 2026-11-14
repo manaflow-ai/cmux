@@ -33,7 +33,7 @@ const APP_REFUSALS: &[&str] = &["apps.cli.conflict", "apps.cli.path_unknown", "a
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;
     let (name, words) = command_args.split_first()?;
-    if name.starts_with('-') || cmux_app_manifest::is_reserved_cli_name(name) {
+    if !short_form_word(name) {
         return None;
     }
     let request = json!({ "id": "apps-cli-1", "cmd": "apps-cli", "name": name, "words": words });
@@ -50,6 +50,31 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     Some(run(&global, name, words, &resolved))
 }
 
+/// Whether `word` may be an app's short form: not a flag, not a reserved cmux
+/// word, and not the first word of a built-in command routed after the mux
+/// grammar (`cmux share revoke`, catalog actions, `agent view`): built-ins win.
+pub(super) fn short_form_word(word: &str) -> bool {
+    !word.starts_with('-')
+        && !cmux_app_manifest::is_reserved_cli_name(word)
+        && !super::action_hint::builtin_first_word(word)
+}
+
+/// Whether `rest` (the words after the op's path) asks for help: `--help` or
+/// `-h` as a flag of its own, not a flag's value and not after `--`.
+pub(super) fn asks_help(rest: &[String]) -> bool {
+    let mut previous_takes_value = false;
+    for word in rest {
+        if word == "--" {
+            return false;
+        }
+        if !previous_takes_value && matches!(word.as_str(), "--help" | "-h") {
+            return true;
+        }
+        previous_takes_value = word.starts_with("--") && !word.contains('=');
+    }
+    false
+}
+
 fn run(global: &GlobalArgs, name: &str, words: &[String], resolved: &Value) -> i32 {
     let Some(op) = resolved["op"].as_str() else {
         println!("{}", app_help(name, resolved));
@@ -57,7 +82,7 @@ fn run(global: &GlobalArgs, name: &str, words: &[String], resolved: &Value) -> i
     };
     let consumed = resolved["consumed"].as_u64().unwrap_or(0) as usize;
     let rest = words.get(consumed..).unwrap_or_default();
-    if rest.iter().any(|word| matches!(word.as_str(), "--help" | "-h")) {
+    if asks_help(rest) {
         println!("{}", op_help(name, resolved));
         return 0;
     }
@@ -99,7 +124,7 @@ fn refuse(name: &str, error: &Value, output: OutputMode) -> i32 {
         &json!({
             "code": error["code"],
             "message": message,
-            "details": {},
+            "details": error.get("details").cloned().unwrap_or_else(|| json!({})),
             "retryable": false,
         }),
         output,
@@ -208,8 +233,18 @@ pub(super) fn build_args(
         }
         let property = find(flag).ok_or_else(|| messages().unknown_flag.replace("{flag}", flag))?;
         let schema = &properties[&property];
+        // `--x` alone is true; `--x true|false` takes the value, so a
+        // spelled-out boolean never falls through to a positional.
         if schema["type"] == "boolean" && inline.is_none() {
-            args.insert(property, Value::Bool(true));
+            let value = match words.as_slice().first().map(String::as_str) {
+                Some(spelled @ ("true" | "false")) => {
+                    let value = spelled == "true";
+                    words.next();
+                    value
+                }
+                _ => true,
+            };
+            args.insert(property, Value::Bool(value));
             continue;
         }
         let raw = inline
