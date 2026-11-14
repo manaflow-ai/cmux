@@ -127,8 +127,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// (`pinsHostGrid`), as of the last layout: the document ends at its last
     /// row and starts no lower than its first.
     private var documentPinsHostGrid = false
-    /// The chip's size for its text (measured once per text).
-    private var hostGridChipSize: (text: String, size: CGSize)?
+    /// The chip's size for its text at its font size (measured once per
+    /// text and Dynamic Type size).
+    private var hostGridChipSize: (text: String, pointSize: CGFloat, size: CGSize)?
     /// The phone's own grid as last sent to the Mac (`sendResize`), and the
     /// one before it while that send may still be on its way. The Mac's grid
     /// at either is the phone's own: no note and no pin, or the page would
@@ -394,6 +395,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         tuiClip.addGestureRecognizer(tuiHorizontalPan)
         hostGridNote.font = UIFont.preferredFont(forTextStyle: .caption2)
         hostGridNote.adjustsFontForContentSizeCategory = true
+        // A Dynamic Type change resizes the note's font: measure the chip and place the note again.
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (screen: TerminalViewController, _: UITraitCollection) in
+            screen.applyHostGridNote()
+        }
         // The terminal's theme is dark in both appearances: the note's gray
         // is the dark one (the light one is near black on the grid's background).
         hostGridNote.textColor = UIColor.secondaryLabel.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark))
@@ -1166,7 +1171,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             output.append(hostGrid: columns, rows: rows)
             scheduleOutput()
         case .hostGridOwner(let name):
-            hostGridOwner = name
+            // In order with the grid events: the owner and the grid it set
+            // change together, never the name first next to the old grid.
+            if output.isEmpty {
+                hostGridOwner = name
+            } else {
+                output.append(hostGridOwner: name)
+                scheduleOutput()
+            }
         case .inputNotSent:
             // Keys refused, or held through an outage and dropped: their
             // predicted glyphs would stand for keys that never arrive.
@@ -1250,6 +1262,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 // The Mac's grid changed: a resize the phone sent before is answered.
                 if TerminalResizeSettle.Size(columns: columns, rows: rows) != sentGridBefore { sentGridBefore = nil }
                 syncHostGrid()
+            case .hostGridOwner(let name):
+                hostGridOwner = name
             case .bytes(let data):
                 syncHostGrid()
                 pacer.started(frameEnd: outputLink?.targetTimestamp ?? CACurrentMediaTime() + frameInterval,
@@ -3297,7 +3311,10 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
     var hostGridIsPhonesOwn: Bool {
         guard let columns = appliedHostColumns ?? model.session.remoteColumns, let rows = feedHostRows else { return true }
         let grid = TerminalResizeSettle.Size(columns: columns, rows: rows)
-        return grid == sentGrid || grid == sentGridBefore
+        // The grid before the last send is the phone's only while no other
+        // device is named as its owner: a named owner's grid that happens to
+        // equal the phone's old claim is that device's, not a resize in flight.
+        return grid == sentGrid || (hostGridOwner == nil && grid == sentGridBefore)
     }
 
     /// The primary screen shows the Mac's shorter grid whole at the top: it
@@ -3333,9 +3350,10 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         if let box = layout.letterbox {
             hostGridNoteSpot = .letterbox(gridHeight: box.top, offset: min(8, max(0, box.height - line) / 2))
         } else {
-            if hostGridChipSize?.text != text {
+            let pointSize = hostGridNote.font.pointSize
+            if hostGridChipSize?.text != text || hostGridChipSize?.pointSize != pointSize {
                 let width = ceil(hostGridNote.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: line)).width)
-                hostGridChipSize = (text, CGSize(width: width + 12, height: line + 4))
+                hostGridChipSize = (text, pointSize, CGSize(width: width + 12, height: line + 4))
             }
             hostGridNoteSpot = .corner(hostGridChipSize?.size ?? .zero)
         }
