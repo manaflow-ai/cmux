@@ -757,19 +757,18 @@ impl Hub {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if stopped.is_none() {
             let mut roots = HashSet::new();
-            self.store
-                .scan_kinds(&session.id, &["prompt_stop_requested"], &mut |event| {
-                    if event.dir == "mux"
-                        && event.kind == "prompt_stop_requested"
-                        && let Some(prompt) = event.msg.get("promptId").and_then(Value::as_str)
-                    {
-                        roots.insert(prompt.to_owned());
-                    }
-                    true
-                })
-                .map_err(|error| {
-                    RpcError::internal(format!("cannot read prompt stop boundaries: {error}"))
-                })?;
+            self.scan_for_rebuild(session, &["prompt_stop_requested"], &mut |event| {
+                if event.dir == "mux"
+                    && event.kind == "prompt_stop_requested"
+                    && let Some(prompt) = event.msg.get("promptId").and_then(Value::as_str)
+                {
+                    roots.insert(prompt.to_owned());
+                }
+                true
+            })
+            .map_err(|error| {
+                RpcError::internal(format!("cannot read prompt stop boundaries: {error}"))
+            })?;
             *stopped = Some(roots);
         }
         Ok(stopped)

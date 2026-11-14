@@ -334,17 +334,18 @@ enum AgentHandlers {
     }
 
     static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
+        let placed = !(invocation.origin == .user && invocation.target?.kind == .pane && pane.plusChatIsTab) // the + menu, the pane's "…": a tab here
         // Preserve Cmd-I exactly when no optional argument was supplied. Explicit CLI/MCP
         // arguments use the same seed consumed by the palette and the page handshake.
         guard !invocation.arguments.isEmpty else {
-            pane.newAgentTab()
+            pane.newAgentTab(placed: placed)
             return
         }
         let requested = seed(for: invocation)
         // An explicit peer never inherits a path or draft from this Mac. Local argument-only
         // invocations override just the supplied values and keep the existing inheritance.
         guard requested.host == nil else {
-            _ = pane.openAgentTab(seed: AgentPaneSeedSource(requested))
+            _ = pane.openAgentTab(seed: AgentPaneSeedSource(requested), placed: placed)
             return
         }
         let inherited = pane.agentSeedFromSelectedTab()
@@ -354,7 +355,7 @@ enum AgentHandlers {
             seed.harness = requested.harness ?? seed.harness
             seed.model = requested.model ?? seed.model
             return seed
-        })
+        }, placed: placed)
     }
 
     static func seed(for invocation: ActionInvocation) -> AgentPaneSeed {

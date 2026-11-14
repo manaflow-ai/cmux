@@ -8063,6 +8063,81 @@
       },
       "extra": false
     },
+    "SettingsEdit": {
+      "kind": "object",
+      "fields": {
+        "op": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "set",
+              "set_unset",
+              "reset",
+              "reset_unchanged"
+            ]
+          },
+          "description": "set and reset are settings.set and settings.reset; set_unset sets only while the file has no value at the path (JSON null is a value); reset_unchanged resets only while the file still holds value there (1 and 1.0 are one value)."
+        },
+        "key": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The dotted key (appearance.density; everything after shortcuts.bindings. is one action id)."
+        },
+        "path": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The key path, for keys that contain dots."
+        },
+        "value": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "The value to set (set, set_unset) or the value expected (reset_unchanged); reset takes none."
+        }
+      },
+      "extra": false
+    },
+    "SettingsEditChange": {
+      "kind": "object",
+      "fields": {
+        "keys": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Dotted keys whose effective or file value changed; the MutationResult revision is the settings revision."
+        },
+        "applied": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "description": "Indexes of the edits that applied, in order; a conditional edit whose condition did not hold is left out."
+        }
+      },
+      "extra": false
+    },
     "KeybindingEntry": {
       "kind": "object",
       "fields": {
@@ -9895,6 +9970,34 @@
             "max_items": 500
           },
           "description": "The ids removed, in store order."
+        }
+      },
+      "extra": false
+    },
+    "DiffCommentsSendResult": {
+      "kind": "object",
+      "fields": {
+        "sent": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "How many comments the prompt carried: the length of ids."
+        },
+        "cleared": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "max_items": 500
+          },
+          "description": "The ids removed, in store order; a comment edited since the caller read it, or unknown, is not among them."
         }
       },
       "extra": false
@@ -12734,6 +12837,19 @@
             "name": "decimal"
           },
           "description": "The history revision that history-changed carries."
+        },
+        "pending_kinds": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "HistoryKind"
+            },
+            "min_items": 1,
+            "max_items": 5
+          },
+          "description": "The asked kinds whose entries are not complete in this answer: the daemon's fold of the session journal did not reach the journal head inside the list's 2 s budget (a first read after a start on a large journal). entries holds what is folded so far. A caller that gets it asks again until the field is absent: each list folds for 2 s more, and the session's feed folds on between lists. history-changed of that kind says that more entries are folded, but it does not come when the rest of the journal changes no entry of that kind or when the session has no feed, so a caller must not wait for the event only. Omitted when every asked kind is complete; today only agent can be pending."
         }
       },
       "extra": false
@@ -14706,6 +14822,87 @@
             "name": "boolean"
           },
           "description": "Whether the ledger exists after this step."
+        }
+      },
+      "extra": false
+    },
+    "BrowserImportReadResult": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "The reader's result: bookmarks, history entries, tabs, extensions, a search engine, a path, a bool or a setting, in the app's Codable shapes (dates as seconds since 2001); null when there is none."
+        },
+        "error": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "BrowserImportReadError"
+          },
+          "description": "Why the source did not read."
+        }
+      },
+      "extra": false
+    },
+    "BrowserImportSearchEngine": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "keyword": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "search": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The search address; {searchTerms} marks the typed text."
+        },
+        "suggest": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      },
+      "extra": false
+    },
+    "BrowserImportReadError": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "read, notBookmarks, open, query, copy, syntax, shape or tooLarge."
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
         }
       },
       "extra": false
@@ -18143,6 +18340,187 @@
         "validation.invalid"
       ]
     },
+    "browser_import.read": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "reader": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "chromium.bookmarks",
+                "chromium.history",
+                "chromium.session_file",
+                "chromium.latest_session_file",
+                "chromium.session",
+                "chromium.search_engine",
+                "chromium.extensions",
+                "arc.bookmarks",
+                "firefox.bookmarks",
+                "firefox.history",
+                "firefox.session_file",
+                "firefox.session",
+                "firefox.search_engine",
+                "safari.bookmarks",
+                "safari.history",
+                "safari.search_engine",
+                "exported_history.looks_like",
+                "exported_history.parse",
+                "search_engine.setting",
+                "upload.append",
+                "upload.drop"
+              ]
+            },
+            "description": "The reader to run (the cmux-browser-import crate's ops::OPS), or upload.append / upload.drop (ops::UPLOAD_OPS), which hold and forget the bytes of files the app read from a folder macOS protects."
+          },
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of the file the reader reads (bookmarks, history database, session file, exported history); with upload, the file's name in the upload."
+          },
+          "base64": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "base64"
+            },
+            "description": "The file's bytes instead of path, for the readers of a file's bytes; for upload.append, the next chunk of the file name names."
+          },
+          "profile": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of the profile folder (session_file, search_engine, extensions); with upload, a folder in it (. is its top)."
+          },
+          "sessions": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of a Chromium profile's Sessions folder (latest_session_file); with upload, the folder's name in it."
+          },
+          "upload": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "An upload the app chose the id of (letters, digits and -): the files it sent from a folder macOS protects, held in the daemon's memory only. The reader reads its names instead of paths."
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The relative name of the file upload.append adds to (Sessions/Session_1, History.db-wal)."
+          },
+          "profileDirectory": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "Arc's profile folder name, whose spaces arc.bookmarks reads."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "Most history entries, newest first (default 5000)."
+          },
+          "head": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 0,
+              "max_length": 65536
+            },
+            "description": "The first bytes of a file, as text (exported_history.looks_like)."
+          },
+          "services": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The Mac's NSPreferredWebServices (safari.search_engine)."
+          },
+          "engine": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "BrowserImportSearchEngine"
+            },
+            "description": "An imported search engine (search_engine.setting)."
+          },
+          "builtIn": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "The built-in engines, id to search template (search_engine.setting)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Only origin user (the verified cmux app connection, gate A2) may send it: it makes the daemon read another browser's files by path. Any other origin is refused with origin.forbidden.",
+          "A path that is not absolute, has a .. component, or lies under the daemon's home's Library/Safari, Library/SafariTechnologyPreview, Library/Containers or Library/Group Containers (as written or with links resolved) is refused with validation.invalid: the app reads what a reader needs there itself and sends the bytes into an upload.",
+          "Every database on disk is read from a private copy; no source file is written. An upload is held in memory and never written to disk: a database in it is opened in memory with its WAL's committed frames applied.",
+          "An upload holds at most 256 MiB, all uploads together 512 MiB; an append past either drops the upload and answers {error: {kind: tooLarge}}. An upload idle for 5 minutes is dropped, and a read of a dropped one answers {error: {kind: read}}. A name in an upload that is absolute or climbs with .. is refused with validation.invalid."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "BrowserImportReadResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "chat.list": {
       "class": "read",
       "idempotency": "forbidden",
@@ -20268,6 +20646,120 @@
         "validation.invalid"
       ]
     },
+    "cloud.machine.chat_access": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "api": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
+          },
+          "auth": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "stack",
+                "owner",
+                "worker"
+              ]
+            },
+            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
+          },
+          "access_token": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
+          },
+          "refresh_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
+          },
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The team the call acts for."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "stack: X-Cmux-App-Version (default cmux-next)."
+          },
+          "local_only": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Reads who may start app chats on a team Cloud machine: cmux-platform's GET /v1/machines/{id}/chat-access through the generated platform client (worker auth; args are machine). Answers the platform's MachineChatAccess: machineId, creator, chatStart (owner, granted or none, for the caller), canShare and grants.",
+          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
+          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
+          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "JsonValue"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "cloud.machine.io": {
       "class": "mutation",
       "idempotency": "required",
@@ -20364,6 +20856,128 @@
         "extra": false,
         "constraints": [
           "Calls a Cloud machine's files and exec: a Worker machine's straight to its provider with a client session when it can, else through the cmux API; a classic one's /api/vm/{id}/exec and /fs/* (args are op, machine, path, data_base64, mode, command, timeout_ms, route; a cache_dir is dropped).",
+          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
+          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
+          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
+          "The daemon keeps no ledger of these calls: revision is \"0\" and replayed is false. A call that must not run twice carries the API's own key in args (idempotencyKey)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "cloud.machine.share_chat": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "api": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
+          },
+          "auth": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "stack",
+                "owner",
+                "worker"
+              ]
+            },
+            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
+          },
+          "access_token": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
+          },
+          "refresh_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
+          },
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The team the call acts for."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "stack: X-Cmux-App-Version (default cmux-next)."
+          },
+          "local_only": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Shares a team Cloud machine's app chat starts with a member, or takes the share back: cmux-platform's PUT or DELETE /v1/machines/{id}/chat-grants/{user} through the generated platform client (worker auth; args are machine, user, revoke, me). Only the creator or a team admin may (403 machine.creator_or_admin), on a team machine only (403 machine.private). With me (Share with Me: user is the caller), a creator_or_admin refusal answers the caller's chat access when the machine is already shared with them. Answers the platform's MachineChatAccess.",
           "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
           "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
           "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
@@ -25811,6 +26425,103 @@
         "operation.failed details.reason is the machine reason: no_state_directory (an in-memory session keeps no comments), too_many_comments or store_failed; extra.message explains it."
       ]
     },
+    "diff.comments.send": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "root": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The worktree root the comments belong to: an absolute path (starting with /, at most 4096 bytes, no NUL), used only as a key. Nothing reads the folder it names."
+          },
+          "acp_session": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The acpmux session id of a chat on this machine that gets the prompt: 1 to 128 visible ASCII characters."
+          },
+          "text": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 262144
+            },
+            "description": "The prompt the agent reads: every sent comment's block (file and line, the quoted lines, the comment), as the diff page writes it. Not blank, at most 256 KiB."
+          },
+          "ids": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 128
+              },
+              "min_items": 1,
+              "max_items": 500
+            },
+            "description": "The ids of the comments the prompt carries, 1 to 500; they are removed once the agent's session takes it."
+          },
+          "versions": {
+            "required": true,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "Each id's updatedAt as the caller last read it, at most 500 (an empty object is allowed). A sent comment whose updatedAt differs (edited since) is kept."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "DiffCommentsSendResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The text goes to the acpmux session acp_session of this machine's acpmux as one prompt whose acpmux promptId is the idempotency key, queued behind a running turn and never steered into it; acpmux runs a prompt id once, so a retry under the same key never gives the agent the review twice.",
+        "Once acpmux takes the prompt, the named comments still at their versions are removed under the root's lock, as diff.comments.delete removes them; the root's lock is not held while acpmux takes the prompt. A refused send keeps every comment.",
+        "A replayed key returns the first result with replayed true and sends nothing; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: no_session (acpmux is not running, runs no such session, or moves it to another machine; nothing was sent), send_failed (acpmux refused the prompt), send_unsettled (the prompt went out and acpmux did not answer in time: the agent may have it, and a retry with the same key runs it once), no_state_directory or store_failed; extra.message explains it."
+      ]
+    },
     "frontend_projection.get": {
       "class": "read",
       "idempotency": "forbidden",
@@ -30505,6 +31216,14 @@
             },
             "description": "Creates the rightward split as a scrolling viewport column with this fraction of the viewport width."
           },
+          "fit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Creates the split as a viewport column that shares the window: when the screen's columns fit the window, the new column takes an equal share and the others are scaled to fill the rest, so nothing scrolls sideways; on a screen that already scrolls, it opens at half the viewport width."
+          },
           "cwd": {
             "required": false,
             "type": {
@@ -30570,6 +31289,7 @@
         "constraints": [
           "ratio is finite and greater than 0 and less than 1.",
           "viewport_width requires direction right and is finite and greater than or equal to 0.1 and less than or equal to 1.",
+          "fit requires direction left or right and excludes viewport_width, ratio, row_height and around.",
           "cols and rows are paired.",
           "At most one of argv or shell is present; argv[0] is non-empty.",
           "focus defaults to false: a programmatic split never moves the user's focus unless it asks."
@@ -34092,6 +34812,88 @@
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "settings.edit": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "edits": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "SettingsEdit"
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "The edits, applied in order to the file text and published once."
+          },
+          "if_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The settings revision the caller saw; a mismatch is revision.conflict and writes nothing."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. Origin mcp may change only agent-settable schema keys (settings.agent_refused)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Applies every edit in order to the settings file text and publishes it once, with one revision and one settings-changed event (Swift CmuxConfigFile.apply). Each edit passes the checks of settings.set or settings.reset (schema kind, managed keys, agent policy, removed keys, the object-overlap rule); a refused edit refuses the whole op and writes nothing. A set_unset or reset_unchanged edit reads the file as the edits before it left it; when its condition does not hold it writes nothing and is not checked. A file that does not parse is never rewritten. Apps never get settings.edit."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SettingsEditChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "settings.agent_refused",
+        "settings.invalid",
+        "settings.managed",
+        "settings.removed",
         "validation.invalid"
       ]
     },

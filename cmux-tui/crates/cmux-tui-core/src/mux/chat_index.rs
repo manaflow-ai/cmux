@@ -18,7 +18,9 @@
 //! A chat that is closed, archived (acpmux's `archived` tag) or has no lane
 //! leaves the list. A connection's list that comes whole drops the rows it did
 //! not name (purged while the watch was away); a chat a push reached during that
-//! list stays, and a page older than that push does not undo it.
+//! list stays, and a page older than that push does not undo it. A follow
+//! (acpmux answers only what changed since the watch's cursor) applies its rows
+//! and drops the ones it says are `gone`, but drops nothing it did not name.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -53,16 +55,16 @@ pub(crate) struct Chats {
     /// Rows by key ([`key`]): the peer and the chat's id.
     rows: BTreeMap<String, Value>,
     revision: u64,
-    /// The list a connection is reading now, if any.
+    /// The whole list a connection is reading now, if any.
     listing: Option<Listing>,
+    /// The keys a push on this connection reached: an older page or follow does not undo them.
+    pushed: HashSet<String>,
 }
 
 #[derive(Default)]
 struct Listing {
     /// Every key the list or a push named.
     named: HashSet<String>,
-    /// The keys a push reached: an older page does not undo them.
-    pushed: HashSet<String>,
 }
 
 /// A row's key: `peer\0id`, empty peer for this machine's chats (a peer's chat may
@@ -173,9 +175,9 @@ impl Chats {
             };
             if let Some(listing) = &mut self.listing {
                 listing.named.insert(key.clone());
-                if listing.pushed.contains(&key) {
-                    continue;
-                }
+            }
+            if self.pushed.contains(&key) {
+                continue;
             }
             changed |= self.put(key, row(summary));
         }
@@ -188,8 +190,8 @@ impl Chats {
         let Some(key) = summary_key(params, peer) else { return false };
         if let Some(listing) = &mut self.listing {
             listing.named.insert(key.clone());
-            listing.pushed.insert(key.clone());
         }
+        self.pushed.insert(key.clone());
         let row = if params.get("kind").and_then(Value::as_str) == Some("purged") {
             None
         } else {
@@ -198,17 +200,39 @@ impl Chats {
         self.put(key, row)
     }
 
-    /// A connection starts its list.
+    /// A new connection to acpmux: no push reached a row on it yet, and no list is out.
+    pub(crate) fn connect(&mut self) {
+        self.listing = None;
+        self.pushed.clear();
+    }
+
+    /// The connection starts a whole list (a first list, or a follow acpmux reset).
     pub(crate) fn begin(&mut self) {
         self.listing = Some(Listing::default());
     }
 
-    /// The connection's list came whole: a row it did not name is gone.
+    /// The connection's list came whole: a row it did not name, and no push reached, is gone.
     pub(crate) fn end(&mut self) -> bool {
         let Some(listing) = self.listing.take() else { return false };
         let before = self.rows.len();
-        self.rows.retain(|key, _| listing.named.contains(key));
+        let pushed = &self.pushed;
+        self.rows.retain(|key, _| listing.named.contains(key) || pushed.contains(key));
         self.rows.len() != before
+    }
+
+    /// A follow's `gone` entries (`{sessionId, peer}`): those chats left acpmux, unless a push
+    /// on this connection reached them since.
+    pub(crate) fn gone(&mut self, gone: &[Value]) -> bool {
+        let mut changed = false;
+        for entry in gone {
+            let Some(key) = summary_key(entry, entry.get("peer").unwrap_or(&Value::Null)) else {
+                continue;
+            };
+            if !self.pushed.contains(&key) {
+                changed |= self.put(key, None);
+            }
+        }
+        changed
     }
 
     /// Raises the revision after a change; the new revision.

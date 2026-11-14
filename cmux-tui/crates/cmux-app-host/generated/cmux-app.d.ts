@@ -25,6 +25,9 @@ declare namespace Cmux {
   type BrowserDeviceAddResult = { device: Cmux.JsonValue }
   type BrowserDeviceList = { chrome: Cmux.JsonValue; devices: Array<Cmux.JsonValue> }
   type BrowserDeviceRemoveResult = { removed: boolean }
+  type BrowserImportReadError = { kind: string; message: string }
+  type BrowserImportReadResult = { ok?: Cmux.JsonValue | null; error?: Cmux.BrowserImportReadError }
+  type BrowserImportSearchEngine = { name: string; keyword?: string; search: string; suggest?: string }
   type BrowserProfile = { id: string; name: string; color: string | null; icon: string | null; index: number; proxy?: Cmux.BrowserProfileProxy }
   type BrowserProfileCreateResult = { browser_profile: Cmux.BrowserProfile; changed: boolean }
   type BrowserProfileList = { browser_profiles: Array<Cmux.BrowserProfile> }
@@ -133,6 +136,7 @@ declare namespace Cmux {
   type DiffCommentsDeleteResult = { deleted: number; ids: Array<string> }
   type DiffCommentsListResult = { root: string; comments: Array<Cmux.DiffComment> }
   type DiffCommentsSaveResult = { comment: Cmux.DiffComment }
+  type DiffCommentsSendResult = { sent: number; cleared: Array<string> }
   type EgressHost = string
   type EmailAddress = string
   type EmailDomain = string
@@ -200,7 +204,7 @@ declare namespace Cmux {
   type GroupPlacement = { kind: "local" | "mini" | "cloud_vm"; host?: string; machine?: string }
   type GroupWorkspaceId = string
   type Handoff = { id: string; to: string; epoch: number; at: number }
-  type HistoryEntriesListResult = { entries: Array<Cmux.HistoryEntry>; revision: string }
+  type HistoryEntriesListResult = { entries: Array<Cmux.HistoryEntry>; revision: string; pending_kinds?: Array<Cmux.HistoryKind> }
   type HistoryEntry = { id: string; kind: Cmux.HistoryKind; at_ms: string; title: string; detail?: string; machine?: string; workspace?: string; available: boolean; current?: boolean; running?: boolean; url?: string; profile?: string; closed_kind?: "terminal_tab" | "browser_tab" | "conversation_tab" | "screen" | "workspace"; cwd?: string; command?: string; exit_code?: number; session_id?: string; provider?: string; window?: string; location?: Cmux.HistoryTrailLocation }
   type HistoryKind = "page" | "location" | "closed" | "command" | "agent"
   type HistoryPurgeResult = { purged: number }
@@ -405,6 +409,8 @@ declare namespace Cmux {
   type SessionSnapshot = { id: string /* session_… */; machine_id: string /* machine_… */; name?: string; generation: string; revision: string; connected: boolean; extra?: Record<string, Cmux.JsonValue> }
   type SessionSnapshotItem = { kind: "snapshot"; cursor: Cmux.Cursor; reset_reason?: "initial" | "generation_changed" | "cursor_expired"; snapshot: Cmux.ResourceSnapshot }
   type SettingsChange = { keys: Array<string> }
+  type SettingsEdit = { op: "set" | "set_unset" | "reset" | "reset_unchanged"; key?: string; path?: Array<string>; value?: Cmux.JsonValue }
+  type SettingsEditChange = { keys: Array<string>; applied: Array<number> }
   type Sharing = "team" | "private"
   type ShutdownResult = { accepted: boolean }
   type SidebarAttachItem = unknown
@@ -1274,7 +1280,7 @@ interface CmuxGlobal {
     /** `pane.run` (mutation, scope `workspace:execute`) */
     run: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; correlation_key?: string; argv?: Array<string>; shell?: string; cwd?: string; name?: string; on_exit?: "close" | "keep" | "shell"; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `pane.split` (mutation, scope `workspace:write`) */
-    split: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; correlation_key?: string; direction: "left" | "right" | "up" | "down"; ratio?: number; viewport_width?: number; cwd?: string; argv?: Array<string>; shell?: string; focus?: boolean; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
+    split: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; correlation_key?: string; direction: "left" | "right" | "up" | "down"; ratio?: number; viewport_width?: number; fit?: boolean; cwd?: string; argv?: Array<string>; shell?: string; focus?: boolean; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     split_ratio: {
       /** `pane.split_ratio.set` (mutation, scope `workspace:write`) */
       set: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; split_id: string /* split_… */; ratio: number; expected_revision?: string }, Cmux.MutationResult<Cmux.PaneSnapshot>>

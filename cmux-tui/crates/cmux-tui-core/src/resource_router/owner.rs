@@ -34,6 +34,8 @@ pub(super) enum OperationOwner {
     PaletteRank,
     /// `chat.*` (resource_router/chats.rs): acpmux's chats as the daemon keeps them.
     Chat,
+    /// `browser_import.read` (resource_router/browser_import.rs): stateless.
+    BrowserImport,
 }
 
 pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
@@ -157,7 +159,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitStatus
         | ResourceOperation::DiffCommentsList
         | ResourceOperation::DiffCommentsSave
-        | ResourceOperation::DiffCommentsDelete => OperationOwner::Git,
+        | ResourceOperation::DiffCommentsDelete
+        | ResourceOperation::DiffCommentsSend => OperationOwner::Git,
         ResourceOperation::HistoryEntriesList
         | ResourceOperation::HistoryEntriesRemove
         | ResourceOperation::HistorySiteRemove
@@ -190,6 +193,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         ResourceOperation::ChatList
         | ResourceOperation::ChatMarkRead
         | ResourceOperation::ChatPin => OperationOwner::Chat,
+        ResourceOperation::BrowserImportRead => OperationOwner::BrowserImport,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
         | ResourceOperation::WorkspaceAgentStartGet
@@ -390,6 +394,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::CloudPreviewsCreateLink
         | ResourceOperation::CloudPreviewsRevokeLink
         | ResourceOperation::CloudMachineIo
+        | ResourceOperation::CloudMachineChatAccess
+        | ResourceOperation::CloudMachineShareChat
         | ResourceOperation::OriginConfirmationIssue => OperationOwner::Connection,
         ResourceOperation::SettingsSchema
         | ResourceOperation::SettingsList
@@ -398,6 +404,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SettingsSet
         | ResourceOperation::SettingsReset
         | ResourceOperation::SettingsResetAll
+        | ResourceOperation::SettingsEdit
         | ResourceOperation::KeybindingsGet
         | ResourceOperation::KeybindingsSet
         | ResourceOperation::KeybindingsRemove

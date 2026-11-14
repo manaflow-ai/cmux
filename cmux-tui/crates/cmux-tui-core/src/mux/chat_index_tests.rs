@@ -124,6 +124,22 @@ fn a_whole_list_drops_the_rows_it_did_not_name_but_keeps_what_a_push_reached() {
     assert_eq!(chats.find("kept"), Some(key(None, "kept")), "this machine's first");
 }
 
+/// A follow (rows changed since the cursor) drops only what it says is `gone`, never a row it
+/// did not name, and not one a push on this connection reached since.
+#[test]
+fn a_follow_drops_only_what_it_says_is_gone() {
+    let mut chats = Chats::default();
+    chats.page(&[summary("a", "idle"), summary("b", "idle"), summary("c", "idle")]);
+    chats.connect();
+    assert!(chats.push(&push(summary("c", "working"))));
+    assert!(chats.page(&[summary("a", "working")]), "a follow's row");
+    let gone = [json!({"sessionId": "b", "peer": null}), json!({"sessionId": "c", "peer": null})];
+    assert!(chats.gone(&gone));
+    assert!(!chats.end(), "a follow is no whole list");
+    let ids = chats.rows.values().map(|row| row["id"].clone()).collect::<Vec<_>>();
+    assert_eq!(ids, [json!("a"), json!("c")], "b is gone; c was pushed since");
+}
+
 /// The red test of step 3: one `ChatsChanged` per change, none for a page or push that
 /// changes nothing, and `chat.list` answers what acpmux said.
 #[test]

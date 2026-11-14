@@ -164,6 +164,7 @@ pub(crate) use input_qos::raise_this_thread as raise_input_thread_qos;
 mod line_connection;
 mod line_value;
 pub(crate) mod tree_reply_flight;
+pub(crate) mod tree_reply_text;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,
 };
@@ -1120,6 +1121,11 @@ enum Command {
     },
     /// `send`: write input to a terminal.
     Send(cmd_terminal_io::SendParams),
+    /// `cancel-creating-input` (`creating-input-cancel-v1`): the creator of a terminal that is
+    /// still being created drops the input queued for it; the creation goes on.
+    CancelCreatingInput {
+        terminal_id: String,
+    },
     ReadScreen {
         surface: SurfaceId,
     },
@@ -1507,6 +1513,13 @@ enum Command {
         /// `detached-terminals-v1`: a kept terminal with no tab.
         #[serde(default)]
         detached: bool,
+        /// `create-terminal-workspace-v1`: with `key` and a mutation id,
+        /// make the workspace first when no workspace has that key.
+        #[serde(default)]
+        create_workspace: bool,
+        /// The name of the workspace `create_workspace` makes.
+        #[serde(default)]
+        workspace_name: Option<String>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -2876,7 +2889,7 @@ pub use listen::{
     serve_paused, socket_start_lock_path, verify_session_socket_directory,
 };
 mod restoring;
-mod terminal_sessions;
+mod terminal_admission;
 #[cfg(all(test, unix))]
 use listen::still_at_path;
 #[cfg(test)]
@@ -2912,6 +2925,7 @@ use journal_stream::run_session_journal_stream;
 #[cfg(test)]
 use session_event_stream::run_session_event_stream;
 
+mod git_lane;
 mod resource_waits;
 use resource_waits::start_resource_wait;
 mod resource_clients;
@@ -3094,6 +3108,16 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     mux.tree_reply_flight.read(|| list_workspaces_tree(mux))
 }
 
+/// [`list_workspaces_reply`] as the tree's text, which the concurrent
+/// readers of its build share (tree_reply_text.rs).
+fn list_workspaces_reply_text(
+    mux: &Mux,
+    render: &RenderService,
+) -> anyhow::Result<Arc<tree_reply_text::TreeText>> {
+    mux.tree_reply_flight
+        .read_text(|| list_workspaces_tree(mux), |tree| render.serialize_tree(tree))
+}
+
 fn list_workspaces_tree(mux: &Mux) -> anyhow::Result<Value> {
     let notifications = mux.tree_decorations();
     let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
@@ -3205,3 +3229,5 @@ mod tests;
 mod cloud_api;
 #[cfg(unix)]
 mod cloud_repos;
+#[cfg(unix)]
+mod cloud_runs;
