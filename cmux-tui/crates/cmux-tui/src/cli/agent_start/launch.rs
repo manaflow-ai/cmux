@@ -23,7 +23,7 @@ pub(super) const DEFAULT_LAUNCHER: &str = "claude";
 /// Shells whose `-c SCRIPT NAME ARGS…` sets `$0` and `$@` the POSIX way.
 const POSIX_SHELLS: &[&str] = &["sh", "bash", "zsh", "dash", "ksh", "mksh"];
 /// The harnesses `resume` knows, in the order a launcher is searched.
-const HARNESSES: &[&str] = &["claude", "codex", "opencode", "gemini", "amp"];
+const HARNESSES: &[&str] = &["claude", "codex", "opencode", "gemini", "amp", "antigravity"];
 
 /// One agent launch: the shell, the launcher line and its extra arguments.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -94,6 +94,15 @@ pub(in crate::cli) fn harness_of(launcher: &str) -> Option<String> {
     })
 }
 
+/// The program that runs `harness` when nothing names a launcher: its own
+/// name, except Antigravity, whose CLI is `agy`.
+pub(in crate::cli) fn default_program(harness: &str) -> &str {
+    match harness {
+        "antigravity" => "agy",
+        other => other,
+    }
+}
+
 /// The arguments that resume harness session `id`, in the harness's own
 /// grammar; `None` for a harness `resume` does not know.
 pub(in crate::cli) fn resume_args(harness: &str, id: &str) -> Option<Vec<String>> {
@@ -102,6 +111,7 @@ pub(in crate::cli) fn resume_args(harness: &str, id: &str) -> Option<Vec<String>
         "codex" => &["resume"],
         "opencode" => &["--session"],
         "amp" => &["threads", "continue"],
+        "antigravity" => &["--conversation"],
         _ => return None,
     };
     let mut args: Vec<String> = words.iter().map(|word| (*word).to_owned()).collect();

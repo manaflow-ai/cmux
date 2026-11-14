@@ -659,3 +659,33 @@ fn claude_chats_ask_for_thinking_summaries() {
     );
     assert!(plan.args.iter().any(|a| a == "omitted"));
 }
+
+/// Two chats in two folders shared no cached system prompt: Claude Code's per-machine sections
+/// (cwd, env, memory paths, git status) sat inside it. Every chat moves them to its first user
+/// message; a profile that passes the flag itself is not given a second copy.
+#[test]
+fn claude_chats_keep_per_machine_sections_out_of_the_cached_system_prompt() {
+    let profile: crate::config::HarnessProfile =
+        serde_json::from_value(json!({"kind": "claude-stdio", "argv": ["claude"]})).unwrap();
+    let plan = spawn_plan(&profile, None, false, None, None, "default", None);
+    assert_eq!(
+        plan.args.iter().filter(|a| *a == EXCLUDE_DYNAMIC_FLAG).count(),
+        1,
+        "{:?}",
+        plan.args
+    );
+    let resumed = spawn_plan(&profile, Some("sid"), true, None, None, "default", None);
+    assert!(resumed.args.iter().any(|a| a == EXCLUDE_DYNAMIC_FLAG), "{:?}", resumed.args);
+
+    let pinned: crate::config::HarnessProfile = serde_json::from_value(
+        json!({"kind": "claude-stdio", "argv": ["claude", EXCLUDE_DYNAMIC_FLAG]}),
+    )
+    .unwrap();
+    let plan = spawn_plan(&pinned, None, false, None, None, "default", None);
+    assert_eq!(
+        plan.args.iter().filter(|a| *a == EXCLUDE_DYNAMIC_FLAG).count(),
+        1,
+        "{:?}",
+        plan.args
+    );
+}

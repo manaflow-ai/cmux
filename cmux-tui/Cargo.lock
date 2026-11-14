@@ -6,7 +6,10 @@ version = 4
 name = "acpmux"
 version = "1.0.0"
 dependencies = [
+ "acpmux-book",
  "acpmux-build-id",
+ "acpmux-client",
+ "acpmux-core",
  "acpmux-hot",
  "aho-corasick",
  "anyhow",
@@ -25,7 +28,9 @@ dependencies = [
  "cmux-cloud-client",
  "cmux-coderouter",
  "cmux-codex-acp",
+ "cmux-command-class",
  "cmux-config",
+ "cmux-file-lock",
  "cmux-git",
  "cmux-host",
  "cmux-host-budget",
@@ -113,6 +118,7 @@ dependencies = [
 name = "acpmux-book"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "crc32fast",
  "imbl",
  "libc",
@@ -126,11 +132,23 @@ name = "acpmux-build-id"
 version = "1.0.0"
 
 [[package]]
+name = "acpmux-client"
+version = "1.0.0"
+dependencies = [
+ "acpmux-book",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "acpmux-core"
 version = "1.0.0"
 dependencies = [
  "acpmux-book",
+ "acpmux-client",
  "arc-swap",
+ "cmux-scope",
  "serde",
  "serde_json",
  "tempfile",
@@ -147,6 +165,15 @@ dependencies = [
  "libc",
  "sha2 0.10.9",
  "wasmtime",
+]
+
+[[package]]
+name = "acpmux-standalone"
+version = "1.0.0"
+dependencies = [
+ "acpmux",
+ "acpmux-build-id",
+ "anyhow",
 ]
 
 [[package]]
@@ -1167,6 +1194,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-browser-import"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "plist",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-build-identity"
 version = "0.1.0"
 dependencies = [
@@ -1196,6 +1234,8 @@ dependencies = [
 name = "cmux-classic-import"
 version = "0.1.0"
 dependencies = [
+ "cmux-file-lock",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",
@@ -1217,6 +1257,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+ "unicode-segmentation",
  "uuid",
  "zeroize",
 ]
@@ -1578,6 +1619,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-environment",
+ "cmux-file-lock",
  "cmux-json",
  "cmux-link",
  "cmux-server",
@@ -1788,7 +1830,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-pty"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "libc",
@@ -2168,6 +2210,7 @@ dependencies = [
  "cmux-tui-hooks",
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
+ "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vm",
@@ -2255,12 +2298,14 @@ dependencies = [
  "cmux-app-manifest",
  "cmux-bookmarks-core",
  "cmux-bookmarks-ops",
+ "cmux-browser-import",
  "cmux-classic-import",
  "cmux-cloud-api",
  "cmux-conductor-import",
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
+ "cmux-file-lock",
  "cmux-flow-trace",
  "cmux-focus-core",
  "cmux-git",
@@ -2542,6 +2587,7 @@ name = "cmux-wg"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "blake2",
  "boringtun",
  "bytes",
  "cmux-rd-core",
@@ -2584,6 +2630,7 @@ dependencies = [
 name = "cmux-worktree-care"
 version = "0.1.0"
 dependencies = [
+ "cmux-file-lock",
  "cmux-git",
  "libc",
  "serde",
@@ -8519,9 +8566,9 @@ dependencies = [
 
 [[package]]
 name = "unicode-width"
-version = "0.2.3"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca718471876992059f251e33aafc334346ada08042b7661dd1fe313a9bced557"
+checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
 
 [[package]]
 name = "unicode-xid"

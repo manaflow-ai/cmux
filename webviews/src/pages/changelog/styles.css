@@ -190,14 +190,15 @@ html[data-cmux-page="changelog"] body {
   padding: var(--ds-space-1);
   border: 0;
   min-inline-size: 0;
-  border-radius: var(--ds-radius-md);
+  /* Concentric with its buttons, which round as tabs: the button corner plus the track's padding. */
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-1));
 }
 .cl-compare-switch button {
   min-width: 64px;
   height: var(--ds-control-compact);
   padding-inline: var(--ds-space-2);
   border: 0;
-  border-radius: var(--ds-radius-sm);
+  border-radius: var(--ds-radius-control);
   background: none;
   color: var(--page-text-2);
   font: inherit;
@@ -227,7 +228,7 @@ html[data-cmux-page="changelog"] body {
 .cl-button {
   height: var(--ds-control-compact);
   padding-inline: var(--ds-space-3);
-  border-radius: var(--ds-radius-md);
+  border-radius: var(--ds-radius-control);
   border: 1px solid var(--page-separator);
   background: var(--page-hover);
   font-size: var(--text-control);
