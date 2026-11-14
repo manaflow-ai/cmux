@@ -558,7 +558,7 @@ jobs:
           name: cmux-vm-image-${{ inputs.mode }}-${{ github.run_id }}
           path: ${{ github.workspace }}/cmux-vm-image-out
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 3
 
 
   # Time to first build on new machines of the dev channel's image, which has no dev tree:
@@ -617,7 +617,7 @@ jobs:
           name: cmux-vm-image-first-build-before-${{ github.run_id }}
           path: ${{ github.workspace }}/cmux-vm-image-out
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 3
 
   # The before/after table in the run summary (first-build.ts --report; no Freestyle access).
   first-build-report:

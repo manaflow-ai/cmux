@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::MAX_SMALL_OUTPUT_BYTES;
+use crate::own_work_tree::{self, is_one_folder, two_folders};
 use crate::run::{
     DEADLINE, GitFailure, GitOutput, Override, run_git_records_within, run_git_within,
 };
@@ -44,6 +45,10 @@ impl std::error::Error for OpenError {}
 /// because its top folder's name is not UTF-8.
 const TOP_FOLDER_NOT_UTF8: &str = "the work tree's top folder has a name that is not UTF-8";
 
+/// What [`Repository::open`] says when git's answer is not one top folder
+/// and one git folder that are there.
+const NOT_TWO_FOLDERS: &str = "git did not name one top folder and one git folder for this folder";
+
 impl Repository {
     /// The repository `directory` is in.
     pub fn open(directory: &Path) -> Result<Self, OpenError> {
@@ -69,30 +74,37 @@ impl Repository {
         directory: &Path,
         deadline: Option<Instant>,
     ) -> Result<Self, OpenError> {
-        let arguments = ["rev-parse", "--show-toplevel"];
+        // One run gives the top folder and the git folder that git uses
+        // for `directory`.
+        let arguments = ["rev-parse", "--show-toplevel", "--absolute-git-dir"];
         let left = remaining(deadline);
         let output = match run_git_within(directory, &[], &arguments, MAX_SMALL_OUTPUT_BYTES, left)
         {
             Ok(output) => output,
-            Err(GitFailure::Exit(stderr)) if stderr.contains("not a git repository") => {
+            Err(GitFailure::Exit(stderr)) if says_no_repository(&stderr) => {
                 return Err(OpenError::NotARepository);
             }
             Err(failure) => return Err(OpenError::Git(failure)),
         };
-        // git ends the line with one line break. The top folder's name can
-        // end with a line break too: no more is taken off.
-        let root = output.stdout.as_slice();
-        let root = root.strip_suffix(b"\n").unwrap_or(root);
-        if root.is_empty() {
-            return Err(OpenError::NotARepository);
-        }
+        let folders = if output.truncated { None } else { two_folders(&output.stdout) };
+        let Some((root, git_dir)) = folders else {
+            // An older git gives a git folder and no top folder, with no
+            // error, for a folder that is in no work tree.
+            return Err(if is_one_folder(&output.stdout) {
+                OpenError::NotARepository
+            } else {
+                OpenError::Git(GitFailure::Exit(NOT_TWO_FOLDERS.to_string()))
+            });
+        };
         // The top folder is text for each user of it (a reply, a key). A
         // name that is not UTF-8 has no such text, and a text with other
         // characters in its place is the name of another folder: refused.
-        let Ok(root) = std::str::from_utf8(root) else {
+        if root.to_str().is_none() {
             return Err(OpenError::Git(GitFailure::Exit(TOP_FOLDER_NOT_UTF8.to_string())));
-        };
-        Ok(Self { root: PathBuf::from(root), overrides: Vec::new(), deadline })
+        }
+        let setting = || core_worktree(directory, deadline);
+        own_work_tree::check(directory, &root, &git_dir, setting).map_err(OpenError::Git)?;
+        Ok(Self { root, overrides: Vec::new(), deadline })
     }
 
     /// This repository with every configured filter driver blanked, as
@@ -278,14 +290,43 @@ impl Repository {
     pub fn main_checkout(&self) -> Option<PathBuf> {
         let arguments = ["rev-parse", "--path-format=absolute", "--git-common-dir", "--git-dir"];
         let output = self.run(&arguments, MAX_SMALL_OUTPUT_BYTES).ok()?;
-        let text = String::from_utf8_lossy(&output.stdout).into_owned();
-        let mut lines = text.lines();
-        let common = std::fs::canonicalize(lines.next()?).ok()?;
-        let own = std::fs::canonicalize(lines.next()?).ok()?;
+        let (common, own) = two_folders(&output.stdout)?;
+        let (common, own) = (std::fs::canonicalize(common).ok()?, std::fs::canonicalize(own).ok()?);
         if common == own {
             return None;
         }
         main_root(&common).map(Path::to_path_buf)
+    }
+}
+
+/// Whether git's error text `stderr` is its error for a folder that is in no
+/// repository. git starts that error with these words. A search of the whole
+/// text for them finds them also in a folder's name, in an error of another
+/// kind. A line of a warning or of a hint can come before the error.
+fn says_no_repository(stderr: &str) -> bool {
+    stderr
+        .lines()
+        .find(|line| !line.starts_with("warning: ") && !line.starts_with("hint: "))
+        .is_some_and(|line| line.starts_with("fatal: not a git repository"))
+}
+
+/// The `core.worktree` setting that git reads for `directory`, when one is
+/// set: the bytes of its value.
+fn core_worktree(
+    directory: &Path,
+    deadline: Option<Instant>,
+) -> Result<Option<Vec<u8>>, GitFailure> {
+    let arguments = ["config", "--null", "--get", "core.worktree"];
+    let left = remaining(deadline);
+    match run_git_within(directory, &[], &arguments, MAX_SMALL_OUTPUT_BYTES, left) {
+        // A value that is longer than a path can be: a setting is there,
+        // and it leads to no folder.
+        Ok(output) if output.truncated => Ok(Some(Vec::new())),
+        // `--null` ends the value with one NUL byte.
+        Ok(output) => Ok(output.stdout.strip_suffix(&[0]).map(<[u8]>::to_vec)),
+        // `--get` exits 1, with no text, when the setting is not there.
+        Err(GitFailure::Exit(stderr)) if stderr.is_empty() => Ok(None),
+        Err(failure) => Err(failure),
     }
 }
 
@@ -302,7 +343,7 @@ const MAX_GITLINK_LISTING_BYTES: usize = 1024 * 1024;
 const MAX_SUBMODULES: usize = 256;
 
 /// A path git printed, byte for byte where the platform allows.
-fn path_from_bytes(bytes: &[u8]) -> PathBuf {
+pub(crate) fn path_from_bytes(bytes: &[u8]) -> PathBuf {
     #[cfg(unix)]
     {
         use std::os::unix::ffi::OsStrExt;

@@ -913,6 +913,20 @@ pub static ACTIONS: &[Action] = &[
         is_debug_only: true,
         ..Action::DEFAULT
     },
+    // Every toast style with every kind of toast, light and dark; Pick sets the style of every toast and
+    // prompt (Lawrence 2026-11-13: "make a swift playground for me to pick my favorite").
+    Action {
+        id: "debug.toastPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.toastPlayground", "Toast Playground"),
+        keywords: &["toast", "toasts", "prompt", "notice", "style", "variants", "gallery", "playground", "pick", "debug"],
+        category: "settings",
+        symbol: "rectangle.stack.badge.play",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-toast-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "debug.tabBarPlayground",
         group: GROUP,
