@@ -36,6 +36,25 @@ struct RestoredAgentLiveness {
         "\(agent.kind.rawValue).\(agent.sessionId)"
     }
 
+    /// Whether the hook-registered process for `agent` is still the same
+    /// process (PID and start time). This is the only evidence an agent that
+    /// reports over the socket alone can give: it has no hook-store file, and
+    /// a fresh launch carries no session id in argv for the scan to find.
+    func hasLiveRecordedProcess(
+        _ agent: SessionRestorableAgentSnapshot,
+        recordedProcess: RecordedProcess?,
+        currentProcessIdentity: ((pid_t) -> AgentPIDProcessIdentity?)? = nil
+    ) -> Bool {
+        guard agent.kind != .claude,
+              let recordedProcess,
+              recordedProcess.pid > 0,
+              let identity = recordedProcess.identity,
+              identity.pid == recordedProcess.pid else {
+            return false
+        }
+        return (currentProcessIdentity ?? self.currentProcessIdentity)(recordedProcess.pid) == identity
+    }
+
     /// Whether `agent` verifiably still runs in `panelId`.
     ///
     /// - Parameters:
@@ -58,12 +77,11 @@ struct RestoredAgentLiveness {
         foregroundProcessArguments: ((Int) -> CmuxTopProcessArguments?)? = nil,
         foregroundProcessIdentity: ((pid_t) -> AgentPIDProcessIdentity?)? = nil
     ) -> Bool {
-        if agent.kind != .claude,
-           let recordedProcess,
-           recordedProcess.pid > 0,
-           let identity = recordedProcess.identity,
-           identity.pid == recordedProcess.pid,
-           (currentProcessIdentity ?? self.currentProcessIdentity)(recordedProcess.pid) == identity {
+        if hasLiveRecordedProcess(
+            agent,
+            recordedProcess: recordedProcess,
+            currentProcessIdentity: currentProcessIdentity
+        ) {
             return true
         }
         if liveIndex?.hasCurrentLiveProcessForStablePanel(
