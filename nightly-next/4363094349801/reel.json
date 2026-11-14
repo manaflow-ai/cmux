@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "build": "4363094349801",
+  "notes": "notes/4363094349801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43207,
+      "title": "holder: a tab respawned after a logout runs on the holder, not a host process of its own",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43171,
+      "title": "fix(daemon): report stream serialization overflow for replay",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43167,
+      "title": "fix(remote): keep string-ID attach replies on the output lane",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43087,
+      "title": "ci(ios-review-gate): only a fork pull request skips the agent pass; keep a verdict written before the agent stopped",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43181,
+      "title": "acpmux-book: a page of a chat's turns (v2 row 3d, part one)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43083,
+      "title": "cmux-cloud-config: a scoped token store lives under cmux-next/<bundle id>",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43079,
+      "title": "cmux-next iOS: Align Keepalives, every keepalive on one 10 s beat (setting, off by default)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43166,
+      "title": "ci(cmux-next): a bot re-run past the attempt cap stays on the side lane while Blacksmith macOS is off",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43193,
+      "title": "Agent chat: a code scroll right after opening the chat's last row stays where it was put (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43144,
+      "title": "nightly-next: the push slot ends at nightly-next-one, so a landing's nightly starts without waiting for the previous tail",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43196,
+      "title": "scripts/measure: chat typing A/B keeps the worker's pinned bun first on PATH",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
