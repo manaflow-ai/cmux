@@ -59,7 +59,8 @@ output, its crash files (run.exception, the .ips) and a screenshot when the
 runner may take one (evidence only, never the verdict).
 
 Exit 0: passed. 1: the app crashed, exited or never rendered Home (in either
-arm; report.json's `arm` names the one the report describes). 2: usage.
+arm; report.json's `arm` names the one the report describes), or the daemon
+refused a request of the app's plugin (report.json's `request_log`). 2: usage.
 3: the smoke could not run (no app, no GUI session, a signing keychain still
 present). A publish gate treats anything but 0 as a failure: a build that was
 never launched is never published.
@@ -1353,7 +1354,8 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
 #
 # NEVER A FAILURE: each other error record of a client of kind `plugin`, and a plugin_restart line (findings, in
 # report.json and the log); such a record in a launch with a caller hook or in a run that did not pass (a finding;
-# the run's own verdict and report stand); a home with no log (NOT_JUDGED); a fault of this read (main).
+# the run's own verdict and report stand); a home with no log (NOT_JUDGED); a fault of the read of a home (that
+# home is NOT_JUDGED, the other home is judged as it is); a fault of the judge itself (main).
 def request_log(home: Path) -> dict | None:
     # What the request log under HOME holds, None when HOME has none: its files (each file under HOME whose name
     # starts with the log's; regular files only, no link; the first 8; 2 MiB of each, which is more than the daemon
@@ -1393,7 +1395,12 @@ def judge_request_log(args: argparse.Namespace, root: Path, report: dict, status
     said = report["request_log"] = {"refused": [], "findings": [], "counted": False}
     for arm in args.arms:
         where, home = ("seeded home: ", root / SEEDED / "h") if arm == SEEDED else ("", root / "h")
-        seen = said[arm] = request_log(home) or NOT_JUDGED
+        try:
+            seen = said[arm] = request_log(home) or NOT_JUDGED
+        except Exception as error:  # noqa: BLE001 - a fault of one home's read leaves the other home its verdict
+            said[arm] = NOT_JUDGED
+            log(f"warning: {where}the request log was not judged ({type(error).__name__})")
+            continue
         log(f"request log: {where}{'not judged (this home has none)' if seen == NOT_JUDGED else json.dumps(seen)}")
         if seen == NOT_JUDGED:
             continue
