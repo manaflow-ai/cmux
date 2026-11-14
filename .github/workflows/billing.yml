@@ -1,0 +1,288 @@
+name: Billing
+
+# Billing moves money: every pull request that touches it runs every billing
+# test as its own check, in parallel, in a few minutes.
+#
+# scripts/ci/billing_lane.py owns what "touches billing" means and which test
+# files are billing tests (by name, and by importing a billing module). The
+# pull_request paths below must equal its pattern lists, in order;
+# tests/test_ci_billing_lane.py fails when they drift.
+#
+# Jobs, all with stable names so any can be made required later:
+# - web-billing: every billing web test (bun, Linux).
+# - web-billing-db: the CMUX_DB_TEST-gated billing tests against Postgres 16
+#   with every migration applied twice, as ci-web.yml's web-db-migrations does.
+# - web-billing-typecheck: the web typecheck, which covers the billing modules.
+# - ios-billing: `swift test` for Packages/iOS/CmuxMobileBilling, only when it
+#   changed (macOS: an idle owned light-lane Mac first, Blacksmith otherwise).
+# - billing: one verdict over the jobs above. Make this the required check: it
+#   reports on every run, and a skipped job counts as passing only when routing
+#   skipped it. If billing becomes required, drop the pull_request path filter
+#   first (tests/test_ci_required_checks_have_no_path_filters.py), since
+#   `changes` already skips the work on unrelated pull requests.
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/billing.yml"
+      - "scripts/ci/billing_lane.py"
+      - "tests/test_ci_billing_lane.py"
+      - "web/scripts/run-db-behavior-tests.sh"
+      - "docs/billing/**"
+      - "web/services/billing/**"
+      - "web/services/vms/entitlements.ts"
+      - "web/services/vms/planUsage.ts"
+      - "web/app/api/billing/**"
+      - "web/app/api/stripe/**"
+      - "web/app/api/admin/subscriptions/**"
+      - "web/app/api/cron/apple-notifications/**"
+      - "web/app/api/cron/billing-*/**"
+      - "web/app/app-pricing/**"
+      - "web/dashboard-app/screens/billing/**"
+      - "web/orpc/server/dashboard/schemas/billing*"
+      - "web/db/schema*.ts"
+      - "web/db/migrations/**"
+      - "web/tests/apple-iap-*"
+      - "web/tests/billing-*"
+      - "web/tests/stripe-*"
+      - "web/tests/dashboard-billing-*"
+      - "web/tests/app-pricing-*"
+      - "web/tests/admin-*billing*"
+      - "web/tests/admin-*subscription*"
+      - "web/tests/*entitlement*"
+      - "web/tests/helpers/apple-*"
+      - "web/tests/helpers/*billing*"
+      - "Packages/iOS/CmuxMobileBilling/**"
+  # merge_group takes no path filter; `changes` skips the work when the queued
+  # commit does not touch billing.
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: billing-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    name: billing-changes
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    outputs:
+      web: ${{ steps.route.outputs.web }}
+      ios: ${{ steps.route.outputs.ios }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # HEAD^1 is the base the pull request or queued commit merges onto.
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Test the lane's routing and selection
+        run: python3 tests/test_ci_billing_lane.py
+
+      - name: Route billing jobs
+        id: route
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: python3 scripts/ci/billing_lane.py route
+
+  web-billing:
+    name: web-billing
+    needs: changes
+    if: ${{ needs.changes.outputs.web == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Billing tests
+        run: |
+          mapfile -t files < <(python3 ../scripts/ci/billing_lane.py web-tests)
+          echo "Running ${#files[@]} billing test file(s):"
+          printf '  %s\n' "${files[@]}"
+          bun test --isolate "${files[@]}"
+
+  web-billing-db:
+    name: web-billing-db
+    needs: changes
+    if: ${{ needs.changes.outputs.web == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: cmux_test
+          POSTGRES_PASSWORD: cmux
+          POSTGRES_USER: cmux
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cmux -d cmux_test"
+          --health-interval 1s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+      DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # The second pass proves every migration is idempotent, as in ci-web.yml.
+      - name: Apply migrations
+        run: |
+          bun scripts/db-migrate.mjs
+          bun scripts/db-migrate.mjs
+
+      - name: Billing database tests
+        env:
+          CMUX_DB_TEST: "1"
+        run: |
+          mapfile -t files < <(python3 ../scripts/ci/billing_lane.py web-tests --db)
+          bash scripts/run-db-behavior-tests.sh "${files[@]}"
+
+  web-billing-typecheck:
+    name: web-billing-typecheck
+    needs: changes
+    if: ${{ needs.changes.outputs.web == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # tsgo checks the whole web project in well under a minute; a per-module
+      # check would need its own tsconfig and still load the shared types.
+      - name: Typecheck
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/web-typecheck.log"
+          set +e
+          bun run typecheck 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          # Same one retry as ci-web.yml for the native compiler's transient abort.
+          if [ "$status" -ne 0 ] && grep -Fq 'Aborted (core dumped)' "$log"; then
+            echo "::warning::native tsgo aborted during typecheck; retrying once"
+            bun run typecheck
+            exit $?
+          fi
+          exit "$status"
+
+  ios-billing:
+    name: ios-billing
+    needs: changes
+    if: ${{ needs.changes.outputs.ios == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER)) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 15
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: CmuxMobileBilling tests
+        run: swift test --package-path Packages/iOS/CmuxMobileBilling
+
+  billing:
+    name: billing
+    needs: [changes, web-billing, web-billing-db, web-billing-typecheck, ios-billing]
+    if: ${{ always() }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Enforce billing results
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          WEB: ${{ needs.changes.outputs.web }}
+          IOS: ${{ needs.changes.outputs.ios }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          needs = json.loads(os.environ["NEEDS"])
+          routed = {
+              "changes": True,
+              "web-billing": os.environ["WEB"] == "true",
+              "web-billing-db": os.environ["WEB"] == "true",
+              "web-billing-typecheck": os.environ["WEB"] == "true",
+              "ios-billing": os.environ["IOS"] == "true",
+          }
+          bad = []
+          for job, wanted in routed.items():
+              result = needs[job]["result"]
+              print(f"{job}: {result} ({'routed' if wanted else 'not routed'})")
+              if result == "success" or (result == "skipped" and not wanted):
+                  continue
+              bad.append(f"{job} {result}")
+          if bad:
+              print("::error::billing checks did not pass: " + ", ".join(bad))
+              sys.exit(1)
+          PY
