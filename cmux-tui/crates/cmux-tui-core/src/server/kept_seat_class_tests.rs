@@ -96,6 +96,32 @@ fn the_class_from_a_kept_hosts_seat_is_the_session_seats_after_the_adoption() {
     mux.shutdown();
 }
 
+/// A second seat for the process of one kept host makes that process name
+/// no terminal while a seat of it is there. The class that its seat gave ends
+/// at the second seat, and the end of the two seats does not give it back.
+#[test]
+fn the_class_from_a_kept_hosts_seat_ends_when_the_host_is_seated_twice() {
+    let mux = mux("twice");
+    let (record_path, mut record, _lease) = record_fixture("kept-seat-class-twice");
+    record.host_pid = std::os::unix::process::parent_id();
+    let public_id = crate::resource::TerminalPublicId::random().unwrap();
+    let (liveness, seat) = mux.kept_host(&record_path, &record, Some(&public_id));
+    assert_eq!(liveness, TerminalHostLiveness::Live);
+
+    let client = accept(&mux, SESSION, record.host_pid);
+    assert_eq!(class(&mux, client), terminal(public_id.as_str()), "one seat");
+    let (liveness, second) = mux.kept_host(&record_path, &record, Some(&public_id));
+    assert_eq!(liveness, TerminalHostLiveness::Live);
+    assert_eq!(class(&mux, client), LocalPeer::Other, "the host is seated twice");
+    drop(second);
+    drop(seat);
+    assert_eq!(class(&mux, client), LocalPeer::Other, "the two seats ended");
+    if let Some(root) = record_path.parent() {
+        let _ = std::fs::remove_dir_all(root);
+    }
+    mux.shutdown();
+}
+
 /// An accept records a class from the seat of a kept host only when the seat
 /// is there at the record. For a seat that ended before the record, the
 /// accept gives the class that an end of the seat gives. The count: the
