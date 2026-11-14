@@ -569,9 +569,13 @@ final class TerminalSurfaceView: UIView {
         _ = action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
     }
 
+    /// Frames asked of the renderer through `setNeedsTerminalDraw`. For tests and benches.
+    private(set) var drawRequests = 0
+
     /// Asks the renderer for a frame.
     func setNeedsTerminalDraw() {
         guard let surface else { return }
+        drawRequests += 1
         ghostty_surface_refresh(surface)
     }
 

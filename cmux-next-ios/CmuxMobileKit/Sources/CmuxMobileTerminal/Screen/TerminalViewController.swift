@@ -1159,6 +1159,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var outputPaused = false
     /// The row shift's state; used only on the surface's output queue, in feed order.
     private let rowShift = RowShiftBox()
+    /// What the output pump did: display frames it ran on, pump calls and
+    /// batches handed to Ghostty. For tests and benches.
+    private(set) var outputCounts = TerminalOutputPumpCounts()
+    /// Session bytes queued and not yet handed to Ghostty.
+    var outputPendingBytes: Int { output.pendingBytes }
+    /// How often a page nobody can see hands its queued output to Ghostty.
+    static let hiddenFeedInterval: TimeInterval = 1
 
     private func sessionEvent(_ event: TerminalSessionEvent) {
         switch event {
@@ -1251,6 +1258,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard outputLink == nil, !output.isEmpty || feedInFlight else { return }
         let link = CADisplayLink(target: DisplayLinkProxy(owner: self) { [weak self] in
             // A new frame: one more batch may go.
+            self?.outputCounts.frameTicks += 1
             self?.pacer.newFrame()
             self?.pumpOutput()
         }, selector: #selector(DisplayLinkProxy.step(_:)))
@@ -1286,6 +1294,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private func pumpOutput() {
+        outputCounts.pumps += 1
         guard pacer.canFeed(at: CACurrentMediaTime()) else {
             armBurstWake()
             return
@@ -1305,6 +1314,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 hostGridOwner = name
             case .bytes(let data):
                 syncHostGrid()
+                outputCounts.batches += 1
                 pacer.started(frameEnd: outputLink?.targetTimestamp ?? CACurrentMediaTime() + frameInterval,
                               queueEmpty: output.isEmpty)
                 model.scanOutput(data)
@@ -3204,6 +3214,16 @@ final class RowShiftBox: @unchecked Sendable {
     func filter(_ data: Data, offset: Int, remoteRows: Int) -> Data {
         shift.filter(data, offset: offset, remoteRows: remoteRows)
     }
+}
+
+/// The output pump's work since the screen was made (`outputCounts`).
+struct TerminalOutputPumpCounts: Equatable {
+    /// Display frames the output link ran on.
+    var frameTicks = 0
+    /// Calls into the pump (frames, burst wakes, arrivals).
+    var pumps = 0
+    /// Batches handed to Ghostty.
+    var batches = 0
 }
 
 /// A display link target that does not retain the controller. Once its
