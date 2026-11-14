@@ -104,6 +104,10 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     app.reset_rendered_status_message();
     let area = frame.area();
     app.hits.clear();
+    // Each draw records afresh which visible panes show a held synchronized
+    // update; a draw that shows no pane (zero size, machine transition)
+    // leaves none, so nothing can wake the loop for a pane it never draws.
+    app.rendered_synchronized_holds.clear();
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -148,8 +152,6 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     }
 
     let pane_cursors = if draw_machine_transition(app, frame) {
-        // No pane is drawn, so no held synchronized update may wake the loop.
-        app.rendered_synchronized_holds.clear();
         pane::DrawCursors::default()
     } else {
         pane::draw_all(app, frame)
