@@ -90,9 +90,6 @@ async fn runtime_page_boundary_rebuild_keeps_sid_and_fences_one_window() {
     hub.source_walk_finished(Source::Local, false);
     assert!(subscription.receiver.try_next_raw(None, 64 * 1024).is_none());
     assert!(folder_subscription.receiver.try_next_raw(None, 64 * 1024).is_none());
-    let mut rebuilt = row("rebuilt", 1);
-    rebuilt.folder = Some("/rebuild".into());
-    writer.apply(rebuilt).unwrap();
     hub.source_walk_finished(Source::Local, true);
     assert!(matches!(subscription.receiver.try_next_raw(None, 64 * 1024), Some(RawRead::Lagged)));
     assert!(subscription.receiver.try_next_raw(None, 64 * 1024).is_none());
@@ -100,6 +97,9 @@ async fn runtime_page_boundary_rebuild_keeps_sid_and_fences_one_window() {
         folder_subscription.receiver.try_next_raw(None, 64 * 1024),
         Some(RawRead::Lagged)
     ));
+    let mut rebuilt = row("rebuilt", 1);
+    rebuilt.folder = Some("/rebuild".into());
+    writer.apply(rebuilt).unwrap();
     let folder_window: crate::wire::FolderWindow =
         hub.list_window(&folders).unwrap().decode_json().unwrap();
     assert!(folder_window.rows.iter().any(|row| row.folder.as_ref() == "/rebuild"));
