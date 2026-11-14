@@ -167,9 +167,14 @@ export class AcpmuxRestartGate {
   }
 }
 
-/// How long a lost connection stays unsaid before the pane's quiet "Reconnecting…" line shows: a
-/// reconnect that lands sooner (the usual one, well under a second) shows nothing.
-export const RECONNECT_LINE_AFTER_MS = 1_500;
+/// How long a lost connection, or a restore the host reports, stays unsaid before the pane's quiet
+/// line shows. A recovery the person can do nothing about says nothing until it has lasted long
+/// enough to matter (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up").
+/// 10 s is the bound the app already waits out for the same daemon before it says anything (its
+/// startup deadline, its drop grace, the sidebar's "Connecting…" hold), and an update's handoff
+/// answered within it (#27283), so a daemon restart, a handoff or a short drop shows nothing on any
+/// open chat. At 1.5 s every open chat said "Reconnecting…" for each restart.
+export const RECONNECT_LINE_AFTER_MS = 10_000;
 
 /// What the host says while acpmux restores its chats after a start (`restoring`): how long it has
 /// waited so far, in milliseconds, as of `at` (this page's `Date.now()` when it heard it).
@@ -186,8 +191,8 @@ export function readHostRestoring(source: unknown, at: number): HostRestoring | 
 }
 
 /// The quiet line the pane shows while it gets its chat back on its own (Leo, 2026-11-08: "it
-/// fixes itself"): "Restoring sessions… m:ss" while the host says acpmux restores its chats, else
-/// "Reconnecting…" once a lost connection has been coming back for RECONNECT_LINE_AFTER_MS. Past
+/// fixes itself"): "Restoring sessions… m:ss" once the host says acpmux has been restoring its chats
+/// for RECONNECT_LINE_AFTER_MS, else "Reconnecting…" once a lost connection has been coming back that long. Past
 /// HOST_ERROR_DEADLINE_MS a reconnect is the waiting line's or the failure's (HostWaitingLine,
 /// HostUnavailableLine), so this says nothing then. A failure the pane already says (`failureShown`:
 /// a refusal said at once, such as another build's acpmux on the socket) is never covered by
@@ -200,7 +205,11 @@ export function hostRecoveryLine(state: {
   now: number;
 }): { kind: "restoring"; waitedMs: number } | { kind: "reconnecting" } | undefined {
   const { relinkingSince, restoring, failureShown, now } = state;
-  if (restoring) return { kind: "restoring", waitedMs: restoring.waitedMs + Math.max(0, now - restoring.at) };
+  if (restoring) {
+    const waitedMs = restoring.waitedMs + Math.max(0, now - restoring.at);
+    // A restore is as quiet as a reconnect until it has lasted as long: the usual one ends sooner.
+    return waitedMs < RECONNECT_LINE_AFTER_MS ? undefined : { kind: "restoring", waitedMs };
+  }
   if (relinkingSince === undefined || failureShown) return undefined;
   const waited = now - relinkingSince;
   if (waited < RECONNECT_LINE_AFTER_MS || waited >= HOST_ERROR_DEADLINE_MS) return undefined;
