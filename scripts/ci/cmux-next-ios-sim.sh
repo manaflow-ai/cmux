@@ -28,11 +28,6 @@
 #               runs for seconds, so the kit's full run skips it)
 #             ui=SUITE[,SUITE...]   also run those CmuxMobileAppUITests suites
 #               against a Debug app; with ui= and no only=, the kit run is skipped
-#             profile record an Instruments Time Profiler trace of the UI
-#               tests (xctrace, all processes, at most 240 s: pick one test with
-#               ui=SUITE/test) and write the app's main-thread long spans
-#               (each run of samples 20 ms or longer, with its heaviest frames)
-#               and its heaviest frames to ui-profile.txt in the artifact
 #             video   record the UI tests' iPhone screen (simctl recordVideo)
 #               to ui-video.mp4 in the artifact: before/after videos of a change
 #           The artifact keeps each run's log, its console output (a test's
@@ -145,7 +140,6 @@ kit_only=()
 kit_env=()
 ui_suites=()
 ui_video=0
-ui_profile=0
 if [[ "$mode" == test && $# -gt 1 ]]; then
   for sel in "${@:2}"; do
     case "$sel" in
@@ -165,8 +159,7 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
           ui_suites+=("-only-testing:CmuxMobileAppUITests/$item")
         done ;;
       video) ui_video=1 ;;
-      profile) ui_profile=1 ;;
-      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, video and profile, got '$sel'" >&2; exit 2 ;;
+      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST and video, got '$sel'" >&2; exit 2 ;;
     esac
   done
 fi
@@ -666,30 +659,12 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
     xcrun simctl io "$ui_udid" recordVideo --codec h264 --force "$out/ui-video.mp4" >"$work/ui-video.log" 2>&1 &
     recorder=$!
   fi
-  profiler=""
-  if [[ $ui_profile -eq 1 ]]; then
-    xcrun xctrace record --template 'Time Profiler' --all-processes --time-limit 240s --output "$work/ui.trace" --no-prompt \
-      >"$work/ui-profile-record.log" 2>&1 &
-    profiler=$!
-  fi
   set +e
   xcodebuild test -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug \
     -destination "id=$ui_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-ui" \
     -resultBundlePath "$work/ui.xcresult" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
     -quiet "${ui_suites[@]}" >"$work/ui-test.log" 2>&1
   ui_status=$?
-  if [[ -n "$profiler" ]]; then
-    # xctrace finishes the trace on SIGINT (or at its time limit).
-    kill -INT "$profiler" 2>/dev/null
-    wait "$profiler"
-    if xcrun xctrace export --input "$work/ui.trace" --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]' \
-         >"$work/ui-profile.xml" 2>"$work/ui-profile-export.log"; then
-      python3 "$root/scripts/ci/ios_sim_profile_spans.py" "$work/ui-profile.xml" CmuxMobileApp >"$out/ui-profile.txt" 2>&1 || true
-      note "- UI test profile: ui-profile.txt ($(head -n 1 "$out/ui-profile.txt" 2>/dev/null))"
-    else
-      note "- UI test profile: export failed ($(tail -n 1 "$work/ui-profile-export.log"); record: $(tail -n 1 "$work/ui-profile-record.log"))"
-    fi
-  fi
   if [[ -n "$recorder" ]]; then
     # recordVideo finishes the file on SIGINT.
     kill -INT "$recorder" 2>/dev/null
