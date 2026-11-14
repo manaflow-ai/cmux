@@ -403,7 +403,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(.regularMaterial, in: .capsule)
+                .cmuxMobileTransientGlass(in: .capsule)
                 .padding(.bottom, 8)
                 .allowsHitTesting(false)
                 .accessibilityElement(children: .combine)
@@ -425,7 +425,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         // Kept rows while the Mac is not live: Workspaces' connection toast over them (the user,
         // 2026-11-13: "reuse the toast strategy"). It takes its own room and covers no row; a
         // swipe hides it. With nothing kept, the empty state says it instead.
-        .cmuxMobileBanner(homeBanner, retry: { Task { await retryHome() } })
+        .cmuxMobileBanner(homeBanner, material: .standard, retry: { Task { await retryHome() } })
         .onChange(of: connectionStatus?.kind, initial: true) { old, kind in
             // VoiceOver hears that Home is not live when it stops being live (also on arriving
             // with the Mac already away), not on each retry.

@@ -1,4 +1,5 @@
 #if DEBUG && os(iOS)
+import CmuxMobileAgentChat
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileSettings
@@ -48,6 +49,8 @@ struct TransientMaterialGallery: View {
                         .accessibilityIdentifier("transient.openSheet")
                 case "transient-palette":
                     CommandPaletteMaterialGallery(material: material)
+                case "transient-context":
+                    ContextUsageMaterialGallery(material: material)
                 default:
                     // Native menus intentionally receive no custom background or replacement.
                     Menu("Workspace Menu") {

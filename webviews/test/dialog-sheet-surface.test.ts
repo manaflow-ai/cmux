@@ -50,7 +50,10 @@ const subjectIs = (selector: string, cls: string) =>
 test("the sheet role is one rule: veil, radius, depth and the Reduce Transparency fill", () => {
   const sheet = rules(read("ui/popupSurface.css")).find((rule) => rule.selectors.includes(".ui-dialog.ui-glass"));
   expect(sheet).toBeDefined();
-  expect(sheet!.body).toContain("--glass-tint: var(--surface-sheet-veil)");
+  expect(sheet!.body).toContain("--glass-tint: var(--transient-surface-veil)");
+  expect(sheet!.body).toContain(
+    "--glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation))",
+  );
   expect(sheet!.body).toContain("border-radius: var(--surface-sheet-radius)");
   expect(sheet!.body).toContain("--glass-elevation: var(--elevation-2)");
   expect(sheet!.body).toContain("--glass-opaque: var(--surface-popup)");

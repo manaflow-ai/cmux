@@ -3,7 +3,9 @@
 Leo, 2026-11-11: translucency is intended; use one coherent material style, never
 an opaque replacement. The scoped implementation adopts this across non-chat Mac
 and iOS surfaces. Chat-side adoption remains held; no shared default may change a
-chat consumer indirectly.
+chat consumer indirectly in that baseline. The separate
+[chat-adoption draft](transient-material-chat.md) prepares those shared/default
+changes; its hold is on landing, not source preparation or draft publication.
 
 ## References and choice
 
@@ -89,8 +91,9 @@ backdrops and explicitly scoped toast adapters.
 
 ## Held chat adoption, ready follow-up
 
-Once the chat visual hold lifts, use the same token, without inventing another
-material. Move the standalone CSS rules into the shared `ui/glass/glass.css` and
+The separate draft prepares this adoption now; landing waits for the chat visual
+hold to lift. Use the same token, without inventing another material. Move the
+standalone CSS rules into the shared `ui/glass/glass.css` and
 `popupSurface.css` ownership, then remove the explicit standalone imports. Adopt
 ContextUsageRing and its iOS `SessionMeterViews` popover. Keep the newly merged native-menu host intact; propagate explicit dialog material to chat-owned
 asks, and opt chat toast/banner callers into the iOS adapter. Keep contrast and

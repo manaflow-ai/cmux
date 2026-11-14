@@ -11,7 +11,7 @@ final class TransientMaterialCaptureUITests: XCTestCase {
     @MainActor private func capture(look: String, appearance: XCUIDevice.Appearance) {
         XCUIDevice.shared.appearance = appearance
         XCUIDevice.shared.orientation = .portrait
-        for surface in ["toast", "banner", "sheet", "palette", "menu"] {
+        for surface in ["toast", "banner", "sheet", "palette", "menu", "context"] {
             for variant in ["before", "quieter", "standard", "denser"] {
                 let app = XCUIApplication()
                 app.launchArguments = ["-cmux-mobile-recovery-gallery", "transient-\(surface)",
@@ -21,6 +21,9 @@ final class TransientMaterialCaptureUITests: XCTestCase {
                 app.launch()
                 XCTAssertTrue(app.staticTexts["transient.variant"].waitForExistence(timeout: 20))
                 switch surface {
+                case "context":
+                    app.buttons["contextUsage.open"].tap()
+                    XCTAssertTrue(app.staticTexts["contextUsage.details"].waitForExistence(timeout: 10))
                 case "sheet":
                     app.buttons["transient.openSheet"].tap()
                     XCTAssertTrue(app.navigationBars["Team appearance"].waitForExistence(timeout: 10))

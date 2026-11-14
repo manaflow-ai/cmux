@@ -1,4 +1,4 @@
-// The actual CSS cascade must preserve held chat and the accessibility fallback.
+// Shared adoption retains the standalone cascade and the accessibility fallback.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { chromium, type Browser } from "playwright";
@@ -41,7 +41,7 @@ await requireBrowserLane("transient-material.test.ts", async () => {
           document.documentElement.dataset.transientMaterial = "standard";
         });
         const selected = await read();
-        expect(selected[1].background).not.toEqual(held[1].background);
+        expect(selected).toEqual(held);
         expect(selected[1].backdrop).toContain("blur(32px)");
         expect(selected[2].backdrop).toContain("blur(32px)");
         await page.evaluate(() => {

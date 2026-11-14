@@ -533,15 +533,19 @@ public struct AgentChatTranscript: View {
         }
         .sheet(isPresented: $surface.showArtifacts) {
             SessionArtifactsSheet(store: store, surface: surface)
+                .cmuxMobileTransientSheet()
         }
         .sheet(isPresented: $surface.showStatus) {
             SessionStatusSheet(store: store)
+                .cmuxMobileTransientSheet()
         }
         .sheet(isPresented: $surface.showCopyChoices) {
             ChatCopyChoicesSheet(store: store)
+                .cmuxMobileTransientSheet()
         }
         .sheet(isPresented: $surface.showDisplaySettings) {
             ChatDisplaySettingsSheet(summary: store.summary)
+                .cmuxMobileTransientSheet()
         }
         // The chat's bookmarks and pins, read once it shows; a chat that closes stops reading aloud.
         .task { store.showBookmarks() }
@@ -551,6 +555,7 @@ public struct AgentChatTranscript: View {
         .sheet(item: $surface.editingEarlier) { edit in
             if let actions = surface.tabActions {
                 EarlierPromptEditSheet(edit: edit, actions: actions)
+                    .cmuxMobileTransientSheet()
             }
         }
         .cmuxMobileSensoryFeedback(.warning, trigger: warningTrigger)

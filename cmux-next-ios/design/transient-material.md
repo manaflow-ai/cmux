@@ -2,7 +2,10 @@
 
 Leo, 2026-11-11: translucency is intended; use one coherent material style,
 never an opaque replacement. This updates SPEC 2.4 and 4.8, including the old
-full-height opaque-sheet rule. Chat visual changes remain held.
+full-height opaque-sheet rule. Chat visual landing remains held. This document
+records the non-chat baseline; the separate
+[chat-adoption draft](../../design/transient-material-chat.md) removes the scoped
+exceptions and adds the actual context-popover gallery while remaining unmerged.
 
 ## Material and scope
 

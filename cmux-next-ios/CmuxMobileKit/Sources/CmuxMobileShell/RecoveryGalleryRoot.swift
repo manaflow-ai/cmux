@@ -58,7 +58,7 @@ public struct RecoveryGalleryRoot: View {
                 signedOut
             case "cloudmachines":
                 NavigationStack { CloudMachinesScreen(model: .gallery(), openChats: {}) }
-            case "transient-toast", "transient-banner", "transient-sheet", "transient-palette", "transient-menu":
+            case "transient-toast", "transient-banner", "transient-sheet", "transient-palette", "transient-menu", "transient-context":
                 TransientMaterialGallery(surface: scene)
             case "theme-mocha", "theme-solarized", "theme-wallpaper":
                 MacThemeGallery(variant: scene)
