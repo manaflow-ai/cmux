@@ -188,4 +188,14 @@ describe("canAutoOpen", () => {
     expect(canAutoOpen({ userAgent: mac, maxTouchPoints: 5 })).toBe(false);
     expect(canAutoOpen({ userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", maxTouchPoints: 0 })).toBe(false);
   });
+  test("on load a desktop Mac navigates to the link and an iPad stays on the page", () => {
+    const { openOnLoad } = autoOpenModule;
+    const desktop = { navigator: { userAgent: mac, maxTouchPoints: 0 }, location: { href: "https://cmux.com/deeplink/agent" } };
+    openOnLoad("cmux://agent/claude/s1", desktop);
+    expect(desktop.location.href).toBe("cmux://agent/claude/s1");
+
+    const ipad = { navigator: { userAgent: mac, maxTouchPoints: 5 }, location: { href: "https://cmux.com/deeplink/agent" } };
+    openOnLoad("cmux://agent/claude/s1", ipad);
+    expect(ipad.location.href).toBe("https://cmux.com/deeplink/agent");
+  });
 });

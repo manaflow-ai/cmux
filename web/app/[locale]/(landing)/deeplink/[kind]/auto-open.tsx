@@ -12,6 +12,17 @@ export function canAutoOpen(nav: Pick<Navigator, "userAgent" | "maxTouchPoints">
   return /Macintosh/.test(nav.userAgent) && nav.maxTouchPoints <= 1;
 }
 
+/** Navigates `win` to `href` when it is a browser that can open it; what AutoOpen runs on load. */
+export function openOnLoad(
+  href: string,
+  win: {
+    navigator: Pick<Navigator, "userAgent" | "maxTouchPoints">;
+    location: { href: string };
+  },
+): void {
+  if (canAutoOpen(win.navigator)) win.location.href = href;
+}
+
 /**
  * Hands the native link to the app as soon as the page loads, the way a chat
  * app's invite page opens the app: a click on a cmux.com link lands in cmux, and the
@@ -22,7 +33,7 @@ export function canAutoOpen(nav: Pick<Navigator, "userAgent" | "maxTouchPoints">
  */
 export function AutoOpen({ href }: { href: string }) {
   useEffect(() => {
-    if (canAutoOpen(window.navigator)) window.location.href = href;
+    openOnLoad(href, window);
   }, [href]);
   return null;
 }
