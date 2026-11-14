@@ -2217,7 +2217,7 @@ fn list_unread(runner: &mut dyn Runner, message: String, mut details: Value) -> 
         Some(error) => format!("{message}. The app's last Cloud error: {error}"),
         None => message,
     };
-    details["last_error"] = last_error.map_or(Value::Null, Value::String);
+    details.set("last_error", last_error.map_or(Value::Null, Value::String));
     failed("cloud.list_unread", message, details, 75)
 }
 
