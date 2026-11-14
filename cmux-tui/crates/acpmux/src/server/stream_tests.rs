@@ -226,25 +226,18 @@ async fn an_http_upgrade_with_the_carrier_header_ends_the_connection() {
 }
 
 #[test]
-fn v2_upgrade_requires_every_requested_surface() {
+fn v2_upgrade_grants_the_named_surfaces_that_are_on() {
     let (hub, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
     let v2 = V2::with_surfaces(hub, writer, ["list".to_owned()].into_iter().collect());
-    let line = serde_json::to_string(&json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "_acpmux/v2",
-        "params": {"protocol": 2, "surfaces": ["list"]}
-    }))
-    .unwrap();
-    assert!(v2_upgrade(&line, &v2).is_some());
-    let line = serde_json::to_string(&json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "_acpmux/v2",
-        "params": {"protocol": 2, "surfaces": ["list", "chat"]}
-    }))
-    .unwrap();
-    assert!(v2_upgrade(&line, &v2).is_none());
+    let granted = |surfaces| v2_upgrade(&upgrade_line(surfaces), &v2).map(|(_, granted)| granted);
+    assert_eq!(granted(json!(["list"])), Some(vec!["list".to_owned()]));
+    // `chat` is off: the upgrade is granted for `list` alone, not answered as v1.
+    assert_eq!(granted(json!(["list", "chat"])), Some(vec!["list".to_owned()]));
+    // A name this build does not know is passed over, never an error.
+    assert_eq!(granted(json!(["act", "list"])), Some(vec!["list".to_owned()]));
+    // Nothing granted: the v1 answer.
+    assert_eq!(granted(json!(["chat"])), None);
+    assert_eq!(granted(json!(["act"])), None);
 }
 
 fn upgrade_line(surfaces: serde_json::Value) -> String {
@@ -368,6 +361,62 @@ async fn upgrade_read_ahead_reaches_hello_then_list_window() {
             window.decode_json::<serde_json::Value>().unwrap().get("sid"),
             Some(&json!("s"))
         );
+        drop(client);
+        task.await.unwrap();
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn an_upgrade_naming_a_surface_that_is_off_keeps_the_rest() {
+    use acpmux_core::wire::{Frame, FrameKind};
+    tokio::time::timeout(WAIT, async {
+        let (hub, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
+        let v2 = V2::with_surfaces(hub, writer, ["list".to_owned()].into_iter().collect());
+        let (mut client, server) = tokio::io::duplex(8192);
+        let (rd, wr) = tokio::io::split(server);
+        let (tx, _rx) = mpsc::channel(16);
+        let (last, _last_rx) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            let upgrade = read_lines(rd, tx, last, LIMITS, Some(&v2)).await.unwrap();
+            upgrade.serve(wr, &v2, "test".into()).await.unwrap();
+        });
+        let request =
+            |value: serde_json::Value| Frame::json(FrameKind::Request, &value).unwrap().encode();
+        let mut combined = upgrade_line(json!(["list", "chat"])).into_bytes();
+        combined.extend(request(json!({
+            "method":"hello", "params":{"clientKind":"test", "protocol":2}
+        })));
+        client.write_all(&combined).await.unwrap();
+        let mut reply = Vec::new();
+        loop {
+            let byte = client.read_u8().await.unwrap();
+            if byte == b'\n' {
+                break;
+            }
+            reply.push(byte);
+        }
+        let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+        assert_eq!(reply.pointer("/result/upgrade"), Some(&json!(true)));
+        assert_eq!(reply.pointer("/result/surfaces"), Some(&json!(["list"])));
+        assert_eq!(v2_frame(&mut client).await.kind, FrameKind::Hello);
+        // A chat `sub` on a connection not granted `chat` is answered `error`, and the
+        // connection stays up for the list.
+        client
+            .write_all(&request(json!({
+                "method":"sub", "params":{"sid":"c", "stream":"chat:c1", "anchor":"end"}
+            })))
+            .await
+            .unwrap();
+        let error = v2_frame(&mut client).await;
+        assert_eq!(error.kind, FrameKind::Error);
+        client
+            .write_all(&request(json!({"method":"sub", "params":{"sid":"s", "stream":"list"}})))
+            .await
+            .unwrap();
+        let window = v2_frame(&mut client).await;
+        assert_eq!(window.kind, FrameKind::Window);
         drop(client);
         task.await.unwrap();
     })

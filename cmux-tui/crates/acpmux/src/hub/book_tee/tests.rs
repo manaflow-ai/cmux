@@ -393,6 +393,44 @@ async fn a_chat_purged_while_its_actor_runs_leaves_no_book_and_no_actor() {
     assert!(!dir.exists() && books_under(&home.dir).is_empty(), "no book outlives its chat");
 }
 
+/// cmux#43078: an import whose bundle has a line that does not parse is rolled back
+/// (`transfer.rs` `drop_failed_import`), and the tee never began a book or an actor for it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_failed_import_leaves_no_book_and_no_actor() {
+    let home = home(&[(chat(0), 40, 64 << 10)], true).await;
+    let tee = home.tee().clone();
+    home.hub.config.write().await.harnesses.insert(
+        "claude".into(),
+        serde_json::from_value(serde_json::json!({"argv": ["claude"]})).unwrap(),
+    );
+    let out = tempfile::tempdir().unwrap();
+    let bundle = home.hub.export(&home.session(&chat(0)), out.path()).unwrap();
+    let id = "failed-import";
+    let mut meta: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(bundle.join("session.json")).unwrap())
+            .unwrap();
+    meta["id"] = id.into();
+    std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
+    let mut events = std::fs::OpenOptions::new()
+        .append(true)
+        .open(bundle.join("events").join("000001.ndjson"))
+        .unwrap();
+    std::io::Write::write_all(&mut events, b"not a record\n").unwrap();
+    drop(events);
+    let held = tee.registry().len();
+
+    let failed = home.hub.import(&bundle, None).await;
+    assert!(failed.is_err_and(|e| e.message.contains("import events")), "the import failed");
+    assert!(home.hub.session_by_id(id).is_none());
+    assert!(!home.hub.store.session_path(id).unwrap().exists(), "the import is rolled back");
+    // A mark for the id hydrates nothing: the chat is in no hub map.
+    tee.tell(&home.hub, id);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(tee.registry().get(id).is_none());
+    assert_eq!(tee.registry().len(), held);
+    assert!(!home.book(id).exists(), "no book for the failed import");
+}
+
 /// The daemon's catch-up of one long chat in a child process, killed at a point of the parent's
 /// choosing: it prints `CATCHING_UP` once its actor is reading.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
