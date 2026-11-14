@@ -118,6 +118,7 @@ extension IPhoneHostService {
         case .online: return "online"
         case .waiting: return "waiting"
         case .removed: return "removed"
+        case .deviceIDTaken: return "waiting"
         }
     }
 
@@ -131,6 +132,9 @@ extension IPhoneHostService {
         case .online:
             return [IPhoneHostStrings.online, IPhoneHostStrings.phonesConnected(state.phones.count)].joined(separator: " · ")
         case .removed: return IPhoneHostStrings.removed
+        // Passing: a new id is registered at once (when that keeps failing, the phase becomes
+        // `.unavailable` with ``IPhoneHostStrings/deviceIDTaken``).
+        case .deviceIDTaken: return IPhoneHostStrings.connecting
         case .waiting(let reason):
             return reason.isEmpty ? IPhoneHostStrings.reconnecting : "\(IPhoneHostStrings.reconnecting) (\(reason))"
         }

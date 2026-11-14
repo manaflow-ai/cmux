@@ -37,6 +37,12 @@ enum IPhoneHostStrings {
     static var unavailable: String {
         String(localized: "iphone.status.unavailable", defaultValue: "iPhone connections are not available in this build.", table: "IPhone", bundle: .module)
     }
+    /// The service says another account owns this Mac's device id, and registering a new one did not help.
+    static var deviceIDTaken: String {
+        String(localized: "iphone.status.deviceIDTaken",
+               defaultValue: "Another account already registered this Mac's iPhone connection, and a new one could not be set up. Turn iPhone connections off and on to try again.",
+               table: "IPhone", bundle: .module)
+    }
     /// A refused Keychain read of this Mac's iPhone key: the host waits and tries again.
     static var keychainLocked: String {
         String(localized: "iphone.status.keychainLocked", defaultValue: "Waiting for the login keychain to unlock. iPhones connect once it does.",

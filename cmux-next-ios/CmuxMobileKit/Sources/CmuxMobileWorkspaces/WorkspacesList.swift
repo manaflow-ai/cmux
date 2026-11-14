@@ -108,7 +108,7 @@ public struct WorkspacesList: View {
         self.open = open
     }
 
-    /// The listed Macs: one per computer, whatever builds run on it (`MacRoster`).
+    /// The listed Macs: every cmux build as its own Mac (`MacRoster`).
     private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? []).visible }
     /// A remembered Mac that is no longer listed reads as All Macs.
     var scope: MacScope { MacFilter.resolve(filter.scope(in: store.activeTeam), macs: macs) }

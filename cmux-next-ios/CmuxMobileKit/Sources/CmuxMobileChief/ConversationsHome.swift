@@ -67,7 +67,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         self.leading = leading()
     }
 
-    /// The listed Macs (one per computer, whatever builds run on it: ``MacRoster``).
+    /// The listed Macs (every cmux build as its own Mac: ``MacRoster``).
     private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? []).visible }
 
     private var labels: HomeMacLabels {
