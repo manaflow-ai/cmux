@@ -1,15 +1,12 @@
 name: cmux-rd Windows host
 
+# On landings and dispatch, not pull requests: a pull request into feat-cmux-next may start at most
+# ci/steps.toml's pr_jobs (it only goes down) and no PR job runs Windows to take the selftest as a step;
+# the live proof needs the ios-e2e environment, which pull request events do not reach. Listed in
+# .github/post-merge-checks.json; manaflow-ai/cmuxterm-hq#10846 tracks moving the selftest onto PRs.
 on:
   push:
     branches: [feat-cmux-next]
-    paths:
-      - "cmux-tui/crates/cmux-rd-host/**"
-      - "cmux-tui/crates/cmux-encode/**"
-      - "cmux-tui/crates/cmux-rd-core/**"
-      - "cmux-tui/crates/cmux-rd-proto/**"
-      - ".github/workflows/cmux-rd-windows.yml"
-  pull_request:
     paths:
       - "cmux-tui/crates/cmux-rd-host/**"
       - "cmux-tui/crates/cmux-encode/**"
@@ -28,8 +25,12 @@ concurrency:
 jobs:
   host:
     name: Windows capture and encode selftest
-    runs-on: windows-latest
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || fromJSON(vars.RUNNER_POOLS).windows }}
     timeout-minutes: 20
+    # A runs-on expression hides the OS from actionlint; the steps are PowerShell, the Windows default.
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -38,6 +39,15 @@ jobs:
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # cmux-rd-host is its own cargo workspace; a feat-cmux-next run saves the cache.
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui/crates/cmux-rd-host -> target
+          shared-key: cmux-rd-windows-host
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Build the Windows host
         working-directory: cmux-tui/crates/cmux-rd-host
@@ -57,8 +67,11 @@ jobs:
   live-windows-host:
     name: Windows live host (tailnet)
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
-    runs-on: windows-latest
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || fromJSON(vars.RUNNER_POOLS).windows }}
     timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
     environment: ios-e2e
     permissions:
       contents: read
@@ -210,3 +223,4 @@ jobs:
             ${{ runner.temp }}/cmux-rd-live.json
             ${{ runner.temp }}/cmux-rd-live.log
           if-no-files-found: ignore
+          retention-days: 3
