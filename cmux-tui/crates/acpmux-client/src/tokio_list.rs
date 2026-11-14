@@ -37,7 +37,7 @@ const WALK_WINDOW_ROWS: u16 = 100;
 
 /// What [`open`] gives: a list connection, or the transport back for the v1 path.
 pub enum Opened<R, W> {
-    List(ListConnection<R, W>),
+    List(Box<ListConnection<R, W>>),
     /// The daemon answered the upgrade as an old daemon does. `bytes` are bytes it sent after
     /// that answer, already read.
     Fallback { reader: R, writer: W, bytes: Vec<u8> },
@@ -101,7 +101,7 @@ where
         bytes_received: 0,
     };
     match connection.upgrade().await? {
-        None => Ok(Opened::List(connection)),
+        None => Ok(Opened::List(Box::new(connection))),
         Some(bytes) => Ok(Opened::Fallback {
             reader: connection.reader,
             writer: connection.writer,
@@ -545,17 +545,17 @@ where
         self.connection.origin_state(origin)
     }
 
-    /// Resumes on a new transport after the old one dropped: the upgrade again, then the
-    /// mirror from its cursor. A daemon that no longer serves the list is an error.
+    /// Resumes on a new transport after the old one dropped: the upgrade goes out now, and
+    /// [`Following::next`] reads its answer and the mirror's resume from its cursor, after the
+    /// changes still held from before the drop. A daemon that no longer serves the list is an
+    /// error there.
     pub async fn reconnect(&mut self, reader: R, writer: W) -> io::Result<()> {
         let connection = &mut *self.connection;
         connection.client.disconnected();
         connection.pending.clear();
         connection.reader = reader;
         connection.writer = writer;
-        match connection.upgrade().await? {
-            None => Ok(()),
-            Some(_) => Err(protocol("the daemon no longer serves the list")),
-        }
+        connection.client.connected();
+        connection.flush().await
     }
 }

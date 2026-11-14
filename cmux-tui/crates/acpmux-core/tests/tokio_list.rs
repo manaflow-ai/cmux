@@ -52,7 +52,7 @@ fn daemon(hub: Arc<Hub>, upgrade: bool) -> Halves {
 async fn open(hub: &Arc<Hub>) -> ListConnection<ReadHalf<DuplexStream>, WriteHalf<DuplexStream>> {
     let (reader, writer) = daemon(hub.clone(), true);
     match tokio::time::timeout(WAIT, tokio_list::open(reader, writer)).await.unwrap().unwrap() {
-        Opened::List(connection) => connection,
+        Opened::List(connection) => *connection,
         Opened::Fallback { .. } => panic!("the daemon upgraded"),
     }
 }
