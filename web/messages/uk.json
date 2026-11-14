@@ -200,7 +200,10 @@
     "signupPendingBody": "Якщо у вас уже є обліковий запис, увійдіть способом, яким ви користувалися раніше. Якщо ви щойно створили обліковий запис, підтвердьте електронну пошту перед входом.",
     "genericTitle": "Не вдалося увійти",
     "genericBody": "Спробуйте ще раз. Якщо проблема не зникне, зверніться до служби підтримки.",
-    "backToSignIn": "Повернутися до входу"
+    "backToSignIn": "Повернутися до входу",
+    "chatgptLinkTitle": "Увійдіть один раз, щоб підключити ChatGPT",
+    "chatgptLinkBody": "Ця адреса вже має акаунт cmux. Увійдіть способом, яким користувалися раніше, і ChatGPT буде підключено до цього акаунта.",
+    "chatgptEmailUnverifiedBody": "Адресу пошти в акаунті ChatGPT не підтверджено. Підтвердьте її в OpenAI або увійдіть іншим способом."
   },
   "cloudPublicationAccess": {
     "title": "У вас немає доступу",
@@ -2485,7 +2488,7 @@
       "socketModeDesc": "Перевизначити режим доступу (cmuxOnly, allowAll, off). Також приймаються cmux-only/cmux_only і allow-all/allow_all",
       "workspaceIdDesc": "Установлюється автоматично: ID поточного робочого простору",
       "surfaceIdDesc": "Установлюється автоматично: ID поточної поверхні",
-      "termProgramDesc": "Установлюється в ghostty",
+      "termProgramDesc": "Установлюється в cmux",
       "termDesc": "Установлюється в xterm-ghostty",
       "envCallout": "Застарілі значення CMUX_SOCKET_MODE full і notifications досі приймаються для сумісності.",
       "detectingCmux": "Виявлення cmux",

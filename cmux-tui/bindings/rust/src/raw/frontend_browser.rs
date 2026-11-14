@@ -143,6 +143,7 @@ impl CmuxClient {
             activate: None,
             after: Optional::Missing,
             split: Optional::Missing,
+            workspace: Optional::Missing,
         })?;
         let created = || -> Option<FrontendBrowserTabCreated> {
             Some(FrontendBrowserTabCreated {

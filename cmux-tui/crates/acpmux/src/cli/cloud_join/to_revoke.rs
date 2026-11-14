@@ -126,7 +126,7 @@ fn rows(home: &Path, dir: &str) -> Result<Vec<(PathBuf, Row)>> {
 
 /// Removes one entry, durably.
 pub(super) fn remove(path: &Path) -> Result<()> {
-    match std::fs::remove_file(path) {
+    match crate::home_fs::remove_file(path) {
         Ok(()) => recovery::sync_ancestors(path.parent().ok_or_else(store_error)?),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e.into()),

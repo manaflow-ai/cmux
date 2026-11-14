@@ -61,9 +61,12 @@ fn a_working_tab_shows_the_toast() {
 }
 
 #[test]
-fn one_idle_terminal_asks_what_it_runs() {
-    let tabs = [browser("about:blank"), terminal()];
-    assert_eq!(toast(&tabs), Toast::AskTerminals { terminals: vec![1] });
+fn one_tab_that_is_not_working_closes_quietly() {
+    // Lawrence 2026-11-09: "Closed “lawrence@…:~/fun/cmuxterm-hq”  Undo" is an unnecessary
+    // dialog. Cmd-Z and Reopen Closed bring one tab back; the toast is for work at risk.
+    assert_eq!(toast(&[browser("about:blank"), terminal()]), Toast::Skip);
+    assert_eq!(toast(&[terminal()]), Toast::Skip);
+    assert_eq!(toast(&[browser("https://a.test")]), Toast::Skip);
 }
 
 #[test]
@@ -146,8 +149,8 @@ fn the_wire_reads_the_apps_spelling() {
     let other: ClosingTab = serde_json::from_str(r#"{"kind":"markdown"}"#).expect("other kind");
     assert_eq!(other.kind, TabKind::Other);
     assert_eq!(
-        serde_json::to_value(Toast::AskTerminals { terminals: vec![0] }).expect("toast"),
-        serde_json::json!({"decision": "askTerminals", "terminals": [0]})
+        serde_json::to_value(Toast::Skip).expect("toast"),
+        serde_json::json!({"decision": "skip"})
     );
     assert_eq!(
         serde_json::to_value(Warning::Agent { name: None }).expect("warning"),

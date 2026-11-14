@@ -43,6 +43,39 @@ impl ReaderCompletion {
     }
 }
 
+/// The seat of a terminal whose child is `process`, held by the terminal's
+/// runtime from here to its drop. It is taken when the runtime is made, which
+/// is before the terminal enters the session state: the accept loop counts
+/// the terminal's connections as a terminal's from this moment, and asks no
+/// session state for it (`diagnostics/terminal_seats.rs`). The seat names
+/// `terminal`, so the accept also reads from it which terminal a client is in.
+pub(super) fn terminal_seat(
+    mux: &Weak<Mux>,
+    process: Option<u32>,
+    terminal: &Option<TerminalPublicId>,
+) -> crate::diagnostics::TerminalSeat {
+    let terminal = terminal.as_ref().map(TerminalPublicId::as_str);
+    match mux.upgrade() {
+        Some(mux) => mux.connection_stats().seat_terminal(process, terminal),
+        None => crate::diagnostics::TerminalSeat::unseated(process),
+    }
+}
+
+/// Where the host that starts a terminal of `mux` takes its seat
+/// (`diagnostics/terminal_seats.rs`, `HostSeating`): before the host starts
+/// the terminal's child, so that child's first connection is the terminal's.
+#[cfg(any(unix, windows))]
+pub(super) fn host_seating(
+    mux: &Weak<Mux>,
+    terminal: &Option<TerminalPublicId>,
+) -> crate::diagnostics::HostSeating {
+    let terminal = terminal.as_ref().map(TerminalPublicId::as_str);
+    match mux.upgrade() {
+        Some(mux) => crate::diagnostics::HostSeating::of(mux.connection_stats().clone(), terminal),
+        None => crate::diagnostics::HostSeating::default(),
+    }
+}
+
 pub(super) struct ReaderCompletionGuard(pub(super) Arc<ReaderCompletion>);
 
 impl Drop for ReaderCompletionGuard {
@@ -260,6 +293,8 @@ pub struct PtyTerminalRuntime {
     /// while `SurfaceMeta::resource_identity` belongs to one view placement.
     pub(super) terminal_public_id: Option<Arc<TerminalPublicId>>,
     pub(super) journal_generation: Arc<str>,
+    /// This terminal's handle on its output store log (record_output).
+    pub(super) output_log: crate::output_store::OutputLogCache,
     /// Legacy terminal hosts remain attachable, but cannot source-fence
     /// output at daemon shutdown and therefore never enter journal capture.
     pub(super) journal_capture_supported: bool,
@@ -309,7 +344,9 @@ pub struct PtyTerminalRuntime {
     pub(super) pending_host_binding: Mutex<Option<crate::mux::PendingTerminalHostBinding>>,
     #[cfg(any(unix, windows))]
     pub(super) host_exit_record_path: Option<PathBuf>,
-    pub(super) pid: Option<u32>,
+    /// The child's process id, with the terminal's seat among the session's
+    /// terminals (`terminal_seat`).
+    pub(super) pid: crate::diagnostics::TerminalSeat,
     pub(super) command: Vec<String>,
     pub(super) cwd: Option<String>,
     /// How this incarnation ended, with its provenance (process end versus
