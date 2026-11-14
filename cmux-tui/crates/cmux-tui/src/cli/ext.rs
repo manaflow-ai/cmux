@@ -49,7 +49,8 @@ pub(super) mod exit {
 
 const HELP: &str = "\
 cmux ext: make a cmux extension and watch it change as you work.
-  cmux ext new NAME            a working extension folder ./NAME (a sidebar section)
+  cmux ext new NAME [--kind K] a working extension folder ./NAME on the SDK this cmux ships;
+                               K: section (default, a sidebar section), pane, command
   cmux ext dev [DIR]           load DIR into cmux, then reload it on every save (Ctrl-C stops)
   cmux ext dev --once --json   one validate + build + reload; exit 0 ok, 1 load, 3 no cmux, 4 manifest, 5 build
   cmux ext shot [DIR] [--out PNG] [--json]

@@ -151,7 +151,7 @@ fn the_scaffold_is_a_valid_package_with_its_export_built() {
     let export = pkg.manifest["implements"]["cmux.section/1"]["export"].as_str().unwrap();
     let main = std::fs::read_to_string(dir.join("dist/main.js")).unwrap();
     let source = std::fs::read_to_string(dir.join("src/main.ts")).unwrap();
-    assert!(source.contains(&format!("export function {export}(")), "{export} in src/main.ts");
+    assert!(source.contains(&format!("export const {export} = ")), "{export} in src/main.ts");
     assert!(main.contains(&format!("{export}: () => {export}")), "{export} is packed");
     assert!(main.contains("globalThis.__cmuxAppExports"), "dist/main.js hands its exports over");
     assert!(dir.join("cmux-app.d.ts").is_file() && dir.join("README.md").is_file());
@@ -786,7 +786,29 @@ fn every_kind_is_made_on_the_shipped_sdk_and_passes_ext_dev_once() {
         let sdk = tsconfig["compilerOptions"]["paths"]["cmux-extension-sdk"][0].as_str().unwrap();
         let index = std::fs::read_to_string(dir.join(sdk)).unwrap();
         assert!(index.contains("export function section("), "{kind}: the SDK's own source");
-        assert!(!index.contains("cmux-app-host"), "{kind}: no path back into the cmux repository");
+        assert!(
+            !index.contains("../../../cmux-app-host/"),
+            "{kind}: no path back into the cmux repository"
+        );
+        // Every export the manifest or catalog names is in the source and the first build.
+        let dist = std::fs::read_to_string(dir.join("dist/main.js")).unwrap();
+        let manifest: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("cmux-app.json")).unwrap())
+                .unwrap();
+        let catalog: Value = std::fs::read_to_string(dir.join("catalog.json"))
+            .map_or(Value::Null, |text| serde_json::from_str(&text).unwrap());
+        let exports: Vec<String> = manifest["implements"]
+            .as_object()
+            .into_iter()
+            .flat_map(|slots| slots.values())
+            .chain(catalog["operations"].as_array().into_iter().flatten())
+            .filter_map(|entry| entry["export"].as_str().map(str::to_owned))
+            .collect();
+        assert!(!exports.is_empty(), "{kind}: names no export");
+        for export in exports {
+            assert!(source.contains(&format!("export const {export} =")), "{kind}: {export}");
+            assert!(dist.contains(&format!("{export}: () => {export}")), "{kind}: {export}");
+        }
         let scopes: Value = serde_json::from_str(
             &std::fs::read_to_string(dir.join("sdk/tables/scopes.json")).unwrap(),
         )
@@ -824,4 +846,7 @@ fn a_command_extension_needs_a_name_cmux_does_not_use() {
     let error = scaffold::scaffold(&root.path().join("apps"), "apps", "command").unwrap_err();
     assert!(error.contains("is a cmux command"), "{error}");
     assert!(scaffold::scaffold(&root.path().join("apps"), "apps", "section").is_ok());
+    for bad in ["ab-", "a--b"] {
+        assert!(scaffold::scaffold(&root.path().join(bad), bad, "command").is_err(), "{bad}");
+    }
 }
