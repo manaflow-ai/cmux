@@ -309,10 +309,14 @@ pub fn primed_press(
         );
     }
     if !focus_on_target {
-        return Err("the target window stopped being its app's key window before the menu item was pressed (another window of the app took it), so nothing was pressed");
+        return Err(
+            "the target window stopped being its app's key window before the menu item was pressed (another window of the app took it), so nothing was pressed",
+        );
     }
     if item_is_service {
-        return Err("the shortcut runs a Services item, which is never run from a background app's menu: nothing was pressed");
+        return Err(
+            "the shortcut runs a Services item, which is never run from a background app's menu: nothing was pressed",
+        );
     }
     Ok(())
 }

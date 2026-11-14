@@ -269,7 +269,7 @@ fn single_capture_settle_modes_never_claim_no_visible_change() {
 #[test]
 fn a_new_window_of_the_app_is_a_visible_change() {
     let d = Arc::new(FakeDesktop::standard());
-    let mut sheet = d.windows[0].clone();
+    let mut sheet = d.windows.iter().find(|w| w.id == "1").unwrap().clone();
     sheet.id = "77".into();
     sheet.on_screen = true;
     let (e, _) = settling_engine(d.clone());
