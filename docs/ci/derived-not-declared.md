@@ -93,6 +93,7 @@ Ordered by blast radius times likelihood.
 | 28 | `scripts/retired-feature-flags.txt`, `scripts/ci/app-host-known-failures.json`, `scripts/lint-*-baseline.txt` | deleted code, known failures, grandfathered findings | append-only and duplicate-prone in the #13738 way | varies | No. They record history |
 | 29 | `tests/test_ci_reusable_workflow_permissions.py:471-488` `MANUAL_REF_TARGETS` | `resolve-dispatch-ref.yml` consumers | a new consumer is not checked | fails open | Partially. Consumers are greppable |
 | 30 | `scripts/ci/check_reusable_workflow_permissions.py:44-61` `SCOPES` | GitHub's documented permission scopes | a scope GitHub adds is unrecognized | offending PR or silent under-checking | No. External source of truth |
+| 31 | `plans/cmux-next/action-catalog.json` (the Swift dump, hand-kept since the app reads the Rust catalog) per-action and per-argument keys | the keys `cmux_action_catalog::json::catalog_value` writes | a hand-added action misses a key a later PR put on every other (`hint`, #38223; `isAskedInPalette`, #39727): #39108 and #41055 fixed it twice, base red each time | offending PR (`swift_parity` runs in cmux-tui CI); was everyone once merged | Detected. `swift_parity` `english_catalog_equals_the_swift_dump` compares every action's and argument's key set first and names each missing key, every action without it and the commit that put it in the dump |
 
 Two more that are the same shape but sit outside `.github/`, `scripts/ci/` and
 `tests/`, noted so they are not rediscovered: `scripts/ci/workflow_guard_groups.py:80-92`
