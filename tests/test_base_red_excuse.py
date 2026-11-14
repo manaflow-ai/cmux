@@ -13351,8 +13351,10 @@ class MatrixLegsAreReadByTheirWorkflow(RealShapesOfNovember11):
         return found[0]
 
     def with_agent_line_of(self, log, other):
-        """LOG with its agent-pass error line replaced by OTHER's (the same failure, the walk's lines left as LOG's)."""
-        return log.replace(self.line(log, self.AGENT), self.line(other, self.AGENT))
+        """LOG with its agent-pass error line's text replaced by OTHER's, at LOG's own stamp (the same failure, the
+        walk's lines left as LOG's)."""
+        mine = self.line(log, self.AGENT)
+        return log.replace(mine, mine.split(" ", 1)[0] + " " + self.line(other, self.AGENT).split(" ", 1)[1])
 
     def test_both_legs_are_placed_and_only_the_agent_pass_is_failed(self):
         for side in ("head", "base"):
