@@ -63,6 +63,11 @@ exports travel together, and checks that a failed parity command leaves the remo
 (`regenerate-action-exports.test.sh`, `base-autofix-action-exports.test.sh`,
 `base-autofix-push.test.sh`, `test_base_autofix_pushed_exports.py`).
 
+Registering a missed export in `generated_outputs.py` is ownership repair when its literal
+path already exists on the base. `generated_files_guard.py` checks that distinction;
+new export paths and widened patterns still fail. Its regression tests cover both cases
+(guard run `43580150976` misclassified the existing catalog dump as a new committed file).
+
 ## The pin check on the tip
 
 An FFI commit's release can only be built from that pushed commit, so after

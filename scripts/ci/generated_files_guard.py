@@ -311,6 +311,10 @@ def rule_changes(base: Rules, head: Rules, base_tracked: set[str]) -> list[str]:
                           "A committed generator's outputs may only narrow.")
     old_exports = {p for patterns, _ in base.exports for p in patterns}
     for pattern in sorted({p for patterns, _ in head.exports for p in patterns} - old_exports):
+        # Registering an existing output repairs ownership; it adds no generated file.
+        # Only literal paths qualify: a glob would authorize future committed outputs.
+        if pattern in base_tracked and not any(char in pattern for char in "*?["):
+            continue
         errors.append(f"{OUTPUTS}: {pattern} is a new committed export. Exports are committed generated "
                       "files; a new output belongs at build time (gitignored), not in the base autofix's list.")
     known = {json.dumps(e, sort_keys=True) for e in base.committed}
