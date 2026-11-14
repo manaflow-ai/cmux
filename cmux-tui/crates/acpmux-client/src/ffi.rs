@@ -96,6 +96,14 @@ fn change_json(change: Change<Value>) -> Result<Value, serde_json::Error> {
     match change {
         Change::Window(window) => serde_json::to_value(window),
         Change::Page(page) => serde_json::to_value(json!({ "kind": "page", "page": page })),
+        Change::FolderWindow(window) => serde_json::to_value(window),
+        Change::FolderPage(page) => Ok(json!({"kind":"folderPage","page":page})),
+        Change::Folder { sid, seq, row, replay } => {
+            Ok(json!({"kind":"folder","sid":sid,"seq":seq,"row":row,"replay":replay}))
+        }
+        Change::FolderGone { sid, seq, origin, folder, replay } => Ok(
+            json!({"kind":"folderGone","sid":sid,"seq":seq,"origin":origin,"folder":folder,"replay":replay}),
+        ),
         Change::Summary { sid, seq, summary, replay } => {
             Ok(json!({"kind":"summary","sid":sid,"seq":seq,"summary":summary,"replay":replay}))
         }

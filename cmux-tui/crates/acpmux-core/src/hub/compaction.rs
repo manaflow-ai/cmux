@@ -243,10 +243,19 @@ impl HubWriter {
         let Some(work) = self.maintenance.as_mut() else { return };
         let current = self.published.load_full();
         let mut next = current.as_ref().clone();
+        let mut touched = std::collections::BTreeSet::new();
         for _ in 0..256 {
             if let Some(row) = work.missing_hot.pop_front() {
+                if let Some(folder) = acpmux_book::index::FolderKey::of(&row) {
+                    touched.insert(folder);
+                }
                 next.hydrate_compacted(row);
             } else if let Some(key) = work.cold_keys.pop_front() {
+                if let Some(row) = next.get_row(&key)
+                    && let Some(folder) = acpmux_book::index::FolderKey::of(&row)
+                {
+                    touched.insert(folder);
+                }
                 work.evicted_rows += usize::from(next.evict_compacted(&key));
             } else {
                 break;
@@ -256,14 +265,14 @@ impl HubWriter {
                 self.turn_measure.maintenance_keys += 1;
             }
         }
-        self.published.store(Arc::new(next));
+        let folder_ops = folders::changed_folders(&current, &next, touched);
+        // Publish below after releasing the maintenance borrow.
+        let folder_publish = next;
         // Installation may finish startup through this captured hot-row
         // stream instead of the original snapshot iterator. Publish readiness
         // only after its last missing live row is installed.
         let waiting = *self.hydrated.borrow() != disk::HydrationState::Ready;
-        if work.missing_hot.is_empty() && waiting {
-            self.hydrated.send_replace(disk::HydrationState::Ready);
-        }
+        let hydration_done = work.missing_hot.is_empty() && waiting;
         // The current root can still own paths removed by this batch. Drop it
         // before the worker returns free pages, so the measurement includes them.
         drop(current);
@@ -276,6 +285,10 @@ impl HubWriter {
                     drop((cold_keys, missing_hot));
                     retire_shadow(shadow, evicted);
                 }));
+                self.publish_folder_index(folder_publish, &folder_ops);
+                if hydration_done {
+                    self.hydrated.send_replace(disk::HydrationState::Ready);
+                }
                 return;
             }
             self.compaction_counters.duration_ns.store(
@@ -291,6 +304,10 @@ impl HubWriter {
             }
             self.compaction_counters.completed.fetch_add(1, Ordering::Relaxed);
             self.maintenance = None;
+        }
+        self.publish_folder_index(folder_publish, &folder_ops);
+        if hydration_done {
+            self.hydrated.send_replace(disk::HydrationState::Ready);
         }
     }
 }
@@ -315,5 +332,62 @@ fn retire_shadow(shadow: ChangedRows, evicted: usize) {
         eprintln!(
             "PR5b trim rows_evicted={evicted} called={trimmed} wall_ns={elapsed} before_rss_kb={before_rss} after_rss_kb={after_rss} before_anon_kb={before_anon} after_anon_kb={after_anon}"
         );
+    }
+}
+
+#[cfg(test)]
+mod folder_eviction_tests {
+    use super::*;
+    use acpmux_book::index::folders::FolderOp;
+    use acpmux_book::index::{ChangedRows, SortedSnapshot};
+
+    #[test]
+    fn eviction_batch_coalesces_folders_without_advancing_durable_cursors() {
+        let dir = tempfile::tempdir().unwrap();
+        let (hub, mut writer) = Hub::open(dir.path(), 1, || 7).unwrap();
+        for n in 0..40 {
+            let mut row = Summary::new(format!("chat-{n}"));
+            row.folder = Some(if n < 20 { "/a" } else { "/b" }.into());
+            row.last_activity = n;
+            writer.apply(row).unwrap();
+        }
+        let current = hub.snapshot();
+        let snapshot_path = dir.path().join("index.snap");
+        SortedSnapshot::write(&snapshot_path, &current).unwrap();
+        let snapshot = DiskSnapshot::open(&snapshot_path).unwrap().unwrap();
+        let (next, _) = current.with_compacted_snapshot(snapshot, ChangedRows::new());
+        writer.publish_folder_index(next, &[]);
+        let mut sub = Sub::new("folders", "list");
+        sub.view = Some(crate::wire::ListView::Folders);
+        let subscription = hub.subscribe(&sub).unwrap();
+        let list_seq = hub.snapshot().seq();
+        let log_seq = writer.log.as_ref().unwrap().next_seq();
+        let last_history = writer.history.lock().unwrap().last_seq();
+        writer.maintenance = Some(Maintenance {
+            cold_keys: current
+                .iter()
+                .filter(|row| row.chat_id != "chat-39")
+                .map(|row| row.key())
+                .collect(),
+            missing_hot: VecDeque::new(),
+            retired_shadow: None,
+            evicted_rows: 0,
+            started: Instant::now(),
+            cleanup_complete: false,
+        });
+        writer.maintain_compaction();
+        assert_eq!(hub.snapshot().seq(), list_seq);
+        assert_eq!(writer.log.as_ref().unwrap().next_seq(), log_seq);
+        assert_eq!(writer.history.lock().unwrap().last_seq(), last_history);
+        let Some(ListItem::Folders { seq, ops }) = subscription.receiver.try_next() else {
+            panic!("one folder frame")
+        };
+        assert_eq!(seq, subscription.cursor + 1);
+        assert_eq!(ops.len(), 2);
+        assert!(
+            ops.iter().any(|op| matches!(op, FolderOp::Gone(key) if key.folder.as_ref() == "/a"))
+        );
+        assert!(ops.iter().any(|op| matches!(op, FolderOp::Folder(row) if row.folder.as_ref() == "/b" && row.count == 1)));
+        assert!(subscription.receiver.try_next().is_none());
     }
 }
