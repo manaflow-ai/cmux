@@ -35,6 +35,9 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 
 def write(root: Path, files: dict[str, str]) -> None:
     for name, text in files.items():
@@ -52,7 +55,7 @@ def repo(tmp: str, files: dict[str, str]) -> Path:
     root.mkdir()
     # The helpers the map imports, from this checkout.
     for helper in ("select_package_tests.py", "focused_tests.py", "car_guards.py", "cmux_next_route.py",
-                   "ci_process_tree.py", "nightly-next-car-guard.sh", "car-guard-python.sh"):
+                   "ci_process_tree.py", "gh_expressions.py", "nightly-next-car-guard.sh", "car-guard-python.sh"):
         write(root, {f"scripts/ci/{helper}": (ROOT / "scripts/ci" / helper).read_text(encoding="utf-8")})
     write(root, files)
     git(root, "init", "-q")
@@ -489,12 +492,16 @@ class CarGuardsWorkflow(unittest.TestCase):
 
     def test_it_runs_on_ci_runners_only_and_holds_no_secret(self):
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertNotIn("secrets.", text)
+        self.assertEqual(workflow_jobs.secret_names(text), set())
         for name, job in self.workflow()["jobs"].items():
             with self.subTest(job=name):
-                runs_on = str(job["runs-on"])
-                self.assertRegex(runs_on, r"blacksmith-|ubuntu-|macos-26")
-                self.assertNotRegex(runs_on.lower(), r"self-hosted|glaeda|cosmic|air-blue")
+                self.assertEqual(workflow_jobs.secret_names(job), set())
+                cells = workflow_jobs.runs_on_cells(job)
+                self.assertIsNotNone(cells, f"{name}: runs-on has a matrix value nothing resolves")
+                self.assertTrue(cells, f"{name}: no runs-on")
+                for runs_on in cells:
+                    self.assertRegex(runs_on, r"blacksmith-|ubuntu-|macos-26")
+                    self.assertNotRegex(runs_on.lower(), r"self-hosted|glaeda|cosmic|air-blue")
         mac_steps = self.workflow()["jobs"]["mac"]["steps"]
         restore = next(s for s in mac_steps if "cache-restore" in str(s.get("uses", "")))
         self.assertEqual(restore["env"]["CI_CACHE_R2_PUBLIC_URL"], "https://ci-cache-next.cmux.com",

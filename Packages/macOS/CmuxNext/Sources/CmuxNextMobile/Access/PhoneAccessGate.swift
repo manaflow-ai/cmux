@@ -1,10 +1,10 @@
 import CmuxNextCompat
 
-/// What phones may do on this Mac right now (Settings > Accounts > Phone
-/// Access), read per request by whatever serves the phone. It names no
-/// transport: the Iroh host (`MobileIrxHost`) applies it today, and a
-/// replacement transport applies the same gate, so the settings and the
-/// rules do not move with the transport decision.
+/// What phones may do on this Mac right now, read per request by whatever
+/// serves the phone (the mobile.* compat adapter and the daemon lane policy).
+/// It names no transport. The app wires none today: the iroh listener that
+/// served phones through it was removed (2026-11-13), and the iPhone host
+/// (`cmux-mobile-host`) applies its own policy.
 public final class PhoneAccessGate: Sendable {
     private struct Admission: Sendable {
         var decide: (@Sendable (MobileHostPairRequest) async -> Bool)?
@@ -56,7 +56,7 @@ public final class PhoneAccessGate: Sendable {
         admission.withLock { $0.recheck }?(phone) ?? false
     }
 
-    /// `phone.startSessions`: a phone may create workspaces and terminals.
+    /// A phone may create workspaces and terminals.
     /// Off, it can still list, follow, type into and close what runs.
     public var allowsStartingSessions: Bool {
         startsSessions.withLock { $0 }

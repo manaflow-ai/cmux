@@ -183,6 +183,15 @@ pub fn sample_process(pid: u32) -> Option<ProcessSample> {
     imp::sample_process(pid)
 }
 
+/// The parent of one process, reading only that process: `None` when the
+/// process is gone, or on a platform where this reads no process. The
+/// daemon's accept loop asks it for the leader of a client's process
+/// session (cmux-tui-core `diagnostics/terminal_seats.rs`), so it must not
+/// scan the processes ([`Sampler::new`] does on Linux).
+pub fn parent_process(pid: u32) -> Option<u32> {
+    imp::parent_process(pid)
+}
+
 impl Default for Sampler {
     fn default() -> Self {
         Self::new()
@@ -211,6 +220,10 @@ mod imp {
     pub(super) fn sample_process(pid: u32) -> Option<ProcessSample> {
         let stat = read_stat(pid)?;
         Sampler { stats: HashMap::from([(pid, stat)]), ..Sampler::empty() }.sample(pid)
+    }
+
+    pub(super) fn parent_process(pid: u32) -> Option<u32> {
+        read_stat(pid).map(|stat| stat.ppid)
     }
 
     /// One process's parsed `/proc/<pid>/stat`, or None when it is gone.
@@ -412,21 +425,7 @@ mod imp {
         }
 
         pub(super) fn parent(&self, pid: u32) -> Option<u32> {
-            let pid = c_int::try_from(pid).ok()?;
-            // SAFETY: proc_bsdinfo is plain old data; all-zero is valid.
-            let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
-            let size = c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
-            // SAFETY: `info` is a writable buffer of `size` bytes for this flavor.
-            let written = unsafe {
-                libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size)
-            };
-            if written == size {
-                return Some(info.pbi_ppid);
-            }
-            // A login(1) PTY child runs setuid root, which proc_pidinfo does
-            // not answer for; the process table does.
-            let pid = u32::try_from(pid).ok()?;
-            crate::kinfo_proc::KinfoProc::read(pid).map(|process| process.parent())
+            parent_process(pid)
         }
 
         pub(super) fn sample(&self, pid: u32) -> Option<ProcessSample> {
@@ -462,6 +461,24 @@ mod imp {
         }
     }
 
+    pub(super) fn parent_process(pid: u32) -> Option<u32> {
+        let pid = c_int::try_from(pid).ok()?;
+        // SAFETY: proc_bsdinfo is plain old data; all-zero is valid.
+        let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+        let size = c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
+        // SAFETY: `info` is a writable buffer of `size` bytes for this flavor.
+        let written = unsafe {
+            libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size)
+        };
+        if written == size {
+            return Some(info.pbi_ppid);
+        }
+        // A login(1) PTY child runs setuid root, which proc_pidinfo does
+        // not answer for; the process table does.
+        let pid = u32::try_from(pid).ok()?;
+        crate::kinfo_proc::KinfoProc::read(pid).map(|process| process.parent())
+    }
+
     fn pid_path(pid: u32) -> Option<String> {
         let pid = c_int::try_from(pid).ok()?;
         let mut path = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
@@ -493,6 +510,12 @@ mod imp {
     /// The full snapshot `Sampler::new` takes (no per-pid read here yet).
     pub(super) fn sample_process(pid: u32) -> Option<ProcessSample> {
         Sampler::new().sample(pid)
+    }
+
+    /// Not read: a client's process session is not known on Windows, so
+    /// nothing asks (a read here would be the full snapshot).
+    pub(super) fn parent_process(_pid: u32) -> Option<u32> {
+        None
     }
 
     use std::collections::HashMap;
@@ -552,6 +575,10 @@ mod imp {
     /// Reads only `pid` already (no process scan here).
     pub(super) fn sample_process(pid: u32) -> Option<ProcessSample> {
         Sampler::new().sample(pid)
+    }
+
+    pub(super) fn parent_process(_pid: u32) -> Option<u32> {
+        None
     }
 
     use std::sync::OnceLock;

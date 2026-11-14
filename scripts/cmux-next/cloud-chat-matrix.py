@@ -51,6 +51,8 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 AGENTS = ("claude", "codex")
 WORKSPACES = ("empty", "small-repo", "monorepo", "private-remote", "submodules", "lfs", "dirty",
@@ -463,6 +465,8 @@ class Matrix:
         # Nothing holds children_lock across a call that can be interrupted by a signal handler that then
         # needs it: the handler only reads a snapshot (`list()` is atomic under the GIL) and never waits.
         self.children_lock = threading.Lock()
+        # (folder, the level it held before): the trust decisions this run wrote, put back at teardown.
+        self.trusted: list[tuple[str, str]] = []
         self.children: set[subprocess.Popen] = set()
 
     def cmux(self, *words: str, timeout: int = 120) -> tuple[int, str, str]:
@@ -569,9 +573,31 @@ class Matrix:
     def trust(self, folder: Path) -> str:
         """Trusts a fixture this run made, as a person does on this Mac before a Cloud start: a start from a folder
         this Mac doesn't trust is refused before any machine (#41079), which left every cell red at 0.0 s. Never
-        called on a --folder (a person's own folder): its refusal is the finding. Answers "" or the cell's failure."""
-        code, out, err = self.cmux("setup", "trust", str(folder))
-        return "" if code == 0 else f"fail: trust: {clean(self.error(out, err).get('message') or err or out, 300)}"
+        called on a --folder (a person's own folder): its refusal is the finding. Answers "" or the cell's failure.
+
+        The decision lands in this Mac's real trust record (acpmux's trust.json, which the app's start check reads),
+        so each one written is kept with the level it replaced and put back by ``forget_trust`` at teardown: a run
+        leaves no trusted temp path behind for a later folder at that path to inherit."""
+        code, out, err = self.cmux("--json", "setup", "trust", str(folder))
+        if code != 0:
+            return f"fail: trust: {clean(self.error(out, err).get('message') or err or out, 300)}"
+        report = self.parsed(out)
+        if report.get("written"):
+            with self.children_lock:
+                self.trusted.append((str(report["written"]), str(report.get("recorded") or "unknown")))
+        return ""
+
+    def forget_trust(self) -> list[str]:
+        """Puts back every trust decision ``trust`` wrote, newest first (`unknown` forgets it). Runs before the
+        fixtures are deleted, while their paths still resolve. Answers the folders it could not put back."""
+        left = []
+        with self.children_lock:
+            trusted, self.trusted = self.trusted, []
+        for folder, level in reversed(trusted):
+            code, _, _ = self.cmux("--json", "setup", "trust", folder, "--level", level)
+            if code != 0:
+                left.append(folder)
+        return left
 
     def kill(self, machine: str) -> bool:
         for _ in range(2):
@@ -888,7 +914,7 @@ def main(argv=None) -> int:
                     cell = {"workspace": job[0], "agent": job[1], "result": f"fail: {clean(repr(error), 300)}"}
                 cell["fixture_s"] = job[7]
                 report["cells"].append(cell)
-                print(f"[{cell['result']}] {cell['workspace']} ({cell['agent']})", flush=True)
+                safe_print(f"[{cell['result']}] {cell['workspace']} ({cell['agent']})", flush=True)
         finally:
             # A `with` would wait for every queued cell: on SystemExit, drop the ones not yet started.
             pool.shutdown(wait=True, cancel_futures=True)
@@ -902,6 +928,9 @@ def main(argv=None) -> int:
     finally:
         if not swept:
             matrix.sweep()  # a cancelled or crashed run still deletes the machines it made
+        untrusted = matrix.forget_trust()  # before the fixtures go, while their paths still resolve
+        if untrusted:
+            print(f"warning: trust left on {len(untrusted)} fixture folder(s): {', '.join(untrusted)}", file=sys.stderr)
         matrix.quit()
         if not args.keep_fixtures:
             shutil.rmtree(root, ignore_errors=True)

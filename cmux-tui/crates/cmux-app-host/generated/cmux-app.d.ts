@@ -25,6 +25,9 @@ declare namespace Cmux {
   type BrowserDeviceAddResult = { device: Cmux.JsonValue }
   type BrowserDeviceList = { chrome: Cmux.JsonValue; devices: Array<Cmux.JsonValue> }
   type BrowserDeviceRemoveResult = { removed: boolean }
+  type BrowserImportReadError = { kind: string; message: string }
+  type BrowserImportReadResult = { ok?: Cmux.JsonValue | null; error?: Cmux.BrowserImportReadError }
+  type BrowserImportSearchEngine = { name: string; keyword?: string; search: string; suggest?: string }
   type BrowserProfile = { id: string; name: string; color: string | null; icon: string | null; index: number; proxy?: Cmux.BrowserProfileProxy }
   type BrowserProfileCreateResult = { browser_profile: Cmux.BrowserProfile; changed: boolean }
   type BrowserProfileList = { browser_profiles: Array<Cmux.BrowserProfile> }
@@ -52,7 +55,7 @@ declare namespace Cmux {
   type ChiefRetryResult = { retried: boolean; reason?: string }
   type ChiefRevision = { rev: number; at: string; actor: string; operation: string; record: Cmux.ChiefRecord }
   type ChiefStopResult = { stopped: boolean; subagents?: Array<string>; note?: string; restarted?: Array<string>; errors?: Array<string> }
-  type ClassicImportPlanResult = { ledger: "none" | "ledger" | "newer" | "unreadable" | "failed"; decision: Cmux.JsonValue | null; source: Cmux.JsonValue | null; backups: Array<string>; error: string | null; plan: Cmux.JsonValue | null; preview: Cmux.JsonValue | null }
+  type ClassicImportPlanResult = { ledger: "none" | "ledger" | "newer" | "unreadable" | "failed"; decision: Cmux.JsonValue | null; source: Cmux.JsonValue | null; backups: Array<string>; error: string | null; classic_running: boolean; plan: Cmux.JsonValue | null; preview: Cmux.JsonValue | null }
   type ClassicImportRecordResult = { state: "inProgress" | "completed" | null; runs: number; workspaces: number; changed: boolean }
   type ClientSnapshot = { id: string /* client_… */; session_id: string /* session_… */; name: string | null; client_kind: string | null; transport: Cmux.ClientTransport; connected_seconds: string; attached_terminal_ids: Array<string /* terminal_… */>; sizes: Array<Cmux.ClientTerminalSize>; self: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ClientTerminalSize = { terminal_id: string /* terminal_… */; cols: number | null; rows: number | null; participating: boolean }
@@ -131,6 +134,7 @@ declare namespace Cmux {
   type DiffCommentsDeleteResult = { deleted: number; ids: Array<string> }
   type DiffCommentsListResult = { root: string; comments: Array<Cmux.DiffComment> }
   type DiffCommentsSaveResult = { comment: Cmux.DiffComment }
+  type DiffCommentsSendResult = { sent: number; cleared: Array<string> }
   type EgressHost = string
   type EmailAddress = string
   type EmailDomain = string
@@ -403,6 +407,8 @@ declare namespace Cmux {
   type SessionSnapshot = { id: string /* session_… */; machine_id: string /* machine_… */; name?: string; generation: string; revision: string; connected: boolean; extra?: Record<string, Cmux.JsonValue> }
   type SessionSnapshotItem = { kind: "snapshot"; cursor: Cmux.Cursor; reset_reason?: "initial" | "generation_changed" | "cursor_expired"; snapshot: Cmux.ResourceSnapshot }
   type SettingsChange = { keys: Array<string> }
+  type SettingsEdit = { op: "set" | "set_unset" | "reset" | "reset_unchanged"; key?: string; path?: Array<string>; value?: Cmux.JsonValue }
+  type SettingsEditChange = { keys: Array<string>; applied: Array<number> }
   type Sharing = "team" | "private"
   type ShutdownResult = { accepted: boolean }
   type SidebarAttachItem = unknown

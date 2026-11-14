@@ -8,10 +8,8 @@ public import AppKit
 extension Metrics {
     /// How far the + reaches end to end: 9 pt at Compact, between the two it replaces.
     public static var addGlyphExtent: CGFloat { (smallIconSize * 0.75 * 2).rounded() / 2 }
-    /// The +'s stroke at rest (a held press draws it heavier, `addGlyphPressedLineWidth`).
+    /// The add controls' stroke in every interaction state.
     public static var addGlyphLineWidth: CGFloat { space1 * 0.6 }
-    /// The +'s stroke while held or while its menu is open.
-    public static var addGlyphPressedLineWidth: CGFloat { space1 * 0.9 }
     /// The tab row's pane-type chevron beside its +: an SF chevron at this point size spans about
     /// the +'s width. (The sidebar's chooser keeps its smaller menu-indicator chevron.)
     public static var addMenuChevronPointSize: CGFloat { (addGlyphExtent + space1 / 2).rounded() }

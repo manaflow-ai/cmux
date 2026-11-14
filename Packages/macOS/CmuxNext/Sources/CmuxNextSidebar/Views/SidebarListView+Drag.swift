@@ -19,7 +19,6 @@ extension SidebarListViewComponents {
         var standing: WorkspaceID?
         if let header = pressed.standingHeader, case let .workspace(id) = press.key,
            !(model.selection.contains(id) && model.selection.count > 1 && press.switchedOnPress == nil) {
-            if let before = press.switchedOnPress { restorePressSelection(before, pressed: id) }
             key = header.key
             standing = id
         }
@@ -28,11 +27,11 @@ extension SidebarListViewComponents {
             // A creating row drags alone (it is never selected); a placeholder bar never drags.
             guard !model.isPlaceholder(id) || model.isCreating(id) else { return }
             let ids = model.selection.contains(id) && press.switchedOnPress == nil ? model.orderedSelection : [id]
-            // A plain press's drag moves the row and leaves the shown workspace (and the selection) as it was
-            // before the press: a press that switched on mouse-down switches back.
-            if let before = press.switchedOnPress {
-                restorePressSelection(before, pressed: id)
-            } else if !model.selection.contains(id), press.clickOnRelease != id { model.click(id) }
+            // A plain press's drag keeps the switch its press made: the dragged workspace stays shown and selected,
+            // as a tab drag in Chrome and Edge does (Leo 2026-11-08: "The second you click, it focuses. So we might
+            // as well make the thing be better"). Putting the old workspace back as the row lifted switched twice
+            // in one gesture, the "really weird shifting of focus".
+            if press.switchedOnPress == nil, !model.selection.contains(id), press.clickOnRelease != id { model.click(id) }
             payload = .workspaces(ids)
             hidden = Set(ids.map(SidebarRowKey.workspace))
             origin = ids.first.flatMap { SidebarEdits.position(of: $0, in: model.sections) }.map(DropTarget.position)
@@ -109,21 +108,6 @@ extension SidebarListViewComponents {
         showDragLayout()
         SidebarEmptyZones.begin(self, drag)
     }
-    /// A press that became a drag puts back the shown workspace and the selection it switched on mouse-down. That is
-    /// no focus change: the list does not scroll to the workspace shown before the press (Leo 2026-11-06: "it jumps me
-    /// up or to the bottom"). A row pressed near the bottom of a scrolled list, with the shown workspace far above,
-    /// scrolled the list there as the drag lifted.
-    func restorePressSelection(_ before: (shown: WorkspaceID?, selection: Set<WorkspaceID>), pressed id: WorkspaceID) {
-        // Marked revealed before the click: in the app the click's select redraws the list in the same turn
-        // (`SidebarSameTurn.syncNow`), and that reload must see the put-back as no focus change too.
-        if let shown = before.shown, shown != model.activeWorkspaceID {
-            revealedActive = .workspace(shown)
-            model.click(shown)
-        }
-        model.selection = before.selection
-        revealedActive = selectionRevealKey
-        if !patchSelection(from: .workspace(id), oldSelection: [id]) { reload(animated: false) }
-    }
     func updateDrag(windowPoint: NSPoint) {
         guard let drag else { return }
         let started = CACurrentMediaTime()
@@ -156,7 +140,7 @@ extension SidebarListViewComponents {
     }
     /// The drag's base layout (no gap) and its drop rules in the Rust reducer, made again only when the rows or their
     /// look change: a move builds no options, lays out nothing and crosses into Rust with the card's points only, so its
-    /// cost does not grow with the rows the list holds (`SidebarDragMoveCostTests`, `SidebarDragFullMoveCostTests`). The rows are the held ones as shown (`SidebarRowHold`).
+    /// cost does not grow with the rows the list holds (`SidebarDragMoveCostTests`, `SidebarDragFullMoveCostTests`).
     func dragBase(_ drag: Drag) -> (layout: SidebarLayout, rules: DropResolver.DragRules?) {
         let key = dragBaseKey(drag)
         if let base = drag.base, base.key == key { return (base.layout, base.rules) }
@@ -402,8 +386,6 @@ extension SidebarListViewComponents {
             groupLineViews.showMissing(groupLines(displayed), in: self, above: decorations)
         }
         updateHover()
-        // The rows the ticks patched meanwhile show their new content now, together (`SidebarRowHold`).
-        releaseRowHold()
         if let anchor = drag.renameOnLand { inlineRename.beginGroup(of: anchor) }
     }
 

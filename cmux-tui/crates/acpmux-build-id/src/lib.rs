@@ -4,10 +4,11 @@
 //! It lives in this leaf crate, not in acpmux, because the build script reruns
 //! on every new stamp and every commit, and Cargo recompiles every target of a
 //! package whose build script reruns. acpmux depends on this crate only with
-//! its default `build-id` feature (the standalone `acpmux` binary and its
-//! tests). The cmux-tui binary turns that feature off, depends on this crate
-//! itself, and installs the value at start (`acpmux::hub::install_build`), so a new
-//! stamp recompiles only this crate and cmux-tui.
+//! its default `build-id` feature (the acpmux package's own `acpmux` binary and
+//! its tests). The cmux-tui binary and the shipped standalone acpmux
+//! (acpmux-standalone) turn that feature off, depend on this crate themselves,
+//! and install the value at start (`acpmux::hub::install_build`), so a new
+//! stamp recompiles only this crate and those binaries.
 
 #![forbid(unsafe_code)]
 

@@ -790,6 +790,25 @@ impl Link {
         }
     }
 
+    /// A query with no deadline: the receiver gets the host's answer, or an error once this link's
+    /// reader ends (it drops every query still open). For a caller that stops waiting at its own
+    /// budget but still takes the answer when it comes (`ChildAgent::host_kind`).
+    pub async fn query_answer(&self) -> Result<oneshot::Receiver<QueryReply>> {
+        let id = self.next_query.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let (tx, rx) = oneshot::channel();
+        self.queries.lock_or_recover().insert(id, tx);
+        // A reader that already ended cleared the map before this insert and drops no more.
+        if self.is_closed() {
+            self.queries.lock_or_recover().remove(&id);
+            return Err(anyhow!("agent host connection closed"));
+        }
+        if let Err(e) = self.send(ControllerFrame::Query { id }).await {
+            self.queries.lock_or_recover().remove(&id);
+            return Err(e);
+        }
+        Ok(rx)
+    }
+
     /// The last entry the host numbered before it answers a query sent now. The host handles this
     /// link's frames in order, the `Resume` sent at connect before this query, and sends its own in
     /// order: every entry it numbered before it handled that `Resume` (its hello's `last_h`, and
