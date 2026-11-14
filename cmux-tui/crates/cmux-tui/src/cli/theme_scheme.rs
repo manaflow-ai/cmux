@@ -92,6 +92,17 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         })
         .cloned()
         .collect();
+    if let Some(request) = theme_file_request(&rest) {
+        let prefix: Vec<String> =
+            args.iter().take_while(|word| *word != "theme").cloned().collect();
+        return Some(match request {
+            Ok(request) => super::theme_file::run(&global, &prefix, request),
+            Err(message) => {
+                eprintln!("{message}");
+                2
+            }
+        });
+    }
     Some(match parse(&rest) {
         Ok(request) => run(&global, request),
         Err(message) => {
@@ -99,6 +110,27 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             2
         }
     })
+}
+
+/// The theme file verbs (`super::theme_file`): its own verbs, `export` with
+/// no theme name (the current look), and `import` of a cmux theme file.
+/// Help lists both sets.
+fn theme_file_request(rest: &[String]) -> Option<Result<super::theme_file::Request, String>> {
+    let (verb, args) = rest.split_first()?;
+    let positional = || args.iter().filter(|word| !word.starts_with('-')).count();
+    let takes = match verb.as_str() {
+        verb if super::theme_file::VERBS.contains(&verb) => true,
+        "export" => positional() == 0 || args.iter().any(|w| w == "--save" || w == "--use"),
+        "import" => args
+            .iter()
+            .find(|word| !word.starts_with('-'))
+            .is_some_and(|file| super::theme_file::is_theme_file(Path::new(file))),
+        "-h" | "--help" | "help" => {
+            return Some(Err(format!("{}\n\n{USAGE}", super::theme_file::USAGE)));
+        }
+        _ => false,
+    };
+    takes.then(|| super::theme_file::parse(rest))
 }
 
 fn format_flag(value: Option<&String>, flag: &str) -> Result<SchemeFormat, String> {
