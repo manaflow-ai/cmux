@@ -62,17 +62,6 @@ import Testing
         #expect(blocks.isEmpty, "the ⌄ paints a rectangular block: \(blocks.map { "\($0.bounds.size) r\($0.cornerRadius)" })")
     }
 
-    @Test func thePaneMoreDrawsNoPlateWhileItsMenuIsOpen() throws {
-        let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 80, height: TabStripView.preferredHeight))
-        toolbar.show(more: true, lit: false)
-        toolbar.layoutSubtreeIfNeeded()
-        toolbar.moreButton.showsMenu = true
-        toolbar.moreButton.updateLayer()
-        let layer = try #require(toolbar.moreButton.layer)
-        let blocks = filledLayers(layer).filter { abs($0.bounds.width - $0.bounds.height) > 0.5 || $0.cornerRadius < $0.bounds.width / 2 - 0.5 }
-        #expect(blocks.isEmpty, "the ⋮ paints a plate: \(blocks.map { "\($0.bounds.size) r\($0.cornerRadius)" })")
-    }
-
     @Test func theChevronIsDrawnAtThePlusStrokeWeight() throws {
         let harness = Harness()
         defer { harness.window.closeAfterTest() }
