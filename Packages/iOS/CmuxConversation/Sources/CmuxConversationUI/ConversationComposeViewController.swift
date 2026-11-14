@@ -309,7 +309,9 @@ public final class ConversationComposeViewController: UIViewController {
         for interaction in listEdgeInteractions { interaction.view?.removeInteraction(interaction) }
         listEdgeInteractions = []
         guard existingController == nil else { return }
-        setContentScrollView(suggestionsTable, for: .top)
+        // Not the navigation bar's content scroll view: its pocket ends at the bar, above To:.
+        // The list draws its own edge, down to where its rows start (its safe area, below), as
+        // the details screen's list does.
         guard #available(iOS 26.0, *) else { return }
         suggestionsTable.topEdgeEffect.style = .soft
         suggestionsTable.bottomEdgeEffect.style = .soft
