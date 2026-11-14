@@ -336,6 +336,12 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // A page's palette ranks its rows with it; the
                         // CLI has no palette.
                         | "palette.rank"
+                        // `cmux theme import/export/from-image` convert in
+                        // process with the same crate (cmux-theme-tokens);
+                        // the ops are for pages and extensions.
+                        | "theme.scheme.convert"
+                        | "theme.scheme.export"
+                        | "theme.scheme.from_image"
                         // Stash (stash-v1) is the app's native OneTab; the
                         // CLI has no stash verbs yet.
                         | "stash.create"

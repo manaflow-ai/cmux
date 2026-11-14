@@ -33,6 +33,9 @@ fn wire_name_round_trips_through_serde() {
         "cloud.machine.chat_access",
         "cloud.machine.share_chat",
         "palette.rank",
+        "theme.scheme.convert",
+        "theme.scheme.export",
+        "theme.scheme.from_image",
     ] {
         let operation: ResourceOperation =
             serde_json::from_str(&format!("\"{name}\"")).expect("known operation");
