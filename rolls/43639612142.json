@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43639612142",
+  "recorded_at": "2026-11-14T20:59:48Z",
+  "reason": "cmux-tui 912f943bcacd changes the image's cmux-tui (pinned 2d0b7046c8bb)",
+  "dry_run": false,
+  "cmux_tui": "912f943bcacda66ebabf89349c0852e6c2400f38",
+  "fixes": [
+    {
+      "sha": "ac6ed4047c2e3c7d8c73ca838313baab082fa4d9",
+      "mergedAt": "2026-11-14T12:27:06-08:00",
+      "subject": "closing panes: the land rule's question in Rust (cmux_closing_panes_landing_moves, step A) (#43088)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T20:59:48Z",
+    "snapshot_id": "sh-e330e897115248da95131c3bab5e06fe",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43639612142): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0cc6ab3afbb05280d68024a543a4f1057a7d5f47",
+    "image": "cloud-native-auto-912f943b-43639612142-1",
+    "revision": "ci-43639612142-1",
+    "at": "2026-11-14T20:59:48Z"
+  },
+  "rolled_back": false
+}
