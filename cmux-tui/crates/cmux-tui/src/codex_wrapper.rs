@@ -450,8 +450,11 @@ mod tests {
             let (settings, calls, said) = launch(choice, &["-p", "work"], found("/opt/cmux"));
             assert!(settings.is_empty() && calls.is_empty() && said.is_empty(), "{choice:?}");
         }
-        let (settings, calls, said) =
-            launch(AgentsCmuxMcp::On, &["-pwork", "-c", "x=1", "exec", "hi"], CodexEntry::Absent);
+        let (settings, calls, said) = launch(
+            AgentsCmuxMcp::On,
+            &["-pwork", "-c", "x=1", "exec", "say hi"],
+            CodexEntry::Absent,
+        );
         assert_eq!(calls.len(), 1);
         let (codex, path, cwd, config) = &calls[0];
         assert_eq!(
@@ -484,13 +487,29 @@ mod tests {
             &["hi", "--remote", "ws://127.0.0.1:1"],
         ] {
             let (settings, calls, said) = launch(AgentsCmuxMcp::On, args, found("/opt/cmux"));
-            assert!(calls.is_empty() && said.is_empty(), "{args:?}");
+            assert!(calls.is_empty(), "{args:?}");
+            // Said once: the person's own cmux server stays on for this launch.
+            assert_eq!(said.len(), 1, "{args:?}: {said:?}");
+            assert!(said[0].starts_with("cmux: "), "{said:?}");
             assert!(
                 !settings.iter().any(|s| s.contains("enabled=false")),
                 "{args:?}: {settings:?}"
             );
             assert!(settings.iter().any(|s| s.starts_with("mcp_servers.cmux_terminal.command=")));
         }
+    }
+
+    /// An entry with a url is never turned off, and the person is told.
+    #[test]
+    fn a_url_entry_is_kept_and_said() {
+        let http = CodexEntry::Found(serde_json::json!({
+            "name": "cmux", "enabled": true,
+            "transport": {"type": "streamable_http", "url": "http://127.0.0.1:1/mcp"},
+        }));
+        let (settings, _, said) = launch(AgentsCmuxMcp::On, &[], http);
+        assert!(!settings.iter().any(|s| s.starts_with("mcp_servers.cmux.")), "{settings:?}");
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].starts_with("cmux: "), "{said:?}");
     }
 
     /// `enabled=false` only for another cmux's entry Codex reported; an

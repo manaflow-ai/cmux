@@ -600,23 +600,33 @@ mod tests {
         CodexEntry::Found(value)
     }
 
-    /// The switch for an HTTP entry sends its URL; an entry whose transport
-    /// cannot be written back is left on.
+    /// The switch sends the reported stdio command and args back exactly,
+    /// whatever characters they hold (Codex parses each `-c` value as TOML);
+    /// an entry with a `url`, or whose args are no list of strings, is left on.
     #[test]
     fn the_off_switch_carries_the_reported_transport() {
         let http = CodexEntry::Found(json!({
             "name": "cmux", "enabled": true,
             "transport": {"type": "streamable_http", "url": "http://127.0.0.1:1/mcp"},
         }));
-        // An HTTP entry is no cmux CLI: not cmux's own, so left on.
-        assert!(turn_off_cmux(&http).is_empty());
-        let stdio = entry("/opt/cmux", json!({}));
-        let off = servers(&turn_off_cmux(&stdio));
-        assert_eq!(off[SERVER]["command"].as_str(), Some("/opt/cmux"));
-        assert_eq!(off[SERVER]["args"], toml::Value::try_from(["mcp", "serve"]).unwrap());
-        assert_eq!(off[SERVER]["enabled"].as_bool(), Some(false));
+        assert!(turn_off_cmux(&http).is_empty(), "a url entry runs no cmux CLI: left on");
         let odd = entry("/opt/cmux", json!({"transport.args": "mcp serve"}));
         assert!(turn_off_cmux(&odd).is_empty(), "args that are no list: left on");
+        for command in [
+            "/opt/cmux",
+            "/A \"quoted\" b/cmux",
+            "/back\\slash/cmux",
+            "/new\nline/cmux",
+            "/Programme/ünïcødé ✓/cmux",
+            "/a'b/cmux",
+        ] {
+            let args = ["mcp", "serve", "--x=\"q\"\\\n✓"];
+            let reported = entry(command, json!({"transport.args": args}));
+            let off = servers(&turn_off_cmux(&reported));
+            assert_eq!(off[SERVER]["command"].as_str(), Some(command), "{command:?}");
+            assert_eq!(off[SERVER]["args"], toml::Value::try_from(args).unwrap(), "{command:?}");
+            assert_eq!(off[SERVER]["enabled"].as_bool(), Some(false));
+        }
     }
 
     /// This build's server is always `cmux_terminal` in Codex, sharing no key

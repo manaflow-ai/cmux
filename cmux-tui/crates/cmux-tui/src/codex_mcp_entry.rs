@@ -378,16 +378,17 @@ mod tests {
         for args in [
             &[][..],
             &["fix the bug"],
-            &["-p", "work", "-C", "sub", "hi"],
+            &["Fix it"],
+            &["exec", "fix the bug"],
+            &["-p", "work", "-C", "sub", "say hi"],
             &["-pwork", "--model", "o3", "resume this"],
-            &["exec", "hi"],
-            &["e", "--json", "hi"],
+            &["e", "--json", "say hi"],
             &["review"],
             &["exec", "review", "--base", "main"],
             &["--", "resume"],
-            &["hi", "--", "--worktree"],
-            &["-c", "--worktree", "hi"],
-            &["--cyber-access-program", "--worktree", "hi"],
+            &["say hi", "--", "--worktree"],
+            &["-c", "--worktree", "say hi"],
+            &["--cyber-access-program", "--worktree", "say hi"],
         ] {
             assert!(probe_matches_launch(&os(args)), "{args:?}");
         }
@@ -409,6 +410,16 @@ mod tests {
             &["fix the bug", "--worktree"],
             &["cloud"],
             &["app-server"],
+            // Subcommands 0.169 adds, and any a later Codex adds.
+            &["execpolicy", "check"],
+            &["tcp-tunnel"],
+            &["responses-api-proxy"],
+            &["stdio-to-uds", "/x"],
+            &["cloud-tasks"],
+            &["exec", "some-new-verb"],
+            // A one-word prompt: not probed (only the turn-off is lost).
+            &["hi"],
+            &["exec", "hi"],
         ] {
             assert!(!probe_matches_launch(&os(args)), "{args:?}");
         }
