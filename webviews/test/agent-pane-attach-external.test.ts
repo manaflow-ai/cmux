@@ -86,7 +86,29 @@ await requireBrowserLane("agent-pane-attach-external.test.ts", async () => {
       (window as unknown as { asked: unknown[] }).asked.length = 0;
       window.cmuxAcpmuxBridge?.command?.("attachExternal");
     });
-    await page.waitForFunction(() => window.cmuxAcpmuxBridge?.composerState?.()?.attachments[0]?.source === "Preview");
+    // What the page did, for a failure's message.
+    const seen = () =>
+      page.evaluate(() =>
+        JSON.stringify({
+          state: window.cmuxAcpmuxBridge?.composerState?.(),
+          asked: (window as unknown as { asked: unknown[] }).asked,
+          tiles: [...document.querySelectorAll(".acpmux-attachment, [class*='attachment']")].map(
+            (node) => node.className,
+          ),
+          note:
+            document.querySelector("[class*='attach-error'], [class*='attachError'], [role='alert']")?.textContent ??
+            null,
+        }),
+      );
+    const settled = await page
+      .waitForFunction(() => window.cmuxAcpmuxBridge?.composerState?.()?.attachments[0]?.source === "Preview", null, {
+        timeout: 15_000,
+      })
+      .then(
+        () => true,
+        () => false,
+      );
+    if (!settled) throw new Error(`the image never became a sourced chip: ${await seen()}`);
     const state = await page.evaluate(() => window.cmuxAcpmuxBridge?.composerState?.());
     expect(state?.attachments.map(({ name, mimeType, source }) => ({ name, mimeType, source }))).toEqual([
       { name: "Screenshot 2026-11-14.png", mimeType: "image/png", source: "Preview" },
