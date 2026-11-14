@@ -17,6 +17,11 @@
 //! (`refreshing`), and only a directory that a reply asked for gets there, so requests that
 //! come inside one refresh start no second one. The worker reads the file system with no lock
 //! held; it takes the state lock only to find the tabs of a directory whose value changed.
+//!
+//! A request with `known` can answer `unchanged` and read no tree, so it asks for no directory.
+//! It sends each stale directory of the cache to the same refresh
+//! ([`Mux::revalidate_git_heads`]): a branch switched with no event then moves the tree revision
+//! for the client's next request.
 
 #[cfg(test)]
 use super::git_head_probe;
@@ -143,6 +148,28 @@ impl Mux {
             self.tree_revision.bump();
         }
         head
+    }
+
+    /// For a `list-workspaces` request with `known`, which can answer `unchanged` with no read
+    /// of the tree (cmux#42895): sends each cached directory whose value is older than
+    /// [`GIT_HEAD_TTL`] to the refresh. No HEAD is read on the thread of the reply. A branch
+    /// switched with no event moves the tree revision when the refresh reads it, so the request
+    /// that comes after the refresh gets the whole tree; the request that queued the directory
+    /// can still answer `unchanged`. The cache holds the directories that a tree showed.
+    pub(crate) fn revalidate_git_heads(&self) {
+        let now = Instant::now();
+        {
+            let mut cache = self.git_heads.inner.lock().recover_poison();
+            let cache = &mut *cache;
+            for (cwd, entry) in &mut cache.heads {
+                if !entry.refreshing && now.saturating_duration_since(entry.checked) >= GIT_HEAD_TTL
+                {
+                    entry.refreshing = true;
+                    cache.queue.push(cwd.clone());
+                }
+            }
+        }
+        self.start_git_head_refresh();
     }
 
     /// Starts the worker when stale directories wait and none runs.

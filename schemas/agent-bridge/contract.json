@@ -20,6 +20,7 @@
     "chat.asks.pending": "chat.asks.pending",
     "chat.attach.choose": "chat.attach.choose",
     "chat.attach.dropped": "chat.attach.dropped",
+    "chat.attach.external": "chat.attach.external",
     "chat.attach.source": "chat.attach.source",
     "chat.attention.open": "chat.attention.open",
     "chat.btw.inline": "chat.btw.inline",

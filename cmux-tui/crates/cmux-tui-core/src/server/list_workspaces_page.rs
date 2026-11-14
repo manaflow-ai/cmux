@@ -50,6 +50,10 @@ pub(super) fn list_workspaces_reply_since(
     if let Some(hidden) = remote_view {
         return list_workspaces_reply_seen(mux, known, limit, hidden);
     }
+    // A branch switch has no event: each HEAD past its cache lifetime goes to the background
+    // refresh, and one that moved bumps the revision. This request can still answer
+    // `unchanged`; the request after the refresh gets the tree (cmux#42895).
+    mux.revalidate_git_heads();
     let tree_revision = mux.tree_revision();
     let (registry_id, generation) = mux.registry_identity();
     let (workspace_revision, pane_revision) =

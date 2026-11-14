@@ -777,6 +777,10 @@
       "scope": "git:read",
       "class": "read"
     },
+    "git.fingerprint": {
+      "scope": "git:read",
+      "class": "read"
+    },
     "git.push": {
       "scope": "git:external",
       "class": "mutation"

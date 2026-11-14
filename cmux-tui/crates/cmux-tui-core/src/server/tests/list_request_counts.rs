@@ -199,6 +199,14 @@ impl Connection {
         reply
     }
 
+    /// The data of the reply to `list-workspaces` with `known`.
+    fn list_since(&self, mux: &Arc<Mux>, known: &Value) -> Value {
+        let reply = self.command(mux, json!({"id": 1, "cmd": "list-workspaces", "known": known}));
+        let mut reply: Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(reply["ok"], json!(true), "{reply}");
+        reply["data"].take()
+    }
+
     /// The reply line to a v2 `session.snapshot`, which runs on this thread.
     fn snapshot(&self, mux: &Arc<Mux>) -> String {
         let line = resource_request(
@@ -433,6 +441,18 @@ fn list_requests_inside_one_git_head_refresh_start_no_second_one() {
     session.end();
 }
 
+/// What a client keeps of a whole tree and sends back as `known`.
+fn known_of(tree: &Value) -> Value {
+    json!({
+        "registry_id": tree["registry_id"],
+        "generation": tree["generation"],
+        "workspace_revision": tree["workspace_revision"],
+        "pane_revision": tree["pane_revision"],
+        "terminal_revision": tree["terminal_revision"],
+        "tree_revision": tree["tree_revision"],
+    })
+}
+
 /// The surfaces of the `tab-changed` deltas that `events` holds now.
 fn changed_tabs(events: &MuxEventReceiver) -> Vec<SurfaceId> {
     std::iter::from_fn(|| events.try_recv().ok())
@@ -498,22 +518,10 @@ fn a_git_head_refresh_moves_the_tree_revision_only_for_a_branch_that_changed() {
     session.give_directories(&[moving.clone(), still]);
     let render = Arc::new(RenderService::new());
     let app = Connection::open(mux, &render, &TAB_CAPABILITIES);
-    let since = |known: &Value| -> Value {
-        let reply = app.command(mux, json!({"id": 1, "cmd": "list-workspaces", "known": known}));
-        let mut reply: Value = serde_json::from_str(&reply).unwrap();
-        assert_eq!(reply["ok"], json!(true), "{reply}");
-        reply["data"].take()
-    };
+    let since = |known: &Value| app.list_since(mux, known);
     let first = since(&json!({}));
     assert_eq!(first["workspaces"].as_array().map(Vec::len), Some(2), "the whole tree");
-    let known = json!({
-        "registry_id": first["registry_id"],
-        "generation": first["generation"],
-        "workspace_revision": first["workspace_revision"],
-        "pane_revision": first["pane_revision"],
-        "terminal_revision": first["terminal_revision"],
-        "tree_revision": first["tree_revision"],
-    });
+    let known = known_of(&first);
     assert!(known["tree_revision"].is_string(), "{known}");
     assert_eq!(since(&known)["unchanged"], json!(true), "nothing changed");
 
@@ -534,6 +542,51 @@ fn a_git_head_refresh_moves_the_tree_revision_only_for_a_branch_that_changed() {
     let text = next.to_string();
     assert_eq!(text.matches("\"git_branch\":\"next\"").count(), 1, "{}", start_of(&text));
     assert_eq!(text.matches("\"git_branch\":\"main\"").count(), 1, "{}", start_of(&text));
+    session.end();
+}
+
+/// A request with `known` can answer `unchanged` and read no tree, so a branch switched with no
+/// event would never reach its client (cmux#42895). The request sends each stale directory of the
+/// cache to the refresh and reads no git HEAD itself; the request after the refresh gets the
+/// whole tree with the new branch.
+#[test]
+fn a_known_request_reads_no_git_head_and_sends_each_stale_directory_to_the_refresh() {
+    let session = Session::of("list-counts-known-refresh", 2);
+    let mux = &session.mux;
+    let repository = session.repository("repository", "main");
+    session.give_directories(&[repository.clone()]);
+    let render = Arc::new(RenderService::new());
+    let app = Connection::open(mux, &render, &TAB_CAPABILITIES);
+    let known = known_of(&app.list_since(mux, &json!({})));
+    assert_eq!(app.list_since(mux, &known)["unchanged"], json!(true), "nothing changed");
+
+    // The branch changes with no event, each cached value is past its lifetime, and each read
+    // below the session's directory waits from now.
+    set_branch(&repository, "next");
+    Mux::watch_git_head_reads_below(&session.root, true);
+    assert!(mux.age_git_heads_for_test(), "this host has no instant that is 3 seconds old");
+    let before = Mux::git_head_reads_on_this_thread();
+    let asked = app.list_since(mux, &known);
+    let in_reply = Mux::git_head_reads_on_this_thread() - before;
+    assert_eq!(asked["unchanged"], json!(true), "the refresh has read no directory yet: {asked}");
+    wait_until("the refresh reads its first directory", || Mux::watched_git_head_reads() >= 1);
+    Mux::watch_git_head_reads_below(&session.root, false);
+    wait_until("the refresh ended", || Mux::git_head_refreshes_running() == 0);
+    let all = Mux::watched_git_head_reads();
+    assert_eq!(
+        (in_reply, all),
+        (0, 2),
+        "a list-workspaces request with `known` and 2 stale directories: {in_reply} git HEAD \
+         reads in the reply, {all} reads in all (one refresh reads each directory one time)"
+    );
+
+    let next = app.list_since(mux, &known);
+    assert!(next.get("unchanged").is_none(), "the branch changed: {next}");
+    assert_ne!(next["tree_revision"], known["tree_revision"]);
+    let text = next.to_string();
+    assert_eq!(text.matches("\"git_branch\":\"next\"").count(), 2, "{}", start_of(&text));
+    let known = known_of(&next);
+    assert_eq!(app.list_since(mux, &known)["unchanged"], json!(true), "nothing changed again");
     session.end();
 }
 
