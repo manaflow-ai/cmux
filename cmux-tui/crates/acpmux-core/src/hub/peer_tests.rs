@@ -55,7 +55,9 @@ fn a_wake_before_its_append_never_moves_a_peer_cursor_past_the_committed_seq() {
     }
     let mut expected = Vec::new();
     let mut delivered = Vec::new();
-    for n in 0..1_000_u64 {
+    let mut n = 0_u64;
+    while woken.load(Ordering::Relaxed) < 1_000 {
+        n += 1;
         let id = format!("chat-{}", n % 7);
         let at = n + 1;
         match n % 4 {
