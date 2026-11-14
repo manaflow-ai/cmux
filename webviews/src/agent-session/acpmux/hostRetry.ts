@@ -107,6 +107,12 @@ export function lostRetryDelay(delay: number, upForMs: number): { wait: number; 
   return { wait, next: Math.min(wait * 2, FLAP_RETRY_MAX_MS) };
 }
 
+/// One retry wait: `step` scaled to 50-100% (home-channels DaemonGate.tsx). Every tab restored over
+/// one daemon loses it at the same moment; unjittered they would all ask again in lockstep.
+export function jitteredDelay(step: number, random: () => number = Math.random): number {
+  return Math.round(step * (0.5 + random() / 2));
+}
+
 /// What the pane's handshake loop does around a Restart acpmux.
 export type AcpmuxRestartHooks = {
   /// Drops the automatic retry waiting to run and a Retry queued behind an attempt in flight.
@@ -118,6 +124,9 @@ export type AcpmuxRestartHooks = {
   /// Asks the host again now, as Retry does.
   ask(): void;
 };
+
+/// How long the pane waits on the app's Restart acpmux before it asks the host again anyway.
+export const RESTART_DEADLINE_MS = 25_000;
 
 /// The pane's Restart acpmux. While one runs no handshake may start (``mayAsk``): not the
 /// automatic retry, not a Retry queued behind an attempt that was in flight, so the old daemon is
@@ -136,11 +145,21 @@ export class AcpmuxRestartGate {
     this.running = true;
     hooks.cancelRetries();
     hooks.changed(true);
+    let deadline: ReturnType<typeof setTimeout> | undefined;
     try {
-      await stop();
+      // An app that never answers the restart (it hung, its reply was lost) must not hold the pane
+      // on "Restarting…" with every handshake barred: past RESTART_DEADLINE_MS the gate opens and
+      // the pane asks again, and its line becomes the wait's or the failure's, which offer Restart.
+      await Promise.race([
+        stop(),
+        new Promise<void>((resolve) => {
+          deadline = setTimeout(resolve, RESTART_DEADLINE_MS);
+        }),
+      ]);
     } catch {
       // The app answers `{stopped: false}` or fails; either way the pane asks again below.
     } finally {
+      if (deadline !== undefined) clearTimeout(deadline);
       this.running = false;
       hooks.changed(false);
       if (!hooks.connected()) hooks.ask();
