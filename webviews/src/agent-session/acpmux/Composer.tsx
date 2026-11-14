@@ -89,6 +89,7 @@ import {
   shownName,
   slashMatches,
   useSlashNames,
+  insertsText,
   pickedSkillsOf,
   withSkillDollars,
   withoutSkillDollars,
@@ -1466,7 +1467,7 @@ function ComposerFrame({
     setRecentCommandNames(rememberRecentCommand(command.name));
     notePicked(command);
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
-    if (field.current?.insertCommand(shownName(command))) {
+    if (field.current?.insertCommand(shownName(command), insertsText(command) ? command.insert : undefined)) {
       field.current.focus();
       return;
     }
@@ -3197,7 +3198,9 @@ function SlashMenu({
                   ? t("composer.slashSkill")
                   : match.command.source === "prompt"
                     ? t("composer.slashPrompt")
-                    : "cmux"}
+                    : match.command.source === "extension"
+                      ? (match.command.extension ?? "cmux")
+                      : "cmux"}
               </span>
             )}
             <span className="acpmux-slash-description">

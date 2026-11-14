@@ -52,7 +52,9 @@ export function SlashMenu({
                 ? t("composer.slashSkill")
                 : match.command.source === "prompt"
                   ? t("composer.slashPrompt")
-                  : "cmux"}
+                  : match.command.source === "extension"
+                    ? (match.command.extension ?? "cmux")
+                    : "cmux"}
             </span>
           )}
           <span className="acpmux-slash-description">

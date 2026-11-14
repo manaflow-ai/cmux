@@ -164,6 +164,52 @@ impl Manifest {
         self.implement("cmux.pane/1", export, title, symbol, None)
     }
 
+    /// Appends `entry` to the list `list` in the options of the data-only place `interface`
+    /// (no script runs for it, so it adds no activation).
+    fn append_data(mut self, interface: &str, list: &str, entry: Value) -> Self {
+        let implements = self.value.entry("implements").or_insert_with(|| json!({}));
+        if let Value::Object(places) = implements
+            && let Some(Value::Object(options)) = places
+                .entry(interface)
+                .or_insert_with(|| json!({ "options": {} }))
+                .get_mut("options")
+            && let Value::Array(items) = options.entry(list).or_insert_with(|| json!([]))
+        {
+            items.push(entry);
+        }
+        self
+    }
+
+    /// A slash command in the agent chat composer (`cmux.composer.command/1`): the `/` menu lists
+    /// it as `/name`, and picking it writes `insert` over the typed `/word`. Data only: cmux reads
+    /// it from the manifest, and a save updates the menu without a restart.
+    pub fn slash_command(self, name: &str, description: &str, insert: &str) -> Self {
+        let entry = json!({ "name": name, "description": description, "insert": insert });
+        self.append_data("cmux.composer.command/1", "commands", entry)
+    }
+
+    /// An item the person names with `@prefix` in the composer (`cmux.composer.mention/1`); the
+    /// daemon answers the completions. `insert` is what the mention writes (the label when None).
+    pub fn mention(self, prefix: &str, id: &str, label: &str, insert: Option<&str>) -> Self {
+        let mut item = Map::new();
+        item.insert("id".into(), json!(id));
+        item.insert("label".into(), json!(label));
+        if let Some(insert) = insert {
+            item.insert("insert".into(), json!(insert));
+        }
+        let item = Value::Object(item);
+        let mut me = self.append_data("cmux.composer.mention/1", "items", item);
+        if let Some(Value::Object(options)) = me
+            .value
+            .get_mut("implements")
+            .and_then(|p| p.get_mut("cmux.composer.mention/1"))
+            .and_then(|p| p.get_mut("options"))
+        {
+            options.insert("prefix".into(), json!(prefix));
+        }
+        me
+    }
+
     /// A chat widget (`cmux.chat.widget/1`) drawn by the script's `export`: a card in the agent
     /// chat under each tool call whose name matches one of `tools` (`*` matches any run of
     /// characters), and for widget parts that name this extension. With no `tools` it draws only

@@ -15,8 +15,16 @@ export type SlashCommand = {
   descriptionKey?: StringKey;
   hint?: string;
   /** Where the command came from. Harness commands are the default for old snapshots. */
-  source?: "agent" | "cmux" | "skill" | "prompt";
+  source?: "agent" | "cmux" | "skill" | "prompt" | "extension";
+  /** An extension's command (`cmux.composer.command/1`): the text its pick writes over the `/word`. */
+  insert?: string;
+  /** An extension's command: the extension's name, which the menu row shows as its source. */
+  extension?: string;
 };
+
+/// An extension's command: picking it writes its text, so it never runs or goes as `/name`.
+export const insertsText = (command: SlashCommand): command is SlashCommand & { insert: string } =>
+  command.source === "extension" && typeof command.insert === "string" && command.insert.length > 0;
 
 /// One menu row: the command and the ranges of its name the query matched.
 export type SlashMatch = { command: SlashCommand; ranges: [number, number][] };
@@ -383,11 +391,15 @@ export function slashTrigger(before: string, lead: number | undefined): SlashTri
 export const goesAsText = (command: SlashCommand) => command.source === "skill" || command.source === "prompt";
 
 /// The menu's rows for `trigger`: every command at the prompt's start, the ones that go as text
-/// mid-prompt.
+/// (and an extension's, which write their text) mid-prompt.
 export function slashMatches(commands: readonly SlashCommand[], trigger: SlashTrigger): SlashMatch[] {
   return trigger.leading
     ? matchCommands([...commands], trigger.query)
-    : matchCommands(commands.filter(goesAsText), trigger.query, false);
+    : matchCommands(
+        commands.filter((command) => goesAsText(command) || insertsText(command)),
+        trigger.query,
+        false,
+      );
 }
 
 /// Whether Return picks `match`, the menu's highlighted row, for `query` (the typed word without its
@@ -399,6 +411,8 @@ export function returnPicks(match: SlashMatch | undefined, query: string, arrowe
   if (!match) return false;
   const name = shownName(match.command);
   const typed = query.replace(/^\$/, "");
+  // An extension's command is only its text: Return on its whole name writes the text, never sends it.
+  if (insertsText(match.command) && name === typed) return true;
   if (name === typed && (!match.command.hint || match.command.source === "cmux")) return false;
   return arrowed || name.toLowerCase().startsWith(typed.toLowerCase());
 }
@@ -412,7 +426,8 @@ export type SlashNames = {
 };
 
 export function slashNames(commands: readonly SlashCommand[] | undefined): SlashNames {
-  const list = commands ?? [];
+  // An extension's command never stays in the prompt as `/name` (its pick writes its text): no blue.
+  const list = (commands ?? []).filter((command) => !insertsText(command));
   // A `$` skill by the name the prompt shows (`/emil-color`) and by its own (`/$emil-color`).
   const names = (each: readonly SlashCommand[]) => each.flatMap((command) => [command.name, shownName(command)]);
   const descriptions = new Map<string, string>();
@@ -527,22 +542,29 @@ function subsequence(name: string, needle: string): [number, number][] | undefin
 /// `forward` after it (the rest of the word and one space or tab) become `text`, `/name `. What
 /// came before and after stays; a line break or attachment after the word is kept. `cut`: `after`
 /// stops short of the block's end. A rest of the word that runs past it is left whole, never cut
-/// (nor split between the halves of a surrogate pair).
+/// (nor split between the halves of a surrogate pair). With `insert` (an extension's command) the
+/// word becomes that text as it is, and the space after the word stays.
 export function commandSplice(
   after: string,
   trigger: SlashTrigger,
   name: string,
   cut = false,
+  insert?: string,
 ): { back: number; forward: number; text: string } {
   const word = /^[^\s\uFFFC]*/.exec(after)?.[0] ?? "";
-  const forward =
-    word.length === after.length && cut ? 0 : word.length + (/^[ \t]/.test(after.slice(word.length)) ? 1 : 0);
+  if (word.length === after.length && cut) return { back: trigger.length, forward: 0, text: insert ?? `/${name} ` };
+  if (insert !== undefined) return { back: trigger.length, forward: word.length, text: insert };
+  const forward = word.length + (/^[ \t]/.test(after.slice(word.length)) ? 1 : 0);
   return { back: trigger.length, forward, text: `/${name} ` };
 }
 
 /// The prompt after picking `command` with no editor to edit in place: `/name ` replacing a
-/// leading `/word`.
+/// leading `/word`, or an extension's text.
 export function applyCommand(text: string, caret: number, command: SlashCommand): { text: string; caret: number } {
+  if (insertsText(command)) {
+    const rest = text.slice(caret).replace(/^\S*/, "");
+    return { text: command.insert + rest, caret: command.insert.length };
+  }
   const inserted = `/${shownName(command)} `;
   const rest = text.slice(caret).replace(/^\S*\s?/, "");
   return { text: inserted + rest, caret: inserted.length };

@@ -112,6 +112,31 @@ Every first-party extension with tests runs them this way as a fork, with only t
 beside it (`bun first-party-apps/fork-check.ts`); `runtime-files.json` lists the runtime files the
 package ships.
 
+## Composer: slash commands and mentions
+
+Two places are data in the manifest, with no script: cmux's daemon reads them and answers the
+agent chat composer, so saving `cmux-app.json` updates the composer without a restart.
+
+```json
+"implements": {
+  "cmux.composer.command/1": { "options": { "commands": [
+    { "name": "standup", "description": "Ask for today's standup", "insert": "Write my standup notes." }
+  ] } },
+  "cmux.composer.mention/1": { "options": { "prefix": "ticket", "items": [
+    { "id": "ENG-1", "label": "ENG-1 Login fails", "insert": "ENG-1" }
+  ] } }
+}
+```
+
+- `cmux.composer.command/1`: each command is a row in the composer's `/` menu; picking it writes
+  `insert` over the typed `/word`. Names are lowercase letters, digits, `-` and `_`, 32 at most; a
+  name the agent or cmux already has stays theirs. Up to 32 commands per extension.
+- `cmux.composer.mention/1`: items the daemon ranks for a query (`apps.composer.mentions`). Up to
+  200 per extension.
+
+The TypeScript types are `ComposerCommand` and `ComposerMention`; in Rust,
+`Manifest::slash_command` and `Manifest::mention`.
+
 ## The Rust API
 
 ```rust

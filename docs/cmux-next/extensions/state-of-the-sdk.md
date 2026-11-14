@@ -43,7 +43,9 @@ it into each new extension.
 4. **Places not built:** `render: web` panes, new tab widgets (`cmux.newtab.widget/1` is not in
    `cmux-app-manifest/src/interfaces.rs`), status items (validated, never drawn), chat widgets
    (`cmux.chat.widget/1` is validated and routed by the daemon, `apps.chat_widgets.route`; the
-   transcript does not draw them yet),
+   transcript does not draw them yet), composer mentions (`cmux.composer.mention/1` is answered
+   by the daemon, `apps.composer.mentions`; the `@` menu does not list them yet; slash commands,
+   `cmux.composer.command/1`, are listed in the `/` menu),
    right sidebar panels. `cmux ext new` scaffolds only a sidebar section.
 5. **Sharing.** Extensions install from a local folder only; `cmux ext add/share/search` is #42068.
 6. **Budgets.** The batch-rate ladder (Slowed, Paused) is designed but not enforced (#41554); the
