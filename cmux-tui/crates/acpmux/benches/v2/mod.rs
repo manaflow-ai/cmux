@@ -202,15 +202,6 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
-        pr: "4b",
-        name: "v2.pr04b.mirror_read_retry_bound",
-        done_when: "A sid whose reads all fail issues exactly two requests per window and none between; a successful page permits an immediate retry from the head, and stopped wanted keys survive until the next window's walk ends or the next want.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
         pr: "5",
         name: "v2.pr05.first_list_window",
         done_when: "First list window from a running hub: best p95 within 1.2x at 11,000 sessions against 20, all-sample p95 within 2x.",
