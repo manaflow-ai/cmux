@@ -253,7 +253,7 @@ impl Turn {
             e["at"] = json!(at);
             out(e.to_string());
         }
-        if n % 3 == 0 {
+        if n.is_multiple_of(3) {
             *seq += 1;
             let text = format!("agent report {n}: {}", "r".repeat(600));
             let inbox = json!({"seq": *seq, "at": at, "dir": "mux", "kind": "inbox", "msg": {
