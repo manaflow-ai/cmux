@@ -104,6 +104,7 @@ extension SettingsSchema {
         "app.internalDeveloperMode": .userOnly,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly, "app.startAgentGlobalHotKey": .userOnly,
+        "app.captureScreenshotGlobalHotKey": .userOnly,
         // Off, a close ends running programs and agents without asking.
         "app.warnBeforeClosingTab": .destructive, "app.warnBeforeClosingAgentSession": .destructive,
         // Update checks and downloads reach the network; install on quit replaces the app.

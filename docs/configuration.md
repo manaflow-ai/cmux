@@ -655,6 +655,22 @@ The panel can also open while another app is in front. This system-wide key is o
 
 Turn it on in Settings > General > Start Agent from Any App. Its key is a separate row, Start Agent from Any App (default Ctrl+Option+Cmd+Space), rebound from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.startAgentFromAnyApp"]`. When another app (or another cmux global key) already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
 
+## Capture Screenshot to Chat and `app.captureScreenshotGlobalHotKey`
+
+Capture Screenshot to Chat (command palette, Ctrl+Option+Cmd+S) runs the system's region picker. The screenshot goes into the focused agent chat's composer as an unsent draft, or into a new agent chat when none is focused. cmux then comes forward with the composer focused. Escape in the picker takes nothing. The picker is macOS's own, so the first capture may ask for the Screen Recording permission.
+
+To use the same key while another app is in front, turn on Settings > General > Capture Screenshot to Chat from Any App. It is off by default, because it takes the key from every other app:
+
+```json
+{
+  "app": {
+    "captureScreenshotGlobalHotKey": true
+  }
+}
+```
+
+Rebind it from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.captureScreenshotToChat"]`. Scripts can run the same path on a fixed region without the picker: `cmux app call chat.capture.toChat '{"region": [x, y, width, height]}'` (global points from the top-left) answers `{"session", "path", "bytes"}`, and `cmux app call chat.composer.get '{}'` reads back what the composer holds.
+
 ## Background mode and `app.hideDockIconWithoutWindows`
 
 When you close the last cmux window, cmux keeps running, and so do your terminals and agents. By default it then leaves the Dock and the app switcher (Cmd-Tab). The cmux menu bar item (`app.showMenuBarIcon`, below) stays as the way back; with that item off, a smaller menu bar item shows instead, with Show cmux, New Window, Settings and Quit. Opening any window brings the Dock icon back: the menu bar item, opening cmux again from Finder or Spotlight, a notification, a link, or the `cmux` CLI. To keep the Dock icon while no window is open:

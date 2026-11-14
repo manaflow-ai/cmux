@@ -378,6 +378,37 @@
           }
         },
         {
+          "key": "app.captureScreenshotGlobalHotKey",
+          "note": "Off when unset or invalid.",
+          "title": {
+            "key": "settings.app.captureScreenshotGlobalHotKey",
+            "text": "Capture Screenshot to Chat from Any App"
+          },
+          "help": {
+            "key": "settings.app.captureScreenshotGlobalHotKey.help",
+            "text": "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "global",
+            "hotkey",
+            "hot key",
+            "screenshot",
+            "capture",
+            "screen",
+            "region",
+            "image",
+            "agent",
+            "chat",
+            "system-wide"
+          ],
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          }
+        },
+        {
           "key": "app.hideDockIconWithoutWindows",
           "note": "On when unset or invalid.",
           "title": {

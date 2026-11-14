@@ -93528,6 +93528,268 @@
         }
       }
     },
+    "settings.app.captureScreenshotGlobalHotKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture Screenshot to Chat from Any App"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どのアプリからでもスクリーンショットをチャットへ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التقاط لقطة شاشة إلى الدردشة من أي تطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Snimak ekrana u chat iz bilo koje aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skærmbillede til chat fra enhver app"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bildschirmfoto in Chat aus jeder App"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Captura de pantalla al chat desde cualquier app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Capture d’écran vers le chat depuis n’importe quelle app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schermata nella chat da qualsiasi app"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថតរូបអេក្រង់ទៅការជជែកពីកម្មវិធីណាមួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 앱에서 스크린샷을 채팅으로"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjermbilde til chat fra hvilken som helst app"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zrzut ekranu do czatu z dowolnej aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Captura de tela para o chat de qualquer app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Снимок экрана в чат из любого приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จับภาพหน้าจอไปยังแชทจากแอปใดก็ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Herhangi Bir Uygulamadan Sohbete Ekran Görüntüsü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Знімок екрана в чат з будь-якої програми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chụp màn hình vào trò chuyện từ mọi ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从任意应用截屏到聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "從任何 App 截圖到聊天"
+          }
+        }
+      }
+    },
+    "settings.app.captureScreenshotGlobalHotKey.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「スクリーンショットを撮ってチャットへ」（⌃⌥⌘S）を、ほかのアプリが前面にあるときにも使えます。キーは「キーボードショートカット」で変更できます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل «التقاط لقطة شاشة إلى الدردشة» (⌃⌥⌘S) أثناء وجود تطبيق آخر في المقدمة. غيّر مفتاحه في اختصارات لوحة المفاتيح."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Snimi snimak ekrana u chat (⌃⌥⌘S) radi dok je druga aplikacija u prvom planu. Prečicu promijenite u Prečicama tastature."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tag skærmbillede til chat (⌃⌥⌘S) virker, mens en anden app er forrest. Skift tasten under Tastaturgenveje."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Bildschirmfoto in Chat aufnehmen“ (⌃⌥⌘S) funktioniert, während eine andere App im Vordergrund ist. Die Taste änderst du unter Tastaturkurzbefehle."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Capturar pantalla al chat (⌃⌥⌘S) funciona mientras otra app está en primer plano. Cambia su atajo en Atajos de teclado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Capturer l’écran dans le chat (⌃⌥⌘S) fonctionne lorsqu’une autre app est au premier plan. Modifiez son raccourci dans Raccourcis clavier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cattura schermata nella chat (⌃⌥⌘S) funziona mentre un’altra app è in primo piano. Cambia il tasto in Scorciatoie da tastiera."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថតរូបអេក្រង់ទៅការជជែក (⌃⌥⌘S) ដំណើរការ ពេលកម្មវិធីផ្សេងនៅខាងមុខ។ ប្តូរគ្រាប់ចុចរបស់វានៅក្នុងផ្លូវកាត់ក្តារចុច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스크린샷을 찍어 채팅에 넣기(⌃⌥⌘S)는 다른 앱이 앞에 있을 때도 작동합니다. 키는 키보드 단축키에서 바꿉니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta skjermbilde til chat (⌃⌥⌘S) virker mens en annen app er foran. Endre tasten i Tastatursnarveier."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zrób zrzut ekranu do czatu (⌃⌥⌘S) działa, gdy na pierwszym planie jest inna aplikacja. Klawisz zmienisz w Skrótach klawiszowych."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Capturar tela para o chat (⌃⌥⌘S) funciona enquanto outro app está em primeiro plano. Altere a tecla em Atalhos de teclado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Снимок экрана в чат» (⌃⌥⌘S) работает, когда впереди другое приложение. Клавишу можно изменить в разделе «Сочетания клавиш»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จับภาพหน้าจอไปยังแชท (⌃⌥⌘S) ใช้ได้ขณะที่แอปอื่นอยู่ด้านหน้า เปลี่ยนปุ่มได้ในปุ่มลัดแป้นพิมพ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekran Görüntüsünü Sohbete Al (⌃⌥⌘S), başka bir uygulama öndeyken de çalışır. Tuşunu Klavye Kısayolları'ndan değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Знімок екрана в чат» (⌃⌥⌘S) працює, коли попереду інша програма. Клавішу можна змінити в розділі «Сполучення клавіш»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chụp màn hình vào cuộc trò chuyện (⌃⌥⌘S) hoạt động khi một ứng dụng khác ở phía trước. Đổi phím trong Phím tắt bàn phím."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“截屏到聊天”（⌃⌥⌘S）在其他应用位于前台时也可使用。可在“键盘快捷键”中更改按键。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「截圖到聊天」（⌃⌥⌘S）在其他 App 位於前景時也能使用。可在「鍵盤快速鍵」中更改按鍵。"
+          }
+        }
+      }
+    },
     "settings.choice.newTabTemplateTerminal": {
       "extractionState": "manual",
       "localizations": {
