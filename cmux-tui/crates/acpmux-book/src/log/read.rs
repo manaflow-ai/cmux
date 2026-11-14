@@ -7,7 +7,8 @@
 //! ([`Window::bytes`]); [`Log::fill`] reads checked ranges for other callers.
 //!
 //! One read does at most one search of `folds.idx`, then steps to neighbouring entries as its
-//! walk moves; rows between two folds cost no read of the index.
+//! walk moves; rows between two folds cost no read of the index. A page of turns
+//! ([`Log::read_turns`]) reads only the group rows `folds.idx` lists.
 //!
 //! Windows and pages hold at most [`MAX_ROWS`] visible rows. The record-byte bounds are
 //! [`MAX_FRAME_BYTES`] for a window or resume and [`MAX_PAGE_BYTES`] for a page.
@@ -703,6 +704,95 @@ impl Log {
             at: Vec::new(),
         };
         self.refuse_rows(&mut result, &fold_read)?;
+        Ok(result)
+    }
+
+    /// A page of turns: the group rows `folds.idx` lists just before or just after a row, one a
+    /// settled turn, nearest the anchor first to be taken. Each is carried as a window carries
+    /// a closed fold's group row, its record checked. No other row of a fold and no row between
+    /// folds is read. At most `max_bytes` of records ([`MAX_PAGE_BYTES`] at most) and
+    /// [`MAX_ROWS`] rows, always one when one exists; `has_before` and `has_after` say whether
+    /// `folds.idx` lists more on each side. The fold that holds the anchor is before it (unless
+    /// the anchor is its group row), never on both sides. The open turn's group row is not
+    /// settled, so `folds.idx` does not list it.
+    ///
+    /// One search of `folds.idx`, then one step to a neighbouring entry, one `rows.idx` lookup
+    /// and one read a group row: the cost of a page, at any number of turns or length of turn.
+    pub fn read_turns(
+        &mut self,
+        edge: Edge,
+        max_bytes: usize,
+        folds: &Folds,
+    ) -> Result<Window, Error> {
+        if self.broken {
+            return Err(Error::Stopped);
+        }
+        let count = folds.count();
+        let (id, up) = match edge {
+            Edge::Before(id) => (id, false),
+            Edge::After(id) => (id, true),
+        };
+        // `first_after` is the position of the first entry whose group is after the anchor.
+        // Before it, an entry whose group is the anchor itself is on neither side.
+        let (first_after, before_end) = match folds.search(id)? {
+            Some((position, entry)) => {
+                let after = position.saturating_add(1);
+                (after, if entry.group == id { position } else { after })
+            }
+            None => (0, 0),
+        };
+        let mut next =
+            if up { Some(first_after).filter(|at| *at < count) } else { before_end.checked_sub(1) };
+        let mut bytes_left = Self::bound(max_bytes, MAX_PAGE_BYTES) as u64;
+        let mut taken: Vec<(RowRef, Option<Vec<u8>>)> = Vec::new();
+        let mut looked = 0usize;
+        while let Some(at) = next
+            && looked < MAX_ROWS
+        {
+            let Some(fold) = folds.entry_at(at)? else { break };
+            if let Some(entry) = self.entry(fold.group) {
+                let len = u64::from(entry.len).saturating_add(super::RECORD_OVERHEAD as u64);
+                if len > bytes_left && !taken.is_empty() {
+                    break;
+                }
+                bytes_left = bytes_left.saturating_sub(len);
+                let row = RowRef::of(fold.group, 0, &entry);
+                let text = self.read_row_bytes(&row)?;
+                taken.push((row, text));
+            }
+            looked = looked.saturating_add(1);
+            next = if up {
+                Some(at.saturating_add(1)).filter(|at| *at < count)
+            } else {
+                at.checked_sub(1)
+            };
+        }
+        let (has_before, has_after) = if up {
+            (first_after > 0, next.is_some())
+        } else {
+            (next.is_some(), before_end < count)
+        };
+        if !up {
+            taken.reverse();
+        }
+        let mut result = Window {
+            lo: taken.first().map_or(id, |(row, _)| row.row_id),
+            hi: taken.last().map_or(id, |(row, _)| row.row_id),
+            has_before,
+            has_after,
+            ..Window::default()
+        };
+        for (row, text) in taken {
+            match text {
+                Some(text) => {
+                    let start = result.bytes.len();
+                    result.bytes.extend_from_slice(&text);
+                    result.at.push(start..result.bytes.len());
+                    result.rows.push(row);
+                }
+                None => result.refused.push(row.row_id),
+            }
+        }
         Ok(result)
     }
 

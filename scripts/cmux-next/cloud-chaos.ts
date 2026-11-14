@@ -822,7 +822,7 @@ async function feltBoundary(ctx: ChaosContext, session: string, after: number, e
 }
 
 /** The loss verdict for one fault's counting turn: the client's view from `from` against the machine's journal. */
-async function lossVerdict(ctx: ChaosContext, chat: ChatClient, tag: string, baseline: number, from: number, interrupted: boolean): Promise<LossVerdict> {
+async function lossVerdict(ctx: ChaosContext, chat: ChatClient, tag: string, baseline: number, from: number, interrupted: boolean, injection: { step: number; running: boolean }): Promise<LossVerdict> {
   const notes: JournalNotes = { kinds: {}, asks: [] };
   const journal = await readJournal(ctx, tag, chat.session, baseline, notes);
   if (typeof journal === "string") return { ok: false, text: journal };
@@ -835,7 +835,7 @@ async function lossVerdict(ctx: ChaosContext, chat: ChatClient, tag: string, bas
   const slice = chat.received.slice(from);
   const client = slice.map((r) => journalEvent(tag, r.record) ?? { seq: r.seq, ks: [] });
   const reconnects = chat.reconnects.filter((i) => i >= from).map((i) => i - from);
-  const verdict = judgeLoss({ n: COUNT_STEPS, journal, client, reconnects, interrupted });
+  const verdict = judgeLoss({ n: COUNT_STEPS, journal, client, reconnects, interrupted, injection });
   const lag = caught ? "" : ` (the client held seq ${chat.held} after 30 s${chat.lastError ? `; last error ${chat.lastError}` : ""})`;
   const pages = slice.filter((r) => r.via === "page").length;
   const why = ranNone ? `; ${journalNotesText(notes)}` : "";
@@ -944,12 +944,15 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         if (reached >= third) break;
       }
       const state = await turnState(ctx, marker, chat.session).catch(() => ({ started: 0, running: false, status: "", detail: "" }));
+      // History is a remote read: output may have finished while it was in flight.
+      reached = chat.reached(tag, from);
       if (state.started === 0) {
         out.push(failed(f.name, `the turn was sent but never showed in the chat's history (the client saw step ${reached})`));
         continue;
       }
-      const when = reached >= third ? `mid-turn at step ${reached} of ${COUNT_STEPS}`
-        : state.running ? `mid-turn, but the client had seen only step ${reached} of ${COUNT_STEPS}` : `after the turn (${state.status})`;
+      const when = !state.running || reached >= COUNT_STEPS ? `after the counting output (${state.status}, step ${reached} of ${COUNT_STEPS})`
+        : reached >= third ? `mid-turn at step ${reached} of ${COUNT_STEPS}`
+        : `mid-turn, but the client had seen only step ${reached} of ${COUNT_STEPS}`;
       const dialsBefore = carrier.dials;
       const movesBefore = chat.surfaceMoves;
       const resumesBefore = carrier.routeLines.filter((l) => /phase=resume .*outcome=ok/.test(l)).length;
@@ -976,7 +979,7 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       const resumed = carrier.routeLines.filter((l) => /phase=resume .*outcome=ok/.test(l)).length > resumesBefore;
       const how = carrier.dials > dialsBefore ? `new dial (${carrier.dials - dialsBefore})` : resumed ? "resumed the session" : "unbroken";
       const turn = await turnOutcome(ctx, marker, chat.session);
-      const loss = await lossVerdict(ctx, chat, tag, baseline, from, turn.interrupted === true);
+      const loss = await lossVerdict(ctx, chat, tag, baseline, from, turn.interrupted === true, { step: reached, running: state.running });
       const terminal = await terminalVerdict(ctx, seqError ? null : seq, seqError);
       const ok = feel.felt_ms !== null && feltTurn.ok && recover !== null && turn.ok && loss.ok && terminal.ok;
       const feltText = feel.felt_ms === null
@@ -1116,8 +1119,10 @@ export function countedSteps(tag: string, text: string): number[] {
  *   machine's event of that seq;
  * - every step K in 1..n shows exactly once in the journal and exactly once in what the client received. A turn a
  *   restart cut short (`interrupted`) ran only to some step M: then every step in 1..M, M the journal's highest.
+ * - at least one counting step ran. The live leg also supplies its pre-injection observation: the turn was running,
+ *   the client had reached the one-third trigger, and counting output remained.
  */
-export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEvent[]; reconnects?: number[]; interrupted?: boolean }): LossVerdict {
+export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEvent[]; reconnects?: number[]; interrupted?: boolean; injection?: { step: number; running: boolean } }): LossVerdict {
   const problems: string[] = [];
   const { journal, client } = input;
   const reached = Math.max(0, ...journal.flatMap((e) => e.ks));
@@ -1125,6 +1130,11 @@ export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEv
   const range = (xs: number[]) => xs.length > 6 ? `${xs.slice(0, 6).join(",")},... (${xs.length})` : xs.join(",");
   if (!journal.length) return { ok: false, text: "the machine's journal has no events for the turn" };
   if (!client.length) return { ok: false, text: "the client received no events for the turn" };
+  if (reached === 0) return { ok: false, text: "the turn produced no counting steps" };
+  const injection = input.injection;
+  if (injection && (!injection.running || injection.step < Math.ceil(input.n / 3) || injection.step >= input.n)) {
+    problems.push(`the fault was not armed during counting output (step ${injection.step} of ${input.n}, running=${injection.running})`);
+  }
   // The machine's journal.
   const bySeq = new Map<number, SeqEvent>();
   const jGaps: number[] = [];
