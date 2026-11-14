@@ -9,7 +9,13 @@ use std::sync::Arc;
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+#[cfg(test)]
+mod replay_tests;
+
 const CREDIT_WINDOW_BYTES: usize = 1024 * 1024;
+// Keep ordinary replay spans and their wire envelopes below large-allocation
+// sizes. One larger operation may exceed this target, never the wire budget.
+const REPLAY_FRAME_TARGET_BYTES: usize = 64 * 1024;
 // Every encoded op is longer than 32 bytes, including an empty gone at seq 0.
 const MIN_OP_BYTES: usize = 32;
 
@@ -153,7 +159,9 @@ impl HistorySnapshot {
         if count == 0 {
             return None;
         }
-        let max_bytes = max_bytes.min(256 * 1024);
+        let first_entry = self.entries.get((self.head + offset) % self.entries.len())?;
+        let max_bytes =
+            first_entry.len.max(REPLAY_FRAME_TARGET_BYTES).min(max_bytes.min(256 * 1024));
         #[cfg(test)]
         let _copy_permit = RawCopyPermit::new(&self.raw_copy_permit, &self.raw_copy_waiting);
         let mut out = Vec::with_capacity(max_bytes.min(self.used.saturating_add(count)));
