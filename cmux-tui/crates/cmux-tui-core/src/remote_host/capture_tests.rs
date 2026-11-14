@@ -594,12 +594,12 @@ fn capture_owned_group_query_holds_running_child_and_releases_after_reap() {
         .spawn()
         .unwrap();
     let group = child.id();
-    let held = super::capture_platform::group_absent(group);
+    let held = capture_platform::group_absent(group);
     drop(child.stdin.take());
     child.wait().unwrap();
     assert!(held.is_err(), "a running owned writer must hold admission");
-    assert!(super::capture_platform::group_absent(group).is_ok());
+    assert!(capture_platform::group_absent(group).is_ok());
     for invalid in [0, 1, u32::MAX] {
-        assert!(super::capture_platform::group_absent(invalid).is_err());
+        assert!(capture_platform::group_absent(invalid).is_err());
     }
 }

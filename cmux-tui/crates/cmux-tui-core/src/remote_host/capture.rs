@@ -190,11 +190,12 @@ impl RemoteHostSupervisor {
             lease.phase = Phase::Prepared;
             self.persist_lease(paths, lease)?;
         }
-        result["ok"] = json!(true);
-        result["worker_pid_exited"] = json!(true);
-        result["descendants_exited"] = json!(true);
+        let proof = result.as_object_mut().ok_or("remote_capture_proof_unverified")?;
+        proof.insert("ok".into(), json!(true));
+        proof.insert("worker_pid_exited".into(), json!(true));
+        proof.insert("descendants_exited".into(), json!(true));
         if method == "capture.cleanup" {
-            result["code"] = json!("remote_cleaned");
+            proof.insert("code".into(), json!("remote_cleaned"));
         }
         Ok(result)
     }
