@@ -489,8 +489,7 @@ fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOu
     // its caret from the events); only an unselected row is selected.
     let unselected_row = selectable(&el).is_some_and(|row| row.bool("AXSelected") != Some(true));
     let blocked = d.refuse_denied_item(&el).is_err();
-    match roles::hit_click(&role, actions.iter().any(|a| a == "AXPress"), unselected_row, blocked)
-    {
+    match roles::hit_click(&role, actions.iter().any(|a| a == "AXPress"), unselected_row, blocked) {
         roles::HitClick::Refuse => d.refuse_denied_item(&el).map(|()| None),
         roles::HitClick::Press => {
             d.refuse_submenu_open(&el)?;

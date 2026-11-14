@@ -304,7 +304,8 @@ impl KeyInApp {
             if super::frontmost_pid() == Some(self.pid) {
                 return Ended::Fine;
             }
-            if psn_of(c, name).is_some_and(|psn| post(c, &psn, &record(RECORD_FOCUS, name, FOCUS_OUT)))
+            if psn_of(c, name)
+                .is_some_and(|psn| post(c, &psn, &record(RECORD_FOCUS, name, FOCUS_OUT)))
             {
                 return Ended::Fine;
             }
