@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43599592173",
+  "recorded_at": "2026-11-14T13:37:33Z",
+  "reason": "cmux-tui c9b13b3d7648 changes the image's cmux-tui (pinned 267a56c44cc5)",
+  "dry_run": false,
+  "cmux_tui": "c9b13b3d76481815f8a98263cb49216da9a73365",
+  "fixes": [
+    {
+      "sha": "c9b13b3d76481815f8a98263cb49216da9a73365",
+      "mergedAt": "2026-11-14T05:03:23-08:00",
+      "subject": "Themes as files, part 1: theme file read, check and render in Rust (cmux-config) (#42987)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T13:37:33Z",
+    "snapshot_id": "sh-1639ea108f5b46b9bbd74bb61340cc7f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43599592173): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6faed75c2a7f61507dc0caf4684e9f1f34817391",
+    "image": "cloud-native-auto-c9b13b3d-43599592173-1",
+    "revision": "ci-43599592173-1",
+    "at": "2026-11-14T13:37:33Z"
+  },
+  "rolled_back": false
+}
