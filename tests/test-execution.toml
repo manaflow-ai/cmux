@@ -26,6 +26,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_codex_auto_naming.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_opencode_restore_environment_roots.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
