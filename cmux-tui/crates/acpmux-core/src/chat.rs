@@ -176,6 +176,9 @@ pub struct ChatConfig {
     pub history: Option<Arc<HistoryPermits>>,
     /// What woke the caught-up actor to read, shared with its handle.
     pub wakes: Arc<Wakes>,
+    /// Records whose kind the translator has no line for (`translate/kinds.rs`), shared with its
+    /// handle: zero over every known log.
+    pub unknown_kinds: Arc<AtomicU64>,
 }
 
 /// How often a caught-up actor read because a notice came (a `wake`) or because its poll saw
@@ -201,6 +204,7 @@ impl ChatConfig {
             edition_random: Arc::new(system_random_edition),
             history: None,
             wakes: Arc::default(),
+            unknown_kinds: Arc::default(),
         }
     }
 
@@ -320,9 +324,8 @@ impl Request {
             Self::Wake | Self::Close { .. } => 0,
             Self::Sub { sub, .. } => size_of::<stream::ChatSub>() + sub.sid.len(),
             Self::Resume { sid, .. } | Self::End { sid, .. } => sid.len(),
-            Self::Page { page, .. } => {
-                size_of::<Page>() + page.sid.len() + page.stream.as_str().len() + size_of::<Reply>()
-            }
+            // Every member a page may carry (positions, keys, a filter), as its JSON counts them.
+            Self::Page { page, .. } => size_of::<Page>() + encoded_len(page) + size_of::<Reply>(),
             Self::Blob { blob, .. } => {
                 size_of::<Blob>()
                     + blob.id.len()
@@ -336,6 +339,23 @@ impl Request {
         };
         size_of::<Self>() + held
     }
+}
+
+/// How many bytes `value` takes as JSON, counted as it is written: nothing is held.
+fn encoded_len(value: &impl serde::Serialize) -> usize {
+    struct Count(usize);
+    impl Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    let _ = serde_json::to_writer(&mut count, value);
+    count.0
 }
 
 impl ChatError {
@@ -356,6 +376,7 @@ pub struct ChatHandle {
     health: tokio::sync::watch::Receiver<crate::life::Health>,
     failures: Arc<AtomicU64>,
     wakes: Arc<Wakes>,
+    unknown_kinds: Arc<AtomicU64>,
 }
 
 impl ChatHandle {
@@ -365,6 +386,11 @@ impl ChatHandle {
 
     pub fn failures(&self) -> u64 {
         self.failures.load(Ordering::Relaxed)
+    }
+
+    /// Records whose kind the translator has no line for, in this actor's life.
+    pub fn unknown_kinds(&self) -> u64 {
+        self.unknown_kinds.load(Ordering::Relaxed)
     }
 
     /// The chat is `ready`: a read from its cursor said `at_end` in this actor's life, so it
@@ -511,6 +537,7 @@ impl ChatActor {
             health: health_receiver,
             failures: failures.clone(),
             wakes: config.wakes.clone(),
+            unknown_kinds: config.unknown_kinds.clone(),
         };
         let join = thread::Builder::new()
             .name(format!("acpmux-chat-{}", config.id))
@@ -1144,6 +1171,7 @@ fn run_once(
             }
             Wait::Read => {}
             Wait::Idle => {
+                stream::prune(state);
                 if state.translate.open_rows().next().is_none()
                     && state.subs.is_empty()
                     && state.translate.queue_len() == 0
@@ -1330,13 +1358,13 @@ fn apply_ops(
     checkpoint_now: bool,
 ) -> Result<(), ChatError> {
     let mut changed = false;
-    let before = state.translate.counters();
+    let before = state.translate.line_failures();
     let ops =
         translate::translate(&mut state.translate, state.config.harness, base_offset, span, bytes)?;
-    let after = state.translate.counters();
-    if after.invalid_records != before.invalid_records || after.line_errors != before.line_errors {
+    if state.translate.line_failures() != before {
         return Err(translate::Error::InvalidRecord("raw line did not translate").into());
     }
+    state.config.unknown_kinds.store(state.translate.unknown_records(), Ordering::Relaxed);
     for op in ops {
         changed |= matches!(&op.change, Change::Row(row) if !row.open)
             || matches!(&op.change, Change::Patch(_));
@@ -1369,7 +1397,7 @@ fn apply_ops(
                         let bytes = bytes.get(range.offset..end).ok_or(ChatError::Closed)?;
                         std::str::from_utf8(bytes).map_err(|_| ChatError::Closed)?.to_owned()
                     }
-                    BodySource::Raw { place, span } => raw_body_value(state, *place, *span)?,
+                    BodySource::Raw { place, span } => raw_body_value(state, *place, *span, field)?,
                 };
                 let key = body_key(field);
                 let body =
@@ -1400,7 +1428,31 @@ fn apply_ops(
     Ok(())
 }
 
-fn raw_body_value(state: &mut ActorState, place: u64, span: u64) -> Result<String, ChatError> {
+/// A body field of a logged line's record: its `msg` key for `field` (a prompt's `text` for its
+/// content, its `images`, `inlineParts` or `pasted`). A prompt's text is read in pieces through
+/// `read_at` ([`queue::read_text`]), never the line whole. A source that cannot read part of a
+/// line, a line whose text does not begin in its first 16 KB, a part refused (the source's lines
+/// changed) and every other key are read as a chunk, which says `SourceChanged` when they did.
+fn raw_body_value(
+    state: &mut ActorState,
+    place: u64,
+    span: u64,
+    field: BodyField,
+) -> Result<String, ChatError> {
+    let key = match field {
+        BodyField::Images => "images",
+        BodyField::InlineParts => "inlineParts",
+        BodyField::Pasted => "pasted",
+        _ => "text",
+    };
+    if key == "text"
+        && state.source.stamp() == state.source_stamp
+        && let Ok(Some(text)) = queue::read_text(state.source.as_mut(), place)
+    {
+        // Decoded and written again: the book holds the form a chunk read gives.
+        let text: String = serde_json::from_slice(&text).map_err(|_| ChatError::Closed)?;
+        return serde_json::to_string(&text).map_err(|_| ChatError::Closed);
+    }
     let chunk = state.source.read_chunk(place)?;
     if chunk.stamp != state.source_stamp {
         return Err(ChatError::SourceChanged);
@@ -1417,7 +1469,7 @@ fn raw_body_value(state: &mut ActorState, place: u64, span: u64) -> Result<Strin
         let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
         let value: serde_json::Value =
             serde_json::from_slice(bytes).map_err(|_| ChatError::Closed)?;
-        let text = value.get("msg").and_then(|msg| msg.get("text")).ok_or(ChatError::Closed)?;
+        let text = value.get("msg").and_then(|msg| msg.get(key)).ok_or(ChatError::Closed)?;
         return serde_json::to_string(text).map_err(|_| ChatError::Closed);
     }
     Err(ChatError::Closed)
@@ -1495,10 +1547,12 @@ fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Resul
 fn patch(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Result<(), ChatError> {
     // A patch replaces a settled row's body. Keep its temporary body local: settled rows are
     // never checkpoint-open, so retaining one here would leak every superseded body until the
-    // actor next opened.
-    state.bodies.remove(&row.id);
+    // actor next opened. The bodies the translator sent for it just before (in this line's ops)
+    // are the patch's own: a settled row's fields come with its bodies read again.
+    let base = state.bodies.remove(&row.id);
     state.raw_ranges.remove(&row.id);
-    let mut patch_body = Body::new(row.id).map_err(ChatError::Book)?;
+    state.gens.remove(&row.id);
+    let mut patch_body = base.map_or_else(|| Body::new(row.id), Ok).map_err(ChatError::Book)?;
     for (field, value) in &row.fields {
         state.blobs.set(&mut patch_body, field, value, false)?;
     }
@@ -1527,6 +1581,10 @@ fn body_key(field: BodyField) -> &'static str {
         BodyField::Source => "source",
         BodyField::Images => "images",
         BodyField::Title => "title",
+        BodyField::InlineParts => "inlineParts",
+        BodyField::Pasted => "pasted",
+        BodyField::Request => "request",
+        BodyField::Outcome => "outcome",
     }
 }
 

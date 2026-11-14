@@ -151,6 +151,7 @@ dependencies = [
  "acpmux-client",
  "arc-swap",
  "cmux-scope",
+ "libc",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1539,6 +1540,7 @@ dependencies = [
  "rustls",
  "rustls-native-certs",
  "sha2 0.10.9",
+ "windows",
 ]
 
 [[package]]
