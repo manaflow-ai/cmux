@@ -11,6 +11,27 @@ import CmuxNextDesign
 /// memory is left, as after a crash. The pane's own storage does not survive a relaunch, so the
 /// host keeps the prompt; acpmux runs the resent prompt id at most once (`hub/turns.rs`, its
 /// ledger and `logged_prompt`, covered by `a_resend_after_a_restart_is_answered_from_the_log`).
+/// While the next record writes, another thread forgets `promptId` (acpmux acknowledged it): the
+/// change is in memory before the record goes on, and its own write waits behind the record's. The
+/// group is left once that write is done. Off the suite's main actor: the forget runs on its own
+/// thread, as a real acknowledgement does.
+private nonisolated func forgetWhileARecordWrites(_ journal: AgentPanePromptJournal, daemon: String,
+                                                  promptId: String) -> DispatchGroup {
+    let group = DispatchGroup()
+    let forget: @Sendable () -> Void = { journal.forget(daemon: daemon, promptId: promptId) }
+    let whileWriting: @Sendable () -> Void = {
+        DispatchQueue.global().async(group: group, execute: forget)
+        let deadline = Date().addingTimeInterval(10)
+        while journal.entries().contains(where: { $0.promptId == promptId }), Date() < deadline { usleep(1_000) }
+    }
+    journal.whileRecordWrites.withLock { $0 = whileWriting }
+    return group
+}
+
+private nonisolated func finished(_ group: DispatchGroup) async {
+    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in group.notify(queue: .global()) { done.resume() } }
+}
+
 @Suite(.serialized)
 @MainActor
 struct AgentPaneUnsentPromptTests {
@@ -254,6 +275,201 @@ struct AgentPaneUnsentPromptTests {
         #expect(Self.mux(sent[1])?["resend"] as? Bool == true, "a Retry must say so, so acpmux runs the prompt id at most once")
     }
 
+    /// A prompt whose record the host could not write (an unwritable folder, a full disk) does not
+    /// go: a crash before acpmux's acknowledgement would lose it for good. The page is told it was
+    /// not sent, so it offers Retry, and the Retry goes once the journal can be written.
+    @Test func aPromptWhoseRecordIsNotWrittenIsNotSent() async throws {
+        let url = Self.journalURL()
+        let folder = url.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        // A file where the journal's folder goes: every write of the journal fails.
+        try Data().write(to: folder)
+        let daemon = AcpmuxStandInServer()
+        try await daemon.start()
+        defer { daemon.stop() }
+        let journal = AgentPanePromptJournal(url: url)
+        let pane = try await Self.pane(daemon, journal: journal)
+        pane.transport.gestures.record()
+        let result = await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 1, promptId: "p-6")])
+        try #require(result?.rawValue == "transport.prompt_not_kept", "a prompt that is not on disk went without its crash protection")
+        await Self.barrier(pane, id: 2)
+        #expect(Self.prompts(daemon, peer: 0).isEmpty, "the daemon got a prompt the host could not keep")
+        #expect(await pane.inbox.frame(containing: #""id":1"#).contains("transport.prompt_not_kept"))
+        #expect(journal.entries().isEmpty)
+
+        try FileManager.default.removeItem(at: folder)
+        pane.transport.gestures.record()
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 3, promptId: "p-6")]) == nil)
+        #expect(await daemon.wait { _ in Self.prompts(daemon, peer: 0).count == 1 }, "the Retry did not go once the journal could be written")
+        let sent = Self.prompts(daemon, peer: 0)
+        #expect(sent.first.flatMap { Self.mux($0)?["resend"] } == nil, "a prompt that never went is not a resend")
+    }
+
+    /// The connection ends (the host closed it) while a prompt's record fails to write: the prompt
+    /// was refused, so it is not left over for the next connection to send after all.
+    @Test func aPromptRefusedWhileItsConnectionEndsIsNotSentLater() async throws {
+        let url = Self.journalURL()
+        let folder = url.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data().write(to: folder)
+        let daemon = AcpmuxStandInServer()
+        try await daemon.start()
+        defer { daemon.stop() }
+        let journal = AgentPanePromptJournal(url: url)
+        let pane = try await Self.pane(daemon, journal: journal)
+        let owner = try #require(pane.transport.promptRelay?.owner)
+        journal.whileRecordWrites.withLock { $0 = { journal.connectionEnded(owner: owner) } }
+        pane.transport.gestures.record()
+        let result = await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 1, promptId: "p-10")])
+        try #require(result?.rawValue == "transport.prompt_not_kept")
+        journal.whileRecordWrites.withLock { $0 = nil }
+        #expect(journal.entries().isEmpty, "the refused prompt was left over: \(journal.entries().map(\.promptId))")
+
+        let next = try await Self.pane(daemon, journal: journal)
+        await Self.barrier(next, id: 2)
+        #expect(Self.prompts(daemon, peer: 1).isEmpty, "the next connection sent a prompt that was refused")
+    }
+
+    /// Another change while a record writes (acpmux acknowledged an earlier prompt): the record is
+    /// kept, and the file holds the journal as it is after both, never a prompt that change took out.
+    @Test func aChangeWhileARecordWritesIsOnDiskWithIt() async throws {
+        let url = Self.journalURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let journal = AgentPanePromptJournal(url: url)
+        let entry = { (id: String) in
+            AgentPanePromptJournal.Entry(daemon: Self.daemon, sessionId: "s-1", promptId: id, params: "{}", at: journal.now())
+        }
+        let other = UUID()
+        #expect(try journal.record(entry("p-b"), owner: other))
+        let forgot = forgetWhileARecordWrites(journal, daemon: Self.daemon, promptId: "p-b")
+        let kept = try journal.record(entry("p-a"), owner: UUID())
+        journal.whileRecordWrites.withLock { $0 = nil }
+        await finished(forgot)
+        #expect(kept)
+        #expect(journal.entries().map(\.promptId) == ["p-a"])
+        #expect(AgentPanePromptJournal(url: url).entries().map(\.promptId) == ["p-a"],
+                "the file kept a prompt acpmux acknowledged meanwhile")
+    }
+
+    /// A change while a record writes, whose own write waits behind the record's, and the record's
+    /// second write (of the journal as it is after both) fails, the change's own write too: the
+    /// change still reaches the disk on the next write, never left out as older than the record.
+    @Test func aChangeWhileARecordWritesReachesTheDiskWhenTheSecondWriteFails() async throws {
+        let url = Self.journalURL()
+        let folder = url.deletingLastPathComponent()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+            try? FileManager.default.removeItem(at: folder)
+        }
+        let journal = AgentPanePromptJournal(url: url)
+        let entry = { (id: String) in
+            AgentPanePromptJournal.Entry(daemon: Self.daemon, sessionId: "s-1", promptId: id, params: "{}", at: journal.now())
+        }
+        let other = UUID()
+        #expect(try journal.record(entry("p-b"), owner: other))
+        let forgot = forgetWhileARecordWrites(journal, daemon: Self.daemon, promptId: "p-b")
+        journal.afterRecordWrite.withLock {
+            $0 = { try? FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path) }
+        }
+        #expect(try journal.record(entry("p-a"), owner: UUID()), "the record is on disk; a later write's failure is not its own")
+        journal.whileRecordWrites.withLock { $0 = nil }
+        journal.afterRecordWrite.withLock { $0 = nil }
+        await finished(forgot)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+        #expect(journal.recordPendingTrust(daemon: Self.daemon, folder: "/tmp/cmux-unsent-prompt-test/next-write"))
+        #expect(AgentPanePromptJournal(url: url).entries().map(\.promptId) == ["p-a"],
+                "the acknowledgement never reached the disk: its prompt would be sent again after a relaunch")
+    }
+
+    /// A change whose write fails, then an older change's queued write: the older snapshot does not
+    /// go over the file as it is; the journal goes as it is now, the failed change in it.
+    @Test func anOlderWriteAfterAFailedNewerOneWritesTheJournalAsItIsNow() throws {
+        let url = Self.journalURL()
+        let folder = url.deletingLastPathComponent()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+            try? FileManager.default.removeItem(at: folder)
+        }
+        let journal = AgentPanePromptJournal(url: url)
+        let entry = { (id: String) in
+            AgentPanePromptJournal.Entry(daemon: Self.daemon, sessionId: "s-1", promptId: id, params: "{}", at: journal.now())
+        }
+        let owner = UUID()
+        #expect(try journal.record(entry("p-a"), owner: owner))
+        #expect(try journal.record(entry("p-b"), owner: owner))
+        let older = journal.entries()
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
+        journal.forget(daemon: Self.daemon, promptId: "p-b")
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+        // An older change's snapshot, queued before the forget, writes now.
+        #expect(journal.write(older, pendingTrust: [], generation: 1))
+        let kept = AgentPanePromptJournal(url: url).entries().map(\.promptId)
+        #expect(kept == ["p-a"], "an older snapshot went over the failed forget: \(kept)")
+    }
+
+    /// A record over an unreadable journal that cannot be set aside yet (#28204) is refused like any
+    /// record that did not reach the disk: the only copy of the earlier prompts is never written over,
+    /// and the new prompt does not go.
+    @Test func aRecordOverAnUnreadableJournalIsRefusedAndNeverOverwritesIt() throws {
+        let url = Self.journalURL()
+        let folder = url.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let corrupt = Data(#"{"entries": [{"promptId": "half a pro"#.utf8)
+        try corrupt.write(to: url)
+        let journal = AgentPanePromptJournal(url: url, now: { Date(timeIntervalSince1970: 1_000) })
+        let aside = url.deletingPathExtension().appendingPathExtension("unreadable-1000")
+            .appendingPathExtension(url.pathExtension)
+        // Something already at the set-aside name: the move fails.
+        try FileManager.default.createDirectory(at: aside.appending(path: "blocker"), withIntermediateDirectories: true)
+        let entry = AgentPanePromptJournal.Entry(daemon: Self.daemon, sessionId: "s-1", promptId: "p-11", params: "{}", at: journal.now())
+        #expect(throws: AgentPanePromptJournal.NotWritten.self, "a record wrote over the unreadable journal") {
+            try journal.record(entry, owner: UUID())
+        }
+        #expect(try Data(contentsOf: url) == corrupt)
+        #expect(journal.entries().isEmpty, "the refused prompt is kept in memory")
+    }
+
+    /// The pane's Retry of a prompt the daemon got but never acknowledged, while the journal cannot
+    /// be written: the Retry does not go, and the first send's record stays, so a crash after the
+    /// disk recovers still sends that prompt again.
+    @Test func aRetryWhoseRecordIsNotWrittenKeepsTheEarlierRecord() async throws {
+        let url = Self.journalURL()
+        let folder = url.deletingLastPathComponent()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+            try? FileManager.default.removeItem(at: folder)
+        }
+        let daemon = AcpmuxStandInServer()
+        try await daemon.start()
+        defer { daemon.stop() }
+        daemon.hold("session/prompt")
+        let journal = AgentPanePromptJournal(url: url)
+        let pane = try await Self.pane(daemon, journal: journal)
+        pane.transport.gestures.record()
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 1, promptId: "p-7")]) == nil)
+        pane.transport.gestures.record()
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 5, promptId: "p-9")]) == nil)
+        #expect(await daemon.wait { _ in Self.prompts(daemon, peer: 0).count == 2 })
+
+        // The folder can no longer be written; the Retry is refused and does not go.
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
+        pane.transport.gestures.record()
+        let retry = await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 2, promptId: "p-7")])
+        try #require(retry?.rawValue == "transport.prompt_not_kept", "a Retry that is not on disk went")
+        await Self.barrier(pane, id: 3)
+        #expect(Self.prompts(daemon, peer: 0).count == 2)
+
+        // The disk recovers and another prompt is written: the first send's record is still there.
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+        pane.transport.gestures.record()
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 4, promptId: "p-8")]) == nil)
+        #expect(await daemon.wait { _ in Self.prompts(daemon, peer: 0).count == 3 })
+        // In its place, too: the journal keeps its records in the order they were sent.
+        let kept = AgentPanePromptJournal(url: url).entries().map(\.promptId)
+        #expect(kept == ["p-7", "p-9", "p-8"], "the Retry's failed write lost or moved the first send's record: \(kept)")
+    }
+
     /// The page cannot send `resend` itself: only the host sends a prompt again, and only one it
     /// recorded from a frame every page rule let through.
     @Test func thePageCannotMarkAPromptAsAResend() async throws {
@@ -276,10 +492,10 @@ struct AgentPaneUnsentPromptTests {
         let journal = AgentPanePromptJournal(url: url)
         let owner = UUID()
         for index in 0..<65 {
-            #expect(journal.record(.init(daemon: "daemon", sessionId: "s-1", promptId: "p-\(index)", params: "{}", at: Date()), owner: owner))
+            #expect(try journal.record(.init(daemon: "daemon", sessionId: "s-1", promptId: "p-\(index)", params: "{}", at: Date()), owner: owner))
         }
         let large = String(repeating: "x", count: 9 * 1024 * 1024)
-        #expect(journal.record(.init(daemon: "daemon", sessionId: "s-1", promptId: "large", params: large, at: Date()), owner: owner))
+        #expect(try journal.record(.init(daemon: "daemon", sessionId: "s-1", promptId: "large", params: large, at: Date()), owner: owner))
         #expect(journal.entries().count == 66)
         #expect(journal.entries().last?.params.utf8.count == 9 * 1024 * 1024)
         #expect(AgentPanePromptJournal(url: url).entries().count == 66)
