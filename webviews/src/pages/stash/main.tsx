@@ -2,8 +2,8 @@
 // in the browser dev loop (`/stash/?mock`) the in-memory mock provider stands in for the owners.
 // The route `#/import` opens the OneTab paste box (Import from OneTab… on a page not open yet).
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
-import "../shared/transientMaterial";
 import "../shared/desktop";
+import "../shared/transientMaterial";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
