@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43621875404",
+  "recorded_at": "2026-11-14T17:43:20Z",
+  "reason": "cmux-tui d6be1ddd3299 changes the image's cmux-tui (pinned bad2b0ace624)",
+  "dry_run": false,
+  "cmux_tui": "d6be1ddd329928d4ef95358bd39d70bc007b770e",
+  "fixes": [
+    {
+      "sha": "d6be1ddd329928d4ef95358bd39d70bc007b770e",
+      "mergedAt": "2026-11-14T17:13:36Z",
+      "subject": "refactor(cmux-tui): separate journal readers and subject indexing (#43157)"
+    },
+    {
+      "sha": "18a85c3b03d245e9d2976b4ffb962fc296338b36",
+      "mergedAt": "2026-11-14T09:10:41-08:00",
+      "subject": "Actions: Customize Sidebar… is title case and leads the sidebar menu's Options folder (#43122)"
+    },
+    {
+      "sha": "1bc1d459d0ce9feed6599b895bb0654030f47de1",
+      "mergedAt": "2026-11-14T09:10:16-08:00",
+      "subject": "Toggle Terminal and Chat mid-turn: acpmux release_to_watch, acpmux resume-here, route (step A, Rust only) (#43113)"
+    },
+    {
+      "sha": "aef8e085f5766d407c55dd15089a4ce5dcebe378",
+      "mergedAt": "2026-11-14T09:09:32-08:00",
+      "subject": "acpmux: the sidebar mirror's gate rows and recorded streams (v2 row 7 step B, 1 of 3) (#43062)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T17:43:20Z",
+    "snapshot_id": "sh-ca571488072443c188293d0ce7615e50",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43621875404): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8ad094b04b06f84a0a44f11876b43f6bae52d400",
+    "image": "cloud-native-auto-d6be1ddd-43621875404-1",
+    "revision": "ci-43621875404-1",
+    "at": "2026-11-14T17:43:20Z"
+  },
+  "rolled_back": false
+}
