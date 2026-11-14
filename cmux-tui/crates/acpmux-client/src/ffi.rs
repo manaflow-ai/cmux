@@ -4,6 +4,7 @@
 //! returned buffer with [`acpmux_client_bytes_free`]. No Rust panic crosses
 //! the ABI boundary.
 
+use crate::chat::{ChatBlobRequest, ChatChange, ChatPageRequest, ChatSubRequest};
 use crate::wire::{FolderPageResult, FolderWindow, ListKey, Page, Sub};
 use crate::{Change, Client};
 use serde_json::{Value, json};
@@ -31,8 +32,9 @@ pub enum FolderChangeJson {
     FolderGone { sid: String, seq: u64, origin: String, folder: String, replay: bool },
 }
 
-/// ABI version. Bump this when a type or function changes.
-pub const ACPMUX_CLIENT_ABI_VERSION: u32 = 2;
+/// ABI version. Bump this when a type or function changes. 3: chat subs, `blob`, and a handle
+/// that names its surfaces.
+pub const ACPMUX_CLIENT_ABI_VERSION: u32 = 3;
 /// The call succeeded.
 pub const ACPMUX_CLIENT_OK: i32 = 0;
 /// A required pointer was null.
@@ -155,7 +157,21 @@ fn change_json(change: Change<Value>) -> Result<Value, serde_json::Error> {
             Ok(json!({"kind":"error","method":method,"sid":sid,"id":id,"code":code}))
         }
         Change::Fallback(bytes) => Ok(json!({"kind":"fallback","bytes":bytes})),
+        Change::Chat(change) => serde_json::to_value(change),
     }
+}
+
+/// A change's bytes. A chat change is written from its rows' bytes as they arrived, never through
+/// a `Value`; a blob change is its JSON, a newline, then the bytes.
+fn change_bytes(change: Change<Value>) -> Result<Vec<u8>, serde_json::Error> {
+    let Change::Chat(change) = change else { return serde_json::to_vec(&change_json(change)?) };
+    let mut out = serde_json::to_vec(&change)?;
+    if let ChatChange::Blob { bytes, .. } = &change {
+        out.reserve(1 + bytes.len());
+        out.push(b'\n');
+        out.extend_from_slice(bytes);
+    }
+    Ok(out)
 }
 
 /// Returns this ABI's version.
@@ -170,7 +186,30 @@ pub extern "C" fn acpmux_client_new() -> *mut c_void {
     Box::into_raw(Box::new(Client::<Value>::new(["list"]))).cast()
 }
 
-/// Frees a handle returned by [`acpmux_client_new`].
+/// Allocates a client whose upgrade names the surfaces in a JSON array, such as
+/// `["list","chat"]`; null when the input is not one. One handle carries list and chat subs.
+/// A daemon with any named surface off answers the upgrade as v1, so a host names only the
+/// surfaces it uses.
+///
+/// # Safety
+/// `ptr..ptr+len` is readable for this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn acpmux_client_new_with_surfaces(
+    ptr: *const u8,
+    len: usize,
+) -> *mut c_void {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let surfaces = request_bytes(ptr, len)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Vec<String>>(bytes).ok());
+        surfaces.map_or(std::ptr::null_mut(), |surfaces| {
+            Box::into_raw(Box::new(Client::<Value>::new(surfaces))).cast()
+        })
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+/// Frees a handle returned by [`acpmux_client_new`] or [`acpmux_client_new_with_surfaces`].
 ///
 /// # Safety
 /// `handle` is null or was returned by this library and is consumed once.
@@ -274,11 +313,7 @@ pub unsafe extern "C" fn acpmux_client_next_change(handle: *mut c_void, out: *mu
             Err(error) => return error,
         };
         let Some(change) = client.next_change() else { return output(out, Vec::new()) };
-        let value = match change_json(change) {
-            Ok(value) => value,
-            Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
-        };
-        match serde_json::to_vec(&value) {
+        match change_bytes(change) {
             Ok(bytes) => output(out, bytes),
             Err(_) => ACPMUX_CLIENT_ERR_INVALID,
         }
@@ -463,6 +498,97 @@ pub unsafe extern "C" fn acpmux_client_page(
             Err(error) => return error,
         };
         client.page(page).map_or(ACPMUX_CLIENT_ERR_INVALID, |_| ACPMUX_CLIENT_OK)
+    })
+}
+
+/// Subscribes a chat from `{ "sid", "chat", "anchor"?, "window"? }` (`anchor` is `"end"` or
+/// `{ "rowId", "side" }`) and returns `{ "sid" }`. Unsubscribe it with
+/// [`acpmux_client_unsubscribe`].
+///
+/// # Safety
+/// `handle`, `out` and the input slice obey the pointer/length contract.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn acpmux_client_subscribe_chat(
+    handle: *mut c_void,
+    request: *const u8,
+    request_len: usize,
+    out: *mut Bytes,
+) -> i32 {
+    guarded(|| {
+        let bytes = match request_bytes(request, request_len) {
+            Ok(bytes) => bytes,
+            Err(error) => return error,
+        };
+        let Ok(request) = serde_json::from_slice::<ChatSubRequest>(bytes) else {
+            return ACPMUX_CLIENT_ERR_INVALID;
+        };
+        let client = match handle_mut(handle) {
+            Ok(client) => client,
+            Err(error) => return error,
+        };
+        match client.subscribe_chat(request) {
+            Ok(sid) => output(out, serde_json::to_vec(&json!({"sid": sid})).unwrap_or_default()),
+            Err(_) => ACPMUX_CLIENT_ERR_INVALID,
+        }
+    })
+}
+
+/// Asks a chat sub for a page from `{ "sid", "before" | "after", "fold"?, "maxBytes"? }`. The
+/// core fills the stream and the edition.
+///
+/// # Safety
+/// `handle` and the input slice obey the pointer/length contract.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn acpmux_client_chat_page(
+    handle: *mut c_void,
+    request: *const u8,
+    request_len: usize,
+) -> i32 {
+    guarded(|| {
+        let bytes = match request_bytes(request, request_len) {
+            Ok(bytes) => bytes,
+            Err(error) => return error,
+        };
+        let Ok(request) = serde_json::from_slice::<ChatPageRequest>(bytes) else {
+            return ACPMUX_CLIENT_ERR_INVALID;
+        };
+        let client = match handle_mut(handle) {
+            Ok(client) => client,
+            Err(error) => return error,
+        };
+        client.chat_page(request).map_or(ACPMUX_CLIENT_ERR_INVALID, |_| ACPMUX_CLIENT_OK)
+    })
+}
+
+/// Asks a chat sub for a range of a row's body or a waiting prompt's text, from
+/// `{ "sid", "rowId" | "prompt", "start"?, "len", "from"? }`, and returns `{ "id" }`, which the
+/// `chatBlob` change names.
+///
+/// # Safety
+/// `handle`, `out` and the input slice obey the pointer/length contract.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn acpmux_client_chat_blob(
+    handle: *mut c_void,
+    request: *const u8,
+    request_len: usize,
+    out: *mut Bytes,
+) -> i32 {
+    guarded(|| {
+        let bytes = match request_bytes(request, request_len) {
+            Ok(bytes) => bytes,
+            Err(error) => return error,
+        };
+        let Ok(request) = serde_json::from_slice::<ChatBlobRequest>(bytes) else {
+            return ACPMUX_CLIENT_ERR_INVALID;
+        };
+        let client = match handle_mut(handle) {
+            Ok(client) => client,
+            Err(error) => return error,
+        };
+        match client.chat_blob(request) {
+            Ok(id) => output(out, serde_json::to_vec(&json!({"id": id})).unwrap_or_default()),
+            Err(_) => ACPMUX_CLIENT_ERR_INVALID,
+        }
     })
 }
 
