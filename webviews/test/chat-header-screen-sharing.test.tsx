@@ -2,7 +2,6 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -54,8 +53,17 @@ beforeAll(() => {
 afterAll(async () => {
   act(() => root?.unmount());
   (await import("../src/agent-session/acpmux/native")).setNativeHost(undefined);
-  await teardownDom(saved, { scope });
+  for (const [key, existed, value] of saved) {
+    if (existed) scope[key] = value;
+    else delete scope[key];
+  }
 });
+
+function openMenu(button: HTMLButtonElement): void {
+  const pointer = new window.MouseEvent("pointerdown", { bubbles: true, button: 0 });
+  Object.defineProperty(pointer, "pointerType", { value: "mouse" });
+  button.dispatchEvent(pointer);
+}
 
 test("the New chevron reaches the current chat's screen sharing action without changing New", async () => {
   const { createRoot } = await import("react-dom/client");
@@ -85,7 +93,7 @@ test("the New chevron reaches the current chat's screen sharing action without c
   );
 
   await act(async () => {
-    (host.querySelector(".acpmux-header-new-more") as HTMLButtonElement).click();
+    openMenu(host.querySelector(".acpmux-header-new-more") as HTMLButtonElement);
   });
   const row = host.querySelector('[data-value="screen-sharing"]') as HTMLElement | null;
   expect(row).not.toBeNull();
@@ -114,7 +122,7 @@ test("the chevron has no screen sharing row when there is no chat session", asyn
     ),
   );
   await act(async () => {
-    (host.querySelector(".acpmux-header-new-more") as HTMLButtonElement).click();
+    openMenu(host.querySelector(".acpmux-header-new-more") as HTMLButtonElement);
   });
   expect(host.querySelector('[data-value="screen-sharing"]')).toBeNull();
 });
