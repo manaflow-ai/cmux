@@ -212,6 +212,102 @@ describe("local/activity (cmux-extension-sdk only)", () => {
   })
 })
 
+// examples/extensions/workspace-list is the built-in workspace list rebuilt on the public SDK: the
+// whole list (`cmux.sidebar/1`, drawn in place of the built-in one once the person picks it in
+// `sidebar.workspaceListApp`) and the same list as a section. Copy the folder to fork it.
+describe("local/workspace-list (cmux-extension-sdk only)", () => {
+  const dir = "examples/extensions/workspace-list"
+  const chat = (id: string, workspace: string | null, state: string, unread = false) =>
+    ({ id, title: id, state, unread, harness: "claude", project: null, cwd: null, workspace, machine: null, updated_ms: 0 })
+  const space = (i: number, focused = false) => ({ id: `ws_${i}`, session_id: "s", name: `space ${i}`, index: i, focused })
+  const drawn = (host: FakeHost, mount: string) => {
+    const tree = host.tree(mount)
+    const out: Array<Record<string, unknown>> = []
+    const walk = (id: string) => {
+      const n = tree.nodes.get(id)
+      if (!n) return
+      if (n.type === "Row") out.push(n.props)
+      n.children.forEach(walk)
+    }
+    walk(tree.root)
+    return out
+  }
+
+  let built: string | undefined
+  beforeAll(async () => {
+    const { pack } = await import("../../tools/pack.ts")
+    built = await pack(join(root, dir))
+  })
+
+  function list(count = 3) {
+    const host = new FakeHost(built!, { app: { id: "local/workspace-list", version: "1.0.0" }, settings: {} })
+    const state = {
+      workspaces: Array.from({ length: count }, (_, i) => space(i, i === 1)),
+      chats: [chat("c1", "ws_2", "input"), chat("c2", "ws_2", "idle", true), chat("c3", "ws_0", "working")]
+    }
+    host.handlers["workspace.list"] = () => ok(state.workspaces)
+    host.handlers["agent_chat.list"] = () => ok({ chats: state.chats })
+    host.handlers["workspace.focus"] = () => ok({})
+    return { host, state }
+  }
+
+  test("imports nothing but cmux-extension-sdk, and builds to one script that sets its exports", () => {
+    const src = readFileSync(join(root, dir, "src/main.ts"), "utf8")
+    expect([...src.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1])).toEqual(["cmux-extension-sdk"])
+    expect(built).toContain("__cmuxAppExports")
+    const manifest = JSON.parse(readFileSync(join(root, dir, "cmux-app.json"), "utf8"))
+    expect(Object.keys(manifest.implements).sort()).toEqual(["cmux.section/1", "cmux.sidebar/1"])
+  })
+
+  test("the whole list draws every workspace in the person's order, the shown one selected, with what waits in it", async () => {
+    const { host } = list()
+    expect(host.mount("l", "renderSidebar")).toBe("")
+    await host.settle()
+    expect(drawn(host, "l").map((r) => [r.title, r.selected ?? false, r.badge ?? null])).toEqual([
+      ["space 0", false, null],
+      ["space 1", true, null],
+      ["space 2", false, 2]
+    ])
+    // Pushed, not polled.
+    expect(new Set([...host.subscriptions.values()].map((s) => s.stream))).toEqual(new Set(["workspace.changed", "agent_chat.changed"]))
+    expect(host.timers.size).toBe(0)
+  })
+
+  test("a click shows that workspace, and a new workspace appears on workspace.changed", async () => {
+    const { host, state } = list()
+    host.mount("l", "renderSidebar")
+    await host.settle()
+    host.dispatch("l", host.findNode("l", (n) => n.type === "Row" && n.props.title === "space 2")!, "tap")
+    await host.settle()
+    expect(host.calls.filter((c) => c.name === "workspace.focus").map((c) => c.params.workspace)).toEqual(["ws_2"])
+    state.workspaces = [...state.workspaces, space(3)]
+    host.emit("workspace.changed")
+    await host.settle()
+    expect(drawn(host, "l").map((r) => r.title)).toContain("space 3")
+  })
+
+  test("the section is the same list", async () => {
+    const { host } = list()
+    expect(host.mount("s", "renderSection")).toBe("")
+    await host.settle()
+    expect(drawn(host, "s").map((r) => r.title)).toEqual(["space 0", "space 1", "space 2"])
+  })
+
+  test("500 workspaces: one read, one row each, and a change to one workspace redraws only its row", async () => {
+    const { host, state } = list(500)
+    host.mount("l", "renderSidebar")
+    await host.settle()
+    expect(drawn(host, "l").length).toBe(500)
+    expect(host.calls.filter((c) => c.name === "workspace.list").length).toBe(1)
+    const before = host.tree("l").nodes.size
+    state.workspaces = state.workspaces.map((w) => (w.id === "ws_7" ? { ...w, name: "renamed" } : w))
+    host.emit("workspace.changed")
+    await host.settle()
+    expect(host.tree("l").nodes.size).toBe(before)
+    expect(drawn(host, "l")[7]!.title).toBe("renamed")
+  })
+})
+
 describe("cmux-extension-sdk", () => {
   // The package bundled the way `cmux ext dev` bundles an extension, exposed as globalThis.__sdk.
   async function sdkHost(body: string) {
