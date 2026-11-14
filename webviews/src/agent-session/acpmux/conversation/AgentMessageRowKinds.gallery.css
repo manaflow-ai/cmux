@@ -1,0 +1,6 @@
+/* The stage's rows flow one under the other (the transcript places its rows absolutely, which drew
+   every row of this stage at the same top). */
+.message-row-kinds-gallery > .acpmux-row {
+  position: relative;
+  inset: auto;
+}

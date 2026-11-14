@@ -1,8 +1,8 @@
 // l10n-allow-file: gallery fixtures (the Swift playgrounds' sample servers, agents and links), not shipped UI.
 // The cards drawn in a Home chat, in the states the Swift debug playgrounds showed
 // (McpConnectCardPlayground, HomeAgentMessagePlayground, HomeNativeFixture, HomeFixtureMedia): every
-// MCP card look for every kind of server in every phase, the pill shapes, the agent pane and its
-// peek, link chips and their preview cards, the first-run panel and the header toggles.
+// MCP card look for every kind of server in every phase, the pill shapes, link chips and their
+// preview cards, the first-run panel and the header toggles.
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { cardStrings } from "./strings";
@@ -15,17 +15,7 @@ import {
   type McpTool,
 } from "./mcp/mcpConnect";
 import { AgentPills } from "./pills/AgentPills";
-import { AgentChat } from "./pills/AgentChat";
-import { AgentSidePane } from "./pills/AgentSidePane";
-import {
-  closeAgent,
-  openAgent,
-  selectAgent,
-  type AgentChatContent,
-  type AgentPaneState,
-  type AgentPillShape,
-  type AgentThreadSource,
-} from "./pills/agentModel";
+import type { AgentPillShape } from "./pills/agentModel";
 import { HomeLinkChip, LinkPreviewBody } from "./links/HomeLinkChip";
 import type { HomeLinkPreview } from "./links/linkPreview";
 import { FirstRunPanel, type FirstRunPanelProps, type StarterLook } from "./firstRun/FirstRunPanel";
@@ -168,60 +158,6 @@ function McpStage({ server, style, phase }: { server: string; style: McpCardStyl
   );
 }
 
-// Agent Messages Playground's run (Swift HomeAgentPlaygroundAgent.all).
-const AGENTS: AgentChatContent[] = [
-  {
-    peer: "a959",
-    title: "Sidebar alignment fix",
-    status: "Reported",
-    task: "Sidebar alignment fix\nFix the sidebar alignment: the header and the New Workspace row share one left edge. Measure both in the real app at 100% and 200%, light and dark. Root cause first, then a failing test, then the fix. cmux-ci urgent, rebase, plain push to feat-cmux-next. Report OLD..NEW with before and after shots.",
-    workedFor: "Worked for 5m 35s",
-    details: [
-      "Read SidebarHeaderView.swift and NewWorkspaceRow.swift",
-      "Measured both rows: 16 pt and 12 pt",
-      "Added a failing layout test (red on the fleet)",
-      "Fixed the header inset; test green",
-      "Pushed 41f05ff..631d310 to feat-cmux-next",
-    ],
-    messages: [
-      {
-        sender: "agent",
-        text: "Root cause: the header used the window's safe-area inset (16 pt); the row used the sidebar's 12 pt padding.",
-      },
-      { sender: "agent", text: "Done: both rows now start at 12 pt. Landed `41f05ff..631d310` on feat-cmux-next." },
-    ],
-    workspaceLink: "cmux://chief/0a1b2c3d/session/s-959",
-  },
-  {
-    peer: "a931",
-    title: "Nightly appcast rebuild",
-    status: "Working",
-    task: "Nightly appcast rebuild\nRebuild the nightly appcast on an owned Mac mini, check the feed and the installed NIGHTLY are on the same build, then plain push.",
-    workedFor: "Working for 2m 10s",
-    details: ["Queued the nightly job on cmux-mini-3", "Waiting for the notarization step"],
-    messages: [{ sender: "chief", text: "The fleet queue is clear now: bump your job with cmux-ci urgent." }],
-    workspaceLink: "cmux://chief/0a1b2c3d/session/s-931",
-    place: "cmux-mini-3",
-  },
-  {
-    peer: "a940",
-    title: "First-click button audit",
-    status: "Queued",
-    task: "First-click button audit\nAudit every button for first-click response, active and inactive window. Fix the causes and add a guard.",
-    workedFor: "Queued for 48s",
-    details: ["Listed 212 buttons in 38 views"],
-    messages: [],
-  },
-  {
-    peer: "a933",
-    title: "a933",
-    status: "Stopped without a report",
-    task: "Chat switch scroll\n\nThe chat must show at the bottom on its first frame.",
-    workedFor: "Stopped after 1m 12s",
-    details: ["Its session is Disconnected"],
-    messages: [{ sender: "agent", text: "(stopped without a report: its session is Disconnected)" }],
-  },
-];
 const ROW = {
   peers: ["a959", "a931", "a940", "a933"],
   titles: ["Sidebar alignment fix", "Nightly appcast rebuild", "First-click button audit", "a933"],
@@ -234,41 +170,6 @@ function PillsStage({ shape, width }: { shape: AgentPillShape; width: number }) 
     <div className="hm-gallery-stage" style={{ width }}>
       <AgentPills row={ROW} shape={shape} strings={strings} onOpen={setOpened} />
       {opened && <p className="hm-gallery-note">{opened}</p>}
-    </div>
-  );
-}
-
-function PaneStage({ tabs, selected }: { tabs: string[]; selected: string }) {
-  const source: AgentThreadSource = { thread: () => undefined, markSeen: () => {}, send: () => {} };
-  const [pane, setPane] = useState<AgentPaneState>({ tabs, selected });
-  const content = (peer: string) => AGENTS.find((agent) => agent.peer === peer);
-  return (
-    <div className="hm-gallery-split">
-      <div className="hm-gallery-stage">
-        <AgentPills row={ROW} strings={strings} onOpen={(peer) => setPane(openAgent(pane, peer, source))} />
-      </div>
-      <AgentSidePane
-        pane={pane}
-        content={content}
-        strings={strings}
-        onSelect={(peer) => setPane(selectAgent(pane, peer, source))}
-        onClose={(peer) => setPane(closeAgent(pane, peer, source))}
-        onGoToWorkspace={() => {}}
-        onSend={() => {}}
-      />
-    </div>
-  );
-}
-
-function PeekStage({ peer }: { peer: string }) {
-  return (
-    <div className="hm-gallery-stage hm-gallery-peek">
-      <AgentChat
-        content={AGENTS.find((agent) => agent.peer === peer)!}
-        compact
-        strings={strings}
-        actions={{ open: () => {}, close: () => {}, goToWorkspace: () => {} }}
-      />
     </div>
   );
 }
@@ -425,8 +326,6 @@ function Header({
 type Props =
   | { card: "mcp"; server: string; style: McpCardStyle; phase: McpPhaseName }
   | { card: "pills"; shape: AgentPillShape; width: number }
-  | { card: "pane"; tabs: string[]; selected: string }
-  | { card: "peek"; peer: string }
   | { card: "links"; cards: string[] }
   | ({ card: "first-run" } & FirstRunStage)
   | { card: "header"; context: HeaderPanelContext; states: HeaderPanelState[]; enabled: boolean };
@@ -437,10 +336,6 @@ function Cards(props: Props) {
       return <McpStage {...props} />;
     case "pills":
       return <PillsStage {...props} />;
-    case "pane":
-      return <PaneStage {...props} />;
-    case "peek":
-      return <PeekStage {...props} />;
     case "links":
       return <LinksStage {...props} />;
     case "first-run": {
@@ -466,8 +361,6 @@ export default componentEntry<Props>({
   covers: [
     "pages/home-messages/cards/mcp/McpConnectCard.tsx",
     "pages/home-messages/cards/pills/AgentPills.tsx",
-    "pages/home-messages/cards/pills/AgentChat.tsx",
-    "pages/home-messages/cards/pills/AgentSidePane.tsx",
     "pages/home-messages/cards/links/HomeLinkChip.tsx",
     "pages/home-messages/cards/firstRun/FirstRunPanel.tsx",
     "pages/home-messages/cards/header/HeaderPanelBar.tsx",
@@ -518,15 +411,6 @@ export default componentEntry<Props>({
       note: "Chips keep one row: the ones that do not fit are left out.",
       props: { card: "pills", shape: "chip", width: 420 },
     },
-    "agent-pane": {
-      note: "Picked: the right pane, one tab per agent.",
-      props: { card: "pane", tabs: ["a959", "a931"], selected: "a959" },
-    },
-    "agent-pane-moved": {
-      note: "A moved agent names its machine.",
-      props: { card: "pane", tabs: ["a931", "a940", "a933"], selected: "a931" },
-    },
-    "agent-peek": { note: "The peek: two task lines, the newest reply, Open.", props: { card: "peek", peer: "a959" } },
     "links-open": {
       note: "Chips, and the cards of open targets.",
       props: { card: "links", cards: ["workspace", "terminal", "browser"] },

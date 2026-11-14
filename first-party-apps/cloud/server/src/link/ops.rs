@@ -6,12 +6,13 @@ use super::argv::link_command;
 use super::channel::{Carrier, CarrierEvent};
 use super::dial::{self, DialCode, Refusal};
 use super::supervisor::{LinkFailure, LinkState};
-use crate::api::models::MachineStatus;
+use crate::api::models::{ConnectFacts as _, VM_KIND_UNKNOWN};
 use crate::api::{
     CloudError, ControlPlane, Origin, RelayError, Request, WireReply, args, codes, event_line,
 };
 use crate::ops::Server;
 use crate::rescue::{MISSING_ROUTE, RESCUE_KIND};
+use cmux_cloud_wire::CloudMachineStatus;
 use cmux_terminal_iface::{BackendError, Grid, OpenRequest, OpenToken, TerminalBackend};
 use serde_json::{Value, json};
 
@@ -161,9 +162,9 @@ fn owner_answer<C: ControlPlane>(
             // The Worker's own word: only an exact `owner` or `team` is known.
             // An absent (a Worker that predates it) or other value is unknown
             // and not cached, as a failed read.
-            let owns = match info.vm_kind.as_deref() {
-                Some("owner") => true,
-                Some("team") => false,
+            let owns = match info.vm_kind.as_str() {
+                "owner" => true,
+                "team" => false,
                 _ => {
                     // Nor its record: the next connect reads the owner answer again.
                     server.attach_mut().infos.forget(machine);
@@ -247,7 +248,7 @@ fn carrier_json(carrier: &Carrier, owns: Option<bool>) -> Value {
         // host can; until then the client dials the link's local socket.
         "socket": carrier.socket.to_string_lossy(),
         // `unknown`: no owner answer could be read; it grants nothing, as `team`, but is no teammate's machine.
-        "vm_kind": match owns { Some(true) => "owner", Some(false) => "team", None => "unknown" },
+        "vm_kind": match owns { Some(true) => "owner", Some(false) => "team", None => VM_KIND_UNKNOWN },
     })
 }
 
@@ -474,9 +475,9 @@ pub(crate) fn begin_connect<C: ControlPlane>(
     let info = ensure_running(server, machine, origin, &key, restart)
         .and_then(|()| super::info::connect_info(server, machine))
         .and_then(|info| match info.state {
-            MachineStatus::Running => Ok(info),
+            CloudMachineStatus::Running => Ok(info),
             state => {
-                if state == MachineStatus::Paused {
+                if state == CloudMachineStatus::Paused {
                     // The record was older than the machine: start it now.
                     ensure_running(server, machine, origin, &format!("{key}/info"), true)?;
                 }
@@ -560,7 +561,10 @@ fn ensure_running<C: ControlPlane>(
         server.handle(&Request::new("cloud.machine.get", json!({ "machine": machine })))?;
     }
     let paused = force_start
-        || server.projection().get(machine).is_some_and(|m| m.status == MachineStatus::Paused);
+        || server
+            .projection()
+            .get(machine)
+            .is_some_and(|m| m.record.status == CloudMachineStatus::Paused);
     if paused {
         let start = Request::new("cloud.machine.start", json!({ "machine": machine }))
             .origin(origin)

@@ -2,9 +2,12 @@
 // The composer's model button is plain text and icon at rest (Leo 2026-10-19: "✳ Opus 5.5 ⌄" and
 // "Medium ⌄" showed a filled pill all the time). Since Leo 2026-10-20 it is one button that names the
 // model and its effort ("Opus 5.5  Medium"); no effort chip of its own is drawn. The button draws a
-// background only under the pointer, on keyboard focus or while its menu is open, and that
-// background is the soft pill of the Claude app's chips (composer-chip-press.test.ts covers the
-// press).
+// background only under the pointer, on keyboard focus (a real Tab: code focus draws none, FOCUS-RING,
+// src/ui/focusModality.ts) or while its menu is open, and that
+// background is the soft fill of the Claude app's chips (composer-chip-press.test.ts covers the
+// press). Its corner is the composer's capsule radius (`--acpmux-permission-pill-radius`): the model and access
+// chips are capsules at every density (Lucas 2026-11-14), the exception to every button rounding as a tab
+// (Lawrence 2026-11-12, a660569b1c62).
 //
 // It renders the real composer and New Tab box on the gallery stage in Chromium. CI fails the file
 // when it cannot launch (requireBrowserLane). Locally:
@@ -12,6 +15,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -87,7 +91,8 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
           // A ring is any shadow layer in a visible color (a transparent inset is no ring).
           ring: (style.boxShadow.match(/rgba?\([^)]*\)/g) ?? []).some((color) => !clear(color)),
           radius: parseFloat(style.borderTopLeftRadius),
-          height: element.getBoundingClientRect().height,
+          // The capsule radius that the page resolves (composerFooterShared.css), not a number of this test.
+          control: parseFloat(style.getPropertyValue("--acpmux-permission-pill-radius")),
         };
       });
 
@@ -117,10 +122,8 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
         const rest = await look(page, chip);
         expect({ filled: rest.filled, ring: rest.ring }, "plain at rest").toEqual({ filled: false, ring: false });
 
-        // Keyboard focus draws the background (the chip's own :focus-visible). A key press first makes
-        // the focus that follows keyboard focus, as Tab would.
-        await page.keyboard.press("Shift");
-        await page.locator(chip).first().focus();
+        // Keyboard focus draws the background (the chip's own :focus-visible), earned by a real Tab.
+        await focusByKey(page, chip);
         expect(
           await page
             .locator(chip)
@@ -129,7 +132,8 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
         ).toBe(true);
         const focus = await look(page, chip);
         expect(focus.filled, "keyboard focus draws a background").toBe(true);
-        expect(focus.radius, "the pill shape").toBeGreaterThanOrEqual(focus.height / 2 - 0.5);
+        expect(focus.control, "the page resolves the button radius").toBeGreaterThan(0);
+        expect(focus.radius, "the capsule radius (--acpmux-permission-pill-radius)").toBe(focus.control);
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 
         const fine = await page.evaluate(() => matchMedia("(hover: hover) and (pointer: fine)").matches);
@@ -140,7 +144,7 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
           await eased(page);
           const hover = await look(page, chip);
           expect(hover.filled, "hover draws a background").toBe(true);
-          expect(hover.radius, "the pill shape").toBeGreaterThanOrEqual(hover.height / 2 - 0.5);
+          expect(hover.radius, "the capsule radius (--acpmux-permission-pill-radius)").toBe(hover.control);
         }
         await page.close();
       });

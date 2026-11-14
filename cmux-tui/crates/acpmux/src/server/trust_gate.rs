@@ -110,7 +110,22 @@ pub(super) async fn check(
     // folder, which the remote guard made canonical: that folder answers.
     let fork_cwd = params.get("cwd").and_then(Value::as_str).filter(|_| m == method::SESSION_FORK);
     let cwd = fork_cwd.map_or_else(|| meta.cwd.to_string_lossy().into_owned(), str::to_owned);
-    let family = meta.family.clone().unwrap_or_else(|| meta.harness.clone());
+    // A guest from another harness (`_acpmux/btw` with `targetHarness`, hub/btw.rs) starts that
+    // harness's agent in the folder: its family's answer counts, before anything starts.
+    // A switch (`session/fork` with `_meta.acpmux.harness`, `hub/fork.rs` `Retarget`) starts the
+    // picked harness's agent in the folder too: its family answers, so a switch the folder's
+    // answer does not cover is refused before a fork exists, as `session/new` is (review of
+    // cmux#41030).
+    let target = match m {
+        method::MUX_BTW => params.get("targetHarness").and_then(Value::as_str),
+        method::SESSION_FORK => params.pointer("/_meta/acpmux/harness").and_then(Value::as_str),
+        _ => None,
+    }
+    .map(str::trim);
+    let family = match target.filter(|h| !h.is_empty()) {
+        Some(target) => resolve_family(hub, target).await,
+        None => meta.family.clone().unwrap_or_else(|| meta.harness.clone()),
+    };
     let answered = folder_answered(paths, cwd, family, web).await;
     // A fork, a side session and a handoff start an agent of their own: not a running chat's.
     let same_agent = matches!(
@@ -230,13 +245,21 @@ async fn resolve_family(hub: &Arc<Hub>, name: &str) -> String {
     if name.is_empty() {
         return String::new();
     }
+    resolve_harness(hub, name).await.1
+}
+
+/// The profile a harness name (a family or profile name, as `session/new` takes it) resolves to,
+/// and its family; the name for both when it resolves to none.
+pub(super) async fn resolve_harness(hub: &Arc<Hub>, name: &str) -> (String, String) {
     let cfg = hub.config.read().await;
     cfg.resolve_harness(name)
         .ok()
         .and_then(|resolved| {
-            cfg.harnesses.get(&resolved).map(|p| crate::config::derive_family(&resolved, p))
+            let family =
+                cfg.harnesses.get(&resolved).map(|p| crate::config::derive_family(&resolved, p))?;
+            Some((resolved, family))
         })
-        .unwrap_or_else(|| name.to_owned())
+        .unwrap_or_else(|| (name.to_owned(), name.to_owned()))
 }
 
 /// A Web client, or a peer that forwards for one: an auto-trust rule is no answer for it

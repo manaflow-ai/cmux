@@ -41,6 +41,11 @@ import Testing
         var sendError: String?
         /// `identify`'s capabilities (a Mac without `send-expect-agent-v1` takes no Feed reply).
         var capabilities = ["send-expect-foreground-v1", "send-expect-agent-v1"]
+        /// The Mac's daemon is down or restarting: every request fails unanswered.
+        var down = false
+        var unanswered = 0
+        /// The connection each answered `ack-tab-notifications` came on.
+        var ackConnections: [Int] = []
 
         func respond(_ command: String, _ params: [String: Int]) -> Data {
             requests.append((command, params))
@@ -65,7 +70,14 @@ import Testing
     static func make(_ daemon: FakeDaemon) -> (FeedStore, TerminalFeed) {
         let store = FeedStore(items: [])
         let feed = TerminalFeed(store: store)
-        feed.request = { command, params, _ in daemon.respond(command, params) }
+        feed.request = { command, params, connection in
+            if daemon.down {
+                daemon.unanswered += 1
+                throw Down()
+            }
+            if command == "ack-tab-notifications" { daemon.ackConnections.append(connection) }
+            return daemon.respond(command, params)
+        }
         feed.send = { surface, text, expect, session, _ in
             if let error = daemon.sendError { return Data(#"{"ok":false,"error":"\#(error)"}"#.utf8) }
             daemon.sent.append((surface, text, expect, session))
@@ -77,6 +89,14 @@ import Testing
 
     static func settle(_ condition: () -> Bool) async {
         for _ in 0..<500 where !condition() { await Task.yield() }
+    }
+
+    struct Down: Error {}
+
+    /// Waits up to `seconds` of real time for `condition` (a retry is spaced in real time).
+    static func waitUntil(seconds: Double = 15, _ condition: () -> Bool) async {
+        let end = ContinuousClock.now + .seconds(seconds)
+        while !condition(), ContinuousClock.now < end { try? await Task.sleep(for: .milliseconds(10)) }
     }
 
     static let connection = 1
@@ -214,6 +234,78 @@ import Testing
         await Self.settle { daemon.lists == 2 }
         await Self.settle { false }
         #expect(store.item(id: "term-mac-ntf_1")?.isRead == false)
+    }
+
+    /// Leo, 2026-11-09: "the other thing is that for some reason the dot isn't disappearing in my
+    /// case... but i guess the current nightly still hasn't fixed/restarted the service?" A read
+    /// made on the phone while the Mac's daemon is down reaches the Mac once it answers again, on
+    /// the connection bound then.
+    @Test func aReadMadeWhileTheMacIsDownReachesItOnceItAnswers() async {
+        let daemon = FakeDaemon()
+        daemon.rows = [Self.row("ntf_1", "Codex finished", surface: 1, at: 1_000_000)]
+        let (store, feed) = Self.make(daemon)
+        // Short spacings: a busy test runner must not stretch the real ones past the waits below.
+        feed.reads.pause = { _ in try? await Task.sleep(for: .milliseconds(10)) }
+        feed.treeChanged(Self.tree(), macID: "mac", connection: Self.connection)
+        await Self.settle { store.items.count == 1 }
+
+        daemon.down = true
+        store.markRead("term-mac-ntf_1")
+        await Self.waitUntil { daemon.unanswered >= 2 }
+        #expect(daemon.unanswered >= 2, "an unanswered read goes again")
+        #expect(store.item(id: "term-mac-ntf_1")?.isRead == true)
+
+        // The daemon is back, on a new connection: the read reaches it there, once.
+        daemon.down = false
+        feed.treeChanged(Self.tree(), macID: "mac", connection: 2)
+        await Self.waitUntil { !daemon.acks.isEmpty }
+        #expect(daemon.acks == [1])
+        #expect(daemon.ackConnections == [2])
+        await Self.waitUntil(seconds: 0.5) { daemon.acks.count > 1 }
+        #expect(daemon.acks == [1])
+    }
+
+    /// Review finding: a notification that came while the Mac was away is not acknowledged unseen
+    /// by the older read still on its way; the new connection's ledger shows it, and the read ends.
+    @Test func aReadOnItsWayEndsWhenANewerNotificationCameMeanwhile() async {
+        let daemon = FakeDaemon()
+        daemon.rows = [Self.row("ntf_1", "Codex finished", surface: 1, at: 1_000_000)]
+        let (store, feed) = Self.make(daemon)
+        feed.reads.pause = { _ in await Task.yield() }
+        feed.treeChanged(Self.tree(), macID: "mac", connection: Self.connection)
+        await Self.settle { store.items.count == 1 }
+
+        daemon.down = true
+        store.markRead("term-mac-ntf_1")
+        await Self.settle { daemon.unanswered >= 2 }
+        daemon.rows.append(Self.row("ntf_2", "Codex finished", surface: 1, at: 2_000_000))
+        daemon.down = false
+        feed.treeChanged(Self.tree(), macID: "mac", connection: 2)
+        await Self.settle { store.items.count == 2 }
+        await Self.settle { false }
+        #expect(daemon.acks.isEmpty)
+        #expect(store.item(id: "term-mac-ntf_2")?.isRead == false)
+    }
+
+    /// Review finding: a read that stopped unsent (marked unread while the Mac was down) does not
+    /// keep a later read of the same event from going.
+    @Test func aReadAgainAfterAnUnsentOneGoes() async {
+        let daemon = FakeDaemon()
+        daemon.rows = [Self.row("ntf_1", "Codex finished", surface: 1, at: 1_000_000)]
+        let (store, feed) = Self.make(daemon)
+        feed.reads.pause = { _ in await Task.yield() }
+        feed.treeChanged(Self.tree(), macID: "mac", connection: Self.connection)
+        await Self.settle { store.items.count == 1 }
+
+        daemon.down = true
+        store.markRead("term-mac-ntf_1")
+        await Self.settle { daemon.unanswered >= 2 }
+        store.markUnread("term-mac-ntf_1")
+        await Self.settle { false }
+        daemon.down = false
+        store.markRead("term-mac-ntf_1")
+        await Self.settle { !daemon.acks.isEmpty }
+        #expect(daemon.acks == [1])
     }
 
     @Test func waitingTerminalResolvesWhenItMovesOn() async {

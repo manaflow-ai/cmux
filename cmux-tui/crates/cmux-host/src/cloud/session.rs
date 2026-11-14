@@ -264,10 +264,46 @@ impl Session {
         self.reporter.set_activity(activity, true, now).into_iter().collect()
     }
 
+    /// The updater's block the first report carries (no report of its own: `start` makes it).
+    pub fn with_updater(mut self, block: Option<Value>) -> Session {
+        let _ = self.reporter.set_updater(block, false, 0);
+        self
+    }
+
+    /// The updater's block as it stands (`updater/look.rs` `report`). A report goes
+    /// when its outcome, reason, run or swap changed; a check that only moved its
+    /// time rides along with the next report.
+    pub fn updater(&mut self, block: Option<Value>, now: u64) -> Vec<OpRequest> {
+        let cur = self.reporter.updater().cloned();
+        let changed =
+            crate::updater::look::report_key(&block) != crate::updater::look::report_key(&cur);
+        self.reporter.set_updater(block, changed, now).into_iter().collect()
+    }
+
     /// The activity stream connected or dropped: `activity` is advertised
     /// only while it is live.
     pub fn activity_stream(&mut self, connected: bool, now: u64) -> Vec<OpRequest> {
         self.stream_live = connected;
+        self.daemon_block(now)
+    }
+
+    /// The session host answered `identify`: its daemon block (version and capabilities, as
+    /// `daemon_info_from_identify` reads them) replaces the one this session started with when
+    /// they differ, and the next report names it at once.
+    ///
+    /// The agent reads the block once at its start, and it starts the session host at the same
+    /// moment, so on a bound machine its first `identify` finds no session host yet and it takes
+    /// the bake's recorded `/etc/cmux/daemon.json`: the image's build, not the one running. After
+    /// a self-update's restart every report then named the old build, and the Cloud, which tells
+    /// an update's own restart from use by the version changing (cmux-platform `IdlePolicy.ts`
+    /// `UpdateSettle`), read each restart's acpmux time as an agent's action: an untouched
+    /// machine never paused (staging probe machine-idle-pause, 2026-11-07 and 2026-11-08).
+    pub fn daemon_identified(&mut self, daemon: &DaemonInfo, now: u64) -> Vec<OpRequest> {
+        let base = daemon.with_activity(false, false, false);
+        if base == self.base {
+            return Vec::new();
+        }
+        self.base = base;
         self.daemon_block(now)
     }
 
@@ -551,6 +587,66 @@ mod tests {
         s.line(&acp(0, None), 21_000);
         s.fire(21_000 + ACP_ACTIVITY_TTL_MS);
         assert_eq!(caps(&s), [ACTIVITY_CAPABILITY], "acpmux went quiet");
+    }
+
+    /// Staging, 2026-11-07 and 2026-11-08: after a self-update's restart the agent started with
+    /// the bake's recorded block (the session host was not listening yet), so every report named
+    /// the image's build and the Cloud never saw the update. The running session host's
+    /// `identify` replaces it, keeps the activity capabilities, and goes in a report at once.
+    #[test]
+    fn the_running_session_hosts_identify_replaces_the_bakes_daemon_block() {
+        use super::super::wire::{ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY};
+        let baked = DaemonInfo { version: "0.1.0+aaaaaaaaaaaa".into(), capabilities: vec![] };
+        let mut s = Session::new("vm_m0000000000000000001", baked.clone(), 3_600_000);
+        let start = s.start(0);
+        assert_eq!(start[0].params["daemon"]["version"], "0.1.0+aaaaaaaaaaaa");
+        s.answered(&start[0], &ok(), 0, 0.5);
+        s.activity_stream(true, 1_000);
+        s.line(&acp(0, None), 2_000);
+        let r = s.fire(20_000);
+        s.answered(&r[0], &ok(), 20_000, 0.5);
+
+        // The same block (or the same one with activity capabilities) changes nothing.
+        assert!(s.daemon_identified(&baked, 30_000).is_empty());
+        assert!(s.daemon_identified(&baked.with_activity(true, true, false), 30_000).is_empty());
+
+        let running = DaemonInfo { version: "0.1.0+bbbbbbbbbbbb".into(), capabilities: vec![] };
+        let r = s.daemon_identified(&running, 40_000);
+        assert_eq!(r.len(), 1, "a new build is reported at once");
+        assert_eq!(r[0].params["daemon"]["version"], "0.1.0+bbbbbbbbbbbb");
+        assert_eq!(
+            r[0].params["daemon"]["capabilities"],
+            json!([ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY]),
+            "the stream and acpmux's count still hold"
+        );
+        s.answered(&r[0], &ok(), 40_000, 0.5);
+        assert!(s.daemon_identified(&running, 60_000).is_empty(), "reported once");
+    }
+
+    /// The lead (2026-11-13): "machine id and updater outcome (seen, held with reason, busy
+    /// with reason, swapped) in sawBuild, so the slow mode gets read instead of inferred." The
+    /// first report after an update's restart carries the updater's swap; a later check that
+    /// finds the same thing makes no report, a new outcome does.
+    #[test]
+    fn the_report_carries_the_updaters_block_and_goes_when_its_outcome_changes() {
+        let baked = DaemonInfo { version: "0.1.0+bbbbbbbbbbbb".into(), capabilities: vec![] };
+        let swapped = json!({"outcome": "swapped", "at": 1_000, "seen_at": 500, "waited": "busy:turn",
+                             "swapped": {"commit": "bbbbbbbbbbbb", "at": 1_000}});
+        let mut s = Session::new("vm_m0000000000000000001", baked, 3_600_000)
+            .with_updater(Some(swapped.clone()));
+        let start = s.start(0);
+        assert_eq!(start.len(), 1);
+        assert_eq!(start[0].params["updater"], swapped);
+        s.answered(&start[0], &ok(), 0, 0.5);
+
+        let mut later = swapped;
+        later["at"] = json!(16_000);
+        assert!(s.updater(Some(later), 20_000).is_empty(), "only its time moved");
+        let current = json!({"outcome": "current", "at": 46_000, "seen_at": 500, "waited": "busy:turn",
+                             "swapped": {"commit": "bbbbbbbbbbbb", "at": 1_000}});
+        let r = s.updater(Some(current.clone()), 50_000);
+        assert_eq!(r.len(), 1, "a new outcome is reported");
+        assert_eq!(r[0].params["updater"], current);
     }
 
     fn acp_from(daemon: &str, turns: u64) -> String {

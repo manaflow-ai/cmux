@@ -53,8 +53,9 @@
     },
     {
       "path": "Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper*.app/Contents/MacOS/*",
-      "what": "the remote browser host's CEF helper processes: copies of the same binary (remote-browser-host-layout.sh)",
-      "notices": ["first-party", "section:rust-cmux-remote-browser-host", "rust-std", "section:manual-rust-and-zig-standard-libraries", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
+      "what": "the remote browser host's CEF helper processes (remote-browser-host-layout.sh): cmux-rb-host-helper from build-cef-shim.sh (first-party Objective-C++ and CEF's libcef_dll wrapper, no Rust; cmux#42201), or, when embed-remote-browser-host.sh could not build it, copies of the host binary, which then need the host's notices too (copy_of)",
+      "copy_of": "Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host",
+      "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
       "path": "Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua",
@@ -90,6 +91,11 @@
       "path": "Contents/Resources/bin/cmux-browser-host",
       "what": "browser host (cmux-tui crate cmux-browser-host): rquickjs with the QuickJS-NG C engine (Unicode data tables), sha1; embedded runtime JS with acorn and Playwright injected code (js/vendor, browser-host-js.json)",
       "notices": ["first-party", "section:rust-cmux-browser-host", "section:manual-cmux-browser-host-runtime-javascript", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
+    },
+    {
+      "path": "Contents/Resources/bin/cmux-agent-screen-detection",
+      "what": "the agent screen-detection plugin the daemon runs by default from beside its own executable (cmux-tui/bindings/examples/rust-agent-screen-detection, its own Cargo workspace; GPL-3.0-or-later AND Apache-2.0): cmux code with the cmux-sdk crate, and detector manifests and sources adapted from herdr (Apache-2.0)",
+      "notices": ["first-party", "section:rust-cmux-agent-screen-detection", "section:manual-herdr-agent-detection-plugin", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
       "path": "Contents/Resources/bin/cmux-cloud",

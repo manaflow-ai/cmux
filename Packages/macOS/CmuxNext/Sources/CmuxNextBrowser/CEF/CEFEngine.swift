@@ -228,7 +228,7 @@ public final class CEFEngine: BrowserEngine {
     /// True when Chromium opened `profile` in this process: its directory
     /// may be removed only after the next launch.
     public func hasOpened(_ profile: BrowserProfileID) -> Bool {
-        CEFRuntime.shared.usedProfiles.contains(profile) || CEFRuntime.shared.extensionStores.hasStore(for: profile)
+        CEFRuntime.shared.hasOpened(profile)
     }
 
     /// Recent renderer and helper process failures (`debug.crashes`).

@@ -5,7 +5,7 @@ public import Foundation
 /// Every field but the id and name is optional, so an older or newer CLI still lists the row.
 public nonisolated struct JoinedMachine: Identifiable, Hashable, Sendable {
     public nonisolated enum State: String, Hashable, Sendable {
-        /// Its last heartbeat is within ``JoinedMachine/onlineWindow`` (the hub's 90 s row TTL).
+        /// Its last heartbeat is within ``JoinedMachine/onlineWindow`` (the hub's 30 s row TTL).
         case online
         case offline
         /// Its credential was revoked: it left the mesh.
@@ -60,8 +60,10 @@ public nonisolated struct JoinedMachine: Identifiable, Hashable, Sendable {
     }
 
     /// How fresh a heartbeat must be for the machine to show online: the hub's address-book row TTL
-    /// (cmux-platform `src/server/mesh/Core.ts`, 90 s; the daemon heartbeats every 30 s or sooner).
-    public static let onlineWindow: TimeInterval = 90
+    /// (cmux-platform `src/server/mesh/Core.ts`, 30 s; the daemon heartbeats every third of it, and
+    /// the platform stamps the heartbeat at most every 10 s). The platform's list also says `online`
+    /// itself, which the CLI's row `state` follows.
+    public static let onlineWindow: TimeInterval = 30
 
     /// Its state from its own heartbeat at `now`: revoked first (the platform's `revoked`, or the CLI's
     /// `state: "revoked"`, which keeps the last heartbeat); then online when `heartbeat` is within

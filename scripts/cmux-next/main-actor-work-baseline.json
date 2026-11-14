@@ -100,7 +100,7 @@
   "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HiddenHistoryStore.swift": {
-  "JSON / property-list decode": 4
+  "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab/NewTabChoiceMemory.swift": {
   "JSON / property-list decode": 1
@@ -169,14 +169,6 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserAutomation/WebKitDriver+Cookies.swift": {
   "JSON / property-list decode": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextFeed/GitHubCLIClient.swift": {
-  "JSON / property-list decode": 1,
-  "line split of a whole input": 2,
-  "process launch": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedPromptSummary.swift": {
-  "line split of a whole input": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeMentions.swift": {
   "string scan inside a loop": 1

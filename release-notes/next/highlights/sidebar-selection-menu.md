@@ -1,4 +1,4 @@
-title: Right-click several workspaces for Chrome's tab menu
+title: Right-click several workspaces to act on them together
 category: new
 docs: https://cmux.com/docs/keyboard-shortcuts
 

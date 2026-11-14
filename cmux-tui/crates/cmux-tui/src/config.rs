@@ -210,6 +210,7 @@ use ghostty_theme_mode::*;
 use keys::*;
 pub use keys::{Chord, Keys};
 pub use load::load;
+pub(crate) use load::load_raw_agents;
 #[cfg(test)]
 use load::*;
 #[cfg(test)]
@@ -434,6 +435,8 @@ struct RawSidebar {
     rail_glyph: Option<String>,
     /// Workspace row label template with `{index}` and `{name}`.
     workspace_label: Option<String>,
+    /// The workspace rail's agents section; `false` hides it.
+    agents: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

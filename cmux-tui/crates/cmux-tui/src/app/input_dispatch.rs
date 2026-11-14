@@ -84,6 +84,8 @@ impl App {
                 Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
             }
             TerminalInput::FocusGained => {
+                // The layout frame below acks a done agent tab the person
+                // now sees (done-until-seen).
                 self.host_focused = true;
                 self.advance_pointer_focus_generation();
                 self.reassert_scoped_host_terminal_state();
@@ -107,6 +109,7 @@ impl App {
                 }
                 self.refresh_cell_pixels();
                 self.render_states.clear();
+                self.synchronized_output.clear();
                 self.sidebar_plugin_surface = None;
                 Ok(RenderAction::Draw)
             }

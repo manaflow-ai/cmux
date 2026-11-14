@@ -212,7 +212,8 @@ public struct DaemonTree: Sendable {
                         // Activity: the Mac's last agent report, else what the phone saw (titles).
                         for seen in [activity[surface], state?.updatedAt].compactMap(\.self) { observed = max(observed ?? seen, seen) }
                         guard var mapped = Self.tab(tab, id: id, agent: state, pending: agents.pending,
-                                                    waitingFor: agents.waitingFor, bindings: &agentTabs) else { continue }
+                                                    waitingFor: agents.waitingFor, chatTitles: agents.chatTitles,
+                                                    bindings: &agentTabs) else { continue }
                         if let pinned = tab["pinned"] as? Bool { mapped.pinned = pinned }
                         mapped.hasCustomName = (tab["name"] as? String).map { !$0.isEmpty } ?? false
                         mapped.linkIDs = WorkspaceTab.LinkIDs(
@@ -249,7 +250,13 @@ public struct DaemonTree: Sendable {
                 }
             }
             let source = activeTab ?? (ws["screens"] as? [[String: Any]])?.first.flatMap { ($0["panes"] as? [[String: Any]])?.first?["tabs"] as? [[String: Any]] }?.first
-            let title = (ws["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (ws["name"] as? String) ?? "Workspace"
+            let name = ws["name"] as? String
+            // An unnamed workspace whose front tab is an agent chat reads as the chat, as the Mac's
+            // sidebar row does (`WorkspaceAutoNameReader`), never as the daemon's `workspace-N`
+            // (Leo, 2026-11-05: "this workspace didn't inherit the agent chat name").
+            let chatName = name.map(LiveWorkspaceCreationBackend.isDefaultWorkspaceName) ?? true
+                ? Self.chatTitle(of: source, agents: agents) : nil
+            let title = (ws["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? chatName ?? name ?? "Workspace"
             // `#RRGGBB[AA]` or a palette name (`blue`), as the Mac stores it.
             let color = (ws["color"] as? String).flatMap { $0.hasPrefix("#") ? String($0.prefix(7)) : WorkspaceColor(stored: $0)?.rawValue }
             let unread = (ws["unread_count"] as? Int ?? 0) > 0 || ws["marked_unread"] as? Bool == true
@@ -417,7 +424,7 @@ public struct DaemonTree: Sendable {
     /// `agent` is the surface's agent state; `pending` marks acpmux sessions
     /// with an open permission or question. Both set the tab's `agentStatus`.
     static func tab(_ tab: [String: Any], id: String, agent: AgentState?, pending: [String: Bool] = [:],
-                    waitingFor: [String: WorkspaceTab.WaitingFor] = [:],
+                    waitingFor: [String: WorkspaceTab.WaitingFor] = [:], chatTitles: [String: String] = [:],
                     bindings: inout [String: AgentBinding]) -> WorkspaceTab? {
         var status: WorkspaceTab.AgentStatus? = switch agent?.state {
         case "blocked": .waiting
@@ -451,12 +458,28 @@ public struct DaemonTree: Sendable {
                 asks = waitingFor[session]
             }
             let harness = binding.harness ?? "agent"
-            return WorkspaceTab(id: id, kind: .agent, title: title.isEmpty ? Self.agentName(harness) : title,
+            let chat = binding.session.flatMap { chatTitles[$0] }.flatMap(Self.titleLine)
+            return WorkspaceTab(id: id, kind: .agent, title: title.isEmpty ? chat ?? Self.agentName(harness) : title,
                                 subtitle: binding.session == nil ? "New chat" : nil, harness: harness, agentStatus: status,
                                 waitingFor: status == .waiting ? asks : nil)
         default:
             return nil
         }
+    }
+
+    /// The title of the chat `tab` shows (its first line, at most 80 characters), when it is an
+    /// agent chat tab the person has not named and acpmux has titled.
+    static func chatTitle(of tab: [String: Any]?, agents: AgentStates) -> String? {
+        guard let tab, tab["kind"] as? String == "conversation", (tab["name"] as? String ?? "").isEmpty,
+              let session = ((tab["conversation"] as? [String: Any])?["agent_session"] as? [String: Any])?["session"] as? String,
+              let title = agents.chatTitles[session] else { return nil }
+        return titleLine(title)
+    }
+
+    /// `title`'s first line, trimmed, at most 80 characters; nil when empty.
+    static func titleLine(_ title: String) -> String? {
+        let line = title.split(whereSeparator: \.isNewline).first.map(String.init)?.trimmingCharacters(in: .whitespaces) ?? ""
+        return line.isEmpty ? nil : String(line.prefix(80))
     }
 
     static func agentName(_ harness: String) -> String {
@@ -488,6 +511,9 @@ public struct AgentStates: Sendable {
     /// acpmux session id → what its open ask is, when the phone has seen it
     /// (a question wins over a permission). Absent: "is waiting".
     public var waitingFor: [String: WorkspaceTab.WaitingFor] = [:]
+    /// acpmux session id → the chat's title (`SessionSummary.title`: its generated title, else
+    /// its first prompt), which the Mac's tab and sidebar row read as.
+    public var chatTitles: [String: String] = [:]
 
     public init() {}
 

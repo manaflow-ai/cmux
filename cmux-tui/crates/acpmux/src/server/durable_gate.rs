@@ -15,15 +15,15 @@
 //! change a client saw. When the journal's writer ended (the durable watch closed), the gate
 //! drops what it holds and ends, which closes the connection; the store asks the daemon to stop.
 //!
-//! Without the journal ([`crate::store::Store::durability`] is None) there is no gate: lines go
-//! straight to the transport, as before.
+//! Without the journal ([`crate::store::Store::durability`] is None) there is no gate: the
+//! connection's plain pump moves its lines (`outbound.rs`).
 
 use crate::store::Durability;
 use std::cell::Cell;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::watch;
 
 /// What a connection's lines wait for.
 pub(super) struct Gate {
@@ -71,27 +71,27 @@ pub(super) fn stream_scope(record: &crate::store::EventRecord) -> Option<StreamS
     Some(StreamScope { was: STREAM.with(|stream| stream.replace(true)) })
 }
 
-/// Puts a gate between a connection and its transport `out` when the store journals its appends:
-/// the sender the connection queues its lines on, and the gate it raises. Without the journal,
-/// `out` itself and no gate.
+/// The gate of a connection whose store journals its appends, and its task, which moves the
+/// connection's lines (`pump`, `outbound.rs`) to its transport as the journal allows.
 pub(super) fn install(
-    durability: Option<Durability>,
-    out: mpsc::Sender<String>,
-) -> (mpsc::Sender<String>, Option<Arc<Gate>>) {
-    let Some(Durability { acked, durable, kept, written, stalled }) = durability else {
-        return (out, None);
-    };
+    durability: Durability,
+    pump: super::outbound::Pump,
+) -> (Arc<Gate>, impl std::future::Future<Output = ()> + Send + 'static) {
+    let Durability { acked, durable, kept, written, stalled } = durability;
     let gate =
         Arc::new(Gate { needs: AtomicU64::new(0), acked, needs_written: AtomicU64::new(0), kept });
-    let (lines_tx, lines) = mpsc::channel(out.max_capacity());
-    tokio::spawn(run(lines, out, Arc::clone(&gate), Journal { durable, written }, stalled));
-    (lines_tx, Some(gate))
+    let run = run(pump, Arc::clone(&gate), Journal { durable, written }, stalled);
+    (gate, run)
 }
 
-/// How long a connection's lines may wait for the journal before the store asks the daemon to
-/// stop for a restart (review of #35400, F2): a sync takes milliseconds, a few seconds on a
-/// disk under heavy load; this long only on a hung or failing disk, whose writer retries without
-/// end and would hold every reply.
+/// How often a connection's lines that wait for the journal ask the store whether the journal is
+/// failing (review of #35400, F2). A sync takes milliseconds, a few seconds on a disk under heavy
+/// load, and more than ten on a saturated one (huge-blue, 2026-11-08: 35-50% iowait, a 10.4 s
+/// fdatasync). Past each interval the store asks the daemon to stop for a restart only when the
+/// journal's writer is failing (a write or sync returned an error and it retries without end);
+/// while it is merely slow the lines keep waiting: a slow disk makes replies slower, never makes
+/// the daemon restart (a restart on the same disk is no faster, and every client meanwhile gets
+/// "acpmux is shutting down").
 const STALL_LIMIT: Duration = Duration::from_secs(10);
 
 fn stall_limit() -> Duration {
@@ -124,24 +124,23 @@ impl Journal {
     }
 }
 
-/// The gate's task ([module docs](self)). Ends when the connection's senders are gone, the
-/// transport closed, or the journal's writer ended.
+/// The gate's task ([module docs](self)). Ends when the connection's handles are gone, the
+/// transport closed, the queue overran, or the journal's writer ended; dropping `pump` then
+/// closes the queue (`outbound.rs`).
 async fn run(
-    mut lines: mpsc::Receiver<String>,
-    out: mpsc::Sender<String>,
+    pump: super::outbound::Pump,
     gate: Arc<Gate>,
     mut journal: Journal,
-    stalled: Arc<dyn Fn(String) + Send + Sync>,
+    stalled: Arc<dyn Fn(Duration) -> bool + Send + Sync>,
 ) {
-    let limit = lines.max_capacity();
-    let mut batch = Vec::with_capacity(limit.min(64));
-    loop {
+    let mut batch = Vec::new();
+    'pump: loop {
         tokio::select! {
             biased;
-            () = out.closed() => return,
-            taken = lines.recv_many(&mut batch, limit) => {
-                if taken == 0 {
-                    return;
+            () = pump.stopped() => break 'pump,
+            more = pump.take(&mut batch) => {
+                if !more {
+                    break 'pump;
                 }
             }
         }
@@ -151,33 +150,32 @@ async fn run(
         if !journal.reached(needs, needs_written) {
             let reached = journal.reach(needs, needs_written);
             tokio::pin!(reached);
+            let started = tokio::time::Instant::now();
             let stall = tokio::time::sleep(stall_limit());
             tokio::pin!(stall);
             let mut asked = false;
             loop {
                 tokio::select! {
                     biased;
-                    () = out.closed() => return,
+                    () = pump.stopped() => break 'pump,
                     reached = &mut reached => {
                         if !reached {
                             tracing::error!("the event journal's writer ended: this connection closes");
-                            return;
+                            break 'pump;
                         }
                         break;
                     }
                     () = &mut stall, if !asked => {
-                        asked = true;
-                        stalled(format!(
-                            "a reply waited {:?} for the event journal, which made nothing durable",
-                            stall_limit()
-                        ));
+                        // Asked again each interval: a disk that is slow first may fail later.
+                        asked = stalled(started.elapsed());
+                        stall.as_mut().reset(tokio::time::Instant::now() + stall_limit());
                     }
                 }
             }
         }
         for line in batch.drain(..) {
-            if out.send(line).await.is_err() {
-                return;
+            if !pump.forward(line).await {
+                break 'pump;
             }
         }
     }

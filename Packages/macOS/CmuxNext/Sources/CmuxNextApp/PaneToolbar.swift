@@ -39,6 +39,10 @@ final class PaneToolbar {
         var nativeOwnerID: ObjectIdentifier?
         var nativeItems: [PaneTabRowTool] = []
         var nativeEnabled = false
+        /// The selected tab's face of a terminal and chat pair (Toggle Terminal and Chat's control), and whether any
+        /// tab of the pane is half of one: its room is kept whichever tab is selected.
+        var terminalChat: PaneTerminalChatFace?
+        var paneHasTerminalChat = false
     }
 
     let view = PaneToolbarView()
@@ -46,6 +50,8 @@ final class PaneToolbar {
     private let paneTarget: ActionTargetRef?
     private let machineID: () -> String?
     static let creationActions: [ActionID] = ["newSurface", "openBrowser"]
+    /// Toggle Terminal and Chat: the toggle's press runs it, as its key does.
+    static let terminalChatToggle: ActionID = "palette.toggleTerminalChat"
     /// The strip plus's menu for this pane (what opens in it).
     private let newTabMenu: () -> NSMenu?
     /// The shown content's own rows, first in the menu (``PaneMoreMenuContributing``: the docked
@@ -69,6 +75,7 @@ final class PaneToolbar {
         self.contentMenu = contentMenu
         view.moreMenu = { [weak self] in self?.moreMenu() }
         view.onPerform = { [weak self] id in self?.perform(ActionID(rawValue: id)) }
+        view.onToggleTerminalChat = { [weak self] in self?.perform(Self.terminalChatToggle) }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -128,7 +135,8 @@ final class PaneToolbar {
             model.onTabRowToolInvoked?(id, menuItemID)
         }
         update(target: state.behind ? target : state.target, kind: state.behind ? kind : state.kind,
-               zoomed: state.zoomed, pinned: state.pinned, paneKinds: state.paneKinds, nativeItems: state.nativeItems, nativeEnabled: state.nativeEnabled)
+               zoomed: state.zoomed, pinned: state.pinned, paneKinds: state.paneKinds, nativeItems: state.nativeItems, nativeEnabled: state.nativeEnabled,
+               terminalChat: state.behind ? view.terminalChatToggle.face : state.terminalChat, paneHasTerminalChat: state.paneHasTerminalChat)
     }
 
     private static func state(_ pane: PaneController) -> State {
@@ -136,6 +144,9 @@ final class PaneToolbar {
         let pinned = pane.services.settings.map { PaneToolbarButtonsSetting.current($0).pinned } ?? []
         let resolver = TabTitleResolver(services: pane.services)
         let paneKinds = Set(pane.pane.tabs.compactMap { kind($0, isNewTabPage: resolver.isNewTabPage($0)) })
+        // The Rust route's answer for each tab, from the facts the action reads (O(tabs of this pane)).
+        let faces = Dictionary(pane.pane.tabs.compactMap { tab in TerminalChatHandler.face(of: tab, services: pane.services).map { (tab.id, $0) } },
+                               uniquingKeysWith: { first, _ in first })
         // The pane's own workspace, not a store scan: this runs for every pane.
         let zoomed = pane.workspace?.workspace.screens.contains { $0.zoomedPane == pane.pane.handle } ?? false
         guard let key = pane.stripModel.selectedID?.rawValue else { return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true) }
@@ -144,7 +155,8 @@ final class PaneToolbar {
             let local = key.hasPrefix(LocalPageTab.prefix) || key.hasPrefix(LocalBrowserTab.prefix)
             return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, behind: !local, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true)
         }
-        return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab)), zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true)
+        return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab)), zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeOwnerID: displayedModel.map(ObjectIdentifier.init), nativeItems: displayedModel?.tabRowTools ?? [], nativeEnabled: displayedModel?.tabRow.nativeToolsEnabled == true,
+                     terminalChat: faces[tab.id], paneHasTerminalChat: !faces.isEmpty)
     }
 
     static func kind(_ tab: TabModel, isNewTabPage: Bool) -> Kind? {
@@ -176,7 +188,9 @@ final class PaneToolbar {
     /// Shows the `pinned` actions tab `target` of `kind` can run and "…" (nil kind: none); lit, with a
     /// pinned zoom button, while the pane is zoomed.
     /// `paneKinds`: the kinds of every tab in the pane that offers "…", whichever is selected.
-    func update(target: String?, kind: Kind?, zoomed: Bool = false, pinned: [String] = [], paneKinds: Set<Kind> = [], nativeItems: [PaneTabRowTool] = [], nativeEnabled: Bool = ChromeTunables.nativeRowTools.value) {
+    /// `terminalChat`: the selected tab's face of a terminal and chat pair; `paneHasTerminalChat`: a tab of the pane is half of one.
+    func update(target: String?, kind: Kind?, zoomed: Bool = false, pinned: [String] = [], paneKinds: Set<Kind> = [], nativeItems: [PaneTabRowTool] = [], nativeEnabled: Bool = ChromeTunables.nativeRowTools.value,
+                terminalChat: PaneTerminalChatFace? = nil, paneHasTerminalChat: Bool = false) {
         self.target = target
         self.kind = kind
         self.zoomed = zoomed
@@ -187,24 +201,26 @@ final class PaneToolbar {
         // (Lawrence 2026-10-20: "i dont like the down arrow"); it is a row of "…"'s menu.
         let kinds = kind.map { paneKinds.union([$0]) } ?? paneKinds
         let reservedPins = kinds.map { kind in pinned.count(where: { Self.actions(kind).contains(ActionID(rawValue: $0)) }) }.max() ?? 0
-        // The zoom indicator is at the pane's top-right (`PaneZoomIndicatorView`), not a button here:
-        // a zoom keeps this room, so the strip's width and every tab stay put.
+        // A zoomed pane's Exit Zoom button sits left of "…" (`PaneToolbarView.zoomButton`, user 2026-11-09).
         let buttons = shownButtons()
         // The new-terminal and new-browser buttons are not shown: the + and the "…" menu offer them (Lawrence 2026-10-27: too many buttons).
         // A native page list needs an overflow route when a narrow pane cannot fit every real
         // button. It also keeps chat panes discoverable, which otherwise have no pane "…".
         let nativeTools = nativeEnabled ? nativeItems : []
-        view.show(buttons.compactMap(item), more: shown || !nativeTools.isEmpty, lit: zoomed && shown,
+        // Toggle Terminal and Chat: at rest on both faces of a pair, its tooltip the action's title and key (the catalog's).
+        let toggle = registry().flatMap { registry in registry.descriptor(for: Self.terminalChatToggle).map { ($0.title, registry.shortcutDisplay(for: Self.terminalChatToggle)) } }
+        view.show(buttons.compactMap(item), more: shown || !nativeTools.isEmpty, lit: zoomed && shown, zoomed: zoomed,
                   reserving: kinds.isEmpty ? 0 : max(reservedPins, buttons.count) + 1,
-                  nativeItems: nativeTools)
+                  nativeItems: nativeTools, terminalChat: target == nil || toggle == nil ? nil : terminalChat,
+                  terminalChatTip: toggle ?? ("", nil), reservingTerminalChat: paneHasTerminalChat)
     }
 
     /// The pinned actions the tab can run, in the user's order, as buttons before "…".
     func shownPins() -> [ActionID] { pinned.map(ActionID.init(rawValue:)).filter(tabActions().contains) }
 
-    /// The buttons before "…": the pins; a pinned zoom button is lit while the pane is zoomed. An
-    /// unpinned one never shows: the selected tab carries the zoom indicator (#25624).
-    func shownButtons() -> [ActionID] { shownPins() }
+    /// The buttons before "…": the pins. While the pane is zoomed a pinned zoom gives way to the
+    /// bar's one Exit Zoom button beside "…", so the pane shows one zoom mark, never two.
+    func shownButtons() -> [ActionID] { zoomed ? shownPins().filter { $0 != Self.zoom } : shownPins() }
 
     /// A pinned action's button: the New Tab page's tool symbols (cx-kk7lm), a zoomed pane's lit zoom.
     private func item(_ id: ActionID) -> PaneToolbarItem? {

@@ -14,6 +14,7 @@ import { type IndicatorTravel, useSlidingIndicator } from "../../../ui/motion/Sl
 import { FOCUS_LOCATION_EVENT } from "../newTabModel";
 import { useNt } from "./strings";
 import { PAGE_STYLES, type PageStyle } from "./templates";
+import { focusRingShown } from "../../../ui/focusModality";
 
 /// How long a pick's name stays before it fades.
 const PICKED_NAME_MS = 1100;
@@ -141,7 +142,7 @@ export function DotSwitch<Option extends string>({
               aria-label={name(style)}
               checked={style === current}
               onFocus={(event) => {
-                if (event.currentTarget.matches(":focus-visible")) {
+                if (focusRingShown(event.currentTarget)) {
                   setFocused(style);
                   setHovered(undefined);
                 }

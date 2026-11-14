@@ -11,8 +11,10 @@
 //!
 //! The app shows them like any tab notification (a banner unless that tab is
 //! focused, the Dock badge, a click that opens the tab, the workspace mute).
-//! An ended turn notifies unless a pane showed the chat as it ended (acpmux
-//! `shown`, and `unread` once it ended unseen). When acpmux says a
+//! An ended turn notifies once, also when a pane showed the chat as it ended:
+//! acpmux's `shown` is a page that is not hidden, which it stays while cmux is
+//! in the background, so the app reads a finish its person saw land (its
+//! visibility needs the app active). When acpmux says a
 //! pane showed the chat (`unread` turned false) or the wait ended, the daemon
 //! reads the tab's notifications, so seeing or answering the chat anywhere
 //! clears them. A reconnect compares acpmux's page with what the watch knew,
@@ -282,12 +284,14 @@ fn parse_cache_ttl_timers(root: &Value) -> HashMap<String, Vec<CacheTtlSpec>> {
 impl Mux {
     /// This machine's acpmux socket (`set_acpmux_socket`), a watch of its
     /// chats that posts their notifications for as long as the daemon runs,
-    /// and the agent message pump (`agent_message_pump.rs`), which the watch
-    /// wakes whenever it reaches acpmux.
+    /// and the agent message pump (`agent_message_pump.rs`) and the chat-index
+    /// project import (`project_chats.rs`), which the watch wakes whenever it
+    /// reaches acpmux.
     pub fn watch_agent_chats(self: &Arc<Self>, socket: Option<PathBuf>) {
         self.set_acpmux_socket(socket.clone());
         let Some(socket) = socket else { return };
         self.start_agent_message_pump();
+        self.start_project_chats(socket.clone());
         self.start_cache_ttl_scheduler();
         let mux = Arc::downgrade(self);
         let spawned = std::thread::Builder::new()
@@ -495,10 +499,12 @@ impl Mux {
 /// when the watch cannot be armed does it fall back to spaced retries.
 fn watch(mux: &Weak<Mux>, socket: &Path) {
     let mut chats = HashMap::new();
+    // Kept across this watch's reconnects, as `chats` is: a reconnect follows from it.
+    let mut cursor = None;
     // A relative path has no directory to watch: the watch would arm and
     // never hint again.
     if !socket.is_absolute() {
-        watch_by_retrying(mux, socket, &mut chats);
+        watch_by_retrying(mux, socket, &mut chats, &mut cursor);
         return;
     }
     let (hint, hints) = mpsc::channel::<()>();
@@ -527,7 +533,7 @@ fn watch(mux: &Weak<Mux>, socket: &Path) {
             eprintln!(
                 "cmux-tui: acpmux socket watch unavailable ({error}); agent chat notices retry"
             );
-            watch_by_retrying(mux, socket, &mut chats);
+            watch_by_retrying(mux, socket, &mut chats, &mut cursor);
             return;
         }
     };
@@ -538,7 +544,9 @@ fn watch(mux: &Weak<Mux>, socket: &Path) {
     while hints.recv().is_ok() {
         // Hints that queued meanwhile are one change.
         while hints.try_recv().is_ok() {}
-        if socket.symlink_metadata().is_ok() && !follow_while_listening(mux, socket, &mut chats) {
+        if socket.symlink_metadata().is_ok()
+            && !follow_while_listening(mux, socket, &mut chats, &mut cursor)
+        {
             return;
         }
     }
@@ -555,6 +563,7 @@ fn follow_while_listening(
     mux: &Weak<Mux>,
     socket: &Path,
     chats: &mut HashMap<String, Chat>,
+    cursor: &mut Option<ListCursor>,
 ) -> bool {
     let mut backoff = crate::backoff::Backoff::new(RECONNECT_INITIAL, RECONNECT_MAX);
     let mut refused = 0;
@@ -565,7 +574,7 @@ fn follow_while_listening(
         if socket.symlink_metadata().is_err() {
             return true;
         }
-        match connect_and_follow(mux, socket, chats) {
+        match connect_and_follow(mux, socket, chats, cursor) {
             Connection::Refused => {
                 refused += 1;
                 if refused >= CONNECTS_PER_HINT {
@@ -585,10 +594,17 @@ fn follow_while_listening(
 }
 
 /// Without a socket watch: retry for as long as the daemon runs.
-fn watch_by_retrying(mux: &Weak<Mux>, socket: &Path, chats: &mut HashMap<String, Chat>) {
+fn watch_by_retrying(
+    mux: &Weak<Mux>,
+    socket: &Path,
+    chats: &mut HashMap<String, Chat>,
+    cursor: &mut Option<ListCursor>,
+) {
     let mut backoff = crate::backoff::Backoff::new(RECONNECT_INITIAL, RECONNECT_MAX);
     while daemon_runs(mux) {
-        if let Connection::Ended { stayed_up: true } = connect_and_follow(mux, socket, chats) {
+        if let Connection::Ended { stayed_up: true } =
+            connect_and_follow(mux, socket, chats, cursor)
+        {
             backoff.reset();
         }
         std::thread::sleep(backoff.next_delay());
@@ -621,6 +637,7 @@ fn connect_and_follow(
     mux: &Weak<Mux>,
     socket: &Path,
     chats: &mut HashMap<String, Chat>,
+    cursor: &mut Option<ListCursor>,
 ) -> Connection {
     let stream = match UnixStream::connect(socket) {
         Ok(stream) => stream,
@@ -632,10 +649,12 @@ fn connect_and_follow(
         if !live.hold_agent_chat_connection(&stream) {
             return Connection::Ended { stayed_up: false };
         }
-        // acpmux is back: what waited for it goes out now.
+        // acpmux is back: what waited for it goes out now, and the project
+        // import follows its chat index again.
         live.wake_agent_message_pump();
+        live.wake_project_chats();
     }
-    let stayed_up = follow(mux, stream, chats).is_ok();
+    let stayed_up = follow(mux, stream, chats, cursor).is_ok();
     if let Some(live) = mux.upgrade() {
         live.release_agent_chat_connection();
     }
@@ -651,10 +670,11 @@ fn follow(
     mux: &Weak<Mux>,
     stream: UnixStream,
     chats: &mut HashMap<String, Chat>,
+    cursor: &mut Option<ListCursor>,
 ) -> std::io::Result<()> {
     // What the watch knew before this connection: the list is a change from it.
     let mut unlisted = std::mem::take(chats);
-    let listed = read_watch(mux, stream, chats, &mut unlisted);
+    let listed = read_watch(mux, stream, chats, &mut unlisted, cursor);
     // Ended before the list did: what the watch knew of the chats nothing on
     // this connection reached stays for the next one to compare with.
     for (session, chat) in unlisted {
@@ -667,11 +687,67 @@ fn follow(
     }
 }
 
+/// The `initialize` capability of an acpmux that stamps each list change with a position
+/// (`listSeq`) and answers `_acpmux/watch {afterSeq}` with what changed since (acpmux
+/// `hub/row_log.rs`). acpmux's capability, read from its reply: cmux-tui's `identify` does not
+/// advertise it, so it is not named as one of cmux-tui's `*_CAPABILITY` constants.
+const ACPMUX_LIST_FOLLOW: &str = "session-list-follow-v1";
+
+/// The highest list position the watch applied, and the acpmux run it counts in. Kept across
+/// reconnects: a reconnect, or a watch acpmux says lagged, reads the rows changed since it
+/// instead of the whole list. Leo, 2026-11-12: "it's unacceptable to be having so many of these
+/// connectivity issues".
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ListCursor {
+    epoch: String,
+    seq: u64,
+}
+
+/// The watch request with `id`: the list's first page, or the rows changed after `cursor`.
+fn watch_request(id: u64, cursor: Option<&ListCursor>) -> Value {
+    let params = match cursor {
+        Some(cursor) => json!({"enabled": true, "limit": PAGE_SESSIONS,
+            "afterSeq": cursor.seq, "listEpoch": cursor.epoch}),
+        None => json!({"enabled": true, "limit": PAGE_SESSIONS}),
+    };
+    json!({"jsonrpc": "2.0", "id": id, "method": "_acpmux/watch", "params": params})
+}
+
+/// Asks for the rows changed after `at` with the next request id; answers that id.
+fn ask_follow(writer: &mut UnixStream, last_id: &mut u64, at: &ListCursor) -> std::io::Result<u64> {
+    *last_id += 1;
+    writer.write_all(format!("{}\n", watch_request(*last_id, Some(at))).as_bytes())?;
+    Ok(*last_id)
+}
+
+/// Whether acpmux's `initialize` reply names [`ACPMUX_LIST_FOLLOW`].
+fn follows(initialized: &Value) -> bool {
+    initialized
+        .pointer("/result/_meta/acpmux/capabilities")
+        .and_then(Value::as_array)
+        .is_some_and(|ids| ids.iter().any(|id| id == ACPMUX_LIST_FOLLOW))
+}
+
+/// Whether a `session_changed` is older than what the watch holds: its list position is lower
+/// than the one the row came with, or than `floor`, the position of the list or follow last read
+/// on this connection. That reply holds every change up to it, a chat's removal too, so a late
+/// push from before it brings back no chat the reply left out.
+fn older_than_held(held: Option<&Chat>, floor: u64, params: &Value) -> bool {
+    params
+        .get("listSeq")
+        .and_then(Value::as_u64)
+        .is_some_and(|seq| held.map_or(floor, |chat| chat.list_seq.max(floor)) > seq)
+}
+
 /// Reads one connection to its end; when the watch's list came whole. The
 /// list comes [`PAGE_SESSIONS`] at a time (the watch's first page, then
 /// `_acpmux/sessions` from its cursor), so no reply nears acpmux's largest
 /// message whatever the number of sessions. `unlisted` is what the watch knew
 /// before this connection, less the chats a page or a push has reached.
+///
+/// With a `cursor` from an acpmux that follows ([`ACPMUX_LIST_FOLLOW`]) the watch asks for the
+/// rows changed since it (`follow: true`, the rows and `gone`) and the rows it held stand; an
+/// acpmux that cannot follow it answers the list's first page (`reset`), read as a first list.
 ///
 /// acpmux sends pushes as soon as the watch is on, apart from the replies, so
 /// a push may come before the page it is newer than: a chat a push reached
@@ -681,6 +757,7 @@ fn read_watch(
     stream: UnixStream,
     chats: &mut HashMap<String, Chat>,
     unlisted: &mut HashMap<String, Chat>,
+    cursor: &mut Option<ListCursor>,
 ) -> std::io::Result<Option<Instant>> {
     let mut writer = stream.try_clone()?;
     // `observer`: this connection only watches, so it keeps no acpmux daemon whose app has quit
@@ -691,8 +768,8 @@ fn read_watch(
         "clientCapabilities": {},
         "_meta": {"acpmux": {"observer": true}},
     }});
-    let watch = json!({"jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch",
-        "params": {"enabled": true, "limit": PAGE_SESSIONS}});
+    // A cursor is only kept from an acpmux that follows; one that no longer does ignores it.
+    let watch = watch_request(2, cursor.as_ref());
     // The shares the list may close: one created after the list was asked for may be of a chat
     // the list is too old to name.
     let before = mux.upgrade().map(|mux| crate::server::open_chat_shares(&mux)).unwrap_or_default();
@@ -700,10 +777,23 @@ fn read_watch(
     let mut reader = BufReader::new(stream);
     // The reply that carries the next page; none once the list is whole.
     let mut page = Some(2_u64);
+    // Whether that reply answers a watch (a first page or a follow), not `_acpmux/sessions`.
+    let mut page_is_watch = true;
+    let mut last_id = 2_u64;
     let mut whole = None;
     let mut pushed = HashSet::new();
     // Every local chat this connection's list named, whatever its status.
     let mut listed = HashSet::new();
+    // This acpmux follows a cursor ([`ACPMUX_LIST_FOLLOW`]).
+    let mut capable = false;
+    // The position of the list being read: its rows come with it, and the cursor is it once the
+    // list is whole (a list cut short leaves no cursor, so the next connection reads it whole).
+    let mut list_seq = 0_u64;
+    let mut pending: Option<ListCursor> = None;
+    // A reply on this connection named a position: a push's is comparable with the rows'.
+    let mut gate = false;
+    // acpmux dropped pushes while a list or follow was out: follow again once it is in.
+    let mut relist = false;
     loop {
         // A whole line however long: acpmux sends none past its largest message.
         let mut line = Vec::new();
@@ -715,12 +805,59 @@ fn read_watch(
         }
         let message = serde_json::from_slice::<Value>(&line)?;
         let Some(mux) = mux.upgrade() else { return Ok(None) };
-        if page.is_some_and(|id| message["id"] == id) {
-            let (Some(sessions), next) =
-                (message["result"]["sessions"].as_array(), &message["result"]["nextCursor"])
+        if message.get("id").and_then(Value::as_u64) == Some(1) {
+            capable |= follows(&message);
+            if !capable {
+                *cursor = None;
+            }
+        } else if page.is_some_and(|id| message["id"] == id) {
+            let result = message.get("result").unwrap_or(&Value::Null);
+            let (Some(sessions), next) = (result["sessions"].as_array(), &result["nextCursor"])
             else {
                 return Err(std::io::Error::other("acpmux did not list its sessions"));
             };
+            let followed = page_is_watch && result["follow"] == true;
+            if page_is_watch {
+                let position = result["listSeq"].as_u64().zip(result["listEpoch"].as_str());
+                match position {
+                    Some((seq, epoch)) => {
+                        // acpmux answers side by side: this reply may come before `initialize`'s,
+                        // and only an acpmux that follows names a position.
+                        capable = true;
+                        list_seq = seq;
+                        gate = true;
+                        let at = ListCursor { epoch: epoch.to_owned(), seq };
+                        if followed {
+                            // A follow's rows are applied whole, in order, up to `seq`.
+                            *cursor = Some(at);
+                        } else {
+                            *cursor = None;
+                            pending = Some(at);
+                        }
+                    }
+                    None => {
+                        list_seq = 0;
+                        *cursor = None;
+                    }
+                }
+                if !followed {
+                    // A first list (also a follow acpmux reset): every row held is compared with
+                    // it, and one it leaves out is gone; a row held is as of this list's position.
+                    let held: Vec<String> = chats
+                        .keys()
+                        .filter(|session| !pushed.contains(*session))
+                        .cloned()
+                        .collect();
+                    for session in held {
+                        if let Some(chat) = chats.remove(&session) {
+                            unlisted.insert(session, chat);
+                        }
+                    }
+                    for chat in unlisted.values_mut() {
+                        chat.list_seq = list_seq;
+                    }
+                }
+            }
             for summary in sessions {
                 if summary.get("peer").is_none_or(Value::is_null)
                     && let Some(session) = summary.get("sessionId").and_then(Value::as_str)
@@ -736,10 +873,11 @@ fn read_watch(
                 {
                     crate::server::close_listed_chat_shares(&mux, session, &before);
                 }
-                let Some(next) = Chat::of(summary) else { continue };
+                let Some(mut next) = Chat::of(summary) else { continue };
                 if pushed.contains(&next.session) {
                     continue;
                 }
+                next.list_seq = list_seq;
                 // A chat an earlier page reached compares with that.
                 let known = unlisted.remove(&next.session).or_else(|| chats.remove(&next.session));
                 if known.is_none() && next.needs_nobody() {
@@ -748,33 +886,107 @@ fn read_watch(
                 }
                 apply(&mux, known.as_ref(), next, chats);
             }
-            page = match next {
-                Value::String(cursor) => {
-                    let id = page.unwrap_or(2) + 1;
-                    let more = json!({"jsonrpc": "2.0", "id": id, "method": "_acpmux/sessions",
-                        "params": {"limit": PAGE_SESSIONS, "cursor": cursor}});
-                    writer.write_all(format!("{more}\n").as_bytes())?;
-                    Some(id)
-                }
-                Value::Null => {
-                    // The list is whole: a chat it left out is gone, and so are its link shares
-                    // (purged while the watch was away, or before this daemon started). A chat
-                    // a push reached is still there.
-                    listed.extend(pushed.iter().cloned());
-                    crate::server::close_unlisted_chat_shares(&mux, &listed, &before);
-                    for session in unlisted.keys() {
-                        mux.remove_cache_ttl_timer(session);
+            if followed {
+                for gone in result["gone"].as_array().into_iter().flatten() {
+                    if !gone["peer"].is_null() {
+                        continue;
                     }
-                    unlisted.clear();
-                    whole = Some(Instant::now());
-                    None
+                    let Some(session) = gone["sessionId"].as_str() else { continue };
+                    if pushed.contains(session) {
+                        continue;
+                    }
+                    unlisted.remove(session);
+                    chats.remove(session);
+                    crate::server::close_chat_shares(&mux, session);
+                    mux.remove_cache_ttl_timer(session);
                 }
-                _ => return Err(std::io::Error::other("acpmux sent a cursor that is no cursor")),
-            };
+                if result["more"] == true
+                    && let Some(at) = cursor.as_ref()
+                {
+                    page = Some(ask_follow(&mut writer, &mut last_id, at)?);
+                    continue;
+                }
+                // Caught up: the rows no follow named are as they were.
+                for (session, chat) in unlisted.drain() {
+                    chats.entry(session).or_insert(chat);
+                }
+                whole.get_or_insert_with(Instant::now);
+                page = None;
+            } else {
+                page = match next {
+                    Value::String(list_cursor) => {
+                        last_id += 1;
+                        let more = json!({"jsonrpc": "2.0", "id": last_id, "method": "_acpmux/sessions",
+                            "params": {"limit": PAGE_SESSIONS, "cursor": list_cursor}});
+                        writer.write_all(format!("{more}\n").as_bytes())?;
+                        page_is_watch = false;
+                        Some(last_id)
+                    }
+                    Value::Null => {
+                        // The list is whole: a chat it left out is gone, and so are its link shares
+                        // (purged while the watch was away, or before this daemon started). A chat
+                        // a push reached is still there.
+                        listed.extend(pushed.iter().cloned());
+                        crate::server::close_unlisted_chat_shares(&mux, &listed, &before);
+                        for session in unlisted.keys() {
+                            mux.remove_cache_ttl_timer(session);
+                        }
+                        unlisted.clear();
+                        whole.get_or_insert_with(Instant::now);
+                        *cursor = pending.take();
+                        None
+                    }
+                    _ => {
+                        return Err(std::io::Error::other(
+                            "acpmux sent a cursor that is no cursor",
+                        ));
+                    }
+                };
+            }
+            if page.is_none()
+                && std::mem::take(&mut relist)
+                && let Some(at) = cursor.as_ref()
+            {
+                page = Some(ask_follow(&mut writer, &mut last_id, at)?);
+                page_is_watch = true;
+            }
+        } else if message["method"] == "_acpmux/lagged" && message["params"]["watch"] == true {
+            // acpmux dropped pushes this watch needed. Before it could follow, the watch read on
+            // without them (as it still does with one that cannot); now it follows its cursor.
+            if !capable {
+                continue;
+            }
+            match (page, cursor.as_ref()) {
+                (None, Some(at)) => {
+                    page = Some(ask_follow(&mut writer, &mut last_id, at)?);
+                    page_is_watch = true;
+                }
+                _ => relist = true,
+            }
         } else if let Some(method @ ("_acpmux/session_changed" | "_acpmux/permission_pending")) =
             message["method"].as_str()
         {
             let params = &message["params"];
+            if method == "_acpmux/session_changed" {
+                // A push older than the row held (positions of this list) changes nothing.
+                if gate
+                    && params["peer"].is_null()
+                    && let Some(session) = params["sessionId"].as_str()
+                    && older_than_held(
+                        chats.get(session).or_else(|| unlisted.get(session)),
+                        list_seq,
+                        params,
+                    )
+                {
+                    continue;
+                }
+                // Once the list is whole, the cursor is the highest position applied.
+                if page.is_none()
+                    && let (Some(at), Some(seq)) = (cursor.as_mut(), params["listSeq"].as_u64())
+                {
+                    at.seq = at.seq.max(seq);
+                }
+            }
             if params["peer"].is_null()
                 && let Some(session) = params["sessionId"].as_str()
             {
@@ -832,7 +1044,8 @@ fn changed(mux: &Arc<Mux>, params: &Value, chats: &mut HashMap<String, Chat>) {
         mux.remove_cache_ttl_timer(session);
         return;
     }
-    let Some(next) = Chat::of(&params["session"]) else { return };
+    let Some(mut next) = Chat::of(&params["session"]) else { return };
+    next.list_seq = params["listSeq"].as_u64().unwrap_or(0);
     let before = chats.remove(&next.session);
     apply(mux, before.as_ref(), next, chats);
 }
@@ -872,12 +1085,12 @@ struct Chat {
     indicator: String,
     idle_since: Option<u64>,
     unread: bool,
-    /// A pane shows the chat now.
-    shown: bool,
     /// Muted from its tab's menu ([`MUTE_TAG`]).
     muted: bool,
     /// The last turn that ended: its id and status.
     last_turn: Option<(String, String)>,
+    /// Why the last turn failed (a quota or capacity error), when acpmux says.
+    last_error: Option<String>,
     /// Work it started runs past its turn (a background subagent, a working sub-session;
     /// acpmux's `subagentsWorkingSince`): the task is not done yet.
     works_below: bool,
@@ -887,6 +1100,9 @@ struct Chat {
     last_seq: u64,
     /// The asks of its current wait, by group (asks grouped on one card) or permission id.
     asks: HashSet<String>,
+    /// The list position this row came with ([`ListCursor`]): a push of a lower one is older
+    /// than it. 0 when acpmux names none.
+    list_seq: u64,
 }
 
 struct Notice {
@@ -917,6 +1133,10 @@ impl Chat {
             .as_object()
             .filter(|lane| lane.get("state").and_then(Value::as_str) == Some("idle"))
             .and_then(|lane| lane.get("since").and_then(Value::as_u64));
+        let last_error = summary["lastTurn"]["errorText"]
+            .as_str()
+            .filter(|text| !text.trim().is_empty())
+            .map(str::to_owned);
         let last_turn = summary["lastTurn"].as_object().map(|turn| {
             let id = turn.get("turnId").and_then(Value::as_str).map(str::to_owned);
             let ended = turn.get("endedAt").map(Value::to_string).unwrap_or_default();
@@ -930,14 +1150,15 @@ impl Chat {
             indicator: summary["indicator"].as_str().unwrap_or_default().to_owned(),
             idle_since,
             unread: summary["unread"].as_bool() == Some(true),
-            shown: summary["shown"].as_bool() == Some(true),
             muted: summary["tags"][MUTE_TAG] == MUTED,
             last_turn,
+            last_error,
             works_below: summary["subagentsWorkingSince"].is_u64(),
             notified_turn: None,
             last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
             last_seq: summary["lastSeq"].as_u64().unwrap_or(0),
             asks: HashSet::new(),
+            list_seq: 0,
         })
     }
 
@@ -980,11 +1201,12 @@ impl Chat {
     }
 
     /// What this change says to the person, given what the chat did before.
-    /// An ended turn notifies once, unless a pane showed the chat as it ended:
-    /// when it ends while no pane shows the chat, or once acpmux marks the
-    /// chat unread (a turn that failed before it started is never marked so).
-    /// A turn that ends while work it started still runs waits: acpmux marks
-    /// the chat unread when that work ends (manaflow-ai/cmux#25563).
+    /// An ended turn notifies once: in the change it ends in, or once acpmux
+    /// marks the chat unread (a turn the watch saw end before it started). A
+    /// pane that showed it is no reason to stay silent: the page stays shown
+    /// while cmux is in the background, and the app reads a finish its person
+    /// saw land. A turn that ends while work it started still runs waits for
+    /// that work to end (manaflow-ai/cmux#25563, #24386).
     fn notices(&mut self, before: Option<&Chat>) -> Vec<Notice> {
         let mut notices = Vec::new();
         let name = &self.name;
@@ -992,9 +1214,11 @@ impl Chat {
         let ended_now = |turn: &String| {
             before.is_some_and(|chat| chat.last_turn.as_ref().map(|(id, _)| id) != Some(turn))
         };
+        // Work it started past its turn ended in this change.
+        let below_ended = before.is_some_and(|chat| chat.works_below) && !self.works_below;
         if let Some((turn, status)) = &self.last_turn
             && !self.works_below
-            && (self.unread || (!self.shown && ended_now(turn)))
+            && (self.unread || below_ended || ended_now(turn))
             && self.notified_turn.as_ref() != Some(turn)
         {
             self.notified_turn = Some(turn.clone());
@@ -1011,7 +1235,10 @@ impl Chat {
                     key: format!("failed-{turn}"),
                     title: format!("{name} failed"),
                     subtitle: None,
-                    body: short(&self.last_message, MAX_BODY_CHARS),
+                    body: short(
+                        self.last_error.as_ref().unwrap_or(&self.last_message),
+                        MAX_BODY_CHARS,
+                    ),
                     level: NotificationLevel::Error,
                     restated: false,
                 }),
@@ -1273,7 +1500,7 @@ mod tests {
         let mux = test_mux("notices-long-list");
         let mut chats = HashMap::new();
         let (client, serve) = fake_acpmux(vec![reply]);
-        let followed = follow(&Arc::downgrade(&mux), client, &mut chats);
+        let followed = follow(&Arc::downgrade(&mux), client, &mut chats, &mut None);
         serve.join().expect("the fake acpmux");
         assert!(chats.contains_key("chat-1"), "the whole list was read");
         assert!(followed.is_err(), "a connection that ends right after its list keeps the backoff");
@@ -1295,7 +1522,7 @@ mod tests {
         let mut chats = HashMap::new();
         let (client, serve) =
             fake_acpmux(vec![r#"{"jsonrpc":"2.0","id":2,"result":{"sessions":["#.to_owned()]);
-        let followed = follow(&Arc::downgrade(&mux), client, &mut chats);
+        let followed = follow(&Arc::downgrade(&mux), client, &mut chats, &mut None);
         serve.join().expect("the fake acpmux");
         assert!(followed.is_err());
     }
@@ -1308,7 +1535,7 @@ mod tests {
         let mux = test_mux("notices-observer");
         let mut chats = HashMap::new();
         let (client, serve) = fake_acpmux(vec![list_reply(2, &[local("chat-1")], None)]);
-        let _ = follow(&Arc::downgrade(&mux), client, &mut chats);
+        let _ = follow(&Arc::downgrade(&mux), client, &mut chats, &mut None);
         let requests = serve.join().expect("the fake acpmux");
         assert_eq!(requests[0]["method"], "initialize");
         assert_eq!(requests[0]["params"]["_meta"]["acpmux"]["observer"], true, "{}", requests[0]);
@@ -1322,7 +1549,7 @@ mod tests {
             list_reply(2, &[local("chat-1")], Some("k5.1")),
             list_reply(3, &[local("chat-2")], None),
         ]);
-        let followed = follow(&Arc::downgrade(&mux), client, &mut chats);
+        let followed = follow(&Arc::downgrade(&mux), client, &mut chats, &mut None);
         let requests = serve.join().expect("the fake acpmux");
         assert!(followed.is_err(), "it ended right after its list");
         assert_eq!(requests[1]["method"], "_acpmux/watch");
@@ -1334,6 +1561,190 @@ mod tests {
         assert_eq!(known, ["chat-1", "chat-2"]);
     }
 
+    /// acpmux's `initialize` reply, naming [`ACPMUX_LIST_FOLLOW`] when `follows`.
+    fn initialized(follows: bool) -> String {
+        let capabilities = if follows { json!([ACPMUX_LIST_FOLLOW]) } else { json!([]) };
+        format!(
+            "{}\n",
+            json!({"jsonrpc": "2.0", "id": 1, "result": {"_meta": {"acpmux": {"capabilities": capabilities}}}})
+        )
+    }
+
+    /// A follow's reply to request `id`: the rows changed and gone, current to `seq`.
+    fn follow_reply(id: u64, sessions: &[Value], gone: &[&str], seq: u64, more: bool) -> String {
+        let gone: Vec<Value> = gone.iter().map(|id| json!({"sessionId": id})).collect();
+        format!(
+            "{}\n",
+            json!({"jsonrpc": "2.0", "id": id, "result": {"follow": true, "listEpoch": "run-1",
+                "listSeq": seq, "more": more, "gone": gone, "sessions": sessions}})
+        )
+    }
+
+    fn cursor_at(seq: u64) -> Option<ListCursor> {
+        Some(ListCursor { epoch: "run-1".to_owned(), seq })
+    }
+
+    fn held(sessions: &[&str], list_seq: u64) -> HashMap<String, Chat> {
+        sessions
+            .iter()
+            .map(|session| {
+                let mut chat = Chat::of(&local(session)).expect("a local chat");
+                chat.list_seq = list_seq;
+                (session.to_string(), chat)
+            })
+            .collect()
+    }
+
+    /// A reconnect with a cursor asks for the rows changed since it, once, and never the list:
+    /// the rows it names change, the ones gone go, the rest stand, and the cursor moves on. A
+    /// push older than a row the follow brought changes nothing; a newer one does.
+    #[test]
+    fn a_reconnect_follows_from_its_cursor() {
+        let mux = test_mux("notices-follow");
+        let mut chats = held(&["chat-1", "chat-2"], 4);
+        let mut cursor = cursor_at(7);
+        let mut working = local("chat-3");
+        working["indicator"] = json!("working");
+        let push = |seq: u64, indicator: &str| {
+            let mut session = local("chat-3");
+            session["indicator"] = json!(indicator);
+            format!(
+                "{}\n",
+                json!({"jsonrpc": "2.0", "method": "_acpmux/session_changed",
+                "params": {"sessionId": "chat-3", "kind": "updated", "session": session, "listSeq": seq}})
+            )
+        };
+        let reply = format!(
+            "{}{}{}",
+            initialized(true),
+            follow_reply(2, &[working], &["chat-2"], 9, false),
+            push(8, "input"),
+        );
+        let (client, serve) = fake_acpmux(vec![reply]);
+        let _ = follow(&Arc::downgrade(&mux), client, &mut chats, &mut cursor);
+        let requests = serve.join().expect("the fake acpmux");
+        let lists: Vec<_> = requests.iter().filter(|r| r["method"] != "initialize").collect();
+        assert_eq!(lists.len(), 1, "{requests:?}");
+        assert_eq!(lists[0]["method"], "_acpmux/watch");
+        assert_eq!(lists[0]["params"]["afterSeq"], 7);
+        assert_eq!(lists[0]["params"]["listEpoch"], "run-1");
+        assert!(chats.contains_key("chat-1"), "a row no follow named stands");
+        assert!(!chats.contains_key("chat-2"), "a row gone goes");
+        assert_eq!(chats["chat-3"].indicator, "working", "an older push does not undo the follow");
+        assert_eq!(cursor, cursor_at(9));
+        assert!(older_than_held(chats.get("chat-3"), 0, &json!({"listSeq": 8})));
+        assert!(!older_than_held(chats.get("chat-3"), 0, &json!({"listSeq": 9})));
+        assert!(!older_than_held(chats.get("chat-3"), 0, &json!({})), "no position: as before");
+        assert!(!older_than_held(None, 0, &json!({"listSeq": 1})));
+        assert!(older_than_held(None, 9, &json!({"listSeq": 8})), "the list's position holds it");
+    }
+
+    /// A follow cut at its size (`more`) goes on from the position it reached, and a watch acpmux
+    /// says lagged follows from the cursor instead of reading the list again.
+    #[test]
+    fn a_follow_goes_on_from_where_it_was_cut_and_a_lag_follows() {
+        let mux = test_mux("notices-follow-more");
+        let mut chats = held(&["chat-1"], 4);
+        let mut cursor = cursor_at(5);
+        let lagged =
+            json!({"jsonrpc": "2.0", "method": "_acpmux/lagged", "params": {"watch": true}});
+        let (client, serve) = fake_acpmux(vec![
+            format!("{}{}", initialized(true), follow_reply(2, &[local("chat-2")], &[], 6, true)),
+            format!("{}{lagged}\n", follow_reply(3, &[local("chat-3")], &[], 8, false)),
+            follow_reply(4, &[], &["chat-1"], 9, false),
+        ]);
+        let _ = follow(&Arc::downgrade(&mux), client, &mut chats, &mut cursor);
+        let requests = serve.join().expect("the fake acpmux");
+        let after: Vec<_> = requests
+            .iter()
+            .filter(|r| r["method"] == "_acpmux/watch")
+            .map(|r| r["params"]["afterSeq"].clone())
+            .collect();
+        assert_eq!(after, [json!(5), json!(6), json!(8)]);
+        assert!(requests.iter().all(|r| r["method"] != "_acpmux/sessions"));
+        let mut known: Vec<_> = chats.keys().cloned().collect();
+        known.sort();
+        assert_eq!(known, ["chat-2", "chat-3"]);
+        assert_eq!(cursor, cursor_at(9));
+    }
+
+    /// A cursor acpmux cannot follow (another run) is answered with the list's first page and
+    /// `reset`: it is read as a first list, so a row it leaves out is gone.
+    #[test]
+    fn a_reset_reads_the_list_as_a_first_list() {
+        let mux = test_mux("notices-follow-reset");
+        let mut chats = held(&["chat-1"], 4);
+        let mut cursor = cursor_at(7);
+        let reset = format!(
+            "{}\n",
+            json!({"jsonrpc": "2.0", "id": 2, "result": {"reset": true, "listEpoch": "run-2",
+                "listSeq": 3, "sessions": [local("chat-2")]}})
+        );
+        let (client, serve) = fake_acpmux(vec![format!("{}{reset}", initialized(true))]);
+        let _ = follow(&Arc::downgrade(&mux), client, &mut chats, &mut cursor);
+        serve.join().expect("the fake acpmux");
+        assert!(!chats.contains_key("chat-1"), "the reset list left it out");
+        assert_eq!(chats["chat-2"].list_seq, 3);
+        assert_eq!(cursor, Some(ListCursor { epoch: "run-2".to_owned(), seq: 3 }));
+    }
+
+    /// A reset list at position 5 leaves out chat-1, removed before it. Pushes about chat-1 from
+    /// before it (positions 3 and 4) come late, one while the list is still paging and one after
+    /// it is whole: neither brings it back. A push past the list's position still counts.
+    #[test]
+    fn a_push_older_than_a_reset_list_does_not_bring_back_a_chat_it_left_out() {
+        let mux = test_mux("notices-follow-reset-race");
+        let mut chats = held(&["chat-1"], 4);
+        let mut cursor = cursor_at(7);
+        let push = |session: &str, seq: u64| {
+            format!(
+                "{}\n",
+                json!({"jsonrpc": "2.0", "method": "_acpmux/session_changed",
+                "params": {"sessionId": session, "kind": "updated", "session": local(session),
+                    "listSeq": seq}})
+            )
+        };
+        let first = format!(
+            "{}\n",
+            json!({"jsonrpc": "2.0", "id": 2, "result": {"reset": true, "listEpoch": "run-2",
+                "listSeq": 5, "sessions": [local("chat-2")], "nextCursor": "page-2"}})
+        );
+        let (client, serve) = fake_acpmux(vec![
+            format!("{}{first}{}", initialized(true), push("chat-1", 3)),
+            format!("{}{}{}", list_reply(3, &[], None), push("chat-1", 4), push("chat-3", 6)),
+        ]);
+        let _ = follow(&Arc::downgrade(&mux), client, &mut chats, &mut cursor);
+        serve.join().expect("the fake acpmux");
+        assert!(
+            !chats.contains_key("chat-1"),
+            "an older push brought back a chat the list left out"
+        );
+        assert!(chats.contains_key("chat-2"));
+        assert!(chats.contains_key("chat-3"), "a push past the list's position counts");
+    }
+
+    /// An acpmux without the capability keeps no cursor: the next connection reads the list
+    /// whole, as before.
+    #[test]
+    fn an_acpmux_that_cannot_follow_keeps_no_cursor() {
+        let mux = test_mux("notices-follow-older");
+        let mut chats = HashMap::new();
+        let mut cursor = cursor_at(7);
+        let (client, serve) = fake_acpmux(vec![format!(
+            "{}{}",
+            initialized(false),
+            list_reply(2, &[local("chat-1")], None)
+        )]);
+        let _ = follow(&Arc::downgrade(&mux), client, &mut chats, &mut cursor);
+        serve.join().expect("the fake acpmux");
+        assert_eq!(cursor, None);
+        assert!(chats.contains_key("chat-1"));
+        assert_eq!(
+            watch_request(2, None)["params"],
+            json!({"enabled": true, "limit": PAGE_SESSIONS})
+        );
+    }
+
     #[test]
     fn a_connection_that_ends_mid_list_keeps_what_the_watch_knew() {
         let mux = test_mux("notices-mid-list");
@@ -1342,7 +1753,7 @@ mod tests {
             list_reply(2, &[local("chat-2")], Some("k5.1")),
             r#"{"jsonrpc":"2.0","id":3,"result":"#.to_owned(),
         ]);
-        let followed = follow(&Arc::downgrade(&mux), client, &mut chats);
+        let followed = follow(&Arc::downgrade(&mux), client, &mut chats, &mut None);
         serve.join().expect("the fake acpmux");
         assert!(followed.is_err());
         assert!(chats.contains_key("chat-1"), "no page reached it: the next connection compares");
@@ -1363,7 +1774,7 @@ mod tests {
         stale["indicator"] = json!("working");
         let (client, serve) =
             fake_acpmux(vec![format!("{push}\n{}", list_reply(2, &[stale], None))]);
-        let followed = follow(&Arc::downgrade(&mux), client, &mut chats);
+        let followed = follow(&Arc::downgrade(&mux), client, &mut chats, &mut None);
         serve.join().expect("the fake acpmux");
         assert!(followed.is_err());
         assert_eq!(chats["chat-1"].indicator, "input");
@@ -1381,7 +1792,7 @@ mod tests {
             let mux = test_mux("notices-unreadable");
             let mut chats = HashMap::from([("chat-1".to_owned(), chat("idle", 3))]);
             let (client, serve) = fake_acpmux(vec![reply]);
-            let followed = follow(&Arc::downgrade(&mux), client, &mut chats);
+            let followed = follow(&Arc::downgrade(&mux), client, &mut chats, &mut None);
             serve.join().expect("the fake acpmux");
             assert!(followed.is_err());
             assert!(chats.contains_key("chat-1"), "an unfinished list drops no chat");
@@ -1400,6 +1811,123 @@ mod tests {
         done.notified_turn = waiting.notified_turn.clone();
         let keys: Vec<_> = done.notices(Some(&waiting)).into_iter().map(|n| n.key).collect();
         assert_eq!(keys, ["done-turn-1"]);
+    }
+
+    /// What the watch posts for `changes` of one chat, as `apply` runs them; each change is
+    /// heard twice (a replay after a reconnect), so a notice posted twice shows in the result.
+    fn posted(changes: &[Value]) -> Vec<Notice> {
+        let mut before: Option<Chat> = None;
+        let mut notices = Vec::new();
+        for change in changes.iter().flat_map(|change| [change, change]) {
+            let mut next = Chat::of(change).expect("a local chat");
+            next.notified_turn = before.as_ref().and_then(|chat| chat.notified_turn.clone());
+            next.keep_asks(before.as_ref());
+            notices.extend(next.notices(before.as_ref()));
+            before = Some(next);
+        }
+        notices
+    }
+
+    /// One acpmux summary of `chat-1`: `shown` is what acpmux reports for a pane that is on
+    /// screen while cmux is not the active app (the page stays visible behind another app).
+    /// acpmux marks a chat no pane shows unread once its turn and the work below it ended.
+    fn summary(
+        indicator: &str,
+        seq: u64,
+        shown: bool,
+        turn: Option<(&str, &str)>,
+        below: bool,
+    ) -> Value {
+        json!({
+            "sessionId": "chat-1",
+            "title": "Review",
+            "indicator": indicator,
+            "shown": shown,
+            "unread": !shown && turn.is_some() && !below,
+            "lastSeq": seq,
+            "lastMessage": {"text": "All tests pass."},
+            "lastTurn": turn.map(|(id, status)| json!({"turnId": id, "status": status,
+                "errorText": (status == "failed").then_some("You've hit your usage limit")})),
+            "subagentsWorkingSince": if below { json!(1_700_000_000_000_u64) } else { Value::Null },
+        })
+    }
+
+    #[test]
+    fn a_background_app_probe_notifies_every_finish_and_needs_input_once() {
+        // Each transition the person must hear about while cmux is in the background, with
+        // the chat's pane on screen (acpmux `shown`) or not: the notice keys it must post.
+        let working = |shown| summary("working", 8, shown, None, false);
+        let transitions: Vec<(&str, Vec<Value>, Vec<&str>)> = [true, false]
+            .into_iter()
+            .flat_map(|shown| {
+                [
+                    (
+                        "finished",
+                        vec![
+                            working(shown),
+                            summary("done", 10, shown, Some(("t1", "completed")), false),
+                        ],
+                        vec!["done-t1"],
+                    ),
+                    (
+                        "quota error",
+                        vec![
+                            working(shown),
+                            summary("done", 10, shown, Some(("t1", "failed")), false),
+                        ],
+                        vec!["failed-t1"],
+                    ),
+                    (
+                        "background work ended",
+                        vec![
+                            working(shown),
+                            summary("working", 10, shown, Some(("t1", "completed")), true),
+                            summary("done", 12, shown, Some(("t1", "completed")), false),
+                        ],
+                        vec!["done-t1"],
+                    ),
+                    (
+                        "permission",
+                        vec![working(shown), summary("input", 10, shown, None, false)],
+                        vec!["input-10"],
+                    ),
+                    (
+                        "question",
+                        vec![working(shown), summary("input", 11, shown, None, false)],
+                        vec!["input-11"],
+                    ),
+                ]
+            })
+            .collect();
+        let (mut notified, mut duplicates, mut missed) = (0, 0, Vec::new());
+        for (name, changes, want) in &transitions {
+            let keys: Vec<String> = posted(changes).into_iter().map(|notice| notice.key).collect();
+            let unique: HashSet<&String> = keys.iter().collect();
+            duplicates += keys.len() - unique.len();
+            if want.iter().all(|key| unique.contains(&key.to_string())) {
+                notified += 1;
+            } else {
+                missed.push(format!("{name} {:?}: {keys:?}", changes[0]["shown"]));
+            }
+        }
+        let total = transitions.len();
+        println!(
+            "agent chat notices, background app: notified {notified}/{total} ({}%), duplicates {duplicates}",
+            notified * 100 / total
+        );
+        assert_eq!(missed, Vec::<String>::new(), "transitions with no notice");
+        assert_eq!(duplicates, 0, "notices posted twice");
+    }
+
+    #[test]
+    fn a_failed_turn_says_why_it_failed() {
+        let notices = posted(&[
+            summary("working", 8, false, None, false),
+            summary("done", 10, false, Some(("t1", "failed")), false),
+        ]);
+        assert_eq!(notices.len(), 1);
+        assert_eq!(notices[0].title, "Review failed");
+        assert_eq!(notices[0].body, "You've hit your usage limit");
     }
 
     #[test]

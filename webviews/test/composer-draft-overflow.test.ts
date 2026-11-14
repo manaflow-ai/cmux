@@ -289,20 +289,28 @@ await requireBrowserLane("composer-draft-overflow.test.ts", async () => {
       const two = await read(page);
       contained(two, "second line");
       expect(two.text.split("\n").filter(Boolean)).toEqual(["first line", "second line"]);
-      expect(two.height).toBeGreaterThan(one.height + 4);
+      // A third line: Codex's look (the default since #42247) holds two lines' room at rest
+      // (composerLook.css --acpmux-codex-editor-min), so only a line past that grows the field.
+      await page.keyboard.press("Shift+Enter");
+      await page.keyboard.type("third line");
+      const three = await read(page);
+      contained(three, "third line");
+      expect(three.text.split("\n").filter(Boolean)).toEqual(["first line", "second line", "third line"]);
+      expect(three.height).toBeGreaterThan(one.height + 4);
+      expect(three.height).toBeGreaterThan(two.height + 4);
       // Enter is the send key: it adds no line (composer-return-sends.test.tsx checks the send; the
       // gallery's chat takes no prompt, so the draft stays here).
       await page.keyboard.press("Enter");
       const sent = await read(page);
-      expect(sent.text.split("\n").filter(Boolean)).toEqual(["first line", "second line"]);
-      expect(Math.abs(sent.height - two.height)).toBeLessThanOrEqual(1);
+      expect(sent.text.split("\n").filter(Boolean)).toEqual(["first line", "second line", "third line"]);
+      expect(Math.abs(sent.height - three.height)).toBeLessThanOrEqual(1);
       await page.close();
     });
 
     test(`${engine}: a long multi-line paste stops at the cap and scrolls inside, its end in view`, async () => {
       const page = await open(engine, IDLE, 300);
       const start = await read(page);
-      // Under the chip's 750 words and 10,000 characters (pastedText.ts): it goes in as text.
+      // Under the chip's 3,500 words and 20,000 characters (pastedText.ts): it goes in as text.
       const lines = Array.from({ length: 18 }, (_, index) => `line ${index + 1} ${"x".repeat(60)}`);
       await paste(page, lines.join("\n"));
       await page.waitForFunction(
