@@ -250,6 +250,8 @@ pub fn is_label_role(role: &str) -> bool {
 /// How a plain background click on the element the point hits is done.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HitClick {
+    /// Refused: the element is a menu item the deny list blocks.
+    Refuse,
     /// AXPress on it.
     Press,
     /// Select its row (a list, table or outline row with no press).
@@ -262,14 +264,57 @@ pub enum HitClick {
 /// a row selects it first (Finder's file name is a text field; AppKit tables
 /// edit a cell only on a click in a row already selected, which gets the
 /// events).
-pub fn hit_click(role: &str, has_press: bool, in_unselected_row: bool) -> HitClick {
-    if has_press && is_press_role(role) {
+pub fn hit_click(role: &str, has_press: bool, in_unselected_row: bool, blocked: bool) -> HitClick {
+    if blocked {
+        HitClick::Refuse
+    } else if has_press && is_press_role(role) {
         HitClick::Press
     } else if !has_press && in_unselected_row {
         HitClick::Select
     } else {
         HitClick::Events
     }
+}
+
+/// Whether the element a point hits may be acted on through accessibility:
+/// the window is on screen (an off-screen window keeps refusing point
+/// clicks) and the element is inside the target window (the app's hit test
+/// can return a sibling window's element at an overlapping point).
+pub fn hit_usable(on_screen: bool, in_target_window: bool) -> bool {
+    on_screen && in_target_window
+}
+
+/// After a hit-test AXPress that returned `code`: fall back to the mouse
+/// events only when the element did not take the press at all (unsupported
+/// action or attribute, illegal argument). A timeout or "cannot complete"
+/// may come back after the press ran (a modal loop, a menu that popped), so
+/// posting a click too could act twice: that is reported as delivered.
+pub fn press_error_falls_back(code: i32) -> bool {
+    matches!(code, -25201 | -25205 | -25206)
+}
+
+/// Which rule a background chord follows. With the target window key in its
+/// app and its menus validated, AppKit routes a posted chord as in the
+/// foreground, so the foreground rule applies; otherwise (the scope is off
+/// or the menus did not validate) the background rule: press the first
+/// enabled match, else post with a note. Returns whether the background rule
+/// applies.
+pub fn chord_background_rule(primed: bool, validated: bool) -> bool {
+    !(primed && validated)
+}
+
+/// Whether text for a background document's text view is typed as keys
+/// inside the key-in-app scope instead of inserted through accessibility:
+/// an accessibility insert leaves the document unmodified (Save writes
+/// nothing), typed keys make it an edit, as the person's typing does.
+pub fn document_keys(
+    role: &str,
+    has_document: bool,
+    focused: bool,
+    persons_app: bool,
+    has_newline_or_tab: bool,
+) -> bool {
+    role == "AXTextArea" && has_document && focused && !persons_app && !has_newline_or_tab
 }
 
 /// What a pid-routed mouse event carries to reach its window: the window

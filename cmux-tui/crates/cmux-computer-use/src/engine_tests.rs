@@ -244,7 +244,23 @@ fn a_delivered_action_with_no_visible_change_says_so() {
     assert!(!out.is_error, "{:?}", out.body);
     assert_eq!(out.body["state"]["unchanged"], true);
     assert_eq!(out.body["evidence"], "no_visible_change", "{}", out.body);
-    assert!(out.body["note"].as_str().unwrap().contains("did not take effect"));
+    assert!(out.body["note"].as_str().unwrap().contains("has not taken effect"), "{}", out.body);
+    assert!(out.body["note"].as_str().unwrap().contains("1000 ms"), "{}", out.body);
+}
+
+/// Bug 5 review: the openai and anthropic settle modes capture once (at
+/// once, or after a fixed delay), which proves nothing: an unchanged window
+/// there keeps `delivered`.
+#[test]
+fn single_capture_settle_modes_never_claim_no_visible_change() {
+    for mode in ["openai", "anthropic"] {
+        let (d, e, _) = settled(mode);
+        assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+        let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
+        assert_eq!(out.body["state"]["unchanged"], true, "{mode}: {}", out.body);
+        assert_eq!(out.body["evidence"], "delivered", "{mode}: {}", out.body);
+        drop(d);
+    }
 }
 
 /// The rule claims only what the engine saw: a redraw, or no capture before

@@ -1,33 +1,37 @@
-//! A background app's menu commands, made available without activating it.
+//! A background app's menu commands and key chords, made available without
+//! activating it.
 //!
 //! An app that is not active has no key window, so every menu item that acts
 //! on one (Edit > Select All, File > Save, Safari's View > Zoom In, Finder's
-//! View > as Icons) validates as disabled, and pressing it through
-//! accessibility does nothing. Measured in a macOS 26.6 guest: all four read
-//! `AXEnabled` 0 while their app was behind the person's.
-//!
-//! The same scope carries a background key chord, which AppKit then routes
-//! as in the foreground (the window's views, then the menus). It is not used
-//! for mouse presses: a press that lands in the window makes AppKit order it
-//! above the person's.
+//! View > as Icons) validates as disabled, pressing it through accessibility
+//! does nothing, and a posted chord never reaches its menu key equivalents.
+//! Measured in a macOS 26.6 guest: all four read `AXEnabled` 0 while their
+//! app was behind the person's.
 //!
 //! The window server tells an app it became active, and which of its windows
 //! is key, with event records it posts to the app's process. Posting the
 //! same records to the target's process only (`SLPSPostEventRecordTo`) makes
 //! that app treat the window as its key window: its menus validate against
-//! it (about 0.9 s later, when AppKit next updates them) while the window
-//! server's front app, key window and stacking are untouched, so the person's
-//! keys still go to their own app and nothing is raised. Both records are
-//! needed: the focus record alone or the make-key pair alone left the items
-//! disabled for 5 s. When the call is done the target is told it lost focus
-//! again (the defocus record, to its process only).
+//! it (about 0.9 s later, when AppKit next updates them) and a posted chord
+//! is routed as in the foreground (the window's views, then the menus), while
+//! the window server's front app, key window and stacking are untouched.
+//! Both records are needed: the focus record alone or the make-key pair
+//! alone left the items disabled for 5 s. When the last scope on the app
+//! ends, the app is told it lost focus again (the defocus record, naming a
+//! window of the app that still exists), unless it became the front app.
 //!
-//! The calls are private (looked up at run time); without them nothing is
-//! posted and a disabled item stays disabled, which the caller reports. The
-//! record layout is cua-driver's (MIT, `skylight.rs`, read as a reference).
+//! Gated: the records are undocumented (layout from cua-driver's
+//! `skylight.rs`, MIT, read as a reference) and the make-key pair uses the
+//! mouse-down/up record kinds, so the scope runs only on the macOS majors it
+//! was verified on live ([`VERIFIED_MAJORS`]) and never when
+//! `CMUX_CU_BG_ACTIVATE=0`. Off, disabled background menu items are refused
+//! with the reason and chords keep the background rule. It is not used for
+//! mouse presses: a press that lands in the window makes AppKit order it
+//! above the person's.
 
+use std::collections::HashMap;
 use std::ffi::c_void;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use super::sys::symbol;
@@ -42,6 +46,37 @@ struct Calls {
     connection: ConnectionFn,
     owner: WindowOwnerFn,
     psn: ConnectionPsnFn,
+}
+
+/// The macOS majors the scope was verified on live (front app, key window,
+/// z-order sampled every 1 ms; Safari, TextEdit, Finder, a Chromium window).
+/// macOS 27 could not be verified (no 27 guest with the test rig): off there.
+pub(super) const VERIFIED_MAJORS: std::ops::RangeInclusive<u32> = 26..=26;
+
+/// The environment variable that turns the scope off (`0`).
+pub(super) const OFF_ENV: &str = "CMUX_CU_BG_ACTIVATE";
+
+/// Whether the scope may run: a verified macOS major and not switched off.
+/// Pure, for tests.
+pub(super) fn gate(os_version: &str, env: Option<&str>) -> bool {
+    if env.is_some_and(|v| v.trim() == "0") {
+        return false;
+    }
+    os_version
+        .split('.')
+        .next()
+        .and_then(|m| m.trim().parse::<u32>().ok())
+        .is_some_and(|m| VERIFIED_MAJORS.contains(&m))
+}
+
+fn enabled() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| {
+        gate(
+            &super::sys::sysctl_string(c"kern.osproductversion").unwrap_or_default(),
+            std::env::var(OFF_ENV).ok().as_deref(),
+        )
+    })
 }
 
 fn calls() -> Option<&'static Calls> {
@@ -117,53 +152,185 @@ fn post(c: &Calls, psn: &[u32; 2], r: &[u8; 0xF8]) -> bool {
     unsafe { (c.post)(psn.as_ptr().cast(), r.as_ptr()) == 0 }
 }
 
-/// `window` is its app's key window as far as the app knows, until dropped
-/// (then the app is told it lost focus). Only the window's own process gets
-/// a record.
+/// Open scopes per app (pid): only the first enters, only the last hands
+/// back, so two sessions on one app never defocus under each other.
+fn open_scopes() -> &'static Mutex<HashMap<i32, usize>> {
+    static M: OnceLock<Mutex<HashMap<i32, usize>>> = OnceLock::new();
+    M.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn lock_scopes() -> std::sync::MutexGuard<'static, HashMap<i32, usize>> {
+    open_scopes().lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// What entering does for a pid (pure, for tests): a scope already open on
+/// it only joins; the person's front app is never entered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Entry {
+    Refuse,
+    Join,
+    Post,
+}
+
+pub(super) fn entry(open: usize, target_is_front: bool) -> Entry {
+    if target_is_front {
+        Entry::Refuse
+    } else if open > 0 {
+        Entry::Join
+    } else {
+        Entry::Post
+    }
+}
+
+/// What ending a scope does (pure, for tests).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum HandBack {
+    /// Another scope on the app is still open.
+    StillOpen,
+    /// The app became the front app meanwhile: it keeps its focus.
+    TargetIsFront,
+    /// The app has no window left to name.
+    NoWindow,
+    /// Tell the app it lost focus, naming this window.
+    Post(u32),
+}
+
+pub(super) fn hand_back(
+    open_after: usize,
+    target_is_front: bool,
+    window_exists: bool,
+    window: u32,
+    other_window: Option<u32>,
+) -> HandBack {
+    if open_after > 0 {
+        HandBack::StillOpen
+    } else if target_is_front {
+        HandBack::TargetIsFront
+    } else if window_exists {
+        HandBack::Post(window)
+    } else {
+        other_window.map_or(HandBack::NoWindow, HandBack::Post)
+    }
+}
+
+/// How a scope ended, for the result.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum Ended {
+    Fine,
+    /// The defocus record could not be posted (twice).
+    HandBackFailed,
+}
+
+/// `window` is its app's key window as far as the app knows, until
+/// [`KeyInApp::end`] (or drop).
 pub(super) struct KeyInApp {
     window: u32,
     pid: i32,
-    psn: [u32; 2],
+    ended: bool,
 }
 
 impl KeyInApp {
-    /// Posts the focus record and the make-key pair for `window` to its
-    /// owner. `None` when the private calls or the window's owner are
-    /// missing, or a post failed (then nothing is left to undo but the focus
-    /// record, which is undone).
+    /// Enters the scope for `window` of `pid`: posts the focus record and
+    /// the make-key pair to the window's owner, each only while `pid` is not
+    /// the front app (read right before every post). `None` when the scope
+    /// is off ([`gate`]), the private calls or the window's owner are
+    /// missing, `pid` is in front, or a post failed (then what was posted is
+    /// handed back).
     pub(super) fn enter(window: u32, pid: i32) -> Option<KeyInApp> {
+        if !enabled() {
+            return None;
+        }
         let c = calls()?;
+        let front = || super::frontmost_pid() == Some(pid);
+        let mut open = lock_scopes();
+        let count = open.get(&pid).copied().unwrap_or(0);
+        match entry(count, front()) {
+            Entry::Refuse => return None,
+            Entry::Join => {
+                open.insert(pid, count + 1);
+                return Some(KeyInApp { window, pid, ended: false });
+            }
+            Entry::Post => {}
+        }
         let psn = psn_of(c, window)?;
-        let scope = KeyInApp { window, pid, psn };
-        let ok = post(c, &psn, &record(RECORD_FOCUS, window, FOCUS_IN))
-            && post(c, &psn, &record(RECORD_MAKE_KEY_DOWN, window, 0))
-            && post(c, &psn, &record(RECORD_MAKE_KEY_UP, window, 0));
-        ok.then_some(scope)
+        open.insert(pid, 1);
+        let scope = KeyInApp { window, pid, ended: false };
+        drop(open);
+        for (kind, dir) in
+            [(RECORD_FOCUS, FOCUS_IN), (RECORD_MAKE_KEY_DOWN, 0), (RECORD_MAKE_KEY_UP, 0)]
+        {
+            if front() || !post(c, &psn, &record(kind, window, dir)) {
+                return None; // the drop hands back (or skips: front)
+            }
+        }
+        Some(scope)
+    }
+
+    /// Ends the scope; the last one on the app hands it back.
+    pub(super) fn end(mut self) -> Ended {
+        self.finish()
+    }
+
+    fn finish(&mut self) -> Ended {
+        if self.ended {
+            return Ended::Fine;
+        }
+        self.ended = true;
+        let mut open = lock_scopes();
+        let after = open.get(&self.pid).copied().unwrap_or(1).saturating_sub(1);
+        if after == 0 {
+            open.remove(&self.pid);
+        } else {
+            open.insert(self.pid, after);
+        }
+        let exists = super::cgwindows::by_id(self.window).is_some_and(|w| w.pid == self.pid);
+        let other = || {
+            super::cgwindows::on_screen()
+                .into_iter()
+                .find(|w| w.pid == self.pid && w.layer == 0)
+                .map(|w| w.id)
+        };
+        let plan = hand_back(
+            after,
+            super::frontmost_pid() == Some(self.pid),
+            exists,
+            self.window,
+            if exists { None } else { other() },
+        );
+        let HandBack::Post(name) = plan else { return Ended::Fine };
+        let Some(c) = calls() else { return Ended::HandBackFailed };
+        for _ in 0..2 {
+            // Re-read right before posting: the app may have come to front.
+            if super::frontmost_pid() == Some(self.pid) {
+                return Ended::Fine;
+            }
+            if psn_of(c, name).is_some_and(|psn| post(c, &psn, &record(RECORD_FOCUS, name, FOCUS_OUT)))
+            {
+                return Ended::Fine;
+            }
+        }
+        eprintln!(
+            "cmux computer use: could not hand window {name} of pid {} back (defocus record)",
+            self.pid
+        );
+        Ended::HandBackFailed
     }
 }
-
-/// Before the app is told it lost focus: input posted in the scope goes
-/// through another queue and must be handled first.
-const HAND_BACK_AFTER: Duration = Duration::from_millis(60);
 
 impl Drop for KeyInApp {
     fn drop(&mut self) {
-        std::thread::sleep(HAND_BACK_AFTER);
-        // The app became the active app meanwhile (the person switched to
-        // it): it keeps its focus.
-        if super::workspace::app_for_pid(self.pid).is_some_and(|a| a.active) {
-            return;
-        }
-        if let Some(c) = calls() {
-            post(c, &self.psn, &record(RECORD_FOCUS, self.window, FOCUS_OUT));
-        }
+        self.finish();
     }
 }
 
+/// The note a result gets when the hand-back failed.
+pub(super) const HAND_BACK_FAILED: &str = "the target app could not be told that its window is no longer key (the hand-back record failed twice); it may draw that window as active until it is next used";
+
 /// How long a menu item may take to validate after [`KeyInApp::enter`]
-/// (measured: about 0.9 s on macOS 26.6).
-pub(super) const VALIDATE_WAIT: Duration = Duration::from_millis(1800);
-const VALIDATE_POLL: Duration = Duration::from_millis(40);
+/// (measured: about 0.9 s on macOS 26.6). The scope is ended as soon as it
+/// validates.
+pub(super) const VALIDATE_WAIT: Duration = Duration::from_millis(1200);
+const POLL: Duration = Duration::from_millis(20);
 
 /// Polls `ready` until it holds or `budget` passes; whether it held.
 pub(super) fn wait_until(budget: Duration, ready: &dyn Fn() -> bool) -> bool {
@@ -175,6 +342,6 @@ pub(super) fn wait_until(budget: Duration, ready: &dyn Fn() -> bool) -> bool {
         if start.elapsed() >= budget {
             return false;
         }
-        std::thread::sleep(VALIDATE_POLL);
+        std::thread::sleep(POLL);
     }
 }

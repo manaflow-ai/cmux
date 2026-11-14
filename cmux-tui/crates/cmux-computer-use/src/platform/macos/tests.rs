@@ -27,18 +27,18 @@ fn pid_mouse_events_name_the_window_and_its_local_point() {
 #[test]
 fn background_click_on_a_hit_element() {
     use roles::{HitClick, hit_click};
-    assert_eq!(hit_click("AXButton", true, false), HitClick::Press);
-    assert_eq!(hit_click("AXCheckBox", true, true), HitClick::Press);
-    assert_eq!(hit_click("AXLink", true, false), HitClick::Press);
+    assert_eq!(hit_click("AXButton", true, false, false), HitClick::Press);
+    assert_eq!(hit_click("AXCheckBox", true, true, false), HitClick::Press);
+    assert_eq!(hit_click("AXLink", true, false, false), HitClick::Press);
     // Finder list view: the name field in a row, no AXPress.
-    assert_eq!(hit_click("AXTextField", false, true), HitClick::Select);
-    assert_eq!(hit_click("AXStaticText", false, true), HitClick::Select);
+    assert_eq!(hit_click("AXTextField", false, true, false), HitClick::Select);
+    assert_eq!(hit_click("AXStaticText", false, true, false), HitClick::Select);
     // A text area takes the caret from events; a button without AXPress too.
-    assert_eq!(hit_click("AXTextArea", false, false), HitClick::Events);
-    assert_eq!(hit_click("AXButton", false, false), HitClick::Events);
+    assert_eq!(hit_click("AXTextArea", false, false, false), HitClick::Events);
+    assert_eq!(hit_click("AXButton", false, false, false), HitClick::Events);
     // A web area or group that happens to advertise a press is not a control.
-    assert_eq!(hit_click("AXWebArea", true, false), HitClick::Events);
-    assert_eq!(hit_click("AXGroup", true, false), HitClick::Events);
+    assert_eq!(hit_click("AXWebArea", true, false, false), HitClick::Events);
+    assert_eq!(hit_click("AXGroup", true, false, false), HitClick::Events);
     assert!(roles::is_label_role("AXStaticText") && !roles::is_label_role("AXButton"));
 }
 
@@ -78,6 +78,91 @@ fn activation_records_carry_the_window_and_direction() {
     let make = activation::record(0x01, 7, 0);
     assert_eq!((make[0x08], make[0x3A], make[0x8A]), (0x01, 0x10, 0));
     assert!(make[0x20..0x30].iter().all(|b| *b == 0xFF));
+}
+
+/// Review 9: a hit element that is a menu item the deny list blocks is
+/// refused before anything is pressed, whatever it offers.
+#[test]
+fn a_blocked_hit_element_is_refused_not_pressed() {
+    use roles::{HitClick, hit_click};
+    assert_eq!(hit_click("AXMenuItem", true, false, true), HitClick::Refuse);
+    assert_eq!(hit_click("AXMenuItem", true, false, false), HitClick::Press);
+    assert_eq!(hit_click("AXTextField", false, true, true), HitClick::Refuse);
+}
+
+/// Review 9: the hit-test is used only for an on-screen window and an
+/// element inside the target window (a sibling window's element at an
+/// overlapping point is not acted on).
+#[test]
+fn the_hit_test_keeps_only_the_target_window() {
+    assert!(roles::hit_usable(true, true));
+    assert!(!roles::hit_usable(true, false));
+    assert!(!roles::hit_usable(false, true));
+}
+
+/// Review 3: a hit-test press falls back to events only when the element
+/// did not take it; a timeout or cannot-complete may have run it.
+#[test]
+fn a_press_that_may_have_run_is_not_clicked_again() {
+    assert!(roles::press_error_falls_back(-25206)); // action unsupported
+    assert!(roles::press_error_falls_back(-25205)); // attribute unsupported
+    assert!(roles::press_error_falls_back(-25201)); // illegal argument
+    assert!(!roles::press_error_falls_back(-25204)); // cannot complete (timeout)
+    assert!(!roles::press_error_falls_back(-25200)); // failure
+}
+
+/// Review 9: a primed chord follows the foreground rule only once its
+/// menus validated; otherwise (scope off, or still disabled) the background
+/// rule.
+#[test]
+fn the_primed_chord_rule_switch() {
+    assert!(!roles::chord_background_rule(true, true));
+    assert!(roles::chord_background_rule(true, false));
+    assert!(roles::chord_background_rule(false, false));
+    assert!(roles::chord_background_rule(false, true));
+}
+
+/// Review 5 and 9: typed keys for a document only in a focused text area of
+/// a document window, not in the person's app, and not for text with
+/// newlines or tabs (those keep their own route).
+#[test]
+fn document_text_is_typed_as_keys_only_where_it_applies() {
+    assert!(roles::document_keys("AXTextArea", true, true, false, false));
+    assert!(!roles::document_keys("AXTextField", true, true, false, false));
+    assert!(!roles::document_keys("AXTextArea", false, true, false, false));
+    assert!(!roles::document_keys("AXTextArea", true, false, false, false));
+    assert!(!roles::document_keys("AXTextArea", true, true, true, false));
+    assert!(!roles::document_keys("AXTextArea", true, true, false, true));
+}
+
+/// Review 1: the key-in-app scope runs only on a verified macOS major
+/// (26) and never with CMUX_CU_BG_ACTIVATE=0; macOS 27 was not verified.
+#[test]
+fn the_key_in_app_scope_is_gated() {
+    assert!(activation::gate("26.6.2", None));
+    assert!(activation::gate("26.0", Some("1")));
+    assert!(!activation::gate("26.6.2", Some("0")));
+    assert!(!activation::gate("27.0.1", None));
+    assert!(!activation::gate("15.7", None));
+    assert!(!activation::gate("", None));
+}
+
+/// Review 2 and 8: the person's front app is never entered; a second scope
+/// on one app joins the first; only the last one out hands back, never to an
+/// app that came to the front, and names a window that still exists.
+#[test]
+fn key_in_app_entry_and_hand_back() {
+    use activation::{Entry, HandBack, entry, hand_back};
+    assert_eq!(entry(0, true), Entry::Refuse);
+    assert_eq!(entry(1, true), Entry::Refuse);
+    assert_eq!(entry(0, false), Entry::Post);
+    assert_eq!(entry(2, false), Entry::Join);
+    assert_eq!(hand_back(1, false, true, 7, None), HandBack::StillOpen);
+    assert_eq!(hand_back(0, true, true, 7, None), HandBack::TargetIsFront);
+    assert_eq!(hand_back(0, false, true, 7, Some(9)), HandBack::Post(7));
+    // The window closed (a primed cmd+w): another window of the app is named.
+    assert_eq!(hand_back(0, false, false, 7, Some(9)), HandBack::Post(9));
+    assert_eq!(hand_back(0, false, false, 7, None), HandBack::NoWindow);
 }
 
 #[test]

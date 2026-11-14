@@ -220,6 +220,7 @@ unsafe extern "C" {
 unsafe extern "C" {}
 
 pub const AX_OK: AXError = 0;
+pub const AX_ILLEGAL_ARGUMENT: AXError = -25201;
 pub const AX_INVALID_ELEMENT: AXError = -25202;
 pub const AX_CANNOT_COMPLETE: AXError = -25204;
 pub const AX_ATTRIBUTE_UNSUPPORTED: AXError = -25205;

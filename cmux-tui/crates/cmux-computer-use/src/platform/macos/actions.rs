@@ -208,7 +208,8 @@ impl MacDesktop {
     /// Whether the window's app is the frontmost app, where the person's
     /// keys and caret are.
     fn is_persons_app(&self, t: &Target) -> bool {
-        workspace::app_for_pid(t.window.pid).is_some_and(|a| a.active)
+        // The window server's front app (NSRunningApplication.isActive lags).
+        super::frontmost_pid() == Some(t.window.pid)
     }
 
     /// Whether a background activation of `el` opens a menu, and whether
@@ -461,12 +462,12 @@ fn click_point(
 /// window. A label or image inside a control counts as the control.
 fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOutcome>> {
     // A window off screen keeps refusing point clicks (pointer_route).
-    if !t.window.on_screen {
+    if !roles::hit_usable(t.window.on_screen, true) {
         return Ok(None);
     }
     let Ok((app, win)) = d.ax_window(t) else { return Ok(None) };
     let Some(hit) = app.element_at(at.x, at.y) else { return Ok(None) };
-    if !hit.element("AXWindow").is_some_and(|w| w.same(&win)) {
+    if !roles::hit_usable(true, hit.element("AXWindow").is_some_and(|w| w.same(&win))) {
         return Ok(None);
     }
     let mut el = hit;
@@ -487,16 +488,24 @@ fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOu
     // A row already selected takes the click itself (an editable cell gets
     // its caret from the events); only an unselected row is selected.
     let unselected_row = selectable(&el).is_some_and(|row| row.bool("AXSelected") != Some(true));
-    match roles::hit_click(&role, actions.iter().any(|a| a == "AXPress"), unselected_row) {
+    let blocked = d.refuse_denied_item(&el).is_err();
+    match roles::hit_click(&role, actions.iter().any(|a| a == "AXPress"), unselected_row, blocked)
+    {
+        roles::HitClick::Refuse => d.refuse_denied_item(&el).map(|()| None),
         roles::HitClick::Press => {
-            d.refuse_denied_item(&el)?;
             d.refuse_submenu_open(&el)?;
             let before = el.value_text();
-            // A press the element refuses falls back to the events.
-            if el.perform("AXPress").is_err() {
-                return Ok(None);
-            }
-            let mut out = outcome_after("ax_hit_press", before, &el);
+            let mut out = match el.perform("AXPress") {
+                Ok(()) => outcome_after("ax_hit_press", before, &el),
+                // Not taken at all: the events.
+                Err(e) if roles::press_error_falls_back(e) => return Ok(None),
+                // It may have run (a modal loop, a popped menu): no second click.
+                Err(_) => {
+                    let mut out = ActionOutcome::delivered("ax_hit_press");
+                    out.note = "the app did not answer the press in time; it may have run (a dialog or menu it opened would hold it), so no click was posted after it".into();
+                    out
+                }
+            };
             out.cursor_at = Some(at);
             Ok(Some(out))
         }
@@ -515,7 +524,7 @@ fn ax_click_at(d: &MacDesktop, t: &Target, at: Point) -> DResult<Option<ActionOu
 
 /// Makes a background app validate its menus against `t`'s window
 /// ([`super::activation`]) and waits for `item` to be enabled; the scope
-/// hands the window back when dropped. Refused (nothing pressed) when the
+/// hands the window back when ended. Refused (nothing pressed) when the
 /// item stays disabled: the command does not apply to that window.
 fn enable_menu_item(
     t: &Target,
@@ -539,13 +548,32 @@ fn enable_menu_item(
     )))
 }
 
-/// How long the app gets to take its window as key before the events.
-const KEY_SETTLE: std::time::Duration = std::time::Duration::from_millis(50);
+/// The longest a primed chord's scope waits for the chord's effect.
+const KEY_EFFECT_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
 
-/// `t`'s window as its app's key window (to the app only), settled.
-fn key_in_app(t: &Target) -> Option<super::activation::KeyInApp> {
+/// What a chord visibly changes in the window: its focused element's value
+/// and selection, and the window's title.
+fn key_effect(d: &MacDesktop, t: &Target) -> (Option<String>, Option<(i64, i64)>, Option<String>) {
+    let focused = d.focused_in(t);
+    let title = d.ax_window(t).ok().and_then(|(_, w)| w.string("AXTitle"));
+    (
+        focused.as_ref().and_then(Ax::value_text),
+        focused.as_ref().and_then(Ax::selected_range),
+        title,
+    )
+}
+
+/// The longest the app gets to take its window as key before the input.
+const KEY_SETTLE: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// `t`'s window as its app's key window (to the app only): entered, then
+/// until the app reports it as its focused window (at most KEY_SETTLE).
+fn key_in_app(d: &MacDesktop, t: &Target) -> Option<super::activation::KeyInApp> {
     let key = super::activation::KeyInApp::enter(t.window.id, t.window.pid)?;
-    std::thread::sleep(KEY_SETTLE);
+    super::activation::wait_until(KEY_SETTLE, &|| {
+        d.ax_window(t)
+            .is_ok_and(|(app, win)| app.element("AXFocusedWindow").is_some_and(|f| f.same(&win)))
+    });
     Some(key)
 }
 
@@ -617,12 +645,17 @@ pub(super) fn click(
     // A background app has no key window, so a menu item that acts on one is
     // disabled; the target window is made the app's key window (to the app
     // only) until the press is done.
-    let _key = if spec.delivery == Delivery::Background
+    let mut menu_key = if spec.delivery == Delivery::Background
         && in_menu_bar
         && el.bool("AXEnabled") == Some(false)
         && !d.is_persons_app(&t)
     {
-        Some(enable_menu_item(&t, &el, element_id)?)
+        let key = enable_menu_item(&t, &el, element_id)?;
+        // Validation can change the item (its title, what it leads to):
+        // the deny list and the protected apps are checked again.
+        d.refuse_denied_item(&el)?;
+        d.check_menu_item(&t, &el, spec.delivery)?;
+        Some(key)
     } else {
         None
     };
@@ -655,6 +688,12 @@ pub(super) fn click(
         // (Safari's View items report y 900): no cursor there.
         if in_menu_bar {
             out.cursor_at = None;
+        }
+        // AXPress runs the item's action before it returns: hand back now.
+        if let Some(key) = menu_key.take()
+            && key.end() == super::activation::Ended::HandBackFailed
+        {
+            out.note = super::activation::HAND_BACK_FAILED.into();
         }
         return Ok(out);
     }
@@ -702,43 +741,72 @@ fn ax_insert(el: &Ax, text: &str) -> DResult<Option<ActionOutcome>> {
     Ok(Some(out))
 }
 
-/// Key codes of the net-zero edit below.
-const KEY_SPACE: u16 = 49;
-const KEY_DELETE: u16 = 51;
+/// Text for a background document's focused text view, typed as keys with
+/// the window key in its app ([`super::activation`]): an accessibility
+/// insert leaves the document unmodified, so File > Save wrote nothing
+/// (TextEdit, eval: cmd+s after type_text left the file as it was). Typed
+/// keys are an edit, as the person's typing is (autocorrect and text
+/// replacement apply as they would to the person's). `None` when this does
+/// not apply or the scope is not available; then the caller inserts through
+/// accessibility. Confirmed only when the value, re-read once it stopped
+/// changing, holds the text.
+fn type_into_document(
+    d: &MacDesktop,
+    t: &Target,
+    el: &Ax,
+    text: &str,
+) -> DResult<Option<ActionOutcome>> {
+    let has_document = d.ax_window(t).is_ok_and(|(_, w)| w.string("AXDocument").is_some());
+    if !roles::document_keys(
+        &el.string("AXRole").unwrap_or_default(),
+        has_document,
+        el.bool("AXFocused") == Some(true),
+        d.is_persons_app(t),
+        text.contains(['\n', '\r', '\t']),
+    ) {
+        return Ok(None);
+    }
+    let Ok(route @ Route::Pid { .. }) = d.key_route(t, Delivery::Background) else {
+        return Ok(None);
+    };
+    let Some(key) = key_in_app(d, t) else { return Ok(None) };
+    let before = el.value_text().unwrap_or_default();
+    input::type_text(route, text)?;
+    let settled = settle_value(el, &before);
+    let ended = key.end();
+    let after = el.value_text().unwrap_or_default();
+    let mut out = if settled && after != before && after.contains(text) {
+        ActionOutcome::confirmed("pid_keys_document")
+    } else {
+        ActionOutcome::delivered("pid_keys_document")
+    };
+    out.note = "typed as keys so the document counts it as an edit".into();
+    if ended == super::activation::Ended::HandBackFailed {
+        out.note = format!("{}; {}", out.note, super::activation::HAND_BACK_FAILED);
+    }
+    Ok(Some(out))
+}
 
-/// Text written through accessibility into a document's text view is not an
-/// edit as far as the document knows: it stays unmodified and File > Save
-/// writes nothing (TextEdit, eval: cmd+s after type_text left the file as it
-/// was). A space and a Delete typed at the caret right after make it one,
-/// as cua-driver does. Only when the element is focused, keys reach its
-/// window and it is not the app the person is typing in.
-fn mark_document_edited(d: &MacDesktop, t: &Target, el: &Ax, out: &mut ActionOutcome) {
-    if out.evidence != "confirmed"
-        || out.route != "ax_insert_text"
-        || el.selected_range().is_none_or(|(_, len)| len != 0)
-        || el.bool("AXFocused") != Some(true)
-        || el.string("AXRole").as_deref() != Some("AXTextArea")
-        || d.is_persons_app(t)
-    {
-        return;
+/// Waits until `el`'s value differs from `before` and then stays the same
+/// for a moment (the app handled the keys), at most a bound. Whether it
+/// changed and settled.
+fn settle_value(el: &Ax, before: &str) -> bool {
+    const STABLE: std::time::Duration = std::time::Duration::from_millis(120);
+    const BOUND: std::time::Duration = std::time::Duration::from_millis(2000);
+    let start = std::time::Instant::now();
+    let mut last = el.value_text().unwrap_or_default();
+    let mut since = std::time::Instant::now();
+    while start.elapsed() < BOUND {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let now = el.value_text().unwrap_or_default();
+        if now != last {
+            last = now;
+            since = std::time::Instant::now();
+        } else if last != before && since.elapsed() >= STABLE {
+            return true;
+        }
     }
-    let Ok((_, win)) = d.ax_window(t) else { return };
-    if win.string("AXDocument").is_none() {
-        return;
-    }
-    let Ok(route @ Route::Pid { .. }) = d.key_route(t, Delivery::Background) else { return };
-    let before = el.value_text();
-    if input::key(route, KEY_SPACE, 0, Some(' ')).is_ok()
-        && input::key(route, KEY_DELETE, 0, None).is_ok()
-    {
-        out.note = "a space and a Delete were typed after the text so the document counts it as an edit (an accessibility write alone leaves it unmodified, and Save would write nothing)".into();
-    }
-    // The pair is net zero; anything else is said, and nothing is confirmed.
-    std::thread::sleep(std::time::Duration::from_millis(60));
-    if el.value_text() != before {
-        out.evidence = "delivered".into();
-        out.note = "a space and a Delete were typed after the text to mark the document edited, but its text changed: check it".into();
-    }
+    false
 }
 
 pub(super) fn type_text(
@@ -757,9 +825,11 @@ pub(super) fn type_text(
     if let Some(el) = &target {
         if delivery == Delivery::Background
             && !has_keys
-            && let Some(mut out) = ax_insert(el, text)?
+            && let Some(mut out) = match type_into_document(d, &t, el, text)? {
+                Some(out) => Some(out),
+                None => ax_insert(el, text)?,
+            }
         {
-            mark_document_edited(d, &t, el, &mut out);
             if let Some(frame) = el.frame() {
                 out = out.at(roles::center(&frame));
             }
@@ -876,6 +946,7 @@ pub(super) fn press_keys(
     let mut disabled_item: Option<String> = None;
     // Held until the chord is posted or its item pressed.
     let mut primed: Option<super::activation::KeyInApp> = None;
+    let mut hand_back_note = false;
     let menu_chord = combo
         .modifiers
         .iter()
@@ -895,11 +966,27 @@ pub(super) fn press_keys(
         // the foreground rule. Without the private calls the chord keeps the
         // background rule (press the first enabled match).
         primed = if delivery == Delivery::Background && !d.is_persons_app(&t) {
-            key_in_app(&t)
+            key_in_app(d, &t)
         } else {
             None
         };
-        let background = delivery == Delivery::Background && primed.is_none();
+        // The matches validate a little after priming; until they do, their
+        // titles and what they lead to may be stale. Wait for that (bounded),
+        // then read them again, so the deny list and the protected apps are
+        // checked against what AppKit will run. No match: nothing to wait for.
+        let mut validated = false;
+        if primed.is_some() {
+            let (first, _) = shortcut_matches(d, t.window.pid, combo, false);
+            validated = first.is_empty()
+                || super::activation::wait_until(super::activation::VALIDATE_WAIT, &|| {
+                    first.iter().any(|(el, _)| el.bool("AXEnabled") != Some(false))
+                });
+            if !validated && let Some(key) = primed.take() {
+                hand_back_note = key.end() == super::activation::Ended::HandBackFailed;
+            }
+        }
+        let background = delivery == Delivery::Background
+            && roles::chord_background_rule(primed.is_some(), validated);
         let (items, complete) = shortcut_matches(d, t.window.pid, combo, background);
         let matches: Vec<roles::ShortcutMatch> = items.iter().map(|(_, m)| m.clone()).collect();
         // The layout and Services are read only when the rule needs them.
@@ -932,7 +1019,14 @@ pub(super) fn press_keys(
                     .0
                     .perform("AXPress")
                     .map_err(|e| ax_error(e, "press the shortcut's menu item"))?;
-                return Ok(ActionOutcome::delivered("ax_menu_shortcut"));
+                let mut out = ActionOutcome::delivered("ax_menu_shortcut");
+                if let Some(key) = primed.take() {
+                    hand_back_note |= key.end() == super::activation::Ended::HandBackFailed;
+                }
+                if hand_back_note {
+                    out.note = super::activation::HAND_BACK_FAILED.into();
+                }
+                return Ok(out);
             }
             roles::ChordAction::Refuse(why) => {
                 // A block that only stands because names are still loading
@@ -979,9 +1073,20 @@ pub(super) fn press_keys(
         Route::Hid if denies_any => Route::Pid { pid: t.window.pid, window: t.window.id },
         other => other,
     };
+    let before = primed.as_ref().map(|_| key_effect(d, &t));
     input::key(route, code, flags, keymap::carries_text(&combo.key, flags))?;
     let mut out = ActionOutcome::delivered(route.name());
-    drop(primed);
+    if let Some(key) = primed.take() {
+        // The app handles the posted chord on its own queue: the scope ends
+        // once its effect shows (the focused element's value or selection,
+        // or the window's title changed), at most KEY_EFFECT_WAIT.
+        let before = before.unwrap_or_default();
+        super::activation::wait_until(KEY_EFFECT_WAIT, &|| key_effect(d, &t) != before);
+        hand_back_note |= key.end() == super::activation::Ended::HandBackFailed;
+    }
+    if hand_back_note {
+        out.note = super::activation::HAND_BACK_FAILED.into();
+    }
     if let Some(title) = disabled_item {
         out.note = format!(
             "the chord is the key equivalent of menu item {title:?}, which stays disabled in this background app, so the key was posted to the window; posted keys never run a background app's menu commands"
