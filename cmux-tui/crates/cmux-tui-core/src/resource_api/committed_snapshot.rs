@@ -240,25 +240,35 @@ fn build(
     session_id: &SessionPublicId,
     commits: u64,
 ) -> anyhow::Result<CommittedSnapshot> {
+    let lap = crate::measure_probe::now();
     let rows = crate::workspace_registry::read_session_rows(
         connection,
         registry_id,
         generation,
         session_id,
     )?;
+    crate::measure_probe::since("ss.build.read_rows", lap);
     anyhow::ensure!(
         rows.registry.generation == rows.topology.generation
             && rows.registry.resource_revision == rows.topology.revision,
         "resource projection changed while snapshotting"
     );
+    let lap = crate::measure_probe::now();
     let (workspaces, screens, panes, tabs) = public_values(&rows)?;
+    crate::measure_probe::since("ss.build.public_values", lap);
+    let lap = crate::measure_probe::now();
     let mut decorated = json!({"workspaces": workspaces, "screens": screens, "tabs": tabs});
+    crate::measure_probe::since("ss.build.copy_for_decorate", lap);
+    let lap = crate::measure_probe::now();
     crate::state::values::decorate_snapshot(connection, &mut decorated)?;
     let mut take = |key: &str| match decorated.get_mut(key).map(Value::take) {
         Some(Value::Array(values)) => values,
         _ => Vec::new(),
     };
     let (workspaces, screens, tabs) = (take("workspaces"), take("screens"), take("tabs"));
+    crate::measure_probe::since("ss.build.decorate", lap);
+    let lap = crate::measure_probe::now();
     let state = crate::state::store::state_snapshot(connection)?;
+    crate::measure_probe::since("ss.build.state", lap);
     Ok(CommittedSnapshot { commits, rows, workspaces, screens, panes, tabs, state })
 }
