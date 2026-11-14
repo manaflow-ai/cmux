@@ -326,7 +326,7 @@ test("the host's restore status reads as a quiet line with its elapsed time", ()
   expect(hostRecoveryLine({ relinkingSince: 0, now: 30_000 })).toBeUndefined();
 });
 
-// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up". A daemon restart, an
+// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". A daemon restart, an
 // update's handoff or a drop that heals within 10 s is something the person can do nothing about: no
 // open chat says anything while it lasts. It said "Reconnecting…" from 1.5 s.
 test("a lost link or a restore that heals within 10 s shows no line on the chat", () => {

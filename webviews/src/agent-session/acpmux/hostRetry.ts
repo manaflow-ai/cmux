@@ -169,7 +169,7 @@ export class AcpmuxRestartGate {
 
 /// How long a lost connection, or a restore the host reports, stays unsaid before the pane's quiet
 /// line shows. A recovery the person can do nothing about says nothing until it has lasted long
-/// enough to matter (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up").
+/// enough to matter (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up").
 /// 10 s is the bound the app already waits out for the same daemon before it says anything (its
 /// startup deadline, its drop grace, the sidebar's "Connecting…" hold), and an update's handoff
 /// answered within it (#27283), so a daemon restart, a handoff or a short drop shows nothing on any
