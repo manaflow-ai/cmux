@@ -56,9 +56,10 @@ jobs:
 
   live-windows-host:
     name: Windows live host (tailnet)
-    if: github.event_name == 'pull_request' && github.event.pull_request.number == 42833
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: windows-latest
     timeout-minutes: 15
+    environment: ios-e2e
     permissions:
       contents: read
       id-token: write
@@ -118,9 +119,10 @@ jobs:
 
   live-macos-viewer:
     name: macOS live viewer (tailnet)
-    if: github.event_name == 'pull_request' && github.event.pull_request.number == 42833
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 15
+    environment: ios-e2e
     permissions:
       contents: read
       id-token: write
