@@ -21,10 +21,16 @@ private final class ControlHandleOrdinalAdvanceRecorder: @unchecked Sendable {
 
 @Suite("ControlHandleRegistry")
 struct ControlHandleRegistryTests {
+    /// Fixed, distinct identities so assertions that depend on two UUIDs
+    /// differing can never flake on a random collision.
+    private func fixedUUID(_ byte: UInt8) -> UUID {
+        UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, byte))
+    }
+
     @Test func mintsSequentialRefsPerKind() {
         var registry = ControlHandleRegistry()
-        let a = UUID()
-        let b = UUID()
+        let a = fixedUUID(1)
+        let b = fixedUUID(2)
         #expect(registry.ensureRef(kind: .workspace, uuid: a) == "workspace:1")
         #expect(registry.ensureRef(kind: .workspace, uuid: b) == "workspace:2")
         // Independent ordinal space per kind.
@@ -70,10 +76,25 @@ struct ControlHandleRegistryTests {
 
     @Test func ensureRefIsIdempotentPerIdentity() {
         var registry = ControlHandleRegistry()
-        let id = UUID()
+        let id = fixedUUID(1)
         let first = registry.ensureRef(kind: .pane, uuid: id)
         #expect(registry.ensureRef(kind: .pane, uuid: id) == first)
-        #expect(registry.ensureRef(kind: .pane, uuid: UUID()) == "pane:2")
+        #expect(registry.ensureRef(kind: .pane, uuid: fixedUUID(2)) == "pane:2")
+    }
+
+    @Test func existingRefPeeksWithoutMinting() {
+        var registry = ControlHandleRegistry()
+        let a = fixedUUID(1)
+        let b = fixedUUID(2)
+        // Peeking never mints, so an unseen identity has no ref...
+        #expect(registry.existingRef(kind: .workspace, uuid: a) == nil)
+        // ...and peeking did not consume the first ordinal.
+        #expect(registry.ensureRef(kind: .workspace, uuid: a) == "workspace:1")
+        // Once minted, the peek returns the same ref.
+        #expect(registry.existingRef(kind: .workspace, uuid: a) == "workspace:1")
+        // A peek for a still-unseen identity stays nil and leaves ordinals intact.
+        #expect(registry.existingRef(kind: .workspace, uuid: b) == nil)
+        #expect(registry.ensureRef(kind: .workspace, uuid: b) == "workspace:2")
     }
 
     @Test func workspaceGroupRefsUseTheWireRawValue() {
