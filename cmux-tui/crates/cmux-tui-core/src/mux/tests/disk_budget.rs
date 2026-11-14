@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 
 use super::*;
 use crate::diagnostics::{
-    REGISTRY_BYTES_PER_SESSION_PER_DAY, journal_bytes_by_kind, journal_kind_budget,
+    REGISTRY_BYTES_PER_SESSION_PER_DAY, bytes_per_day, journal_bytes_by_kind, journal_kind_budget,
 };
 
 /// The simulated span: every count below is per this many seconds.
@@ -230,4 +230,12 @@ fn disk_budget_guard() {
     mux.shutdown();
     let _ = std::fs::remove_dir_all(&root);
     assert!(over.is_empty(), "over the disk budget (diagnostics::JOURNAL_KIND_BUDGETS): {over:#?}");
+}
+
+#[test]
+fn a_daily_rate_needs_a_second_and_clamps_at_u64_max() {
+    assert_eq!(bytes_per_day(5_000, 999), None, "under a second is no rate");
+    assert_eq!(bytes_per_day(1_000, 86_400_000), Some(1_000));
+    assert_eq!(bytes_per_day(1, 1_000), Some(86_400));
+    assert_eq!(bytes_per_day(u64::MAX, 1_000), Some(u64::MAX), "a rate past u64 reports u64::MAX");
 }
