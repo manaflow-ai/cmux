@@ -127,6 +127,36 @@ Nothing is cancelled: GitHub replaces only a pending job of the group, and main'
 
 The next run's decide can now read the release body and tag before the previous run's tail rewrote them, so the notes and PR-comment span start from the live feed's newest cmux:sourceCommit instead (publish-prepare-release-notes.sh, nightly_version.py published-source): nightly-next-one writes the feed before it ends, and the feed's compare-and-swap only moves to a descendant source. nightly-next-one outputs that commit as published_sha, which the published-build record prefers over decide's. tests/test_nightly_next_push_slot_at_build.py.
 
+## note-20
+
+build-nightly-app, Checkout build ref (warm nightly-next builder):
+
+A kept workspace: fetch only new objects (actions/checkout's depth-1 fetch resent the tree, 118 s in run 39440747033) and keep the three Rust target dirs.
+
+actions/checkout's own URL, no .git: on a mismatch a later checkout on this slot deletes the workspace.
+
+A slot whose git store was deleted fetched all of history from GitHub (jobs 132417366047, 132487716521: about 2.6 GiB in 267 s and 278 s); glaeda's job-completed hook linked it to the mini's mirror only after the job. Borrow a healthy mirror here, before the fetch, so it sends only what the mirror lacks. The checks and the record are glaeda's (mirror_identity, same_mirror in scripts/glaeda-cmux-runner-hook): the record comes first, since a slot that lists the mirror without one is wiped at job-started; no birth time (it then matches on the inode, and job-completed adds it).
+
+The negotiation tells the server what the workspace has only through refs; a detached HEAD alone makes it send the whole tree.
+
+Each try has its own limit and git's low-speed abort, and a failed try's partial pack and locks are removed before the next (scripts/ci/git_fetch_retry.py). Run 40466772597 hung here for 62 min, then died with "early EOF". Measured on owned minis (25 runs, 2026-10-26/27): 0-6 s warm, 194 s at most cold, so 600 s per try, 3 tries. The kept clone holds an earlier build, so the helper comes from the workflow commit, into RUNNER_TEMP where the checkout and clean below cannot remove it: from the local objects, else raw.githubusercontent.com (bounded), else the clone's own copy.
+
+No helper: one try, with git's own low-speed abort, so a stall still ends in about a minute.
+
+One runner can have the builder and the signing label, so the signer or a deltas job may have left this clone sparse; checkout and reset then keep its files out of the tree (run 42833135477: "Select Xcode", .xcode-version missing). Take the setting out of both config files (a full actions/checkout leaves .git/config's `true` in force) and the skip-worktree bits out of the index. Not `git sparse-checkout disable`: it first writes the old tree.
+
+Go writes its module cache read-only; a clone whose acpmux build ran before tailnet-go.sh set -modcacherw still has one, and git clean cannot remove it (run 42940891027: "failed to remove .build/go-path/pkg/mod/...: Permission denied").
+
+A hosted runner starts with clean submodules; drop what earlier runs left.
+
+Each fetch adds a pack and gc.auto is off: fold them past 40.
+
+## note-21
+
+publish-nightly-next-github (the job):
+
+cmux NEXT's GitHub release copy, after the feed went live from R2 (publish-nightly), in one job nothing waits on. It uploads the build's immutable assets first: no concurrency group, so no run's uploads are ever replaced, and they may wait out GitHub's rate limits as long as they need. Then, only while this build is the live feed's newest, it writes the release's mutable state: the rolling DMG name, the feed copy, the body with the cmux-published-sha marker and the nightly-next tag. Each of those writes runs still-newest just before it writes, inside the release names lease (one writer at a time across runs: on nightly-next it runs in the loop run, and in run-scoped manual runs that may overlap it), so no older build moves them back. It stays in the loop run, holding the push group: the next run's decide reads the body and tag (published_sha), so the dispatched tail (cross_run) never runs it. They were a job of their own until run 42018687632: its second whole-Mac claim, set-up and variant download let the deltas job take cmux15 first, and the names moved 40 min after the feed. It holds the release App key, so it runs on an ephemeral GitHub-hosted VM in release-next, as publish-release-notes already does with the same key, never on a mini a pull request job can reach. Leo, 2026-11-08, on moving it off the signer: "no. if this is still a good idea, we can still do it." (the override of Lawrence's owned-minis rule for this one job, tests/test_nightly_owned_minis_only.HOSTED_LOOP_JOBS). On cmux15 it held the whole signing Mac 289-406 s a build after queueing 79-412 s behind keep-published-dsyms (runs 42547726872, 42552327203, 42555458535, 42563930397); hosted it starts beside keep-published-dsyms.
+
 ## note-22
 
 published-build and the PR comments:

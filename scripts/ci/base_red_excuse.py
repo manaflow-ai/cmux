@@ -1393,7 +1393,7 @@ def failed_view(job: dict, log: str, *, step_names, base: bool) -> "FailedView |
     `✘ Test fake()` matched the base's real fake() failure and compare_window excused an unrelated new error in the
     step that failed. An empty log is placed and has no section. STEP_NAMES: step_owners'. BASE, keyword-only with no
     default, is the log's role, which every caller names: True for a base's log (evidence: FAILED sections and the
-    ERRORED ones its failed rollup names red, rollup_vouched),
+    ERRORED ones its failed rollup names red, rollup_vouched, or its failed gated step needed to fail, gate_vouched),
     False for the head's or a stack's (its red: FAILED and ERRORED). The test scan (FailedViewIsTheOnlyReader) checks
     each caller's role against where its log came from: the follow-up to #40542's Codex F1 at 8dc7e0dc, where
     next_batch read its base runs with the head's default role, so a base's ERRORED continue-on-error section was
@@ -1407,7 +1407,7 @@ def failed_view(job: dict, log: str, *, step_names, base: bool) -> "FailedView |
     if all(isinstance(step.get("number"), int) for step in steps):
         steps.sort(key=lambda step: step["number"])
     keep = (FAILED,) if base else (FAILED, ERRORED)
-    vouched = rollup_vouched(steps, owned) if base else frozenset()
+    vouched = rollup_vouched(steps, owned) | gate_vouched(steps, owned, step_names) if base else frozenset()
     sections: list[tuple[int, str, list[str]]] = []
     for line, k, status in owned:
         if status not in keep and not (status == ERRORED and k in vouched):
@@ -1416,6 +1416,30 @@ def failed_view(job: dict, log: str, *, step_names, base: bool) -> "FailedView |
             sections.append((k, status, []))
         sections[-1][2].append(line)
     return FailedView(job, base, steps, sections)
+
+
+def gate_vouched(steps: list[dict], owned: list[tuple[str, int | None, str]], step_names) -> frozenset[int]:
+    """The indexes in STEPS of the continue-on-error checks a base log's own failed gated step vouches for: the ERRORED
+    sections a base's view keeps as evidence (failed_view), beside rollup_vouched's. A gated step is one whose workflow
+    `if:` lets it run only when one of the checks it names failed (StepNames.gates, _failure_gates), so its running,
+    and failing, says the job is red for them. 2026-11-14: every PR's "cmux-next generated files" red was refused with
+    "5 failing test(s) pass, do not run or fail differently on each of feat-cmux-next run 43606519098 ...": the catalog
+    check ("Check generated action catalog, surfaces and inventory", continue-on-error) failed titlesUseTitleCase and
+    four more on head and base alike, but only the head's ERRORED section was read, and the base's "Regenerate stale
+    files" (`if: steps.actions.outcome == 'failure' || ...`), the step that failed the job because of it, vouched for
+    nothing. Only a gated step that FAILED vouches, and only for a named check whose section is ERRORED (it printed a
+    live `##[error]`); an unproven workflow (no gates) vouches for nothing."""
+    gates = getattr(step_names, "gates", None)
+    if not isinstance(gates, dict):
+        return frozenset()
+    failed = {k for _, k, status in owned if status == FAILED and k is not None}
+    numbers = {step.get("number"): k for k, step in enumerate(steps)}
+    found = set()
+    for k in failed:
+        for number in gates.get(steps[k].get("number"), ()):
+            if number in numbers:
+                found.add(numbers[number])
+    return frozenset(found)
 
 
 def rollup_vouched(steps: list[dict], owned: list[tuple[str, int | None, str]]) -> frozenset[int]:
@@ -1518,9 +1542,13 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
     found = StepNames({step["number"]: mark for step, mark in zip(api, marks) if mark is not None})
     # The headers are the named job's; a job whose name is not read and whose steps fit too must give the same ones.
     found.headers = _step_headers(named[0]["steps"], api, marks)
+    found.gates = _failure_gates(named[0]["steps"], api, marks)
     if any(_step_marks(spec.get("steps"), names) is not None
            and _step_headers(spec["steps"], api, marks) != found.headers for spec in unread):
         found.headers = None
+    if any(_step_marks(spec.get("steps"), names) is not None
+           and _failure_gates(spec["steps"], api, marks) != found.gates for spec in unread):
+        found.gates = None
     return found
 
 
@@ -1546,6 +1574,115 @@ class StepNames(dict):
     None. step_owners' second reading
     (_aligned_starts) reads HEADERS; a plain dict has none, and is read as before."""
     headers: dict | None = None
+    gates: dict | None = None
+
+
+# One `steps.<id>.outcome == 'failure'` test, the whole of a gate's disjunct (_failure_gates).
+FAILURE_TEST = re.compile(r"""steps\.([A-Za-z_][A-Za-z0-9_-]*)\.outcome\s*==\s*'failure'""")
+
+
+def _top_level(text: str, operator: str) -> list[str] | None:
+    """TEXT split on OPERATOR (`&&`, `||`) outside parentheses and quotes, each part stripped; None when its
+    parentheses or quotes do not balance."""
+    parts, depth, quoted, start, n = [], 0, False, 0, 0
+    while n < len(text):
+        char = text[n]
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char == "(":
+            depth += 1
+        elif not quoted and char == ")":
+            depth -= 1
+            if depth < 0:
+                return None
+        elif not quoted and not depth and text.startswith(operator, n):
+            parts.append(text[start:n].strip())
+            start = n = n + len(operator)
+            continue
+        n += 1
+    if depth or quoted:
+        return None
+    return [*parts, text[start:].strip()]
+
+
+def _unwrapped(text: str) -> str:
+    """TEXT without the parentheses that enclose all of it (`((a || b))` is `a || b`; `(a) || (b)` stays), in one pass
+    over it: each `(` outside quotes is matched to its `)`, then the outer layers whose `(` closes at the matching end
+    are peeled. Unbalanced text is returned stripped and unpeeled (its _top_level is None)."""
+    text = text.strip()
+    closes: dict[int, int] = {}
+    opened: list[int] = []
+    quoted = False
+    for n, char in enumerate(text):
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char == "(":
+            opened.append(n)
+        elif not quoted and char == ")":
+            if not opened:
+                return text
+            closes[opened.pop()] = n
+    if opened or quoted:
+        return text
+    start, end = 0, len(text) - 1
+    while start < end and closes.get(start) == end:
+        start, end = start + 1, end - 1
+        while start <= end and text[start].isspace():
+            start += 1
+        while end >= start and text[end].isspace():
+            end -= 1
+    return text[start:end + 1]
+
+
+def _failure_ids(expression: str) -> set[str] | None:
+    """The step ids of EXPRESSION when it is a disjunction (`||`) of `steps.<id>.outcome == 'failure'` tests and
+    nothing else (one test is one), else None."""
+    tests = _top_level(_unwrapped(expression), "||")
+    if not tests:
+        return None
+    ids = [match.group(1) if (match := FAILURE_TEST.fullmatch(_unwrapped(test))) else None for test in tests]
+    return set(ids) if all(ids) else None
+
+
+def _gate_ids(condition: object) -> frozenset[str] | None:
+    """The step ids a step's `if:` CONDITION requires one of to have failed: the condition is such a disjunction
+    (_failure_ids), or a conjunction (`&&`, which binds tighter than `||`) with such a term, so the step runs only when
+    one of them failed. None for any other condition: one that could run the step with none of them failed (a top-level
+    `|| always()`, a negation `!(...)`) never vouches."""
+    if not isinstance(condition, str):
+        return None
+    text = condition.strip()
+    if text.startswith("${{") and text.endswith("}}"):
+        text = text[3:-2].strip()
+    text = _unwrapped(text)
+    either = _top_level(text, "||")
+    if either is None:
+        return None
+    if len(either) > 1:
+        return frozenset(_failure_ids(text) or ()) or None
+    found: set[str] = set()
+    for term in _top_level(text, "&&") or ():
+        found |= _failure_ids(term) or set()
+    return frozenset(found) or None
+
+
+def _failure_gates(declared: list[dict], api: list[dict], marks: list) -> dict[int, frozenset[int]]:
+    """{the jobs-API number of each workflow step in DECLARED whose `if:` runs it only when one of the job's
+    continue-on-error checks failed (_gate_ids): those checks' numbers}, for gate_vouched. A gate naming an id no
+    continue-on-error step of the job has is dropped whole (it is not proven to be about a check's failure)."""
+    numbered: list[tuple[int, dict]] = []
+    workflow = iter(declared)
+    for step, mark in zip(api, marks):
+        if mark is not None:
+            numbered.append((step["number"], next(workflow)))
+    checks = {spec["id"]: number for number, spec in numbered
+              if isinstance(spec.get("id"), str) and spec.get("continue-on-error", False) is True}
+    found: dict[int, frozenset[int]] = {}
+    for number, spec in numbered:
+        ids = _gate_ids(spec.get("if"))
+        if ids and all(name in checks for name in ids):
+            found[number] = frozenset(checks[name] for name in ids)
+    return found
 
 
 def _step_headers(declared: list[dict], api: list[dict], marks: list) -> dict[int, tuple[str, bool, bool]] | None:
@@ -4338,6 +4475,24 @@ def guard_test_file(name: str, output: list[str]) -> str | None:
     return frames.pop() if len(frames) == 1 else None
 
 
+def cited_red(view: FailedView, unnamed: "list[tuple[str, list[str]]]") -> str:
+    """What a refusal quotes as the red of VIEW's job, given UNNAMED, the (status, error lines) of each part that
+    names no failing test: the job's own `red check: NAME` lines (its rollup, ROLLUP_RED) when it has any; else the
+    first error line of a FAILED part (a step the jobs API says failed) that is not the runner's exit line, then its
+    exit line; else the failed steps by name. Never an ERRORED part's line: a continue-on-error or warn-only step
+    that printed `##[error]` is not why the job is red (cmux#40455 at a199e5e0)."""
+    rollup = [line.removeprefix("##[error]") for line in test_reds.lines_of(view_text(view)) if ROLLUP_RED.match(line)]
+    if rollup:
+        return "the job's " + "; ".join(dict.fromkeys(rollup))
+    failed = [error for status, errors in unnamed if status == FAILED for error in errors]
+    said = ([error for error in failed if not test_reds.PROCESS_EXIT.match(error)] or failed)[:1]
+    if said:
+        return said[0]
+    steps = sorted(str(step.get("name") or "") for step in view.job.get("steps") or []  # step-name: display
+                   if step_failed(step))
+    return "failed steps: " + ("; ".join(steps) or "none named; only continue-on-error steps printed errors")
+
+
 def guard_tests(view: "FailedView | Unplaced", reads: dict | None = None) -> dict[str, str]:
     """{failing test: its tests/*.py file} for a job (VIEW: its failed_view) whose every failed step is a guard
     test's or a check rule's (CHECK_RULE_JOBS: keyed by its finding, its file the check's script); raises Refused
@@ -4346,14 +4501,25 @@ def guard_tests(view: "FailedView | Unplaced", reads: dict | None = None) -> dic
     reads = {} if reads is None else reads
     if view is UNPLACED:
         raise Refused(UNPLACED_WHY)
-    lines = test_reds.log_lines(view_text(view))
-    skip = test_reds.echoed(lines)
-    starts = [n for n in sorted(skip) if test_reds.ECHO_START.match(lines[n])]
+    view_text(view)
     found: dict[str, str] = {}
     tested_steps = rolled_up = 0
-    for start, end in zip([0] + starts, starts + [len(lines)]):
-        output = [lines[n] for n in range(start, end) if n not in skip]
-        script = [lines[n] for n in range(start, end) if n in skip]
+    # Each part of each section, with whether the jobs API says its step failed: a part split off at a script echo
+    # (a composite's inner step) is its section's step's.
+    parts = []
+    for _, status, section in view.sections:
+        lines = test_reds.log_lines("\n".join(section))
+        skip = test_reds.echoed(lines)
+        starts = [n for n in sorted(skip) if test_reds.ECHO_START.match(lines[n])]
+        for start, end in zip([0] + starts, starts + [len(lines)]):
+            parts.append((status, [lines[n] for n in range(start, end) if n not in skip],
+                          [lines[n] for n in range(start, end) if n in skip]))
+    # A part with an error line and no failing test refuses, but only after every part is read, so the refusal cites
+    # the job's red, never a warn-only or continue-on-error step's `##[error]` line (2026-11-11, cmux#40455 at
+    # a199e5e0: the first error of the checks job, './scripts/lint-ios-package-conventions.sh' from the warn-only
+    # Package conventions lint, was cited, where the job was red for 'red check: Check the app FFI pin'; cited_red).
+    unnamed: list[tuple[str, list[str]]] = []
+    for status, output, script in parts:
         errors = [text for text in output if test_reds.STEP_ERROR.match(text)]
         if not errors:
             continue
@@ -4363,7 +4529,8 @@ def guard_tests(view: "FailedView | Unplaced", reads: dict | None = None) -> dic
             continue
         names = test_reds.failed_names(output)
         if not names:
-            raise Refused(f"a failed step names no failing test ({errors[0][:200]})")
+            unnamed.append((status, errors))
+            continue
         if rules := {name for name in names if name.split(" ", 1)[0] in CHECK_RULE_JOBS}:
             if rules != names:
                 raise Refused(f"a failed step names a check rule's finding and tests together: {sorted(names)[0]}")
@@ -4387,6 +4554,8 @@ def guard_tests(view: "FailedView | Unplaced", reads: dict | None = None) -> dic
             if (wrapped := wrapped_rule_reads(path, name, output)) is not None:
                 reads[name] = wrapped
         tested_steps += 1
+    if unnamed:
+        raise Refused(f"a failed step names no failing test ({cited_red(view, unnamed)[:300]})")
     if not found:
         raise Refused("no failing guard test")
     if rolled_up > tested_steps:
