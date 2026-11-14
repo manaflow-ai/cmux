@@ -91,7 +91,8 @@ public final class TaskDraftStore {
         }
         let entry = SavedTaskDraft(draft, updatedAt: now)
         drafts.removeAll { $0.id == draft.id }
-        drafts.insert(entry, at: 0)
+        // Newest first, by when each was saved.
+        drafts.insert(entry, at: drafts.firstIndex { $0.updatedAt <= entry.updatedAt } ?? drafts.endIndex)
         if drafts.count > Self.limit { drafts.removeLast(drafts.count - Self.limit) }
         for image in draft.images where memoryImages[image.id] == nil { memoryImages[image.id] = image.data }
         persist(newImages: draft.images)

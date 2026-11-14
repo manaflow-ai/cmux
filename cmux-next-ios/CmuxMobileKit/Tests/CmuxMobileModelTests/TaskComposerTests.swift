@@ -376,6 +376,15 @@ import Testing
         #expect(drafts.drafts.first?.prompt == "Task \(TaskDraftStore.limit + 2)")
     }
 
+    /// Captures 2026-11-13: drafts saved with older times listed oldest first.
+    @Test func theListIsNewestFirstWhateverOrderTheyWereSavedIn() {
+        let drafts = TaskDraftStore(directory: nil)
+        drafts.save(TaskDraft(prompt: "middle"), now: Date(timeIntervalSince1970: 200))
+        drafts.save(TaskDraft(prompt: "oldest"), now: Date(timeIntervalSince1970: 100))
+        drafts.save(TaskDraft(prompt: "newest"), now: Date(timeIntervalSince1970: 300))
+        #expect(drafts.drafts.map(\.prompt) == ["newest", "middle", "oldest"])
+    }
+
     @Test func aPhotoIDIsNeverAPath() {
         #expect(TaskDraftDisk.isSafeName(UUID().uuidString))
         #expect(!TaskDraftDisk.isSafeName("../index.json"))
