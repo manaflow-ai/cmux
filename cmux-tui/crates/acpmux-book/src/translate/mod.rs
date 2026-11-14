@@ -677,9 +677,6 @@ impl State {
             }
         }
     }
-    fn group(&mut self, out: &mut input::Output<'_>) -> Result<u64, Error> {
-        self.group_with(Vec::new(), out)
-    }
     /// The open group row, opened with `fields` when there is none.
     fn group_with(
         &mut self,
