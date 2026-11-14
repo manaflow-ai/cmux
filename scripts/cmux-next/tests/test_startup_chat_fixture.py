@@ -2,6 +2,7 @@
 import copy
 import importlib.util
 import json
+import stat
 from pathlib import Path
 import sys
 import tempfile
@@ -87,6 +88,18 @@ class Restoration(unittest.TestCase):
     def test_old_receipt_directory_cannot_supply_a_new_run(self):
         with self.assertRaises(FileExistsError):
             ChatFixture(self.fixture.output)
+
+    def test_artifacts_on_a_shared_volume_do_not_place_daemon_state_there(self):
+        shared = Path(self.temp.name) / "shared-volume"
+        shared.mkdir(mode=0o777)
+        shared.chmod(0o777)
+        fixture = ChatFixture(shared / "receipts")
+        environment = fixture.environment("shared")
+        home = Path(environment["ACPMUX_HOME"]).resolve()
+        for ancestor in (home, *home.parents):
+            mode = ancestor.stat().st_mode
+            self.assertFalse(mode & 0o022 and not mode & stat.S_ISVTX,
+                             f"unsafe daemon state ancestor: {ancestor}")
 
     def test_creation_timeout_is_reconciled_without_creating_twice(self):
         client = SeedClient('timedOut("DevTools Runtime.evaluate (5.0 seconds)")')
