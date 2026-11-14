@@ -471,6 +471,11 @@ export type AcpmuxRow = {
   /// A finished reply's checked claims ("tests pass"), from acpmux's `claim_checks` at its turn's
   /// end (hub/claim_check.rs): each one's phrase draws a mark (conversation/ClaimMark.tsx).
   claims?: ClaimCheck[];
+  /// A reply the agent sent again after a Stop hook blocked its stop (acpmux `message_superseded`,
+  /// reason `stop_hook`): it took the first one's row, and this is the first one's text and the
+  /// hook's reason. The row shows the earlier text until the new one has streamed, then swaps it in
+  /// place (conversation/RevisedReply.tsx). Leo, 2026-11-14: "why did u send this twice?"
+  revisedFrom?: { text: string; reason?: string };
   streaming?: boolean;
   pending?: boolean;
   failed?: boolean;

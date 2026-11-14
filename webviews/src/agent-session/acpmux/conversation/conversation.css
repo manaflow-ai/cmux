@@ -8023,3 +8023,40 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   min-width: calc(100% - var(--cv-bubble-pad-inline) + var(--cv-action-inset));
   justify-content: flex-start;
 }
+
+/* A reply the agent sent again after a Stop hook (RevisedReply.tsx, design/revised-reply.md): one
+   muted word in the footer's caption size and resting ink, on the footer row's height, so it reads
+   as part of the reply's quiet chrome; a click opens the first version under it, in dim ink. */
+.cv-revised__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  height: var(--cv-footer-row);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cv-footer-ink);
+  font: inherit;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.cv-revised__toggle:hover:not(:disabled),
+.cv-revised__toggle:focus-visible {
+  color: var(--cv-text-muted);
+}
+.cv-revised__toggle:disabled {
+  cursor: default;
+}
+.cv-revised__earlier {
+  margin-block: var(--ds-space-1) var(--ds-space-2);
+  padding-inline-start: var(--ds-space-3);
+  border-inline-start: 1px solid var(--cv-rule);
+  color: var(--cv-text-dim);
+}
+.cv-revised__earlier-label {
+  color: var(--cv-footer-ink);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}

@@ -1493,6 +1493,41 @@ export function applySupersededMessage(
   messageRows.delete(oldMessageId);
 }
 
+/// A reply sent again after a Stop hook (`reviseSupersededMessage`): the row it streams into, the
+/// first reply's text and the hook's reason.
+export type PendingRevision = { rowId: string; earlier: string; reason?: string };
+
+/// A reply a Stop hook made the agent send again (acpmux `message_superseded`, reason `stop_hook`;
+/// Leo, 2026-11-14: "why did u send this twice?"). The first reply's last row stays as the slot the
+/// new one streams into, so nothing below it moves and nothing is drawn twice; its other rows (a
+/// reply a thought cut) go. Returns that slot, or undefined when the first reply drew no row (the
+/// new one then draws as any reply). The removed row ids are added to `removed`.
+export function reviseSupersededMessage(
+  rows: Map<string, AcpmuxRow>,
+  messageRows: Map<string, string[]>,
+  superseded: Set<string>,
+  removed: Set<string>,
+  oldMessageId: string,
+  reason: string | undefined,
+): PendingRevision | undefined {
+  const ids = (messageRows.get(oldMessageId) ?? []).filter((id) => rows.has(id));
+  const slot = ids.at(-1);
+  superseded.add(oldMessageId);
+  messageRows.delete(oldMessageId);
+  if (slot === undefined) return undefined;
+  const earlier = ids
+    .map((id) => rows.get(id)?.text ?? "")
+    .filter((text) => text.trim())
+    .join("\n\n");
+  for (const id of ids.slice(0, -1)) {
+    rows.delete(id);
+    removed.add(id);
+  }
+  const row = rows.get(slot)!;
+  rows.set(slot, { ...row, streaming: false, version: row.version + 1 });
+  return { rowId: slot, earlier, ...(reason ? { reason } : {}) };
+}
+
 /** The session to attach after connect: the selected one, else the most recent unless the pane is a new chat. */
 export function initialSession(
   selected: string | undefined,
@@ -3392,6 +3427,9 @@ export class AcpmuxDirectClient {
   private compactionHeardAt = new Map<string, number>();
   private supersededMessageIds = new Set<string>();
   private supersededRowIds = new Set<string>();
+  /// A reply sent again after a Stop hook, by its messageId, before its first chunk: the row of the
+  /// reply it replaces, which it streams into (`reviseSupersededMessage`).
+  private pendingRevisions = new Map<string, PendingRevision>();
   /// The rows each message streamed into; tool calls split one message into several.
   private messageRows = new Map<string, string[]>();
   /// The activity row each tool call lives in, so a late update lands where the call began.
@@ -4466,6 +4504,7 @@ export class AcpmuxDirectClient {
     this.retryAttachments.clear();
     this.supersededMessageIds.clear();
     this.supersededRowIds.clear();
+    this.pendingRevisions.clear();
     this.messageRows.clear();
     this.offerRows.clear();
     this.receivedOffers.clear();
@@ -8022,6 +8061,7 @@ export class AcpmuxDirectClient {
     if (frozenBefore === undefined) {
       this.supersededMessageIds.clear();
       this.supersededRowIds.clear();
+      this.pendingRevisions.clear();
       this.messageRows.clear();
       this.offerRows.clear();
       this.receivedOffers.clear();
@@ -9536,7 +9576,23 @@ export class AcpmuxDirectClient {
         this.rows.delete(TURN_RETRY);
       } else if (event.kind === "message_superseded") {
         const oldMessageId = typeof msg.oldMessageId === "string" ? msg.oldMessageId : undefined;
-        if (oldMessageId) {
+        const newMessageId = typeof msg.newMessageId === "string" ? msg.newMessageId : undefined;
+        if (oldMessageId && msg.reason === "stop_hook" && newMessageId) {
+          // The agent sent its reply again after a Stop hook: the new one takes the old one's row.
+          const revision = reviseSupersededMessage(
+            this.rows,
+            this.messageRows,
+            this.supersededMessageIds,
+            this.supersededRowIds,
+            oldMessageId,
+            typeof msg.notice === "string" ? msg.notice : undefined,
+          );
+          if (revision) this.pendingRevisions.set(newMessageId, revision);
+          if (this.streamingAssistantMessageId === oldMessageId) {
+            this.streamingAssistant = undefined;
+            this.streamingAssistantMessageId = undefined;
+          }
+        } else if (oldMessageId) {
           for (const rowId of this.messageRows.get(oldMessageId) ?? []) this.supersededRowIds.add(rowId);
           applySupersededMessage(this.rows, this.messageRows, this.supersededMessageIds, oldMessageId);
           if (this.streamingAssistantMessageId === oldMessageId) {
@@ -9721,15 +9777,26 @@ export class AcpmuxDirectClient {
       // hub/stream.rs), the same whichever of its chunks a page starts at, so a reply a page cut
       // keeps its row (and its node) when the older page with its first chunk comes in. Older logs
       // carry none: the first chunk read names it, as before.
+      // A reply sent again after a Stop hook streams into the row of the one it replaces
+      // (`reviseSupersededMessage`), which keeps showing that one until the new one has streamed.
+      const revision = !sameMessage && messageId ? this.pendingRevisions.get(messageId) : undefined;
+      if (revision) this.pendingRevisions.delete(messageId!);
+      const revised = revision && this.rows.has(revision.rowId) ? revision : undefined;
       const id = sameMessage
         ? this.streamingAssistant!
-        : stamped !== undefined && !this.rows.has(`assistant-${stamped}`)
-          ? `assistant-${stamped}`
-          : `assistant-${event.seq}`;
+        : revised
+          ? revised.rowId
+          : stamped !== undefined && !this.rows.has(`assistant-${stamped}`)
+            ? `assistant-${stamped}`
+            : `assistant-${event.seq}`;
       this.streamGrew = sameMessage;
       // A message after the reply that was streaming when the steer went: the agent read it.
       if (!sameMessage) this.landSteer();
-      const existing = this.rows.get(id);
+      const prior = this.rows.get(id);
+      const existing = revised && prior ? { ...prior, text: "" } : prior;
+      const revisedFrom = revised
+        ? { text: revised.earlier, ...(revised.reason ? { reason: revised.reason } : {}) }
+        : prior?.revisedFrom;
       const messageTurnStartedAtMs = existing?.turnStartedAtMs ?? this.turnStartedAtMs;
       // Text after tool calls is a new segment; the next tool call opens a new fold.
       this.streamingActivity = undefined;
@@ -9743,6 +9810,7 @@ export class AcpmuxDirectClient {
         ...((assistantPhase ?? existing?.assistantPhase) && {
           assistantPhase: assistantPhase ?? existing?.assistantPhase,
         }),
+        ...(revisedFrom && { revisedFrom }),
         streaming: true,
       });
       this.streamingAssistant = id;
