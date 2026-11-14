@@ -1,0 +1,36 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/showcase-agent-standup",
+  "name": { "en": "Standup" },
+  "version": "1.0.0",
+  "description": { "en": "An example extension built only on cmux-extension-sdk: what your agents did since yesterday, by project, in a sidebar section." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "list.bullet.clipboard" },
+  "categories": ["sidebar"],
+  "keywords": ["standup", "agents", "chats", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderStandup",
+      "title": { "en": "Standup" },
+      "symbol": "list.bullet.clipboard",
+      "options": { "defaultRegion": "bottom", "maxRows": 14 }
+    }
+  },
+  "scopes": {
+    "agent_chat:read": "Read your agent chats, their state and when they last changed.",
+    "actions:run": "Open a chat when you click it."
+  },
+  "settings": {
+    "type": "object",
+    "properties": {
+      "hours": { "type": "integer", "title": "Look back (hours)", "minimum": 1, "maximum": 168, "default": 24 }
+    }
+  },
+  "activation": ["onInterface:cmux.section/1"],
+  "files": ["dist/"]
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/showcase-workspace-notes",
+  "name": { "en": "Workspace notes" },
+  "version": "1.0.0",
+  "description": { "en": "An example extension built only on cmux-extension-sdk: a short to-do list for the workspace you are in, kept per workspace, in a sidebar section." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "checklist" },
+  "categories": ["sidebar"],
+  "keywords": ["notes", "todo", "workspace", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderNotes",
+      "title": { "en": "Workspace notes" },
+      "symbol": "checklist",
+      "options": { "defaultRegion": "bottom", "maxRows": 10 }
+    }
+  },
+  "scopes": {
+    "workspace:read": "Know which workspace you are in, so the list follows you.",
+    "storage:local": "Keep each workspace's notes on this Mac."
+  },
+  "activation": ["onInterface:cmux.section/1"],
+  "files": ["dist/"]
+}

@@ -266,3 +266,12 @@ impl Harness {
         self.tree(mount).1.into_iter().find(|(_, n)| pred(n)).map(|(id, _)| id)
     }
 }
+
+/// An example extension's committed bundle (`examples/extensions/<name>/dist/main.js`).
+pub fn example(name: &str) -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../examples/extensions")
+        .join(name)
+        .join("dist/main.js");
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
