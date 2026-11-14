@@ -28,6 +28,10 @@ done
 [[ ${#args[@]} -gt 0 ]] || args=(--codecs h264,vp9 --loss 0,2 --match-h264 0,1)
 echo "CODEC-BENCH-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) cpu=\"$(sysctl -n machdep.cpu.brand_string 2>/dev/null || uname -m)\" cores=$(sysctl -n hw.ncpu 2>/dev/null || nproc) sha=$(git rev-parse --short=11 HEAD)"
 echo "CODEC-BENCH-LOAD before $(uptime | sed 's/.*load averages*: //')"
-cargo build --locked --release --no-default-features --features vp9,av1,asm --bin codec-bench 2>&1 | grep -v '^ *\(Compiling\|Downloaded\|Downloading\)' | tail -20
+# rav1d's crates.io package lacks src/arm/asm-offsets.h, so its arm64 assembly does not
+# build; AV1 runs as portable code on Apple silicon (H.264 and VP9 keep their NEON code).
+features=vp9,av1
+[[ "$(uname -m)" == x86_64 ]] && features+=,asm
+cargo build --locked --release --no-default-features --features "$features" --bin codec-bench 2>&1 | grep -v '^ *\(Compiling\|Downloaded\|Downloading\)' | tail -20
 "$CARGO_TARGET_DIR/release/codec-bench" "${args[@]}" --json "$out/rows.jsonl" | tee "$out/table.md"
 echo "CODEC-BENCH-LOAD after $(uptime | sed 's/.*load averages*: //')"
