@@ -125,8 +125,8 @@ nonisolated enum AcpmuxServerPeer {
         return judge(owners, executable: executable, what: "listener on port \(port)")
     }
 
-    /// Watch item (cx-fcaq review P3-2): `tcpSockets()` reads every socket of every process of
-    /// this user (proc_pidinfo per process, proc_pidfdinfo per socket) twice per pane connect.
+    /// `tcpSockets()` reads every socket of every process of
+    /// this user (proc_pidinfo per process, proc_pidfdinfo per socket) twice per pane connect, across cores.
     /// Measured cost is not known yet; if pane connects show it, scan only processes whose
     /// executable is the acpmux this app runs, plus this process.
     ///
@@ -204,7 +204,7 @@ nonisolated enum AcpmuxServerPeer {
         return String(cString: buffer)
     }
 
-    struct TCPSocket {
+    struct TCPSocket: Sendable {
         var pid: pid_t
         var localPort: Int
         var remotePort: Int
@@ -221,11 +221,21 @@ nonisolated enum AcpmuxServerPeer {
         let filled = pids.withUnsafeMutableBytes { bytes in
             proc_listpids(UInt32(PROC_UID_ONLY), uid, bytes.baseAddress, Int32(bytes.count))
         }
-        var out: [TCPSocket] = []
-        for pid in pids.prefix(Int(filled) / MemoryLayout<pid_t>.size) where pid > 0 {
-            out += tcpSockets(of: pid)
+        return tcpSockets(of: pids.prefix(Int(filled) / MemoryLayout<pid_t>.size).filter { $0 > 0 }, read: tcpSockets(of:))
+    }
+
+    /// `read`'s sockets of each of `pids`, in `pids`' order, read across cores: one process after another, the
+    /// scan of every process of this user ran twice per agent pane connect, on the path to its chat. Each read
+    /// is a few libproc calls that share nothing, so the processes split into one chunk per core.
+    static func tcpSockets(of pids: [pid_t], read: @Sendable (pid_t) -> [TCPSocket]) -> [TCPSocket] {
+        let chunks = max(1, min(pids.count, ProcessInfo.processInfo.activeProcessorCount))
+        let size = (pids.count + chunks - 1) / max(chunks, 1)
+        let found = OSAllocatedUnfairLock(initialState: [[TCPSocket]](repeating: [], count: chunks))
+        DispatchQueue.concurrentPerform(iterations: chunks) { chunk in
+            let part = pids[min(pids.count, chunk * size)..<min(pids.count, (chunk + 1) * size)].flatMap(read)
+            found.withLock { $0[chunk] = part }
         }
-        return out
+        return found.withLock { $0 }.flatMap { $0 }
     }
 
     private static func tcpSockets(of pid: pid_t) -> [TCPSocket] {
