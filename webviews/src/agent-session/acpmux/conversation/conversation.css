@@ -5620,12 +5620,7 @@ a.cv-sha:focus-visible {
 .cv-turn-error {
   display: flex;
   flex-direction: column;
-  gap: var(--transient-surface-gap);
-}
-.ui-transient-error {
-  /* Error cards are the inline member of Notice: their recovery-specific layout remains intact,
-     while material, spacing and action roles are shared with transient notices. */
-  --glass-tint: var(--transient-surface-veil);
+  gap: var(--ds-space-2);
 }
 .cv-turn-error__cause {
   display: flex;
@@ -5663,11 +5658,10 @@ a.cv-sha:focus-visible {
 }
 .cv-turn-error__primary {
   border-color: transparent;
-  background: var(--transient-action-fill);
-  color: var(--transient-action-ink);
+  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
 }
 .cv-turn-error__primary:hover {
-  background: color-mix(in srgb, var(--transient-action-fill) 88%, var(--ds-color-fg));
+  background: color-mix(in srgb, var(--agent-accent) 24%, transparent);
 }
 /* The CodeRouter offer (CodeRouterOffer.tsx): a link after the cause in the `link` arm. */
 /* The `link` arm: a link that ends the cause sentence, blue as every link (#22345). */
@@ -5751,8 +5745,6 @@ a.cv-sha:focus-visible {
 }
 .cv-turn-error--card {
   padding: var(--grid-cards-padding);
-  /* Transcript cards keep the established grid geometry (12px), while their material and actions
-     follow the transient role. */
   border-radius: var(--grid-cards-radius);
 }
 .cv-turn-error--rail {
