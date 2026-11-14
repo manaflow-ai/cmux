@@ -433,6 +433,8 @@ mod tests {
         let (hub, session) = fixture(false).await;
         hub.edit_test_meta(&session, |meta| {
             meta.status = crate::store::SessionStatus::Running;
+            meta.last_prompt = None;
+            meta.preview = None;
             let base = meta.harness_failures.through_seq;
             for offset in 1..=3 {
                 let seq = base + offset;
