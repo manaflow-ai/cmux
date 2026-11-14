@@ -2448,6 +2448,7 @@ class Workflow(unittest.TestCase):
              "cmux-next", "cmux-tui artifacts", "cmux NEXT DEV daily", "cmux-next-ios kit tests",
              "cmux-next", "cmux-tui", "IROH v2", "Relay TLS system trust", "reload-build",
              "SSH remote daemon", "Terminal hang diagnostics", "Feed reply provider verification",
+             "cmux-next car guards", "cmux-rd Windows host", "macOS cross-compile parity",
              "nightly-next launch smoke", "cmux NEXT Stable"},
         )
         paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
