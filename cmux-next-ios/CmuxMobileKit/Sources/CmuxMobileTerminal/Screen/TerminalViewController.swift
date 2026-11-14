@@ -3024,7 +3024,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         view.layoutIfNeeded()
         // The keyboard settled: a TUI gets the rows above the composer now,
         // one resize (R1-1).
-        tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY + composerGrowth + jumpRowHeight, restingStackTop: restingStackTop, isTUI: model.isTUI)
+        // Only a page on screen has a settled layout: `dockChanged()` from
+        // viewDidLoad runs before the page has a window or its final insets,
+        // and its gap read as a keyboard lift.
+        if view.window != nil {
+            tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY + composerGrowth + jumpRowHeight, restingStackTop: restingStackTop, isTUI: model.isTUI)
+        }
         view.setNeedsLayout()
         view.layoutIfNeeded()
         // The page changed without output (the keyboard came or went): the
