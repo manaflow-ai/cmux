@@ -7,6 +7,7 @@ import SwiftUI
 /// groups. The group's own actions are a pushed page (`TabGroupPage`).
 struct TabMoveAndGroupSheets: ViewModifier {
     let source: WorkspaceTabsSource
+    let material: CmuxMobileTransientMaterial?
 
     func body(content: Content) -> some View {
         content
@@ -14,12 +15,14 @@ struct TabMoveAndGroupSheets: ViewModifier {
                 WorkspacePicker(tab: tab, workspaces: source.otherWorkspaces) { destination in
                     Task { await source.move(tab.id, to: destination) }
                 }
+                .cmuxMobileTransientSheet(material: material)
                 .presentationDetents([.medium, .large])
             }
             .sheet(item: Binding(get: { source.addingToGroupTab }, set: { source.addingToGroupTab = $0 })) { tab in
                 TabGroupPicker(groups: source.groups(besides: tab)) { group in
                     Task { await source.editGroup(.add(group: group.id), tab.id) }
                 }
+                .cmuxMobileTransientSheet(material: material)
                 .presentationDetents([.medium])
             }
             .sheet(item: Binding(get: { source.savedGroupsChooser }, set: { source.savedGroupsChooser = $0 })) { chooser in
@@ -31,6 +34,7 @@ struct TabMoveAndGroupSheets: ViewModifier {
                         }
                     }
                 }
+                .cmuxMobileTransientSheet(material: material)
                 .presentationDetents([.medium, .large])
             }
     }

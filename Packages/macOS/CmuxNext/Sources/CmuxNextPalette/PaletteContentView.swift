@@ -17,7 +17,7 @@ final class PaletteContentView: NSView {
     let searchBar = PaletteSearchBar()
     private let stage = FlippedView()
     /// The panel's material: glass, or opaque under Reduce Transparency.
-    let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius)
+    let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius, tone: .neutralGlass(.transient))
     private let body = FlippedView()
     private let topRule = NSView()
     private let bottomRule = NSView()

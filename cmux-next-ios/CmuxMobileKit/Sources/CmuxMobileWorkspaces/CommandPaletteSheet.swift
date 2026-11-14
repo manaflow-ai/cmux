@@ -10,6 +10,7 @@ private let theme = CmuxMobileTheme.standard
 struct CommandPaletteSheet: View {
     let source: WorkspaceTabsSource
     let scope: PaletteScope
+    var material: CmuxMobileTransientMaterial? = nil
     @State private var query = ""
     @FocusState private var searching: Bool
 
@@ -22,6 +23,7 @@ struct CommandPaletteSheet: View {
                 section(.tabs, scope == .tabs ? "Tabs" : "Tabs in all workspaces", rows)
             }
             .listStyle(.insetGrouped)
+            .scrollContentBackground(material == nil ? .automatic : .hidden)
             .overlay {
                 if rows.isEmpty {
                     if query.isEmpty {
@@ -51,6 +53,7 @@ struct CommandPaletteSheet: View {
                 }
             }
         }
+        .cmuxMobileTransientSheet(material: material)
         // Search is the sheet's purpose (HIG Search fields): the field takes focus once the
         // sheet is up. Set from onAppear alone it was sometimes dropped (rig run).
         .task { searching = true }

@@ -66,12 +66,14 @@ public struct ConnectionBannerState: Sendable, Hashable {
 /// it under the toolbar with the `snappy` enter/exit.
 public struct ConnectionBanner: View {
     let state: ConnectionBannerState
+    let material: CmuxMobileTransientMaterial?
 
     let retry: (() -> Void)?
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    public init(_ state: ConnectionBannerState, retry: (() -> Void)? = nil) {
+    public init(_ state: ConnectionBannerState, material: CmuxMobileTransientMaterial? = nil, retry: (() -> Void)? = nil) {
         self.state = state
+        self.material = material
         self.retry = retry
     }
 
@@ -105,7 +107,7 @@ public struct ConnectionBanner: View {
         .fixedSize()
         .padding(.horizontal, 14)
         .frame(minHeight: 36)
-        .glassEffect(.regular, in: .rect(cornerRadius: 18, style: .continuous))
+        .cmuxMobileTransientGlass(in: .rect(cornerRadius: 18, style: .continuous), material: material)
     }
 
     private var wrapped: some View {
@@ -134,7 +136,7 @@ public struct ConnectionBanner: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .frame(minHeight: 36)
-        .glassEffect(.regular, in: .rect(cornerRadius: theme.metrics.cardRadius, style: .continuous))
+        .cmuxMobileTransientGlass(in: .rect(cornerRadius: theme.metrics.cardRadius, style: .continuous), material: material)
     }
 
     @ViewBuilder private var leading: some View {

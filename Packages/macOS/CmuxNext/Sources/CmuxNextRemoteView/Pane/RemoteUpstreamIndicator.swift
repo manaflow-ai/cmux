@@ -7,7 +7,7 @@ import CmuxNextDesign
 final class RemoteUpstreamIndicator: NSView {
     var onStop: ((RemoteUpstreamKind) -> Void)?
 
-    let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.capsuleRadius(CGSize(width: RemoteUpstreamIndicator.height, height: RemoteUpstreamIndicator.height)))
+    let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.capsuleRadius(CGSize(width: RemoteUpstreamIndicator.height, height: RemoteUpstreamIndicator.height)), tone: .neutralGlass(.transient))
     private let row = RemoteChrome.row([], spacing: 8, insets: NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 4))
     private var shown: [RemoteUpstreamKind] = []
     private var colors: RemotePaneColors?

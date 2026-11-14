@@ -116,6 +116,7 @@ private struct DemoStoreKit: StoreKitClient {
 
 #if os(iOS) && DEBUG
 import CmuxMobileBillingUI
+import CmuxMobileDesign
 import SwiftUI
 
 /// Opens the plans screen at launch for the rig (`CMUX_MOBILE_BILLING_DEMO_OPEN=1`).
@@ -125,7 +126,7 @@ struct BillingDemoSheet: ViewModifier {
 
     func body(content: Content) -> some View {
         content.sheet(isPresented: Binding(get: { shown && billing != nil }, set: { shown = $0 })) {
-            if let billing { MobilePlansSheet(entryPoint: .settings).environment(billing) }
+            if let billing { MobilePlansSheet(entryPoint: .settings).environment(billing).cmuxMobileTransientSheet() }
         }
     }
 }
