@@ -83,12 +83,16 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         XCTAssertEqual(values["blank"], "0", "frames with a blank grid")
         XCTAssertEqual(values["note"], "0", "frames with the letterbox note")
         XCTAssertEqual(values["sized"], "0", "frames where the surface changed size")
-        XCTAssertEqual(values["jump"], "0", "frames with the grid off the composer: largest \(values["jmax"] ?? "?") pt at \(values["jlog"] ?? "?")")
+        // Every frame, single ones and the held still included: the grid's
+        // bottom row stays within 2 pt of where it rests on the composer.
+        XCTAssertEqual(values["off2"], "0", "frames with the grid's bottom off the composer: largest \(values["off2max"] ?? "?") pt at \(values["offlog"] ?? "?")")
         XCTAssertEqual(values["snap"], "0", "frames where the grid moved while the composer stood still")
-        // The Mac's redraw lands about when the keyboard stops: at most one
-        // frame per toggle with the old grid once the composer has stopped
-        // (a band above it, or its top rows under the toolbar).
-        XCTAssertLessThanOrEqual(Int(values["late"] ?? "") ?? .max, 10, "frames with the old grid after the keyboard stopped")
+        // Measured, not asserted (the hide's band lasts the Mac's round trip).
+        XCTContext.runActivity(named: "band: \(values["bandf"] ?? "?") frames, largest \(values["bandpx"] ?? "?") pt") { _ in }
+        // The Mac's redraw lands about when the keyboard stops: no frame with
+        // the old grid once the composer has stopped (a band above it, or its
+        // top rows under the toolbar).
+        XCTAssertEqual(values["late"], "0", "frames with the old grid after the keyboard stopped")
     }
 
     private func checkShell(_ values: [String: String], following: Bool = false, motion: Bool = true) {

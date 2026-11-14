@@ -20,6 +20,10 @@ import UIKit
 /// - `blank`: frames with nothing legible: a full-screen app's grid with no
 ///   text, or a shell page showing background where it has rows.
 /// - `note`: frames that show the letterbox note ("53×25 · set by …").
+/// - `off2`: a full-screen app's grid bottom more than 2 pt from where it
+///   rests on the composer, any frame (single ones and held stills of the
+///   area included); `bandf`/`bandpx`: frames with background between the
+///   toolbar and the grid's top, and the largest such band.
 /// - `late`: frames where a full-screen app's grid is still not the area's
 ///   (a band above it, or its top rows under the toolbar) though the
 ///   composer has stopped for two frames.
@@ -55,6 +59,12 @@ final class TerminalFlickerTrace: NSObject {
         var cellHeight: CGFloat = 0
         var noteShown = false
         var nonBlankRows = 0
+        /// The held frame (a still over a mirror reset) as drawn: its top and
+        /// bottom, and whether it is a still of the app's area (its bottom is
+        /// the grid's) rather than of the whole page.
+        var heldTop: CGFloat = 0
+        var heldBottom: CGFloat = 0
+        var heldIsArea = false
         // Shell.
         var contentBottom: CGFloat = 0
         var legibleBlank = false
@@ -173,6 +183,7 @@ final class TerminalFlickerTrace: NSObject {
             let pin = now.gridTop + CGFloat(now.gridRows) * now.cellHeight - now.stackTop
             line += String(format: " grid=%.2f rows=%d clip=%.2f pin=%.2f note=%d nb=%d", now.gridTop, now.gridRows, now.clipTop, pin,
                            now.noteShown ? 1 : 0, now.nonBlankRows)
+            if now.held { line += String(format: " htop=%.2f hbot=%.2f harea=%d", now.heldTop, now.heldBottom, now.heldIsArea ? 1 : 0) }
         } else {
             line += String(format: " cb=%.2f gap=%.2f blank=%d off=%.2f offd=%.2f inb=%.2f sft=%.2f sfb=%.2f fol=%d", now.contentBottom,
                            now.stackTop - now.contentBottom, now.legibleBlank ? 1 : 0, now.offsetModel, now.offsetDrawn, now.insetBottom,
@@ -208,6 +219,7 @@ final class TerminalFlickerTrace: NSObject {
         let value: CGFloat
         if now.isTUI {
             value = now.gridTop + CGFloat(now.gridRows) * now.cellHeight - now.stackTop
+            measureShown(now, t: t)
             if !now.held, now.noteShown { count("note") }
             if !now.held, now.nonBlankRows == 0 { count("blank") }
             if !now.held, now.gridTop - now.clipTop > now.cellHeight { count("band") }
@@ -264,10 +276,52 @@ final class TerminalFlickerTrace: NSObject {
         if !now.isTUI, abs(rowsMoved) > 0.5, abs(stackMoved) > 0.1, (rowsMoved > 0) != (stackMoved > 0) { count("rev") }
     }
 
+    /// What the person sees of a full-screen app, every frame, held frames
+    /// included: the grid's bottom row against the composer (`off2`: more
+    /// than 2 pt from where it rests, single frames too) and the band of
+    /// background between the toolbar and the grid's top (`bandf` frames,
+    /// `bandpx` the largest, in points beyond the resting gap).
+    private func measureShown(_ now: Sample, t: CFTimeInterval) {
+        let top: CGFloat, bottom: CGFloat
+        if now.held {
+            // A still of the whole page: where its grid is drawn is not known.
+            guard now.heldIsArea else { return }
+            top = now.heldTop
+            bottom = now.heldBottom
+        } else {
+            top = now.gridTop
+            bottom = now.gridTop + CGFloat(now.gridRows) * now.cellHeight
+        }
+        let pin = bottom - now.stackTop
+        let topGap = top - now.clipTop
+        let pinRest = shownPinRest ?? pin
+        let topRest = shownTopRest ?? topGap
+        shownPinRest = pinRest
+        shownTopRest = topRest
+        if abs(pin - pinRest) > 2 {
+            count("off2")
+            largestOff = max(largestOff, abs(pin - pinRest))
+            if offLog.count < 24 { offLog.append(String(format: "%.3f@%@:%.1f%@", t, now.demo, pin - pinRest, now.held ? "h" : "")) }
+        }
+        if topGap - topRest > 2 {
+            count("bandf")
+            largestBand = max(largestBand, topGap - topRest)
+        }
+    }
+
+    private var shownPinRest: CGFloat?
+    private var shownTopRest: CGFloat?
+    private var largestOff: CGFloat = 0
+    private var largestBand: CGFloat = 0
+    private var offLog: [String] = []
+
     private func summary(demo: String) -> String {
-        let keys = ["frames", "jump", "jump1", "late", "drift", "blank", "note", "band", "snap", "rev", "sized", "hitch1", "hitch2"]
+        let keys = ["frames", "off2", "bandf", "jump", "jump1", "late", "drift", "blank", "note", "band", "snap", "rev", "sized", "hitch1", "hitch2"]
         var parts = keys.map { "\($0)=\(counts[$0] ?? 0)" }
         parts.append(String(format: "jmax=%.1f", largestJump))
+        parts.append(String(format: "off2max=%.1f", largestOff))
+        parts.append(String(format: "bandpx=%.1f", largestBand))
+        parts.append("offlog=" + (offLog.isEmpty ? "-" : offLog.joined(separator: ",")))
         parts.append("demo=\(demo)")
         parts.append("rz=" + (stepResizes.isEmpty ? "-" : stepResizes.joined(separator: ",")))
         parts.append("jlog=" + (jumpLog.isEmpty ? "-" : jumpLog.joined(separator: ",")))

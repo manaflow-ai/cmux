@@ -765,6 +765,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             sample.cellHeight = cell.height
             sample.noteShown = !hostGridNote.isHidden
             sample.nonBlankRows = surface.activeAreaText().map { TerminalHeldFrame.nonBlankRows(in: $0, limit: rows) } ?? 0
+            if let held = freezeView {
+                let drawn = probe.onScreen(held, in: view)
+                sample.heldTop = drawn.minY
+                sample.heldBottom = drawn.maxY
+                sample.heldIsArea = held.superview !== view
+            }
         } else {
             let frame = probe.onScreen(scrollView, in: view)
             let bounds = (scrollView.layer.presentation() ?? scrollView.layer).bounds
@@ -3262,6 +3268,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         dock.keyboardWillShow(visibleHeight: max(0, screen.intersection(frame).height))
         setKeyBar(visible: dock.softKeyboard == .shown, note: note)
         measured("keyboard-will") { keyboardWillMove(note) }
+        #if DEBUG
+        // The window's layout pass our changes call for, timed on its own
+        // (TerminalFlickerTrace's `keyboard-layout`): the rest of a long
+        // keyboard frame is outside the page's work.
+        if flickerTrace != nil { measured("keyboard-layout") { view.window?.layoutIfNeeded() } }
+        #endif
     }
 
     @objc private func keyboardWillHide(_ note: Notification) {
@@ -3271,6 +3283,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         dock.keyboardWillHide()
         setKeyBar(visible: false, note: note)
         measured("keyboard-will") { keyboardWillMove(note) }
+        #if DEBUG
+        // The window's layout pass our changes call for, timed on its own
+        // (TerminalFlickerTrace's `keyboard-layout`): the rest of a long
+        // keyboard frame is outside the page's work.
+        if flickerTrace != nil { measured("keyboard-layout") { view.window?.layoutIfNeeded() } }
+        #endif
     }
 
     @objc private func keyboardDidHide(_ note: Notification) {
