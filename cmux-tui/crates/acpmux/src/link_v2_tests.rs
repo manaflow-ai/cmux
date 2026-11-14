@@ -814,12 +814,48 @@ async fn v1_replies_and_pushes_on_a_link_are_byte_equal_with_peers_on_and_off() 
             assert!(!is_frame_line(&line));
             lines.push(line);
         }
-        lines
+        // Each hub draws its own list epoch: the one byte run two hubs never share.
+        let first: Value = serde_json::from_str(&lines[0]).unwrap();
+        let epoch = first["result"]["listEpoch"].as_str().expect("the watch names its epoch");
+        lines.iter().map(|line| line.replace(epoch, "EPOCH")).collect::<Vec<_>>()
     }
     let off = recorded(false).await;
     let on = recorded(true).await;
     assert!(!off.is_empty());
-    assert_eq!(on, off);
+    assert_eq!(on.len(), off.len(), "on {on:?} off {off:?}");
+    for (n, (on, off)) in on.iter().zip(&off).enumerate() {
+        let at = on
+            .bytes()
+            .zip(off.bytes())
+            .position(|(a, b)| a != b)
+            .unwrap_or(on.len().min(off.len()));
+        let near = |line: &str| {
+            line.get(at.saturating_sub(80)..(at + 120).min(line.len())).unwrap_or(line).to_owned()
+        };
+        assert!(
+            on == off,
+            "line {n} differs at byte {at}: on ..{}.. off ..{}..",
+            near(on),
+            near(off)
+        );
+    }
+}
+
+/// Whether `new`, a v2 row's value, says what v1's `old` says. v2 bounds a row (2 KiB, texts
+/// cut once masked), so a text may be `old`'s head with `…`; nothing else may differ.
+fn says(new: &Value, old: &Value) -> bool {
+    match (new, old) {
+        (Value::String(new), Value::String(old)) => {
+            new == old || new.strip_suffix('…').is_some_and(|head| old.starts_with(head))
+        }
+        (Value::Object(new), Value::Object(old)) => {
+            new.iter().all(|(key, value)| old.get(key).is_some_and(|old| says(value, old)))
+        }
+        (Value::Array(new), Value::Array(old)) => {
+            new.len() <= old.len() && new.iter().zip(old).all(|(new, old)| says(new, old))
+        }
+        _ => new == old,
+    }
 }
 
 /// The value at `id` in a v1 reply: the summary row whose `sessionId` is `id`, at any depth.
@@ -899,14 +935,17 @@ async fn a_link_row_carries_what_v1_watch_gives_the_same_peer() {
         .clone();
 
     assert_eq!(new["chatId"], old["sessionId"]);
-    assert_eq!(new["title"], old["title"], "titles: link {new} v1 {old}");
+    assert!(says(&new["title"], &old["title"]), "titles: link {new} v1 {old}");
     assert_eq!(new["harness"], old["harness"]);
     assert_eq!(&new["state"], old.get("state").unwrap_or(&old["status"]));
     assert_eq!(new["lastActivity"], old["updatedAt"]);
     let extra = new["extra"].as_object().expect("the row carries extra");
     assert!(!extra.is_empty());
     for (key, value) in extra {
-        assert_eq!(Some(value), old.get(key), "extra {key}: link {new} v1 {old}");
+        assert!(
+            old.get(key).is_some_and(|old| says(value, old)),
+            "extra {key}: link {new} v1 {old}"
+        );
     }
     for row in [&new, &old] {
         let text = row.to_string();
