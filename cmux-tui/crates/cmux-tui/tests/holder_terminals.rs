@@ -215,6 +215,19 @@ fn command_line(pid: i32) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
+/// `pid`'s proportional set size in KiB (Linux `smaps_rollup`; 0 where
+/// there is none, as on a Mac).
+fn pss_kb(pid: i32) -> u64 {
+    fs::read_to_string(format!("/proc/{pid}/smaps_rollup"))
+        .ok()
+        .and_then(|text| {
+            text.lines()
+                .find(|line| line.starts_with("Pss:"))
+                .and_then(|line| line.split_whitespace().nth(1).and_then(|kb| kb.parse().ok()))
+        })
+        .unwrap_or(0)
+}
+
 fn alive(pid: i32) -> bool {
     // SAFETY: signal 0 only probes a pid this test's daemon started.
     unsafe { libc::kill(pid, 0) == 0 }
@@ -379,6 +392,19 @@ fn tabs_respawned_after_the_holder_and_daemon_died_together_run_on_the_holder() 
                 && path.extension().is_some_and(|ext| ext == "json")
         })
         .collect();
+    // The cost of what runs the respawned shells, printed before the verdict
+    // so the red run gives the before number.
+    let mut distinct: Vec<i32> = parents.iter().map(|(pid, _)| *pid).collect();
+    distinct.sort_unstable();
+    distinct.dedup();
+    let pss_kb: u64 = distinct.iter().map(|pid| pss_kb(*pid)).sum();
+    eprintln!(
+        "HOLDER-RESPAWN tabs={} runtime_processes={} runtime_pss_mb={:.2} per_tab_mb={:.2}",
+        terminals.len(),
+        distinct.len(),
+        pss_kb as f64 / 1024.0,
+        pss_kb as f64 / 1024.0 / terminals.len() as f64
+    );
     assert!(host_records.is_empty(), "the respawn started terminal hosts: {host_records:?}");
     assert!(
         parents.iter().all(|(pid, _)| *pid > 1 && *pid == parents[0].0),
