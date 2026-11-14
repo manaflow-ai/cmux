@@ -33,7 +33,7 @@ class SidebarRowView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerCurve = Metrics.tabCornerCurve // one curve with the tabs (`TabCornerCurve`)
-        layer?.cornerRadius = SidebarStyle.rowCornerRadius
+        layer?.cornerRadius = fillCornerRadius
     }
 
     @available(*, unavailable)
@@ -45,9 +45,12 @@ class SidebarRowView: NSView {
     /// tab roundness"). A density change lays every row out again (its height changes).
     override func layout() {
         super.layout()
-        let radius = SidebarStyle.rowCornerRadius
+        let radius = fillCornerRadius
         if layer?.cornerRadius != radius { layer?.cornerRadius = radius }
     }
+
+    /// The fill's corner: the tab's at the density now. A row that draws no rounded fill (a section block) answers 0.
+    var fillCornerRadius: CGFloat { SidebarStyle.rowCornerRadius }
 
     nonisolated override var isFlipped: Bool { true }
     nonisolated override var wantsUpdateLayer: Bool { true }

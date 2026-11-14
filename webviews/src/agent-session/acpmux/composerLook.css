@@ -16,6 +16,15 @@
   --acpmux-tray-tuck: 10px;
   --text-content--line-height: calc(var(--text-content, 14px) * 20 / 14);
 }
+/* New Tab's tray scales with its composer: its inset, tuck, top corners and side padding at New Tab's size scale
+   (newtab/screen.css --nt-density), 22, 10, 14 and 8 px at Default (Lucas 2026-11-14: "the top part should scale
+   down with the composer"). */
+.nt-composer[data-composer-look="codex"] {
+  --acpmux-tray-inset: calc(22px * var(--nt-density, 1));
+  --acpmux-tray-tuck: calc(10px * var(--nt-density, 1));
+  --nt-tray-corner: calc(14px * var(--nt-density, 1));
+  --nt-tray-pad: calc(var(--ds-space-2) * var(--nt-density, 1));
+}
 /* The trust stack is the composer's sibling, so it shares the active look's radius here. */
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"],
 .acpmux-dock > .acpmux-asks-stack:has(~ .acpmux-composer[data-composer-grid][data-composer-look="codex"]) {
@@ -56,7 +65,8 @@
   --nt-tray-over: max(0px, calc(var(--nt-box-radius, 0px) - var(--acpmux-tray-inset)));
   --acpmux-part-inset-left: calc(var(--acpmux-tray-inset) + var(--nt-tray-over));
   --acpmux-part-inset-right: calc(var(--acpmux-tray-inset) + var(--nt-tray-over));
-  padding-inline: calc(var(--ds-space-2) - min(var(--ds-space-2), var(--nt-tray-over)));
+  padding-inline: calc(var(--nt-tray-pad) - min(var(--nt-tray-pad), var(--nt-tray-over)));
+  border-radius: var(--nt-tray-corner) var(--nt-tray-corner) 0 0;
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip::after {
   content: none;

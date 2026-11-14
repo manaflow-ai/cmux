@@ -420,12 +420,13 @@
      --grid-composer-box, 48 px at the composer's size scale), so New Tab's bar is the chat's at every density
      (Lucas 2026-11-13). */
   /* The composer's size scale: the density's, at least 0.8 of Default's (composerLocation.css --acpmux-density), and
-     at least its text's scale, so Compact's 12 pt text gets a roomier box (0.86) than Ultra-compact's 11 (0.8): the
-     two shared Compact's rows and one size (Lucas 2026-11-14: "compact is too small"). Default and up are unchanged. */
+     at least its text's scale up to Default's, so Compact's 12 pt text gets a roomier box (0.86) than Ultra-compact's 11 (0.8): the
+     two shared Compact's rows and one size (Lucas 2026-11-14: "compact is too small"). Default and up, at any Interface
+     Size, keep the chat composer's scale. */
   --nt-density: max(
     0.8,
     var(--cmux-density-scale, var(--cmux-interface-scale, 1)),
-    var(--cmux-density-text-scale, 0)
+    min(1, var(--cmux-density-text-scale, 0))
   );
   /* New Tab's box corner keeps Nightly's roundness at every density and font size: Nightly's share of its one-line
      box at Default, 20 px on Claude's 50.75 px box (its 22.75 px line and 14 px over and under) and 22 px on Codex's
