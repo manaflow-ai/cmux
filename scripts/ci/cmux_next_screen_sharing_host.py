@@ -25,7 +25,8 @@ def require_admission(env):
                 "GITHUB_WORKFLOW_REF": "manaflow-ai/cmuxterm-hq/.github/workflows/ios-screen-sharing-proof.yml@refs/heads/main",
                 "GLAEDA_JOB_CLAIM": "exclusive"}
     if (any(env.get(key) != value for key, value in expected.items())
-            or not re.fullmatch(r"[0-9a-f]{64}", env.get("GLAEDA_HOOK_SHA256", ""))):
+            or not re.fullmatch(r"[0-9a-f]{64}", env.get("GLAEDA_HOOK_SHA256", ""))
+            or not re.fullmatch(r"[0-9a-f]{24}", env.get("GLAEDA_CAPTURE_LEASE_ID", ""))):
         raise HostFailure("host_admission_unverified")
 
 

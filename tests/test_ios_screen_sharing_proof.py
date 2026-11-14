@@ -146,7 +146,8 @@ class HostTests(unittest.TestCase):
     def test_protected_whole_host_admission_rejects_gui_only_or_other_workflow(self):
         admitted = dict(GITHUB_ACTIONS="true", GITHUB_REPOSITORY="manaflow-ai/cmuxterm-hq",
                         GITHUB_WORKFLOW_REF="manaflow-ai/cmuxterm-hq/.github/workflows/ios-screen-sharing-proof.yml@refs/heads/main",
-                        GLAEDA_JOB_CLAIM="exclusive", GLAEDA_HOOK_SHA256="a" * 64)
+                        GLAEDA_JOB_CLAIM="exclusive", GLAEDA_HOOK_SHA256="a" * 64,
+                        GLAEDA_CAPTURE_LEASE_ID="b" * 24)
         self.host.require_admission(admitted)
         for key in admitted:
             with self.subTest(key=key), self.assertRaisesRegex(self.host.HostFailure, "host_admission_unverified"):
