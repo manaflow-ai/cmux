@@ -60,13 +60,16 @@ jobs:
           $readyName = "cmux-rd-motion-$([guid]::NewGuid())"
           $ready = [System.Threading.EventWaitHandle]::new($false, [System.Threading.EventResetMode]::ManualReset, $readyName)
           $motion = $null
+          $motionLog = Join-Path $env:RUNNER_TEMP "motion-$([guid]::NewGuid()).log"
+          $motionError = Join-Path $env:RUNNER_TEMP "motion-$([guid]::NewGuid()).err"
           try {
             $motion = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
               '-NoProfile', '-File', "$env:GITHUB_WORKSPACE/.github/scripts/cmux-rd-motion.ps1",
               '-IntervalMs', '16', '-FullScreen', '-ReadyEvent', $readyName
-            ) -PassThru
-            if (-not $ready.WaitOne(10000) -or $motion.HasExited) {
-              throw 'Windows motion source did not show its window within 10 seconds'
+            ) -RedirectStandardOutput $motionLog -RedirectStandardError $motionError -PassThru
+            if (-not $ready.WaitOne(30000) -or $motion.HasExited) {
+              Get-Content $motionLog, $motionError -ErrorAction SilentlyContinue
+              throw "Windows motion source did not show its window within 30 seconds; exited=$($motion.HasExited)"
             }
             foreach ($backend in @('gdi', 'dxgi')) {
               foreach ($size in @(@(1920, 1080), @(3840, 2160))) {

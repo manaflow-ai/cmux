@@ -245,7 +245,7 @@ owned process to keep the desktop changing. The benchmark temporarily sets the
 desktop resolution and restores it on exit. A driver rejecting optional 4K with
 `DISP_CHANGE_BADMODE` reports `4K: not measured, no display mode` and succeeds
 without metrics. Missing 1080p or any capture/transport/viewer failure still fails.
-It uses the production GDI capture, encoder, media engine, stream framing and
+It uses the selected production capture backend, encoder, media engine, stream framing and
 feedback path over TCP loopback. The receiver reassembles and decodes the stream,
 presents it in a visible GDI window and checks its center pixel with `GetPixel`.
 At least two distinct presented colors are required. No tailnet or credentials
