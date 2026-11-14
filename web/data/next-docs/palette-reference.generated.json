@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1406,
+    "entries": 1407,
     "shortcuts": 191
   },
   "sections": [
@@ -5532,6 +5532,12 @@
         {
           "id": "vaultCopyResumeCommand",
           "title": "Copy Resume Command",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "sidebar.customize",
+          "title": "Customize Sidebar…",
           "shortcut": null,
           "command": null
         },
