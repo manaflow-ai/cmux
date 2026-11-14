@@ -717,9 +717,10 @@ pub struct PromptOptions {
     /// Validated display-only metadata from the app's ordered composer. It is persisted in the
     /// mux record and never forwarded to the agent's ACP prompt.
     pub display_parts: Option<Value>,
-    /// The paired machine whose Full-access setting covered the request that sent it
-    /// (`server/remote_guard.rs` `full_access_device`), read again at dispatch
-    /// (`Hub::full_access_hold`).
+    /// The paired machine that sent it (`server/remote_guard.rs` `sending_device`). It grants
+    /// nothing by itself: each rule reads the pairing store again at dispatch, its Full-access
+    /// setting (`Hub::full_access_hold`) and whether it is the owner's own phone (D13,
+    /// `Hub::local_claude_refusal`).
     pub full_access_device: Option<String>,
     /// A person's subagent retry (`subagent_retry_manual.rs`): refused with `retry.busy` where it
     /// would wait (behind a turn, the queue, the turn lock or a run slot), never queued.
