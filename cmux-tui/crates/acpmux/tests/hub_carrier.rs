@@ -15,7 +15,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
-use acpmux::hub_carrier::{CarrierAnswer, HubCarrier, Tickets, Timings};
+use acpmux::hub_carrier::{CarrierAnswer, CircuitService, HubCarrier, Tickets, Timings};
 use acpmux::rpc::{Message, method};
 use acpmux::server::peer_auth::PeerAuth;
 use acpmux::server::{WsAuth, bind_ws, serve_connection, serve_ws_with};
@@ -949,8 +949,11 @@ async fn pipe_fixture() -> PipeFixture {
     );
     let gate = Arc::new(TestGate { daemon: daemon_address, granted: AtomicBool::new(false) });
     carrier_b.set_cmux_tui_gate(gate.clone());
-    let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
-    let serving = carrier_b.serve(nothing);
+    // B's acpmux listener: a circuit reaches it first, and one naming cmux-tui leaves it unused.
+    let acpmux_b = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let acpmux_b_address = acpmux_b.local_addr().unwrap();
+    tokio::spawn(async move { while acpmux_b.accept().await.is_ok() {} });
+    let serving = carrier_b.serve(acpmux_b_address);
 
     let a = hub();
     let carrier_a = HubCarrier::new(
@@ -968,6 +971,23 @@ async fn pipe_fixture() -> PipeFixture {
     let socket = home.path().join("acpmux.sock");
     let listener = acpmux::server::bind_unix(&socket).await.unwrap();
     tokio::spawn(acpmux::server::serve_unix(a, listener));
+    // B serves once its slot is registered; until then a dial finds no one. Its gate's first
+    // answer (no consent yet) is the sign that it serves.
+    let mut last = String::new();
+    let mut serves = false;
+    for _ in 0..80 {
+        let service = CircuitService::CmuxTui { port: daemon_address.port() };
+        match carrier_a.dial_service(&public(&key_b), service).await {
+            Err(e) if e.contains("consent_required") => {
+                serves = true;
+                break;
+            }
+            Err(e) => last = e,
+            Ok(_) => panic!("a circuit reached B before its owner granted control"),
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert!(serves, "B never served: {last}");
     let dialer = Arc::new(cmux_remote::provider::MachinePipeDialer::new(socket, "mac".into()));
     PipeFixture {
         auth,
