@@ -227,6 +227,13 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Releases sent at once (``releaseNow()``) and not answered yet: a stop
     /// still sends its own, answered release before it closes the channel.
     private var releasesInFlight = 0
+    /// When this view last told the Mac its size (a sized attach or a
+    /// `resize-surface`). A grid the phone did not ask for that arrives
+    /// within ``claimAnswerWindow`` of it is that claim's own round trip (an
+    /// attach's replay of the Mac's old grid), not a lost claim.
+    private var lastClaimAt: ContinuousClock.Instant?
+    /// How long a claim is still being answered (tests shorten it).
+    var claimAnswerWindow: Duration = .milliseconds(1500)
     private var leaseTask: Task<Void, Never>?
     private var draining = false
     /// The request `drain()` has on its way (while `draining`) is a size.
@@ -755,6 +762,7 @@ public final class DaemonTerminalSession: TerminalSession {
                     reply = try await attachSurface(nil)
                 } else {
                     attachedWithSize = size
+                    lastClaimAt = .now
                 }
             } else if initialSize, let size = lastSize ?? pendingSize {
                 reply = try await attachSurface(size)
@@ -764,6 +772,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 } else {
                     lastSize = size
                     attachedWithSize = size
+                    lastClaimAt = .now
                 }
             } else {
                 reply = try await attachSurface(nil)
@@ -1020,10 +1029,13 @@ public final class DaemonTerminalSession: TerminalSession {
         // attach's replay can land just after the attach queued its size).
         guard !(draining && drainingSize),
               !outbox.contains(where: { if case .size = $0 { true } else { false } }) else { return }
+        // A claim sent moments ago is still being answered; the hold's deadline covers it.
+        if let lastClaimAt, ContinuousClock.now - lastClaimAt < claimAnswerWindow { return }
         log.notice("surface \(self.surface, privacy: .public): the Mac sent a grid the phone did not ask for, claiming \(size.columns, privacy: .public)x\(size.rows, privacy: .public) again")
         sizeClaimed = true
         startLeaseRefresh()
         let surface = surface
+        lastClaimAt = .now
         Task { _ = try? await client.request("resize-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows]) }
     }
 
@@ -1140,6 +1152,7 @@ public final class DaemonTerminalSession: TerminalSession {
                     log.notice("surface \(surface, privacy: .public): resize-surface sent \(columns, privacy: .public)x\(rows, privacy: .public) cause=\(self.everAttached && self.attachRetries == 0 ? "requested" : "attach", privacy: .public)")
                     sizeClaimed = true
                     startLeaseRefresh()
+                    lastClaimAt = .now
                     reply = try await client.request(cmd, params: ["surface": surface, "cols": columns, "rows": rows])
                 case .release:
                     cmd = "release-surface-size"

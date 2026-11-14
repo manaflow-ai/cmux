@@ -62,6 +62,8 @@ import Testing
         let daemon = FakeTerminalDaemon()
         let (session, box) = try await attachedAtPhoneGrid(daemon, wait: .seconds(30))
         defer { session.stop() }
+        // The attach's claim was answered long ago (the lease ended since).
+        session.claimAnswerWindow = .zero
         let claims = commands(daemon, "resize-surface").count
 
         // The Mac's grid comes back while the page is on screen (the lease
@@ -119,6 +121,24 @@ import Testing
         session.setClaimsSize(false)
         try await waitUntil { commands(daemon, "release-surface-size").count == 1 }
         #expect(commands(daemon, "release-surface-size").first?["surface"] as? Int == 7)
+    }
+
+    /// The CI red on 4a4b39f: an attach that carried the phone's size replays the Mac's old
+    /// grid; that is the attach's own round trip, so no second claim goes out.
+    @Test func anAttachsOwnReplayOfTheMacsGridSendsNoSecondClaim() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.initialSize = true
+        daemon.afterAttach = nil
+        let session = session(daemon)
+        defer { session.stop() }
+        session.resize(columns: 54, rows: 42)
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        #expect(commands(daemon, "attach-surface").last?["cols"] as? Int == 54)
+        // The fake Mac replays 80x24; a grid change after the attach lands here too.
+        session.handle(grid("resized", 80, 24, Data("old".utf8)))
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(commands(daemon, "resize-surface").isEmpty, "a claim went out for the attach's own replay")
     }
 
     @Test func shownAndHiddenAgainInOneTurnSendsNoClaim() async throws {
