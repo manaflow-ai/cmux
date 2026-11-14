@@ -1,14 +1,16 @@
-//! Per-call scope checks against `cmux-app-host/generated/scopes.json`, and
-//! gesture tokens. The VM is untrusted: its own filtering only shapes errors,
-//! the supervisor decides every call here.
+//! Per-call scope checks against the capability manifest
+//! (`cmux_app_manifest::capabilities`: scopes.json typed, with the gesture
+//! and escalation rules), and gesture tokens. The VM is untrusted: its own
+//! filtering only shapes errors, the supervisor decides every call here.
 
 use std::collections::{BTreeSet, HashMap};
-use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
+use cmux_app_manifest::Capabilities;
+use cmux_app_manifest::capabilities::escalation;
+pub use cmux_app_manifest::capabilities::needs_gesture;
+pub use cmux_app_manifest::{OpClass, OpScope};
 use serde_json::Value;
-
-const SCOPES_JSON: &str = include_str!("../../../cmux-app-host/generated/scopes.json");
 
 /// How long a gesture token stays valid after the user event.
 pub const GESTURE_TTL: Duration = Duration::from_secs(10);
@@ -16,119 +18,77 @@ pub const GESTURE_TTL: Duration = Duration::from_secs(10);
 pub const COMMAND_GESTURE_TTL: Duration = Duration::from_secs(2);
 const MAX_GESTURES: usize = 256;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OpClass {
-    Read,
-    Mutation,
-    Runtime,
-    Stream,
-}
-
+/// The per-call check over the one capability manifest.
 #[derive(Debug)]
 pub struct ScopeTable {
-    ops: HashMap<String, (String, OpClass)>,
-    never: BTreeSet<String>,
+    capabilities: &'static Capabilities,
 }
 
 impl ScopeTable {
     pub fn get() -> &'static ScopeTable {
-        static TABLE: OnceLock<ScopeTable> = OnceLock::new();
-        TABLE.get_or_init(|| {
-            let doc: Value =
-                serde_json::from_str(SCOPES_JSON).expect("generated scopes.json is JSON");
-            let ops = doc["ops"]
-                .as_object()
-                .into_iter()
-                .flatten()
-                .map(|(name, entry)| {
-                    let class = match entry["class"].as_str() {
-                        Some("read") => OpClass::Read,
-                        Some("runtime") => OpClass::Runtime,
-                        Some("stream_open") => OpClass::Stream,
-                        _ => OpClass::Mutation,
-                    };
-                    (name.clone(), (entry["scope"].as_str().unwrap_or_default().to_string(), class))
-                })
-                .collect();
-            let never = doc["never"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .collect();
-            ScopeTable { ops, never }
-        })
+        static TABLE: std::sync::OnceLock<ScopeTable> = std::sync::OnceLock::new();
+        TABLE.get_or_init(|| ScopeTable { capabilities: Capabilities::get() })
     }
 
     /// Every op an app may name (sent to the VM as `knownOps`).
     pub fn known_ops(&self) -> Vec<String> {
-        let mut ops: Vec<String> = self.ops.keys().cloned().collect();
-        ops.sort();
-        ops
+        self.capabilities.ops().map(|(name, _)| name.to_string()).collect()
     }
 
     /// Ops a grant allows (sent to the VM as `ops`). Runtime ops whose scope
     /// depends on the target (`net:<host>`) are listed when any matching
     /// scope is granted; the call is still checked against the target.
     pub fn allowed_ops(&self, grant: &Grant) -> Vec<String> {
-        let mut ops: Vec<String> = self
-            .ops
-            .keys()
+        self.capabilities
+            .ops()
+            .map(|(name, _)| name)
             .filter(|op| matches!(self.check(op, &Value::Null, grant), Decision::Allow(_)))
-            .cloned()
-            .collect();
-        ops.sort();
-        ops
+            .map(str::to_string)
+            .collect()
     }
 
     pub fn check(&self, op: &str, params: &Value, grant: &Grant) -> Decision {
-        if self.never.contains(op) {
+        if self.capabilities.is_never(op) {
             return Decision::ScopeMissing("this op is not available to apps");
         }
-        let Some((scope, class)) = self.ops.get(op) else { return Decision::Unsupported };
+        let Some(capability) = self.capabilities.op(op) else { return Decision::Unsupported };
         if grant.revoked {
             return Decision::ScopeMissing("the app is stopping");
         }
         if grant.preview {
             return Decision::ScopeMissing("a preview runs without grants");
         }
-        let external = scope.starts_with("net:")
-            || scope.starts_with("integration:")
-            || scope.ends_with(":external");
-        if external && grant.sandboxed {
+        if capability.scope.external() && grant.sandboxed {
             return Decision::ScopeMissing("the app runs sandboxed: no network");
         }
         // A workspace, screen, pane or terminal tab created with a command
-        // runs it, as `workspace.run` does.
-        let launches = matches!(
-            op,
-            "workspace.create"
-                | "screen.create"
-                | "pane.create"
-                | "pane.split"
-                | "tab.create_terminal"
-        ) && (params.get("argv").is_some() || params.get("shell").is_some());
-        let scope = if launches { "workspace:execute" } else { scope.as_str() };
-        let granted = match scope {
+        // runs it, as `workspace.run` does (the manifest's escalation).
+        let escalated = escalation(op)
+            .filter(|e| e.when_params.iter().any(|p| params.get(p).is_some()))
+            .map(|e| e.scope);
+        let granted = match (&capability.scope, escalated) {
+            (_, Some(scope)) => grant.scopes.contains(scope),
             // Local, non-network ops every app may call (`toast.show`): no grant to hold.
-            "none" => true,
-            "net:<host>" => grant.scopes.iter().any(|s| s.starts_with("net:")),
-            "integration:<provider>" => match params.get("provider").and_then(Value::as_str) {
-                Some(provider) => {
-                    let read_only = params
-                        .get("method")
-                        .and_then(Value::as_str)
-                        .is_none_or(|m| m.eq_ignore_ascii_case("GET"));
-                    grant.scopes.contains(&format!("integration:{provider}"))
-                        || read_only
-                            && grant.scopes.contains(&format!("integration:{provider}:read"))
+            (OpScope::Ungated, None) => true,
+            (OpScope::NetHost, None) => grant.scopes.iter().any(|s| s.starts_with("net:")),
+            (OpScope::IntegrationProvider, None) => {
+                match params.get("provider").and_then(Value::as_str) {
+                    Some(provider) => {
+                        let read_only = params
+                            .get("method")
+                            .and_then(Value::as_str)
+                            .is_none_or(|m| m.eq_ignore_ascii_case("GET"));
+                        grant.scopes.contains(&format!("integration:{provider}"))
+                            || read_only
+                                && grant.scopes.contains(&format!("integration:{provider}:read"))
+                    }
+                    None => grant.scopes.iter().any(|s| s.starts_with("integration:")),
                 }
-                None => grant.scopes.iter().any(|s| s.starts_with("integration:")),
-            },
-            scope => grant.scopes.contains(scope),
+            }
+            (OpScope::Named(scope), None) => grant.scopes.contains(scope),
         };
         if granted {
-            Decision::Allow(*class)
+            Decision::Allow(capability.class)
         } else {
             Decision::ScopeMissing("the app holds no grant for this op")
         }
@@ -153,36 +113,6 @@ pub enum Decision {
     Unsupported,
     /// Known but not granted (`scope.missing`), with the reason.
     ScopeMissing(&'static str),
-}
-
-/// Catalog ops that change view state (focus, selection, scroll, zoom,
-/// navigation; js/ABI.md "One rule for use"). From an app they run only with
-/// a live gesture token, which they spend, so automation never moves what the
-/// user sees (OWNERSHIP-PRINCIPLES). `action.run` is decided in `actions.rs`.
-const VIEW_STATE_OPS: &[&str] = &[
-    "browser.activate",
-    "browser.navigate",
-    "pane.focus",
-    "pane.focus_direction",
-    "pane.zoom",
-    "screen.focus",
-    "tab.focus",
-    "terminal.input.focus",
-    "terminal.viewport.scroll",
-    "workspace.focus",
-];
-
-/// Provider ops that open UI (a file panel) need a gesture the same way.
-/// They join scopes.json with the build-time scopes; listed here first so a
-/// VM can never open a panel without one.
-const PANEL_OPS: &[&str] = &["fs.pick"];
-
-/// Ops that change what the person has seen or chosen about their chats: an app
-/// marks a chat read or pins it only in answer to a tap, never on its own.
-const PERSON_MARK_OPS: &[&str] = &["chat.mark_read", "chat.pin"];
-
-pub fn needs_gesture(op: &str) -> bool {
-    VIEW_STATE_OPS.contains(&op) || PANEL_OPS.contains(&op) || PERSON_MARK_OPS.contains(&op)
 }
 
 struct Token {
@@ -528,7 +458,7 @@ mod tests {
         assert!(needs_gesture("terminal.viewport.scroll") && needs_gesture("browser.navigate"));
         // Every listed op is an op of this cmux version.
         let table = ScopeTable::get();
-        for op in VIEW_STATE_OPS {
+        for op in cmux_app_manifest::capabilities::VIEW_STATE_OPS {
             assert!(
                 table.known_ops().iter().any(|known| known == op),
                 "{op} is not in scopes.json"

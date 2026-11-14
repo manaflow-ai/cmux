@@ -39,10 +39,6 @@ final class TerminalSurfaceView: UIView {
     /// write delivered while this is clear is Ghostty's reply to a terminal
     /// query (a cursor, device, focus or mouse report), not a key.
     var isPerformingInput = false
-    /// The terminal's foreground program on the Mac (`process-info`), nil
-    /// while not known: whether a drag on the alternate screen pages it with
-    /// cursor keys (``TerminalPanRoute``).
-    var foregroundProgram: String?
     /// The person typed, pressed a key or pasted (before the bytes go out).
     var onUserInput: (() -> Void)?
     var onEvent: ((TerminalSurfaceEvent) -> Void)?
