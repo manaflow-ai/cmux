@@ -11,10 +11,9 @@ import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-const ENTRY = "agent-pane.revised-reply";
-
 await requireBrowserLane("agent-pane-stop-hook-resend.test.ts", async () => {
   setDefaultTimeout(120_000);
+  const ENTRY = "agent-pane.revised-reply";
   try {
     await (await chromium.launch({ headless: true })).close();
   } catch {
