@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43634317699",
+  "recorded_at": "2026-11-14T19:54:05Z",
+  "reason": "cmux-tui e7fcecdfa61d changes the image's cmux-tui (pinned 899e9ed245d8)",
+  "dry_run": false,
+  "cmux_tui": "e7fcecdfa61d8e9d9b096bd882ff7635a89fbf67",
+  "fixes": [
+    {
+      "sha": "58159e517bab6fad521a1d65ded83a1e4c618fca",
+      "mergedAt": "2026-11-14T11:28:11-08:00",
+      "subject": "Agent chat: the page's thin store for a chat's rows (v2 row 6c) (#43153)"
+    },
+    {
+      "sha": "85f81ed2f13a169d90b4f80f13024d1d204d7f69",
+      "mergedAt": "2026-11-14T11:24:18-08:00",
+      "subject": "Extensions open the links you click: cmux.opener/1 routes terminal links to the matching app (#43007)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-14T19:54:05Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
