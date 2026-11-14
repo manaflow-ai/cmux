@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCloudCredentials
 import Foundation
@@ -37,7 +38,6 @@ import os
         case login(CloudHarnessLoginDecision.Reason)
         /// The person's Claude limit for this model is used up: the rule's refusal.
         case limit(Refusal)
-
         /// ``limit(_:)``'s words; nil for a login refusal.
         var limitWords: String? { if case .limit(let refusal) = self { refusal.message } else { nil } }
         /// ``login(_:)``'s reason; nil for a used-up limit.
