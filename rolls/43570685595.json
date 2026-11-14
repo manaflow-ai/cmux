@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43570685595",
+  "recorded_at": "2026-11-14T07:33:13Z",
+  "reason": "cmux-tui 1cebc7dde294 changes the image's cmux-tui (pinned 856d8fbeac90)",
+  "dry_run": false,
+  "cmux_tui": "1cebc7dde294d1f5ecce484f62d1c408f9cd1083",
+  "fixes": [
+    {
+      "sha": "1cebc7dde294d1f5ecce484f62d1c408f9cd1083",
+      "mergedAt": "2026-11-13T23:01:57-08:00",
+      "subject": "cmux-tui: ship opt-level z for bundle size (#42910)"
+    },
+    {
+      "sha": "dd99e8611da8ceb325798a92c7e201ce066ae07e",
+      "mergedAt": "2026-11-13T22:58:23-08:00",
+      "subject": "Themes: 16-color scheme import/export (base16, iTerm2, Windows Terminal, Ghostty) and a palette from an image, in Rust (#41549)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T07:33:13Z",
+    "snapshot_id": "sh-82a09aa897bf4a9381d719548b1133aa",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43570685595): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "468c7032157170e6d101b885e18ea27c24f0b52f",
+    "image": "cloud-native-auto-1cebc7dd-43570685595-1",
+    "revision": "ci-43570685595-1",
+    "at": "2026-11-14T07:33:13Z"
+  },
+  "rolled_back": false
+}
