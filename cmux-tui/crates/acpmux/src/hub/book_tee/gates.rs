@@ -88,6 +88,34 @@ fn take_hook_samples() -> Vec<u64> {
     std::mem::take(&mut *HOOK_NS.lock().unwrap())
 }
 
+/// The hook's time is kept while this lives: a gate round that panics clears `HOOK_RECORDING`
+/// as it unwinds, so no later test in the process grows the samples (cmux#43100).
+struct Recording;
+
+impl Recording {
+    fn start() -> Self {
+        HOOK_RECORDING.store(true, Ordering::Relaxed);
+        Self
+    }
+}
+
+impl Drop for Recording {
+    fn drop(&mut self) {
+        HOOK_RECORDING.store(false, Ordering::Relaxed);
+    }
+}
+
+#[test]
+fn a_panic_while_recording_clears_the_flag() {
+    let panicked = std::panic::catch_unwind(|| {
+        let _recording = Recording::start();
+        assert!(HOOK_RECORDING.load(Ordering::Relaxed));
+        panic!("a gate round failed");
+    });
+    assert!(panicked.is_err());
+    assert!(!HOOK_RECORDING.load(Ordering::Relaxed), "the flag outlived the panic");
+}
+
 /// One round of prompts to `id`, each timed through v1's append.
 fn appends(home: &Home, id: &str, round: usize) -> Vec<u64> {
     let session = home.session(id);
@@ -139,14 +167,14 @@ async fn v2_pr03b_tee_append_added() {
     caught_up(&god).await;
     let (mut small_rounds, mut god_rounds) = (Vec::new(), Vec::new());
     take_hook_samples();
-    HOOK_RECORDING.store(true, Ordering::Relaxed);
+    let recording = Recording::start();
     for round in 0..ROUNDS {
         appends(&small, &chat_id(0), round);
         small_rounds.push(take_hook_samples());
         appends(&god, &chat_id(0), round);
         god_rounds.push(take_hook_samples());
     }
-    HOOK_RECORDING.store(false, Ordering::Relaxed);
+    drop(recording);
     let _ = small_drain.close(Duration::from_secs(1)).await;
     let _ = god_drain.close(Duration::from_secs(1)).await;
     emit("v2.pr03b.tee_append_added", &small_rounds, &god_rounds, Some(2.0));

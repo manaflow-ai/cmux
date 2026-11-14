@@ -309,6 +309,11 @@ impl Hub {
             None if session.meta().watching.is_some() => {
                 return Err(Err(super::watch::read_only()));
             }
+            // A chat handing its conversation to a terminal takes no new prompt: the terminal
+            // does, once the turn ends (`release_to_watch.rs`).
+            None if session.releasing.load(Ordering::SeqCst) => {
+                return Err(Err(super::release_to_watch::releasing_error()));
+            }
             // A lane's report to a parent whose close has begun: refused, never reopening it
             // (`lane_reports.rs`). Nothing is awaited from this check to the commit below.
             None if refuses_closing(&p) && closing(session) => return Err(Err(closing_error())),

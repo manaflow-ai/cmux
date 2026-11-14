@@ -223,6 +223,7 @@
     "nightly.yml:published-in": {"class": "mac-sign", "warm": [], "exempt": "a nightly control on the dedicated nightly mini (#30249): comments the published build on its pull requests through the API; compiles nothing"},
     "nightly.yml:dispatch-nightly-next-sign": {"class": "mac-sign", "warm": [], "exempt": "a nightly control on the dedicated nightly mini (#30249): dispatches the sign run through the API; compiles nothing"},
     "nightly.yml:dispatch-published-in": {"class": "mac-sign", "warm": [], "exempt": "a nightly control on the dedicated nightly mini (#30249): dispatches the post-publication run through the API; compiles nothing"},
+    "nightly.yml:wake-nightly-next-tick": {"class": "mac-sign", "warm": [], "exempt": "a nightly control on the dedicated nightly mini: dispatches main's nightly-next tick through the API when nightly-next-one ends; compiles nothing"},
     "nightly.yml:retry-nightly-next": {"class": "mac-sign", "warm": [], "exempt": "a nightly control on the dedicated nightly mini (#30249): asks the push group for one more run through the API; compiles nothing"},
     "nightly.yml:published-build": {"class": "mac-sign", "warm": [], "exempt": "a nightly control on the dedicated nightly mini (#30249): reads the published build's record for the jobs after the feed; compiles nothing"},
     "nightly.yml:build-nightly-deltas": {"class": "mac-sign", "warm": [], "exempt": "post-publication deltas on the dedicated nightly mini (#30249): BinaryDelta diffs the published DMG against earlier releases' DMGs; compiles nothing"},

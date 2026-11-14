@@ -54,6 +54,9 @@ pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
 }
 
 #[cfg(all(test, unix))]
+mod list_callers_tests;
+
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use crate::rpc::{Message, RpcError};
