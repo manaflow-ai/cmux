@@ -35,7 +35,7 @@ Inside tmux, these hooks report to the cmux workspace attached to the tmux sessi
 | Grok | `grok` | `~/.grok/hooks/cmux-session.json` | `grok -r <id>` | PreToolUse |
 | OpenCode | `opencode` | `~/.config/opencode/plugins/cmux-session.js`, `~/.config/opencode/plugins/cmux-feed.js` | `opencode --session <id>` | plugin event bus |
 | Pi | `pi` | `~/.pi/agent/extensions/cmux-session.ts` | `pi --session <id>` | tool_execution_start / tool_execution_end telemetry |
-| OMP | `omp` | `~/.omp/agent/extensions/cmux-omp-session.ts`, or `$OMP_AGENT_DIR`/`$PI_CODING_AGENT_DIR` when set | `omp --session <id>` | none |
+| OMP | `omp` | `~/.omp/agent/extensions/cmux-omp-session.ts`, or `$OMP_AGENT_DIR`/`$PI_CODING_AGENT_DIR` when set | `omp --session <id>` | tool_approval_requested / tool_approval_resolved |
 | Campfire | `campfire` | `~/.campfire/agent/extensions/cmux-campfire-session.ts` or `$CAMPFIRE_CODING_AGENT_DIR/extensions/cmux-campfire-session.ts` | `campfire --session <id>` | none |
 | Amp | `amp` | `~/.config/amp/plugins/cmux-session.ts` | `amp threads continue <id>` | none |
 | Cursor CLI | `cursor-agent` | `~/.cursor/hooks.json` | `cursor-agent --resume <id>` | beforeShellExecution |
