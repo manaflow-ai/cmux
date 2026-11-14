@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43616866837",
+  "recorded_at": "2026-11-14T16:48:41Z",
+  "reason": "cmux-tui 7b4f6dddf33f changes the image's cmux-tui (pinned 8735946013b3)",
+  "dry_run": false,
+  "cmux_tui": "7b4f6dddf33f68258e54b8f3ab3c6d09bcfa5873",
+  "fixes": [
+    {
+      "sha": "7b4f6dddf33f68258e54b8f3ab3c6d09bcfa5873",
+      "mergedAt": "2026-11-14T08:19:25-08:00",
+      "subject": "acpmux v2 gates: a marked row needs a line in the nightly's gate script (#43107)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T16:48:41Z",
+    "snapshot_id": "sh-861b5e36f60a4ab8a32ee5057ec56196",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43616866837): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6ff0726619526c13da54998ba1e7ad9172fb916f",
+    "image": "cloud-native-auto-7b4f6ddd-43616866837-1",
+    "revision": "ci-43616866837-1",
+    "at": "2026-11-14T16:48:41Z"
+  },
+  "rolled_back": false
+}
