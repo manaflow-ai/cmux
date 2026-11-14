@@ -421,6 +421,7 @@ fn own_group() -> u32 {
 }
 
 /// [`under`] over `ps` output `table`; `own` is this process's group, never taken as the harness's.
+#[cfg(test)]
 pub fn under_in(table: &str, leader: u32, own: u32) -> Option<Vec<Under>> {
     super::proc_table::Table::parse(table)?.under(leader, own)
 }
