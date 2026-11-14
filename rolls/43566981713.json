@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43566981713",
+  "recorded_at": "2026-11-14T06:49:08Z",
+  "reason": "cmux-tui 250942789b4b changes the image's cmux-tui (pinned 86252c2445bd)",
+  "dry_run": false,
+  "cmux_tui": "250942789b4b32b7be75b1948ec9e51d2ca867df",
+  "fixes": [
+    {
+      "sha": "250942789b4b32b7be75b1948ec9e51d2ca867df",
+      "mergedAt": "2026-11-13T22:12:34-08:00",
+      "subject": "NEXT keeps its loose files under Application Support/cmux-next, not classic's cmux (#42870)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T06:49:08Z",
+    "snapshot_id": "sh-ef2ed51e57a0489e867ff80c6ba01d82",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43566981713): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "88db75a2641f37f2a2668d401c2ef3ed30ed09e6",
+    "image": "cloud-native-auto-25094278-43566981713-1",
+    "revision": "ci-43566981713-1",
+    "at": "2026-11-14T06:49:08Z"
+  },
+  "rolled_back": false
+}
