@@ -246,7 +246,9 @@ fn submit_coalesces_latest_summary_per_chat_without_an_item_cap() {
     match &batch[0].1 {
         PendingUpdate::Summary { summary, .. } => assert_eq!(summary.last_activity, 10_999),
         PendingUpdate::Gone { .. } => panic!("summary slot was replaced by a removal"),
-        PendingUpdate::Origin { .. } | PendingUpdate::Takeover { .. } => {
+        PendingUpdate::Origin { .. }
+        | PendingUpdate::Takeover { .. }
+        | PendingUpdate::Unit { .. } => {
             panic!("origin update occupied summary slot")
         }
     }

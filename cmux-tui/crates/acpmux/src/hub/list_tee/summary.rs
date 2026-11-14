@@ -133,7 +133,16 @@ fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
     retain(values.get_mut("coldArchive"), &["archivedAt", "messages"]);
     retain(
         values.get_mut("tags"),
-        &["notifications", "mux.parent", "mux.children", "cmux.chief.participant", "archived"],
+        // `cmux.chief` names the Home Chief that owns the chat: its readers (cmux-tui-core's
+        // `chief-work` and update plan, row 7c) find the Chief's roots by it.
+        &[
+            "notifications",
+            "mux.parent",
+            "mux.children",
+            "cmux.chief",
+            "cmux.chief.participant",
+            "archived",
+        ],
     );
     if let Some(Value::Array(warnings)) = values.get_mut("usageWarnings") {
         for warning in warnings {

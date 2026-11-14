@@ -94,7 +94,9 @@ pub(super) fn call(attachment: &Attachment, params: Params) -> Result<Value, Ref
     let blocks = vec![json!({"type": "text", "text": text})];
     Ok(match submit_prompt(attachment, &side, blocks, id) {
         Ok(_) => json!({"sessionId": side, "prompted": true}),
-        Err(refusal) => json!({"sessionId": side, "prompted": false, "notSent": refusal.code()}),
+        Err(refused) => {
+            json!({"sessionId": side, "prompted": false, "notSent": refused.refusal.code()})
+        }
     })
 }
 

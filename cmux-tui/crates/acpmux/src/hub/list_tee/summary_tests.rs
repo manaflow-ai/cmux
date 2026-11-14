@@ -191,3 +191,21 @@ async fn expired_archived_tag_is_not_copied_to_the_typed_row() {
     });
     assert!(!summary_from_session(&hub, &parent).unwrap().archived);
 }
+
+/// Row 7c: a Chief's chats are found by `cmux.chief` (the Home's id) and `mux.parent`
+/// (`optchat-chief:<id>`) in their summaries; another tag is still left out.
+#[tokio::test]
+async fn a_summary_keeps_the_chief_tags_its_readers_find_the_chief_by() {
+    let (hub, session) = fixture(false).await;
+    let tag = |value: &str| crate::store::Tag { value: value.into(), expires_at: None };
+    hub.edit_test_meta(&session, |meta| {
+        meta.tags.insert("cmux.chief".into(), tag("0a1b2c3d"));
+        meta.tags.insert("mux.parent".into(), tag("optchat-chief:0a1b2c3d"));
+        meta.tags.insert("lane".into(), tag("x"));
+    });
+    let row = summary_from_session(&hub, &session).unwrap();
+    let extra: Value = serde_json::from_str(row.extra.get()).unwrap();
+    assert_eq!(extra["tags"]["cmux.chief"], "0a1b2c3d", "{extra}");
+    assert_eq!(extra["tags"]["mux.parent"], "optchat-chief:0a1b2c3d");
+    assert!(extra["tags"].get("lane").is_none());
+}

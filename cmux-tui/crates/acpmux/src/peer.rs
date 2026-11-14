@@ -164,7 +164,7 @@ pub enum PeerNotice {
     },
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl PeerNotice {
     /// A list of `rows`, each sent as its text, as a link sends it.
     pub(crate) fn sessions_from_values(rows: Vec<Value>) -> Self {

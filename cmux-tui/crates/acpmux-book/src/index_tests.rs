@@ -377,8 +377,9 @@ fn snapshot_origin_section_round_trips_and_rejects_bad_records() {
     let disk = DiskSnapshot::open(&path).unwrap().unwrap();
     assert_eq!(disk.origins().next().unwrap().since, 11);
     let rows = std::iter::empty::<io::Result<Arc<Summary>>>();
-    let too_many =
-        (0..257).map(|n| origin_record(format!("p{n}"), 1, OriginState::Connected)).collect();
+    let too_many = (0..257)
+        .map(|n| origin_record(format!("p{n}"), 1, OriginState::Connected))
+        .collect::<Vec<_>>();
     assert!(SortedSnapshot::write_stream_generation(&path, 1, 0, None, 0, too_many, rows).is_err());
     let duplicate = vec![
         origin_record("p".into(), 1, OriginState::Connected),

@@ -460,5 +460,5 @@ impl Mux {
 // Test-only, in its own module: the crash ratchet counts the parent's
 // `#[cfg(test)]` methods as daemon code.
 #[cfg(test)]
-#[path = "agent_roster_worker_replay_for_tests.rs"]
+#[path = "agent_roster_worker_replay_for_test_tests.rs"]
 mod replay_for_test;

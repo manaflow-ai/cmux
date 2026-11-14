@@ -10,7 +10,7 @@ fn pre_peer_form_records_still_decode() {
     bytes.extend_from_slice(br#"{"title":"old","harness":"claude","state":"closed","lastActivity":42,"unread":0,"workspace":null,"pinned":false,"extra":{"name":"old"}}"#);
     let row = match decode(&bytes).unwrap() {
         LogRecord::Row(row) => row,
-        LogRecord::Origin(_) => panic!("expected a row record"),
+        LogRecord::Origin(_) | LogRecord::Mark(_) => panic!("expected a row record"),
     };
     assert_eq!(row.seq, 7);
     assert_eq!(row.summary.chat_id, "old");
