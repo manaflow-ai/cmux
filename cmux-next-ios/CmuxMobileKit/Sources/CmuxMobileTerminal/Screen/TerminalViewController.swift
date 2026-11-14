@@ -1983,7 +1983,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // the clip's end size, its grid a few points off the moving composer),
         // widened by the side padding a panned or wider surface reaches into.
         let wide = CGRect(x: -Self.sidePadding, y: 0, width: tuiHost.bounds.width + 2 * Self.sidePadding, height: tuiHost.bounds.height)
-        guard let snapshot = measured("hold-frame-snapshot", {
+        guard var snapshot = measured("hold-frame-snapshot", {
             areaStill ? tuiHost.resizableSnapshotView(from: wide, afterScreenUpdates: false, withCapInsets: .zero)
                 : view.snapshotView(afterScreenUpdates: false)
         }) else { return }
@@ -1996,9 +1996,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // to the composer and rides the keyboard's animation, so the still
             // does too (added to the clip mid-animation, it stood where the
             // clip ends, 12-21 pt off the moving composer).
-            snapshot.frame = wide
+            // Over the whole area above it too, in the terminal's background:
+            // the area can take the new grid's rows under the still (a layout
+            // pass while the keyboard moves), and the new grid's first rows
+            // showed above a still of the old grid's height (htop's hides).
+            let cover = UIView(frame: CGRect(x: wide.minX, y: wide.maxY - view.bounds.height,
+                                             width: wide.width, height: view.bounds.height))
+            cover.backgroundColor = terminalBackground
+            cover.isUserInteractionEnabled = false
+            cover.autoresizingMask = [.flexibleTopMargin]
+            snapshot.frame = CGRect(x: 0, y: cover.bounds.height - wide.height, width: wide.width, height: wide.height)
             snapshot.autoresizingMask = [.flexibleTopMargin]
-            tuiHost.addSubview(snapshot)
+            cover.addSubview(snapshot)
+            tuiHost.addSubview(cover)
+            snapshot = cover
         }
         // On screen before Ghostty can present the replay: its renderer
         // presents on its own thread, and a present that beat this pass's
