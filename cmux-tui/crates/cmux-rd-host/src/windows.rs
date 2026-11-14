@@ -17,6 +17,8 @@ use cmux_rd_core::flow::Rect;
 use cmux_rd_engine::{EngineConfig, MediaEngine, Output};
 use cmux_rd_proto::control::Control;
 use cmux_rd_proto::{InputEvent, MAX_DATAGRAM_DEFAULT};
+use std::collections::{hash_map::DefaultHasher, BTreeSet};
+use std::hash::Hasher;
 use std::io::{self, Read, Write};
 use std::mem::{size_of, zeroed};
 use std::net::{IpAddr, TcpListener, TcpStream};
@@ -123,7 +125,15 @@ impl GdiCapture {
             biCompression: BI_RGB,
             ..unsafe { zeroed() }
         };
-        // SAFETY: the output vector is large enough for the requested rows.
+        // `GetDIBits` requires the bitmap not to be selected into the DC.
+        // Temporarily restore the original object, then put our bitmap back
+        // before returning so the next capture can reuse the DC.
+        let restored = unsafe { SelectObject(self.memory, self.previous) };
+        if restored.is_null() {
+            return Err("Windows screen capture: failed to deselect bitmap".into());
+        }
+        // SAFETY: the output vector is large enough for the requested rows and
+        // the bitmap is deselected from the DC for this call.
         let rows = unsafe {
             GetDIBits(
                 self.memory,
@@ -135,6 +145,10 @@ impl GdiCapture {
                 DIB_RGB_COLORS,
             )
         };
+        let selected = unsafe { SelectObject(self.memory, self.bitmap as HGDIOBJ) };
+        if selected.is_null() {
+            return Err("Windows screen capture: failed to reselect bitmap".into());
+        }
         if rows == 0 {
             return Err("Windows screen capture: GetDIBits failed".into());
         }
@@ -160,15 +174,20 @@ impl Drop for GdiCapture {
 /// controlled when the agent has a matching integrity level.
 pub fn send_input_scancode(scancode: u16, down: bool) -> Res<()> {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE,
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY,
+        KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE,
     };
+    let extended = scancode & 0x8000 != 0;
+    let scancode = scancode & 0x7fff;
     let input = INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
                 wVk: 0,
                 wScan: scancode,
-                dwFlags: KEYEVENTF_SCANCODE | if down { 0 } else { KEYEVENTF_KEYUP },
+                dwFlags: KEYEVENTF_SCANCODE
+                    | if extended { KEYEVENTF_EXTENDEDKEY } else { 0 }
+                    | if down { 0 } else { KEYEVENTF_KEYUP },
                 time: 0,
                 dwExtraInfo: 0,
             },
@@ -373,31 +392,25 @@ fn private_ip(ip: IpAddr) -> bool {
     }
 }
 
-fn apply_input(event: &InputEvent) -> Res<()> {
+fn apply_input(event: &InputEvent, stream_width: u32, stream_height: u32) -> Res<()> {
     match event {
         InputEvent::Key { usage, down } => {
             let Some(scan) = hid_to_scancode(*usage) else { return Ok(()) };
             send_input_scancode(scan, *down)
         }
-        InputEvent::Pointer { x, y } => send_mouse(*x, *y, 0, 0),
+        InputEvent::Pointer { x, y } => send_pointer(*x, *y, stream_width, stream_height),
         InputEvent::Button { button, down } => {
-            let flags = match (*button, *down) {
-                (1, true) => 0x0002,
-                (1, false) => 0x0004,
-                (2, true) => 0x0020,
-                (2, false) => 0x0040,
-                (3, true) => 0x0008,
-                (3, false) => 0x0010,
-                _ => return Ok(()),
+            let Some((flags, data)) = mouse_button_event(*button, *down) else {
+                return Ok(());
             };
-            send_mouse(0, 0, flags, 0)
+            send_mouse(0, 0, flags, data)
         }
         InputEvent::Scroll { dx, dy, .. } => {
             if *dy != 0 {
-                send_mouse(0, 0, 0x0800, (*dy).saturating_mul(12))?;
+                send_mouse(0, 0, 0x0800, (*dy).saturating_mul(6) / 5)?;
             }
             if *dx != 0 {
-                send_mouse(0, 0, 0x1000, (*dx).saturating_mul(12))?;
+                send_mouse(0, 0, 0x1000, (*dx).saturating_mul(6) / 5)?;
             }
             Ok(())
         }
@@ -410,6 +423,36 @@ fn apply_input(event: &InputEvent) -> Res<()> {
         }
         InputEvent::Service { .. } => Ok(()),
     }
+}
+
+fn mouse_button_event(button: u8, down: bool) -> Option<(u32, i32)> {
+    let flags = match (button, down) {
+        (1, true) => 0x0002,
+        (1, false) => 0x0004,
+        (2, true) => 0x0020,
+        (2, false) => 0x0040,
+        (3, true) => 0x0008,
+        (3, false) => 0x0010,
+        (8, true) | (9, true) => 0x0080,
+        (8, false) | (9, false) => 0x0100,
+        _ => return None,
+    };
+    let data = match button {
+        8 => 1,
+        9 => 2,
+        _ => 0,
+    };
+    Some((flags, data))
+}
+
+fn send_pointer(x: i32, y: i32, stream_width: u32, stream_height: u32) -> Res<()> {
+    let stream_width = i64::from(stream_width.max(1));
+    let stream_height = i64::from(stream_height.max(1));
+    let x = i64::from(x).clamp(0, stream_width - 1);
+    let y = i64::from(y).clamp(0, stream_height - 1);
+    let absolute_x = x * 65_535 / (stream_width - 1).max(1);
+    let absolute_y = y * 65_535 / (stream_height - 1).max(1);
+    send_mouse(absolute_x as i32, absolute_y as i32, 0x0001 | 0x8000, 0)
 }
 
 fn send_mouse(x: i32, y: i32, flags: u32, data: i32) -> Res<()> {
@@ -494,23 +537,23 @@ fn hid_to_scancode(usage: u32) -> Option<u16> {
         0x38 => 0x35,
         0x39 => 0x3a,
         0x3a..=0x45 => 0x3b + u16::from(id - 0x3a),
-        0x49 => 0x52,
-        0x4a => 0x47,
-        0x4b => 0x4f,
-        0x4c => 0x53,
-        0x4d => 0x4b,
-        0x4e => 0x4d,
-        0x4f => 0x4d,
-        0x50 => 0x51,
-        0x51 => 0x4b,
-        0x52 => 0x52,
+        0x49 => 0x8052,
+        0x4a => 0x8047,
+        0x4b => 0x8049,
+        0x4c => 0x8053,
+        0x4d => 0x804f,
+        0x4e => 0x8051,
+        0x4f => 0x804d,
+        0x50 => 0x804b,
+        0x51 => 0x8050,
+        0x52 => 0x8048,
         0xe0 => 0x1d,
         0xe1 => 0x2a,
         0xe2 => 0x38,
         0xe3 => 0x5b,
-        0xe4 => 0x1d,
+        0xe4 => 0x801d,
         0xe5 => 0x36,
-        0xe6 => 0x38,
+        0xe6 => 0x8038,
         0xe7 => 0x5c,
         0xe9 => 0x5d,
         _ => return None,
@@ -588,6 +631,9 @@ struct WindowsSession {
     encoder: Box<dyn H264Encoder>,
     picture: I420,
     engine: MediaEngine,
+    held_keys: BTreeSet<u16>,
+    held_buttons: BTreeSet<u8>,
+    last_frame_fingerprint: Option<u64>,
     width: u32,
     height: u32,
     interval: Duration,
@@ -622,6 +668,9 @@ impl WindowsSession {
                 },
                 now_ns() / 1000,
             ),
+            held_keys: BTreeSet::new(),
+            held_buttons: BTreeSet::new(),
+            last_frame_fingerprint: None,
             width,
             height,
             interval: Duration::from_secs_f64(1.0 / f64::from(fps)),
@@ -629,10 +678,23 @@ impl WindowsSession {
     }
 
     fn run(&mut self, stream: &mut TcpStream) -> Res<()> {
+        let result = self.run_loop(stream);
+        let cleanup = self.release_all();
+        match (result, cleanup) {
+            (Err(error), _) => Err(error),
+            (Ok(()), Err(error)) => Err(error),
+            (Ok(()), Ok(())) => Ok(()),
+        }
+    }
+
+    fn run_loop(&mut self, stream: &mut TcpStream) -> Res<()> {
         let mut input = Vec::new();
         let mut next = Instant::now();
         loop {
-            while let Some((ty, payload)) = read_frame(stream, &mut input)? {
+            loop {
+                let Some((ty, payload)) = read_frame(stream, &mut input)? else {
+                    return Ok(());
+                };
                 if payload.is_empty() && ty == 0 {
                     break;
                 }
@@ -659,12 +721,21 @@ impl WindowsSession {
             let now = Instant::now();
             if now >= next {
                 let now_us = now_ns() / 1000;
-                if let Some(req) = self.engine.damage(
-                    0,
-                    Rect { x: 0, y: 0, width: self.width, height: self.height },
-                    now_us,
-                ) {
-                    self.encode(stream, &req)?;
+                let pixels = self.capture.capture()?.to_vec();
+                let mut fingerprint = DefaultHasher::new();
+                fingerprint.write(&pixels);
+                let fingerprint = fingerprint.finish();
+                let changed =
+                    self.last_frame_fingerprint.map_or(true, |previous| previous != fingerprint);
+                self.last_frame_fingerprint = Some(fingerprint);
+                if changed {
+                    if let Some(req) = self.engine.damage(
+                        0,
+                        Rect { x: 0, y: 0, width: self.width, height: self.height },
+                        now_us,
+                    ) {
+                        self.encode(stream, &req, &pixels)?;
+                    }
                 }
                 let output = self.engine.tick(true, now_us);
                 self.send_output(stream, output)?;
@@ -674,8 +745,12 @@ impl WindowsSession {
         }
     }
 
-    fn encode(&mut self, stream: &mut TcpStream, req: &cmux_rd_engine::EncodeRequest) -> Res<()> {
-        let pixels = self.capture.capture()?;
+    fn encode(
+        &mut self,
+        stream: &mut TcpStream,
+        req: &cmux_rd_engine::EncodeRequest,
+        pixels: &[u8],
+    ) -> Res<()> {
         bgrx_rect_to_i420(
             pixels,
             &mut self.picture,
@@ -708,7 +783,43 @@ impl WindowsSession {
             write_frame(stream, FRAME_DATAGRAM, &datagram)?;
         }
         for event in out.inject {
-            apply_input(&event)?;
+            apply_input(&event, self.width, self.height)?;
+            match event {
+                InputEvent::Key { usage, down } => {
+                    if let Some(scancode) = hid_to_scancode(usage) {
+                        if down {
+                            self.held_keys.insert(scancode);
+                        } else {
+                            self.held_keys.remove(&scancode);
+                        }
+                    }
+                }
+                InputEvent::Button { button, down } => {
+                    if mouse_button_event(button, down).is_some() {
+                        if down {
+                            self.held_buttons.insert(button);
+                        } else {
+                            self.held_buttons.remove(&button);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn release_all(&mut self) -> Res<()> {
+        let keys = std::mem::take(&mut self.held_keys);
+        for scancode in keys {
+            send_input_scancode(scancode, false)?;
+        }
+        let buttons = std::mem::take(&mut self.held_buttons);
+        for button in buttons {
+            let Some((flags, data)) = mouse_button_event(button, false) else {
+                continue;
+            };
+            send_mouse(0, 0, flags, data)?;
         }
         Ok(())
     }
