@@ -254,7 +254,9 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
   }).observe({ type: "layout-shift", buffered: true });
   let signature = "";
   const read = (): Frame => {
-    const host = document.querySelector(hostTag);
+    // A copy still waiting for its sheets is laid out hidden (paint.ts) and paints nothing: not on top.
+    const drawn = document.querySelector<HTMLElement>(hostTag);
+    const host = drawn && drawn.style.visibility !== "hidden" ? drawn : null;
     const scope: ParentNode = host?.shadowRoot ?? document;
     // Under a copy the live root is held clear until the swap (chatSnapshot/paint.ts); with no copy over
     // it, a clear root shows nothing of the chat.
