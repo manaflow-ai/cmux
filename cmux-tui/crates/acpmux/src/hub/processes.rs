@@ -546,9 +546,15 @@ async fn read_output(
     Ok((data, start, len))
 }
 
-/// The kinds a chat's process table folds (`Hub::read_processes`), each in `INDEXED_KINDS`.
-pub(crate) const PROCESS_KINDS: &[&str] =
-    &["background_task_update", "process_update", "stopped", "exited", "host_started"];
+/// Whether a record of `dir` and `kind` is one `Hub::read_processes` folds: each kind is in
+/// `INDEXED_KINDS`, so the read takes the log's copies where they are good.
+fn folds_process(dir: &[u8], kind: &[u8]) -> bool {
+    matches!(
+        (dir, kind),
+        (b"in", b"background_task_update")
+            | (b"mux", b"process_update" | b"stopped" | b"exited" | b"host_started")
+    )
+}
 
 impl Hub {
     /// The session's table, read from its log's copies the first time.
@@ -575,14 +581,24 @@ impl Hub {
         });
         // The kinds folded here only, from the log's copies of them (`store/kind_index.rs`): the
         // idle sweep and a chat's first process read come here, and a long chat's log is a
-        // million records.
-        let _ = self.store.scan_kinds(&session.id, PROCESS_KINDS, &mut |e| {
-            if !matches!(
-                (e.dir.as_str(), e.kind.as_str()),
-                ("in", "background_task_update")
-                    | ("mux", "process_update" | "stopped" | "exited" | "host_started")
-            ) {
-                return true;
+        // million records. Read back, newest first, then folded in order: a segment with no
+        // copy yet is read past by each line's head, never parsed whole, and no copy is made
+        // here (`scan_kinds` makes one by parsing every line, which an adoption of many hosted
+        // chats paid for each: `hosts_tests.rs` `adoption_reads_parse_only_the_records_they_fold`).
+        let mut folded = Vec::new();
+        let _ = self.store.scan_back_indexed(
+            &session.id,
+            0,
+            u64::MAX,
+            &|dir, kind| !folds_process(dir, kind),
+            &mut |e| {
+                folded.push(e);
+                true
+            },
+        );
+        for e in folded.into_iter().rev() {
+            if !folds_process(e.dir.as_bytes(), e.kind.as_bytes()) {
+                continue;
             }
             table.through = table.through.max(e.seq);
             match (e.dir.as_str(), e.kind.as_str()) {
@@ -601,8 +617,7 @@ impl Hub {
                 }
                 _ => {}
             }
-            true
-        });
+        }
         table
     }
 
