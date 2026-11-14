@@ -168,6 +168,7 @@ class Host:
         self.device = None
         self.owns_auth = False
         self.auth_prepared = self.device_prepared = False
+        self.remote_attempted = self.remote_prepared = False
         self.account_mismatch = False
         self.namespace = None
         self.lease = os.environ.get("GLAEDA_CAPTURE_LEASE_ID", "")
@@ -190,7 +191,9 @@ class Host:
             verified = (result.get("ok") is True and result.get("verified_absent") is True
                         and result.get("hub_quiescent") is True
                         and all(type(result.get(key)) is int and result[key] >= 0
-                                for key in ("identity_removed", "relays_removed")))
+                                for key in ("identity_removed", "relays_removed"))
+                        and (phase != "prepare" or all(result[key] == 0
+                             for key in ("identity_removed", "relays_removed"))))
         if not verified or result.get("code") != "ok":
             raise HostFailure("host_namespace_" + phase + "_failed")
 
@@ -199,6 +202,22 @@ class Host:
                                       "--cloud-backend", "staging"],
                                      cwd=home, env=env, stdout=self.log, stderr=subprocess.STDOUT,
                                      start_new_session=True)
+
+    def _remote_capture(self, phase):
+        result = rpc(self.sock, "debug.remote.capture_" + phase,
+                     {"lease_id": self.lease, "bundle_id": self.info["CFBundleIdentifier"],
+                      "private_root": str(self.work / "home")}, timeout=60)
+        counts = (result.get("identity_removed"), result.get("relays_removed"))
+        verified = (all(result.get(key) is True for key in
+                        ("ok", "lease_bound", "verified_absent", "worker_quiescent",
+                         "worker_pid_exited", "descendants_exited"))
+                    and all(type(value) is int and value >= 0 for value in counts))
+        started = result.get("worker_started")
+        disposition = ((result.get("code") == "ok" and started is True)
+                       or (result.get("code") == "no_remote_started" and started is False
+                           and counts == (0, 0)))
+        if not verified or not disposition or (phase == "prepare" and counts != (0, 0)):
+            raise HostFailure("host_remote_" + phase + "_failed")
 
     def _account(self):
         end = time.monotonic() + 180
@@ -260,6 +279,9 @@ class Host:
             self.auth_prepared = True
             self._capture("prepare", auth=False)
             self.device_prepared = True
+            self.remote_attempted = True
+            self._remote_capture("prepare")
+            self.remote_prepared = True
             stop(self.proc)
             self.proc = None
             self.sock.unlink(missing_ok=True)  # this process's socket only
@@ -342,7 +364,7 @@ class Host:
                     failures.append("device")
         if self.owns_auth:
             try:
-                if not self.auth_prepared or not self.device_prepared:
+                if not self.auth_prepared or not self.device_prepared or not self.remote_prepared:
                     raise HostFailure("host_namespace_cleanup_failed")
                 if rpc(self.sock, "debug.cloud.end_session").get("ended") is not True:
                     raise HostFailure("host_signout_not_acknowledged")
@@ -354,9 +376,13 @@ class Host:
         if self.account_mismatch:
             failures.append("account_mismatch")
         elif "auth" not in failures:
-            # Auth absence must be verified before removing the device lease
-            # marker, keeping a failed cleanup attributable and retryable.
+            # Detached writers must exit before deleting app stores. Preserve
+            # the app markers when remote ownership or exit cannot be proved.
             try:
+                if self.remote_attempted and not self.remote_prepared:
+                    raise HostFailure("host_remote_cleanup_failed")
+                if self.remote_prepared:
+                    self._remote_capture("cleanup")
                 if self.auth_prepared:
                     self._capture("cleanup", auth=True)
                 if self.device_prepared:

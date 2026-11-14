@@ -308,6 +308,7 @@ class HostTests(unittest.TestCase):
         instance.proc, instance.probe, instance.log = Mock(), Mock(), Mock()
         instance.owns_auth = True
         instance.auth_prepared = instance.device_prepared = True
+        instance.remote_attempted = instance.remote_prepared = True
         instance.lease = "a" * 24
         instance.namespace = "owned.cloud.development"
         return instance
@@ -316,7 +317,13 @@ class HostTests(unittest.TestCase):
     def capture_result(auth):
         return dict(ok=True, code="ok", verified_absent=True,
                     **(dict(keychain_absent=True, files_absent=True) if auth else
-                       dict(identity_removed=3, relays_removed=0, hub_quiescent=True)))
+                       dict(identity_removed=0, relays_removed=0, hub_quiescent=True)))
+
+    @staticmethod
+    def remote_result(started=True, *, prepare=False):
+        return dict(ok=True, code="ok" if started else "no_remote_started", lease_bound=True,
+                    worker_started=started, identity_removed=3 if started and not prepare else 0, relays_removed=0,
+                    verified_absent=True, worker_quiescent=True, worker_pid_exited=True, descendants_exited=True)
 
     def test_capture_binds_auth_and_device_to_their_exact_namespaces(self):
         instance = self.make_host()
@@ -328,8 +335,8 @@ class HostTests(unittest.TestCase):
                 self.assertEqual(call.call_args.args[2]["bundle_id"], bundle)
                 self.assertEqual(call.call_args.args[2]["lease_id"], instance.lease)
 
-    def test_credentials_wait_for_both_namespace_claims(self):
-        for refusal in (None, "auth", "device"):
+    def test_credentials_wait_for_all_namespace_claims(self):
+        for refusal in (None, "auth", "device", "remote"):
             with self.subTest(refusal=refusal), tempfile.TemporaryDirectory(prefix="ss-") as directory:
                 instance = self.host.Host(Path("/owned.app"),
                                           {"CFBundleIdentifier": "owned", "CFBundleExecutable": "cmux"},
@@ -345,12 +352,17 @@ class HostTests(unittest.TestCase):
                     order.append(phase + "-" + name)
                     if phase == "prepare" and refusal == name:
                         raise self.host.HostFailure("host_namespace_prepare_failed")
+                def remote_claim(phase):
+                    order.append(phase + "-remote")
+                    if phase == "prepare" and refusal == "remote":
+                        raise self.host.HostFailure("host_remote_prepare_failed")
                 with patch.object(self.host, "command", return_value=""), \
                         patch.object(self.host, "identity_service", return_value="owned.cloud.development.device-hub"), \
                         patch.object(self.host.subprocess, "run", return_value=Mock(returncode=44)), \
                         patch.object(instance, "_launch", side_effect=launch), \
                         patch.object(instance, "_account", return_value={"signed_in": False}), \
                         patch.object(instance, "_capture", side_effect=claim), \
+                        patch.object(instance, "_remote_capture", side_effect=remote_claim), \
                         patch.object(instance, "hub", return_value={"signed_in": True, "this_device": "owned-device"}), \
                         patch.object(self.host, "rpc", return_value={"signed_in": True, "email": "account"}), \
                         patch.object(self.host, "stop", side_effect=lambda proc: order.append("stop")):
@@ -362,7 +374,7 @@ class HostTests(unittest.TestCase):
                 self.assertNotIn("CMUX_UITEST_STACK_PASSWORD", launches[0])
                 self.assertEqual(len(launches), 1 if refusal else 2)
                 if not refusal:
-                    self.assertEqual(order, ["launch", "prepare-auth", "prepare-device", "stop", "launch"])
+                    self.assertEqual(order, ["launch", "prepare-auth", "prepare-device", "prepare-remote", "stop", "launch"])
                     self.assertEqual(launches[1]["CMUX_UITEST_STACK_PASSWORD"], "password")
 
     def test_capture_rejects_incomplete_or_wrongly_typed_absence_proof(self):
@@ -376,11 +388,46 @@ class HostTests(unittest.TestCase):
                 with self.assertRaisesRegex(self.host.HostFailure, "host_namespace_cleanup_failed"):
                     instance._capture("cleanup", auth=auth)
 
+    def test_remote_claim_binds_lease_raw_bundle_and_private_home(self):
+        instance = self.make_host()
+        for phase in ("prepare", "cleanup"):
+            for started in (True, False):
+                with self.subTest(phase=phase, started=started), \
+                        patch.object(self.host, "rpc", return_value=self.remote_result(started, prepare=phase == "prepare")) as call:
+                    instance._remote_capture(phase)
+                    self.assertEqual(call.call_args.args[1:], ("debug.remote.capture_" + phase,
+                        {"lease_id": "a" * 24, "bundle_id": "owned", "private_root": "/tmp/owned/home"}))
+
+    def test_prepare_cannot_remove_preexisting_identity_or_relay_items(self):
+        instance = self.make_host()
+        for remote in (True, False):
+            for field in ("identity_removed", "relays_removed"):
+                result = self.remote_result(prepare=True) if remote else self.capture_result(False)
+                with self.subTest(remote=remote, field=field), \
+                        patch.object(self.host, "rpc", return_value={**result, field: 1}):
+                    with self.assertRaises(self.host.HostFailure):
+                        if remote: instance._remote_capture("prepare")
+                        else: instance._capture("prepare", auth=False)
+
+    def test_remote_cleanup_rejects_partial_exit_or_inconsistent_no_worker_proof(self):
+        instance = self.make_host()
+        invalid = [{key: value} for key in ("ok", "lease_bound", "verified_absent", "worker_quiescent",
+                                           "worker_pid_exited", "descendants_exited") for value in (False, None, 1)]
+        invalid += [{"identity_removed": True}, {"relays_removed": -1}, {"worker_started": 1},
+                    {"worker_started": False}, {"code": "no_remote_started"},
+                    {"code": "no_remote_started", "worker_started": False}, {"code": "unknown"}]
+        for override in invalid:
+            with self.subTest(override=override), \
+                    patch.object(self.host, "rpc", return_value={**self.remote_result(), **override}):
+                with self.assertRaisesRegex(self.host.HostFailure, "host_remote_cleanup_failed"):
+                    instance._remote_capture("cleanup")
+
     def test_signout_is_read_back_before_owned_process_stop(self):
         instance = self.make_host()
         order = []
         def rpc(_socket, method, *_args, **_kwargs):
             order.append(method)
+            if method == "debug.remote.capture_cleanup": return self.remote_result()
             if method.startswith("debug.cloud.capture_"): return self.capture_result(True)
             if method == "debug.device_hub": return self.capture_result(False)
             return {"ended": True} if method.endswith("end_session") else {"signed_in": False, "restoring": False}
@@ -388,13 +435,14 @@ class HostTests(unittest.TestCase):
             instance.__exit__()
         self.assertTrue(instance.cleanup_ok)
         self.assertEqual(order, [instance.probe, "debug.cloud.end_session", "auth.status",
-                                 "debug.cloud.capture_cleanup", "debug.device_hub", instance.proc])
+                                 "debug.remote.capture_cleanup", "debug.cloud.capture_cleanup", "debug.device_hub", instance.proc])
 
     def test_failed_auth_absence_preserves_device_marker_and_stops_process(self):
         instance = self.make_host()
         def rpc(_socket, method, *_args, **_kwargs):
             if method == "debug.cloud.end_session": return {"ended": True}
             if method == "auth.status": return {"signed_in": False, "restoring": False}
+            if method == "debug.remote.capture_cleanup": return self.remote_result()
             return {"ok": True}
         with patch.object(self.host, "rpc", side_effect=rpc) as call, patch.object(self.host, "stop") as stop:
             instance.__exit__()
@@ -409,9 +457,35 @@ class HostTests(unittest.TestCase):
         self.assertFalse(instance.cleanup_ok)
         stop.assert_any_call(instance.proc)
 
+    def test_remote_exit_must_precede_app_namespace_cleanup(self):
+        for remote_ok in (True, False):
+            with self.subTest(remote_ok=remote_ok):
+                instance = self.make_host()
+                instance.remote_prepared = True
+                methods = []
+                def rpc(_socket, method, *_args, **_kwargs):
+                    methods.append(method)
+                    if method == "debug.cloud.end_session": return {"ended": True}
+                    if method == "auth.status": return {"signed_in": False, "restoring": False}
+                    if method == "debug.remote.capture_cleanup":
+                        return dict(ok=True, code="ok", lease_bound=True, worker_started=True,
+                                    identity_removed=3, relays_removed=0, verified_absent=True,
+                                    worker_quiescent=True, worker_pid_exited=True, descendants_exited=remote_ok)
+                    return self.capture_result(method.startswith("debug.cloud.capture_"))
+                with patch.object(self.host, "rpc", side_effect=rpc), patch.object(self.host, "stop"):
+                    instance.__exit__()
+                self.assertIn("debug.remote.capture_cleanup", methods)
+                self.assertEqual(instance.cleanup_ok, remote_ok)
+                if remote_ok:
+                    self.assertLess(methods.index("debug.remote.capture_cleanup"), methods.index("debug.cloud.capture_cleanup"))
+                else:
+                    self.assertNotIn("debug.cloud.capture_cleanup", methods)
+                    self.assertNotIn("debug.device_hub", methods)
+
     def test_preexisting_auth_is_never_signed_out(self):
         instance = self.make_host(); instance.owns_auth = False
         instance.auth_prepared = instance.device_prepared = False
+        instance.remote_attempted = instance.remote_prepared = False
         with patch.object(self.host, "rpc") as rpc, patch.object(self.host, "stop"):
             instance.__exit__()
         rpc.assert_not_called()
