@@ -207,6 +207,7 @@ try {
       to_work_p95: typing.to_work?.p95_ms,
       to_frame_p50: typing.to_frame?.p50_ms,
       to_frame_p95: typing.to_frame?.p95_ms,
+      nativePosts: JSON.stringify(typing.native_posts ?? {}),
       busiest: Object.entries(renders)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 8)
@@ -214,8 +215,8 @@ try {
         .join(" "),
     });
   }
-  console.table(table.map(({ busiest: _, ...row }) => row));
-  for (const row of table) console.log(`${row.rows} rows: ${row.busiest}`);
+  console.table(table.map(({ busiest: _, nativePosts: __, ...row }) => row));
+  for (const row of table) console.log(`${row.rows} rows: ${row.busiest}; native posts ${row.nativePosts}`);
   console.log(`COMPOSER-TYPING ${JSON.stringify(table)}`);
 } finally {
   for (const release of releases.reverse()) await release();

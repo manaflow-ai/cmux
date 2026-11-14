@@ -392,7 +392,7 @@ def run_mode(mode):
     result["focus"] = focus_probe()
     result["shots"] = screen_shots(mode)
     result["typing"] = typing()
-    print(mode, "typing", json.dumps({k: result["typing"].get(k) for k in ("keys", "to_listener", "to_work", "to_frame", "to_paint")}), flush=True)
+    print(mode, "typing", json.dumps({k: result["typing"].get(k) for k in ("keys", "to_listener", "to_work", "to_frame", "to_paint", "native_posts")}), flush=True)
     result["seed"] = pane("seed_rows", count=opts.rows, timeout=60)
     time.sleep(3)  # test harness: the seeded transcript lays out
     pane("fling", seconds=3, wait=True, timeout=60)  # warms the transcript's layout, not reported
