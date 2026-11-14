@@ -114,6 +114,8 @@ pub enum Reading {
 #[derive(Default)]
 pub struct Shared {
     held: Mutex<Option<(Instant, Arc<Table>)>>,
+    /// Held while [`Shared::under`] takes a fresh reading.
+    reading: Mutex<()>,
 }
 
 impl Shared {
@@ -127,14 +129,26 @@ impl Shared {
         now: Instant,
         read: impl FnOnce() -> Option<Table>,
     ) -> Option<(Vec<Under>, Reading)> {
-        let held = self.held.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        if let Some((at, table)) = held
-            && now.saturating_duration_since(at) < MAX_AGE
-            && let Some(found) = table.under(leader, own)
-        {
+        if let Some(found) = self.reuse(leader, own, now) {
+            return Some((found, Reading::Reused));
+        }
+        // One reading at a time: censuses that run at once and all find the held one too old
+        // wait for the first one's fresh reading and share it, instead of each running `ps`.
+        let _one = self.reading.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(found) = self.reuse(leader, own, now) {
             return Some((found, Reading::Reused));
         }
         Some((self.fresh(leader, own, now, read)?, Reading::Fresh))
+    }
+
+    /// The census of `leader` from the held reading, when it is younger than [`MAX_AGE`] at `now`
+    /// and lists `leader`.
+    fn reuse(&self, leader: u32, own: u32, now: Instant) -> Option<Vec<Under>> {
+        let (at, table) = self.held.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+        if now.saturating_duration_since(at) >= MAX_AGE {
+            return None;
+        }
+        table.under(leader, own)
     }
 
     /// The census of `leader` from a fresh reading `read` takes, which later censuses then share.
