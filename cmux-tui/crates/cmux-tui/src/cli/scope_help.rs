@@ -220,6 +220,7 @@ USAGE
   cmux git comments list [--root <path>]
   cmux git comments save [--root <path>] --comment <json-object>
   cmux git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
+  cmux git comments send [--root <path>] <comment-id>... --acp-session <id> --text <prompt> --versions-json <json-object>
 
 TARGET
   --path <path>          A file or folder in the repository

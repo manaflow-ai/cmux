@@ -12,6 +12,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { AGENT, OWN_REPLIES } from "../src/agent-session/acpmux/conversation/TurnAfterSubagent.gallery";
 import { TRANSCRIPT_TURN_GAP } from "../src/agent-session/acpmux/transcriptGrid";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-turn-after-subagent.test.ts", async () => {
@@ -134,6 +135,9 @@ await requireBrowserLane("transcript-turn-after-subagent.test.ts", async () => {
 
   test("the agent's turns after a subagent row are its own, the report closed, opened and closed again", async () => {
     const page = await browser.newPage({ viewport: { width: 1000, height: 1300 }, deviceScaleFactor: 2 });
+    // The report that opens under its line is the retained disclosure look (the shipped compact line
+    // has no chevron, #42247): pinned, so the opened report's place is still checked.
+    await pinArms(page, { "subagent-done-report": "disclosure" });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "own-turn", width: 900, theme: "Catppuccin Mocha", reducedMotion: "true" })}`,

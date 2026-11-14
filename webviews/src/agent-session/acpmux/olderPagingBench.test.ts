@@ -13,23 +13,18 @@
 // outcome (every turn once, in order; the target row loaded) and the round trips a jump may take.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { teardownDom } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
-const saved = {
-  window: "window" in scope,
-  document: "document" in scope,
-  values: { window: scope.window, document: scope.document },
-};
+const saved = (["window", "document"] as const).map((key) => [key, key in scope, scope[key]] as const);
 
 beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 }, 120_000);
-afterAll(() => {
-  for (const key of ["window", "document"] as const)
-    if (saved[key]) scope[key] = saved.values[key];
-    else delete scope[key];
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window });
 }, 120_000);
 
 /// Turns in the chat, and the daemon's round trip for one older read.

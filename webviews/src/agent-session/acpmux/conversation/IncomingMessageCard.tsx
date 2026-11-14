@@ -265,7 +265,13 @@ export function SenderChip({
     if (!query) return;
     onOpen(resolved?.sessionId ?? query);
   };
-  const from = inboxNames || (message.relation ? t(RELATION_LABEL[message.relation], { name }) : name);
+  // cmux's own notice is named by what it is, never the app (Leo, 2026-11-12: "should this really
+  // be labelled as \"cmux\"?"): a background task by its description, else "Background task";
+  // anything else by nothing, so it has no chip.
+  const system = message.notice?.system ? message.notice : undefined;
+  const from = system
+    ? message.name.trim() || (system.task ? t("notice.backgroundTask") : "")
+    : inboxNames || (message.relation ? t(RELATION_LABEL[message.relation], { name }) : name);
   const icon =
     toolNotice && look !== "tag" ? <NoticeMark severity={toolNotice.severity} /> : <SenderMark message={message} />;
   const host = toolNotice?.host ?? sender.host;
@@ -308,9 +314,9 @@ export function SenderChip({
           ariaLabel={open}
           onClick={openAsked}
         />
-      ) : (
+      ) : from ? (
         <AgentTag name={from} className="cv-received__from" title={about} />
-      )}
+      ) : null}
       {/* A sender acpmux could not verify (Leo, 2026-11-05: "why is it sending it as if it were
           me?"): the one subtle marker, never words in or beside its name. The message row draws
           its own (AgentMessageRow.tsx `unverified`). */}

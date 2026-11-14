@@ -595,6 +595,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             self?.environmentChanged()
         }
         MemoryPressure.shared.register(self) { [weak self] in self?.relieveMemoryPressure() }
+        // This list keeps the store's window while it shows it (`spillIfResting`); the store
+        // keeps it on its own once the list goes (`AgentChatStore.boundsMemoryOffScreen`).
+        store.shown(by: self)
         observe()
         reload()
     }
@@ -602,6 +605,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// The tab's session was replaced: show the new store's turns.
     func show(store: AgentChatStore) {
         guard store !== self.store else { return }
+        self.store.hidden(by: self)
+        store.shown(by: self)
         self.store = store
         lookup.context = ChatRowContext(store: store, surface: surface)
         builder = ChatTranscriptBuilder(diffs: store.diffs)
@@ -802,7 +807,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                 self.observe()
                 // Held (the page is a card on the tab grid): no reload per token;
                 // the release or a held refresh reloads once with what arrived.
-                if surface.holdsTranscript, surface.heldRefresh == self.appliedHeldRefresh { return }
+                if surface.holdsTranscript, surface.heldRefresh == self.appliedHeldRefresh {
+                    surface.noteHeldChange()
+                    return
+                }
                 self.appliedHeldRefresh = surface.heldRefresh
                 self.reload()
             }

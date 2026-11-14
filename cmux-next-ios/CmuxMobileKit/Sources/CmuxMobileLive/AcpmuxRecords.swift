@@ -52,6 +52,28 @@ struct AcpmuxRecords {
         }
     }
 
+    /// A tool call record (`tool_call` or `tool_call_update`, the chat's or a subagent's) as the
+    /// update it makes: what a cut output's whole record (``AcpmuxSessionSource/fullToolOutput(_:)``)
+    /// puts in place. Nil for any other record.
+    func toolCallUpdate(in record: JSONValue) -> ACPToolCallUpdate? {
+        for event in map(record) {
+            let update: ACPSessionUpdate
+            switch event {
+            case .update(let u), .subagentUpdate(_, let u): update = u
+            default: continue
+            }
+            switch update {
+            case .toolCallUpdate(let u): return u
+            case .toolCall(let call):
+                return ACPToolCallUpdate(toolCallId: call.id, title: call.title, kind: call.kind, status: call.status,
+                                         content: call.content, locations: call.locations, rawInput: call.rawInput,
+                                         rawOutput: call.rawOutput, outputCut: call.outputCut)
+            default: continue
+            }
+        }
+        return nil
+    }
+
     func mux(_ kind: String, _ msg: JSONValue, at: Date) -> [AgentSessionEvent] {
         switch kind {
         case "user_message":

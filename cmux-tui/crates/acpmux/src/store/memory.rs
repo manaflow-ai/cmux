@@ -46,6 +46,13 @@ impl Store for MemoryStore {
         }
         Ok(())
     }
+    fn truncate_after(&self, id: &str, after: u64) -> Result<bool> {
+        let mut g = self.inner.lock_or_recover();
+        if let Some((_, events)) = g.get_mut(id) {
+            events.retain(|e| e.seq <= after);
+        }
+        Ok(true)
+    }
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         let g = self.inner.lock_or_recover();
         Ok(g.get(id)

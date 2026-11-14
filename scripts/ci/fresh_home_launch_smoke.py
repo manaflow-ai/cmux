@@ -534,6 +534,14 @@ def home_rendered(snap: dict | None, marks: dict[str, float]) -> bool:
     return bool(home_tab(snap)) or (FIRST_RUN_MARK in marks and bool(first_run_home_tab(snap)))
 
 
+def host_load() -> float | None:
+    """The host's 1-minute load average now (the first number of `uptime`); None where it cannot be read."""
+    try:
+        return round(os.getloadavg()[0], 2)
+    except (AttributeError, OSError):
+        return None
+
+
 def read_marks(path: Path) -> dict[str, float]:
     marks: dict[str, float] = {}
     try:
@@ -845,9 +853,13 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
     SEED (the seeded arm): the callers' READY does not apply, and once Home rendered the watch also goes on until
     the app's cookie sync saved its baseline of the seeded store, at most SCAN_WAIT seconds after launch.
 
-    DAEMON: with Home rendered and the app up, daemon_at_end; not with a caller's READY, which is not Home."""
+    DAEMON: with Home rendered and the app up, daemon_at_end; not with a caller's READY, which is not Home.
+
+    `host` in what it returns: the count of CPUs and the host's load at the launch and when Home rendered, so that
+    a reader can tell a slow launch on a loaded host from a slow app. It changes no verdict."""
     os.set_blocking(marks_fd, False)
     started = time.monotonic()
+    host = {"cpus": os.cpu_count(), "load_at_launch": host_load(), "load_at_home": None}
     snap, rendered_at, status, scan, scanned_at = None, None, None, None, None
     ready = READY if seed is None else None
     with open(marks_path, "ab") as marks:
@@ -869,6 +881,7 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
                 shown = ready(snap) and RENDER_MARK in seen if ready is not None else home_rendered(snap, seen)
                 if shown:
                     rendered_at = elapsed
+                    host["load_at_home"] = host_load()
                     log(f"ok: Home rendered in a visible window {elapsed:.1f}s after launch")
             if seed is not None and scan is None:
                 scan = cookie_sync_scanned(seed)
@@ -885,7 +898,7 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
         reads = daemon_at_end(socket_path, app)
         status = process.poll()
     seen = {"snapshot": snap, "rendered_at": rendered_at, "exit": status, "daemon": reads,
-            "daemon_down": daemon_down(reads, app), "seconds_up": round(time.monotonic() - started, 1)}
+            "daemon_down": daemon_down(reads, app), "seconds_up": round(time.monotonic() - started, 1), "host": host}
     if seed is not None:
         seen["cookie_sync"] = {**seed, "scanned_at": scanned_at, "scanned_hosts": (scan or {}).get("hosts")}
     return seen
@@ -1068,7 +1081,7 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
     if seen["daemon_down"]:
         failures.append(seen["daemon_down"])
     arm.update({key: seen[key] for key in ("exit", "seconds_up", "rendered_at", "crash_reports", "run_exceptions",
-                                           "cookie_sync", "daemon", "daemon_down")})
+                                           "cookie_sync", "daemon", "daemon_down", "host", "marks")})
     arm["crash_reports_late"] = seen["crash_reports_late"] = []
     if failures:
         seen["failures"] = [f"seeded home: {failure}" for failure in failures]
@@ -1109,7 +1122,8 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
     exited or never rendered Home from the seeded home (the report then describes that launch, `arm` says so, and
     the first arm's stays in `arms`); otherwise STATUS, whatever this arm could or could not do."""
     arm: dict = {"verdict": NOT_RUN}
-    first = {key: report[key] for key in ("verdict", "exit", "seconds_up", "rendered_at", "failures") if key in report}
+    first = {key: report[key] for key in ("verdict", "exit", "seconds_up", "rendered_at", "failures", "host")
+             if key in report}
     report["arm"], report["arms"] = EMPTY, {EMPTY: first, SEEDED: arm}
     if status != PASS:
         arm["reason"] = "the first arm did not pass"
@@ -1124,7 +1138,7 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
         """The report describes the seeded launch: at its verdict, so that a run cut in the evidence has it."""
         for key in ("exit", "seconds_up", "rendered_at", "snapshot", "marks", "home_tab", "crash_reports",
                     "crash_reports_late", "run_exceptions", "failures", "system_log_errors", "cookie_sync",
-                    "daemon", "daemon_down"):
+                    "daemon", "daemon_down", "host"):
             report.pop(key, None)
             if key in seen:
                 report[key] = seen[key]

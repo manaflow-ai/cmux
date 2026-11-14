@@ -10,22 +10,35 @@
 //!
 //! The work tree is HEAD's tree plus the listed entries, so a file that
 //! `git status` does not list is covered by HEAD's id.
+//!
+//! The digits are of one process: each digest starts from random bytes that
+//! the process makes one time (`process_bytes`). A caller compares two
+//! answers of one running session host and stores none.
+//!
+//! A listed path is looked at and read only through the real folders of the
+//! work tree (`work_tree_entry`): a link in a folder's place leads nowhere,
+//! in a work tree that was made so and when the link comes after git's
+//! listing.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use cmux_git::diff::ScopeError;
-use cmux_git::run;
+use cmux_git::run::{self, GitFailure};
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
 
-use super::{MAX_SMALL_OUTPUT_BYTES, Repository, clamp, git_failed, open_failed};
+use super::work_tree_entry::{Kind, Tree};
+use super::{MAX_SMALL_OUTPUT_BYTES, OpenError, Repository, clamp, git_failed, open_failed};
 use crate::resource::ResourceError;
 
 mod content;
 
 const OPERATION: &str = "git.fingerprint";
-/// git output read from the listing run. Entries past it are not seen, as
-/// `git.diff` sees no file past its own listing bound.
+/// git output read from the listing run. Entries past it are not seen, and
+/// the digits say that the listing was cut. (`git.diff` fails when its
+/// listing of tracked files is cut, and sees no untracked file past its
+/// own bound.)
 const MAX_LISTING_BYTES: usize = 8 * 1024 * 1024;
 /// Submodules whose HEAD one read asks for; each is one git run.
 const MAX_SUBMODULE_READS: usize = 8;
@@ -71,15 +84,17 @@ impl Scope {
 
 pub(super) fn read(directory: &Path, fields: &Map<String, Value>) -> Result<Value, ResourceError> {
     let scope = Scope::named(fields.get("scope").and_then(Value::as_str).unwrap_or("uncommitted"))?;
+    let mut digest = Digest::new(process_bytes()?);
     // The settings that can change a patch of the same files (the `core`,
     // `diff` and `filter` sections of every config file) come from the run
     // that the open makes for the filter drivers.
     let (repository, settings) = Repository::open_with_diff_settings(directory)
         .map_err(|error| open_failed(OPERATION, directory, error))?;
     let repository = &repository;
-    let mut digest = Digest::new();
     digest.put(b"cmux git.fingerprint 1");
     digest.put(scope.name().as_bytes());
+    // The top folder, as git names it: the digits are those of one work tree.
+    digest.put(repository.root.as_os_str().as_encoded_bytes());
     if scope == Scope::Branch {
         digest.put(merge_base(repository)?.as_bytes());
     }
@@ -93,11 +108,18 @@ pub(super) fn read(directory: &Path, fields: &Map<String, Value>) -> Result<Valu
     // record that a cut listing lost.
     records.pop();
     digest.put(if listing.truncated { b"cut".as_slice() } else { b"whole".as_slice() });
-    let mut work_tree = WorkTree { repository, files: content::Reader::new(), submodules: 0 };
+    let tree = Tree::open(&repository.root).ok_or_else(|| {
+        ResourceError::operation_failed(
+            OPERATION,
+            "the work tree's folder cannot be opened",
+            json!({"code":"work_tree_unreadable"}),
+        )
+    })?;
+    let mut work_tree = WorkTree { repository, tree, files: content::Reader::new(), submodules: 0 };
     let mut records = records.into_iter();
     while let Some(record) = records.next() {
         let original = if record.starts_with(b"2 ") { records.next() } else { None };
-        entry(&mut digest, &mut work_tree, scope, record, original);
+        entry(&mut digest, &mut work_tree, scope, record, original)?;
     }
     Ok(json!({
         "fingerprint": digest.hex(),
@@ -114,7 +136,7 @@ fn entry(
     scope: Scope,
     record: &[u8],
     original: Option<&[u8]>,
-) {
+) -> Result<(), ResourceError> {
     let kind = record.first().copied();
     match kind {
         // `# branch.oid <commit>`: HEAD. The other headers name the branch
@@ -127,7 +149,9 @@ fn entry(
         }
         // `1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>`, and for a rename
         // `2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <score> <path>` with the
-        // original path in the next record.
+        // original path in the next record. The listing run has
+        // `--no-renames`, so git prints no `2` record: that form is read
+        // only so that a record of it would not be read as another kind.
         Some(b'1' | b'2') => {
             let fields: Vec<&[u8]> = record
                 .splitn(if kind == Some(b'2') { 10 } else { 9 }, |byte| *byte == b' ')
@@ -141,7 +165,7 @@ fn entry(
                 Scope::Uncommitted | Scope::Branch => (head, None),
                 Scope::Unstaged if unstaged => (index, None),
                 Scope::Staged if staged => (head, Some(index)),
-                Scope::Unstaged | Scope::Staged => return,
+                Scope::Unstaged | Scope::Staged => return Ok(()),
             };
             digest.put(b"tracked");
             digest.put(path);
@@ -155,10 +179,11 @@ fn entry(
                 }
                 None => {
                     digest.put(tree);
-                    // git says a file is deleted when a folder above it is
-                    // now a link; its path is not followed.
-                    let deleted = field(1).get(1) == Some(&b'D');
-                    digest.put(&work_tree.token(path, tree == b"160000", deleted));
+                    // No file in the work tree, by the mode or by the letter:
+                    // the index deleted it, or the work tree did. git says
+                    // so too when a folder above the path is now a link.
+                    let deleted = tree == b"000000" || field(1).get(1) == Some(&b'D');
+                    digest.put(&work_tree.token(path, tree == b"160000", deleted)?);
                 }
             }
         }
@@ -169,7 +194,7 @@ fn entry(
             digest.put(record);
             if scope.reads_work_tree() {
                 let path = record.splitn(11, |byte| *byte == b' ').last().unwrap_or_default();
-                digest.put(&work_tree.token(path, false, false));
+                digest.put(&work_tree.token(path, false, false)?);
             }
         }
         // `? <path>`: an untracked file. The listing run of the staged scope
@@ -178,7 +203,7 @@ fn entry(
             if let Some(path) = record.strip_prefix(b"? ") {
                 digest.put(b"untracked");
                 digest.put(path);
-                digest.put(&work_tree.token(path, false, false));
+                digest.put(&work_tree.token(path, false, false)?);
             }
         }
         _ => {
@@ -186,50 +211,79 @@ fn entry(
             digest.put(record);
         }
     }
+    Ok(())
 }
 
 /// The work tree side of the entries of one read.
 struct WorkTree<'a> {
     repository: &'a Repository,
+    tree: Tree,
     files: content::Reader,
     submodules: usize,
 }
 
 impl WorkTree<'_> {
-    /// What stands for the content at `path`, a path of the listing.
-    fn token(&mut self, path: &[u8], submodule: bool, deleted: bool) -> Vec<u8> {
+    /// What stands for the content at `path`, a path of the listing. An
+    /// error is a read that gave no answer: the caller asks again.
+    fn token(
+        &mut self,
+        path: &[u8],
+        submodule: bool,
+        deleted: bool,
+    ) -> Result<Vec<u8>, ResourceError> {
         if deleted {
-            return b"none".to_vec();
+            return Ok(b"none".to_vec());
         }
-        let path = self.repository.root.join(path_from_bytes(path));
-        if submodule { self.submodule_head(&path) } else { self.files.token(&path) }
+        let relative = path_from_bytes(path);
+        // A path with a link, a file or nothing in a folder's place is not
+        // in the work tree.
+        let Ok(entry) = self.tree.entry(&relative) else { return Ok(b"none".to_vec()) };
+        let path = self.repository.root.join(&relative);
+        if !submodule {
+            return Ok(self.files.token(&path, &entry));
+        }
+        if entry.kind() != Some(Kind::Folder) {
+            return Ok(b"submodule none".to_vec());
+        }
+        self.submodule_head(&path)
     }
 
     /// The commit a checked-out submodule is on: the listing says only that
-    /// it is not the recorded one.
-    fn submodule_head(&mut self, checkout: &Path) -> Vec<u8> {
+    /// it is not the recorded one. `checkout` is a real folder of the work
+    /// tree. It is opened as each other folder is (`Repository::open`), and
+    /// git runs in what the open gives.
+    fn submodule_head(&mut self, checkout: &Path) -> Result<Vec<u8>, ResourceError> {
         // With no `.git` there, git would answer for the repository above.
         if !checkout.join(".git").exists() {
-            return b"submodule none".to_vec();
+            return Ok(b"submodule none".to_vec());
         }
         if self.submodules >= MAX_SUBMODULE_READS {
-            return b"submodule past the bound".to_vec();
+            return Ok(b"submodule past the bound".to_vec());
         }
         self.submodules = self.submodules.saturating_add(1);
+        let submodule = match Repository::open(checkout) {
+            Ok(submodule) => submodule,
+            Err(OpenError::NotARepository) => return Ok(b"submodule none".to_vec()),
+            // The open does not take the folder: a state of the checkout,
+            // which stays until the checkout changes.
+            Err(OpenError::Git(GitFailure::Exit(_))) => {
+                return Ok(b"submodule not opened".to_vec());
+            }
+            // git did not run or did not end: no digits, as below.
+            Err(OpenError::Git(failure)) => return Err(git_failed(OPERATION, &failure)),
+        };
         let arguments = ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"];
-        let overrides = &self.repository.overrides;
         let mut token = b"submodule ".to_vec();
-        match run::run_git_within(
-            checkout,
-            overrides,
-            &arguments,
-            MAX_SMALL_OUTPUT_BYTES,
-            run::DEADLINE,
-        ) {
+        match submodule.run(&arguments, MAX_SMALL_OUTPUT_BYTES) {
             Ok(output) => token.extend_from_slice(&output.stdout),
-            Err(_) => token.extend_from_slice(b"unread"),
+            // No commit there: a state of the checkout, which stays until
+            // the checkout changes.
+            Err(GitFailure::Exit(_)) => token.extend_from_slice(b"no commit"),
+            // git did not run or did not end. Digits made of that would
+            // move now and move back at the next good read.
+            Err(failure) => return Err(git_failed(OPERATION, &failure)),
         }
-        token
+        Ok(token)
     }
 }
 
@@ -271,23 +325,53 @@ fn merge_base(repository: &Repository) -> Result<String, ResourceError> {
     })
 }
 
+/// 32 random bytes of this process, made at its first read. Each digest
+/// starts from them, so the digits of one work tree are equal only between
+/// answers of one process.
+fn process_bytes() -> Result<&'static [u8; 32], ResourceError> {
+    static BYTES: OnceLock<[u8; 32]> = OnceLock::new();
+    if let Some(bytes) = BYTES.get() {
+        return Ok(bytes);
+    }
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes).map_err(|_| {
+        ResourceError::operation_failed(
+            OPERATION,
+            "the system gave no random bytes",
+            json!({"code":"random_unavailable"}),
+        )
+    })?;
+    // Two first reads at one time: the bytes of the one that set them.
+    Ok(BYTES.get_or_init(|| bytes))
+}
+
 /// SHA-256 over length-prefixed parts, so that two lists of parts never give
-/// the same bytes.
-struct Digest(Sha256);
+/// the same bytes. The process's bytes are the first part, and the digits
+/// are the SHA-256 of those bytes and of the hash of all parts: the bytes
+/// stand on each side of what a read puts in.
+struct Digest {
+    process: &'static [u8; 32],
+    parts: Sha256,
+}
 
 impl Digest {
-    fn new() -> Self {
-        Self(Sha256::new())
+    fn new(process: &'static [u8; 32]) -> Self {
+        let mut digest = Self { process, parts: Sha256::new() };
+        digest.put(process);
+        digest
     }
 
     fn put(&mut self, part: &[u8]) {
         let length = u64::try_from(part.len()).unwrap_or(u64::MAX);
-        self.0.update(length.to_le_bytes());
-        self.0.update(part);
+        self.parts.update(length.to_le_bytes());
+        self.parts.update(part);
     }
 
     fn hex(self) -> String {
-        self.0.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
+        let mut digits = Sha256::new();
+        digits.update(self.process);
+        digits.update(self.parts.finalize());
+        digits.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
     }
 }
 
@@ -301,5 +385,50 @@ fn path_from_bytes(bytes: &[u8]) -> PathBuf {
     #[cfg(not(unix))]
     {
         PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The digits are of one process: its random bytes are in them, so they
+    /// are not the hash of the parts alone.
+    #[test]
+    fn git_fingerprint_digits_hold_the_random_bytes_of_the_process() {
+        let process = process_bytes().ok();
+        assert!(process.is_some_and(|bytes| *bytes != [0; 32]), "the process has no random bytes");
+        let mut digest = Digest::new(process.unwrap_or(&[0; 32]));
+        digest.put(b"part");
+        let mut parts = Sha256::new();
+        parts.update(4_u64.to_le_bytes());
+        parts.update(b"part");
+        let parts: String = parts.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
+        assert_ne!(digest.hex(), parts, "the digits are the hash of the parts alone");
+    }
+
+    /// The bytes are the first part, and they stand before the hash of the
+    /// parts: other bytes give other digits, and the digits are those of the
+    /// two places.
+    #[test]
+    fn git_fingerprint_digits_take_the_bytes_of_the_process_at_two_places() {
+        let digits = |process: &'static [u8; 32]| {
+            let mut digest = Digest::new(process);
+            digest.put(b"part");
+            digest.hex()
+        };
+        let (process, other): (&'static [u8; 32], &'static [u8; 32]) = (&[7; 32], &[8; 32]);
+        assert_ne!(digits(process), digits(other), "other bytes gave the same digits");
+
+        let mut parts = Sha256::new();
+        parts.update(32_u64.to_le_bytes());
+        parts.update(process);
+        parts.update(4_u64.to_le_bytes());
+        parts.update(b"part");
+        let mut whole = Sha256::new();
+        whole.update(process);
+        whole.update(parts.finalize());
+        let whole: String = whole.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
+        assert_eq!(digits(process), whole, "the bytes are not at the 2 places");
     }
 }

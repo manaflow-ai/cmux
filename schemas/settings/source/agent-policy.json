@@ -1483,14 +1483,6 @@
       ]
     },
     {
-      "agent": "network",
-      "why": "What reaches this Mac from outside and what leaves it: only the person opens phone access.",
-      "keys": [
-        "phone.allowConnections",
-        "phone.startSessions"
-      ]
-    },
-    {
       "agent": "userOnly",
       "keys": [
         "phone.keepAwake"
@@ -1535,9 +1527,9 @@
     },
     {
       "agent": "userOnly",
-      "why": "Spends about 2 to 3 times the data on every remote connection; only the person turns it on.",
+      "why": "Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.",
       "keys": [
-        "remote.ultraMode"
+        "remote.ultra"
       ]
     },
     {

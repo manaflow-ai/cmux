@@ -4,6 +4,7 @@
 // projections"). Money, destructive and view-changing ops go to the host as native actions (ops.ts
 // NATIVE_ACTIONS). React reads it through `useSyncExternalStore`; tests drive it directly.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { AccountReader } from "./account";
 import { connectionFailure } from "./connectionFailure";
 import { DetailReader, type MachineDetail } from "./detail";
@@ -562,7 +563,7 @@ export class CloudStore {
           : CloudOps.machineArchiveDelete;
     const key = this.key();
     this.pushIntent({ key, kind: offer.kind, machine: offer.machine });
-    this.set({ create: { ...draft, submitting: true, refusal: undefined, error: undefined } });
+    this.set({ create: { ...draft, submitting: true, refusal: undefined, error: undefined, errorCode: undefined } });
     const back = (patch: Partial<CreateDraft>) => {
       const now = this.state.create;
       if (now?.key === draft.key) this.set({ create: { ...now, submitting: false, ...patch } });
@@ -582,7 +583,15 @@ export class CloudStore {
       this.replied(key, result);
     } catch (error) {
       this.dropIntent(key);
-      if (!isGone(error)) {
+      // A machine that is gone, or one a pause finds already stopped, holds no slot: go on to the create.
+      const freed = isGone(error) || (offer.kind === "pause" && codeOf(error) === CloudErrors.notRunning);
+      if (!freed && offer.kind === "pause") {
+        // A pause that failed took nothing: the limit notice and the offer stay for another try, and
+        // the sheet says why.
+        if (connectionFailure(error) === "disconnected") this.set(failure(error));
+        return back({ refusal: draft.refusal, error: message(error), errorCode: codeOf(error) });
+      }
+      if (!freed) {
         this.fail(action, error);
         return back({ offer: undefined });
       }
@@ -954,8 +963,9 @@ export class CloudStore {
   private madeRoom(paused: CloudMachine | undefined): void {
     if (!paused?.id) return;
     const known = this.state.machines.find((machine) => machine.id === paused.id);
-    // An event that already passed the answer wins.
-    if (known && Number(known.revision) > Number(paused.revision)) return;
+    // An event that already passed the answer wins: a newer record, or the machine's removal (a
+    // machine the mirror does not hold is never added back by an answer).
+    if (!known || Number(known.revision) > Number(paused.revision)) return;
     this.setMirror(
       applyEvent(this.state.machines, { type: "upsert", revision: this.state.revision, machine: paused }),
       this.state.revision,
@@ -1148,9 +1158,9 @@ function noImage(error: unknown): boolean {
   return isPageError(error) && error.code === CloudErrors.noSnapshotConfigured;
 }
 
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+/** The plain sentence of a failure; the backend's own text stays in the error (`errorText` puts a
+ * known code's page sentence first). */
+const message = (error: unknown): string => userMessage(error);
 
 function codeOf(error: unknown): string | undefined {
   return isPageError(error) ? error.code : undefined;

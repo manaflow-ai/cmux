@@ -232,23 +232,23 @@ impl Hub {
             {
                 return;
             }
-            queue
+            let ids: Vec<String> = queue
                 .iter_mut()
                 .filter(|q| q.held && q.goes_in_by_itself())
                 .map(|q| {
                     q.held = false;
                     q.prompt_id.clone()
                 })
-                .collect()
+                .collect();
+            // Logged under the lock that let them go (`queue.rs` `QUEUE_KINDS`).
+            if !ids.is_empty() {
+                let msg = json!({"queued": session.queued(), "promptIds": ids});
+                self.append(session, "mux", "queue_resumed", msg);
+            }
+            ids
         };
         if !ids.is_empty() {
             session.queue_moved.notify_waiters();
-            self.append(
-                session,
-                "mux",
-                "queue_resumed",
-                json!({"queued": session.queued(), "promptIds": ids}),
-            );
         }
     }
 

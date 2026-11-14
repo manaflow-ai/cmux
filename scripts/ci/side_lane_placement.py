@@ -94,6 +94,9 @@ contains(' <key> ') matches whole keys only:
   glaeda-dev-std-xcode-<v>) and the FRESH_JOBS in FRESH_SLOT_JOBS its idle online runners take
   now, else empty (fresh_route()). Those jobs leave JOBS, CASCADE_RUNS and
   FIRST_JOBS; the rest of FRESH_JOBS are placed like any other job.
+- `light_runner` and `light_jobs`: the light minis' side label and the LIGHT_SPILL_JOBS
+  no idle std side runner took that its idle runners take now, one per runner, else
+  empty (light_spill_route()). Those jobs leave JOBS and CASCADE_RUNS.
 - `gateway_runner` and `gateway_attempt`: GATEWAY_LABEL (vars.CI_COMPILE_CHECK_GATEWAY,
   the tailnet runner label the build-fleet compile jobs hand their commit from)
   or the same label on a wider class, while it has an idle online runner for
@@ -587,17 +590,51 @@ def light_fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]
     label = light_side_label((env.get("SIDE_LABEL") or "").strip())
     if not label or FAST_JOB not in (env.get("JOBS") or "").split():
         return ""
+    return label if _light_room(label, runners, seen) > 0 else ""
+
+
+def _light_room(label: str, runners: Sequence[Mapping[str, Any]], seen: Any) -> int:
+    """The idle runners carrying the light side `label` beyond the jobs already queued on it, or 0 while the
+    janitor snapshot is unread or stale, or while a nightly or release job waits on the light family (any pool
+    of the same `<class>-xcode-<version>` with reserved_queued): nightly first."""
     snapshot = getattr(seen, "snapshot", None) if seen is not None else None
     if not isinstance(snapshot, Mapping) or getattr(seen, "stale", True):
-        return ""
+        return 0
     pools = snapshot.get("pools") or {}
     own = _family(label)
     if not isinstance(pools, Mapping) or any(
             _family(str(name)) == own and int((entry or {}).get("reserved_queued") or 0) > 0
             for name, entry in pools.items() if isinstance(entry, Mapping)):
-        return ""
+        return 0
     queued = int((getattr(seen, "owned_queued", None) or {}).get(label, 0) or 0)
-    return label if pool.live_owned_free(runners, [label])[label] - queued > 0 else ""
+    return max(0, pool.live_owned_free(runners, [label])[label] - queued)
+
+
+def light_spill_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None, seen: Any,
+                      owned: Sequence[str] = (), fast: str = "") -> tuple[str, tuple[str, ...]]:
+    """(the light minis' side label, the LIGHT_SPILL_JOBS its idle runners take), else ("", ()).
+
+    Leo, 2026-11-11, with the std minis at 95 to 100% CPU and the light minis at 21 of 92 capacity units
+    (14 of 36 runners busy, several minis fully idle): "nobody seems to be doing stuff rn". A PR's macOS
+    jobs took the std side label only (compatible_labels() never narrows a class), so with every std
+    side runner busy they queued there, or went to the cascade, while light side runners sat idle.
+
+    So a job in LIGHT_SPILL_JOBS (cmux-next.yml lists the ones a 16 GB light mini runs: they build the
+    same CmuxNext package seed the fast tier builds, which the light minis already run, and need no GUI
+    session on a PR) that no idle std runner took (`owned`, decide()'s) takes an idle light side runner,
+    one job per runner, before the cascade. As light_fast_route(): attempt 1 only, never while a nightly
+    or release job waits on the light family, and an unread or stale snapshot places nothing. A light
+    runner the fast tier just took (`fast`) is not counted.
+    """
+    if runners is None or (env.get("GITHUB_RUN_ATTEMPT") or "").strip() not in ("", "1"):
+        return "", ()
+    label = light_side_label((env.get("SIDE_LABEL") or "").strip())
+    allowed = set((env.get("LIGHT_SPILL_JOBS") or "").split())
+    jobs = [job for job in (env.get("JOBS") or "").split() if job in allowed and job not in owned]
+    if not label or not jobs:
+        return "", ()
+    room = _light_room(label, runners, seen) - (1 if fast == label else 0)
+    return (label, tuple(jobs[:room])) if room > 0 else ("", ())
 
 
 def fresh_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, tuple[str, ...]]:
@@ -1079,6 +1116,11 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
     if fresh_jobs:
         env = without_jobs(env, fresh_jobs)
     owned, fallback, why = decide(env, runners)
+    # The jobs no idle std runner took that a light mini runs: an idle light side runner before the cascade.
+    light, light_jobs = light_spill_route(env, runners, seen, owned, fast)
+    if light_jobs:
+        env = without_jobs(env, light_jobs)
+        why += f"; no idle std side runner for {', '.join(light_jobs)}, so they take idle light `{light}`"
     label = (env.get("SIDE_LABEL") or "").strip()
     route = route_label(label, runners, len((env.get("JOBS") or "").split()))
     live_gui = gui_route_label(label, runners)
@@ -1168,6 +1210,7 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
                          f"nightly_runner_ready={'true' if dedicated_ready else ''}\n"
                          f"fast_runner={fast}\n"
                          f"fresh_runner={fresh}\nfresh_jobs={delimited(fresh_jobs)}\n"
+                         f"light_runner={light}\nlight_jobs={delimited(light_jobs)}\n"
                          f"gateway_runner={gateway}\ngateway_attempt={attempt if gateway_label else ''}\n"
                          f"watch={watch}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
@@ -1189,7 +1232,7 @@ def _timeout_fallback(env: Mapping[str, str]) -> int:
                 f"owned_jobs=\nfallback_jobs=\nrunner={cascade.SMALL}\ndeferred_runner=\n"
                 f"gui_runner=\nsession_runner=\nfree_gui_runner=\nfree_session_runner=\n"
                 f"gui_overflow={cascade.SMALL}\nsession_lane_runner=\n"
-                f"nightly_runner_ready=\nfast_runner=\nfresh_runner=\nfresh_jobs=\n"
+                f"nightly_runner_ready=\nfast_runner=\nfresh_runner=\nfresh_jobs=\nlight_runner=\nlight_jobs=\n"
                 f"gateway_runner=\ngateway_attempt=\npromote_runner=\nwatch=false\n"
                 f"blacksmith_12_jobs=\nblacksmith_6_jobs=\nfresh_stalled=\nfleet_jobs=\n"
                 f"retry_runner={cascade.SMALL}\nfree_retry_runner={cascade.SMALL}\n"

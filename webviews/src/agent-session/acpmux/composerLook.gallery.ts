@@ -416,7 +416,7 @@ export default agentPaneEntry({
     },
     "loop-wakeup": {
       composerLook: "claude",
-      note: "A self-paced Claude Code /loop (ScheduleWakeup), cmux#38051: one quiet chip in the composer's column, \"Checking back in 15 min.\". The agent's wake prompt (job ids, links, steps) is only in the tooltip and behind the chip's button. No controls: Claude stops a loop only from its own turn.",
+      note: 'A self-paced Claude Code /loop (ScheduleWakeup), cmux#38051: one quiet chip in the composer\'s column, "Checking back in 15 min.". The agent\'s wake prompt (job ids, links, steps) is only in the tooltip and behind the line itself, which opens it (no expand icon; Leo, 2026-11-12: "idk what the point of it is rn quite"). No controls: Claude stops a loop only from its own turn.',
       snapshot: loopChat({
         objective:
           "Check background job b2mqa7gwr (fleet build 38051-hide-looping-wake-prompt) and https://github.com/manaflow-ai/cmux/pull/38052. Steps: 1. read the job log 2. if green, run the second bun run check 3. post the receipt on the PR 4. schedule the next wakeup",
@@ -427,7 +427,7 @@ export default agentPaneEntry({
     },
     "loop-wakeup-open": {
       composerLook: "claude",
-      note: "The same loop with its prompt opened on demand: it wraps inside the column and scrolls past six lines.",
+      note: "The same loop opened by a click on its line: the prompt and reason wrap inside the column and scroll past six lines.",
       snapshot: loopChat({
         objective:
           "Check background job b2mqa7gwr (fleet build 38051-hide-looping-wake-prompt) and https://github.com/manaflow-ai/cmux/pull/38052. Steps: 1. read the job log 2. if green, run the second bun run check 3. post the receipt on the PR 4. schedule the next wakeup",
@@ -436,7 +436,19 @@ export default agentPaneEntry({
       }),
       play: async (ctx) => {
         await look(ctx, "claude");
-        await ctx.click({ selector: ".acpmux-goal[data-kind=loop] .acpmux-goal-action" });
+        await ctx.click({ selector: ".acpmux-goal[data-kind=loop] .acpmux-goal-loop-toggle" });
+      },
+    },
+    "loop-wakeup-hover": {
+      note: "The loop's line under the pointer: its words brighten as a row's do; nothing else appears.",
+      snapshot: loopChat({
+        objective: "Check background job b2mqa7gwr and post the receipt.",
+        reason: "11 helpers restarted; fallback check in 25 min",
+        nextRunAt: GALLERY_NOW + 7 * 60_000,
+      }),
+      play: async (ctx) => {
+        await look(ctx, "claude");
+        await ctx.hover({ selector: ".acpmux-goal[data-kind=loop] .acpmux-goal-loop-toggle" });
       },
     },
     "loop-cron": {

@@ -86,3 +86,29 @@ The cmux-next web bundles (agent pane, pages, Activity, webviews app) are built 
 publish-nightly, Read the Dev ring switch live:
 
 Last check before the first write to the release or the feed. On nightly-next, NIGHTLY_NEXT_WRITER read live must be mac or unset: none and linux stand down; anything else, empty or unreadable refuses. A recovered build is checked again against the live feed: it must contain NIGHTLY_LEGACY_REQUIRED_COMMITS and descend from the commit the NEXT feed serves. A refusal publishes nothing and is not a failure. NIGHTLY_NEXT_DEV_RING read live with the same token (vars.* is the run's start-time snapshot, and a re-run keeps it): scripts/ci/nightly_next_dev_ring.sh.
+
+## note-15
+
+nightly-next-one, Read whether the kept Zig package cache is complete / Install compilation dependencies:
+
+The Mac keeps ~/.cache/zig between jobs. "Cache Zig packages" restored 647 MB over it in 69-81 s on every run (runs 43390156751, 43395323737), so the one job skips the restore once a source archive of the same key completed with that cache: "Build the cmux-next source archive" runs `zig build --fetch=all` for Ghostty and ghostty-next into it, and "Mark the kept Zig package cache complete" then writes the key (scripts/ci/nightly-steps/zig-cache-kept.sh). Skipping a restore removes no package; a package missing since then is seeded from our mirror by zig-fetch-all.sh, as on any cache miss. The one job's "Install compilation dependencies" (scripts/ci/nightly-steps/one-job-compile-deps.sh) installs ghostty-next's Zig only when "Install Zig" has not already published CMUX_VT_ZIG (20 s per run).
+
+## note-16
+
+resolve-nightly-cmux-tui-client, Leave the build slot to a newer nightly-next push:
+
+A loop retry (nightly_next_loop_retry) always leaves the slot when nightly-next moved past its commit: the newer push's run waits in the same group and builds the head (run 43395323737 waited 19 min behind retry 43395284047 of the older c31b2b678, dispatched 18 s before the push). It runs before any build job starts, so no started build is left. A push run leaves a moved head at once only with vars.NIGHTLY_NEXT_SUPERSEDE_SKIP == '1'.
+
+Latest wins at the slot: a stale run waits here for a newer promotion when feat-cmux-next has moved past its commit. A stale run is a loop retry (it rebuilds a commit that just failed) or a push run that sat 5 min or more in the group behind another build. It waits up to 6 min (YIELD_MINUTES). Main's rolling rule counts a run in this step as no holder (LEAVE_SLOT_STEP in scripts/ci/nightly_next_rolling.py), so the finished build's tick or the 5-minute cron promotes the newest buildable commit, and this run leaves to it. If nothing is promoted in that time, it builds its own commit. A fresh push run never waits. Push run 43558081148 of a22a4eb1 (2026-11-14) waited 23 min behind another build, then built the old head beside 20 newer commits and failed. Its retry 43560964857 built a22a4eb1 again: 60.9 min from landing to the feed. tests/test_nightly_next_single_loop.py.
+
+## note-17
+
+nightly-next-one, Start the third-party notices / Finish the third-party notices:
+
+The notices read no build output (git fetches of the pinned crates' sources, cargo tree): 95-134 s after the Release build in runs 43390156751 and 43395323737. The one job starts them after cargo is installed (scripts/ci/nightly-steps/app-third-party-notices.sh start), writing outside the checkout into the hand-off the notices step takes ($RUNNER_TEMP/nightly-inputs/notices, nightly_inputs.py install-notices), and joins them before that step. A failed background run packs no hand-off: the notices step then generates them itself, as before. tests/test_nightly_background_steps.py.
+
+## note-18
+
+nightly-next-one (the job):
+
+nightly-next on one Mac, end to end (Leo, 2026-11-12: "Why isn't it just like the single machine does the thing end to end?"). With vars.NIGHTLY_NEXT_ONE_JOB=on, decide sets one_job and the split jobs skip: this one job compiles warm, prepares, signs, notarizes, verifies and writes the feed in one workspace, with the split jobs' own steps (YAML aliases, or a copy where the one job differs: note-15) and no artifact between them. tests/test_nightly_next_one_job.py.

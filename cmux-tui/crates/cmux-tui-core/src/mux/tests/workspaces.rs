@@ -545,7 +545,7 @@ fn workspace_changes_after(mux: &Mux, revision: u64) -> (Vec<String>, Vec<String
 }
 
 /// The workspace values the journal states, folded from revision 0 over every page, by workspace public id.
-fn journal_workspaces(mux: &Mux) -> std::collections::BTreeMap<String, Value> {
+pub(super) fn journal_workspaces(mux: &Mux) -> std::collections::BTreeMap<String, Value> {
     let mut stated = std::collections::BTreeMap::<String, Value>::new();
     let mut revision = 0;
     loop {
@@ -572,7 +572,7 @@ fn journal_workspaces(mux: &Mux) -> std::collections::BTreeMap<String, Value> {
 
 /// The journal, folded from revision 0, states each live workspace's whole value as its rows give it now
 /// (`workspace_value`: name, index, focus, session, name provenance, decorations and key), and no other.
-fn assert_journal_states_the_rows(mux: &Mux) {
+pub(super) fn assert_journal_states_the_rows(mux: &Mux) {
     let stated = journal_workspaces(mux);
     let registry = mux.workspace_registry.lock().unwrap();
     let db = registry.connection.get();
@@ -608,7 +608,7 @@ fn assert_journal_states_the_rows(mux: &Mux) {
 
 /// The journal, folded from revision 0, states every live workspace as the session snapshot shows it (name, index,
 /// focus, and the decorations: title, color, icon), and no other; and each whole value as its rows give it.
-fn assert_journal_states_the_session(mux: &Mux) {
+pub(super) fn assert_journal_states_the_session(mux: &Mux) {
     let stated = journal_workspaces(mux);
     let snapshot = crate::resource_api::public_session_snapshot(mux).unwrap();
     let live = snapshot["workspaces"].as_array().unwrap();
@@ -640,8 +640,8 @@ fn assert_journal_states_the_session(mux: &Mux) {
     assert_journal_states_the_rows(mux);
 }
 
-/// `count` workspaces, then one full resource effect projection (as a session's first terminal create runs when the
-/// fold is empty), which restates every resource and seeds the journal's public fold, as in a live session.
+/// `count` workspaces, then one full resource effect projection (as a terminal close runs), which restates every
+/// resource and makes the journal's public fold complete, as in a live session.
 fn mux_with_workspaces(count: usize) -> Arc<Mux> {
     let mux = test_mux();
     for index in 0..count {
@@ -664,8 +664,8 @@ fn mux_with_workspaces(count: usize) -> Arc<Mux> {
     mux.commit_full_resource_effect_projection(key, operation, &fingerprint, serde_json::json!({}))
         .unwrap();
     assert!(
-        mux.workspace_registry.lock().unwrap().public_fold_seeded(),
-        "the full projection did not seed the fold"
+        mux.workspace_registry.lock().unwrap().public_fold_complete_for_test(),
+        "the full projection did not make the fold complete"
     );
     mux
 }

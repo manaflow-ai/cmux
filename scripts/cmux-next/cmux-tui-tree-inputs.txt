@@ -23,6 +23,23 @@ blob scripts/ci/macos-cross.sh
 blob scripts/ci/macos_stubs.py
 blob scripts/ci/macho_weaken.py
 tree scripts/ci/macos-stubs
+# The release profile the binaries build with is set in the reusable build
+# workflow, not in cmux-tui/: lto, codegen-units, and CARGO_PROFILE_RELEASE_LTO
+# for the Cloud machine channel's legs. A profile-only change must build a new
+# tree, never reuse one built with the old profile (cmux#42622 had to touch
+# cargo-groups.sh to move the key; handbook reuse-key-leaves-out-an-input).
+blob .github/workflows/cmux-tui-build-package.yml
+# What each cmux-tui-artifacts.yml build call builds (lto, target_set,
+# artifact_prefix, the Windows legs) is read from this file, not written in
+# that workflow, which is not an input: a publishing-only edit there must not
+# build a new tree (tests/test_cmux_tui_release_profile.py BuildProfileSourceTest).
+blob scripts/cmux-next/cmux-tui-build-profiles.json
+# The Zig version the libghostty-vt build installs (read from ghostty-next's
+# build.zig.zon, a key input), the pinned Rust toolchain install, and the
+# staging of the agent screen detector into the tree.
+blob scripts/ghostty-zig-version.sh
+blob .github/actions/setup-cmux-tui-rust/action.yml
+blob scripts/ci/stage-agent-detector.sh
 # cmux-cloud, a tree companion (cmux-tui-cloud-server-*), builds from its own
 # crate outside cmux-tui/ (macos-cross.sh, cmux-tui-build-package.yml). Its
 # cmux-tui path dependencies are covered by `tree cmux-tui`.
@@ -45,9 +62,17 @@ blob docs/remote-agents-and-cloud.md
 blob mux/packages/brain/conformance/chief-cases.json
 blob plans/cmux-next/action-surfaces.json
 blob plans/cmux-next/daemon-capabilities.json
-# Not plans/cmux-next/spec-proposals/visuals/design-tokens.json: cmux-theme-tokens
-# embeds it and cmux-motion's build.rs reads it, but no published binary links
-# either crate (scripts/ci/check_cmux_tui_tree_inputs.py checks the closure).
+# cmux-theme-tokens embeds these; the daemon (theme.scheme ops) and the cmux
+# CLI (`cmux theme`) link it. cmux-motion's build.rs also reads design-tokens.json.
+blob plans/cmux-next/spec-proposals/visuals/design-tokens.json
+blob schemas/theme/theme-ink-vectors.json
+# cmux-config embeds the shipped theme files (theme_file::shipped): the daemon
+# and the cmux CLI read them.
+blob Resources/theme-files/charcoal.json
+blob Resources/theme-files/classic-desktop.json
+blob Resources/theme-files/claude-desktop.json
+blob Resources/theme-files/harbor.json
+blob Resources/theme-files/phosphor.json
 blob schemas/chief-home/vectors.json
 blob schemas/agent-url-policy/vectors.json
 blob schemas/chief-cmux-target/vectors.json

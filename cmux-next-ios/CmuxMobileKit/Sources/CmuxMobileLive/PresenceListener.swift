@@ -38,6 +38,12 @@ public final class PresenceListener {
     private var generation: UInt64 = 0
     private var failures = 0
     private var active = false
+    /// The app is in the background (set by the coordinator). The socket stays (iOS
+    /// suspends the app within seconds anyway, which ends it; during a locked-phone
+    /// Chief call, the audio background mode, its frames redial the call's Mac link),
+    /// but a failed socket's retries skip the HTTP Mac-list refresh: nobody sees the
+    /// list, and the foreground's `kick` reconnects and the socket's hello brings it.
+    var backgrounded = false
     /// Poll interval while the socket is down.
     static let pollInterval: Duration = .seconds(20)
     static let pingInterval: Duration = .seconds(15)
@@ -208,6 +214,12 @@ public final class PresenceListener {
         guard isCurrent(recoveryGeneration) else { return }
         failures += 1
         let delay: Duration = failures < 4 ? .seconds(1 << failures) : Self.pollInterval
+        if backgrounded {
+            task = timer(after: delay, generation: recoveryGeneration) { listener in
+                listener.connect()
+            }
+            return
+        }
         // Refresh and retry are independent: a slow HTTP response cannot hold
         // the socket in backoff. Both are canceled on stop/kick/next attempt.
         refreshTask = Task { [weak self, fetchMacs] in

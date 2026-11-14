@@ -89,7 +89,7 @@ struct ClassicUpgradeHeldDocumentTests {
         remote.release()
         #expect(remote.everHeld > 0, "no document change was held: the run did not place through the sidebar document")
         #expect(stillHeld == 0 && settled, "settle() returned with \(stillHeld) sidebar document changes still held (settled: \(settled); \(pending))")
-        if stillHeld == 0 { try sim.verify(profile, classicBefore: before) }
+        if stillHeld == 0 { try await sim.verify(profile, classicBefore: before) }
         document.onSettledWait = nil
         await sim.shutdown()
     }

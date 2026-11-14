@@ -21,6 +21,10 @@ import Foundation
 ///   (where the width allows it: an iPad). `CMUX_MOBILE_LIST_HOLD_X=PT` with `LIST_PASSES=0`: pans the
 ///   widest scroll view to PT and holds (screenshots of the pinned gutter).
 /// - `CMUX_MOBILE_LIST_EXIT_WHEN_DONE=1`: exit after the last pass (the rig waits for the exit).
+/// - `CMUX_MOBILE_LIST_REFRESH_SECONDS=S` (workspaces): the list gets a pull to refresh that takes S
+///   seconds (mock mode has no live refresh), for the pull-to-refresh rig (verify/pull-to-refresh.md).
+/// - `CMUX_MOBILE_LIST_PULL_TRACE=1` (with `LIST_PASSES=0`): log one `PULL` line per frame that changes:
+///   the list's offset and top inset, the refresh wheel's and the search field's frames in the window.
 /// - `CMUX_MOBILE_LIST_GIANT=1` (chat): every third replayed prompt is a pasted raw log (hundreds of
 ///   lines with emoji, CJK, tabs, ANSI escapes and unbroken tokens), the GUI stress loop's long rows.
 public struct ListStressSettings: Equatable, Sendable {
@@ -52,6 +56,10 @@ public struct ListStressSettings: Equatable, Sendable {
     public var noCardPictures: Bool
     /// `CMUX_MOBILE_LIST_GIANT=1`: giant pasted-log prompts (`MockStressContent.giantPrompt`).
     public var giant: Bool
+    /// `CMUX_MOBILE_LIST_REFRESH_SECONDS=S`: a mock pull to refresh lasting S seconds.
+    public var refreshSeconds: Double?
+    /// `CMUX_MOBILE_LIST_PULL_TRACE=1`: the per-frame pull-to-refresh trace.
+    public var pullTrace: Bool
 
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         screen = environment["CMUX_MOBILE_LIST_SCREEN"]
@@ -73,6 +81,8 @@ public struct ListStressSettings: Equatable, Sendable {
         plainCards = Set((environment["CMUX_MOBILE_LIST_PLAIN_CARDS"] ?? "").split(separator: ",").map(String.init))
         noCardPictures = environment["CMUX_MOBILE_LIST_NO_CARD_PICTURES"] == "1"
         giant = environment["CMUX_MOBILE_LIST_GIANT"] == "1"
+        refreshSeconds = environment["CMUX_MOBILE_LIST_REFRESH_SECONDS"].flatMap(Double.init)
+        pullTrace = environment["CMUX_MOBILE_LIST_PULL_TRACE"] == "1"
     }
 
     /// Turns the mock agent replays as history: the chat and diff screens' load.

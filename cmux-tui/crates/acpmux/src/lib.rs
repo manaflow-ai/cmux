@@ -70,6 +70,8 @@ pub mod deps;
 pub mod desktop_bridge;
 pub mod desktop_link;
 pub mod folder_instructions;
+#[cfg(all(test, unix))]
+mod fork_tests;
 pub mod forum;
 pub mod forum_mcp;
 pub mod frame_compress;
@@ -179,6 +181,8 @@ pub mod protected_folders;
 pub mod protocol;
 pub mod qos;
 pub mod question_answer;
+#[cfg(target_os = "linux")]
+mod quiet_dirs;
 pub mod recovery;
 pub mod registry;
 pub mod request_cancel;

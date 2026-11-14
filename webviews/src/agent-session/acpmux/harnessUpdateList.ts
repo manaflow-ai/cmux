@@ -16,9 +16,8 @@ export type HarnessUpdateRow = {
   agent: string;
   version: string;
   latest: string;
-  /// The update this list started is running, or failed (the updater's words in `error`).
+  /// The update this list started is running, or failed (the updater's words go to the log).
   phase?: "updating" | "failed";
-  error?: string;
   update(): void;
   /// Starts it on its answer from Update all's one `harness.update {ids}` call.
   updateWith?(reply: Promise<unknown>): void;
@@ -57,7 +56,7 @@ export function outdatedHarnesses(
   return out;
 }
 
-type Progress = Record<string, { latest: string; phase: "updating" | "failed" | "done"; error?: string }>;
+type Progress = Record<string, { latest: string; phase: "updating" | "failed" | "done" }>;
 
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -95,15 +94,19 @@ export function useHarnessUpdateList({
   const start = useCallback(
     (id: string, latest: string, reply?: Promise<unknown>) => {
       setProgress((now) => ({ ...now, [id]: { latest, phase: "updating" } }));
-      const failed = (error: string) => setProgress((now) => ({ ...now, [id]: { latest, phase: "failed", error } }));
+      // The row says the update failed in plain words; the updater's own text goes to the log.
+      const failed = (error: unknown) => {
+        console.warn(`agent pane: updating ${id} failed`, error);
+        setProgress((now) => ({ ...now, [id]: { latest, phase: "failed" } }));
+      };
       (reply ?? native("harness.update", { id })).then(
         (value) => {
           const reply = record(value);
-          if (reply.ok !== true) return failed(typeof reply.error === "string" ? reply.error.trim() : "");
+          if (reply.ok !== true) return failed(reply.error);
           setProgress((now) => ({ ...now, [id]: { latest, phase: "done" } }));
           onUpdated();
         },
-        (error: unknown) => failed(error instanceof Error ? error.message.trim() : ""),
+        (error: unknown) => failed(error),
       );
     },
     [native, onUpdated],
@@ -133,7 +136,6 @@ export function useHarnessUpdateList({
         version: health.version ?? "",
         latest,
         ...(state ? { phase: state.phase } : {}),
-        ...(state?.error ? { error: state.error } : {}),
         update: () => start(id, latest),
         updateWith: (reply) => start(id, latest, reply),
       });

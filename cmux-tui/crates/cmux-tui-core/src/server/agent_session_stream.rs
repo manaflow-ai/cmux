@@ -56,11 +56,11 @@ pub(super) fn connect_and_attach(
         }
     };
     let overflow = closed_event(surface, "overflow");
-    let Ok(outbound) = writer.start_stream(&overflow) else {
+    let opened = writer.start_stream(&overflow);
+    let Ok(outbound) = opened else {
         release(sessions);
         link.close();
-        refuse(&writer, id, Refusal::Limit);
-        return;
+        return writer.refuse_stream(id, opened.err());
     };
     let resolved =
         page.pointer("/session/sessionId").and_then(Value::as_str).unwrap_or_default().to_string();

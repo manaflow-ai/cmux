@@ -2217,7 +2217,7 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
         run: |
           python3 scripts/check-test-determinism.py --self-test
-          python3 scripts/check-test-determinism.py --strict
+          python3 scripts/check-test-determinism.py --strict --guard-checks
 
   workflow-guard-history:
     if: ${{ inputs.linux_guard_history == 'true' }}

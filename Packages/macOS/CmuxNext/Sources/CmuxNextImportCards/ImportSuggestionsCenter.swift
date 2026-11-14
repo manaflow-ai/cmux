@@ -151,8 +151,8 @@ public final class ImportSuggestionsCenter {
         let environment = ImportEnvironment.live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
         let variables = ProcessInfo.processInfo.environment
         let imported = await host.importedProfiles()
-        // Classic's session file is up to 32 MB of JSON: read and planned off the main actor.
-        let classic = await Task.detached(priority: .utility) { await ClassicWorkspaceCount().count() }.value
+        // Classic's saved workspaces not open here yet, read and planned by the daemon.
+        let classic = await host.classicWorkspaces()
         // Browser import turned off meanwhile: no other browser's data is read. The scan itself
         // runs detached, so the cancel reaches it through `stop`, checked before each source.
         guard !Task.isCancelled else { return [] }

@@ -757,19 +757,18 @@ impl Hub {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if stopped.is_none() {
             let mut roots = HashSet::new();
-            self.store
-                .scan_kinds(&session.id, &["prompt_stop_requested"], &mut |event| {
-                    if event.dir == "mux"
-                        && event.kind == "prompt_stop_requested"
-                        && let Some(prompt) = event.msg.get("promptId").and_then(Value::as_str)
-                    {
-                        roots.insert(prompt.to_owned());
-                    }
-                    true
-                })
-                .map_err(|error| {
-                    RpcError::internal(format!("cannot read prompt stop boundaries: {error}"))
-                })?;
+            self.scan_for_rebuild(session, &["prompt_stop_requested"], &mut |event| {
+                if event.dir == "mux"
+                    && event.kind == "prompt_stop_requested"
+                    && let Some(prompt) = event.msg.get("promptId").and_then(Value::as_str)
+                {
+                    roots.insert(prompt.to_owned());
+                }
+                true
+            })
+            .map_err(|error| {
+                RpcError::internal(format!("cannot read prompt stop boundaries: {error}"))
+            })?;
             *stopped = Some(roots);
         }
         Ok(stopped)
@@ -1327,11 +1326,13 @@ impl Hub {
     /// continues held: back through the earlier attempts at `root` to the turn the connection
     /// first cut. A failed attempt writes no record of its own when the prompts behind it were
     /// already held, so its continuation finds them on the turn before.
-    fn held_by(&self, session: &Session, root: &str, cut_turn: &str) -> Vec<String> {
+    pub(super) fn held_by(&self, session: &Session, root: &str, cut_turn: &str) -> Vec<String> {
         let mut paused: HashMap<String, Vec<String>> = HashMap::new();
         // An attempt's turn, and the turn it continues.
         let mut continues: HashMap<String, String> = HashMap::new();
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+        // Its two kinds only, from the log's copies of them (`store/kind_index.rs`).
+        let kinds = ["queue_paused", "user_message"];
+        let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
             let Some(turn) = e.msg.get("turnId").and_then(Value::as_str) else { return true };
             match e.kind.as_str() {
                 "queue_paused" => {

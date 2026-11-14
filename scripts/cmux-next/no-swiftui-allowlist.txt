@@ -74,6 +74,8 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DebugSettings/DebugSettin
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DebugSettings/DebugTunableControls.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DebugSettings/DebugTunableRowView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/SettingsPane.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/TuningPanel/TuningPanelView.swift  # Debug panel built from SwiftUI helpers in 6 allowlisted files (2 Debug settings controls, SettingsStyle, 3 shared ones); no Swift code opens it yet
+Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/TuningPanel/TuningPanelWindow.swift  # hosts TuningPanelView in an NSHostingView; no Swift code opens it yet
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Views/ScrollEdgeFadeModifier.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Views/SettingsStyle.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextUiLayerPreview/UiLayerPreviewView.swift

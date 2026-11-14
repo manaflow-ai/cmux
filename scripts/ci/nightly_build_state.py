@@ -27,7 +27,14 @@ runs only nightly-next's app build, so it keeps one DerivedData per identity and
 each new tip on it. Every runner of the dedicated nightly-only minis (`<host>-glaeda-nightly-only-K`) does
 the same through the Mac's host build root (below). An incremental build is a real compile of every changed file. It
 starts clean (CLEAN_REASONS) when:
-- the last build on it did not finish (no `mark-built` after `prepare`);
+- the last build on it did not finish (no `mark-built` after `prepare`), unless xcodebuild ran to its end and
+  reported a failed build (fail-host: status 65, a compile error) and the build before it had not failed too.
+  xcodebuild records a task's result only once the task has finished, so the tasks the failed build completed
+  are as reusable as a finished build's, and the import and structure rules below, checked against the failed
+  build's commit, cover what it compiled: every build into the DerivedData since the last clean one was itself
+  checked against the one before it, and no import, structure or key change across each step means none across
+  the chain. Run 43371038867 failed on a Swift error on the signing Mac, and the next build, 43390156751, compiled clean
+  for 438 s. A second failure in a row starts clean, so kept state that breaks the build cannot break every one;
 - the key changed: the toolchain (Xcode, SDK, DEVELOPER_DIR) or a lockfile, toolchain
   pin or submodule commit (KEY_PATHS). A Cargo.lock is not one: the Release build's cargo
   phases (Build Diff Sidecar, Bundle optchat-chief, Bundle cmux-mobile-host) list their lockfiles
@@ -333,8 +340,10 @@ def clean_reason(state: dict, key: str, workspace: Path) -> str:
         return 'no earlier build on this builder'
     if not checkpoint_complete(state):
         return 'the kept build state is malformed'
-    if state['built'] is not True:
+    if state['built'] is not True and state.get('failed') is not True:
         return 'the last build did not finish'
+    if state['built'] is not True and state.get('after_failure') is True:
+        return 'the last two builds on this DerivedData failed'
     if state.get('key') != key:
         return 'the toolchain, a lockfile or a submodule changed'
     changed = structure_changed(workspace, str(state.get('sha') or ''))
@@ -440,7 +449,7 @@ def notices_cache(home: Path, runner: str) -> Path:
     if cache.is_dir() and tree_bytes(cache) > NOTICES_CACHE_MAX_BYTES:
         remove(cache)
     # Keep only the crate sources fetch_crates.py writes (registry/ and git/),
-    # which the notices read as text. The iroh-ffi, cmux-cua and cmux-tui
+    # which the notices read as text. The cmux-cua and cmux-tui
     # checkouts are where generate-third-party-notices.sh runs cargo, so
     # each job checks them out again: a file another job planted there
     # (a .cargo/config.toml) never runs in this one.
@@ -553,11 +562,39 @@ def prepare_host(root: Path, workspace: Path, toolchain: str) -> tuple[str, str]
     link(src / '.spm-cache', root / 'SourcePackages')
     remove(src / 'build-universal')
     head = git(src, 'rev-parse', 'HEAD').strip()
-    state = {'key': key, 'sha': head, 'built': False, 'since_clean': 0 if reason else since_clean(state) + 1}
+    state = {'key': key, 'sha': head, 'built': False, 'since_clean': 0 if reason else since_clean(state) + 1,
+             'after_failure': not reason and state.get('built') is not True}
     temporary = state_file.with_suffix('.tmp')
     temporary.write_text(json.dumps(state, sort_keys=True))
     temporary.replace(state_file)
-    return ('clean', reason) if reason else ('incremental', f'{state["since_clean"]} since the last clean build')
+    if reason:
+        return 'clean', reason
+    after = ', on a failed build' if state['after_failure'] else ''
+    return 'incremental', f'{state["since_clean"]} since the last clean build{after}'
+
+
+# xcodebuild's status when it ran to its end and the build failed (a compile or link error). Any other
+# status (a signal, a timeout's kill, a wrapper's own error) leaves the build unfinished.
+XCODEBUILD_FAILED = 65
+
+
+def fail_host(root: Path, status: int) -> bool:
+    """After a build in ROOT that xcodebuild ended with a failure: record it, so the next build may build on
+    what it finished (clean_reason). Only XCODEBUILD_FAILED counts; a killed build stays unfinished."""
+    state_file = root / HOST_STATE
+    state = read_state(state_file)
+    if status != XCODEBUILD_FAILED or not checkpoint_complete(state) or state['built'] is True:
+        return False
+    state['failed'] = True
+    temporary = state_file.with_suffix('.tmp')
+    try:
+        temporary.write_text(json.dumps(state, sort_keys=True))
+        temporary.replace(state_file)
+    except OSError as error:
+        print(f'::warning title=nightly build state::could not record the failed build ({error}); '
+              'the next build starts clean')
+        return False
+    return True
 
 
 def finish_host(root: Path, workspace: Path, home: Path, runner: str) -> None:
@@ -623,6 +660,10 @@ def main(argv: list[str]) -> int:
     if len(argv) == 3 and argv[1] == 'finish-host':
         finish_host(Path(argv[2]), workspace, Path.home(), os.environ.get('RUNNER_NAME', ''))
         return 0
+    if len(argv) == 4 and argv[1] == 'fail-host':
+        if fail_host(Path(argv[2]), int(argv[3]) if argv[3].isdigit() else -1):
+            print('NEXT Release build failed in xcodebuild; the next build may build on what it finished')
+        return 0
     if len(argv) == 2 and argv[1] == 'mark-built':
         if mark_built(workspace, Path.home(), os.environ.get('RUNNER_NAME', '')):
             print('NEXT Release build finished; the next build on this builder may build on its DerivedData')
@@ -631,7 +672,8 @@ def main(argv: list[str]) -> int:
         if release_lease(Path.home()):
             print('nightly-next-one released its kept tree')
         return 0
-    print('usage: nightly_build_state.py prepare TRACK | mark-built | release | prepare-host ROOT | finish-host ROOT',
+    print('usage: nightly_build_state.py prepare TRACK | mark-built | release | prepare-host ROOT | finish-host ROOT'
+          ' | fail-host ROOT STATUS',
           file=sys.stderr)
     return 2
 

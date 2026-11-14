@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import zipfile
 
@@ -120,12 +121,21 @@ class Known(unittest.TestCase):
         self.assertEqual(history.known([], "same", {TEST: False}), ({}, [FILE]))
 
     def test_a_file_red_without_names_reads_the_files_own_verdict(self):
-        self.assertEqual(history.known(runs(True), "same", {FILE: False}), ({FILE: True}, []))
+        self.assertEqual(history.known(runs(True, True), "same", {FILE: False}), ({FILE: True}, []))
         self.assertEqual(history.known(runs(None), "same", {FILE: False}), ({FILE: False}, []))
+
+    def test_one_green_push_is_one_sample_and_the_file_replays(self):
+        # cmux#41254 (run 43006460063): one green base sample of a test that flaps called its red the change's. A green
+        # takes two pushes at the key; a red is answered by one (it only excuses, and flaky() still names a flip).
+        self.assertEqual(history.known(runs(True), "same", {TEST: False}), ({}, [FILE]))
+        self.assertEqual(history.known(runs(True), "same", {FILE: False}), ({}, [FILE]))
+        self.assertEqual(history.known(runs(True, keys=["older"]) + runs(True), "same", {TEST: False}), ({}, [FILE]))
+        self.assertEqual(history.known(runs(False), "same", {TEST: False}), ({TEST: False}, []))
 
     def test_a_file_no_such_push_ran_replays_and_a_file_one_ran_answers_every_name(self):
         other = "test/other.test.ts"
         pushes = history.record([], "sha0", 1000, {FILE: True, other: True}, "same")
+        pushes = history.record(pushes, "sha1", 1001, {FILE: True, other: True}, "same")
         head = {TEST: False, f"{other} > x": False, f"{FILE} > new test": False}
         base, replay = history.known(pushes, "same", head)
         # FILE's "new test" is answered too (its file ran green); a red name the push never ran keeps the file
@@ -133,6 +143,7 @@ class Known(unittest.TestCase):
         self.assertEqual(replay, [])
         self.assertEqual(base, {TEST: True, f"{other} > x": True, f"{FILE} > new test": True})
         pushes = history.record([], "sha0", 1000, {FILE: True}, "same")
+        pushes = history.record(pushes, "sha1", 1001, {FILE: True}, "same")
         base, replay = history.known(pushes, "same", head)
         self.assertEqual((base, replay), ({TEST: True, f"{FILE} > new test": True}, [other]))
 
@@ -190,6 +201,217 @@ class KnownReds(unittest.TestCase):
                 done = subprocess.run([sys.executable, str(SCRIPT), "base-red-files", str(tmp / "bad.json"), "--names",
                                        str(head)], capture_output=True, text=True, check=True)
                 self.assertEqual(done.stdout, "", bad)
+
+
+class EarlyBase(unittest.TestCase):
+    """react-apps-base-early runs the base's recorded red files on the merge parent while the head shards run, so
+    react-apps-base-check need not replay them after: run 43384458711's base check replayed up to 10 such files a
+    shard (12.8 min, one a 600 s timeout) after the head shards' 17.9 min, for a 30.8 min verdict."""
+
+    SHA = "b" * 40
+
+    def test_the_base_reds_split_longest_first_and_keep_to_the_affected_files_the_base_has(self):
+        reds = ["test/hang.test.ts", "test/a.test.ts > x", "test/a.test.ts > y", "test/b.test.ts > x",
+                "test/c.test.ts > x", "test/gone.test.ts > x"]
+        durations = {"test/hang.test.ts": 600, "test/a.test.ts": 90, "test/b.test.ts": 80}
+        split = [history.early_files(reds, i, 2, durations) for i in (1, 2)]
+        # The 600 s file alone; the rest (c unknown: 60 s) on the other shard; every file once.
+        self.assertEqual(split, [["test/hang.test.ts"], ["test/a.test.ts", "test/b.test.ts", "test/c.test.ts",
+                                                          "test/gone.test.ts"]])
+        self.assertEqual(sorted(sum((history.early_files(reds, i, 5, durations) for i in range(1, 6)), [])),
+                         ["test/a.test.ts", "test/b.test.ts", "test/c.test.ts", "test/gone.test.ts", "test/hang.test.ts"])
+        only = {"test/a.test.ts", "test/gone.test.ts", "test/hang.test.ts"}
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("test/a.test.ts", "test/hang.test.ts", "test/b.test.ts"):
+                Path(tmp, name).parent.mkdir(parents=True, exist_ok=True)
+                Path(tmp, name).write_text("", encoding="utf-8")
+            self.assertEqual(history.early_files(reds, 1, 1, durations, only, Path(tmp)), ["test/a.test.ts", "test/hang.test.ts"])
+
+    def early(self, files, results, sha=SHA):
+        return {"sha": sha, "files": files, "results": results}
+
+    def test_a_file_the_early_run_ran_on_this_base_takes_its_verdicts_red_or_green(self):
+        other, hang = "test/other.test.ts", "test/hang.test.ts"
+        early = [self.early([FILE, other], {TEST: False, f"{FILE} > green": True, f"{other} > x": True}),
+                 self.early([hang], {hang: False})]
+        known, left = history.early_known(early, self.SHA, [FILE, other, hang, "test/not-early.test.ts"], {"k": True})
+        self.assertEqual(left, ["test/not-early.test.ts"])
+        # The base's red stays red (it excuses only that name), and a base green charges the head's red to the change.
+        self.assertEqual(known, {"k": True, TEST: False, f"{FILE} > green": True, f"{other} > x": True, hang: False})
+
+    def test_anything_the_early_run_cannot_vouch_for_replays(self):
+        replay = [FILE]
+        for early in ([], [self.early([FILE], {TEST: False}, sha="c" * 40)],  # another merge parent
+                      [self.early([FILE], {TEST: False}, sha="")],
+                      [self.early([], {TEST: False})],  # a result for a file it was not given
+                      [self.early([FILE], {})],  # given, never reached
+                      [self.early([FILE], {"test/x.test.ts > y": False})],
+                      [{"sha": self.SHA, "files": "x", "results": {TEST: False}}], ["junk"]):
+            self.assertEqual(history.early_known(early, self.SHA, replay, {}), ({}, [FILE]), early)
+        self.assertEqual(history.early_known([self.early([FILE], {TEST: False})], "short", replay, {}), ({}, [FILE]))
+
+    def test_the_commands_pick_a_shard_and_fold_its_results_in_and_fail_safe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            reds = tmp / "base-reds.json"
+            reds.write_text(json.dumps({"sha": "s", "inputs": "k", "red": [TEST, "test/hang.test.ts"]}))
+            manifest = tmp / "manifest.json"
+            manifest.write_text(json.dumps({"test/hang.test.ts": 600, FILE: 30, "bad": "x"}))
+
+            def pick(shard, *extra, path=reds):
+                return subprocess.run([sys.executable, str(SCRIPT), "early-files", str(path), "--shard", str(shard),
+                                       "--shard-count", "2", "--durations", str(manifest), *extra],
+                                      capture_output=True, text=True, check=True).stdout
+
+            self.assertEqual((pick(1), pick(2)), ("test/hang.test.ts\n", f"{FILE}\n"))
+            (tmp / "affected").write_text(f"{FILE}\n")
+            self.assertEqual(pick(1, "--only", str(tmp / "affected")), f"{FILE}\n")
+            for bad in ["{not json", json.dumps({"red": [TEST]}), ""]:
+                (tmp / "bad.json").write_text(bad)
+                self.assertEqual(pick(1, path=tmp / "bad.json"), "", bad)
+            self.assertEqual(pick(1, path=tmp / "missing.json"), "")
+            early = tmp / "early"
+            early.mkdir()
+            (early / "early-1.json").write_text(json.dumps(self.early([FILE], {TEST: False})))
+            (early / "early-2.json").write_text("{not json")
+            replay, known = tmp / "replay", tmp / "known.json"
+            replay.write_text(f"{FILE}\ntest/other.test.ts\n")
+            known.write_text("{}")
+
+            def fold(directory, sha=self.SHA):
+                return subprocess.run([sys.executable, str(SCRIPT), "early-known", str(directory), "--sha", sha,
+                                       "--replay", str(replay), "--known", str(known)], capture_output=True, text=True)
+
+            done = fold(tmp / "missing")
+            self.assertEqual((done.returncode, replay.read_text(), known.read_text()), (0, f"{FILE}\ntest/other.test.ts\n", "{}\n"))
+            done = fold(early)
+            self.assertIn("answers for 1 of 2 files", done.stdout)
+            self.assertEqual((replay.read_text(), json.loads(known.read_text())), ("test/other.test.ts\n", {TEST: False}))
+
+
+class FlakyOnly(unittest.TestCase):
+    """A file whose head reds are all flaky on the base only warns, whatever its base replay says, so
+    react-apps-base-check does not replay it: run 43442029204 replayed 4 such files for 5.1 min after its head shards."""
+
+    def test_a_file_replays_unless_every_red_it_names_is_flaky(self):
+        other, hang = "test/other.test.ts", "test/hang.test.ts"
+        head = {TEST: False, f"{FILE} > green": True, f"{other} > x": False, f"{other} > y": False, hang: False,
+                "test/green.test.ts > z": True}
+        flaky = {TEST, f"{other} > x", hang}
+        # other's y is not flaky and hang's whole-file red is; green has no red the head names, so it replays.
+        self.assertEqual(history.flaky_only([FILE, other, hang, "test/green.test.ts"], flaky, head),
+                         ([other, "test/green.test.ts"], [FILE, hang]))
+        self.assertEqual(history.flaky_only([FILE], set(), head), ([FILE], []))
+        self.assertEqual(history.flaky_only([FILE], {TEST}, {}), ([FILE], []))  # unread head results: it replays
+
+    def test_the_command_drops_only_flaky_files_and_leaves_the_list_on_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            head, flaky, replay = tmp / "head.json", tmp / "flaky", tmp / "replay"
+            head.write_text(json.dumps({TEST: False, "test/other.test.ts > x": False}))
+            replay.write_text(f"{FILE}\ntest/other.test.ts\n")
+
+            def run(path=flaky):
+                return subprocess.run([sys.executable, str(SCRIPT), "flaky-only", str(path), "--replay", str(replay),
+                                       "--names", str(head)], capture_output=True, text=True)
+
+            done = run(tmp / "missing")
+            self.assertNotEqual(done.returncode, 0)
+            self.assertEqual(replay.read_text(), f"{FILE}\ntest/other.test.ts\n")
+            flaky.write_text(f"{TEST}\n\n")
+            done = run()
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertIn("1 of 2 files to replay", done.stdout)
+            self.assertEqual(replay.read_text(), "test/other.test.ts\n")
+
+
+class OneBaseCheck(unittest.TestCase):
+    """react-apps-base-check is one job for all head shards (it was one a head shard: in run 43409592440 11 of those 12
+    took 0.3-0.9 min with the early base results). It joins the shards' artifacts and keeps each shard's re-run cap."""
+
+    def shard(self, root, i, results, logs=None, runner=True):
+        here = root / history.HEAD_ARTIFACT.format(i)
+        here.mkdir(parents=True)
+        (here / history.HEAD_RESULTS).write_text(results if isinstance(results, str) else json.dumps(results))
+        if runner:
+            (here / "runner").mkdir()
+            (here / "runner/run-webviews-tests.sh").write_text(f"# shard {i}\n")
+        if logs:
+            (here / "raw-logs").mkdir()
+            for name, text in logs.items():
+                (here / "raw-logs" / name).write_text(text)
+
+    def test_the_shards_join_into_one_results_map_runner_and_raw_logs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            self.shard(tmp / "in", 1, {TEST: False, "test/a.test.ts": True},
+                       {"summary": "FAIL x /r/test_agent.log\n", "test_agent.log": "one"})
+            self.shard(tmp / "in", 2, {"test/b.test.ts > y": False}, {"summary": "FAIL y /r/test_b.log\n", "test_b.log": "two"})
+            self.assertIsNone(history.join_heads(tmp / "in", 2, tmp / "out"))
+            self.assertEqual(json.loads((tmp / "out" / history.HEAD_RESULTS).read_text()),
+                             {TEST: False, "test/a.test.ts": True, "test/b.test.ts > y": False})
+            self.assertEqual(json.loads((tmp / "out/shards.json").read_text()),
+                             {FILE: 1, "test/a.test.ts": 1, "test/b.test.ts": 2})
+            self.assertEqual((tmp / "out/raw-logs/summary").read_text(), "FAIL x /r/test_agent.log\nFAIL y /r/test_b.log\n")
+            self.assertEqual(((tmp / "out/raw-logs/test_agent.log").read_text(), (tmp / "out/raw-logs/test_b.log").read_text()),
+                             ("one", "two"))
+            self.assertEqual((tmp / "out/runner/run-webviews-tests.sh").read_text(), "# shard 1\n")
+
+    def test_a_missing_shard_fails_and_an_unreadable_one_leaves_the_results_unreadable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            self.shard(tmp / "in", 1, {TEST: False})
+            self.assertIn("shard2", history.join_heads(tmp / "in", 2, tmp / "out"))
+            done = subprocess.run([sys.executable, str(SCRIPT), "heads", str(tmp / "in"), "--count", "2", "--out",
+                                   str(tmp / "out2")], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 1)
+            self.assertIn("::error", done.stdout)
+            self.shard(tmp / "in", 2, "{not json")
+            self.assertIsNone(history.join_heads(tmp / "in", 2, tmp / "out"))
+            done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), "--failed-files",
+                                   str(tmp / "out" / history.HEAD_RESULTS)], capture_output=True, text=True)
+            self.assertNotEqual(done.returncode, 0)  # read as one shard's unreadable results were: every red replays
+
+    def test_the_rerun_cap_holds_per_head_shard(self):
+        where = {f"test/s1-{i}.test.ts": 1 for i in range(25)} | {f"test/s2-{i}.test.ts": 2 for i in range(26)}
+        one = [f"test/s1-{i}.test.ts" for i in range(25)]
+        self.assertTrue(history.rerun_fits(one, where, 25))
+        self.assertTrue(history.rerun_fits(one + [f"test/s2-{i}.test.ts" for i in range(25)], where, 25))
+        self.assertFalse(history.rerun_fits([f"test/s2-{i}.test.ts" for i in range(26)], where, 25))
+        self.assertFalse(history.rerun_fits([], where, 25))
+        # No map: every file counts as one shard's.
+        self.assertFalse(history.rerun_fits(one + ["test/x.test.ts"], {}, 25))
+        with tempfile.TemporaryDirectory() as tmp:
+            files = Path(tmp, "files")
+            files.write_text("".join(f"{f}\n" for f in one))
+            def fits(*shards):
+                return subprocess.run([sys.executable, str(SCRIPT), "rerun-fits", str(files), "--shards",
+                                       *shards, "--cap", "25"]).returncode
+            Path(tmp, "shards.json").write_text(json.dumps(where))
+            self.assertEqual(fits(str(Path(tmp, "shards.json"))), 0)
+            self.assertEqual(fits(str(Path(tmp, "missing.json"))), 0)
+            files.write_text("")
+            self.assertEqual(fits(str(Path(tmp, "shards.json"))), 1)
+
+    def test_the_one_job_joins_every_head_shard_before_it_reads_them(self):
+        import yaml
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        check = jobs["react-apps-base-check"]
+        self.assertNotIn("strategy", check)
+        self.assertEqual(check["name"], "react-apps-base-check")
+        steps = {s["name"]: s for s in check["steps"]}
+        names = [s["name"] for s in check["steps"]]
+        download = steps["Download head webview results"]["with"]
+        self.assertEqual(download["pattern"], "react-apps-head-results-shard*")
+        self.assertNotIn("merge-multiple", download)
+        join = steps["Join the head shards' results"]
+        self.assertEqual(int(join["env"]["HEAD_SHARDS"]), len(jobs["react-apps-check-shard"]["strategy"]["matrix"]["include"]))
+        self.assertIn('--out "$RUNNER_TEMP/head-results"', join["run"])
+        self.assertNotIn("continue-on-error", join)
+        self.assertLess(names.index("Join the head shards' results"), names.index("Use the merge parent as the base"))
+        compare = steps["Run base reds and compare"]["run"]
+        self.assertIn("rerun-fits", compare)
+        self.assertIn("--cap 25", compare)
 
 
 class Inputs(unittest.TestCase):
@@ -322,6 +544,97 @@ class Command(unittest.TestCase):
             self.assertEqual(done.stdout, "")
 
 
+def file_runs(*verdicts, file=FILE):
+    """One push a verdict, oldest first, at an hour apart: True green, False a test red, None the file failed whole,
+    "-" the file did not run (another file did)."""
+    out = []
+    for i, verdict in enumerate(verdicts):
+        found = ({"test/other.test.ts": True} if verdict == "-" else {file: False} if verdict is None
+                 else {f"{file} > sends the image": False, f"{file} > ok": True} if verdict is False else {file: True})
+        out = history.record(out, f"{i:040x}", 1_800_000_000 + 3600 * i, found, "k")
+    return out
+
+
+class Stuck(unittest.TestCase):
+    """cmuxterm-hq#10383: react-apps-check was red on every completed feat-cmux-next push run for about 40 hours
+    (78 runs from 2026-11-11 16:59 UTC) and model-picker-scaling on 62 recorded pushes in a row, each excused on
+    every pull request as a base red, until someone read a whole run's failures."""
+
+    def test_a_file_red_on_the_last_n_pushes_is_named_with_its_first_red_and_last_green(self):
+        found = history.stuck(file_runs(True, True, False, False, None, "-", False), streak=4)
+        self.assertEqual([(f["file"], f["reds"]) for f in found], [(FILE, 4)])
+        self.assertEqual(found[0]["first"]["sha"], f"{2:040x}")
+        self.assertEqual(found[0]["green"]["sha"], f"{1:040x}")
+        self.assertEqual(found[0]["tests"], [f"{FILE} > sends the image"])
+
+    def test_a_red_shorter_than_n_or_one_that_went_green_is_not_stuck(self):
+        self.assertEqual(history.stuck(file_runs(True, False, False, False), streak=4), [])
+        self.assertEqual(history.stuck(file_runs(False, False, False, False, True), streak=4), [])
+        # A flake: one green in the stretch ends it.
+        self.assertEqual(history.stuck(file_runs(False, False, True, False, False), streak=4), [])
+        self.assertEqual(history.stuck([], streak=1), [])
+
+    def test_a_red_older_than_the_history_has_no_last_green(self):
+        runs = file_runs(False, False, False)
+        found = history.stuck(runs, streak=3)
+        self.assertIsNone(found[0]["green"])
+        notes, summary = history.stuck_report(found, runs, 3, "o/r")
+        self.assertIn("no green in the 3 pushes recorded", notes[0])
+        self.assertIn("none recorded", summary)
+
+    def test_report_gives_one_error_a_range_with_its_commits_and_a_summary_row_a_file(self):
+        a = file_runs(True, False, False, False)
+        other = "test/b.test.ts"
+        runs = []
+        for i, run in enumerate(a):
+            found = {name: name not in run["red"] for name in (f"{FILE} > sends the image", f"{FILE} > ok")}
+            found[f"{other} > lays out"] = i == 0
+            runs = history.record(runs, run["sha"], run["time"], found, "k")
+        found = history.stuck(runs, streak=3)
+        self.assertEqual([f["file"] for f in found], [FILE, other])
+        notes, summary = history.stuck_report(found, runs, 3, "o/r")
+        self.assertEqual(len(notes), 1)
+        self.assertTrue(notes[0].startswith("::error title=Webview base red for 3 pushes::2 webview test file(s)"))
+        self.assertIn(f"https://github.com/o/r/compare/{0:040x}...{1:040x}", notes[0])
+        self.assertIn(f"Files: {FILE}, {other}", notes[0])
+        self.assertEqual(summary.count("\n| `"), 2)
+        self.assertIn("lays out", summary)
+
+    def test_annotations_stop_at_the_step_limit(self):
+        runs = []
+        names = [f"test/f{i}.test.ts" for i in range(12)]
+        for push in range(14):
+            # File i goes red on push i and stays red: twelve first-red ranges.
+            runs = history.record(runs, f"{push:040x}", 1_800_000_000 + push,
+                                  {f"{n} > t": push < i for i, n in enumerate(names)}, "k")
+        found = history.stuck(runs, streak=2)
+        self.assertEqual(len(found), 12)
+        notes, summary = history.stuck_report(found, runs, 2, "o/r")
+        self.assertEqual(len(notes), history.STUCK_NOTES + 1)
+        self.assertIn("3 more range(s)", notes[-1])
+        self.assertEqual(summary.count("\n| `"), 12)
+
+    def test_the_command_fails_writes_the_summary_and_passes_when_nothing_is_stuck(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            saved, summary = Path(tmp, "history.json"), Path(tmp, "summary.md")
+            saved.write_text(json.dumps({"runs": file_runs(True, False, False)}))
+            run = lambda *extra: subprocess.run([sys.executable, str(SCRIPT), "stuck", str(saved), "--runs", "2",
+                                                 "--repo", "o/r", "--summary", str(summary), *extra],
+                                                capture_output=True, text=True)
+            done = run("--fail")
+            self.assertEqual(done.returncode, 1, done.stderr)
+            self.assertIn("::error title=Webview base red for 2 pushes::", done.stdout)
+            self.assertIn(f"`{FILE}`", summary.read_text())
+            self.assertEqual(run().returncode, 0)
+            saved.write_text(json.dumps({"runs": file_runs(False, False, True)}))
+            done = run("--fail")
+            self.assertEqual(done.returncode, 0, done.stdout)
+            self.assertNotIn("::error", done.stdout)
+            missing = subprocess.run([sys.executable, str(SCRIPT), "stuck", str(Path(tmp, "none.json")), "--fail"],
+                                     capture_output=True, text=True)
+            self.assertEqual(missing.returncode, 0)
+
+
 def artifact_zip(runs) -> bytes:
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as archive:
@@ -433,11 +746,17 @@ class Workflow(unittest.TestCase):
         self.assertIn("timeout-minutes: 5", upkeep)
         # The cache the history used to live in was never restored by the next push (2026-11-08).
         self.assertNotIn("actions/cache", upkeep)
-        # Optional upkeep: every step keeps going, so the job never reddens a push.
+        # Optional upkeep: every step keeps going, so a stalled download or save never reddens a push. Only the last
+        # step, which names reds stuck on the base, may turn the job red, and it runs after the history is saved.
         steps = upkeep.split("\n      - name: ")[1:]
         self.assertTrue(steps)
-        for step in steps:
+        self.assertTrue(steps[-1].startswith("Name webview reds stuck on the base"), steps[-1])
+        for step in steps[:-1]:
             self.assertIn("continue-on-error: true", step, step)
+        self.assertNotIn("continue-on-error", steps[-1])
+        self.assertIn("if: ${{ steps.history-record.outcome == 'success' }}", steps[-1])
+        self.assertIn('webviews_test_history.py stuck "$RUNNER_TEMP/webviews-test-history/history.json"', steps[-1])
+        self.assertIn('--summary "$GITHUB_STEP_SUMMARY" --fail', steps[-1])
         shard = self.job("react-apps-check-shard")
         upload = shard[shard.index("      - name: Upload this push's webview results"):]
         upload = upload[:upload.index("\n      - name:", 10)]
@@ -523,6 +842,7 @@ class Workflow(unittest.TestCase):
                 (ROOT / "scripts/ci/webviews_test_results.py").read_text(encoding="utf-8"), encoding="utf-8")
             (runner / "real_history.py").write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
             pushes = history.record([], "sha0", 1000, {FILE: True}, "same")
+            pushes = history.record(pushes, "sha1", 1001, {FILE: True}, "same")  # a green takes two samples
             # fetch writes this history; every other command is the real script's.
             (runner / "webviews_test_history.py").write_text(
                 "import json, pathlib, runpy, sys\n"
@@ -544,6 +864,264 @@ class Workflow(unittest.TestCase):
             self.assertEqual(output.read_text(encoding="utf-8"), "replay=1\n")
             self.assertEqual(Path(temp, "base-replay-files").read_text(encoding="utf-8"), f"{other}\n")
             self.assertEqual(json.loads(Path(temp, "base-known.json").read_text(encoding="utf-8")), {TEST: True})
+
+    def test_the_replay_takes_the_early_base_runs_verdicts_and_replays_only_the_rest(self):
+        """Run 43384458711: the base check replayed after the head shards what the base's push already had red, at
+        its 17.9 min, to 30.8. With react-apps-base-early's results for this merge parent, those files need no
+        replay; a red the early run did not reach still replays."""
+        base = self.job("react-apps-base-check")
+        step = base[base.index("      - name: Restore the base's webview test history"):]
+        step = step[:step.index("\n      - name:", 10)]
+        body = step[step.index("        run: |\n") + len("        run: |\n"):].splitlines()
+        script = "\n".join(line[10:] for line in itertools.takewhile(lambda line: line.startswith(" " * 10), body))
+        other, late = "test/other.test.ts", "test/late.test.ts"
+        with tempfile.TemporaryDirectory() as temp:
+            runner = Path(temp, "head-results/runner")
+            runner.mkdir(parents=True)
+            (runner / "webviews_test_results.py").write_text(
+                (ROOT / "scripts/ci/webviews_test_results.py").read_text(encoding="utf-8"), encoding="utf-8")
+            (runner / "real_history.py").write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+            # The history holds no push at the merge parent's inputs: alone, it answers for nothing.
+            (runner / "webviews_test_history.py").write_text(
+                "import json, pathlib, runpy, sys\n"
+                "if sys.argv[1] == 'fetch':\n"
+                "    pathlib.Path(sys.argv[2]).parent.mkdir(parents=True, exist_ok=True)\n"
+                "    pathlib.Path(sys.argv[2]).write_text(json.dumps({'runs': []}))\n"
+                "    sys.exit(0)\n"
+                "sys.argv[0] = str(pathlib.Path(__file__).with_name('real_history.py'))\n"
+                "runpy.run_path(sys.argv[0], run_name='__main__')\n", encoding="utf-8")
+            Path(temp, "scripts/ci").mkdir(parents=True)
+            Path(temp, "scripts/ci/webviews_test_history.py").write_text("print('new-key')\n", encoding="utf-8")
+            env = git_fixture_env.fixture_env({"PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin"})
+            subprocess.run(["git", "init", "-q"], cwd=temp, check=True, env=env)
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base"],
+                           cwd=temp, check=True, env=env)
+            sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=temp, check=True, capture_output=True, text=True,
+                                 env=env).stdout.strip()
+            Path(temp, "base-early").mkdir()
+            Path(temp, "base-early/early-3.json").write_text(json.dumps({
+                "sha": sha, "files": [FILE, other], "results": {TEST: False, f"{other} > x": True}}), encoding="utf-8")
+            head = Path(temp, "head-results/webviews-head-results.json")
+            head.write_text(json.dumps({TEST: False, f"{other} > x": False, f"{late} > y": False}), encoding="utf-8")
+            output = Path(temp, "output")
+            subprocess.run(["bash", "-e", "-c", script], check=True, capture_output=True, cwd=temp, env={**env,
+                "RUNNER_TEMP": temp, "HEAD_RESULTS": str(head), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "BASE_REF": "feat-cmux-next", "GITHUB_OUTPUT": str(output)})
+            self.assertEqual(output.read_text(encoding="utf-8"), "replay=1\n")
+            self.assertEqual(Path(temp, "base-replay-files").read_text(encoding="utf-8"), f"{late}\n")
+            # The base's red excuses its name; the base's green leaves other's red the change's.
+            self.assertEqual(json.loads(Path(temp, "base-known.json").read_text(encoding="utf-8")),
+                             {TEST: False, f"{other} > x": True})
+            # Early results from another merge parent answer for nothing.
+            Path(temp, "base-early/early-3.json").write_text(json.dumps({
+                "sha": "c" * 40, "files": [FILE, other], "results": {TEST: False, f"{other} > x": True}}), encoding="utf-8")
+            subprocess.run(["bash", "-e", "-c", script], check=True, capture_output=True, cwd=temp, env={**env,
+                "RUNNER_TEMP": temp, "HEAD_RESULTS": str(head), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "BASE_REF": "feat-cmux-next", "GITHUB_OUTPUT": str(output)})
+            self.assertEqual(output.read_text(encoding="utf-8"), "replay=1\nreplay=3\n")
+            self.assertEqual(json.loads(Path(temp, "base-known.json").read_text(encoding="utf-8")), {})
+
+    def test_the_early_base_job_runs_the_replay_its_way_and_never_blocks_the_check(self):
+        import yaml
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        early, check = jobs["react-apps-base-early"], jobs["react-apps-base-check"]
+        self.assertEqual(early["needs"], "web-subarea-scope")  # alongside the head shards, not after them
+        self.assertIn("react-apps-base-early", check["needs"])
+        self.assertIn("react-apps-check-shard", check["needs"])
+        self.assertIs(early["continue-on-error"], True)
+        self.assertEqual(early["if"], check["if"])
+        sys.path.insert(0, str(ROOT / "tests"))
+        import workflow_jobs  # noqa: PLC0415
+        self.assertEqual(workflow_jobs.runs_on(early), workflow_jobs.runs_on(check))
+        self.assertLess(early["timeout-minutes"], jobs["react-apps-check-shard"]["timeout-minutes"])
+        # 2 shards (run 43409592440's 12 ran 54 files one at a time; shard 1's 600 s timeout alone ended at 15.0 min),
+        # each running its files at the head shards' widths, so the slowest file still ends before the head shards.
+        include = early["strategy"]["matrix"]["include"]
+        self.assertEqual(include, [{"shard": 1, "shard_count": 2}, {"shard": 2, "shard_count": 2}])
+        steps = {s["name"]: s for s in early["steps"]}
+        replay = next(s for s in check["steps"] if s["name"] == "Run base reds and compare")
+        head = next(s for s in jobs["react-apps-check-shard"]["steps"] if s["name"] == "Test webviews")
+        run = steps["Run the base reds"]
+        for key in ("CMUX_NEXT_STYLE_GUARDS", "CMUX_WEB_TEST_RETRIES"):
+            self.assertEqual(run["env"][key], replay["env"][key], key)
+        for key in ("CMUX_WEB_TEST_JOBS", "CMUX_WEB_TEST_DEV_JOBS"):
+            self.assertEqual(run["env"][key], head["env"][key], key)
+        self.assertEqual(steps["Pick this shard's base reds"]["env"]["SHARD_COUNT"], "${{ matrix.shard_count }}")
+        self.assertIn('--shard-count "$SHARD_COUNT"', steps["Pick this shard's base reds"]["run"])
+        self.assertIn('env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES', run["run"])
+        self.assertIn('bash "$early/runner/run-webviews-tests.sh"', run["run"])
+        pick = steps["Pick this shard's base reds"]["run"]
+        # The head's runner, then the merge parent, as the base check does.
+        self.assertLess(pick.index("cp scripts/ci/run-webviews-tests.sh"), pick.index("git checkout -q --detach HEAD^1"))
+        self.assertLess(pick.index("webviews_affected.py --base HEAD^1 --head HEAD"), pick.index("git checkout -q --detach HEAD^1"))
+        self.assertIn("early-files", pick)
+        self.assertEqual(steps["Upload the early base results"]["with"]["name"], "react-apps-base-early-shard${{ matrix.shard }}")
+        download = next(s for s in check["steps"] if s["name"] == "Download the early base results")
+        self.assertEqual(download["with"]["pattern"], "react-apps-base-early-shard*")
+        self.assertIs(download["continue-on-error"], True)
+        names = [s["name"] for s in check["steps"]]
+        self.assertLess(names.index("Download the early base results"), names.index("Restore the base's webview test history"))
+        # Every early shard waits on the install only when it has files to run.
+        for name in ("Setup Bun", "Install webview dependencies", "Build base web bundles", "Install headless engines",
+                     "Run the base reds", "Upload the early base results"):
+            self.assertEqual(steps[name]["if"], "${{ steps.pick.outputs.files != '0' }}", name)
+
+    def step_script(self, name):
+        base = self.job("react-apps-base-check")
+        step = base[base.index(f"      - name: {name}\n"):]
+        step = step[:step.index("\n      - name:", 10)] if "\n      - name:" in step[10:] else step
+        body = step[step.index("        run: |\n") + len("        run: |\n"):].splitlines()
+        return "\n".join(line[10:] for line in itertools.takewhile(
+            lambda line: line.startswith(" " * 10) or not line.strip(), body))
+
+    def compare_env(self):
+        import yaml
+        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["react-apps-base-check"]["steps"]
+        return {k: str(v) for k, v in next(s for s in steps if s["name"] == "Run base reds and compare")["env"].items()}
+
+    def replay(self, head, results, rerun=None, elapsed=0, source="test\n"):
+        """Run the compare step (and the head re-run step when it asks for one) with a stub test runner whose Nth call
+        writes RESULTS[N-1] ({} past the end), ELAPSED seconds into the job. Returns (compare exit, compare output,
+        rerun output, calls' files)."""
+        red = "test/agent-pane-stream-row-overlap.test.ts"
+        budget = {k: v for k, v in self.compare_env().items() if k in ("JOB_TIMEOUT_MINUTES", "REPLAY_RESERVE")}
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp, "repo")
+            git_fixture_env.init_repo(repo)
+            Path(repo, "webviews/test").mkdir(parents=True)
+            Path(repo, f"webviews/{red}").write_text(source, encoding="utf-8")
+            env = git_fixture_env.fixture_env({
+                "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "RUNNER_TEMP": temp,
+                "HEAD_RESULTS": str(Path(temp, "head.json")), "BASE_RESULTS": str(Path(temp, "base-results.json")),
+                "HEAD_RERUN": str(Path(temp, "head-rerun.json")), "KNOWN_REPLAY": "1",
+                "GITHUB_OUTPUT": str(Path(temp, "output")), **budget})
+            Path(temp, "job-started").write_text(f"{int(time.time()) - elapsed}\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, env=env)
+            subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"],
+                           check=True, env=env)
+            Path(temp, "head.json").write_text(json.dumps(head), encoding="utf-8")
+            Path(temp, "base-replay-files").write_text(f"{red}\n", encoding="utf-8")
+            Path(temp, "base-known.json").write_text("{}\n", encoding="utf-8")
+            runner = Path(temp, "head-results/runner")
+            runner.mkdir(parents=True)
+            (runner / "guards_new_reds.py").write_text(
+                (ROOT / "scripts/ci/guards_new_reds.py").read_text(encoding="utf-8"), encoding="utf-8")
+            (runner / "webviews_test_history.py").write_text("", encoding="utf-8")  # no flakes on record
+            (runner / "test_reds.py").write_text("", encoding="utf-8")
+            for i, found in enumerate(results, 1):
+                (runner / f"result-{i}.json").write_text(json.dumps(found), encoding="utf-8")
+            (runner / "run-webviews-tests.sh").write_text(
+                'here="$(dirname "$0")"; n=$(( $(cat "$here/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$here/calls"\n'
+                'printf "%s\\n" "$CMUX_WEB_TEST_FILES" > "$here/files-$n"\n'
+                'cp "$here/result-$n.json" "$CMUX_WEB_TEST_RESULTS" 2>/dev/null || echo "{}" > "$CMUX_WEB_TEST_RESULTS"\n',
+                encoding="utf-8")
+            compare = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", self.step_script("Run base reds and compare")],
+                                     cwd=repo / "webviews", capture_output=True, text=True, env=env)
+            again = ""
+            if Path(temp, "output").exists() and "rerun=true" in Path(temp, "output").read_text(encoding="utf-8"):
+                again = subprocess.run(
+                    ["bash", "-e", "-o", "pipefail", "-c", self.step_script("Re-run the change's reds alone on the head")],
+                    cwd=repo / "webviews", capture_output=True, text=True, env=env).stdout
+            calls = int((runner / "calls").read_text()) if (runner / "calls").exists() else 0
+            files = [(runner / f"files-{n}").read_text(encoding="utf-8").split() for n in range(1, calls + 1)]
+            return compare.returncode, compare.stdout + compare.stderr, again, files
+
+    def test_a_red_the_base_passes_once_replays_there_again_before_it_is_the_changes(self):
+        # cmux#41254 (run 43006460063): attempt 2's one base replay passed the webkit overlap test the head failed
+        # twice, and the verdict called it the change's; attempt 3's base replay failed it. A second replay on the
+        # base settles it as flaky there.
+        red = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
+        file = red.split(" > ")[0]
+        status, out, _, files = self.replay({red: False}, [{red: True}, {red: False}])
+        self.assertEqual(status, 0, out)
+        self.assertIn(f"webview test red step (flaky): {red}", out)
+        self.assertEqual(files, [[file], [file]])  # stops once the base failed it
+        # A real break: the base passes every bounded replay (three in all) and the head fails it again alone.
+        status, out, again, files = self.replay({red: False}, [{red: True}, {red: True}, {red: True}, {red: False}])
+        self.assertEqual(status, 1, out)
+        self.assertIn(f"::error title=Webview test red on this change::{red}", out)
+        self.assertEqual(files, [[file], [file], [file], [file]])  # three base replays, then the head re-run
+        self.assertIn(f"::error title=Webview test red on this change::{red}", again)
+        # A red the first replay already fails on the base replays no more.
+        status, out, _, files = self.replay({red: False}, [{red: False}])
+        self.assertEqual((status, files), (0, [[file]]), out)
+
+    def test_a_new_test_file_red_on_the_head_reaches_the_verdict_and_never_replays_on_the_base(self):
+        # #41414 review BLOCK: a red in a file the base does not have (a new test file) has no base result, so it is a
+        # new red and the replay loop listed its file; reading that missing file's declared limit failed under
+        # -e -o pipefail and ended the step with no verdict and no head re-run. It stays the change's, unreplayed,
+        # and the other file's reds still replay.
+        red = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
+        file = red.split(" > ")[0]
+        new = "test/only-on-the-head.test.ts > draws"
+        status, out, _, files = self.replay({red: False, new: False}, [{red: True}, {red: False}])
+        self.assertEqual(status, 1, out)
+        self.assertIn(f"not on the base, the change's own, not replayed: {new.split(' > ')[0]}", out)
+        self.assertIn(f"::error title=Webview test red on this change::{new}", out)
+        self.assertIn(f"webview test red step (flaky): {red}", out)
+        self.assertEqual(files[:2], [[file], [file]])  # the first replay and one more, neither with the new file
+
+    def test_the_base_replays_fit_the_job_timeout(self):
+        # #41414 review F1: three base replays of a 900 s file plus the head re-run is 60 minutes, past the job's 55,
+        # and a job cut at its timeout gives the required check no verdict. The replays after the first share one
+        # budget, what is left of timeout-minutes less REPLAY_RESERVE for the head re-run and the verdict; this sums
+        # that worst case against timeout-minutes, as cmuxterm-hq#9496's test_skills_workflow_budget does.
+        import yaml
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["react-apps-base-check"]
+        env = self.compare_env()
+        timeout = int(job["timeout-minutes"]) * 60
+        self.assertEqual(int(env["JOB_TIMEOUT_MINUTES"]) * 60, timeout, "the budget must read this job's timeout-minutes")
+        runner = (ROOT / "scripts/ci/run-webviews-tests.sh").read_text(encoding="utf-8")
+        ceiling = int(re.search(r'maximum="\$\{CMUX_WEB_TEST_MAX_FILE_TIMEOUT:-(\d+)\}"', runner).group(1))
+        # The head re-run: its checkout, bun, install, bundles and browsers (3 to 11 min a shard), one file at the
+        # runner's ceiling, the verdict, and the checkout before the job's clock starts.
+        head_rerun = 11 * 60 + ceiling + 60 + 60
+        self.assertGreaterEqual(int(env["REPLAY_RESERVE"]), head_rerun)
+        # Before the replays: the base's setup (11 min) and the first replay of one file at the ceiling. The replays
+        # after it get only what is left, so the sum stays inside timeout-minutes; the first replay itself must fit.
+        before = 11 * 60 + ceiling
+        self.assertLess(before + int(env["REPLAY_RESERVE"]), timeout)
+        compare = self.step_script("Run base reds and compare")
+        self.assertIn('"$RUNNER_TEMP/job-started"', compare)
+        self.assertIn("JOB_TIMEOUT_MINUTES * 60", compare)
+        self.assertIn("REPLAY_RESERVE", compare)
+        self.assertIn('date +%s > "$RUNNER_TEMP/job-started"', self.step_script("Use the merge parent as the base"))
+
+    def test_a_replay_the_budget_cannot_fit_is_not_run_and_its_reds_stay_the_changes(self):
+        red = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
+        file = red.split(" > ")[0]
+        timeout = int(self.compare_env()["JOB_TIMEOUT_MINUTES"]) * 60
+        reserve = int(self.compare_env()["REPLAY_RESERVE"])
+        # No time left after the first replay: no second one, and the red is the change's, not replayed (never excused).
+        status, out, _, files = self.replay({red: False}, [{red: True}, {red: False}], elapsed=timeout - reserve)
+        self.assertEqual(status, 1, out)
+        self.assertEqual(files[0], [file])
+        self.assertNotIn("replaying on the base again", out)
+        self.assertIn("not replayed", out)
+        self.assertIn(f"::error title=Webview test red on this change::{red}", out)
+        # 600 s left fits a file at the default 120 s limit, not one that declares 900 s.
+        status, out, _, files = self.replay({red: False}, [{red: True}, {red: False}], elapsed=timeout - reserve - 600)
+        self.assertEqual((status, files), (0, [[file], [file]]), out)
+        status, out, _, files = self.replay({red: False}, [{red: True}, {red: False}], elapsed=timeout - reserve - 600,
+                                            source="// cmux-web-test-timeout: 900\ntest\n")
+        self.assertEqual(status, 1, out)
+        self.assertIn("not replayed", out)
+        # A job long past its budget replays nothing more.
+        status, out, _, files = self.replay({red: False}, [{red: True}, {red: False}], elapsed=10**6)
+        self.assertEqual(status, 1, out)
+        self.assertNotIn("replaying on the base again", out)
+
+    def test_the_head_rerun_keeps_a_base_replay_flake_flaky(self):
+        # The re-run's verdict line is the replay's final one (base_red_excuse reads it): a name another base replay
+        # failed stays flaky there while a different red is the change's.
+        flake = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
+        broken = "test/agent-pane-stream-row-overlap.test.ts > chromium: followed"
+        status, out, again, _ = self.replay({flake: False, broken: False},
+                                            [{flake: True, broken: True}, {flake: False, broken: True},
+                                             {flake: True, broken: True}, {flake: False, broken: False}])
+        self.assertEqual(status, 1, out)
+        self.assertIn(f"webview test red step (flaky): {flake}", again)
+        self.assertIn(f"webview test red step (new): {broken}", again)
 
     def test_only_the_install_build_and_browsers_wait_on_the_replay(self):
         import yaml

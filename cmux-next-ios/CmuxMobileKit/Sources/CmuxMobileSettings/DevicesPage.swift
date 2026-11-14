@@ -371,7 +371,7 @@ struct DevicesPage: View {
             removalError = failure
             theme.haptics.error()
         } catch {
-            removalError = ServiceFailureMessage(text: "Couldn't remove \(displayName(device)): \(error.localizedDescription)")
+            removalError = ServiceFailureMessage(text: "Couldn't remove \(displayName(device)). \(UserFacingError.message(error))")
             theme.haptics.error()
         }
     }

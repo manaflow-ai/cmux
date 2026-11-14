@@ -45,7 +45,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -478,6 +478,12 @@ pub struct HubServe {
 }
 
 impl HubServe {
+    /// A registration that is `task` (a test's stand-in), dropped as a real one is.
+    #[cfg(test)]
+    pub(crate) fn of_task(task: tokio::task::JoinHandle<()>) -> Self {
+        Self { task }
+    }
+
     /// True once the registration stopped for good (its key was replaced).
     pub fn is_finished(&self) -> bool {
         self.task.is_finished()
@@ -493,7 +499,7 @@ impl Drop for HubServe {
 /// Where a peer finds its hub carrier: the daemon's one carrier, set once it starts (peers
 /// start before it, `hub/mod.rs` `build`), and whether one is expected at all.
 #[derive(Clone, Default)]
-pub struct HubCarrierSlot(Arc<OnceLock<Arc<HubCarrier>>>, bool);
+pub struct HubCarrierSlot(Arc<std::sync::RwLock<Option<Arc<HubCarrier>>>>, bool);
 
 impl HubCarrierSlot {
     /// A slot for a daemon whose startup may run the carrier: one with the joined machine
@@ -513,15 +519,26 @@ impl HubCarrierSlot {
 
     /// Whether the carrier runs or this daemon's startup may start it.
     pub fn expected(&self) -> bool {
-        self.1 || self.0.get().is_some()
+        self.1 || self.get().is_some()
     }
 
-    pub fn set(&self, carrier: Arc<HubCarrier>) -> bool {
-        self.0.set(carrier).is_ok()
+    /// Makes `carrier` the daemon's, in place of one a stop left or a join replaced.
+    pub fn set(&self, carrier: Arc<HubCarrier>) {
+        use crate::no_panic::RwLockExt;
+        *self.0.write_or_recover() = Some(carrier);
     }
 
-    pub fn get(&self) -> Option<&Arc<HubCarrier>> {
-        self.0.get()
+    /// The carrier that runs, if one does.
+    pub fn get(&self) -> Option<Arc<HubCarrier>> {
+        use crate::no_panic::RwLockExt;
+        self.0.read_or_recover().clone()
+    }
+
+    /// No carrier: it stopped ([`stop_kept`]). A peer's dial finds none rather than the stopped
+    /// one, whose tickets come from the left join's hub and credential.
+    pub fn clear(&self) -> Option<Arc<HubCarrier>> {
+        use crate::no_panic::RwLockExt;
+        self.0.write_or_recover().take()
     }
 }
 
@@ -731,18 +748,24 @@ pub async fn start_configured(
         }
     };
     // A copy of another machine's home never serves (condition 3), whatever its credential.
-    if tokio::task::spawn_blocking(crate::cli::cloud_join::copied_from_another_box)
-        .await
-        .unwrap_or(true)
+    let copied_home = state_dir.to_path_buf();
+    if tokio::task::spawn_blocking(move || {
+        crate::cli::cloud_join::copied_from_another_box_at(&copied_home)
+    })
+    .await
+    .unwrap_or(true)
     {
         tracing::warn!("hub carrier off: this home was copied from another machine");
         return None;
     }
     let home = state_dir.to_path_buf();
-    // The check lives as long as the carrier, and so does its share of the transport's lock.
+    // The carrier runs only while the transport holds the lock: it keeps no share of it, so a
+    // transport that yields to the cmux link (`Transport::yield_to_link`) frees the key at once,
+    // and from then the check fails: the carrier unregisters and refuses its dials.
+    let holder = Arc::downgrade(&holder);
     let check: KeyCheck = Arc::new(move |public: &[u8; 32]| {
-        let _held = &holder;
-        crate::cli::mesh_node_key::public_key_at(&home).is_some_and(|now| now == *public)
+        holder.upgrade().is_some()
+            && crate::cli::mesh_node_key::public_key_at(&home).is_some_and(|now| now == *public)
     });
     let carrier = HubCarrier::with_key_check(
         Arc::new(PlatformTickets { hub: client }),
@@ -752,6 +775,32 @@ pub async fn start_configured(
     );
     hub.hub_carrier.set(carrier.clone());
     Some(carrier.serve(websocket))
+}
+
+/// [`start_configured`] on the daemon's own key lock and node key, kept on the hub
+/// (`Hub::hub_carrier_serve`) so a sign-out's leave can stop it ([`stop_kept`]). A rekey
+/// (`machine_tunnel.rs`) rotates the node key under the carrier: it takes the new key with the
+/// key file and registers again, rather than reading it as replaced.
+pub async fn start_kept(hub: &Arc<crate::hub::Hub>, websocket: Option<SocketAddr>) {
+    use crate::no_panic::LockExt;
+    // The carrier runs only on the lock the WireGuard transport holds; it never takes its own.
+    let held = hub.wireguard.as_ref().and_then(|transport| transport.key_holder());
+    let Some(serving) = start_configured(hub, &crate::config::home(), websocket, held).await else {
+        return;
+    };
+    if let (Some(transport), Some(carrier)) = (hub.wireguard.as_ref(), hub.hub_carrier.get()) {
+        transport.add_key_user(Arc::new(move |private, write| carrier.rekey(*private, write)));
+    }
+    *hub.hub_carrier_serve.lock_or_recover() = Some(serving);
+}
+
+/// Stops the carrier [`start_kept`] started, if it runs: dropping its registration unregisters
+/// this machine's slot on the relay. True when one was running.
+pub fn stop_kept(hub: &crate::hub::Hub) -> bool {
+    use crate::no_panic::LockExt;
+    let carrier = hub.hub_carrier.clear();
+    let serving = hub.hub_carrier_serve.lock_or_recover().take();
+    carrier.is_some() || serving.is_some()
 }
 
 #[cfg(test)]

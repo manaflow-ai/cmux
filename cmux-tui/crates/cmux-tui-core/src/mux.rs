@@ -193,6 +193,7 @@ mod agent_chat_notices;
 pub(crate) mod agent_message_pump;
 pub(crate) mod app_terminals;
 mod cell_pixels;
+pub(crate) mod chat_index;
 mod client_resize;
 mod cloud_conversations;
 mod construct;
@@ -229,6 +230,7 @@ mod pinned_columns;
 #[cfg(unix)]
 mod project_chats;
 mod pty_reclaim;
+mod tree_revision;
 mod viewport_scroll;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
@@ -726,6 +728,8 @@ pub struct Mux {
     /// The chat-index project import's wake (`project_chats.rs`).
     #[cfg(unix)]
     project_chats: project_chats::ProjectChatsWake,
+    /// Every ACP chat acpmux knows, for `chat.list` (`chat_index.rs`).
+    chat_index: chat_index::ChatIndex,
     /// The editor and app project sources' file watch (`state/project_watch.rs`).
     pub(crate) project_watch: crate::state::project_watch::ProjectWatch,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
@@ -768,6 +772,8 @@ pub struct Mux {
     presentation: Mutex<Arc<crate::workspace_registry::PresentationSnapshot>>,
     /// Git HEAD lookups keyed by directory, with the time they were read.
     git_heads: Mutex<HashMap<String, (Instant, Option<presentation::GitHead>)>>,
+    /// One revision of everything `list-workspaces` shows (mux/tree_revision.rs).
+    tree_revision: tree_revision::TreeRevision,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
@@ -858,9 +864,9 @@ pub struct Mux {
     /// Lets a start's adoption threads go before the owner says ready: a
     /// creation the crash interrupted waits on its host's adoption.
     startup_adoptions_released: AtomicBool,
-    /// The laps of this owner's open (registry, restore, adoption), until
-    /// the owner's start takes them for `startup-timings.jsonl`.
-    startup_timings: Mutex<Option<crate::startup_timings::StartupTimings>>,
+    /// The laps of this owner's open (registry, restore, adoption), until the owner's start
+    /// takes them, and the start line with the laps after ready (mux/startup_record.rs).
+    startup_timings: startup_record::StartupLaps,
     /// Terminals with a possibly live host and no runtime surface (R41),
     /// keyed by public terminal id (`term_…`, what the tab JSON reads), with
     /// the host terminal id. A leaf lock: nothing else is locked under it.
@@ -1110,17 +1116,6 @@ impl Mux {
         f(&self.state.lock().unwrap())
     }
 
-    /// Run `f` with the session state if its lock is free now; `None`
-    /// instead of waiting while another thread holds it. A poisoned lock is
-    /// still read: its caller (the accept loop) must not stop on it.
-    pub(crate) fn try_with_state<R>(&self, f: impl FnOnce(&State) -> R) -> Option<R> {
-        match self.state.try_lock() {
-            Ok(state) => Some(f(&state)),
-            Err(std::sync::TryLockError::Poisoned(poison)) => Some(f(&poison.into_inner())),
-            Err(std::sync::TryLockError::WouldBlock) => None,
-        }
-    }
-
     pub fn surface_count(&self) -> usize {
         self.state.lock().unwrap().surfaces.len()
     }
@@ -1186,26 +1181,6 @@ impl Mux {
             let _ = surface.persist_host_workspace(&workspace_key);
         }
     }
-
-    fn sidebar_surface_exited(&self, id: SurfaceId) -> bool {
-        let mut runtime = self.sidebar_plugin.lock().unwrap();
-        if runtime.surface != Some(id) {
-            return false;
-        }
-        runtime.surface = None;
-        runtime.failures = runtime.failures.saturating_add(1);
-        let delay = sidebar_retry_delay(runtime.failures);
-        runtime.last_error = Some("sidebar plugin exited".to_string());
-        runtime.retry_at = Some(Instant::now() + delay);
-        drop(runtime);
-        self.state.lock().unwrap().surfaces.remove(&id);
-        true
-    }
-}
-
-fn sidebar_retry_delay(failures: u32) -> Duration {
-    let shift = failures.saturating_sub(1).min(5);
-    Duration::from_secs(1u64 << shift)
 }
 
 impl Drop for Mux {
@@ -1228,4 +1203,4 @@ impl Drop for Mux {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

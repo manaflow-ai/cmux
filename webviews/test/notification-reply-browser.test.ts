@@ -12,6 +12,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { AGENT, COMMAND_REPLY, REPLY } from "../src/agent-session/acpmux/conversation/NotificationReply.gallery";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("notification-reply-browser.test.ts", async () => {
@@ -46,9 +47,12 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
 
   const open = async (variant: string, width = 900, reportLook?: "disclosure"): Promise<Page> => {
     const page = await browser.newPage({ viewport: { width: width + 100, height: 900 }, deviceScaleFactor: 2 });
+    // The entry has no experiment of its own, so `exp`/`arm` in the frame URL pin nothing: the
+    // retained look is pinned on the page before it loads.
+    if (reportLook) await pinArms(page, { "subagent-done-report": reportLook });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
-      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width, theme: "Catppuccin Mocha", reducedMotion: "true", exp: reportLook && "subagent-done-report", arm: reportLook })}`,
+      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width, theme: "Catppuccin Mocha", reducedMotion: "true" })}`,
     );
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,

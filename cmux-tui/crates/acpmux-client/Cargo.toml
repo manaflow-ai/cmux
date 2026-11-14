@@ -1,0 +1,24 @@
+[package]
+name = "acpmux-client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The v2 agent service client core"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+tokio = ["dep:tokio"]
+
+[dependencies]
+acpmux-list-types = { path = "../acpmux-list-types" }
+serde.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+tokio = { version = "1.52", optional = true, features = ["io-util", "macros", "rt", "sync", "time"] }
+
+[dev-dependencies]
+acpmux-book = { path = "../acpmux-book" }

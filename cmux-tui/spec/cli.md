@@ -115,6 +115,12 @@ is per answer, so only the dial's `carrier.routes` line reports it. The probe ac
 `CMUX_CARRIER_PROBE_FAULTS=1` is set and the app is signed in to a probe account; a fault
 that leaves no other carrier is `carrier_fault.no_other_route` before anything starts, with
 the drill record (`capabilities`, `fault`, `kill`, `events`, `resumes`) in `error.details`.
+Once the gates pass, the drill starts the chat without its prompt (a promptless `start-chat`
+answer carries `daemon_tab`, the chat tab's number on the machine's daemon), dials the machine
+once over the Cloud carrier, attaches to that tab's event stream on the relay, sends the prompt,
+kills the relay inside that session after N events and resumes the stream over ssh after the
+last seq it had, all inside one `--timeout`. A drill that reached the turn's last event answers
+the record under `drill`.
 
 `carrier serve` serves the same stream on a Unix socket, for callers that hand a
 daemon socket path on: each accepted connection is its own dial (a fresh grant,
@@ -1052,14 +1058,16 @@ linked worktree `git status` adds `worktree.main_root`, its main checkout.
 `git fingerprint` (`git.fingerprint`, capability `git-fingerprint-v1`) prints
 64 hex digits that stay equal while the scope's `git diff` stays equal, for a
 view that asks often if its diff is still current. It runs no patch: the
-digits come from HEAD, the merge base (the `branch` scope), the `core`, `diff`
-and `filter` settings and, for each file `git status` lists, its modes, blob
-ids and a hash of its work tree content. A file's hash is kept by its stat
+digits come from the work tree's top folder, HEAD, the merge base (the
+`branch` scope), the `core`, `diff` and `filter` settings (as one constant
+above 1 MiB) and, for each file `git status` lists, its modes, blob ids and a
+hash of its work tree content. A file's hash is kept by its stat
 entry, so a work tree at rest costs no file read (`files_read` and
 `bytes_read` say what one read cost), and a file whose time stamp alone moved
 gives the same digits. One read hashes at most 8192 files and 256 MiB and no
 file above 64 MiB; a file past a bound counts by its stat entry. Compare two
-replies of one session host; the digits are not stable across versions.
+replies of one running session host: the digits hold random bytes of its
+process, and are not equal across a restart or a version.
 `git branches` (`git.branches`, capability `git-branches-v1`) lists at most
 `--limit` (200, up to 1000) branches: local ones, then remote-tracking ones,
 each by newest tip commit. Each carries its full ref, commit and whether HEAD

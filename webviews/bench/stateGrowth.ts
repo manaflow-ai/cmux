@@ -583,7 +583,7 @@ export async function sessionChurn(options: ScenarioOptions): Promise<Growth> {
 }
 
 /// Chats reopen: the pane moves to the next of a ring of chats (each a god tail at god scale), round and round.
-/// Once every chat was shown once, each open holds what the one before held: caches are full, nothing else stays.
+/// Once caches and the runtime are warm, each open holds what the one before held: nothing else stays.
 export async function chatReopen(options: ScenarioOptions): Promise<Growth> {
   const chats = SIZES[options.scale].reopenChats;
   const run = await boot(options.scale, chats);
@@ -591,7 +591,11 @@ export async function chatReopen(options: ScenarioOptions): Promise<Growth> {
   let missed = 0;
   return measure(
     "chat-reopen",
-    { warm: Math.ceil((chats * 2) / (options.every ?? 10)), ...options, ops: options.ops ?? chats * 6 },
+    // Two rounds fill the client caches but still measure JSC compiling the reopen path: on the Linux
+    // harness that window grew 5018 B/op (FunctionCodeBlock cells), versus 208 B/op without JIT.
+    // Six rounds let that compilation settle; ten rounds retain nine measured samples at the default
+    // cadence. The same heap, object, retained-entry and timer bands still apply to every measured op.
+    { warm: Math.ceil((chats * 6) / (options.every ?? 10)), ...options, ops: options.ops ?? chats * 10 },
     run,
     async (index) => {
       const id = `chat-${index % chats}`;

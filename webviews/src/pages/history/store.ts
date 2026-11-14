@@ -3,6 +3,7 @@
 // the page keeps no optimistic copy: a remove or clear re-reads after the provider confirms.
 // React reads it through `useSyncExternalStore` (no effects); tests drive it directly.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import {
   filterKinds,
@@ -439,13 +440,12 @@ export class HistoryStore {
 /** The waits before each re-read of a list that is not complete; the last repeats. */
 const PENDING_WAITS_MS = [1000, 2000, 4000, 8000];
 
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+/** The plain sentence of a failure; the owner's own text stays in the error, for logs. */
+const message = (error: unknown): string => userMessage(error);
 
 function failure(error: unknown): Partial<HistorySnapshot> {
   if (isPageError(error) && error.code === LINK_CLOSED) {
-    return { connection: "disconnected", error: error.message };
+    return { connection: "disconnected", error: message(error) };
   }
   return { error: message(error) };
 }

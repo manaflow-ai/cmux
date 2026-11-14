@@ -38,6 +38,17 @@ export function hostRefusedTooLarge(error: unknown): boolean {
   return (error as { reason?: unknown } | null)?.reason === "message.too_large";
 }
 
+/// Whether the failure is one the pane clears by itself by asking again, so the person has nothing
+/// to do: a lost or never-opened connection, a chat's machine that is reconnecting or rebooting, an
+/// agent service that is starting (`hostIsReconnecting`). Not a chat too large to open (asking again
+/// gets the same reply), not another build's acpmux holding this app's socket (`restartOffered`:
+/// only Restart agent service clears it), not a refusal that waits on the person (an untrusted
+/// folder, acpmux missing). Such a failure is one quiet "Reconnecting…" (HostError.tsx), however
+/// long it lasts (Leo, 2026-11-12: "it should just automatically do stuff").
+export function hostSelfRetrying(error: unknown, restartOffered: boolean): boolean {
+  return hostIsReconnecting(error) && !hostRefusedTooLarge(error) && !restartOffered;
+}
+
 /// How long a pane's handshakes may keep failing while the host is still recovering (an update's
 /// handoff, a daemon starting or restarting, a start that lost the lock race) before the pane says
 /// so. Until then the pane shows nothing: no card, no header status, no button (Leo, 2026-10-29:
@@ -66,9 +77,13 @@ export function hostErrorShows(
 
 /// The wait before the next handshake. Looking for a daemon is cheap, so while the host is
 /// recovering it is asked again within 2 s and the chat appears soon after the daemon answers; a
-/// refusal that waits on the person backs off without a terminal retry cap.
+/// refusal that waits on the person backs off to one ask every 30 s, never stopping, so one the
+/// host clears on its own (a daemon that is back after its machine rebooted) is found within 30 s
+/// instead of hours later.
+export const REFUSED_RETRY_MAX_MS = 30_000;
+
 export function nextRetryDelay(delay: number, recovering: boolean): number {
-  return Math.min(delay * 2, recovering ? 2_000 : 2_147_483_647);
+  return Math.min(delay * 2, recovering ? 2_000 : REFUSED_RETRY_MAX_MS);
 }
 
 /// The first wait before a reconnect.
@@ -92,6 +107,12 @@ export function lostRetryDelay(delay: number, upForMs: number): { wait: number; 
   return { wait, next: Math.min(wait * 2, FLAP_RETRY_MAX_MS) };
 }
 
+/// One retry wait: `step` scaled to 50-100% (home-channels DaemonGate.tsx). Every tab restored over
+/// one daemon loses it at the same moment; unjittered they would all ask again in lockstep.
+export function jitteredDelay(step: number, random: () => number = Math.random): number {
+  return Math.round(step * (0.5 + random() / 2));
+}
+
 /// What the pane's handshake loop does around a Restart acpmux.
 export type AcpmuxRestartHooks = {
   /// Drops the automatic retry waiting to run and a Retry queued behind an attempt in flight.
@@ -103,6 +124,9 @@ export type AcpmuxRestartHooks = {
   /// Asks the host again now, as Retry does.
   ask(): void;
 };
+
+/// How long the pane waits on the app's Restart acpmux before it asks the host again anyway.
+export const RESTART_DEADLINE_MS = 25_000;
 
 /// The pane's Restart acpmux. While one runs no handshake may start (``mayAsk``): not the
 /// automatic retry, not a Retry queued behind an attempt that was in flight, so the old daemon is
@@ -121,11 +145,21 @@ export class AcpmuxRestartGate {
     this.running = true;
     hooks.cancelRetries();
     hooks.changed(true);
+    let deadline: ReturnType<typeof setTimeout> | undefined;
     try {
-      await stop();
+      // An app that never answers the restart (it hung, its reply was lost) must not hold the pane
+      // on "Restarting…" with every handshake barred: past RESTART_DEADLINE_MS the gate opens and
+      // the pane asks again, and its line becomes the wait's or the failure's, which offer Restart.
+      await Promise.race([
+        stop(),
+        new Promise<void>((resolve) => {
+          deadline = setTimeout(resolve, RESTART_DEADLINE_MS);
+        }),
+      ]);
     } catch {
       // The app answers `{stopped: false}` or fails; either way the pane asks again below.
     } finally {
+      if (deadline !== undefined) clearTimeout(deadline);
       this.running = false;
       hooks.changed(false);
       if (!hooks.connected()) hooks.ask();

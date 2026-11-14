@@ -9,6 +9,7 @@ DerivedData and starts clean on the rules nightly_build_state.py lists.
 """
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -552,14 +553,16 @@ class HostBuildRoot(unittest.TestCase):
         self.git(self.origin, 'add', '-A')
         self.git(self.origin, 'commit', '-qm', 'x')
 
-    def build(self, slot, succeed=True, hold=None):
-        """One Release build step on SLOT: take the root, 'compile', hand the products over."""
+    def build(self, slot, succeed=True, hold=None, status=None):
+        """One Release build step on SLOT: take the root, 'compile', hand the products over. A build that does not
+        succeed records xcodebuild's STATUS as app-build-release.sh does (fail_host_build), or nothing."""
         workspace = self.slots[slot]
         self.git(workspace, 'pull', '-q', '--ff-only')
         # The earlier step linked the slot's own kept state (nightly_build_state.py prepare).
         slot_dd = self.home / 'Library/Caches/cmux-nightly-next' / f'runner-{slot}' / 'identity/DerivedData'
         slot_dd.mkdir(parents=True, exist_ok=True)
-        (workspace / 'build-universal').unlink(missing_ok=True)
+        # A slot that built in the host root before holds its own copy of the products (finish_host).
+        state.remove(workspace / 'build-universal')
         (workspace / 'build-universal').symlink_to(slot_dd)
         packages = slot_dd.parent / 'SourcePackages/checkouts/pkg'
         packages.mkdir(parents=True, exist_ok=True)
@@ -574,7 +577,9 @@ class HostBuildRoot(unittest.TestCase):
             'mkdir -p "$derived_data/Build/Intermediates.noindex" "$derived_data/Build/Products/Release/cmux.app"\n'
             'echo compiled > "$derived_data/Build/Intermediates.noindex/a.o"\n'
             'echo app > "$derived_data/Build/Products/Release/cmux.app/binary"\n'
-            + ('[[ -z "$host_root" ]] || python3 scripts/ci/nightly_build_state.py finish-host "$host_root"\n' if succeed else '')
+            + ('[[ -z "$host_root" ]] || python3 scripts/ci/nightly_build_state.py finish-host "$host_root"\n' if succeed
+               else f'[[ -z "$host_root" ]] || python3 scripts/ci/nightly_build_state.py fail-host "$host_root" {status}\n'
+               if status is not None else '')
         )
         env = {**self.env, 'GITHUB_WORKSPACE': str(workspace), 'RUNNER_NAME': f'runner-{slot}'}
         if hold:
@@ -612,6 +617,58 @@ class HostBuildRoot(unittest.TestCase):
         self.build('1', succeed=False)
         self.commit({'Sources/a.swift': 'let a = 3\n'})
         self.assertIn('the last build did not finish', self.build('2'))
+
+    def test_a_compile_error_lets_the_next_build_build_on_what_it_finished(self):
+        """Run 43371038867 failed on a Swift error on the signing Mac (xcodebuild status 65), and the next nightly-next-one,
+        43390156751, compiled clean for 438 s ("the last build did not finish"). xcodebuild records only the
+        tasks it finished, so the next build reuses them and compiles the rest."""
+        self.build('1', succeed=False, status=65)
+        self.commit({'Sources/a.swift': 'let a = 3\n'})
+        out = self.build('2')
+        self.assertIn('NEXT Release build: incremental DerivedData (1 since the last clean build, on a failed build)', out)
+        self.assertIn('kept=yes', out)
+        # Its success makes the next one an ordinary incremental build.
+        self.commit({'Sources/a.swift': 'let a = 4\n'})
+        self.assertIn('NEXT Release build: incremental DerivedData (2 since the last clean build)', self.build('1'))
+
+    def test_two_failed_builds_in_a_row_make_the_next_one_clean(self):
+        """Kept state that itself breaks the build must not break every build after it."""
+        self.build('1', succeed=False, status=65)
+        self.commit({'Sources/a.swift': 'let a = 3\n'})
+        self.build('2', succeed=False, status=65)
+        self.commit({'Sources/a.swift': 'let a = 4\n'})
+        self.assertIn('clean DerivedData (the last two builds on this DerivedData failed)', self.build('1'))
+
+    def test_a_killed_or_wrapper_failed_build_stays_unfinished(self):
+        for status in (143, 137, 1, 'x'):
+            with self.subTest(status=status):
+                self.build('1', succeed=False, status=status)
+                self.commit({'Sources/a.swift': f'let a = "{status}"\n'})
+                self.assertIn('the last build did not finish', self.build('2'))
+
+    def test_an_import_change_after_a_failed_build_is_clean(self):
+        """The import and structure rules compare against the failed build's commit, whose objects may stay."""
+        self.build('1', succeed=False, status=65)
+        self.commit({'Sources/a.swift': 'import Foundation\nlet a = 3\n'})
+        self.assertIn('an import or a conditional-compilation line in Sources/a.swift', self.build('2'))
+        self.build('1', succeed=False, status=65)
+        self.commit({'Package.swift': '// targets\n'})
+        self.assertIn('NEXT Release build: clean DerivedData (Package.swift changed', self.build('2'))
+
+    def test_a_failure_after_a_finished_build_changes_nothing(self):
+        self.build('1')
+        python = subprocess.run(['python3', str(ROOT / 'scripts/ci/nightly_build_state.py'), 'fail-host', str(self.host), '65'],
+                                env={**self.env, 'GITHUB_WORKSPACE': str(self.slots['1'])}, capture_output=True, text=True)
+        self.assertEqual(python.returncode, 0, python.stderr)
+        self.assertNotIn('failed', json.loads((self.host / state.HOST_STATE).read_text()))
+
+    def test_the_release_build_records_every_xcodebuild_failure(self):
+        """Both ways the Release step ends red after xcodebuild (the first build, or the one retry) record the status."""
+        text = (ROOT / 'scripts/ci/nightly-steps/app-build-release.sh').read_text()
+        self.assertIn('[[ "$retry_status" -eq 0 ]] || { fail_host_build "$retry_status"; exit "$retry_status"; }', text)
+        self.assertIn('  fail_host_build "$release_status"\n  exit "$release_status"\n', text)
+        exits = [line.strip() for line in text.splitlines() if re.search(r'\bexit "\$(release|retry)_status"', line)]
+        self.assertEqual(len(exits), 2, exits)
 
     def test_a_held_root_builds_in_the_slots_own_tree(self):
         self.host.mkdir()

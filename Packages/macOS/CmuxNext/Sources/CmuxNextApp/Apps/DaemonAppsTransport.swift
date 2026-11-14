@@ -11,7 +11,7 @@ import os
 /// chosen here). Availability follows the connection state and the
 /// capability: connected with `apps-v1` is available (a new epoch per
 /// handshake, read from the store's connection epoch so a reconnect inside
-/// one frame still counts), connected without it needs a newer cmux-tui,
+/// one frame still counts), connected without it has no app host beside it,
 /// anything else is not connected; an administrator's policy turns it off.
 /// Events arrive through the store's side events; the provider channel
 /// takes `apps-provider-*`.
@@ -93,7 +93,7 @@ final class DaemonAppsTransport: AppsTransport {
     /// daemon, nil when none is connected (`cause`: the daemon service's reason).
     nonisolated static func unavailableReason(capabilities: [String]?, cause: String? = nil) -> AppsUnavailableReason? {
         guard let capabilities else { return cause.map(AppsUnavailableReason.notReady) ?? .notConnected }
-        return capabilities.contains(capability) ? nil : .needsNewerDaemon
+        return capabilities.contains(capability) ? nil : .noAppHost
     }
 
     // MARK: Commands

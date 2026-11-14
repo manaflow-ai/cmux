@@ -22801,127 +22801,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't restart %1$@: %2$@"
+            "value": "Couldn't restart %@. Try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّرت إعادة تشغيل %1$@: %2$@"
+            "value": "تعذّرت إعادة تشغيل %@. حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nije moguće ponovo pokrenuti %1$@: %2$@"
+            "value": "Nije moguće ponovo pokrenuti %@. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ kunne ikke genstartes: %2$@"
+            "value": "%@ kunne ikke genstartes. Prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ konnte nicht neu gestartet werden: %2$@"
+            "value": "%@ konnte nicht neu gestartet werden. Versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo reiniciar %1$@: %2$@"
+            "value": "No se pudo reiniciar %@. Inténtalo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de redémarrer %1$@ : %2$@"
+            "value": "Impossible de redémarrer %@. Réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile riavviare %1$@: %2$@"
+            "value": "Impossibile riavviare %@. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ を再起動できませんでした：%2$@"
+            "value": "%@ を再起動できませんでした。もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចចាប់ផ្ដើម %1$@ ឡើងវិញបានទេ៖ %2$@"
+            "value": "មិនអាចចាប់ផ្ដើម %@ ឡើងវិញបានទេ។ សូមព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@을(를) 재시작할 수 없습니다: %2$@"
+            "value": "%@을(를) 재시작할 수 없습니다. 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke starte %1$@ på nytt: %2$@"
+            "value": "Kunne ikke starte %@ på nytt. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie można ponownie uruchomić %1$@: %2$@"
+            "value": "Nie można ponownie uruchomić %@. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível reiniciar o %1$@: %2$@"
+            "value": "Não foi possível reiniciar o %@. Tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось перезапустить %1$@: %2$@"
+            "value": "Не удалось перезапустить %@. Повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เริ่ม %1$@ ใหม่ไม่ได้: %2$@"
+            "value": "เริ่ม %@ ใหม่ไม่ได้ ลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ yeniden başlatılamadı: %2$@"
+            "value": "%@ yeniden başlatılamadı. Yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося перезапустити %1$@: %2$@"
+            "value": "Не вдалося перезапустити %@. Спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không thể khởi động lại %1$@: %2$@"
+            "value": "Không thể khởi động lại %@. Hãy thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法重新启动 %1$@：%2$@"
+            "value": "无法重新启动 %@。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法重新啟動 %1$@：%2$@"
+            "value": "無法重新啟動 %@。請再試一次。"
           }
         }
       }

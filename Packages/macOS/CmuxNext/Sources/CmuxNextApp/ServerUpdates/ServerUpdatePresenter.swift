@@ -124,14 +124,19 @@ final class ServerUpdatePresenter {
                 self.sync()
                 return
             }
-            Task { @MainActor in
-                let outcome = await self.servers.restart(notice)
-                self.busy.remove(notice.id)
-                let result = CmuxToast(id: "server-update.result.\(notice.kind.rawValue)",
-                                       message: outcome.message(serverLabel: notice.serverLabel))
-                if let window = self.activeWindow() { CmuxToastCenter.shared.show(result, in: window) }
-                self.sync()
-            }
+            self.restart(notice)
+        }
+    }
+
+    /// Runs the confirmed restart and says how it went; a failure's Try Again runs it again.
+    private func restart(_ notice: ServerUpdateNotice) {
+        busy.insert(notice.id)
+        Task { @MainActor in
+            let outcome = await self.servers.restart(notice)
+            self.busy.remove(notice.id)
+            let result = outcome.toast(id: "server-update.result.\(notice.kind.rawValue)", serverLabel: notice.serverLabel)
+            if let window = self.activeWindow() { CmuxToastCenter.shared.show(result, in: window).onAction = { [weak self] in self?.restart(notice) } }
+            self.sync()
         }
     }
 }

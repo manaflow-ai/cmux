@@ -403,9 +403,7 @@ impl<H: Http + Send + 'static> Fetcher<H> {
             ));
         }
         if current && let (Some(reply), Some((what, _))) = (&reply, task.ticket) {
-            let said =
-                if reply.get("ok") == Some(&Value::Bool(true)) { what } else { outcome(reply) };
-            (self.hooks.log)(&format!("carrier ticket: {said} in {took} ms"));
+            (self.hooks.log)(&outcome_line(reply, what, "", took));
         }
         if resume {
             self.resume(generation);
@@ -632,20 +630,39 @@ fn read_ask(stream: &UnixStream) -> Result<(), String> {
     }
 }
 
-/// A reply's outcome: `issued`, or its error code.
-fn outcome(reply: &Value) -> &str {
+/// How much of a refusal's message a journal line keeps.
+const LINE_MESSAGE_CHARS: usize = 200;
+
+/// The journal line for one ticket outcome, never the ticket itself:
+/// `carrier ticket: <what><from> in N ms` for a ticket (`what` is what was
+/// done: prefetched, refreshed, issued, ...), and for a refusal
+/// `carrier ticket: refused <code><from> in N ms: <message>`. A refusal has
+/// its own `refused` token: under the bare code a reader of the journal
+/// could not tell a refusal from a success without knowing every success
+/// word, and a probe that counted the whole prefix read the two successes of
+/// every healthy bind as two errors.
+fn outcome_line(reply: &Value, what: &str, from: &str, took_ms: u128) -> String {
     if reply.get("ok") == Some(&Value::Bool(true)) {
-        "issued"
-    } else {
-        reply.get("error").and_then(|e| e.get("code")).and_then(Value::as_str).unwrap_or("refused")
+        return format!("carrier ticket: {what}{from} in {took_ms} ms");
     }
+    let error = reply.get("error");
+    let code = error.and_then(|e| e.get("code")).and_then(Value::as_str).unwrap_or("unknown");
+    let message: String = error
+        .and_then(|e| e.get("message"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .take(LINE_MESSAGE_CHARS)
+        .collect();
+    let said = if message.is_empty() { String::new() } else { format!(": {message}") };
+    format!("carrier ticket: refused {code}{from} in {took_ms} ms{said}")
 }
 
 /// The journal line for one answer: its outcome, whether it was the kept
 /// ticket, and how long it took.
 fn note(reply: &Value, kept: bool, took: Duration) -> String {
-    let from = if kept { " (kept)" } else { "" };
-    format!("carrier ticket: {}{from} in {} ms", outcome(reply), took.as_millis())
+    outcome_line(reply, "issued", if kept { " (kept)" } else { "" }, took.as_millis())
 }
 
 fn write_reply(mut stream: UnixStream, reply: &Value) -> io::Result<()> {

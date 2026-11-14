@@ -173,3 +173,59 @@ fn the_json_check_takes_json_and_nothing_else() {
     let shallow = format!("{}{}", "[".repeat(64), "]".repeat(64));
     assert!(is_compact_value(&shallow));
 }
+
+#[test]
+fn an_existing_megabyte_blob_encodes_without_loading_its_body()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Write;
+    let home = tempfile::tempdir()?;
+    let (mut log, _) = crate::log::Log::open(home.path(), crate::log::Options::default())?;
+    let mut body = std::fs::File::create(home.path().join("blobs/48211"))?;
+    body.write_all(b"\"")?;
+    let chunk = [b'x'; 4096];
+    for _ in 0..256 {
+        body.write_all(&chunk)?;
+    }
+    body.write_all(b"\"")?;
+    body.sync_all()?;
+    let bytes = body.metadata()?.len();
+    assert_eq!(bytes, (1 << 20) + 2);
+    // The encoder has only the length and preview; the body argument is deliberately absent.
+    let outline = Outline { head: "{}", preview: "xxxxxxxx" };
+    let mut out = Vec::new();
+    assert_eq!(row("").encode_blob(bytes, outline, &mut out)?, Placement::Blob { bytes });
+    assert!(out.capacity() <= MAX_ROW_TEXT);
+    log.append_settled(48211, 1, crate::log::RawRange::NONE, &out)?;
+    let saved = log.row(48211).ok_or("settled row missing")?;
+    let mut read = Vec::new();
+    let mut ranges = Vec::new();
+    log.fill(&[saved], &mut read, &mut ranges)?;
+    assert_eq!(ranges.len(), 1);
+    let range = ranges.first().ok_or("settled row range missing")?;
+    assert_eq!(read.get(range.clone()).ok_or("settled row range invalid")?, out);
+    assert!(read.capacity() <= MAX_ROW_TEXT);
+    assert!(std::str::from_utf8(&out)?.contains("\"bytes\":1048578"));
+    Ok(())
+}
+
+#[test]
+fn spilled_and_in_memory_bodies_have_identical_row_text() -> Result<(), Box<dyn std::error::Error>>
+{
+    let body = format!("\"{}\"", "x".repeat(1 << 20));
+    let outline = Outline { head: r#"{"name":"tool"}"#, preview: "quote\"\n漢字" };
+    let mut expected = Vec::new();
+    row(&body).encode(Some(outline), &mut expected)?;
+    let mut actual = Vec::new();
+    row("").encode_blob(body.len() as u64, outline, &mut actual)?;
+    assert_eq!(actual, expected);
+    assert!(actual.capacity() <= MAX_ROW_TEXT);
+    assert_eq!(
+        Row { id: 0, ..row("") }.encode_blob(1, outline, &mut actual),
+        Err(RowError::ZeroId)
+    );
+    assert_eq!(
+        row("").encode_blob(1, Outline { head: "{", preview: "" }, &mut actual),
+        Err(RowError::Head)
+    );
+    Ok(())
+}

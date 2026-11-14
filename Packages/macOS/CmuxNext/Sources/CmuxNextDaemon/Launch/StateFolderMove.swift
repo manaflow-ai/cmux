@@ -47,14 +47,16 @@ public struct StateFolderMove: Sendable {
         return (old, new)
     }
 
-    /// Moves `build`'s old folder, once. Cheap when there is nothing to move: one `lstat`.
+    /// Moves `build`'s old folder, once, then the loose items NEXT kept in classic's
+    /// folder (``ClassicFolderItemsMove``). Cheap when there is nothing to move: a few `lstat`s.
     @discardableResult
     public func run(build: BuildIdentity) -> Outcome {
+        defer { ClassicFolderItemsMove(applicationSupport: applicationSupport).run() }
         guard let pair = folders(build: build) else { return .nothing }
         let (old, new) = pair
         var info = stat()
         guard lstat(old.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return .nothing }
-        let outcome = move(old: old, new: new)
+        let outcome = Self.move(old: old, new: new)
         if case .kept(let why) = outcome {
             Self.logger.error("state folder \(old.path, privacy: .public) stays: \(why, privacy: .public)")
         } else {
@@ -63,7 +65,8 @@ public struct StateFolderMove: Sendable {
         return outcome
     }
 
-    private func move(old: URL, new: URL) -> Outcome {
+    /// Renames the folder `old` to `new`, leaving a symlink at `old`; never over a folder with files.
+    static func move(old: URL, new: URL) -> Outcome {
         do {
             try FileManager.checked.createDirectory(at: new.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])

@@ -226,6 +226,61 @@ class NightlyNextOneJobTests(unittest.TestCase):
             self.assertGreater(index, max(signing), names[index])
             self.assertLess(index, second, names[index])
 
+    def test_a_warm_mac_skips_the_zig_package_restore_and_installs_zig_once(self) -> None:
+        # "Cache Zig packages" restored 647 MB over the Mac's kept ~/.cache/zig in 69-81 s (runs 43390156751,
+        # 43395323737), and "Install compilation dependencies" downloaded ghostty-next's Zig again (20 s) after
+        # "Install Zig" had put it in CMUX_VT_ZIG.
+        steps = self.job.get("steps") or []
+        names = [str(s.get("name") or "") for s in steps]
+        probe = names.index("Read whether the kept Zig package cache is complete")
+        restore = names.index("Cache Zig packages")
+        mark = names.index("Mark the kept Zig package cache complete")
+        self.assertLess(probe, restore)
+        self.assertLess(names.index("Build the cmux-next source archive"), mark)
+        self.assertIn("steps.zig-kept.outputs.kept != 'true'", one_line(steps[restore].get("if")))
+        # The source archive's own condition, after it passed (it blocks), never its soft outcome.
+        archive = steps[names.index("Build the cmux-next source archive")]
+        self.assertNotIn("continue-on-error", archive)
+        self.assertEqual(one_line(steps[mark].get("if")), "success() && " + one_line(archive.get("if")))
+        key = "zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}"
+        self.assertEqual(steps[restore]["with"]["key"], key)
+        self.assertEqual(steps[probe]["env"]["KEY"], key)
+        self.assertEqual(steps[mark]["env"]["KEY"], key)
+        split = workflow()["jobs"]["build-nightly-ghostty-cli-helper"]["steps"]
+        split_restore = next(s for s in split if s.get("name") == "Cache Zig packages")
+        self.assertEqual(split_restore["with"], steps[restore]["with"])
+        self.assertEqual(one_line(split_restore["if"]), "inputs.nightly_next_unsigned_run == ''")
+        deps = one_line(steps[names.index("Install compilation dependencies")]["run"])
+        self.assertEqual(deps, "bash scripts/ci/nightly-steps/one-job-compile-deps.sh")
+        script = (ROOT / "scripts/ci/nightly-steps/one-job-compile-deps.sh").read_text(encoding="utf-8")
+        self.assertIn('if [ -x "${CMUX_VT_ZIG:-}" ]; then', script)
+        for command in ("./scripts/install-rust-ci.sh", "ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh",
+                        "./scripts/download-prebuilt-ghosttykit.sh"):
+            self.assertIn(command, script)
+        self.assertLess(names.index("Install Zig"), names.index("Install compilation dependencies"))
+
+    def test_the_kept_zig_cache_marker(self) -> None:
+        script = ROOT / "scripts/ci/nightly-steps/zig-cache-kept.sh"
+        key = "zig-packages-" + "a" * 64
+        with tempfile.TemporaryDirectory() as tmp:
+            cache, out = Path(tmp) / "zig", Path(tmp) / "out"
+
+            def run(mode: str, value: str) -> str:
+                out.write_text("")
+                env = {**os.environ, "CMUX_KEPT_ZIG_CACHE": str(cache), "KEY": value, "GITHUB_OUTPUT": str(out)}
+                subprocess.run(["bash", str(script), mode], env=env, check=True, capture_output=True)
+                return out.read_text().strip()
+
+            self.assertEqual(run("check", key), "kept=false", "no cache yet")
+            (cache / "p").mkdir(parents=True)
+            self.assertEqual(run("check", key), "kept=false", "packages but no marker")
+            run("mark", key)
+            self.assertEqual(run("check", key), "kept=true")
+            self.assertEqual(run("check", "zig-packages-" + "b" * 64), "kept=false", "another Ghostty revision")
+            self.assertEqual(run("check", "zig-packages-"), "kept=false", "an empty hashFiles")
+            run("mark", "zig-packages-")
+            self.assertEqual(run("check", key), "kept=true", "an invalid key marks nothing")
+
     def test_the_published_record_reads_the_one_job(self) -> None:
         needs = {
             "decide": {"result": "success", "outputs": {"track": "nightly-next"}},

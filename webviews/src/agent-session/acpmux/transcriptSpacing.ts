@@ -81,10 +81,18 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
   },
   {
     id: "step-pitch",
-    between: "two consecutive one-line rows (tool runs, sent and received message lines, inbox rows), centre to centre",
+    between:
+      "two consecutive one-line rows (an opened run's commands, received message lines, inbox rows), centre to centre",
     value: 22,
     tolerance: 0.5,
     source: "Claude Code desktop verbose rows 22; Codex desktop 26; chat-transcript.md one-line row pitch (#29965)",
+  },
+  {
+    id: "call-pitch",
+    between: "two consecutive calls listed in a running turn's run (sent message lines, a command), centre to centre",
+    value: 26,
+    tolerance: 0.5,
+    source: "22 line + grid base 4 between a run's calls (.cv-tools gap, #42247); Codex desktop 26",
   },
   {
     id: "run-to-step",
@@ -199,7 +207,7 @@ export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
 /** The status rows at the bottom of a running turn (design/transcript-spacing.md, "Row kinds", the
  * status rows; Leo, 2026-11-03 04:44Z, on two captures of a running Claude chat where they stood
  * 55 to 70 apart, then cramped: "this is pretty bad spacing and formatting" / "i thought we made this
- * stuff smaller"). Each is a one-line row: a run's last call, "Subagent finished", the live "Thinking"
+ * stuff smaller"). Each is a one-line row: a run's last call, a subagent's start line and its "finished" line, the live "Thinking"
  * line, the waiting group's "1 message from 1 session", another agent's received line and "Sent to".
  * Activity rows sit flush on the 22 pitch; the live line takes the run gap below activity. Measured over gallery
  * variants `working-bottom`, `reply-received`, `notes-live` and `status-prompt` by test/transcript-spacing-kinds.test.ts. */
@@ -210,7 +218,15 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     id: "work-to-subagent",
     variant: "working-bottom",
     between:
-      'the running turn\'s last call ("Read src/turns.ts", its run in sight) and "Subagent finished" under it, centre to centre',
+      'the running turn\'s last call ("Read src/turns.ts", its run in sight) and the subagent\'s start line under it ("… started working", #42247), centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source: "one-line rows sit flush (rule 3)",
+  },
+  {
+    id: "started-to-subagent",
+    variant: "working-bottom",
+    between: 'the subagent\'s start line and its "… finished" line under it, centre to centre',
     value: 22,
     tolerance: 0.5,
     source: "one-line rows sit flush (rule 3)",
@@ -346,9 +362,10 @@ export const FOOTER = {
 
 /** The person's prompt bubble (design/transcript-spacing.md, "Prompt bubble"). */
 export const BUBBLE = {
-  /** A one-line bubble's height, edge to edge: chatgpt.com 44, claude.ai and Claude Code desktop 45.
-   * Its block padding is what our line leaves, (44 - line height) / 2, so the text sits as inset. */
-  oneLine: 44,
+  /** A one-line bubble's height, edge to edge, at the default reading size: its 22.75 line and the
+   * Codex block padding of 10 above and below (conversation.css --cv-bubble-pad-block, #42247), at
+   * any reading size. chatgpt.com 44, claude.ai and Claude Code desktop 45. */
+  oneLine: 42.75,
   /** chatgpt.com and claude.ai 16. */
   paddingInline: 16,
   /** claude.ai and Claude Code desktop 12 (ChatGPT's 22 superellipse is a pill; Leo: no capsule pills). */

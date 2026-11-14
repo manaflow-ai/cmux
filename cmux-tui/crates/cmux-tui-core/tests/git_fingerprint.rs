@@ -13,8 +13,15 @@
 //! - a long list has a bound: 8192 files and 256 MiB a read, no file above 64 MiB. A file past
 //!   a bound counts by its stat entry and is never read.
 //!
+//! - it reads no file through a link that stands where a folder was, in a work tree that was
+//!   made so and when the link came after git's listing.
+//! - a submodule counts by the commit that its folder is on, and the daemon reads that commit
+//!   only in a folder that it opens as it opens each other folder.
+//!
 //! The git on `PATH` is a stand-in that writes its arguments to a log named as its working
-//! directory, and then is the real git.
+//! directory, and then is the real git. After a `status` child it runs `.git/after-status` of
+//! that directory, when a test put a program there: a change of the work tree between git's
+//! listing and the daemon's reads.
 
 use cmux_tui_core::{Mux, SurfaceOptions, server};
 use serde_json::{Value, json};
@@ -56,6 +63,16 @@ fn fixture() -> &'static Fixture {
         let script = format!(
             "#!/bin/sh\n\
              echo \"$*\" >> \"{log}/$(basename \"$PWD\")\"\n\
+             case \" $* \" in\n\
+             *\" status \"*)\n\
+             if [ -x .git/after-status ]; then\n\
+             \"{real}\" \"$@\"\n\
+             code=$?\n\
+             ./.git/after-status >/dev/null 2>&1\n\
+             exit $code\n\
+             fi\n\
+             ;;\n\
+             esac\n\
              exec \"{real}\" \"$@\"\n",
             log = dir.join("log").display(),
             real = real.display(),
@@ -353,6 +370,48 @@ fn git_fingerprint_moves_when_the_base_or_the_head_moves() {
 }
 
 #[test]
+fn git_fingerprint_moves_with_a_diff_setting_and_stays_with_a_setting_of_no_diff() {
+    let repo = fresh_clone();
+    let mut client = Client::of_a_new_daemon();
+    std::fs::write(repo.join("a.txt"), "one\nthree\n").unwrap();
+    let first = client.fingerprint(&repo, "uncommitted");
+
+    // No diff shows the name of the author.
+    git(&repo, &["config", "user.name", "another"]);
+    let same = client.fingerprint(&repo, "uncommitted");
+    assert_eq!(first, same, "a setting that changes no diff moved the fingerprint");
+
+    // The same files can give another patch with another diff setting.
+    git(&repo, &["config", "diff.algorithm", "patience"]);
+    let moved = client.fingerprint(&repo, "uncommitted");
+    assert_ne!(first, moved, "a new diff setting kept the fingerprint");
+}
+
+#[test]
+fn git_fingerprint_of_two_work_trees_in_one_state_is_not_equal() {
+    let first = fresh_clone();
+    // A second clone of the same origin, beside the first: the same HEAD, the same settings
+    // and the same files.
+    let dir = first.parent().unwrap();
+    let origin = dir.join("origin");
+    let name = unique("c");
+    git(dir, &["clone", "--quiet", &origin.to_string_lossy(), &name]);
+    let second = dir.join(name);
+    let mut client = Client::of_a_new_daemon();
+    for scope in ["uncommitted", "staged"] {
+        let (one, other) = (see(&mut client, &first, scope), see(&mut client, &second, scope));
+        // The reply of `git.diff` names its work tree (`root`); the rest is equal.
+        for part in ["head", "files", "total_files"] {
+            assert_eq!(one.today[part], other.today[part], "{scope}: {part} of the 2 work trees");
+        }
+        assert_ne!(
+            one.fingerprint, other.fingerprint,
+            "{scope}: 2 work trees gave the same fingerprint"
+        );
+    }
+}
+
+#[test]
 fn git_fingerprint_of_a_file_above_the_patch_bound_moves_as_the_reply_of_git_diff_moves() {
     let repo = fresh_clone();
     let mut client = Client::of_a_new_daemon();
@@ -535,6 +594,113 @@ fn git_fingerprint_reads_no_file_of_a_work_tree_at_rest_and_one_file_after_one_e
     assert_eq!((rest.files, rest.bytes), (0, 0), "at rest after the edit");
 }
 
+/// A new folder that is not in a repository, with one file.
+fn outside_folder(file: &str, text: &str) -> PathBuf {
+    let folder = fixture().dir.join(unique("o"));
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join(file), text).unwrap();
+    folder
+}
+
+#[test]
+fn git_fingerprint_reads_no_file_below_a_link_that_stands_where_a_folder_was() {
+    let repo = fresh_clone();
+    std::fs::create_dir_all(repo.join("dir")).unwrap();
+    commit(&repo, "dir/in.txt", "inside\n");
+    let outside = outside_folder("in.txt", "outside one\n");
+    let mut client = Client::of_a_new_daemon();
+    // The index has no `dir/in.txt` any more, and `dir` is a link to a folder that is not in
+    // the repository and has an `in.txt`. git says of `dir/in.txt` that the index deleted it.
+    git(&repo, &["rm", "--quiet", "dir/in.txt"]);
+    let _ = std::fs::remove_dir(repo.join("dir"));
+    std::os::unix::fs::symlink(&outside, repo.join("dir")).unwrap();
+    for scope in ["uncommitted", "branch"] {
+        let first = client.read(&repo, scope);
+        assert_eq!(
+            (first.files, first.bytes),
+            (0, 0),
+            "{scope}: the daemon read a file that is not in the work tree"
+        );
+        std::fs::write(outside.join("in.txt"), "outside TWO\n").unwrap();
+        let edited = client.read(&repo, scope);
+        assert_eq!(
+            (edited.files, edited.bytes),
+            (0, 0),
+            "{scope}: the daemon read a file that is not in the work tree, after its edit"
+        );
+        assert_eq!(
+            first.fingerprint, edited.fingerprint,
+            "{scope}: an edit of a file that is not in the repository moved the fingerprint"
+        );
+        std::fs::write(outside.join("in.txt"), "outside one\n").unwrap();
+    }
+}
+
+#[test]
+fn git_fingerprint_reads_no_file_below_a_folder_that_became_a_link_after_the_listing() {
+    let repo = fresh_clone();
+    std::fs::create_dir_all(repo.join("dir")).unwrap();
+    std::fs::write(repo.join("dir/new.txt"), "inside\n").unwrap();
+    let outside = outside_folder("new.txt", "outside one\n");
+    let mut client = Client::of_a_new_daemon();
+    let before = client.read(&repo, "uncommitted");
+    assert_eq!((before.files, before.bytes), (1, 7), "the untracked file of the work tree");
+
+    // After git printed `dir/new.txt` in its list and before the daemon looks at the file,
+    // `dir` becomes a link to a folder that is not in the repository and has a `new.txt`.
+    let swap = repo.join(".git").join("after-status");
+    let script = format!(
+        "#!/bin/sh\nmv '{dir}' '{away}' && ln -s '{outside}' '{dir}'\n",
+        dir = repo.join("dir").display(),
+        away = repo.join(".git").join("dir-away").display(),
+        outside = outside.display(),
+    );
+    std::fs::write(&swap, script).unwrap();
+    std::fs::set_permissions(&swap, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let during = client.read(&repo, "uncommitted");
+    std::fs::remove_file(&swap).unwrap();
+    let dir = std::fs::symlink_metadata(repo.join("dir")).unwrap();
+    assert!(dir.file_type().is_symlink(), "the stand-in git did not put the link there");
+    assert_eq!(
+        (during.files, during.bytes),
+        (0, 0),
+        "the daemon read a file through a link that took a folder's place after the listing"
+    );
+    assert_ne!(before.fingerprint, during.fingerprint, "the file left the work tree");
+}
+
+#[test]
+fn git_fingerprint_counts_a_link_by_its_target_text_and_reads_nothing_through_it() {
+    let repo = fresh_clone();
+    let outside = outside_folder("secret.txt", "outside one\n");
+    let other = outside_folder("secret.txt", "outside one\n");
+    let link = repo.join("link");
+    std::os::unix::fs::symlink(outside.join("secret.txt"), &link).unwrap();
+    let mut client = Client::of_a_new_daemon();
+    for scope in ["uncommitted", "unstaged", "branch"] {
+        let first = client.read(&repo, scope);
+        assert_eq!((first.files, first.bytes), (0, 0), "{scope}: a read through the link");
+        std::fs::write(outside.join("secret.txt"), "outside TWO\n").unwrap();
+        let edited = client.read(&repo, scope);
+        assert_eq!((edited.files, edited.bytes), (0, 0), "{scope}: a read through the link");
+        assert_eq!(
+            first.fingerprint, edited.fingerprint,
+            "{scope}: an edit of the file that the link names moved the fingerprint"
+        );
+        // The link names another file with the same bytes: its target text is its content.
+        std::fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(other.join("secret.txt"), &link).unwrap();
+        let moved = client.read(&repo, scope);
+        assert_ne!(
+            first.fingerprint, moved.fingerprint,
+            "{scope}: a new target text of the link kept the fingerprint"
+        );
+        std::fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(outside.join("secret.txt"), &link).unwrap();
+        std::fs::write(outside.join("secret.txt"), "outside one\n").unwrap();
+    }
+}
+
 /// The files that one read gives a content hash, in the order of git's list.
 const FILES_OF_ONE_READ: usize = 8192;
 
@@ -620,4 +786,51 @@ fn git_fingerprint_reads_no_file_above_64_mib_and_at_most_256_mib_in_one_read() 
     let rest = client.read(&repo, "uncommitted");
     assert_eq!(sum.fingerprint, rest.fingerprint);
     assert_eq!((rest.files, rest.bytes), (0, 0), "at rest");
+}
+
+#[test]
+fn git_fingerprint_moves_when_a_submodule_goes_to_another_commit() {
+    let repo = fresh_clone();
+    let source = fresh_clone();
+    let mut client = Client::of_a_new_daemon();
+    let name = unique("m");
+    git(&repo, &["submodule", "--quiet", "add", &source.to_string_lossy(), &name]);
+    git(&repo, &["commit", "--quiet", "-m", "a submodule"]);
+    let module = repo.join(&name);
+    for scope in ["uncommitted", "unstaged", "branch"] {
+        let before = client.fingerprint(&repo, scope);
+        commit(&module, "more.txt", scope);
+        let after = client.fingerprint(&repo, scope);
+        assert_ne!(before, after, "{scope}: a new commit of the submodule kept the fingerprint");
+    }
+}
+
+/// The index names a folder as a submodule, and the daemon does not open that folder: its
+/// `.git` file names the git folder of another work tree (the layout `named` of
+/// tests/git_opens_own_work_tree.rs). It counts as a submodule that is not opened.
+#[test]
+fn git_fingerprint_stays_for_a_submodule_folder_that_the_daemon_does_not_open() {
+    let repo = fresh_clone();
+    let other = fresh_clone();
+    let mut client = Client::of_a_new_daemon();
+    // The folder has a name of its own: the name of its log of git children.
+    let name = unique("m");
+    let module = repo.join(&name);
+    let entry = format!("160000,{},{name}", "1".repeat(40));
+    git(&repo, &["update-index", "--add", "--cacheinfo", &entry]);
+    git(&repo, &["commit", "--quiet", "-m", "a submodule"]);
+    std::fs::create_dir_all(&module).unwrap();
+    let git_file = format!("gitdir: {}\n", other.join(".git").display());
+    std::fs::write(module.join(".git"), git_file).unwrap();
+    for scope in ["uncommitted", "unstaged", "branch"] {
+        forget_children(&module);
+        let before = client.fingerprint(&repo, scope);
+        commit(&other, "more.txt", scope);
+        let after = client.fingerprint(&repo, scope);
+        assert_eq!(before, after, "{scope}: a commit of the other work tree moved the fingerprint");
+        // The daemon asked git about the folder, and not for a commit.
+        let asked = children(&module);
+        assert!(!asked.is_empty(), "{scope}: no git child ran in the folder");
+        assert!(with_word(&asked, "HEAD^{commit}").is_empty(), "{scope}: {asked:?}");
+    }
 }

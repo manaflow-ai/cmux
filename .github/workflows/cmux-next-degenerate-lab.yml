@@ -1,0 +1,136 @@
+name: cmux-next degenerate lab
+
+# The degenerate lab (scripts/cmux-next/degenerate-lab/lab.py): Leo's god chats, restarts,
+# streaming, connectivity storms and load, small against god in one harness, idle against loaded,
+# and recovery once the load is lifted. Leo, 2026-11-12: "are you guys able to simulate my god-chats?
+# ... like truly degenerated cases/states and seeing where we can identify more perf to tackle".
+#
+# Once a UTC day, on the first push to nightly-next after midnight (as the quality report runs), it
+# runs the `nightly` preset (0.1x and 1x; idle, CPU at load 100 and memory pressure; perf of the
+# daemon and a Chrome trace of the pane where the runner allows) and keeps:
+#   - `degenerate-lab-god-small`: god-small.json, the rows the nightly quality report reads with
+#     --god-small (cmuxterm-hq docs/handbook/perf-regresses-on-degenerate-sessions.md: a row fails
+#     over 1.2x), and summary.md;
+#   - `degenerate-lab-results`: every run's JSON, logs, perf report and traces (kept 3 days, the cap for Actions artifacts).
+# The quality report (cmux-next-quality-report.yml) fetches the newest god-small.json and posts it in
+# the cmuxterm-hq issue "cmux NEXT nightly quality report". Nothing here gates a build.
+on:
+  push:
+    branches:
+      - nightly-next
+  workflow_dispatch:
+    inputs:
+      preset:
+        description: "smoke, nightly or full (0.1x, 1x and 3x)"
+        default: "nightly"
+
+permissions: {}
+
+concurrency:
+  group: cmux-next-degenerate-lab
+  cancel-in-progress: false
+
+jobs:
+  lab:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_16 }}
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    steps:
+      - name: Name tonight's marker
+        id: day
+        run: echo "key=cmux-next-degenerate-lab-$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Look for tonight's run
+        id: done
+        if: github.event_name == 'push'
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/degenerate-lab-marker
+          key: ${{ steps.day.outputs.key }}
+          lookup-only: true
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.done.outputs.cache-hit != 'true'
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Setup Bun
+        if: steps.done.outputs.cache-hit != 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install webviews dependencies
+        if: steps.done.outputs.cache-hit != 'true'
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
+      - name: Install system Chrome
+        if: steps.done.outputs.cache-hit != 'true'
+        working-directory: webviews
+        run: |
+          "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+
+      - name: Test the lab
+        if: steps.done.outputs.cache-hit != 'true'
+        run: python3 -I scripts/cmux-next/degenerate-lab/test_lab.py
+
+      # perf needs kernel.perf_event_paranoid at most 1; a runner that refuses records the reason and runs on.
+      - name: Allow perf
+        if: steps.done.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: |
+          sudo -n sysctl -w kernel.perf_event_paranoid=1 || true
+          command -v perf || sudo -n apt-get install -y -qq linux-tools-common "linux-tools-$(uname -r)" || true
+          command -v stress-ng || sudo -n apt-get install -y -qq stress-ng || true
+
+      - name: Run the lab
+        if: steps.done.outputs.cache-hit != 'true'
+        env:
+          PRESET: ${{ inputs.preset || 'nightly' }}
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/degenerate-lab"
+          status=0
+          python3 -I scripts/cmux-next/degenerate-lab/lab.py matrix --preset "$PRESET" --profile \
+            --out "$out" --fixtures "$RUNNER_TEMP/degenerate-lab-fixtures" --target-dir "$RUNNER_TEMP/target" || status=$?
+          cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY" || true
+          # Fixtures are regenerated from their seed; the results are what is kept.
+          rm -rf "$RUNNER_TEMP/degenerate-lab-fixtures"
+          find "$out" -name perf.data -delete
+          exit $status
+
+      - name: Keep the god-small rows
+        if: always() && steps.done.outputs.cache-hit != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: degenerate-lab-god-small
+          path: |
+            ${{ runner.temp }}/degenerate-lab/god-small.json
+            ${{ runner.temp }}/degenerate-lab/summary.md
+          retention-days: 3
+          if-no-files-found: warn
+
+      - name: Keep the results
+        if: always() && steps.done.outputs.cache-hit != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: degenerate-lab-results
+          path: ${{ runner.temp }}/degenerate-lab
+          retention-days: 3
+          if-no-files-found: warn
+
+      - name: Mark tonight's run done
+        id: mark
+        if: github.event_name == 'push' && steps.done.outputs.cache-hit != 'true'
+        run: mkdir -p "$RUNNER_TEMP/degenerate-lab-marker" && date -u > "$RUNNER_TEMP/degenerate-lab-marker/at"
+
+      - name: Save tonight's marker
+        if: steps.mark.outcome == 'success'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/degenerate-lab-marker
+          key: ${{ steps.day.outputs.key }}

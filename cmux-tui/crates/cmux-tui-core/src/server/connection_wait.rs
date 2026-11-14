@@ -53,6 +53,14 @@ impl ConnectionSurfaceScheduler {
         pending: PendingSurfaceRequest,
         writer: &MessageWriter,
     ) -> bool {
+        // The wait outlives its request for as long as the caller chose: a
+        // terminal's connection leaves the short lane first (`long_connection`).
+        // At the bound nothing started and the connection goes on.
+        if let Err(full) = writer.long.hold() {
+            let id = pending.request.id.clone();
+            drop(pending);
+            return send_request_error(writer, id, &full.to_string());
+        }
         let permit = match mux.control_clients.resource_wait_admission.try_reserve(client) {
             Ok(permit) => permit,
             Err(error) => {

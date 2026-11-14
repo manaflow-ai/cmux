@@ -2067,21 +2067,10 @@ impl Hub {
     /// Keep the outcome of the last turn on the session (`lastTurn` in the
     /// summary), so `wait` can report a failed turn after it resolves.
     pub(super) fn record_last_turn(&self, session: &Session, turn_result: &Value) {
-        let mut last = serde_json::Map::new();
-        for k in super::views::LAST_TURN_KEYS {
-            if let Some(v) = turn_result.get(k) {
-                last.insert(k.to_owned(), v.clone());
-            }
-        }
-        last.insert("endedAt".into(), json!(now_ms()));
-        for key in ["turnCount", "turnSeq"] {
-            if let Some(value) = turn_result.get(key) {
-                last.insert(key.into(), value.clone());
-            }
-        }
+        let last = last_turn_of(turn_result, now_ms());
         self.lane_report_record_result(&session.id, turn_result);
         if turn_result.get("trigger") != Some(&Value::Bool(true)) {
-            session.meta.lock().unwrap().last_turn = Some(Value::Object(last));
+            session.meta.lock().unwrap().last_turn = Some(last);
         }
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
         self.subsession_turn_ended(session, turn_result);
@@ -2527,8 +2516,9 @@ impl Hub {
             }
             let link_lost = child.host_record().is_some() && !child.is_alive().await;
             child.kill().await;
-            // A host whose link was lost cannot take a Terminate frame.
-            if link_lost {
+            // A host whose link was lost cannot take a Terminate frame; one whose link stopped
+            // reading did not take it within the grace (`host_unended`).
+            if link_lost || child.host_unended() {
                 self.end_unadopted_host(session).await;
             }
         } else {
@@ -2537,6 +2527,9 @@ impl Hub {
             self.end_unadopted_host(session).await;
         }
         *session.turn.lock().unwrap() = None;
+        // A turn its agent ran on its own ends with the chat, whatever its agent's exit said or
+        // did not say (a direct agent, a host whose link was lost): no line spins in a closed chat.
+        self.end_background_turn(session, "exit");
         // Before the close's event, which sends the cards it owes (`tasks.rs`).
         self.orphan_tasks_of(session, purge);
         self.set_status(session, SessionStatus::Closed);
@@ -2580,7 +2573,20 @@ impl Hub {
                 .await;
             }
             self.git_branch_forget(&session.id);
-            self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
+            // v2's book of the chat lives in its directory: its actor is closed and forgotten
+            // first, so none writes into what the delete removes (`book_tee.rs`).
+            if let Some(tee) = self.book_tee().cloned() {
+                let id = session.id.clone();
+                let _ = tokio::task::spawn_blocking(move || tee.forget(&id)).await;
+            }
+            let deleted = self.store.delete(&session.id);
+            if deleted.is_err()
+                && let Some(tee) = self.book_tee()
+            {
+                // The chat stays: its book may be read again.
+                tee.unforget(&session.id);
+            }
+            deleted.map_err(|e| RpcError::internal(e.to_string()))?;
             // An earlier run's caller token proves a purged session no more (`caller_registry.rs`).
             self.caller_registry.forget(&session.id);
             #[cfg(test)]
@@ -2629,6 +2635,10 @@ impl Hub {
                 list_seq: 0,
             });
             drop(sessions);
+            // Gone from v1: a chat that comes back under the id gets a book again.
+            if let Some(tee) = self.book_tee() {
+                tee.unforget(&session.id);
+            }
             // Its parent's row and the rows below it read it (#42091 F1).
             self.note_rows_reading(session);
         }
@@ -2652,6 +2662,14 @@ impl Hub {
         self.cancel_pending_permissions(session);
         if let Some(child) = slot.take() {
             child.kill().await;
+            // A host that never took the terminate still runs its agent: it is ended by its
+            // nonce, within a bound too, and what waited on the agent is answered (no exit is
+            // read for it). Under the child lock, so no new agent starts beside it.
+            if child.host_unended() {
+                tracing::warn!(session = %session.id, "its agent's host did not end it in time; the host is ended");
+                child.fail_pending().await;
+                self.end_unadopted_host(session).await;
+            }
         }
         session.detaching.store(false, Ordering::SeqCst);
         drop(slot);
@@ -2698,6 +2716,23 @@ fn take_if_turn(slot: &StdMutex<Option<String>>, turn_id: &str) -> bool {
     } else {
         false
     }
+}
+
+/// The `lastTurn` a turn's `turn_result` message leaves on the session, ended at `ended_at`.
+pub(super) fn last_turn_of(turn_result: &Value, ended_at: u64) -> Value {
+    let mut last = serde_json::Map::new();
+    for k in super::views::LAST_TURN_KEYS {
+        if let Some(v) = turn_result.get(k) {
+            last.insert(k.to_owned(), v.clone());
+        }
+    }
+    last.insert("endedAt".into(), json!(ended_at));
+    for key in ["turnCount", "turnSeq"] {
+        if let Some(value) = turn_result.get(key) {
+            last.insert(key.into(), value.clone());
+        }
+    }
+    Value::Object(last)
 }
 
 /// The chat's transcript as a rehydrated agent's first prompt gets it, under the note its session
