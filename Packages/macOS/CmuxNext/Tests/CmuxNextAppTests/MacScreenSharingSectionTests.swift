@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextMacScreen
 import CmuxNextTestSupport
 import CmuxNextWakeups
@@ -23,9 +24,11 @@ private func texts(under root: NSView) -> [String] {
 struct MacScreenSharingSectionTests {
     static let ready = L.t("macScreen.home.hubReady", "Ready. Your devices can connect.")
 
-    private func withHome(_ body: (MacScreenHomeView) throws -> Void) throws {
+    private func withHome(configure: (MacScreenPages) -> Void = { _ in },
+                          _ body: (MacScreenHomeView) throws -> Void) throws {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
         let pages = MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}), work: BackgroundWork())
+        configure(pages)
         pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
         let tab = pages.makeView(for: "home")
         let home = try #require(views(under: tab).compactMap { $0 as? MacScreenHomeView }.first)
@@ -37,6 +40,50 @@ struct MacScreenSharingSectionTests {
                          session: MacScreenHubHost.Session? = nil) -> MacScreenHomeSnapshot.Sharing {
         MacScreenHomeSnapshot.Sharing(isSharing: true, busy: false, screenRecordingGranted: screenRecording,
                                       accessibilityGranted: accessibility, session: session, lastError: nil)
+    }
+
+    @Test(arguments: MacScreenSharingLook.allCases)
+    func turningOnUsesRegisteredGuideWithoutEnablingHost(_ look: MacScreenSharingLook) throws {
+        let registry = ActionRegistry(catalog: ActionCatalog.all)
+        var guideRequests = 0
+        _ = registry.bindEffect("macScreen.shareThisMac", effect: { _ in
+            guideRequests += 1
+            return .done
+        })
+        try withHome(configure: { pages in
+            pages.useActions(of: registry)
+            pages.events = MacScreenTabEvents()
+        }) { home in
+            var state = sharing(screenRecording: false, accessibility: false)
+            state.isSharing = false
+            home.build(MacScreenHomeSnapshot(sharing: state, sharingLook: look))
+            let toggle = try #require(views(under: home).compactMap { $0 as? MacScreenSwitch }.first)
+
+            #expect(toggle.accessibilityPerformPress())
+
+            #expect(guideRequests == 1)
+            #expect(home.devices?.hubHost.isSharing == false)
+            #expect(home.devices?.hubHost.busy == false)
+        }
+    }
+
+    @Test(arguments: MacScreenSharingLook.allCases)
+    func turningOffDoesNotOpenGuide(_ look: MacScreenSharingLook) throws {
+        let registry = ActionRegistry(catalog: ActionCatalog.all)
+        var guideRequests = 0
+        _ = registry.bindEffect("macScreen.shareThisMac", effect: { _ in
+            guideRequests += 1
+            return .done
+        })
+        try withHome(configure: { $0.useActions(of: registry) }) { home in
+            home.build(MacScreenHomeSnapshot(sharing: sharing(screenRecording: true, accessibility: true), sharingLook: look))
+            let toggle = try #require(views(under: home).compactMap { $0 as? MacScreenSwitch }.first)
+
+            #expect(toggle.accessibilityPerformPress())
+
+            #expect(guideRequests == 0)
+            #expect(!toggle.isOn)
+        }
     }
 
     /// Without Screen Recording no device can see this Mac: the status must not say it is ready.

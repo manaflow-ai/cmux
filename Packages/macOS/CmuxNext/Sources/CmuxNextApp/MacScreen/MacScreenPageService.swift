@@ -157,8 +157,7 @@ final class MacScreenPageService: InternalPageProvider {
 extension AppServices {
     static func makeMacScreenPages(_ services: AppServices) -> MacScreenPages {
         let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID), work: services.work)
-        pages.useShortcuts(of: services.registry)
-        pages.hubHost.indicatorMenuItem = { [weak registry = services.registry] in registry?.makeMenuItem(for: $0) }
+        pages.useActions(of: services.registry)
         // SECURITY: a joined Mac serves only what its person allowed here (with the model gone, nothing),
         // and a session stops once that no longer allows it.
         let consent = services.joinConsent
@@ -171,14 +170,8 @@ extension AppServices {
 
     /// The device hub follows the cmux account (CloudAuth).
     static func makeDeviceHub(_ services: AppServices) -> DeviceHubService {
-        let auth = services.cloud.auth
-        let account = DeviceHubService.Account(awaitRestored: { await auth.awaitRestored() },
-                                                userID: { auth.isSignedIn ? (auth.user?.id ?? "") : nil },
-                                                accessToken: { try await auth.tokens().access })
-        let selection = services.cloud.configuration.runtimeSelection
-        let hubBundle = selection?.storageNamespace.map { "\(selection?.bundleId ?? "cmux").cloud.\($0)" } ?? services.environment.launch.bundleID
-        return DeviceHubService(pages: services.macScreenPages, account: account, bundleIdentifier: hubBundle,
-                                loginKeychain: services.loginKeychain, selectedBaseURL: selection?.deviceHubOrigin)
+        DeviceHubService(pages: services.macScreenPages, auth: services.cloud.auth, configuration: services.cloud.configuration,
+                         bundleIdentifier: services.environment.launch.bundleID, loginKeychain: services.loginKeychain)
     }
 
     /// Mac Screen follows its settings (Send System Shortcuts; DEV: Relay Only).
@@ -187,9 +180,9 @@ extension AppServices {
     }
 
     /// Screen Sharing (`macScreen.open`): the home page in the pane the action ran on, else the active window's focused pane.
-    func openMacScreen(in target: PaneController?) {
+    func openMacScreen(for device: String = "", in target: PaneController?) {
         guard let pane = target ?? windows.active?.focusedPane else { return registry.refuse(RefusalStrings.noWindowOpen) }
-        macScreenTabs.open(MacScreenRecord(macID: nil), in: pane, focus: true, byPerson: true)
+        macScreenTabs.open(macScreenPages.record(forDevice: device, requesting: .view), in: pane, focus: true, byPerson: true)
     }
 
     /// The pane whose strip lists tab `key` (any kind of tab).
@@ -202,7 +195,7 @@ extension AppServices {
     }
 
     var cmuxRemoteActions: CmuxRemoteActionEnvironment {
-        CmuxRemoteActionEnvironment(remote: cmuxRemote, hub: { [weak self] in self?.macScreenPages.hub },
+        CmuxRemoteActionEnvironment(remote: cmuxRemote, screenHost: macScreenPages.hubHost, hub: { [weak self] in self?.macScreenPages.hub },
                                     window: { [weak self] in self?.windows.active?.window },
                                     openDevices: { [weak self] in try? self?.settingsWindow.show(section: nil, route: "devices") })
     }
@@ -216,26 +209,18 @@ extension AppServices {
                                              computerUse: ComputerUseHelperDaemon.shared.upstream,
                                              tokens: { try await auth.tokens().access }) else { return }
         let consent = joinConsent, previous = consent.changed
-        devices.setConsentSource { @MainActor [weak consent] in
+        let syncConsent = cmuxRemote.bindConsent(devices) { [weak consent] in
             guard let consent else { return (true, false, false) }
             return (consent.enabled, consent.permitsMacScreen(control: false), consent.permitsMacScreen(control: true))
         }
-        consent.changed = { [weak consent] in
+        consent.changed = {
             previous()
-            guard let consent else { return }
-            let (on, view, full) = (consent.enabled, consent.permitsMacScreen(control: false), consent.permitsMacScreen(control: true))
-            // task-owner: one consent line to a running worker (none while cmux Remote serves nothing).
-            Task { [weak self] in
-                guard await self?.cmuxRemote.waitAvailable() == true else { return }
-                await devices.consent(enabled: on, view: view, full: full)
-            }
+            syncConsent()
         }
-        cmuxRemote.follow(settings) { [weak self, weak settings] in
-            guard let self, let settings else { return (false, false, true) }
-            let computerUse = settings.snapshot.computerUse
+        cmuxRemote.follow(settings) { [weak self] in
+            guard let self else { return (false, false) }
             _ = daemon.identity?.capabilities.count // a reconnected daemon sends the switches again
-            return (computerUse.enabled && ComputerUseHelperDaemon.shared.effectiveDriver(computerUse.driver) == .upstream && !registry.disabledFeatures.contains(.computerUse),
-                    cloud.isSignedIn, !settings.snapshot.remote.endSharingOnQuit)
+            return (cloud.isSignedIn, !registry.disabledFeatures.contains(.computerUse))
         }
     }
 

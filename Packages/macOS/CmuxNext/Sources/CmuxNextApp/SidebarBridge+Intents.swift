@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextSidebarActions
 
 // Sidebar intents -> daemon commands, applied optimistically to the
 // sidebar model first. Each command goes to the machine daemon that owns
@@ -87,6 +88,10 @@ extension SidebarBridge {
             let rule = NewWorkspacePlacements.rule(for: state.id, in: services.windows)
             let slot = group.map { rule.slot(inGroup: $0, members: model.group($0)?.workspaces.map(\.id.rawValue) ?? []) }
             services.windows.newWorkspace(in: state, on: daemon, at: slot)
+        case .viewScreen, .shareScreen:
+            SidebarScreenIntentActions(perform: { _ = self.services.registry.perform($0, invocation: $1) }).handle(intent, sections: model.sections) {
+                services.openMacScreen(for: $0, in: services.windows.controller(for: state.id)?.focusedPane)
+            }
         case .setColor(let ids, let color):
             model.apply(intent)
             for (daemon, key) in keys(ids) {
@@ -208,7 +213,7 @@ extension SidebarBridge {
             .applying(to: sections)
         // A connecting SSH machine keeps its pending row through a resync (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections, window: state.id, windows: services.windows.connectingRowWindows(making: state.id)) }
-        rows.show(sections, shownAt: shownAt)
+        rows.show(SidebarScreenActions(macs: services.macScreenPages.hub?.macScreenAvailability ?? [:], aliases: DaemonService.screenDeviceAliases(in: services.machines.daemons)).applying(to: sections), shownAt: shownAt)
         model.profiles = SidebarSpaceBar.profiles(services.machines.local, window: state.id, windows: services.windows)
         groupFlow.openPendingEditor()
     }

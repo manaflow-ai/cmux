@@ -915,6 +915,8 @@ export type DevicesDevice = {
   sharesText: string | null;
   /** This device's Mac Screen access to THIS Mac (null for this device). */
   access: DevicesScope | null;
+  /** A compact first-class Mac Screen action; absent for phones and older hosts. */
+  screenAction?: { kind: "view" | "share"; title: string; disabled?: boolean } | null;
   /** Removal confirmation texts for this row. */
   removeConfirm: { title: string; body: string; confirm: string };
 };
@@ -1025,6 +1027,8 @@ export type DevicesRelayDraft = {
 };
 export type DevicesRun =
   | { action: "refresh" }
+  | { action: "openScreen"; id: string }
+  | { action: "shareThisMac"; id: string }
   | { action: "signIn" }
   | { action: "rename"; id: string; name: string }
   | { action: "remove"; id: string }

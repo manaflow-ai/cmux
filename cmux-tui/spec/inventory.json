@@ -995,6 +995,12 @@
       ]
     },
     {
+      "name": "screen-device-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "selection-changed",
       "streams": [
         "subscribe-deltas"

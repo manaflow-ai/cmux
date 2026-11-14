@@ -63,7 +63,7 @@ let package = Package(
             // Process-level: the executable is a dependency so `swift test`
             // builds it; the tests drive a real host over its sockets.
             name: "CmuxRemoteProcessTests",
-            dependencies: ["cmux-remote", "CmuxRemoteWire"],
+            dependencies: ["cmux-remote", "CmuxRemoteWire", "CmuxRemoteScreenSharing"],
             swiftSettings: swiftSettings
         ),
     ]

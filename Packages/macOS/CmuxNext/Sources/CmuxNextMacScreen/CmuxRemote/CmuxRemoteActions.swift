@@ -9,13 +9,15 @@ import Foundation
 /// What cmux Remote's actions need from the app: the hub, a window to ask in, and Settings.
 public struct CmuxRemoteActionEnvironment {
     public var remote: CmuxRemoteService
+    public var screenHost: MacScreenHubHost
     public var hub: @MainActor () -> DeviceHub?
     public var window: @MainActor () -> NSWindow?
     public var openDevices: @MainActor () -> Void
 
-    public init(remote: CmuxRemoteService, hub: @escaping @MainActor () -> DeviceHub?, window: @escaping @MainActor () -> NSWindow?,
+    public init(remote: CmuxRemoteService, screenHost: MacScreenHubHost, hub: @escaping @MainActor () -> DeviceHub?, window: @escaping @MainActor () -> NSWindow?,
                 openDevices: @escaping @MainActor () -> Void) {
         self.remote = remote
+        self.screenHost = screenHost
         self.hub = hub
         self.window = window
         self.openDevices = openDevices
@@ -45,7 +47,6 @@ extension CmuxRemoteActionEnvironment {
         host("remote.allowScreenRecording", "request", .object(["permission": .string("screen-recording")]))
         host("remote.restartComputerUse", "restart", .object(["worker": .string("computer-use")]))
         host("remote.restartScreenSharing", "restart", .object(["worker": .string("screen-sharing")]))
-        host("remote.stopScreenSession", "screen.stop_session", .object([:]))
         _ = registry.bindEffect("remote.showStatus", unavailable: { remote.started ? nil : CmuxRemoteStrings.unavailable }, effect: { _ in
             // action-wait-allow: the status comes from the daemon and cmux Remote, other processes; the dialog shows it.
             .waiting(.externalProcess) {
@@ -58,19 +59,30 @@ extension CmuxRemoteActionEnvironment {
                 return nil
             }
         })
-        // The person runs these from the palette: no second question.
-        for (id, on) in [("macScreen.shareThisMac", true), ("macScreen.stopSharingThisMac", false)] as [(ActionID, Bool)] {
-            _ = registry.bindEffect(id, unavailable: { environment.hub() == nil ? CmuxRemoteStrings.signedOut : nil }, effect: { _ in
-                guard let hub = environment.hub() else { return .refused(CmuxRemoteStrings.signedOut) }
-                // action-wait-allow: the device hub owns the sharing switch; the Devices page follows its push.
-                return .waiting(.network) {
-                    do { try await Self.apply(on ? "share" : "unshare", device: "", scope: nil, hub: hub, remote: remote) } catch {
-                        return ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))
-                    }
-                    return nil
-                }
+        _ = registry.bindEffect("macScreen.shareThisMac", unavailable: { environment.hub() == nil ? CmuxRemoteStrings.signedOut : nil }, effect: { _ in
+            guard environment.hub() != nil else { return .refused(CmuxRemoteStrings.signedOut) }
+            guard let window = environment.window() else { return .refused(L.t("macScreen.setup.noWindow", "Open a cmux window to share this Mac.")) }
+            return CmuxRemoteSharingSetup(host: environment.screenHost).begin(in: window)
+        })
+        _ = registry.bindEffect("macScreen.stopSharingThisMac", effect: { _ in
+            // Stop locally on this turn, even when the hub cannot be reached.
+            environment.screenHost.stopSession(reason: .hostStopped, immediately: true)
+            return .applied(result: {
+                do { try await environment.screenHost.setSharing(false) }
+                catch { return .failure(ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))) }
+                return .success([:])
+            })
+        })
+        for id: ActionID in ["macScreen.stopSharing", "remote.stopScreenSession"] {
+            _ = registry.bindEffect(id, unavailable: { environment.screenHost.noSessionReason }, effect: { _ in
+                environment.screenHost.stopSession(immediately: true)
+                return .done
             })
         }
+        _ = registry.bindEffect("macScreen.revokeViewer", unavailable: { environment.screenHost.noSessionReason }, effect: { _ in
+            _ = environment.screenHost.revokeViewer()
+            return .done
+        })
         _ = registry.bindEffect("macScreen.deviceAccess", effect: { _ in
             environment.openDevices()
             return .done
@@ -78,16 +90,8 @@ extension CmuxRemoteActionEnvironment {
     }
 
     /// Makes a confirmed change with this app's full hub session.
-    static func apply(_ action: String, device: String, scope: DeviceScope?, hub: DeviceHub, remote: CmuxRemoteService) async throws {
-        switch action {
-        case "share":
-            try await hub.setMacScreenShared(true)
-            if remote.started { _ = try? await remote.call("request", .object(["permission": .string("screen-recording")])) }
-        case "unshare":
-            try await hub.setMacScreenShared(false)
-        default:
-            if let scope { try await hub.setPermission(host: hub.identity.id, viewer: device, scope: scope) }
-        }
+    static func applyAccess(device: String, scope: DeviceScope?, hub: DeviceHub) async throws {
+        if let scope { try await hub.setPermission(host: hub.identity.id, viewer: device, scope: scope) }
     }
 
     /// `remote.confirm {action: share|access, device?, scope?}`.
@@ -103,13 +107,16 @@ extension CmuxRemoteActionEnvironment {
                 }
                 guard let hub = environment.hub() else { throw ControlError.invalidParams(CmuxRemoteStrings.signedOut) }
                 let name = hub.devices.first { $0.id == device }?.name ?? device
-                let (title, body) = action == "share" ? CmuxRemoteStrings.confirmShare()
-                    : CmuxRemoteStrings.confirmAccess(device: name, scope: scope ?? .ask)
                 let window = environment.window()
-                let remote = environment.remote
                 return .followUp {
+                    if action == "share" {
+                        guard let window else { return ["ok": false, "declined": true] }
+                        let shared = try await CmuxRemoteSharingSetup(host: environment.screenHost).confirm(in: window)
+                        return ["ok": .bool(shared), "declined": .bool(!shared)]
+                    }
+                    let (title, body) = await CmuxRemoteStrings.confirmAccess(device: name, scope: scope ?? .ask)
                     guard await Self.confirm(title: title, body: body, in: window) else { return ["ok": false, "declined": true] }
-                    try await Self.apply(action, device: device, scope: scope, hub: hub, remote: remote)
+                    try await Self.applyAccess(device: device, scope: scope, hub: hub)
                     return ["ok": true]
                 }
             }.withDeadline(.fixed(.seconds(130))),

@@ -642,6 +642,7 @@ MODEL_BY_PATH = {
     'events/screen-added/payload': models.ScreenAddedEvent,
     'events/screen-changed/payload': models.ScreenChangedEvent,
     'events/screen-closed/payload': models.ScreenClosedEvent,
+    'events/screen-device-changed/payload': models.ScreenDeviceChangedEvent,
     'events/screen-renamed/payload': models.ScreenRenamedEvent,
     'events/scroll-changed/payload': models.ScrollChangedEvent,
     'events/selection-changed/payload': models.SelectionChangedEvent,

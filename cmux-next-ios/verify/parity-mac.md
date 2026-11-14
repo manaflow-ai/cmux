@@ -242,7 +242,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | --- | --- | --- | --- |
 | View another Mac's screen (Mac Screen tab, streamed on cmux.rd/1) | the Screen Sharing viewer (CmuxMobileScreenSharing) | partial | The phone views over WebRTC. A Mac host takes its protocol from the viewer's offer: a cmux.rd/1 document runs `cmux rd serve`, any other offer runs ScreenStreamHost, so Macs and phones both reach it. The phone has no cmux.rd/1 link yet: iOS cannot start the Mac's helper process, so the link has to come in as a library. code-checked; live pending |
 | Mac Screen as a tab in a workspace | + › Screen Sharing, then Open as Tab: a phone-side Screen Sharing tab after the Mac's tabs (`WorkspaceScreenSharingTab.swift`) | done | The tab is the phone's own: the Mac lists no such tab, and Close Tab removes it on the phone only. It stays open for the app's run. sim-checked (ScreenSharingSheetUITests) |
-| Share This Mac (serve a session) | | not from a phone | A phone views Macs; it is not a screen host. |
+| Share This Mac (serve a session), guided host permission sheet and floating sharing bar | | not from a phone | Mac-only chrome: Screen Recording and optional Accessibility permission prompts are presented by the Mac host, and its floating bar shows the connected viewer plus one-click Stop. A phone views Macs; it is not a screen host. The native device/header **View screen** action corresponds to the existing phone Screen Sharing viewer above; it does not add a phone host path. |
 
 ## Workspace list order (parity2 decision)
 

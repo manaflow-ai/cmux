@@ -19,6 +19,8 @@ final class SectionHeaderRowView: SidebarRowView {
     private(set) var badgeText: String?
     private let chevron = DecorativeImageView()
     let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.newWorkspace)
+    let screenButton = SidebarIconButton(icon: .remoteDisplay, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.viewScreen)
+    private(set) var screenAction: SidebarIntent?
     /// The machine status dot's color, resolved in `updateLayer`; `working` draws the spinner.
     enum StatusTone { case success, attention, quiet, danger, working }
     private(set) var statusTone: StatusTone?
@@ -34,13 +36,14 @@ final class SectionHeaderRowView: SidebarRowView {
     required init(key: SidebarRowKey) {
         super.init(key: key)
         layer?.addSublayer(status)
-        [glyph, machineIcon, name, spinner, badge, chevron, addButton].forEach(addSubview)
+        [glyph, machineIcon, name, spinner, badge, chevron, addButton, screenButton].forEach(addSubview)
         spinner.isHidden = true
+        screenButton.isHidden = true
         // The header's label and AXExpanded say what the glyph and chevron draw.
         addButton.onPress = { [weak self] in self?.onAdd?() }
     }
 
-    override var interactiveSubviews: [NSView] { [addButton] }
+    override var interactiveSubviews: [NSView] { [addButton, screenButton] }
 
     private struct Content: Hashable {
         // The section's kind, not its nodes: comparing 1,000 children per
@@ -147,6 +150,9 @@ final class SectionHeaderRowView: SidebarRowView {
         guard needsConfigure(content) else { return }
         statusTip = nil
         cost = nil
+        screenAction = nil
+        screenButton.isHidden = true
+        screenButton.isEnabled = true
         collapsed = row.isCollapsed
         isEmpty = content.isEmpty
         let symbol: IconName
@@ -184,6 +190,23 @@ final class SectionHeaderRowView: SidebarRowView {
             themedToolTip = Self.machineToolTip(status: statusTip, cost: cost, now: Date())
             setAccessibilityLabel(machine.name + ", " + words)
             setAccessibilityHelp(cost == nil ? machine.detail : themedToolTip)
+            switch machine.kind {
+            case .local:
+                screenAction = .shareScreen(machine.id)
+                screenButton.icon = .actionShare
+                screenButton.label = Strings.shareScreen
+            case .cloud:
+                screenAction = .viewScreen(machine.id)
+                screenButton.icon = .remoteDisplay
+                screenButton.label = Strings.viewScreen
+            case .ssh, .server:
+                screenAction = machine.screenDeviceID == nil ? nil : .viewScreen(machine.id)
+                screenButton.icon = .remoteDisplay
+                screenButton.label = Strings.viewScreen
+                screenButton.isEnabled = machine.screenAvailable
+                if !machine.screenAvailable { screenButton.label += " — " + Strings.statusOffline }
+            }
+            screenButton.isHidden = screenAction == nil
         }
         // The only machine needs no name or status: the header heads the
         // workspace list, apart from the destinations above it.
@@ -215,6 +238,7 @@ final class SectionHeaderRowView: SidebarRowView {
         }
         setAccessibilityIdentifier("cmux.sidebar.section.\(sectionID)")
         addButton.setAccessibilityIdentifier("cmux.sidebar.section.\(sectionID).newWorkspace")
+        screenButton.setAccessibilityIdentifier("cmux.sidebar.section.\(sectionID).screen")
         addButton.isHidden = true
         needsLayout = true
         needsDisplay = true
@@ -272,17 +296,27 @@ final class SectionHeaderRowView: SidebarRowView {
         // The add button keeps its slot, so the name never re-truncates on hover.
         // Section actions stay available at rest. Hiding them until hover made
         // the bottom of the sidebar flash as the pointer crossed a header.
-        addButton.isHidden = !allowsAdd
+        addButton.isHidden = !allowsAdd || (screenAction != nil && !isHovered)
         let control = SidebarStyle.controlSize
+        // The one-machine sidebar calls this header "Projects", but it is still the local
+        // machine's first-class screen entry point. Keep the action visible there too.
+        let hasScreen = screenAction != nil
+        screenButton.isHidden = !hasScreen
+        if hasScreen {
+            // From the trailing edge: +, screen action, disclosure. Each gets its own pitch;
+            // the previous layout put the screen action on the disclosure's slot and erased the
+            // joined machine name at the narrow gallery widths.
+            screenButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: control, slot: allowsAdd ? 1 : 0)
+        }
         if allowsAdd {
-            addButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: control)
+            addButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: control, slot: 0)
         }
         chevron.isHidden = isEmpty
         let chevronSide = SidebarStyle.controlSize
         // Without the add button the chevron takes the trailing column, as a group header's does; with it, the
         // chevron steps one shared pitch left of the add button.
         chevron.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY,
-                                                         side: chevronSide, slot: allowsAdd ? 1 : 0)
+                                                         side: chevronSide, slot: allowsAdd ? (hasScreen ? 2 : 1) : (hasScreen ? 1 : 0))
         var trailing = columns.trailingEdge(before: chevron.frame)
         let dot = SidebarStyle.dotSize
         status.isHidden = statusTone == nil
@@ -321,6 +355,15 @@ final class SectionHeaderRowView: SidebarRowView {
 
     /// Whether the machine's own icon shows before the name (tests).
     var showsMachineIcon: Bool { !machineIcon.isHidden }
+
+    /// Whether the header has a first-class screen action (tests and native gallery capture).
+    var showsScreenButton: Bool { !screenButton.isHidden }
+
+    /// The screen action's frame (tests and native gallery geometry capture).
+    var screenButtonFrame: NSRect { screenButton.frame }
+
+    /// The disclosure's frame (tests and native gallery geometry capture).
+    var chevronFrame: NSRect { chevron.frame }
 }
 
 // MARK: - Empty section drop zone

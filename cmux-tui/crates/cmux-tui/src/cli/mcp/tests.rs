@@ -19,6 +19,8 @@ struct Fake {
     actions: Value,
     fail_resources: bool,
     fail_apps: bool,
+    /// The app socket is absent; remote screen controls may use the worker.
+    app_absent: bool,
     /// The app refuses every `action.run`, as for a path it cannot open.
     refuse_actions: bool,
     /// The app applied an open action but lost the acknowledgement.
@@ -29,6 +31,9 @@ struct Fake {
     resource_result: Option<Value>,
     /// A refusal from the resource owner, passed through unchanged.
     resource_error: Option<Value>,
+    /// Answer and error controls for cmux Remote's legacy daemon calls.
+    daemon_result: Option<Value>,
+    daemon_error: Option<Value>,
     /// The app's transport drops after a `feed.*` request is sent, as
     /// `transport::app_method` reports it.
     lose_app_transport: bool,
@@ -273,6 +278,9 @@ impl Backend for Fake {
             "key": idempotency_key,
             "mutation": mutation,
         }));
+        if self.app_absent {
+            return Err(CallFailure::local(FailureKind::NotRun, "app.not_found", "no cmux app"));
+        }
         if self.lose_app_transport && method.starts_with("feed.") {
             let keyed = idempotency_key.is_some();
             return Err(CallFailure {
@@ -325,6 +333,25 @@ impl Backend for Fake {
             }
             _ => Ok(json!({"ran": true})),
         }
+    }
+
+    fn daemon(&self, request: Value) -> Result<Value, CallFailure> {
+        self.sent.borrow_mut().push(json!({"kind": "daemon", "request": request}));
+        if let Some(error) = &self.daemon_error {
+            return Err(CallFailure {
+                kind: FailureKind::Rejected,
+                error: error.clone(),
+                idempotency_key: None,
+            });
+        }
+        if let Some(result) = &self.daemon_result {
+            return Ok(result.clone());
+        }
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "daemon.unavailable",
+            "this server cannot reach the daemon",
+        ))
     }
 
     /// The daemon's stream: its snapshot, then a delta when a daemon change
@@ -1900,6 +1927,79 @@ fn open_url_without_an_app_stays_on_the_daemon() {
     assert!(!sent.iter().any(|sent| sent["method"] == "browser.open_split"), "{sent:?}");
     assert!(
         sent.iter().any(|sent| sent["request"]["operation"] == "workspace.open_url"),
+        "{sent:?}"
+    );
+}
+
+#[test]
+fn remote_screen_stop_uses_the_app_action_when_it_is_present() {
+    let fake = Fake::default();
+    let mut server = Server::new(fake, None);
+    let result = server
+        .call(&json!({"name": "remote_stop_session", "arguments": {}}))
+        .expect("a tool result");
+    assert_eq!(result["isError"], false, "{result}");
+    let sent = server.backend.sent.borrow();
+    let app = sent.iter().find(|item| {
+        item["kind"] == "app"
+            && item["method"] == "action.run"
+            && item["params"]["action"] == "macScreen.stopSharing"
+    });
+    let app = app.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(app["params"]["wait"], true, "{app}");
+    assert_eq!(app["params"]["origin"], "cli", "{app}");
+    assert!(!sent.iter().any(|item| item["kind"] == "daemon"), "{sent:?}");
+}
+
+#[test]
+fn remote_screen_stop_falls_back_to_the_worker_only_when_the_app_is_absent() {
+    let fake =
+        Fake { app_absent: true, daemon_result: Some(json!({"stopped": true})), ..Fake::default() };
+    let mut server = Server::new(fake, None);
+    let result = server
+        .call(&json!({"name": "remote_stop_session", "arguments": {}}))
+        .expect("a tool result");
+    assert_eq!(result["isError"], false, "{result}");
+    assert_eq!(result["structuredContent"]["stopped"], true, "{result}");
+    let sent = server.backend.sent.borrow();
+    assert!(
+        sent.iter()
+            .any(|item| item["kind"] == "daemon"
+                && item["request"]["method"] == "screen.stop_session"),
+        "{sent:?}"
+    );
+}
+
+#[test]
+fn remote_screen_stop_does_not_hide_an_app_refusal_in_the_worker() {
+    let fake = Fake {
+        refuse_actions: true,
+        daemon_result: Some(json!({"should_not": "run"})),
+        ..Fake::default()
+    };
+    let mut server = Server::new(fake, None);
+    let result = server
+        .call(&json!({"name": "remote_stop_session", "arguments": {}}))
+        .expect("a tool result");
+    assert_eq!(result["isError"], true, "{result}");
+    assert_eq!(result["structuredContent"]["error"]["code"], "invalid_argument", "{result}");
+    let sent = server.backend.sent.borrow();
+    assert!(!sent.iter().any(|item| item["kind"] == "daemon"), "{sent:?}");
+}
+
+#[test]
+fn remote_share_off_uses_the_app_action_and_the_same_absent_app_fallback() {
+    let fake =
+        Fake { app_absent: true, daemon_result: Some(json!({"shared": false})), ..Fake::default() };
+    let mut server = Server::new(fake, None);
+    let result = server
+        .call(&json!({"name": "remote_share", "arguments": {"on": false}}))
+        .expect("a tool result");
+    assert_eq!(result["isError"], false, "{result}");
+    let sent = server.backend.sent.borrow();
+    assert!(
+        sent.iter()
+            .any(|item| item["kind"] == "daemon" && item["request"]["method"] == "screen.share"),
         "{sent:?}"
     );
 }
