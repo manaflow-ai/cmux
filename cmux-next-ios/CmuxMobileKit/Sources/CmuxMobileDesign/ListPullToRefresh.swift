@@ -82,6 +82,11 @@ public final class ListPullToRefresh {
             if scrollView.isDragging, pull.triggers { begin() }
         }
         layout(scrollView, distance: distance)
+        // A slot left open by a refresh that ended while the list moved, when the list came to rest
+        // without `scrollViewDidEndDecelerating` (a scroll to an item stopped it).
+        if !isRefreshing, held != 0, slide == nil, !scrollView.isDragging, !scrollView.isDecelerating {
+            move(scrollView, inset: 0)
+        }
     }
 
     /// Call from `scrollViewWillEndDragging`: the finger lifts, so the list can

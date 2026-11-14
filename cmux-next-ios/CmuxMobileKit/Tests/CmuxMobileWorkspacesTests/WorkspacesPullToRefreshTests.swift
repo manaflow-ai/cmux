@@ -159,7 +159,8 @@ import UIKit
         list.contentOffset.y = -120
         refresh.scrolled()
         gate.finish()
-        for _ in 0 ..< 50 { await Task.yield() }
+        await frames { !refresh.isRefreshing }
+        #expect(!refresh.isRefreshing)
         #expect(list.contentInset.top == ListPullToRefresh.slotHeight, "the slot closed while UIKit was still moving the list")
         // At rest inside the slot (20 pt into it): the slot closes and the rows move with it, a little per frame.
         list.coasting = false
@@ -173,8 +174,10 @@ import UIKit
         watch.invalidate()
         #expect(list.contentInset.top == 0)
         #expect(list.contentOffset.y == 0)
-        let steps = zip([-40] + offsets, offsets).map { abs($1 - $0) }
-        #expect((steps.max() ?? 0) < 12, "a frame moved the rows \(steps.max() ?? 0) pt")
+        // The rows glide up with the slot over several frames, never back down (a jump would skip the
+        // slide; a fight with another animation would reverse it).
+        #expect(offsets.count >= 3, "the slot closed in \(offsets.count) frames")
+        #expect(zip([-40] + offsets, offsets).allSatisfy { $1 >= $0 - 0.01 }, "the rows moved back down: \(offsets)")
         window.isHidden = true
     }
 
@@ -193,7 +196,8 @@ import UIKit
         list.contentOffset.y = -150
         refresh.scrolled()
         gate.finish()
-        for _ in 0 ..< 50 { await Task.yield() }
+        await frames { !refresh.isRefreshing }
+        #expect(!refresh.isRefreshing)
         #expect(list.contentInset.top == ListPullToRefresh.slotHeight)
         // It lifts: the slot goes, and the bounce ends at the list's own top.
         var lift = list.contentOffset
