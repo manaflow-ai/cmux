@@ -443,6 +443,10 @@ impl RecordInner {
         }
         paths.extend((self.files)());
         let weak = std::sync::Arc::downgrade(self);
+        // Held from the new watch's start to its swap: a change it reports at once re-arms only
+        // after it is in the slot, so that re-arm's watch is never replaced by this older one.
+        // Dropping a watch never joins its thread, so no thread waits on this lock while holding it.
+        let mut slot = self.watch.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let watch = DirWatch::start_identities(&paths, move || {
             if let Some(inner) = weak.upgrade() {
                 inner.changed();
@@ -452,10 +456,8 @@ impl RecordInner {
         });
         let armed = watch.is_some();
         // The previous watch (whose thread may be the one running this) ends as it is dropped.
-        let previous = std::mem::replace(
-            &mut *self.watch.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
-            watch,
-        );
+        let previous = std::mem::replace(&mut *slot, watch);
+        drop(slot);
         drop(previous);
         if !(self.present)() {
             self.end();
