@@ -52,7 +52,7 @@ The [gallery](customization-showcase.gallery.md) records three states per view. 
 native captures demonstrate rendering; the separate NIGHTLY readback checks real data, clicks,
 and edit/save reload. Pending checks are explicitly marked there.
 
-The [catalog](../../skills/cmux-customization/showcase.json) drives Settings and lists the same
+The [catalog](../../webviews/src/pages/settings/customizeShowcase.json) drives Settings and lists the same
 files, descriptions, capture states, and API gaps. Existing larger recipes remain in the
 [examples library](../../skills/cmux-customization/references/examples.md).
 

@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import showcase from "../../../../skills/cmux-customization/showcase.json";
+import showcase from "./customizeShowcase.json";
 import { LOCALES } from "../../../scripts/pages/gen-strings.mjs";
 import { installDom } from "./testDom";
 import { SHOWCASE_REF, templateInstallCommand } from "./components/CustomizeExamplesCard";

@@ -1,4 +1,4 @@
-import showcase from "../../../../../skills/cmux-customization/showcase.json";
+import showcase from "../customizeShowcase.json";
 import { useStore } from "../context";
 import { ActionRow } from "./ActionRow";
 import { Button } from "../../../ui/Button";

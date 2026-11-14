@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CATALOG = ROOT / "skills/cmux-customization/showcase.json"
+CATALOG = ROOT / "webviews/src/pages/settings/customizeShowcase.json"
 
 
 def main() -> None:

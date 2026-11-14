@@ -1,7 +1,7 @@
 # cmux Customization Examples
 
 The cmux NEXT showcase is the short, live catalog for people deciding what to make:
-[`showcase.json`](../showcase.json) and the matching [gallery capture states](../../../docs/cmux-next/customization-showcase.gallery.md).
+[`customizeShowcase.json`](../../../webviews/src/pages/settings/customizeShowcase.json) and the matching [gallery capture states](../../../docs/cmux-next/customization-showcase.gallery.md).
 It points at the templates and sample apps below, so there is one source of truth for copy-paste
 files, isolated extension installs, hot reload, and the API gaps that still need an SDK change.
 

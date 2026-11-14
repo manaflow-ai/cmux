@@ -14,11 +14,7 @@
       "file": "skills/cmux-customization/templates/pull-watch/main.js",
       "manifest": "skills/cmux-customization/templates/pull-watch/cmux-app.json",
       "install": "extension",
-      "gallery": [
-        "open PRs",
-        "no PRs",
-        "GitHub unavailable"
-      ],
+      "gallery": ["open PRs", "no PRs", "GitHub unavailable"],
       "galleryAnchor": "my-prs",
       "sha256": {
         "file": "29f22b56cfc8fc863606053b2e77540e5adc43cc4dfea35c9064034cdf6dd82c",
@@ -32,11 +28,7 @@
       "file": "skills/cmux-customization/templates/needs-you/main.js",
       "manifest": "skills/cmux-customization/templates/needs-you/cmux-app.json",
       "install": "extension",
-      "gallery": [
-        "questions waiting",
-        "no questions",
-        "read refused"
-      ],
+      "gallery": ["questions waiting", "no questions", "read refused"],
       "galleryAnchor": "needs-you",
       "sha256": {
         "file": "ff045cbb576ee7e87346168a56b2320fb90c0d31238b354d257f76d70963c739",
@@ -50,11 +42,7 @@
       "file": "skills/cmux-customization/templates/workspace-tabs/main.js",
       "manifest": "skills/cmux-customization/templates/workspace-tabs/cmux-app.json",
       "install": "extension",
-      "gallery": [
-        "mixed tabs",
-        "empty workspace",
-        "focus changed"
-      ],
+      "gallery": ["mixed tabs", "empty workspace", "focus changed"],
       "galleryAnchor": "this-workspace",
       "sha256": {
         "file": "15c674e73d7b0c097646395b48aa910a838a827d57b1b330a7466f5b983ff814",
@@ -68,11 +56,7 @@
       "file": "skills/cmux-customization/templates/saved-links/main.js",
       "manifest": "skills/cmux-customization/templates/saved-links/cmux-app.json",
       "install": "extension",
-      "gallery": [
-        "saved links",
-        "first run",
-        "invalid link"
-      ],
+      "gallery": ["saved links", "first run", "invalid link"],
       "galleryAnchor": "dashboard-links",
       "sha256": {
         "file": "52c80d10667f801adba9099e814dae38ec67bdb40a5de4174c6d75b7a3f2c51b",
@@ -86,11 +70,7 @@
       "file": "skills/cmux-customization/templates/branch-status/main.js",
       "manifest": "skills/cmux-customization/templates/branch-status/cmux-app.json",
       "install": "extension",
-      "gallery": [
-        "branch ahead",
-        "detached HEAD",
-        "not a repository"
-      ],
+      "gallery": ["branch ahead", "detached HEAD", "not a repository"],
       "galleryAnchor": "branch-status",
       "sha256": {
         "file": "5cc975eb730c73a8ad9f56014c637795a98d7167fc935a7a1c8b8c48ade2241c",
@@ -104,11 +84,7 @@
       "file": "samples/apps/showcase-pr-review/main.js",
       "manifest": "samples/apps/showcase-pr-review/cmux-app.v2.json",
       "install": "extension",
-      "gallery": [
-        "review requests",
-        "no reviews",
-        "GitHub unavailable"
-      ],
+      "gallery": ["review requests", "no reviews", "GitHub unavailable"],
       "galleryAnchor": "review-requests",
       "sha256": {
         "file": "50fcf5f1c5f5d7c5dcc67f96b3ff3c9b7c369fd34415d4ca8db5cb6b557bfd8d",
@@ -122,11 +98,7 @@
       "file": "samples/apps/showcase-agent-status/main.js",
       "manifest": "samples/apps/showcase-agent-status/cmux-app.v2.json",
       "install": "extension",
-      "gallery": [
-        "working agents",
-        "blocked agents",
-        "no active agents"
-      ],
+      "gallery": ["working agents", "blocked agents", "no active agents"],
       "galleryAnchor": "working-agents",
       "sha256": {
         "file": "92afd5acc3e35f919f43a70215dae1cb55cc558a88e0326858ebee380011c6c6",
@@ -140,11 +112,7 @@
       "file": "samples/apps/showcase-command-buttons/main.js",
       "manifest": "samples/apps/showcase-command-buttons/cmux-app.v2.json",
       "install": "extension",
-      "gallery": [
-        "default",
-        "light appearance",
-        "dark appearance"
-      ],
+      "gallery": ["default", "light appearance", "dark appearance"],
       "galleryAnchor": "quick-actions",
       "sha256": {
         "file": "0c9b7055b1e608caeef834ae399cc269628bafd582a4631e18202062f2c19cb8",
@@ -158,11 +126,7 @@
       "file": "samples/apps/showcase-focus-timer/main.js",
       "manifest": "samples/apps/showcase-focus-timer/cmux-app.v2.json",
       "install": "extension",
-      "gallery": [
-        "ready",
-        "running",
-        "paused"
-      ],
+      "gallery": ["ready", "running", "paused"],
       "galleryAnchor": "focus-timer",
       "sha256": {
         "file": "ea47ddeb72f5391d9ef6a88d1896ee203c0535fbe88175e4c287252a4f72b6cd",
@@ -176,11 +140,7 @@
       "file": "samples/apps/showcase-standup/main.js",
       "manifest": "samples/apps/showcase-standup/cmux-app.v2.json",
       "install": "extension",
-      "gallery": [
-        "notes",
-        "empty list",
-        "storage unavailable"
-      ],
+      "gallery": ["notes", "empty list", "storage unavailable"],
       "galleryAnchor": "today",
       "sha256": {
         "file": "6400dabe17a231f0ba603f29df036cb122c3a1c71c065297a0aa23f9280b0d9c",
