@@ -112,6 +112,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "3",
+        name: "v2.pr03.chat_actor_killed_mid_turn",
+        done_when: "The actor killed mid-turn 50 times: the replay settles every row once.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
         pr: "3c",
         name: "v2.pr03c.fold_window",
         done_when: "A window at the end of a chat whose last turn folded 100,000 rows stays within 1.2x of one folded 10 rows, with the same reply size.",
