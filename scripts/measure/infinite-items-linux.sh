@@ -23,6 +23,11 @@ root="$(git rev-parse --show-toplevel)"
 cd "$root"
 # cmux-tui's terminal engine builds from the ghostty-next submodule, which a fast-checks snapshot leaves empty.
 [ -f ghostty-next/build.zig ] || [ -n "${CMUX_GHOSTTY_SRC:-}" ] || git submodule update --init --depth 1 ghostty-next
+# A bare runner (the perf cron's Linux part): the pinned Rust and Zig and the native build tools.
+command -v cargo >/dev/null || ./scripts/install-rust-ci.sh
+command -v zig >/dev/null || [ -n "${ZIG:-}${CMUX_ZIG:-}" ] || ./scripts/install-zig-ci.sh
+command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang libclang-dev pkg-config; }
+export PATH="$HOME/.cargo/bin:$PATH"
 cd "$root/cmux-tui"
 cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui 2>&1 | tail -n 3
 target="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"

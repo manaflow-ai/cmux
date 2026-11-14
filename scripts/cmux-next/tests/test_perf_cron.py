@@ -23,7 +23,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -626,6 +626,19 @@ class WebUiTests(unittest.TestCase):
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-growth")["suite"]
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "state-growth"])
         self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_infinite_items_rows_have_their_own_linux_part(self):
+        self.assertTrue(cron.is_linux_part("infinite-items"))
+        self.assertEqual(cron.part_for_row("webui.infinite_items.n1000.memory_vs_empty@linux"), "infinite-items")
+        self.assertEqual(cron.part_for_row("webui.infinite_items.n10.mb_per_day@linux"), "infinite-items")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "infinite-items")["suite"]
+        self.assertEqual(argv[:2], ["bash", "/r/scripts/measure/infinite-items-linux.sh"])
+        self.assertIn("pages=0", argv)
+        self.assertEqual(cwd, "/r")
+        rows = cron.rows_of_part(cron.PART_BY_NAME["infinite-items"], {"rows": [
+            {"name": "infinite_items.n1000.memory_vs_empty", "p50": 1.4, "p95": 1.4, "unit": "x", "floor": 0.1}]},
+            budgets_mod, {"rows": {}})
+        self.assertEqual(rows["webui.infinite_items.n1000.memory_vs_empty"]["p95"], 1.4)
 
     def test_the_god_part_runs_both_fixtures_and_owns_the_god_rows(self):
         self.assertTrue(cron.is_linux_part("web-ui-god"))
