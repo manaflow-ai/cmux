@@ -14,6 +14,8 @@
 //!    `probe` entry lists no models: every reported model is shown, with the
 //!    catalog's metadata when `models` describes its id.
 //!
+//! A harness with an advisory menu keeps its catalog releases, in catalog order,
+//! alongside reported ids; the suggestions are not an exhaustive capability list.
 //! Without a catalog entry the harness keeps today's lists.
 
 use super::*;
@@ -129,7 +131,9 @@ fn offered(
         out.extend(reported.iter().map(|r| reported_json(r, catalog)));
         return out;
     };
-    let picks = (*kind == HarnessKind::Acp || live) && !reported.is_empty();
+    let picks = (*kind == HarnessKind::Acp || live)
+        && !reported.is_empty()
+        && !advisory_menu(Some(curated));
     for model in &curated.models {
         if !picks || lists(reported, model) {
             out.push(curated_json(model, catalog));
@@ -168,6 +172,13 @@ fn picker_models(reported: &[(String, String)], models: &[Value]) -> Vec<String>
         }
     }
     top
+}
+
+/// CLI 0.68.0 accepts explicit release ids that its built-in ACP menu omits.
+/// Scope this exception to the catalog family, including custom launch profiles;
+/// other ACP menus continue to constrain the catalog to their reported models.
+fn advisory_menu(curated: Option<&CatalogHarness>) -> bool {
+    curated.is_some_and(|harness| harness.id == "gemini" && harness.model_source == "catalog")
 }
 
 /// The harness's current models: its report without the ones its live catalog moves to
@@ -237,12 +248,30 @@ impl Hub {
                 models.push(json!({"id": "default", "name": "default (agent's choice)"}));
             }
             super::model_availability::mark_unavailable(&mut models, name, &refused);
-            let top =
-                if live.is_some() || (profile.kind == HarnessKind::Acp && !reported.is_empty()) {
-                    Some(picker_models(&current(&reported, live.as_deref()), &models))
-                } else {
-                    None
-                };
+            let top = if let Some(curated) =
+                curated.as_ref().filter(|curated| advisory_menu(Some(curated)))
+            {
+                let menu: Vec<_> = curated
+                    .models
+                    .iter()
+                    .map(|model| (model.id.clone(), model.name.clone()))
+                    .chain(reported.iter().cloned())
+                    .collect();
+                Some(
+                    picker_models(&menu, &models)
+                        .into_iter()
+                        .filter(|id| {
+                            !models.iter().any(|model| {
+                                model["id"] == id.as_str() && model["status"] == "deprecated"
+                            })
+                        })
+                        .collect(),
+                )
+            } else if live.is_some() || (profile.kind == HarnessKind::Acp && !reported.is_empty()) {
+                Some(picker_models(&current(&reported, live.as_deref()), &models))
+            } else {
+                None
+            };
             let mut entry = json!({"harness": name, "kind": profile.kind, "isDefault": cfg.default_harness.as_deref() == Some(name), "models": models});
             if let Some(top) = top {
                 entry.set("topModels", json!(top));
@@ -291,6 +320,66 @@ impl Hub {
 mod picker_models_tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[tokio::test]
+    async fn gemini_advisory_menu_keeps_new_releases_and_unknown_models() {
+        let mut cfg: crate::config::Config = serde_json::from_value(json!({
+            "harnesses": {"my-gemini": {"argv": ["gemini", "--acp"], "family": "gemini",
+                "models": [{"id": "private-model", "name": "Private model"}]}}
+        }))
+        .unwrap();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        // CLI 0.68.0's menu is incomplete; an explicit model ID is still accepted.
+        hub.known_models.lock().unwrap().insert(
+            "my-gemini".into(),
+            vec![
+                ("auto".into(), "Auto".into()),
+                ("gemini-2.5-pro".into(), "Gemini 2.5 Pro".into()),
+                ("gemini-future".into(), "Future".into()),
+            ],
+        );
+        let row = models_row(&hub.models_catalog().await, "my-gemini");
+        let models = row["models"].as_array().unwrap();
+        for (id, name, input, output) in [
+            ("gemini-4-carbon", "Gemini 4 Carbon", 2.0, 10.0),
+            ("gemini-4-hydrogen", "Gemini 4 Hydrogen", 1.5, 7.5),
+        ] {
+            let model =
+                models.iter().find(|m| m["id"] == id).expect("new release survives stale menu");
+            assert_eq!(model["name"], name);
+            assert_eq!(model["contextWindow"], 1_048_576);
+            assert_eq!(model["maxOutput"], 65_536);
+            assert_eq!(model["cost"]["input"], input);
+            assert_eq!(model["cost"]["output"], output);
+            let (_, price) = crate::pricing::table().lookup(id).expect("ledger prices the release");
+            assert_eq!(price.input, input);
+            assert_eq!(price.output, output);
+            assert_eq!(model["cost"]["cacheRead"].as_f64(), price.cache_read);
+        }
+        assert_eq!(
+            &row["topModels"].as_array().unwrap()[..2],
+            &[json!("gemini-4-carbon"), json!("gemini-4-hydrogen")]
+        );
+        assert!(models.iter().any(|m| m["id"] == "gemini-future"));
+        assert!(models.iter().any(|m| m["id"] == "private-model"));
+        assert!(row["topModels"].as_array().unwrap().contains(&json!("gemini-future")));
+        assert!(!models.iter().any(|m| m["id"] == "gemini-4-argon"));
+        assert_eq!(row["catalog"]["defaultModel"], "gemini-3.1-pro-preview");
+    }
+
+    #[test]
+    fn authoritative_acp_menus_still_filter_unreported_models() {
+        let catalog = CatalogService::default().current();
+        let mut curated = catalog.harnesses.iter().find(|h| h.id == "gemini").unwrap().clone();
+        curated.id = "authoritative-agent".into();
+        curated.families = vec!["authoritative-agent".into()];
+        let reported = vec![("gemini-2.5-pro".into(), "Pro".into())];
+        let models = offered(&HarnessKind::Acp, Some(&curated), &catalog, &reported, false);
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0]["id"], "gemini-2.5-pro");
+    }
 
     #[test]
     fn harness_picker_order_survives_catalog_order_and_aliases() {

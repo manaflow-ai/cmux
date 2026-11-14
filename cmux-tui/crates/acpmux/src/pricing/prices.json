@@ -1,5 +1,5 @@
 {
- "version": "2026-11-08",
+ "version": "2026-11-13",
  "currency": "USD",
  "unit": "perMillionTokens",
  "aliases": {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-1"},
@@ -69,7 +69,9 @@
    {"id": "o3-pro", "input": 20, "output": 80},
    {"id": "o4-mini", "input": 1.1, "output": 4.4, "cacheRead": 0.275}
   ]},
-  "google": {"source": "model-catalog-2026-10-29", "models": [
+  "google": {"source": "model-catalog-2026-11-13", "models": [
+   {"id": "gemini-4-carbon", "input": 2, "output": 10, "cacheRead": 0.1},
+   {"id": "gemini-4-hydrogen", "input": 1.5, "output": 7.5, "cacheRead": 0.075},
    {"id": "deep-research-max-preview-04-2026", "input": 2, "output": 12, "cacheRead": 0.2},
    {"id": "deep-research-preview-04-2026", "input": 2, "output": 12, "cacheRead": 0.2},
    {"id": "gemini-2.5-computer-use-preview-10-2025", "input": 1.25, "output": 10},
