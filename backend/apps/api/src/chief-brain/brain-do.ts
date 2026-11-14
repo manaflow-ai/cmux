@@ -32,7 +32,8 @@ import { ccRoute } from "../chief-brain-cc/vm.ts"
 import { ccNotes } from "../chief-brain-cc/turn.ts"
 import { toolFiles, toolsCall } from "../chief-brain-cc/tools.ts"
 import { wakeFire } from "../chief-brain-cc/wake.ts"
-import { chiefJobWake, type ChiefJob, type JobDelivery } from "../chief-brain-cc/jobs.ts"
+import { chiefJobWake, chiefPlanWake, type ChiefJob, type JobDelivery } from "../chief-brain-cc/jobs.ts"
+import type { PlanNotice } from "../plan-checkout.ts"
 import { jobsSendDue, jobsStore, type StoreOp } from "../chief-brain-cc/jobs-store.ts"
 import { upstashSender } from "../chief-brain-cc/jobs-upstash.ts"
 import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
@@ -624,6 +625,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** A run of one of this Chief's jobs (chief-brain-cc/jobs.ts, AutomationRunWorkflow): its note starts a turn here. */
   async chiefJob(j: ChiefJob): Promise<JobDelivery> {
     return chiefJobWake(this, j)
+  }
+
+  /** A plan bought through this Chief's checkout link is on (plan-checkout.ts): its note starts a turn here. */
+  async chiefPlan(n: PlanNotice): Promise<JobDelivery> {
+    return chiefPlanWake(this, n)
   }
 
   /** The Chief jobs of a team on the Upstash engine (chief-brain-cc/jobs-store.ts), on its `<team>/chief-jobs` object only. */

@@ -30,7 +30,7 @@ describe("GET /v1/billing/summary (paid plans dashboard)", () => {
   it("a free person: Free plan, credits, and Pro and Max offered with a test checkout link", async () => {
     const t = await token("billing-summary-free")
     await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })
-    const r = await summary(t, { STRIPE_CREDITS_KEY: "sk_test_fake-credits" })
+    const r = await summary(t, { STRIPE_CREDITS_KEY: "sk_test_fake-credits", STRIPE_CREDITS_WEBHOOK_SECRET: "whsec_test_fake" })
     expect(r.status).toBe(200)
     const v = r.body.value
     expect(v.personal).toBe(true)
@@ -55,6 +55,15 @@ describe("GET /v1/billing/summary (paid plans dashboard)", () => {
     expect(v.usage).toMatchObject({ included_usd: expect.any(Number), spent_usd: 0, billed: false })
     expect(v.usage.period_end).toBeGreaterThan(v.usage.period_start)
     expect(v.upgrade.map((p: { id: string }) => p.id)).toEqual(["max"])
+  })
+
+  it("no billing webhook: plans listed with no checkout link (a payment could not turn the plan on)", async () => {
+    const t = await token("billing-summary-nohook")
+    await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })
+    const r = await summary(t, { STRIPE_CREDITS_KEY: "sk_test_fake-credits", STRIPE_CREDITS_WEBHOOK_SECRET: "" })
+    expect(r.status).toBe(200)
+    expect(r.body.value.upgrade.map((p: { id: string }) => p.id)).toEqual(["pro", "max"])
+    expect(r.body.value.upgrade[0].checkout_url).toBeNull()
   })
 
   it("no test billing key: plans still listed, no checkout link, not test mode", async () => {
