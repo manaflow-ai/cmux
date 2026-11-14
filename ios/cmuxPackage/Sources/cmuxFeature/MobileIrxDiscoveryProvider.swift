@@ -143,6 +143,10 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         await invalidateSnapshot()
     }
 
+    public func refreshDirectory() async {
+        await invalidateSnapshot()
+    }
+
     // MARK: - MobileIrohMacForgetting
 
     public func forgetComputer(

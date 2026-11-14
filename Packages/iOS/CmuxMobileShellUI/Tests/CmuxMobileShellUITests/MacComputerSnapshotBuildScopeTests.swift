@@ -81,12 +81,51 @@ import Testing
         #expect(snapshot.colorIndex == workspaceColor)
     }
 
-    private func shellStore(pairedMacs: [MobilePairedMac]) async -> CMUXMobileShellStore {
+    @Test func directoryMacAppearsBeforeAuthenticatedPairing() async throws {
+        let endpointID = String(repeating: "a", count: 64)
+        let route = try CmxAttachRoute(
+            id: "iroh-directory-mac",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(endpointID: endpointID),
+                pathHints: []
+            ),
+            priority: -10_000
+        )
+        let candidate = MobileDiscoveredIrohMac(
+            deviceID: "directory-mac",
+            displayName: "Office Mac",
+            instanceTag: "stable",
+            routes: [route],
+            lastSeenAt: Date(timeIntervalSince1970: 30)
+        )
+        let store = await shellStore(
+            pairedMacs: [],
+            discovery: StaticIrohDiscovery(candidates: [candidate])
+        )
+
+        await store.refreshDirectoryCandidates()
+        let snapshots = MacComputerSnapshot.snapshots(from: store)
+
+        #expect(snapshots.count == 1)
+        #expect(snapshots[0].isDirectoryOnly)
+        #expect(snapshots[0].title == "Office Mac")
+        #expect(snapshots[0].id == MobilePairedMac.pairingID(
+            macDeviceID: "directory-mac",
+            instanceTag: "stable"
+        ))
+    }
+
+    private func shellStore(
+        pairedMacs: [MobilePairedMac],
+        discovery: (any MobileIrohMacDiscovering)? = nil
+    ) async -> CMUXMobileShellStore {
         let suiteName = "MacComputerSnapshotBuildScopeTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName) ?? .standard
         let store = MobileShellComposite(
             isSignedIn: true,
             pairedMacStore: WorkspaceMacSelectionPairedMacStore(pairedMacs),
+            personalIrohDiscovery: discovery,
             clientIDRepository: MobileClientIDRepository(defaults: defaults),
             identityProvider: WorkspaceMacSelectionIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
