@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43637495758",
+  "recorded_at": "2026-11-14T20:37:04Z",
+  "reason": "cmux-tui 4add9d5e1d1f changes the image's cmux-tui (pinned 3ebe6831175f)",
+  "dry_run": false,
+  "cmux_tui": "4add9d5e1d1f2b383f4682de6c5f133e5cd677f2",
+  "fixes": [
+    {
+      "sha": "4add9d5e1d1f2b383f4682de6c5f133e5cd677f2",
+      "mergedAt": "2026-11-14T12:05:36-08:00",
+      "subject": "acpmux: a bridged prompt id reaches the app once, across daemon restarts (#43209)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T20:37:04Z",
+    "snapshot_id": "sh-2edb997c532246448b258d3e7297648e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43637495758): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "2a92825bbb433c14450ac6dcc3e3f8e56e2707f3",
+    "image": "cloud-native-auto-4add9d5e-43637495758-1",
+    "revision": "ci-43637495758-1",
+    "at": "2026-11-14T20:37:04Z"
+  },
+  "rolled_back": false
+}
