@@ -8,9 +8,10 @@ every thread, started before the app is spawned so the first sample is the proce
 thread, and places each sample on the launch marks' clock (ms since process start).
 
 Clock: the trace counts from its own start and the marks from the process start. The offset is taken from the
-first main-thread sample whose stack holds `applicationDidFinishLaunching`, which lands within one sample of the
-`did_finish_launching_start` mark; without one (an old build, no samples there) the app's first sample is the
-process start. `clock` in the summary says which was used.
+first main-thread sample whose stack holds `applicationDidFinishLaunching`, aligned with its
+`app.did_finish_launching_entry` mark. `did_finish_launching_start` is the legacy fallback for builds without an
+entry mark: newer builds emit it later, after their async bootstrap. Without a matching sample the app's first
+sample approximates process start. Sampling may miss the short callback; `clock` says which estimate was used.
 
 The summary (one dict per launch, `summarize`):
   window          [from_mark, to_mark] (default main_start .. first_window_frame_committed) and its length
@@ -58,6 +59,7 @@ BELOW_DEPTH = 4
 BELOW_ROWS = 5
 DFL_FRAME = "applicationDidFinishLaunching"
 DFL_MARK = "did_finish_launching_start"
+DFL_ENTRY_MARK = "app.did_finish_launching_entry"
 # Leaf frames of a thread that waits: the sample is not CPU work.
 IDLE_LEAF = re.compile(r"mach_msg|__psynch_cvwait|__psynch_mutexwait|kevent|__semwait|__ulock_wait|__workq_kernreturn|"
                        r"__select|__pselect|poll$|__wait4|__read_nocancel|__open|semaphore_wait")
@@ -224,11 +226,17 @@ def short(symbol, limit=150):
 
 def align(samples, marks):
     """The trace time (ns) of the process start, and how it was found."""
-    dfl = marks.get(DFL_MARK)
+    # The callback can return before async bootstrap calls finishLaunching. Its
+    # first stack sample must align to entry, not that later phase's start.
+    mark = DFL_ENTRY_MARK if isinstance(marks.get(DFL_ENTRY_MARK), (int, float)) else DFL_MARK
+    dfl = marks.get(mark)
     if isinstance(dfl, (int, float)):
         for t, _, stack in samples:
-            if any(DFL_FRAME in (symbol or "") for symbol, _ in stack):
-                return t - int(dfl * 1e6), f"first sample in {DFL_FRAME} = {DFL_MARK} ({dfl} ms)"
+            # An async closure keeps the callback's name in its symbol even
+            # after that callback returned. Only its actual frame is an anchor.
+            if any(DFL_FRAME in (symbol or "") and "closure #" not in (symbol or "")
+                   for symbol, _ in stack):
+                return t - int(dfl * 1e6), f"first sample in {DFL_FRAME} = {mark} ({dfl} ms)"
     if samples:
         return samples[0][0], "the app's first main-thread sample = process start"
     return None, "no main-thread samples"
