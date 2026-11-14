@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43645756946",
+  "recorded_at": "2026-11-14T22:13:28Z",
+  "reason": "cmux-tui 58c10930cccb changes the image's cmux-tui (pinned 02fd7936e57e)",
+  "dry_run": false,
+  "cmux_tui": "58c10930cccbc8a7f9e84ebfd9608d54a76d33bf",
+  "fixes": [
+    {
+      "sha": "58c10930cccbc8a7f9e84ebfd9608d54a76d33bf",
+      "mergedAt": "2026-11-14T13:38:54-08:00",
+      "subject": "acpmux v2 3c follow-ups: two rows marked, two read-only paths tested, a damaged-header resume rebuilds (#43236)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T22:13:28Z",
+    "snapshot_id": "sh-7c95c9c5d6784ac19a3f960638d00d9f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43645756946): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "391228b80d19736ef7a2953f6344f3155f1cfae1",
+    "image": "cloud-native-auto-58c10930-43645756946-1",
+    "revision": "ci-43645756946-1",
+    "at": "2026-11-14T22:13:28Z"
+  },
+  "rolled_back": false
+}
