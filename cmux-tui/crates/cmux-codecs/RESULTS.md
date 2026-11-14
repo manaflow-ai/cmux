@@ -74,27 +74,40 @@ CBR, low-latency mode. Both encoders' output was decoded by OpenH264.
 
 ## Sharper or faster on Windows: encoder settings (CPU host)
 
-Runs 43643167390 and 43645088338 of the same workflow, same kind of 4-vCPU VM, no GPU (so no
-hardware MFT rows; `codec-bench-windows-exe`, the run's codec-bench.exe, runs them on a machine
-with one). Leo: "cant we sharpen up windows? or is there no way... fps on the open one is so wack".
-The bar was a setting with at least OpenH264's text PSNR and more on-time fps.
+Runs 43643167390, 43645088338 and 43646875809 of the same workflow, same kind of 4-vCPU VM, no
+GPU (so no hardware MFT rows; `codec-bench-windows-exe`, the run's codec-bench.exe, runs them on a
+machine with one). Leo: "cant we sharpen up windows? or is there no way... fps on the open one is
+so wack". The bar was a setting with at least OpenH264's text PSNR and more on-time fps.
 
-OpenH264 with frame skipping off (`frameskip=0`), page scene, two runs each:
+OpenH264 with frame skipping off (`frameskip=0`), page scene, ranges over the runs. "Target" is
+the congestion controller's bitrate at the end of the row:
 
-| link | loss | on-time fps skip on / off | text PSNR dB skip on / off | media Mbps skip on / off |
-|---|---|---|---|---|
-| 30 Mbps | 0% | 17.4-17.5 / 29.2-29.7 | 31.4 / 31.1 | 9.0 / 8.9 |
-| 30 Mbps | 2% | 14.6-15.1 / 16.7-26.9 | 31.2-31.3 / 31.1-31.2 | 8.8-8.9 / 8.9 |
-| 30 Mbps | 2% bursty | 14.6-15.2 / 20.9-22.9 | 31.4-31.5 / 31.4-31.6 | 8.8-9.0 / 7.9-8.6 |
-| 10 Mbps | 0% | 0.0 / 0.0 (shown 2.0 / 7.3) | 32.2 / 31.6 | 2.7 / 6.9 |
+| link | loss | on-time fps skip on / off | text PSNR dB skip on / off | media Mbps skip on / off | target kbps skip on / off |
+|---|---|---|---|---|---|
+| 30 Mbps | 0% | 17.3-17.5 / 29.2-29.7 | 31.3-31.4 / 31.1 | 8.9-9.0 / 8.9 | 9143-9182 / 1000 |
+| 30 Mbps | 2% | 14.6-15.2 / 16.7-26.9 | 31.2-31.3 / 31.1-31.2 | 8.8-8.9 / 8.9 | 7555-8168 / 1004 |
+| 30 Mbps | 2% bursty | 13.1-15.2 / 20.9-22.9 | 31.4-32.0 / 31.4-31.6 | 8.8-9.0 / 7.9-8.6 | 6519-6539 / 1008 |
+| 10 Mbps | 0% | 0.0 / 0.0 (shown 2.0 / 7.3) | 32.2 / 31.6 | 2.7 / 6.9 | 1338-1344 / 1000 |
 
-- Scroll and typing: within 0.4 fps and 0.3 dB at 30 Mbps. At 10 Mbps frame skip off is equal or
-  ahead (scroll at 2% bursty 24.2 against 20.2 fps, drag at 2% bursty 23.8 against 16.3).
-- Drag at 2% loss on the 30 Mbps link is the one row it loses: 22.9-23.1 against 24.8-26.3 fps.
-- `threads=4` on top changes nothing measurable (variant 3 of run 43645088338).
-- `complexity=2` (OpenH264's high) is slower: page 13.1-15.9 fps.
-- At 5 Mbps neither setting shows a frame in any scene (40 IDRs per row): an engine finding
-  for its own fix, not a codec difference.
+- The fps comes from ignoring the target, not from coding better. With skipping off, the
+  congestion controller fell to its 1 Mbps floor in every page row while OpenH264 kept sending
+  about 9 Mbps. The 30 Mbps link had room for it; the 10 Mbps link filled (10.2 Mbps on the wire)
+  and showed nothing on time.
+- Frame skipping off, but back on once the output runs half a second past the target (tried in
+  run 43646875809, not kept): the page rows at 30 Mbps fall to 13.0-13.9 fps, under frame skip on,
+  because the target it follows is already at the floor.
+- Why the target falls: the controller is delay-based, and each page change is one large frame
+  that queues on the link for a moment. With skipping on, the encoder answers a lower target with
+  fewer frames, the delay flattens and the target recovers. With skipping off its frames don't
+  shrink enough, so the delay keeps rising and the target stays at the floor. That is the
+  engine's fix to make (pacing a large frame, or not reading its own burst as congestion), and
+  frame skipping stays on until it lands.
+- Scroll and typing: within 0.4 fps and 0.3 dB at 30 Mbps. Drag at 2% loss on the 30 Mbps link
+  loses with skipping off: 22.9-23.1 against 24.8-26.3 fps.
+- `threads=4` changes nothing measurable; `complexity=2` (OpenH264's high) is slower: page
+  13.1-15.9 fps.
+- At 15 Mbps both settings show 0.2-0.5 on-time fps on pages, and at 5 Mbps neither shows a frame
+  in any scene (40 IDRs per row): engine findings, not codec differences.
 
 Media Foundation's software MFT, the knobs it accepted:
 
@@ -107,9 +120,10 @@ Media Foundation's software MFT, the knobs it accepted:
 - Quality-vs-speed 100 with a 1 s buffer: pages 24.2-25.1 dB at 5.2-5.6 Mbps and 22.7-28.9 fps,
   still 6 dB under OpenH264.
 
-Verdict: Windows hosts send OpenH264 with frame skipping off (`cmux-rd-host/src/encoder.rs`).
-Linux hosts keep frame skipping on. No software MFT setting is as sharp as OpenH264 at a rate the
-link carries; the hardware MFT rows still need a machine with a GPU encoder.
+Verdict on a CPU host: nothing beats OpenH264's shipped settings on both fps and text PSNR while
+following the congestion controller, so the Windows default stays. No software MFT setting is as
+sharp as OpenH264 at a rate the link carries. The page scene's fps waits on the engine's handling
+of large frames; the hardware MFT rows still need a machine with a GPU encoder.
 
 ## VP9 and AV1 against H.264 (#43051, #43115)
 

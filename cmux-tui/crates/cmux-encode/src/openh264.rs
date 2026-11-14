@@ -180,38 +180,6 @@ pub struct OpenH264 {
     info: Box<SFrameBSInfo>,
     kbps: u32,
     name: String,
-    /// Frame skipping off until the output runs ahead of the target
-    /// ([`OpenH264Options::skip_on_overshoot`]).
-    overshoot: Option<Overshoot>,
-}
-
-/// A leaky bucket of the target: it fills at `kbps / fps` per frame and each access unit
-/// drains it. Frame skipping comes on once the output is [`Overshoot::ON_SECONDS`] of the
-/// target ahead, and goes off again when it has caught up.
-struct Overshoot {
-    fps: u32,
-    debt_bits: i64,
-    skipping: bool,
-}
-
-impl Overshoot {
-    const ON_SECONDS: f64 = 0.5;
-    /// Credit a quiet stretch may bank for the next burst.
-    const CREDIT_SECONDS: f64 = 0.25;
-
-    /// Books one frame's `bits` against `kbps` and says whether skipping should be on.
-    fn book(&mut self, bits: usize, kbps: u32) -> bool {
-        let target = f64::from(kbps) * 1000.0;
-        let per_frame = (target / f64::from(self.fps.max(1))) as i64;
-        let credit = -(target * Self::CREDIT_SECONDS) as i64;
-        self.debt_bits = (self.debt_bits + bits as i64 - per_frame).max(credit);
-        if self.debt_bits > (target * Self::ON_SECONDS) as i64 {
-            self.skipping = true;
-        } else if self.debt_bits <= 0 {
-            self.skipping = false;
-        }
-        self.skipping
-    }
 }
 
 // SAFETY: the encoder instance is used from one thread at a time (owned by the media loop).
@@ -227,9 +195,6 @@ fn ok(rc: c_int, what: &str) -> Res<()> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenH264Options {
     pub frame_skip: bool,
-    /// With `frame_skip` off: turn it on while the output runs half a second of the target
-    /// ahead (a link too slow for the scene), off once it has caught up.
-    pub skip_on_overshoot: bool,
     /// Worker threads and slices; `None` is the config's.
     pub threads: Option<u16>,
     /// 0 low (the default), 1 medium, 2 high.
@@ -244,7 +209,6 @@ impl Default for OpenH264Options {
     fn default() -> Self {
         Self {
             frame_skip: true,
-            skip_on_overshoot: false,
             threads: None,
             complexity: 0,
             min_qp: None,
@@ -265,7 +229,6 @@ impl OpenH264Options {
             let num = || v.parse::<u32>().map_err(|e| format!("openh264 options {k}: {e}"));
             match k {
                 "frameskip" => o.frame_skip = num()? != 0,
-                "overshoot" => o.skip_on_overshoot = num()? != 0,
                 "threads" => o.threads = Some(num()?.clamp(1, 16) as u16),
                 "complexity" => o.complexity = num()?.min(2) as u8,
                 "minqp" => o.min_qp = Some(num()?.min(51) as u8),
@@ -282,11 +245,8 @@ impl OpenH264Options {
     fn describe(&self) -> String {
         let d = Self::default();
         let mut s = Vec::new();
-        if self.skip_on_overshoot && !self.frame_skip {
-            s.push("skip-on-overshoot".into());
-        }
-        if let Some(t) = self.threads {
-            s.push(format!("threads={t}"));
+        if self.threads.is_some() {
+            s.push(format!("threads={}", self.threads.unwrap_or(1)));
         }
         if self.complexity != d.complexity {
             s.push(format!("complexity={}", self.complexity));
@@ -335,13 +295,7 @@ impl OpenH264 {
         )
         .trim_end()
         .to_owned();
-        let overshoot = (opts.skip_on_overshoot && !opts.frame_skip).then(|| Overshoot {
-            fps: cfg.fps,
-            debt_bits: 0,
-            skipping: false,
-        });
-        let this =
-            Self { api, enc, info: Box::default(), kbps: cfg.kbps.max(100), name, overshoot };
+        let this = Self { api, enc, info: Box::default(), kbps: cfg.kbps.max(100), name };
         let vt = this.vtbl();
         let mut p = SEncParamExt::default();
         // SAFETY: vtable functions of a live encoder, called with valid pointers.
@@ -368,11 +322,8 @@ impl OpenH264 {
         p.bPrefixNalAddingCtrl = false;
         p.bEnableSSEI = false;
         p.iEntropyCodingModeFlag = 0;
-        // Frame skipping lets the rate controller hold the target by sending nothing for a
-        // frame (an early measurement overshot 6x without it). On the codec bench, which
-        // follows the media engine's target, the rate held without it too (8.6-8.9 Mbps against
-        // 8.8-9.0 on the page scene) and pages of new text kept up to 29 on-time fps instead of
-        // 15-17, so Windows hosts turn it off (cmux-rd-host `encoder::open`).
+        // Frame skipping lets the rate controller hold the target (measured: without it the
+        // target overshot 6x); a skipped frame sends nothing and the next damage retries.
         p.bEnableFrameSkip = opts.frame_skip;
         p.bEnableLongTermReference = false;
         p.iMultipleThreadIdc = threads;
@@ -424,28 +375,6 @@ impl OpenH264 {
         Ok(this)
     }
 
-    /// Books a frame's output against the target and switches OpenH264's frame skipping
-    /// (read by its rate control on every frame) when the bucket's answer changes.
-    fn book_overshoot(&mut self, bits: usize) {
-        let kbps = self.kbps;
-        let Some(o) = self.overshoot.as_mut() else { return };
-        let was = o.skipping;
-        let now = o.book(bits, kbps);
-        if now == was {
-            return;
-        }
-        let Some(set) = self.vtbl().SetOption else { return };
-        let mut on = now;
-        // SAFETY: a live encoder; RC_FRAME_SKIP reads one bool.
-        if unsafe { set(self.enc, ENCODER_OPTION_RC_FRAME_SKIP, (&mut on as *mut bool).cast()) }
-            != 0
-            && let Some(o) = self.overshoot.as_mut()
-        {
-            // Not applied: ask again on the next frame.
-            o.skipping = was;
-        }
-    }
-
     fn vtbl(&self) -> &ISVCEncoderVtbl {
         // SAFETY: `enc` points at a live encoder whose first field is its vtable pointer.
         unsafe { &**self.enc }
@@ -482,23 +411,21 @@ impl H264Encoder for OpenH264 {
             ok(encode(self.enc, &src, &mut *self.info), "encode")?;
         }
         let info = &*self.info;
-        let skipped = info.eFrameType == videoFrameTypeSkip;
-        if !skipped {
-            for layer in &info.sLayerInfo[..info.iLayerNum.clamp(0, 128) as usize] {
-                let mut offset = 0usize;
-                for n in 0..layer.iNalCount.max(0) as usize {
-                    // SAFETY: openh264 guarantees iNalCount lengths and a buffer covering their sum.
-                    let len = unsafe { *layer.pNalLengthInByte.add(n) }.max(0) as usize;
-                    // SAFETY: as above.
-                    let nal = unsafe { std::slice::from_raw_parts(layer.pBsBuf.add(offset), len) };
-                    out.extend_from_slice(nal);
-                    offset += len;
-                }
+        if info.eFrameType == videoFrameTypeSkip {
+            return Ok(false);
+        }
+        for layer in &info.sLayerInfo[..info.iLayerNum.clamp(0, 128) as usize] {
+            let mut offset = 0usize;
+            for n in 0..layer.iNalCount.max(0) as usize {
+                // SAFETY: openh264 guarantees iNalCount lengths and a buffer covering their sum.
+                let len = unsafe { *layer.pNalLengthInByte.add(n) }.max(0) as usize;
+                // SAFETY: as above.
+                let nal = unsafe { std::slice::from_raw_parts(layer.pBsBuf.add(offset), len) };
+                out.extend_from_slice(nal);
+                offset += len;
             }
         }
-        let idr = !skipped && info.eFrameType == videoFrameTypeIDR;
-        self.book_overshoot(out.len() * 8);
-        Ok(idr)
+        Ok(info.eFrameType == videoFrameTypeIDR)
     }
 
     fn set_bitrate(&mut self, kbps: u32) {
@@ -614,44 +541,6 @@ mod bitrate_tests {
             assert_eq!(enc.kbps(), kbps);
         }
     }
-    /// Frames OpenH264 skipped out of 90 of noise at 200 kbps, frame skipping off.
-    fn skipped_frames(skip_on_overshoot: bool) -> usize {
-        let cfg = EncCfg {
-            width: 320,
-            height: 240,
-            fps: 30,
-            kbps: 200,
-            threads: 1,
-            screen_content: true,
-        };
-        let opts = OpenH264Options { frame_skip: false, skip_on_overshoot, ..Default::default() };
-        let mut enc =
-            OpenH264::with_options(&cfg, OpenH264Api::from_source(), &opts).expect("encoder");
-        let mut pic = I420::new(320, 240);
-        let mut seed = 0x2545_f491_u32;
-        let mut out = Vec::new();
-        let mut skipped = 0;
-        for frame in 0..90 {
-            for b in pic.y.iter_mut().chain(pic.u.iter_mut()).chain(pic.v.iter_mut()) {
-                seed ^= seed << 13;
-                seed ^= seed >> 17;
-                seed ^= seed << 5;
-                *b = seed as u8;
-            }
-            enc.encode(&pic, frame == 0, frame * 33_333, &mut out).expect("encode");
-            if out.is_empty() {
-                skipped += 1;
-            }
-        }
-        skipped
-    }
-
-    #[test]
-    fn frame_skipping_comes_back_when_the_output_runs_past_the_target() {
-        assert_eq!(skipped_frames(false), 0);
-        assert!(skipped_frames(true) > 0);
-    }
-
     #[test]
     fn bitrate_retarget_clamps_oversized_requests_without_corrupting_codec_state() {
         let cfg = EncCfg {
@@ -707,36 +596,5 @@ mod bitrate_tests {
             assert_eq!(read_rate(&enc, ENCODER_OPTION_BITRATE, layer), 8_000_000);
             assert_eq!(read_rate(&enc, ENCODER_OPTION_MAX_BITRATE, layer), 8_000_000);
         }
-    }
-}
-
-#[cfg(test)]
-mod overshoot_tests {
-    use super::Overshoot;
-
-    #[test]
-    fn skipping_comes_on_past_half_a_second_ahead_and_off_once_caught_up() {
-        // 1 Mbps at 10 fps: 100 kbit per frame of budget.
-        let mut o = Overshoot { fps: 10, debt_bits: 0, skipping: false };
-        // On target: never skips.
-        for _ in 0..50 {
-            assert!(!o.book(100_000, 1000));
-        }
-        // 300 kbit frames run 200 kbit ahead each: past 500 kbit on the third.
-        assert!(!o.book(300_000, 1000));
-        assert!(!o.book(300_000, 1000));
-        assert!(o.book(300_000, 1000));
-        // Skipped frames (no output) pay the debt back; off once it is gone, not before.
-        assert!(o.book(0, 1000));
-        assert!(o.book(0, 1000));
-        assert!(o.book(0, 1000));
-        assert!(o.book(0, 1000));
-        assert!(o.book(0, 1000));
-        assert!(!o.book(0, 1000));
-        // A quiet stretch banks at most a quarter second (250 kbit).
-        for _ in 0..100 {
-            o.book(0, 1000);
-        }
-        assert_eq!(o.debt_bits, -250_000);
     }
 }

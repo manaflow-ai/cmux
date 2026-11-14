@@ -78,12 +78,13 @@ jobs:
           # shipped settings.
           $variants = @(
             @('h264,h264-mf,h264-mf-sw', '', '', '30'),
-            @('h264', 'frameskip=0,overshoot=1', '', '30'),
-            @('h264', '', '', '15'),
-            @('h264', 'frameskip=0,overshoot=1', '', '15'),
+            @('h264', 'frameskip=0', '', '30'),
+            @('h264', 'frameskip=0,threads=4', '', '30'),
             @('h264', '', '', '10'),
             @('h264', 'frameskip=0', '', '10'),
-            @('h264', 'frameskip=0,overshoot=1', '', '10')
+            @('h264', '', '', '5'),
+            @('h264', 'frameskip=0', '', '5'),
+            @('h264-mf-sw', '', 'rc=pvbr,peak=200', '10')
           )
           $n = 0
           foreach ($v in $variants) {
