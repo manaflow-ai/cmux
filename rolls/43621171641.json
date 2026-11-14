@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43621171641",
+  "recorded_at": "2026-11-14T17:34:51Z",
+  "reason": "cmux-tui bad2b0ace624 changes the image's cmux-tui (pinned db01e9cf4994)",
+  "dry_run": false,
+  "cmux_tui": "bad2b0ace6242d9024d78a8b61d1aa87a8098528",
+  "fixes": [
+    {
+      "sha": "bad2b0ace6242d9024d78a8b61d1aa87a8098528",
+      "mergedAt": "2026-11-14T09:04:51-08:00",
+      "subject": "codec-bench: VideoToolbox H.264 next to OpenH264, page scene (#43158)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T17:34:51Z",
+    "snapshot_id": "sh-3dc394ed92d2438faf50d058aa72f3ce",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43621171641): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ce336ed8afff1afb1ae142ca105b621a57fb73d0",
+    "image": "cloud-native-auto-bad2b0ac-43621171641-1",
+    "revision": "ci-43621171641-1",
+    "at": "2026-11-14T17:34:51Z"
+  },
+  "rolled_back": false
+}
