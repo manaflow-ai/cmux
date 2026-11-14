@@ -590,6 +590,7 @@ impl Link {
     pub fn end(&mut self) {
         if let Some((adapter, _task)) = self.running.take() {
             adapter.close();
+            adapter.slot.retire();
         }
     }
 }
