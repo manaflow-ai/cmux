@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4360029397801",
+  "notes": "notes/4360029397801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 42959,
+      "title": "CMUX-572: request missing screen-share shards after the reorder grace",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43045,
+      "title": "ci(ios-review-gate): an agent reviewer pass that judged nothing is red",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42987,
+      "title": "Themes as files, part 1: theme file read, check and render in Rust (cmux-config)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43011,
+      "title": "Extensions: settings.changed and theme.changed events",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43075,
+      "title": "ci: print protected branch OIDC subject before tailnet join",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38440,
+      "title": "acpmux: a machine joined before the hub recorded capabilities states them itself at daemon start",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43008,
+      "title": "App Store: on for everyone, out of Labs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43021,
+      "title": "ci: cmux-next guards green again (cmux-rd-windows, short timeouts, iPhone clips, job budget)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
