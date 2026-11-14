@@ -80,6 +80,7 @@ acpmux_lib_gates() {
   run_acpmux_lib walk_rss_gate
   run_acpmux_lib live_view_gate
   run_acpmux_lib keyed_page_gate
+  run_acpmux_lib sidebar_mirror_connect_gate
 }
 run_group acpmux-lib acpmux_lib_gates
 
