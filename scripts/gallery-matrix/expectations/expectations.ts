@@ -23,6 +23,9 @@ export type CaptureSpec = {
   height?: number;
   /** web: the element to crop to (default `[data-gallery-capture]`, then `#root`). */
   selector?: string;
+  /** web: attributes set on <html> before the stage mounts, as a shipped page's main.tsx sets them
+   *  (e.g. {"data-transient-material": ""}), so a state shows the page's opted-in look. */
+  rootAttributes?: Record<string, string>;
   /** mac: a capture state file for `cmux-ci capture` (build-fleet/pr_capture/states or scripts/cmux-next/visual-gate/states). */
   stateFile?: string;
   /** ios: launch arguments for the gallery root (RecoveryGalleryRoot), e.g. ["-cmux-mobile-recovery-gallery", "states"]. */
@@ -92,6 +95,8 @@ export function validateSurface(raw: unknown, file: string, platform: Platform):
     states.add(c.state);
     if (platform === "web" && (typeof c.entry !== "string" || typeof c.variant !== "string"))
       fail(`captures[${i}] needs entry and variant on web`);
+    if (c.rootAttributes !== undefined && (platform !== "web" || typeof c.rootAttributes !== "object" || Object.values(c.rootAttributes).some((v) => typeof v !== "string")))
+      fail(`captures[${i}].rootAttributes must map names to strings, on web only`);
     if (platform === "mac" && typeof c.stateFile !== "string") fail(`captures[${i}] needs stateFile on mac`);
     if (platform === "ios" && !Array.isArray(c.launch)) fail(`captures[${i}] needs launch on ios`);
     return { ...c, keep: keep(c.keep, `captures[${i}].keep`) };

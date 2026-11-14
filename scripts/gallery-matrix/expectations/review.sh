@@ -43,9 +43,16 @@ gh pr view "$pr" -R manaflow-ai/cmux --json body --jq .body > "$work/body.md"
 # Judge against the checked-in baselines when the same renderer drew them; otherwise against the
 # base rendered live in the same run, so a browser or font update is never blamed on the PR.
 baselines="$root/base/baselines"
-if [ -d "$root/base-render" ] && ! cmp -s "$root/base/baselines/web/renderer.json" "$root/captures/web/renderer.json"; then
-  echo "checked-in web baselines missing or from another renderer: judging against the base rendered live"
-  baselines="$root/base-render"
+if [ -d "$root/base-render" ]; then
+  # A state with no checked-in baseline falls back to the live base render, so a surface added after
+  # the baselines were drawn is compared, not reported as new.
+  baselines="$work/baselines"
+  cp -R "$root/base-render" "$baselines"
+  if cmp -s "$root/base/baselines/web/renderer.json" "$root/captures/web/renderer.json"; then
+    cp -R "$root/base/baselines/." "$baselines/"
+  else
+    echo "checked-in web baselines missing or from another renderer: judging against the base rendered live"
+  fi
 fi
 [ -d "$repo/scripts/gallery-matrix/node_modules" ] || (cd "$repo/scripts/gallery-matrix" && bun install --frozen-lockfile >/dev/null)
 rc=0

@@ -88,6 +88,10 @@ async function render(browser: Browser, base: string, surface: Surface, capture:
       height: String(height),
       reducedMotion: "1",
     });
+    if (capture.rootAttributes)
+      await page.addInitScript((attrs) => {
+        for (const [name, value] of Object.entries(attrs)) document.documentElement.setAttribute(name, value);
+      }, capture.rootAttributes);
     await page.goto(`${base}/frame.html?${params}`, { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined, null, { timeout: 20_000 });
     const ready = await page.evaluate(() => document.documentElement.dataset.galleryReady);
