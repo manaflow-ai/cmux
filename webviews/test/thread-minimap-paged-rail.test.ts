@@ -11,6 +11,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { LANDING_OFFSET } from "../src/agent-session/acpmux/threadMinimap/model";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -26,15 +27,15 @@ type Scenario = {
   messages?: boolean;
 };
 
-const SCENARIOS: Scenario[] = [
-  { name: "no prompt index", promptIndex: false },
-  { name: "with the prompt index", promptIndex: true },
-  { name: "while a reply streams", promptIndex: true, stream: true },
-  { name: "filtered to my own prompts", promptIndex: true, mine: true },
-  { name: "on the Messages page", promptIndex: true, messages: true },
-];
-
 await requireBrowserLane("thread-minimap-paged-rail.test.ts", async () => {
+  const SCENARIOS: Scenario[] = [
+    { name: "no prompt index", promptIndex: false },
+    { name: "with the prompt index", promptIndex: true },
+    { name: "while a reply streams", promptIndex: true, stream: true },
+    { name: "filtered to my own prompts", promptIndex: true, mine: true },
+    { name: "on the Messages page", promptIndex: true, messages: true },
+  ];
+
   setDefaultTimeout(180_000);
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
@@ -97,7 +98,11 @@ await requireBrowserLane("thread-minimap-paged-rail.test.ts", async () => {
           if (!state.__streamed) return held;
           // The last turn's reply as it streams: a new row each token, as the pane's snapshot has it.
           const last = held.length - 2;
-          return [...held.slice(0, last), { ...held[last], text: `${held[last].text} ${state.__streamed}` }, held.at(-1)];
+          return [
+            ...held.slice(0, last),
+            { ...held[last], text: `${held[last].text} ${state.__streamed}` },
+            held.at(-1),
+          ];
         };
         const show = () => {
           const extra: Record<string, unknown> = { promptCount: turns };
@@ -107,6 +112,7 @@ await requireBrowserLane("thread-minimap-paged-rail.test.ts", async () => {
         state.__show = show;
         const older = () =>
           new Promise<boolean>((resolve) =>
+            // fixed-wait: simulates the asynchronous page response that lets the landing settle before rows arrive.
             setTimeout(() => {
               if (state.__start === 0) return resolve(false);
               state.__start = Math.max(0, state.__start - size);
@@ -126,6 +132,7 @@ await requireBrowserLane("thread-minimap-paged-rail.test.ts", async () => {
           state.__setPromptIndex(
             () =>
               new Promise<boolean>((resolve) =>
+                // fixed-wait: simulates the asynchronous prompt-index response used by the fixture.
                 setTimeout(() => {
                   // The index names every prompt: the ones not held come as `earlier`.
                   state.__earlier = Array.from({ length: turns }, (_, index) => rows[index * 3]);
@@ -137,6 +144,7 @@ await requireBrowserLane("thread-minimap-paged-rail.test.ts", async () => {
         show();
         if (stream) {
           let token = 0;
+          // fixed-wait: simulates the stream cadence while the rail is exercised.
           state.__stream = setInterval(() => {
             token++;
             state.__streamed += ` token${token}`;
@@ -152,8 +160,12 @@ await requireBrowserLane("thread-minimap-paged-rail.test.ts", async () => {
   }
 
   async function settle(page: Page, ms = 600) {
+    // fixed-wait: the harness waits through the rail's finite landing animation before reading its result.
     await page.waitForTimeout(ms);
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.evaluate(async () => {
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
+    });
   }
 
   /// Filters the rail to the person's own prompts from its right-click menu.
@@ -198,26 +210,32 @@ await requireBrowserLane("thread-minimap-paged-rail.test.ts", async () => {
   /// name, and whether the view is at the end of the chat.
   async function where(page: Page, scenario: Scenario, turnIndex: number | undefined) {
     const start = await loadedStart(page);
-    const spot = await page.evaluate((id) => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const view = scroller.getBoundingClientRect();
-      const node =
-        id === undefined
-          ? undefined
-          : [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find((row) => row.dataset.rowId === id);
-      const litTicks = [...document.querySelectorAll<HTMLElement>('.acpmux-minimap__tick[aria-current="true"]')];
-      const lit = litTicks.map((tick) => Number(tick.dataset.tick));
-      return {
-        top: node ? node.getBoundingClientRect().top - view.top : undefined,
-        lit,
-        label: litTicks[0]?.getAttribute("aria-label"),
-        atEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 2,
-        scrollTop: scroller.scrollTop,
-        start: (window as any).__start as number,
-      };
-    }, turnIndex === undefined ? undefined : `user-${turnIndex * 3 + 1}`);
+    const spot = await page.evaluate(
+      (id) => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const view = scroller.getBoundingClientRect();
+        const node =
+          id === undefined
+            ? undefined
+            : [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find((row) => row.dataset.rowId === id);
+        const litTicks = [...document.querySelectorAll<HTMLElement>('.acpmux-minimap__tick[aria-current="true"]')];
+        const lit = litTicks.map((tick) => Number(tick.dataset.tick));
+        return {
+          top: node ? node.getBoundingClientRect().top - view.top : undefined,
+          lit,
+          label: litTicks[0]?.getAttribute("aria-label"),
+          atEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 2,
+          scrollTop: scroller.scrollTop,
+          start: (window as any).__start as number,
+        };
+      },
+      turnIndex === undefined ? undefined : `user-${turnIndex * 3 + 1}`,
+    );
     // The lit ticks as the turns they stand for.
-    return { ...spot, lit: spot.lit.map((index) => turnOfTick(scenario, index, start)).filter((at): at is number => at !== undefined) };
+    return {
+      ...spot,
+      lit: spot.lit.map((index) => turnOfTick(scenario, index, start)).filter((at): at is number => at !== undefined),
+    };
   }
 
   /// A tick's center on screen, scrolling the rail's own list to it first (as a wheel over it would).
@@ -258,7 +276,7 @@ await requireBrowserLane("thread-minimap-paged-rail.test.ts", async () => {
     await page.mouse.down();
     for (let step = 1; step <= steps; step++) {
       await page.mouse.move(start.x, start.y + (rows * 10 * step) / steps);
-      await page.waitForTimeout(16);
+      await page.evaluate(() => window.cmuxPaintFrame());
     }
     const index = await tickUnder(page, start.y + rows * 10);
     const turnIndex = turnOfTick(scenario, index, await loadedStart(page));
@@ -275,6 +293,7 @@ await requireBrowserLane("thread-minimap-paged-rail.test.ts", async () => {
     describe(`the prompt rail over a paged long chat (Chromium, ${scenario.name})`, () => {
       test("click, drag and the last tick keep moving the transcript while older pages arrive", async () => {
         const page = await browser!.newPage({ viewport: { width: 1280, height: 820 } });
+        await installPaintedFrames(page);
         await open(page, scenario);
         const report: Record<string, unknown> = { scenario: scenario.name };
         const results: Record<string, boolean> = {};
