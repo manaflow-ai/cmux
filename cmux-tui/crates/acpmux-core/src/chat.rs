@@ -176,6 +176,9 @@ pub struct ChatConfig {
     pub history: Option<Arc<HistoryPermits>>,
     /// What woke the caught-up actor to read, shared with its handle.
     pub wakes: Arc<Wakes>,
+    /// Records whose kind the translator has no line for (`translate/kinds.rs`), shared with its
+    /// handle: zero over every known log.
+    pub unknown_kinds: Arc<AtomicU64>,
 }
 
 /// How often a caught-up actor read because a notice came (a `wake`) or because its poll saw
@@ -201,6 +204,7 @@ impl ChatConfig {
             edition_random: Arc::new(system_random_edition),
             history: None,
             wakes: Arc::default(),
+            unknown_kinds: Arc::default(),
         }
     }
 
@@ -372,6 +376,7 @@ pub struct ChatHandle {
     health: tokio::sync::watch::Receiver<crate::life::Health>,
     failures: Arc<AtomicU64>,
     wakes: Arc<Wakes>,
+    unknown_kinds: Arc<AtomicU64>,
 }
 
 impl ChatHandle {
@@ -381,6 +386,11 @@ impl ChatHandle {
 
     pub fn failures(&self) -> u64 {
         self.failures.load(Ordering::Relaxed)
+    }
+
+    /// Records whose kind the translator has no line for, in this actor's life.
+    pub fn unknown_kinds(&self) -> u64 {
+        self.unknown_kinds.load(Ordering::Relaxed)
     }
 
     /// The chat is `ready`: a read from its cursor said `at_end` in this actor's life, so it
@@ -527,6 +537,7 @@ impl ChatActor {
             health: health_receiver,
             failures: failures.clone(),
             wakes: config.wakes.clone(),
+            unknown_kinds: config.unknown_kinds.clone(),
         };
         let join = thread::Builder::new()
             .name(format!("acpmux-chat-{}", config.id))
@@ -1347,13 +1358,13 @@ fn apply_ops(
     checkpoint_now: bool,
 ) -> Result<(), ChatError> {
     let mut changed = false;
-    let before = state.translate.counters();
+    let before = state.translate.line_failures();
     let ops =
         translate::translate(&mut state.translate, state.config.harness, base_offset, span, bytes)?;
-    let after = state.translate.counters();
-    if after.invalid_records != before.invalid_records || after.line_errors != before.line_errors {
+    if state.translate.line_failures() != before {
         return Err(translate::Error::InvalidRecord("raw line did not translate").into());
     }
+    state.config.unknown_kinds.store(state.translate.unknown_records(), Ordering::Relaxed);
     for op in ops {
         changed |= matches!(&op.change, Change::Row(row) if !row.open)
             || matches!(&op.change, Change::Patch(_));
@@ -1386,7 +1397,7 @@ fn apply_ops(
                         let bytes = bytes.get(range.offset..end).ok_or(ChatError::Closed)?;
                         std::str::from_utf8(bytes).map_err(|_| ChatError::Closed)?.to_owned()
                     }
-                    BodySource::Raw { place, span } => raw_body_value(state, *place, *span)?,
+                    BodySource::Raw { place, span } => raw_body_value(state, *place, *span, field)?,
                 };
                 let key = body_key(field);
                 let body =
@@ -1417,12 +1428,25 @@ fn apply_ops(
     Ok(())
 }
 
-/// A body whose text is its raw line's `msg.text`, as JSON. Read in pieces through `read_at`
-/// ([`queue::read_text`]), never the line whole. A source that cannot read part of a line, a
-/// line whose text does not begin in its first 16 KB, and a part refused (the source's lines
-/// changed) are read as a chunk, which says `SourceChanged` when they did.
-fn raw_body_value(state: &mut ActorState, place: u64, span: u64) -> Result<String, ChatError> {
-    if state.source.stamp() == state.source_stamp
+/// A body field of a logged line's record: its `msg` key for `field` (a prompt's `text` for its
+/// content, its `images`, `inlineParts` or `pasted`). A prompt's text is read in pieces through
+/// `read_at` ([`queue::read_text`]), never the line whole. A source that cannot read part of a
+/// line, a line whose text does not begin in its first 16 KB, a part refused (the source's lines
+/// changed) and every other key are read as a chunk, which says `SourceChanged` when they did.
+fn raw_body_value(
+    state: &mut ActorState,
+    place: u64,
+    span: u64,
+    field: BodyField,
+) -> Result<String, ChatError> {
+    let key = match field {
+        BodyField::Images => "images",
+        BodyField::InlineParts => "inlineParts",
+        BodyField::Pasted => "pasted",
+        _ => "text",
+    };
+    if key == "text"
+        && state.source.stamp() == state.source_stamp
         && let Ok(Some(text)) = queue::read_text(state.source.as_mut(), place)
     {
         // Decoded and written again: the book holds the form a chunk read gives.
@@ -1445,7 +1469,7 @@ fn raw_body_value(state: &mut ActorState, place: u64, span: u64) -> Result<Strin
         let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
         let value: serde_json::Value =
             serde_json::from_slice(bytes).map_err(|_| ChatError::Closed)?;
-        let text = value.get("msg").and_then(|msg| msg.get("text")).ok_or(ChatError::Closed)?;
+        let text = value.get("msg").and_then(|msg| msg.get(key)).ok_or(ChatError::Closed)?;
         return serde_json::to_string(text).map_err(|_| ChatError::Closed);
     }
     Err(ChatError::Closed)
@@ -1523,10 +1547,12 @@ fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Resul
 fn patch(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Result<(), ChatError> {
     // A patch replaces a settled row's body. Keep its temporary body local: settled rows are
     // never checkpoint-open, so retaining one here would leak every superseded body until the
-    // actor next opened.
-    state.bodies.remove(&row.id);
+    // actor next opened. The bodies the translator sent for it just before (in this line's ops)
+    // are the patch's own: a settled row's fields come with its bodies read again.
+    let base = state.bodies.remove(&row.id);
     state.raw_ranges.remove(&row.id);
-    let mut patch_body = Body::new(row.id).map_err(ChatError::Book)?;
+    state.gens.remove(&row.id);
+    let mut patch_body = base.map_or_else(|| Body::new(row.id), Ok).map_err(ChatError::Book)?;
     for (field, value) in &row.fields {
         state.blobs.set(&mut patch_body, field, value, false)?;
     }
@@ -1555,6 +1581,10 @@ fn body_key(field: BodyField) -> &'static str {
         BodyField::Source => "source",
         BodyField::Images => "images",
         BodyField::Title => "title",
+        BodyField::InlineParts => "inlineParts",
+        BodyField::Pasted => "pasted",
+        BodyField::Request => "request",
+        BodyField::Outcome => "outcome",
     }
 }
 
