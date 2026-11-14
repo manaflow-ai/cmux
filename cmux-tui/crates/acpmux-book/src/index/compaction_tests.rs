@@ -127,7 +127,7 @@ fn a_partial_snapshot_stage_is_ignored_until_the_atomic_rename() {
         0,
         None,
         job.covered_generation(),
-        Vec::new(),
+        SnapshotMeta::default(),
         captured.merged_rows(),
     )
     .unwrap();
@@ -371,7 +371,7 @@ fn compaction_drops_remote_closed_rows_left_in_an_older_snapshot() {
         0,
         None,
         0,
-        Vec::new(),
+        SnapshotMeta::default(),
         std::iter::once(Ok(Arc::new(legacy))),
     )
     .unwrap();

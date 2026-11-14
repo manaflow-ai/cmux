@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use thiserror::Error;
 use tokio::sync::Notify;
 
-use crate::wire::{Frame, FrameError, FrameKind, ListFilter, Origin, PageSide, Position, Sub};
+use crate::wire::{Frame, FrameError, FrameKind, Origin, PageSide, Position, Sub};
 mod compaction;
 mod disk;
 #[cfg(test)]
@@ -32,9 +32,18 @@ mod folder_tests;
 mod folders;
 mod history;
 mod keyed_page;
+mod mirror;
+#[cfg(test)]
+mod mirror_gates;
+#[cfg(test)]
+mod mirror_tests;
 mod origins;
+pub use acpmux_book::index::MirrorMark;
+#[cfg(test)]
+mod peer_tests;
 pub use compaction::CompactionStats;
 use history::{History, PeerHistory};
+pub use mirror::{MAX_UNIT_CHANGES, MirrorCounts, MirrorUnit, UnitChange};
 pub use origins::{Source, refused_held_rows};
 
 pub use crate::wire::{DeltaFrame, Window};
@@ -76,6 +85,7 @@ enum PendingUpdate {
     Gone { source: Source },
     Origin { record: OriginRecord },
     Takeover { origin: String, source: Source },
+    Unit { source: Source, unit: Box<MirrorUnit> },
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]
@@ -89,6 +99,8 @@ enum UpdateKey {
 struct Pending {
     rows: HashMap<(RowKey, Source), PendingUpdate>,
     controls: std::collections::BTreeMap<UpdateKey, std::collections::VecDeque<PendingUpdate>>,
+    /// Origins whose unit failed its append and waits in the writer's retry.
+    retrying: std::collections::HashSet<Arc<str>>,
 }
 
 impl Pending {
@@ -161,6 +173,23 @@ impl UpdateQueue {
                         slot.clear();
                         slot.push_back(update);
                     }
+                } else if let UpdateKey::Source(origin) = &key {
+                    // Units and takeovers keep their order in the origin's
+                    // slot. Only a takeover right behind another replaces it.
+                    let unit = matches!(update, PendingUpdate::Unit { .. });
+                    if unit && pending.retrying.contains(origin) {
+                        return Err(HubError::UnitQueueFull);
+                    }
+                    let slot = pending.controls.entry(key).or_default();
+                    if unit
+                        && slot.iter().any(|queued| matches!(queued, PendingUpdate::Unit { .. }))
+                    {
+                        return Err(HubError::UnitQueueFull);
+                    }
+                    if !unit && matches!(slot.back(), Some(PendingUpdate::Takeover { .. })) {
+                        slot.pop_back();
+                    }
+                    slot.push_back(update);
                 } else {
                     let slot = pending.controls.entry(key).or_default();
                     slot.clear();
@@ -366,7 +395,11 @@ impl ListReceiver {
         let span = if let Some(peer_history) = self.peer_history.as_ref() {
             let history = peer_history.lock().ok()?;
             let Some(history) = history.as_ref() else { return Some(RawRead::Lagged) };
-            let last = history.last_seq().max(self.published.load().seq());
+            // A wake can come before the writer appends the op it names: the
+            // index is published first. Read only what the peer history has
+            // committed, or an empty span would carry the cursor past an op
+            // appended a moment later.
+            let last = history.last_seq();
             let target = through.unwrap_or(cursor.saturating_add(1)).min(last);
             if cursor >= target {
                 return None;
@@ -457,6 +490,7 @@ pub struct Hub {
     rebuild_requested: Arc<AtomicBool>,
     rebuild_count: Arc<AtomicU64>,
     rebuild_fenced: Arc<AtomicU64>,
+    mirror: Arc<mirror::Counters>,
 }
 
 /// Supplies rows that are outside the hot summary index for a bounded keyed page.
@@ -486,6 +520,10 @@ pub struct HubWriter {
     hydrated: tokio::sync::watch::Sender<disk::HydrationState>,
     #[cfg(test)]
     turn_measure: disk::TurnMeasure,
+    /// Runs in a turn after the index is published and before its op is in
+    /// the histories: where a wake can reach a reader first.
+    #[cfg(test)]
+    before_record: Mutex<Option<RecordHook>>,
     compaction: Option<compaction::Job>,
     retirement: Option<tokio::task::JoinHandle<()>>,
     maintenance: Option<compaction::Maintenance>,
@@ -509,6 +547,7 @@ pub struct HubWriter {
     directory: Option<PathBuf>,
     rebuild_requested: Arc<AtomicBool>,
     rebuild_count: Arc<AtomicU64>,
+    mirror: mirror::WriterMirror,
 }
 
 #[derive(Debug, Error)]
@@ -539,6 +578,16 @@ pub enum HubError {
     OriginLimit,
     #[error("origin held row limit exceeded")]
     HeldRowLimit,
+    #[error("a mirror unit for this origin is already waiting")]
+    UnitQueueFull,
+    #[error("mirror unit over {MAX_UNIT_CHANGES} changes")]
+    UnitRowLimit,
+    #[error("mirror unit row names origin {0:?}, not the unit's")]
+    ForgedOrigin(String),
+    #[error("mirror unit refused while its origin is leaving")]
+    UnitHeld,
+    #[error("mirror unit does not follow its origin's mark")]
+    UnitOutOfOrder,
 }
 
 impl HubError {
@@ -691,6 +740,7 @@ impl Hub {
         let folder_state = Arc::new(Mutex::new(folders::FolderState::default()));
         let log_errors = Arc::new(AtomicU64::new(0));
         let compaction_counters = Arc::new(compaction::Counters::default());
+        let mirror = Arc::new(mirror::Counters::default());
         compaction_counters
             .oldest_seq
             .store(log.as_ref().map_or(1, IndexLog::oldest_seq), Ordering::Release);
@@ -708,11 +758,14 @@ impl Hub {
             rebuild_requested: rebuild_requested.clone(),
             rebuild_count: rebuild_count.clone(),
             rebuild_fenced,
+            mirror: mirror.clone(),
         };
         let mut writer = HubWriter {
             hydrated: hydrated_tx,
             #[cfg(test)]
             turn_measure: disk::TurnMeasure::default(),
+            #[cfg(test)]
+            before_record: Mutex::new(None),
             compaction: None,
             retirement: None,
             maintenance: None,
@@ -741,6 +794,7 @@ impl Hub {
             directory: directory.map(Path::to_path_buf),
             rebuild_requested,
             rebuild_count,
+            mirror: mirror::WriterMirror::new(mirror),
         };
         if has_disk {
             writer.start_hydration();
@@ -922,6 +976,16 @@ impl Hub {
         Ok(Some(target))
     }
 
+    /// Ops encoded in peer form since the peer history was made: one per local change, read
+    /// by the peer link's gates against the number of peers sent to.
+    pub fn peer_encodes(&self) -> u64 {
+        self.peer_history
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(PeerHistory::encodes))
+            .unwrap_or(0)
+    }
+
     pub fn peer_resume_target(&self, cursor: u64) -> Result<Option<u64>, HubError> {
         let slot = self.peer_history.lock().map_err(|_| HubError::WriterGone)?;
         let Some(history) = slot.as_ref() else { return Ok(None) };
@@ -1088,13 +1152,12 @@ impl Hub {
             _ => (None, ReadSide::After),
         };
         let page = index
-            .read_live_page(
+            .read_local_live_page(
                 key.as_ref(),
                 side,
                 true,
                 requested,
                 crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
-                Some(&ListFilter { origin: Some("local".into()), ..Default::default() }),
             )
             .map_err(|error| self.page_error(error))?;
         let window = Window {
@@ -1140,13 +1203,12 @@ impl Hub {
         };
         let index = self.snapshot();
         let page = index
-            .read_live_page(
+            .read_local_live_page(
                 key.as_ref(),
                 side,
                 false,
                 MAX_WINDOW_ROWS,
                 max - 8192 - request.sid.len(),
-                Some(&ListFilter { origin: Some("local".into()), ..Default::default() }),
             )
             .map_err(|error| self.page_error(error))?;
         let reply = crate::wire::PageResult {
@@ -1226,10 +1288,7 @@ impl Hub {
                     id: origin.id.clone(),
                     state: origin.state,
                     since: origin.since,
-                    extra: origin
-                        .extra
-                        .as_ref()
-                        .and_then(|extra| serde_json::from_str(extra.get()).ok()),
+                    extra: origin.extra.as_ref().and_then(|extra| parse_extra(extra)),
                 })
                 .collect(),
             before_key: page.before_key.map(wire_key),
@@ -1349,6 +1408,25 @@ impl Hub {
         }
         HubError::page_error(error)
     }
+}
+
+/// What a test runs between a turn's publish and its history record.
+#[cfg(test)]
+type RecordHook = Box<dyn FnMut(u64) + Send>;
+
+static EXTRA_PARSES: AtomicU64 = AtomicU64::new(0);
+
+/// Every `extra` the list's path parses: an origin record's, for a local window. Nothing that
+/// sends to a peer parses one; the peer link's gates read this.
+pub fn extra_parses() -> u64 {
+    EXTRA_PARSES.load(Ordering::Relaxed)
+}
+
+pub(crate) fn parse_extra<T: serde::de::DeserializeOwned>(
+    extra: &serde_json::value::RawValue,
+) -> Option<T> {
+    EXTRA_PARSES.fetch_add(1, Ordering::Relaxed);
+    serde_json::from_str(extra.get()).ok()
 }
 
 fn book_key(key: &crate::wire::ListKey) -> SortKey {
@@ -1593,6 +1671,18 @@ impl HubWriter {
     }
 
     fn record_history(&self, item: ListItem) {
+        #[cfg(test)]
+        if let Ok(mut hook) = self.before_record.lock()
+            && let Some(hook) = hook.as_mut()
+        {
+            hook(match &item {
+                ListItem::Summary(event) => event.seq,
+                ListItem::Gone { seq, .. }
+                | ListItem::Origin { seq, .. }
+                | ListItem::Folders { seq, .. }
+                | ListItem::Lagged { cursor: seq } => *seq,
+            });
+        }
         if let Ok(mut history) = self.history.lock()
             && history.append(&item).is_err()
         {
@@ -1680,6 +1770,7 @@ impl HubWriter {
             if result.is_err()
                 || (self.retry_log.is_empty()
                     && self.origins.retry.is_empty()
+                    && !self.mirror.retry_pending()
                     && self.maintenance.is_none()
                     && !self.origin_work_pending())
             {
@@ -2015,7 +2106,9 @@ mod tests {
         match &batch[0].1 {
             PendingUpdate::Summary { summary, .. } => assert_eq!(summary.last_activity, 10_999),
             PendingUpdate::Gone { .. } => panic!("summary slot was replaced by a removal"),
-            PendingUpdate::Origin { .. } | PendingUpdate::Takeover { .. } => {
+            PendingUpdate::Origin { .. }
+            | PendingUpdate::Takeover { .. }
+            | PendingUpdate::Unit { .. } => {
                 panic!("origin update occupied summary slot")
             }
         }

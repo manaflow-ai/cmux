@@ -15,6 +15,8 @@ pub(super) struct TurnMeasure {
     pub maintenance_keys: usize,
     pub apply_snapshot_pieces: usize,
     pub completed_log_bytes: Option<u64>,
+    /// A mirror unit's turn: building records, the append, the index apply, publishing.
+    pub unit_ns: [u128; 4],
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -205,6 +207,9 @@ impl HubWriter {
         let origin_retries = self.origins.retry.len().min(limit);
         let keys: Vec<_> = self.retry_log.keys().take(limit - origin_retries).cloned().collect();
         let mut first_error = self.retry_origins(origin_retries).err();
+        if let Some(error) = self.retry_mirror() {
+            first_error.get_or_insert(error);
+        }
         for key in keys {
             let Some((source, record)) = self.retry_log.remove(&key) else { continue };
             if self.origins.ended.get(key.origin.as_ref()).is_some_and(|seq| record.seq <= *seq) {
@@ -251,7 +256,8 @@ impl HubWriter {
         let arrival_budget = 256 - retry_budget;
         let used = self.advance_origins(if queued { arrival_budget / 2 } else { arrival_budget });
         for (key, update) in self.updates.take_batch_limit(arrival_budget.saturating_sub(used)) {
-            if self.dispatch_update(key, update).is_err() {
+            // A refusal has its own counter; only storage counts here.
+            if let Err(HubError::Log(_)) = self.dispatch_update(key, update) {
                 self.log_errors.fetch_add(1, Ordering::Relaxed);
             }
         }
@@ -260,9 +266,13 @@ impl HubWriter {
             self.storage_retry =
                 Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
         } else {
-            self.storage_retry = (!self.retry_log.is_empty() || !self.origins.retry.is_empty())
-                .then(std::time::Instant::now);
+            self.storage_retry = (!self.retry_log.is_empty()
+                || !self.origins.retry.is_empty()
+                || self.mirror.retry_pending())
+            .then(std::time::Instant::now);
             self.maybe_compact();
         }
+        // A retry written or an origin that finished leaving settles it.
+        self.mirror.counters.wake();
     }
 }

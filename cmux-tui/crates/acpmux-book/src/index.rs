@@ -39,6 +39,8 @@ mod table_pages;
 pub use pages::{IndexPage, ListFilter, ReadSide};
 #[cfg(test)]
 mod compaction_tests;
+#[cfg(test)]
+mod mark_tests;
 mod snapshot;
 #[cfg(test)]
 mod storage_tests;
@@ -47,8 +49,8 @@ pub use edition::IndexEdition;
 pub use kin::{ChildSet, FolderKey, KinTables};
 pub use log::{IndexLog, replay_generation_logs, replay_log, replay_log_from};
 pub use snapshot::{
-    DiskSnapshot, FatalSnapshotRead, SnapshotRows, SortedSnapshot, is_corrupt_snapshot_row,
-    is_fatal_snapshot_read,
+    DiskSnapshot, FatalSnapshotRead, SnapshotMeta, SnapshotRows, SortedSnapshot,
+    is_corrupt_snapshot_row, is_fatal_snapshot_read,
 };
 
 use std::io;
@@ -107,6 +109,31 @@ impl PartialEq for OriginRecord {
 
 impl Eq for OriginRecord {}
 
+/// Where a mirrored origin's stream stands: the source's cursor and list
+/// edition after the last unit written, and whether its first walk finished.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MirrorMark {
+    pub cursor: u64,
+    pub edition: u32,
+    pub whole: bool,
+}
+
+/// The mirror's mark for one origin as the log carries it. `None` writes the
+/// mark off: a replay after it gives no cursor.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarkRecord {
+    pub seq: u64,
+    pub origin: String,
+    pub mark: Option<MirrorMark>,
+}
+
+impl MarkRecord {
+    /// The bytes this record adds to an append, its frame included.
+    pub fn encoded_len(&self) -> u64 {
+        20 + self.origin.len() as u64 + if self.mark.is_some() { 13 } else { 0 }
+    }
+}
+
 fn local_origin() -> String {
     "local".to_owned()
 }
@@ -144,9 +171,13 @@ pub struct SummaryIndex {
     by_id: OrdMap<RowKey, Arc<Summary>>,
     ordered: OrdMap<SortKey, Arc<Summary>>,
     live_ordered: OrdMap<SortKey, Arc<Summary>>,
+    /// The live rows of origin `local` alone: a peer's page ranges here, so
+    /// no key it is given can name a row of another origin.
+    local_live: OrdMap<SortKey, Arc<Summary>>,
     disk: Option<Arc<DiskSnapshot>>,
     shadowed: OrdSet<RowKey>,
     origins: OrdMap<Arc<str>, OriginRecord>,
+    marks: OrdMap<Arc<str>, MirrorMark>,
     leaving: OrdSet<Arc<str>>,
     removed_snapshot_seq: OrdMap<Arc<str>, u64>,
     kin: KinTables,
@@ -167,9 +198,11 @@ impl SummaryIndex {
             by_id: OrdMap::new(),
             ordered: OrdMap::new(),
             live_ordered: OrdMap::new(),
+            local_live: OrdMap::new(),
             disk: None,
             shadowed: OrdSet::new(),
             origins: OrdMap::new(),
+            marks: OrdMap::new(),
             leaving: OrdSet::new(),
             removed_snapshot_seq: OrdMap::new(),
             kin: KinTables::new(),
@@ -185,11 +218,17 @@ impl SummaryIndex {
                     .map(|origin| (Arc::<str>::from(origin.id.clone()), origin.clone()))
                     .collect()
             });
+        let marks = disk.as_ref().map_or_else(OrdMap::new, |disk| {
+            disk.marks()
+                .filter_map(|record| Some((Arc::<str>::from(record.origin.as_str()), record.mark?)))
+                .collect()
+        });
         Self {
             seq: disk.as_ref().map_or(0, |disk| disk.seq()),
             edition,
             disk,
             origins,
+            marks,
             ..Self::new()
         }
     }
@@ -290,6 +329,7 @@ impl SummaryIndex {
         {
             self.ordered.remove(&SortKey::of(&row));
             self.live_ordered.remove(&SortKey::of(&row));
+            self.local_live.remove(&SortKey::of(&row));
             self.kin.remove_with_rows(&row, &self.by_id);
             self.folders =
                 Self::refresh_folders(&self.folders, &self.kin, &self.by_id, Some(&row), None);
@@ -311,6 +351,9 @@ impl SummaryIndex {
             self.by_id.insert(key.clone(), row.clone());
             self.ordered.insert(SortKey::of(&row), row.clone());
             if row.is_live() {
+                if row.origin == "local" {
+                    self.local_live.insert(SortKey::of(&row), row.clone());
+                }
                 self.live_ordered.insert(SortKey::of(&row), row);
             }
             if let Some(row) = self.by_id.get(&key) {
@@ -371,6 +414,36 @@ impl SummaryIndex {
         self.origins.get(id)
     }
 
+    /// The mirror's mark for `origin`, if a unit wrote one and no takeover
+    /// wrote it off since.
+    pub fn mirror_mark(&self, origin: &str) -> Option<MirrorMark> {
+        self.marks.get(origin).copied()
+    }
+
+    /// Every mark held, newest per origin; compaction writes these.
+    pub fn mirror_marks(&self) -> impl Iterator<Item = MarkRecord> + '_ {
+        self.marks.iter().map(|(origin, mark)| MarkRecord {
+            seq: self.seq,
+            origin: origin.to_string(),
+            mark: Some(*mark),
+        })
+    }
+
+    /// A mark changes no row and takes no sequence of its own: it carries the
+    /// sequence of the last row its unit wrote (or the current one).
+    pub fn apply_mark(&self, record: &MarkRecord) -> Self {
+        let mut next = self.clone();
+        match record.mark {
+            Some(mark) => {
+                next.marks.insert(record.origin.as_str().into(), mark);
+            }
+            None => {
+                next.marks.remove(record.origin.as_str());
+            }
+        }
+        next
+    }
+
     pub fn apply_origin(&self, seq: u64, record: OriginRecord) -> Self {
         if record.id == "local" {
             return self.clone();
@@ -383,6 +456,8 @@ impl SummaryIndex {
         next.seq = next.seq.max(seq);
         next.origins.insert(id.clone(), record.clone());
         if record.state == OriginState::Removed {
+            // A removed origin's stream starts over from a walk.
+            next.marks.remove(&id);
             next.leaving.insert(id.clone());
             next.removed_snapshot_seq.insert(id, seq);
         }
@@ -442,6 +517,7 @@ impl SummaryIndex {
             if let Some(old) = next.by_id.remove(key) {
                 next.ordered.remove(&SortKey::of(&old));
                 next.live_ordered.remove(&SortKey::of(&old));
+                next.local_live.remove(&SortKey::of(&old));
                 next.kin.remove_with_rows(&old, &next.by_id);
                 next.folders =
                     Self::refresh_folders(&next.folders, &next.kin, &next.by_id, Some(&old), None);
@@ -466,6 +542,7 @@ impl SummaryIndex {
         if let Some(old) = next.by_id.remove(key) {
             next.ordered.remove(&SortKey::of(&old));
             next.live_ordered.remove(&SortKey::of(&old));
+            next.local_live.remove(&SortKey::of(&old));
             next.kin.remove_with_rows(&old, &next.by_id);
             next.folders =
                 Self::refresh_folders(&next.folders, &next.kin, &next.by_id, Some(&old), None);
@@ -573,11 +650,15 @@ impl SummaryIndex {
         if let Some(old) = old.as_ref() {
             next.ordered.remove(&SortKey::of(old));
             next.live_ordered.remove(&SortKey::of(old));
+            next.local_live.remove(&SortKey::of(old));
         }
         next.by_id.insert(key, row.clone());
         next.ordered.insert(SortKey::of(&row), row.clone());
         if row.is_live() {
             next.live_ordered.insert(SortKey::of(&row), row.clone());
+            if row.origin == "local" {
+                next.local_live.insert(SortKey::of(&row), row.clone());
+            }
         }
         next.kin = next.kin.replace_arc(old.as_ref(), Some(&row), &next.by_id);
         next.folders = Self::refresh_folders(
@@ -619,43 +700,54 @@ impl SummaryIndex {
 
     /// Applies one summary without walking the rest of the index.
     pub fn apply(&self, seq: u64, summary: Summary) -> Self {
+        self.clone().apply_owned(seq, summary)
+    }
+
+    /// [`Self::apply`] on an index the caller owns. Several applies in a row
+    /// copy each persistent map's shared path once and change the copied
+    /// nodes in place after it.
+    pub fn apply_owned(mut self, seq: u64, summary: Summary) -> Self {
         let summary = Arc::new(summary.bounded());
-        let old = self.by_id.get(&summary.key()).cloned();
-        if old.as_ref().is_some_and(|old| old.same_content(&summary)) {
-            let mut next = self.clone();
-            next.seq = next.seq.max(seq);
-            return next;
-        }
-        let mut by_id = self.by_id.clone();
-        let mut ordered = self.ordered.clone();
-        let mut live_ordered = self.live_ordered.clone();
         let key = summary.key();
-        if let Some(old) = by_id.get(&key) {
-            ordered.remove(&SortKey::of(old));
-            live_ordered.remove(&SortKey::of(old));
+        let old = self.by_id.get(&key).cloned();
+        self.seq = self.seq.max(seq);
+        if old.as_ref().is_some_and(|old| old.same_content(&summary)) {
+            return self;
+        }
+        if let Some(old) = &old {
+            self.ordered.remove(&SortKey::of(old));
+            self.live_ordered.remove(&SortKey::of(old));
+            self.local_live.remove(&SortKey::of(old));
         }
         let sort_key = SortKey::of(&summary);
-        ordered.insert(sort_key.clone(), summary.clone());
+        self.ordered.insert(sort_key.clone(), summary.clone());
         if summary.is_live() {
-            live_ordered.insert(sort_key, summary.clone());
+            if summary.origin == "local" {
+                self.local_live.insert(sort_key.clone(), summary.clone());
+            }
+            self.live_ordered.insert(sort_key, summary.clone());
         }
-        by_id.insert(key.clone(), summary.clone());
-        let mut shadowed = self.shadowed.clone();
+        self.by_id.insert(key.clone(), summary.clone());
         if self.disk.is_some() {
-            shadowed.insert(key);
+            self.shadowed.insert(key);
         }
-        let kin = self.kin.replace_arc(old.as_ref(), Some(&summary), &by_id);
-        let mut next =
-            Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
-        next.kin = kin;
-        next.folders = Self::refresh_folders(
+        self.kin = self.kin.replace_arc(old.as_ref(), Some(&summary), &self.by_id);
+        self.folders = Self::refresh_folders(
             &self.folders,
-            &next.kin,
-            &next.by_id,
+            &self.kin,
+            &self.by_id,
             old.as_deref(),
             Some(&summary),
         );
-        next
+        self
+    }
+
+    /// [`Self::apply_summary`] on an index the caller owns.
+    pub fn apply_summary_owned(self, seq: u64, summary: Summary) -> Self {
+        let remote_closed = !Self::contributes_to_index(&summary);
+        let key = summary.key();
+        let next = self.apply_owned(seq, summary);
+        if remote_closed { next.remove_ephemeral(&key) } else { next }
     }
 
     /// Apply the durable summary rule shared by the writer and replay. Remote
@@ -785,17 +877,26 @@ impl SummaryIndex {
         let mut by_id = self.by_id.clone();
         let mut ordered = self.ordered.clone();
         let mut live_ordered = self.live_ordered.clone();
+        let mut local_live = self.local_live.clone();
         by_id.remove(key);
         if let Some(old) = old {
             ordered.remove(&SortKey::of(old));
             live_ordered.remove(&SortKey::of(old));
+            local_live.remove(&SortKey::of(old));
         }
         let mut shadowed = self.shadowed.clone();
         if self.disk.is_some() {
             shadowed.insert(key.clone());
         }
-        let mut next =
-            Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
+        let mut next = Self {
+            seq: self.seq.max(seq),
+            by_id,
+            ordered,
+            live_ordered,
+            local_live,
+            shadowed,
+            ..self.clone()
+        };
         next.kin = self.kin.replace_arc(old, None, &next.by_id);
         next.folders = Self::refresh_folders(
             &self.folders,
@@ -1192,8 +1293,9 @@ mod tests {
         let disk = DiskSnapshot::open(&path).unwrap().unwrap();
         assert_eq!(disk.origins().next().unwrap().since, 11);
         let rows = std::iter::empty::<io::Result<Arc<Summary>>>();
-        let too_many =
-            (0..257).map(|n| origin_record(format!("p{n}"), 1, OriginState::Connected)).collect();
+        let too_many = (0..257)
+            .map(|n| origin_record(format!("p{n}"), 1, OriginState::Connected))
+            .collect::<Vec<_>>();
         assert!(
             SortedSnapshot::write_stream_generation(&path, 1, 0, None, 0, too_many, rows).is_err()
         );

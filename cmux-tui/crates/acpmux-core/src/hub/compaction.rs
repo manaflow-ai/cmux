@@ -108,6 +108,7 @@ impl HubWriter {
             || self.maintenance.is_some()
             || !self.retry_log.is_empty()
             || !self.origins.retry.is_empty()
+            || self.mirror.retry_pending()
         {
             return;
         }

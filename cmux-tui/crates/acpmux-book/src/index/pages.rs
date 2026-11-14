@@ -57,6 +57,32 @@ impl SummaryIndex {
         view.read_page(anchor, side, inclusive, limit, max_bytes, filter)
     }
 
+    /// A bounded page over the live rows of origin `local` only. Every row,
+    /// flag and continuation key comes from that set, so a page for a peer
+    /// never names a row of another origin, and a run of remote rows costs
+    /// nothing to skip. An anchor of another origin is refused.
+    pub fn read_local_live_page(
+        &self,
+        anchor: Option<&SortKey>,
+        side: ReadSide,
+        inclusive: bool,
+        limit: usize,
+        max_bytes: usize,
+    ) -> io::Result<IndexPage> {
+        if anchor.is_some_and(|anchor| anchor.row.origin.as_ref() != "local") {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "anchor is not a local row"));
+        }
+        let mut view = self.clone();
+        view.ordered = self.local_live.clone();
+        view.disk = None;
+        if let Some(anchor) = anchor
+            && !view.local_live.contains_key(anchor)
+        {
+            view.by_id.remove(&anchor.row);
+        }
+        view.read_page(anchor, side, inclusive, limit, max_bytes, None)
+    }
+
     /// One bounded part: a hot table range or a physical snapshot piece.
     /// Flags and continuation name candidates, including hidden rows (decision 93).
     pub fn read_page(

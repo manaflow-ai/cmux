@@ -249,6 +249,8 @@ impl HubWriter {
                 PendingUpdate::Takeover { origin: origin.into(), source },
             );
         }
+        // Even a takeover by the owner starts a walk: its mark goes off now.
+        self.write_mark_off(origin);
         if self.sources.load().get(origin) == Some(&source) {
             self.origins.ended.remove(origin);
             return Ok(());
@@ -326,6 +328,7 @@ impl HubWriter {
                 self.origin(&record.id, record.state, record.since).map(|_| ())
             }
             PendingUpdate::Takeover { origin, source } => self.takeover(&origin, source),
+            PendingUpdate::Unit { source, unit } => self.apply_unit(source, *unit),
         }
     }
 
@@ -360,7 +363,7 @@ impl HubWriter {
                 self.origins.releasing = true;
                 let result = self.dispatch_update(key, update);
                 self.origins.releasing = false;
-                if result.is_err() {
+                if let Err(HubError::Log(_)) = result {
                     self.log_errors.fetch_add(1, Ordering::Relaxed);
                 }
                 used += 1;

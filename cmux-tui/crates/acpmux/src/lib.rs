@@ -124,6 +124,7 @@ pub mod hunk_summary;
 mod job;
 pub mod launch_credential;
 pub mod launch_policy;
+pub mod link_v2;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_sandbox;
 pub mod list_bytes;
@@ -164,6 +165,8 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+// The dialing side of a peer's list stream: the mirror into the index (row 8, part two).
+pub mod peer_mirror;
 pub mod peer_paths;
 pub mod peer_states;
 pub mod placement;
