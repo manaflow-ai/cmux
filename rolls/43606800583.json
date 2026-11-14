@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43606800583",
+  "recorded_at": "2026-11-14T14:51:03Z",
+  "reason": "cmux-tui 6362452ad02b changes the image's cmux-tui (pinned 79aec7983902)",
+  "dry_run": false,
+  "cmux_tui": "6362452ad02b826378d38c9d2ee9f0e9e18b4840",
+  "fixes": [
+    {
+      "sha": "6362452ad02b826378d38c9d2ee9f0e9e18b4840",
+      "mergedAt": "2026-11-14T08:28:41-06:00",
+      "subject": "cmux-tui: SelfRunner::running has the cfg of its users, so macOS clippy is clean"
+    },
+    {
+      "sha": "540274e11764d3353355a1325c81608879a32ef9",
+      "mergedAt": "2026-11-14T06:27:06-08:00",
+      "subject": "Screen sharing: codec seam plus VP9 and AV1 adapters (test-only), codec-bench table (#43051)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-14T14:51:03Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
