@@ -1,6 +1,7 @@
 //! Complete writer-turn cost during real compaction, including sync and install.
 use super::*;
 use acpmux_book::index::SortedSnapshot;
+use std::fs;
 use std::io::Write;
 use std::time::Instant;
 
@@ -331,11 +332,8 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
     );
     eprintln!("{line}");
     if let Ok(path) = std::env::var("V2_GATE_OUT") {
-        writeln!(
-            std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap(),
-            "{line}"
-        )
-        .unwrap();
+        writeln!(fs::OpenOptions::new().create(true).append(true).open(path).unwrap(), "{line}")
+            .unwrap();
     }
     assert!(
         outside_rounds[ROUNDS - 1] <= outside_rounds[0].saturating_mul(12) / 10,

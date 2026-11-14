@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 865,
-    "mcp": 781
+    "verbs": 866,
+    "mcp": 782
   },
   "nouns": [
     {
@@ -5044,6 +5044,13 @@
           "id": "tab.stashToRight",
           "mcp": true,
           "mcpTool": "app_tab_stash_to_right"
+        },
+        {
+          "command": "cmux tab stop-mac-screen-viewing",
+          "title": "Stop Viewing Shared Screen",
+          "id": "macScreen.stopViewing",
+          "mcp": true,
+          "mcpTool": "app_tab_stop_mac_screen_viewing"
         },
         {
           "command": "cmux tab toggle-chat-notifications",
