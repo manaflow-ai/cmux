@@ -1991,7 +1991,8 @@ fn loaded_list(runner: &mut dyn Runner, mut listed: Value, deadline: Deadline) -
         if left.is_zero() || deadline.passed(runner) {
             break;
         }
-        runner.pause(deadline.bound(runner, LIST_LOAD_PAUSE.min(left)));
+        let pause = deadline.bound(runner, LIST_LOAD_PAUSE.min(left));
+        runner.pause(pause);
         if runner.now() >= until || deadline.passed(runner) {
             break;
         }
