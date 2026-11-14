@@ -274,10 +274,12 @@ pub(super) fn regrant_line(outcome: Result<Option<Vmk>, (&str, &str)>) -> String
         Ok(vmk) => served_line(vmk),
         Err((code, detail)) => failure_line(code, Some(detail)),
     };
-    let mut value: serde_json::Value =
-        serde_json::from_str(line.trim()).unwrap_or_else(|_| json!({}));
-    value["regrant"] = json!(true);
-    cmux_link::dial::line(&value)
+    let mut object = match serde_json::from_str(line.trim()) {
+        Ok(serde_json::Value::Object(object)) => object,
+        _ => serde_json::Map::new(),
+    };
+    object.insert("regrant".to_owned(), json!(true));
+    cmux_link::dial::line(&serde_json::Value::Object(object))
 }
 
 /// The ready line of `carrier serve`, once it listens at `socket`.
