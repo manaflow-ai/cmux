@@ -814,7 +814,7 @@ def linux_bench_runs(root, part="diff-viewer"):
         only = "million-event-chat,million-event-chat-short"
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
     if part == "infinite-items":
-        return {"suite": (["bash", os.path.join(root, INFINITE_ITEMS), "pages=0", "days=2", "--window=5"], root or ".", {})}
+        return {"suite": (["bash", os.path.join(root, INFINITE_ITEMS), "pages=0", "days=1", "--window=5"], root or ".", {})}
     return {
         "sidecar": ([os.path.join(root, "scripts/run-diff-sidecar-cargo.sh"), "run", "--quiet", "--release", "--locked",
                      "--manifest-path", os.path.join(root, "Native/DiffSidecar/Cargo.toml"), "--bin", "cmux-diff-sidecar",

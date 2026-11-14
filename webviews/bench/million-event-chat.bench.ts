@@ -70,14 +70,17 @@ function fixture(): { history: Rec[]; turns: number } {
 const recordBytes = (e: Rec) => JSON.stringify(e.msg).length + e.kind.length + 120;
 /// hub/paging.rs events_page: the newest records before `beforeSeq` (oldest first), at most `limit`, ending before
 /// their bytes pass `maxBytes`, always at least one. Reads back from `beforeSeq` only, as the daemon's index does.
-function newestPage(history: Rec[], beforeSeq: number, limit: number, maxBytes: number | undefined) {
+/// hub/paging.rs page_bytes: 1 MiB when the caller names none, at most 4 MiB.
+const pageBytes = (asked: number | undefined) => Math.min(asked ?? 1 << 20, 4 << 20);
+function newestPage(history: Rec[], beforeSeq: number, limit: number, asked: number | undefined) {
+  const maxBytes = pageBytes(asked);
   const events: Rec[] = [];
   let bytes = 0;
   let index = Math.min(history.length, beforeSeq - 1) - 1;
   for (; index >= 0; index--) {
     if (events.length === limit) break;
     bytes += recordBytes(history[index]!);
-    if (maxBytes !== undefined && events.length > 0 && bytes > maxBytes) break;
+    if (events.length > 0 && bytes > maxBytes) break;
     events.push(history[index]!);
   }
   return { events: events.reverse(), hasMore: index >= 0, lastSeq: history.length };
@@ -164,7 +167,9 @@ const heapMB = () => {
 };
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 const pct = (values: number[], share: number) =>
-  [...values].sort((a, b) => a - b)[Math.min(values.length - 1, Math.floor(share * values.length))]!;
+  values.length === 0
+    ? Number.NaN
+    : [...values].sort((a, b) => a - b)[Math.min(values.length - 1, Math.floor(share * values.length))]!;
 
 const { history, turns } = fixture();
 const fake = daemon(history, turns);
@@ -205,7 +210,11 @@ console.log(
     `turn held ${turnOf(snapshot.rows)}); heap +${openHeap.toFixed(1)} MB after the open, +${pagesHeap.toFixed(1)} MB after ` +
     `the pages; ${snapshot.rows?.length ?? 0} rows`,
 );
-perfRow({ name: `million_event_chat.${SHAPE}.open`, p50: openMs, p95: openMs, unit: "ms" });
-perfRow({ name: `million_event_chat.${SHAPE}.older_page`, p50: pct(pages, 0.5), p95: pct(pages, 0.95), unit: "ms" });
-perfRow({ name: `million_event_chat.${SHAPE}.heap_mb`, p50: pagesHeap, p95: pagesHeap, unit: "MB" });
+// A row only for what was measured: no open row when the newest answer never showed, no page row with no page.
+// The heap is over a baseline after a full collection, so it can read a little under 0: clamped.
+if (latestAt) perfRow({ name: `million_event_chat.${SHAPE}.open`, p50: openMs, p95: openMs, unit: "ms" });
+if (pages.length > 0)
+  perfRow({ name: `million_event_chat.${SHAPE}.older_page`, p50: pct(pages, 0.5), p95: pct(pages, 0.95), unit: "ms" });
+const heapRow = Math.max(0, pagesHeap);
+perfRow({ name: `million_event_chat.${SHAPE}.heap_mb`, p50: heapRow, p95: heapRow, unit: "MB" });
 process.exit(latestAt && moved > 0 ? 0 : 1);
