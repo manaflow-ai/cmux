@@ -14,7 +14,7 @@ use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 
 const WAIT: Duration = Duration::from_secs(20);
@@ -203,6 +203,23 @@ impl Client {
         self.until(&mut Vec::new(), |frame| {
             if frame.kind == FrameKind::Error {
                 panic!("an error before the window: {}", String::from_utf8_lossy(frame.payload()));
+            }
+            (frame.kind == FrameKind::Window)
+                .then(|| frame.decode_json::<ChatWindow>().unwrap())
+                .filter(|window| window.sid == sid)
+        })
+        .await
+    }
+
+    /// The window on `sid` once the book is ready: while the actor books a large chat a
+    /// `not_ready` for the sub comes first, and the window follows on the same sid.
+    async fn ready_window(&mut self, sid: &str) -> ChatWindow {
+        let sid = sid.to_owned();
+        self.until(&mut Vec::new(), |frame| {
+            if frame.kind == FrameKind::Error {
+                let error: Value = frame.decode_json().unwrap();
+                assert_eq!(error["code"], "not_ready", "{error}");
+                return None;
             }
             (frame.kind == FrameKind::Window)
                 .then(|| frame.decode_json::<ChatWindow>().unwrap())
@@ -968,8 +985,10 @@ fn flip_in_segments(book: &Path, marker: &[u8]) {
 
 /// A resume across a record the book refuses, 300 KB in: its first frames go out, then a window
 /// that names the record, with no replay past it and no `end`. The actor rebuilds the book from
-/// raw: the subscriber's window of the new edition holds the row, and a subscriber live when the
-/// book took the new edition gets a fresh window in place of its next delta.
+/// raw at the end of that step. A rebuild from the same raw keeps its edition (its row ids are
+/// the same), so each subscriber resumes from what it holds: the refused one and one live
+/// through the rebuild each get their `end` and nothing they hold again, and a fresh window
+/// holds the row the old book refused.
 #[test]
 fn a_resume_across_a_refused_record_gets_a_window_and_the_rebuilt_book_holds_the_row() {
     runtime().block_on(async {
@@ -986,47 +1005,121 @@ fn a_resume_across_a_refused_record_gets_a_window_and_the_rebuilt_book_holds_the
         chat.append(&more);
         client.booked("marker23q").await;
         client.sub("l", json!({})).await;
-        let live = client.window("l").await;
+        client.window("l").await;
         flip_in_segments(&chat.book(), b"marker22q");
         client.sub("r", json!({"cursor": window.cursor, "edition": window.edition})).await;
-        let (mut windows, mut replayed, mut live_next) = (Vec::new(), 0, None);
-        while windows.len() < 2 || live_next.is_none() {
+        let (mut refusing, mut replayed) = (None::<ChatWindow>, 0);
+        let (mut resumed_end, mut live_end) = (false, false);
+        while !(resumed_end && live_end) {
             let frame = client.recv().await;
             let Ok(value) = frame.decode_json::<Value>() else { continue };
-            if value["sid"] == "l" {
-                live_next.get_or_insert(frame.kind);
-                if frame.kind == FrameKind::Window {
-                    let fresh: ChatWindow = frame.decode_json().unwrap();
-                    assert!(fresh.edition > live.edition, "the live subscriber's fresh window");
-                }
+            let sid = value["sid"].as_str().unwrap_or_default().to_owned();
+            if sid != "r" && sid != "l" {
                 continue;
             }
-            if value["sid"] != "r" {
+            if frame.kind == FrameKind::Window {
+                assert_eq!(sid, "r", "a window for the live subscriber: the edition changed");
+                assert!(refusing.is_none(), "a second window for the refused resume");
+                refusing = Some(frame.decode_json().unwrap());
                 continue;
             }
-            match frame.kind {
-                FrameKind::Window => windows.push(frame.decode_json::<ChatWindow>().unwrap()),
-                FrameKind::Delta => {
-                    let delta: ChatDelta = frame.decode_json().unwrap();
-                    assert!(windows.is_empty(), "a delta between the two windows");
-                    assert_ne!(delta.replay, Some(crate::wire::ReplayMark::End), "an `end`");
-                    let text = String::from_utf8_lossy(frame.payload()).into_owned();
-                    assert!(!text.contains("marker23q"), "a record past the refused one");
-                    replayed += 1;
-                }
-                _ => {}
+            if frame.kind != FrameKind::Delta {
+                continue;
+            }
+            let delta: ChatDelta = frame.decode_json().unwrap();
+            let end = delta.replay == Some(crate::wire::ReplayMark::End);
+            let text = String::from_utf8_lossy(frame.payload()).into_owned();
+            if sid == "l" {
+                assert!(end, "the live subscriber got more than its `end`: {text}");
+                live_end = true;
+            } else if refusing.is_none() {
+                assert!(!end, "an `end` before the refused record's window");
+                assert!(!text.contains("marker23q"), "a record past the refused one");
+                replayed += 1;
+            } else {
+                assert!(end, "the resume after the rebuild sent more than its `end`: {text}");
+                assert!(!text.contains("marker2"), "a record the window held, sent again");
+                resumed_end = true;
             }
         }
         assert!(replayed >= 1, "the frames before the refused record went out");
-        assert_eq!(live_next, Some(FrameKind::Window), "a delta in place of the fresh window");
-        let (refusing, rebuilt) = (&windows[0], &windows[1]);
+        let Some(refusing) = refusing else { panic!("no window for the refused resume") };
         assert!(!refusing.refused.is_empty(), "the window names the refused record");
-        assert!(rebuilt.edition > refusing.edition, "the second window is the rebuilt book's");
+        client.sub("w2", json!({})).await;
+        let rebuilt = client.ready_window("w2").await;
+        assert_eq!(rebuilt.edition, refusing.edition, "a rebuild from the same raw keeps it");
         assert!(rebuilt.refused.is_empty(), "the rebuilt book refuses nothing");
         assert!(
             rebuilt.rows.iter().any(|row| row.get().contains("marker22q")),
             "the rebuilt book holds the row"
         );
+    });
+}
+
+/// A file source whose stamp the test changes, as v1's does when it rewrites lines it delivered.
+struct Stamped {
+    inner: Box<dyn RawSource>,
+    stamp: Arc<AtomicU64>,
+}
+
+impl RawSource for Stamped {
+    fn read_chunk(&mut self, place: u64) -> std::io::Result<Chunk> {
+        let mut chunk = self.inner.read_chunk(place)?;
+        chunk.stamp = self.stamp.load(Ordering::Acquire);
+        Ok(chunk)
+    }
+    fn holds(&mut self, place: u64) -> std::io::Result<bool> {
+        self.inner.holds(place)
+    }
+    fn hint(&self) -> std::io::Result<u64> {
+        self.inner.hint()
+    }
+    fn sync_through(&mut self, place: u64) -> std::io::Result<()> {
+        self.inner.sync_through(place)
+    }
+    fn identity(&self) -> &[u8] {
+        self.inner.identity()
+    }
+    fn stamp(&self) -> u64 {
+        self.stamp.load(Ordering::Acquire)
+    }
+    fn read_at(&mut self, place: u64, offset: u64, max: usize) -> std::io::Result<source::Piece> {
+        self.inner.read_at(place, offset, max)
+    }
+}
+
+/// A subscriber live when the book takes a new edition (the source changed lines it delivered)
+/// gets a fresh window of the new edition in place of its next delta.
+#[test]
+fn a_subscriber_live_when_the_book_takes_a_new_edition_gets_a_fresh_window() {
+    runtime().block_on(async {
+        let stamp = Arc::new(AtomicU64::new(1));
+        let shared = stamp.clone();
+        let chat = Chat::with_source(
+            &turn(1, "first"),
+            Arc::new(move |raw| {
+                let inner = source::FileSource::open(&raw)?;
+                Ok(Box::new(Stamped { inner: Box::new(inner), stamp: shared.clone() })
+                    as Box<dyn RawSource>)
+            }),
+        );
+        let mut client = chat.connect(1, &["chat"]);
+        client.hello(None).await;
+        client.sub("l", json!({})).await;
+        let live = client.window("l").await;
+        stamp.store(2, Ordering::Release);
+        chat.append(&turn(2, "after the change"));
+        let frame = client
+            .until(&mut Vec::new(), |frame| {
+                let value: Value = frame.decode_json().ok()?;
+                (value["sid"] == "l" && matches!(frame.kind, FrameKind::Window | FrameKind::Delta))
+                    .then(|| frame.clone())
+            })
+            .await;
+        assert_eq!(frame.kind, FrameKind::Window, "a delta in place of the fresh window");
+        let fresh: ChatWindow = frame.decode_json().unwrap();
+        assert_ne!(fresh.edition, live.edition, "the fresh window is the new edition's");
+        assert!(!fresh.rows.is_empty());
     });
 }
 
@@ -1106,7 +1199,7 @@ fn the_largest_state_frame_holds_its_bound_and_a_blob_past_its_bound_is_cut() {
         let mut client = chat.connect(1, &["chat"]);
         client.hello(None).await;
         client.sub("s", json!({})).await;
-        let window = client.window("s").await;
+        let window = client.ready_window("s").await;
         client.send(json!({"method": "unsub", "params": {"sid": "s"}})).await;
         client.sub("r", json!({"cursor": window.cursor, "edition": window.edition})).await;
         let state = client
@@ -1159,7 +1252,7 @@ fn a_page_and_a_resume_asked_past_their_bounds_hold_them() {
         let mut client = chat.connect(1, &["chat"]);
         client.hello(None).await;
         client.sub("s", json!({})).await;
-        let window = client.window("s").await;
+        let window = client.ready_window("s").await;
         let first = row_value(&window.rows[0])["id"].as_u64().unwrap();
         client
             .send(json!({"method": "page", "params": {"sid": "s", "stream": "chat:chat",
