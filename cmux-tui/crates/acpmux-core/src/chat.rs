@@ -30,7 +30,7 @@ struct EmptySource;
 
 impl source::RawSource for EmptySource {
     fn read_chunk(&mut self, place: u64) -> std::io::Result<source::Chunk> {
-        Ok(source::Chunk::with_stamp(Vec::new(), place, source::byte_places, true, place, 1))
+        Ok(source::Chunk::with_stamp(Vec::new(), place, source::byte_places, true, 0, 1))
     }
 
     fn holds(&mut self, _place: u64) -> std::io::Result<bool> {
@@ -58,6 +58,9 @@ impl source::RawSource for EmptySource {
 /// bound protects the actor before that connection-level budget exists.
 pub const MAILBOX_BYTES: usize = 4 * 1024 * 1024;
 pub const IDLE_AFTER: Duration = Duration::from_secs(5 * 60);
+/// How often a caught-up actor with an empty mailbox looks at its source's hint. A notice that
+/// the source grew wakes it at once; the hint finds the lines a dropped notice told of.
+pub const HINT_POLL: Duration = Duration::from_millis(250);
 
 #[derive(Clone)]
 pub struct ChatConfig {
@@ -66,6 +69,7 @@ pub struct ChatConfig {
     pub harness: Harness,
     pub log_options: Options,
     pub boot_id: u64,
+    pub hint_poll: Duration,
     pub supervision: crate::life::Policy,
     pub source_factory: SourceFactory,
     pub edition_random: Arc<dyn Fn() -> u32 + Send + Sync>,
@@ -78,7 +82,8 @@ impl ChatConfig {
             book: book.into(),
             harness,
             log_options: Options::default(),
-            boot_id: 0,
+            boot_id: crate::boot::system_boot_id(),
+            hint_poll: HINT_POLL,
             supervision: crate::life::Policy::default(),
             source_factory: Arc::new(|| Ok(Box::new(EmptySource))),
             edition_random: Arc::new(system_random_edition),
@@ -186,6 +191,12 @@ pub struct ChatHandle {
 impl ChatHandle {
     pub fn failures(&self) -> u64 {
         self.failures.load(Ordering::Relaxed)
+    }
+
+    /// The chat is `ready`: a read from its cursor said `at_end` in this actor's life, so it
+    /// follows its source from here and no window is cut from half a book.
+    pub fn ready(&self) -> bool {
+        *self.health.borrow() == crate::life::Health::Running
     }
 
     fn send(&self, request: Request) -> Result<(), ChatError> {
@@ -347,6 +358,9 @@ struct ActorState {
     last_checkpoint: Instant,
     settled_since_checkpoint: u32,
     replay_remaining: u64,
+    /// The hint the last read that said `at_end` saw. The actor reads again when its mailbox is
+    /// empty and the source's hint is another; the hint is never taken for an end.
+    seen_hint: Option<u64>,
 }
 
 fn run_supervised(
@@ -745,6 +759,7 @@ fn open_state_from_log(
         last_checkpoint: Instant::now(),
         settled_since_checkpoint: 0,
         replay_remaining: recovered.replayed,
+        seen_hint: None,
     };
     let stamp_changed = saved_checkpoint.as_ref().is_some_and(|checkpoint| {
         checkpoint.boot_id != actor.config.boot_id
@@ -783,9 +798,6 @@ fn run_once(
             return Ok(true);
         }
         let at_end = read_source(state)?;
-        if *health.borrow() != crate::life::Health::Running {
-            health.send_replace(crate::life::Health::Running);
-        }
         if !at_end {
             match rx.try_recv() {
                 Ok(request) => {
@@ -798,19 +810,53 @@ fn run_once(
             }
             continue;
         }
-        let request = match rx.recv_timeout(IDLE_AFTER) {
-            Ok(request) => request,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
+        // `ready` is a read that said `at_end`, never only a first read: a catch-up that has
+        // read one chunk of a long history is not ready.
+        if *health.borrow() != crate::life::Health::Running {
+            health.send_replace(crate::life::Health::Running);
+        }
+        match wait_for_work(state, rx, stop) {
+            Wait::Request(request) => {
+                if !handle_request(state, request, queued)? {
+                    return Ok(true);
+                }
+            }
+            Wait::Read => {}
+            Wait::Idle => {
                 if state.translate.open_rows().next().is_none() {
                     checkpoint(state)?;
                     return Ok(true);
                 }
-                continue;
             }
-            Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(true),
-        };
-        if !handle_request(state, request, queued)? {
-            return Ok(true);
+            Wait::Closed => return Ok(true),
+        }
+    }
+}
+
+enum Wait {
+    Request(Request),
+    /// The source's hint is not the one the last read that said `at_end` saw, or a stop.
+    Read,
+    Idle,
+    Closed,
+}
+
+/// A caught-up actor's wait: a request, a hint that moved (looked at every `hint_poll` while the
+/// mailbox is empty), a stop, or `IDLE_AFTER` with none of them.
+fn wait_for_work(state: &ActorState, rx: &Receiver<Request>, stop: &AtomicBool) -> Wait {
+    let started = Instant::now();
+    loop {
+        if stop.load(Ordering::Acquire) || state.source.hint().ok() != state.seen_hint {
+            return Wait::Read;
+        }
+        let left = IDLE_AFTER.saturating_sub(started.elapsed());
+        if left.is_zero() {
+            return Wait::Idle;
+        }
+        match rx.recv_timeout(left.min(state.config.hint_poll.max(Duration::from_millis(1)))) {
+            Ok(request) => return Wait::Request(request),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => return Wait::Closed,
         }
     }
 }
@@ -849,6 +895,9 @@ fn read_source(state: &mut ActorState) -> Result<bool, ChatError> {
         let span = line.end.saturating_sub(line.start);
         apply_line(state, bytes, line.start, line.end, span)?;
         state.raw_place = line.end;
+    }
+    if chunk.at_end {
+        state.seen_hint = Some(chunk.hint);
     }
     Ok(chunk.at_end)
 }
