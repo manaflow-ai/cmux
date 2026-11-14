@@ -177,15 +177,16 @@ struct TaskComposerScreen: View {
             HStack(spacing: 0) {
                 optionsButton
                 attachMenu
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        agentsPill
-                        modelPill
-                        launchPill
-                    }
-                    .padding(.horizontal, 6)
+                // One row that fits a phone (live run 16: a separate model pill ran under Start and
+                // pushed Open in off screen): the agents pill names the agent and its model and
+                // takes what room is left; Open in is an icon pill.
+                HStack(spacing: 8) {
+                    agentsPill
+                        .layoutPriority(-1)
+                    launchPill
+                    Spacer(minLength: 0)
                 }
-                .trailingOverflowFade()
+                .padding(.horizontal, 6)
                 startButton
             }
             .frame(height: 44)
@@ -307,10 +308,18 @@ struct TaskComposerScreen: View {
                         AgentBrandMark(agent: first.family, size: 16, style: .brand)
                             .frame(width: 18, height: 18)
                             .accessibilityHidden(true)
-                        Text(shown.count > 1 ? "\(first.name) +\(shown.count - 1)" : first.name)
-                            // Room for the model pill beside it (live run 14: a long agent name
-                            // pushed the model under Start).
-                            .frame(maxWidth: 132, alignment: .leading)
+                        // "Claude Code · Opus", or "Claude Code +1" with several (each has its model
+                        // in the menu); the agent's name gives way first.
+                        HStack(spacing: 4) {
+                            Text(shown.count > 1 ? "\(first.name) +\(shown.count - 1)" : first.name)
+                                .truncationMode(.tail)
+                            if shown.count == 1, let model = modelName(first, catalog) {
+                                Text("·").foregroundStyle(theme.colors.label2.color)
+                                Text(model)
+                                    .foregroundStyle(theme.colors.label2.color)
+                                    .layoutPriority(1)
+                            }
+                        }
                     } else {
                         Image(systemName: "person.crop.circle.badge.exclamationmark").accessibilityHidden(true)
                         Text("No agents")
@@ -361,8 +370,8 @@ struct TaskComposerScreen: View {
                 }
             }
             let picked = shownAgents(catalog).filter { !$0.models.isEmpty }
-            if picked.count > 1 {
-                Section("Each agent's model") {
+            if !picked.isEmpty {
+                Section(picked.count > 1 ? "Each agent's model" : "Model") {
                     ForEach(picked) { harness in
                         TaskComposerModelMenu(creator: creator, harness: harness, catalog: catalog, style: .submenu)
                     }
@@ -409,7 +418,9 @@ struct TaskComposerScreen: View {
         switch phase {
         case .loading: "Loading"
         case .failed(let message): message
-        case .loaded(let catalog): shownAgents(catalog).map(\.name).joined(separator: ", ")
+        case .loaded(let catalog):
+            shownAgents(catalog).map { agent in [agent.name, modelName(agent, catalog)].compactMap { $0 }.joined(separator: ", ") }
+                .joined(separator: "; ")
         }
     }
 
@@ -419,12 +430,11 @@ struct TaskComposerScreen: View {
         return draft.picks.compactMap { catalog.harness($0.harness) }
     }
 
-    /// The model, when one agent runs the task (with several, each agent's is in the list).
-    @ViewBuilder private var modelPill: some View {
-        if let catalog, shownAgents(catalog).count == 1, let harness = shownAgents(catalog).first, !harness.models.isEmpty {
-            TaskComposerModelMenu(creator: creator, harness: harness, catalog: catalog, style: .pill)
-                .disabled(sent != nil)
-        }
+    /// The model `harness` runs: the one picked, else its default (the Mac's last pick for it).
+    private func modelName(_ harness: AgentHarnessChoice, _ catalog: AgentCatalog) -> String? {
+        guard !harness.models.isEmpty else { return nil }
+        let id = draft.picks.first { $0.harness == harness.id }?.model ?? TaskComposerPhase.defaultModel(harness, catalog)
+        return id.map { id in harness.models.first { $0.id == id }?.name ?? id }
     }
 
     /// Where the task runs: an agent chat, or the agent's CLI in a terminal (classic's tasks).
@@ -437,9 +447,9 @@ struct TaskComposerScreen: View {
                 }
             }
         } label: {
-            HStack(spacing: 7) {
+            // The symbol alone (a chat bubble or a terminal): the menu says the words.
+            HStack(spacing: 5) {
                 Image(systemName: draft.launch.systemImage).accessibilityHidden(true)
-                Text(draft.launch.title)
                 Image(systemName: "chevron.down")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(theme.colors.label2.color)
@@ -733,7 +743,7 @@ struct TaskComposerBanner: View {
 /// An agent's model: a pill above the keyboard (one agent) or a submenu of the agents menu
 /// (several, one per agent).
 struct TaskComposerModelMenu: View {
-    enum Style { case pill, submenu }
+    enum Style { case submenu }
 
     @Bindable var creator: WorkspaceCreator
     let harness: AgentHarnessChoice
@@ -757,17 +767,6 @@ struct TaskComposerModelMenu: View {
             }
         } label: {
             switch style {
-            case .pill:
-                HStack(spacing: 7) {
-                    Image(systemName: "cpu").accessibilityHidden(true)
-                    Text(label)
-                        .frame(maxWidth: 104, alignment: .leading)
-                    Image(systemName: "chevron.down")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(theme.colors.label2.color)
-                        .accessibilityHidden(true)
-                }
-                .modifier(TaskComposerPillLabel(isError: false))
             case .submenu:
                 // A menu row: the agent, its model as the subtitle.
                 Text(harness.name)
@@ -775,7 +774,7 @@ struct TaskComposerModelMenu: View {
             }
         }
         .accessibilityLabel("\(harness.name) model, \(label)")
-        .accessibilityIdentifier(style == .pill ? "taskComposer.modelPill" : "taskComposer.model.\(harness.id)")
+        .accessibilityIdentifier("taskComposer.model.\(harness.id)")
     }
 
     private func setModel(_ model: String?) {

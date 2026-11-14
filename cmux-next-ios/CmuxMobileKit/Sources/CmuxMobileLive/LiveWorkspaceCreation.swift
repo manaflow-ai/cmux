@@ -143,8 +143,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 return
             }
             do {
-                // The reply comes when the agent's turn ends: the chat shows the task long before.
-                defer { acpmux.endFirstPrompt(session) }
+                // On success the mark stays until the chat shows the task: a fast agent's reply can
+                // come before the chat's records do (live run 16). The hub's cap ends stale marks.
                 _ = try await acpmux.request("session/prompt", .object([
                     "sessionId": .string(session), "prompt": .array(blocks),
                     "_meta": .object(["acpmux": .object([

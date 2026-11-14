@@ -189,8 +189,8 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                 C.steps([{ Self.composeTwoAgents(app) }, { Self.openAgents(app) }])
             },
             Scene(group: g, id: "composer-model-menu", args: Self.list) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
-                         { C.tap(C.any(app, "taskComposer.modelPill"), "model pill") }])
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openAgents(app) },
+                         { C.tap(C.any(app, "taskComposer.model.claude"), "Claude Code's model") }])
             },
             Scene(group: g, id: "agent-row-model-menu", args: Self.list) { app in
                 C.steps([{ Self.composeTwoAgents(app) }, { Self.openAgents(app) },
@@ -213,15 +213,15 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                          { Self.check(app.buttons["taskComposer.start"].firstMatch.label == "Start 4", "not four agents") }])
             },
             Scene(group: g, id: "model-unavailable", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") },
-                         { C.tap(C.any(app, "taskComposer.modelPill"), "model pill") }])
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") }, { Self.openAgents(app) },
+                         { C.tap(C.any(app, "taskComposer.model.claude"), "Claude Code's model") }])
             },
             Scene(group: g, id: "model-unavailable-tapped", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") },
-                         { C.tap(C.any(app, "taskComposer.modelPill"), "model pill") },
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") }, { Self.openAgents(app) },
+                         { C.tap(C.any(app, "taskComposer.model.claude"), "Claude Code's model") },
                          { C.tap(C.label(app, contains: "Opus Max"), "Opus Max") },
-                         { C.pause(1); return nil },
-                         { Self.check(!C.any(app, "taskComposer.modelPill").label.contains("Opus Max"), "Opus Max was chosen") }])
+                         { C.pause(1); return nil }, { Self.closeMenu(app) },
+                         { Self.check(!((C.any(app, "taskComposer.agents").value as? String) ?? "").contains("Opus Max"), "Opus Max was chosen") }])
             },
             Scene(group: g, id: "agents-loading", args: Self.list + ["-cmux-mobile-task-catalog", "slow"]) { app in
                 C.steps([{ Self.openComposer(app) },
@@ -296,6 +296,16 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             },
             Scene(group: g, id: "started-two-rows", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
                 C.steps([{ Self.composeTwoAgents(app) }, { C.tap(C.any(app, "taskComposer.start"), "Start 2") }])
+            },
+            // The row fits a phone: a long agent name, its model and Open in, clear of Start (A12).
+            Scene(group: g, id: "row-fits-long-agent", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") }, { Self.openAgents(app) },
+                         { C.tap(C.any(app, "taskComposer.agent.claude-review"), "Claude Code (review)") },
+                         { C.tap(C.any(app, "taskComposer.agent.claude"), "Claude Code off") }, { Self.closeMenu(app) },
+                         { Self.check(C.any(app, "taskComposer.launch").frame.maxX <= C.any(app, "taskComposer.start").frame.minX,
+                                      "Open in runs under Start") },
+                         { Self.check(C.any(app, "taskComposer.agents").frame.maxX <= C.any(app, "taskComposer.launch").frame.minX,
+                                      "the agents pill runs under Open in") }])
             },
             // Open in: a chat, or the agent's CLI in a terminal (A13).
             Scene(group: g, id: "launch-menu", args: Self.list) { app in

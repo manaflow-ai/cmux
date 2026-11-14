@@ -344,8 +344,7 @@ extension WorkspaceCreator {
                                                               model: pick.model, launch: draft.launch, family: pick.family))
             // The agent first: a long task title truncates, and rows of one task differ only by agent.
             let base = picks.count > 1 ? "\(pick.name ?? Self.agentTitle(pick.harness)) · \(draft.title)" : draft.title
-            let placeholder = Self.taskPlaceholder(for: request, title: Self.uniqueTitle(base, existing: titles), task: draft.title,
-                                                   agent: pick.name ?? Self.agentTitle(pick.harness))
+            let placeholder = Self.taskPlaceholder(for: request, title: Self.uniqueTitle(base, existing: titles), task: draft.title)
             titles.append(placeholder.title)
             var origin = draft
             // A pick of "" (the Mac's default agent) comes back as no pick.
@@ -505,13 +504,11 @@ extension WorkspaceCreator {
 
     /// The optimistic task workspace: titled `title`, its one tab the agent working on `task` (a
     /// chat tab, or for a terminal launch a terminal tab named for the agent).
-    static func taskPlaceholder(for request: NewWorkspaceRequest, title: String, task: String, agent: String = "Agent",
-                                now: Date = Date()) -> Workspace {
+    static func taskPlaceholder(for request: NewWorkspaceRequest, title: String, task: String, now: Date = Date()) -> Workspace {
         var workspace = placeholder(for: request, existing: [], now: now)
         workspace.title = title
-        if request.start == .terminal, !workspace.tabs.isEmpty {
-            workspace.tabs[0].title = agent
-        }
+        // A terminal launch keeps the placeholder's terminal tab as the Mac will list it (named
+        // for its shell and folder), so nothing flips when the Mac's tab replaces it.
         if case .agent(let harness) = request.start, !workspace.tabs.isEmpty {
             // The tab is the agent, as the Mac's tab for the chat reads once listed (its pill
             // then shows the agent's name, with no flip); the workspace's title is the task.

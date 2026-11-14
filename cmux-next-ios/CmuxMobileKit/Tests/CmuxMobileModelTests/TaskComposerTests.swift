@@ -454,7 +454,8 @@ import Testing
         let made = creator.startTask(TaskDraft(prompt: "Fix it", picks: [TaskAgentPick(harness: "claude", model: "opus", name: "Claude Code",
                                                                                        family: "claude")], launch: .terminal))
         #expect(made.first?.tabs.first?.kind == .terminal)
-        #expect(made.first?.tabs.first?.title == "Claude Code")
+        // As the Mac will list it (live run 16: a tab named for the agent flipped to the folder).
+        #expect(made.first?.tabs.first?.title == "zsh")
         await creator.settle()
         #expect(mock.typedLines == ["claude --model=$'opus' -- $'Fix it'\n"])
         #expect(mock.sentTasks.isEmpty)

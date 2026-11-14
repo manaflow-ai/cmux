@@ -250,11 +250,16 @@ struct TaskComposerDraftRow: View {
                     .foregroundStyle(theme.colors.label2.color)
                     .layoutPriority(1)
             }
-            if !subtitle.isEmpty || !draft.imageIDs.isEmpty {
+            if !subtitle.isEmpty || !draft.imageIDs.isEmpty || !draft.files.isEmpty {
                 HStack(spacing: 6) {
                     if !subtitle.isEmpty { Text(subtitle).lineLimit(1) }
                     if !draft.imageIDs.isEmpty {
                         Label("\(draft.imageIDs.count)", systemImage: "photo")
+                            .labelStyle(.titleAndIcon)
+                            .layoutPriority(1)
+                    }
+                    if !draft.files.isEmpty {
+                        Label("\(draft.files.count)", systemImage: "doc")
                             .labelStyle(.titleAndIcon)
                             .layoutPriority(1)
                     }
@@ -269,6 +274,7 @@ struct TaskComposerDraftRow: View {
 
     private var subtitle: String {
         var parts = draft.picks.isEmpty ? ["Default agent"] : draft.picks.map { $0.name ?? WorkspaceCreator.agentTitle($0.harness) }
+        parts.append(draft.launch.title)
         if let directory = draft.directory, !directory.isEmpty { parts.append(NewWorkspaceButton.folderName(directory)) }
         return parts.joined(separator: " · ")
     }
