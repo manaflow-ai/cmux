@@ -33,8 +33,11 @@ public struct NextSupport: Sendable {
     /// outlive the move (a link socket): its path in classic's `cmux` from before the move. Every
     /// other path is its own name.
     public static func pathIdentity(_ path: String) -> String {
-        guard let range = path.range(of: "/Application Support/cmux-next/") else { return path }
-        return path.replacingCharacters(in: range, with: "/Application Support/cmux/")
+        var parts = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard let at = parts.indices.dropLast().first(where: { parts[$0] == "Application Support" && parts[$0 + 1] == "cmux-next" })
+        else { return path }
+        parts[at + 1] = "cmux"
+        return parts.joined(separator: "/")
     }
 
     /// The user's `~/Library/Application Support`.
