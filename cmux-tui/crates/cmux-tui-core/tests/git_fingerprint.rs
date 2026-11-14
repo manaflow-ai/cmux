@@ -388,6 +388,30 @@ fn git_fingerprint_moves_with_a_diff_setting_and_stays_with_a_setting_of_no_diff
 }
 
 #[test]
+fn git_fingerprint_of_two_work_trees_in_one_state_is_not_equal() {
+    let first = fresh_clone();
+    // A second clone of the same origin, beside the first: the same HEAD, the same settings
+    // and the same files.
+    let dir = first.parent().unwrap();
+    let origin = dir.join("origin");
+    let name = unique("c");
+    git(dir, &["clone", "--quiet", &origin.to_string_lossy(), &name]);
+    let second = dir.join(name);
+    let mut client = Client::of_a_new_daemon();
+    for scope in ["uncommitted", "staged"] {
+        let (one, other) = (see(&mut client, &first, scope), see(&mut client, &second, scope));
+        // The reply of `git.diff` names its work tree (`root`); the rest is equal.
+        for part in ["head", "files", "total_files"] {
+            assert_eq!(one.today[part], other.today[part], "{scope}: {part} of the 2 work trees");
+        }
+        assert_ne!(
+            one.fingerprint, other.fingerprint,
+            "{scope}: 2 work trees gave the same fingerprint"
+        );
+    }
+}
+
+#[test]
 fn git_fingerprint_of_a_file_above_the_patch_bound_moves_as_the_reply_of_git_diff_moves() {
     let repo = fresh_clone();
     let mut client = Client::of_a_new_daemon();
