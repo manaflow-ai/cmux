@@ -96,6 +96,8 @@ mod shutdown_tests;
 #[cfg(test)]
 mod startup_wait_tests;
 #[cfg(test)]
+mod steer_on_start_tests;
+#[cfg(test)]
 mod time_breakdown_restore_tests;
 #[cfg(test)]
 mod transcript_seq_tests;
