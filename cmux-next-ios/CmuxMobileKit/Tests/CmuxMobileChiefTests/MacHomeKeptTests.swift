@@ -51,6 +51,30 @@ import Testing
         #expect(feed.rows?.count == 4)
     }
 
+    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up and load
+    /// faster/percievably load faster". A relaunch draws the kept rows in the first frame: they
+    /// are on the feed in the same turn as `showKeptRows`, with no await. Before, they came from a
+    /// disk read off the main thread, so Home's first frame said "Connecting to <Mac>…".
+    @Test func aRelaunchHasTheKeptRowsInTheFirstFrame() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let account = Account()
+        let first = MacHomeRowsCache(directory: directory, writeDelay: .milliseconds(0))
+        let owner = FakeHomeOwner()
+        let read = Self.feed(first, account: account)
+        await read.connect(link: MockMacLink { _, request in owner.respond(request) }, macID: "mac-1")
+        #expect(await eventually { read.rows?.count == 4 })
+        first.flush()
+
+        let relaunched = MacHomeRowsCache(directory: directory, writeDelay: .milliseconds(0))
+        let feed = Self.feed(relaunched, account: account)
+        feed.showKeptRows(of: "mac-1")
+        #expect(feed.rows?.map(\.id) == read.rows?.map(\.id), "the kept rows, in this turn")
+        #expect(feed.isShowingKeptRows)
+        #expect(HomeListNote.make(rows: feed.rows, showingKept: feed.isShowingKeptRows, homeMacID: "mac-1",
+                                  macsMayExist: true, searching: false, failing: false) != .connecting)
+    }
+
     /// Another Mac chosen: that Mac's kept rows at once (from memory), never the last Mac's;
     /// another account's rows never show.
     @Test func aMacChosenAgainShowsItsOwnKeptRowsAtOnce() async throws {
