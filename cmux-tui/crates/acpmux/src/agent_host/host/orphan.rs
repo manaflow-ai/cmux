@@ -183,7 +183,7 @@ impl State {
             self.pgid.filter(|_| self.leader_alive.load(std::sync::atomic::Ordering::SeqCst))
         {
             self.under = blocking_or_inline(TREE_READ_WAIT, || {
-                super::super::tree::descendants(&[std::process::id()])
+                super::super::tree::descendants(&self.under_roots())
             })
             .await;
             // SAFETY: the harness leads this process group.

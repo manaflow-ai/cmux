@@ -336,6 +336,8 @@ class Run:
         env.pop("CMUX_TUI_TERMINAL_HOST_MODEL", None)
         if self.args.terminal_host_model == "holder":
             env["CMUX_TUI_TERMINAL_HOST_MODEL"] = "holder"
+        # The agent holder under test (acpmux agent_host/custody.rs), never the caller's.
+        env["ACPMUX_AGENT_HOLDER"] = "1" if self.args.agent_holder == "on" else "0"
         return env
 
     def start(self):
@@ -770,6 +772,9 @@ def main():
     p.add_argument("--terminal-host-model", choices=("hosts", "holder"), default="hosts",
                    help="hosts: a __terminal-host per terminal (the product default); holder: "
                         "CMUX_TUI_TERMINAL_HOST_MODEL=holder, one holder process for every terminal")
+    p.add_argument("--agent-holder", choices=("off", "on"), default="off",
+                   help="on: ACPMUX_AGENT_HOLDER=1, the daemon keeps a copy of each harness's stdio and "
+                        "replaces a host that dies (acpmux agent_host/custody.rs)")
     p.add_argument("--browser-tabs", action="store_true", help="a browser tab in each workspace too (model only)")
     p.add_argument("--out")
     args = p.parse_args()
@@ -779,7 +784,7 @@ def main():
         if not os.access(path, os.X_OK):
             raise SystemExit(f"infinite-items: not executable: {path}")
     print(f"INFINITE-MACHINE host={platform.node()} platform={platform.platform()} cpus={os.cpu_count()} "
-          f"counts={args.counts} days={args.days} terminal_host_model={args.terminal_host_model} "
+          f"counts={args.counts} days={args.days} terminal_host_model={args.terminal_host_model} agent_holder={args.agent_holder} "
           f"browser_tabs={int(args.browser_tabs)}", flush=True)
     results = []
     for count in (int(c) for c in args.counts.split(",")):
