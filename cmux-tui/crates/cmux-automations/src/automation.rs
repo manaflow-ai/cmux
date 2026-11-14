@@ -5,6 +5,7 @@ use std::io::Read;
 use serde::{Deserialize, Serialize};
 
 use crate::catch_up::CatchUp;
+use crate::gate::Gate;
 use crate::trigger::Trigger;
 
 /// What a run does.
@@ -47,6 +48,8 @@ pub struct AutomationSpec {
     /// A run longer than this is stopped and recorded as `timeout`.
     pub timeout_seconds: u64,
     pub enabled: bool,
+    /// The condition script and guardrails.
+    pub gate: Gate,
 }
 
 /// The home of an automation made by a store that was not told its machine.
@@ -114,6 +117,9 @@ pub struct Automation {
     #[serde(default)]
     pub catch_up: CatchUp,
     pub timeout_seconds: u64,
+    /// The condition script and guardrails (none on an older definition).
+    #[serde(default)]
+    pub gate: Gate,
     pub created_at: i64,
     pub updated_at: i64,
     /// The one store that fires it: `cloud` or `mac:<machine id>`.
@@ -149,6 +155,7 @@ impl Automation {
             catch_up: self.catch_up,
             timeout_seconds: self.timeout_seconds,
             enabled: self.enabled,
+            gate: self.gate.clone(),
         }
     }
 }

@@ -8,7 +8,7 @@
 // line's stats: in the trailing meta, on a second line, or right after the title.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, row, user } from "../../../gallery/fixtures/acpmux";
-import { minutesAgo } from "../../../gallery/clock";
+import { minutesAgo, recentRun } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 import { trayRowLook } from "./trayPanel.experiment";
@@ -27,8 +27,8 @@ function agent(
     task: name,
     kind: "general-purpose",
     state,
-    startedAt: minutesAgo(minutes),
-    ...(state !== "running" && { endedAt: minutesAgo(minutes - ran) }),
+    // What ended lingers in the hat only for its grace (trayLinger.ts): it ended just now.
+    ...(state === "running" ? { startedAt: minutesAgo(minutes) } : recentRun(minutes, ran)),
     ...rest,
   };
 }
@@ -201,7 +201,7 @@ export default agentPaneEntry({
       ),
     },
     mixed: {
-      note: "Running, finished and failed lines together: only a state worth a word says it (Failed), muted in the meta before the time; the finished Explore agent's kind is in its tooltip, not on the line.",
+      note: "Running, finished and stopped lines together (a failed one leaves the hat): only a state worth a word says it (Cancelled), muted in the meta before the time; the finished Explore agent's kind is in its tooltip, not on the line.",
       play: play(false),
       snapshot: chat(
         [
@@ -210,7 +210,7 @@ export default agentPaneEntry({
             [
               agent("Review the fold", 6, "running", { tokens: 48_200, toolUses: 31, action: "Read subagentFold.ts" }),
               agent("Check the docs", 7, "completed", { kind: "Explore", ran: 2.1 }),
-              agent("Run the flaky suite", 7, "failed", { ran: 3.2 }),
+              agent("Run the flaky suite", 7, "cancelled", { ran: 3.2 }),
             ],
             7,
           ),

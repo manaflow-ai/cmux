@@ -305,7 +305,7 @@ export default agentPaneEntry({
   variants: {
     "unicode-boundary": {
       note: "The first line puts an emoji across the 240-code-unit preview boundary in both directions. At wide width the cutoff is visible; narrow width retains the normal CSS ellipsis.",
-      theme: { chatWidth: "wide" },
+      display: { "agentPane.display.width": 960 },
       snapshot: chat([
         activity([sendMessage("Jo", `${"i".repeat(239)}🦊 later`)], 3),
         received("Jo", `${"i".repeat(239)}🦊 later`, 2),
@@ -367,7 +367,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-agentmsg__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-agentmsg__card"));
-        await ctx.click({ selector: ".cv-received .cv-disclosure__toggle" });
+        await ctx.click({ selector: ".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-received__text"));
       },
     },
@@ -389,8 +389,12 @@ export default agentPaneEntry({
         if (ctx.document.querySelector(head)?.getAttribute("aria-expanded") === "false")
           await ctx.click({ selector: head });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received").length >= 4);
-        for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(".cv-received .cv-disclosure__toggle"))
-          toggle.click();
+        // Each line opens with its own measured click, as a reader opens them, so the stage knows
+        // which line opened and the rows its fold pushes down are that fold's, not a shift. Clicked
+        // all at once outside a step, the four folds played in the wait below, which has no target.
+        const closed = ".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)[aria-expanded='false']";
+        for (let line = 0; line < 4 && ctx.document.querySelector(closed); line++)
+          await ctx.click({ selector: closed });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__text").length >= 4);
       },
     },

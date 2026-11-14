@@ -1,18 +1,19 @@
 // The Harnesses page's rows (cx-uj5g8): every harness the model catalog names and every one acpmux
 // found on this Mac, each with its state here. The installed ones first, then the rest, each in
 // the catalog's order: a sign-in check that answers later changes a row's state, never its place.
-import { type HarnessHealth, needsLogin } from "../HarnessHealthNotice";
+import { type HarnessHealth, needsLogin } from "../harnessHealthNoticeModel";
 import type { AcpmuxSnapshot } from "../model";
 import type { PickerCatalog } from "../modelCatalogData";
 
 export type HarnessStatus = "ready" | "signIn" | "unavailable" | "notInstalled" | "checking";
 
 /// npm where this machine has it (an npm setup keeps its channel), else the vendor's own installer,
-/// which needs no Node. `/bin/sh`: the host runs the command in the user's login shell, which may
-/// not be a POSIX one (fish).
+/// which needs no Node. Bash ships with macOS; pipefail preserves a failed download's exit
+/// status even when the installer reading the empty pipe exits successfully. The explicit shell
+/// also works when the user's login shell is fish.
 const npmOrNative = (npmPackage: string, native: string) =>
   // l10n-allow: a shell command Install runs, never shown as text
-  `/bin/sh -c 'if command -v npm >/dev/null 2>&1; then npm install -g ${npmPackage}; else ${native}; fi'`;
+  `/bin/bash -o pipefail -c 'if command -v npm >/dev/null 2>&1; then npm install -g ${npmPackage}; else ${native}; fi'`;
 
 /// The command that installs a harness's CLI, run in place by Install (the rest open their setup
 /// page). Keyed by the acpmux harness id.
@@ -21,6 +22,7 @@ export const INSTALL_COMMANDS: Readonly<Record<string, string>> = {
   // No tty here: never ask to start Codex or to remove another install.
   codex: npmOrNative("@openai/codex", "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh"),
   opencode: npmOrNative("opencode-ai", "curl -fsSL https://opencode.ai/install | bash"),
+  gemini: npmOrNative("@google/gemini-cli", "brew install gemini-cli"),
 };
 
 export type HarnessRow = {

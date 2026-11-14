@@ -50,6 +50,51 @@ impl Mux {
         self.terminal_command_history.load(Ordering::Acquire)
     }
 
+    /// What the terminals' command trackers do: the history store when it
+    /// records, else the last command alone while freeing is on, else nothing.
+    pub(crate) fn shell_recording(&self) -> crate::shell_history::Recording {
+        use crate::shell_history::Recording;
+        if self.terminal_command_history_enabled() {
+            Recording::History
+        } else if self.terminal_last_command.load(Ordering::Acquire) {
+            Recording::LastCommand
+        } else {
+            Recording::Off
+        }
+    }
+
+    /// Follows `workspaces.freeing.enabled` (`mux/settings.rs`).
+    /// `terminal-last-command`: the newest command the shell of live
+    /// terminal `terminal_id` (the stable host id) finished, for Run Last
+    /// Command Again. None for an incognito terminal, a terminal with no
+    /// live runtime, and while recording is off.
+    pub(crate) fn terminal_last_command(
+        &self,
+        terminal_id: &str,
+    ) -> Option<crate::state::kept_tab_store::LastCommand> {
+        use crate::shell_history::Recording;
+        if self.shell_recording() == Recording::Off {
+            return None;
+        }
+        let (public_id, runtime) = {
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            let public_id = registry.terminal_resource_id(terminal_id).ok()??;
+            let state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
+            let runtime = state.terminal_catalog.get(&public_id).cloned()?;
+            (public_id, runtime)
+        };
+        // The privacy read takes the registry lock itself: after the guards drop.
+        if self.output_store.is_private(self, &public_id) {
+            return None;
+        }
+        let finished = runtime.last_finished_command()?;
+        crate::state::kept_tab_store::LastCommand::from_finished(&finished)
+    }
+
+    pub(super) fn set_terminal_last_command(&self, enabled: bool) {
+        self.terminal_last_command.store(enabled, Ordering::Release);
+    }
+
     /// `set-terminal-command-history`: the switch, and the retention when
     /// given (stored at once; lists hide what it expires, and the worker
     /// deletes those rows).

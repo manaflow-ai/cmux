@@ -11,6 +11,7 @@ import { byArea } from "./areas";
 import { formatReleaseDate, type AreaChange, type MediaRef, type ReleaseItem, type ReleaseView } from "./model";
 import type { ChangeItem, NewsLayout, WhatsNewCategory } from "./types";
 import { ChangePullRequest } from "./ChangePullRequest";
+import { MediaCompare } from "./MediaCompare";
 
 export interface PartsContext {
   strings: Strings;
@@ -37,11 +38,35 @@ export function ReleaseMeta({ date, version, strings }: { date: string; version:
 }
 
 /** The release's picture in the theme's scheme; the box keeps its ratio before the file arrives. It
-    loads as it nears the viewport. Given `strings`, a click (or Return) opens it enlarged. */
+    loads as it nears the viewport. Given `strings`, a click (or Return) opens it enlarged, and a
+    before/after pair shows both (MediaCompare.tsx), here and enlarged. */
 export function Media({ media, className, strings }: { media: MediaRef; className?: string; strings?: Strings }) {
   const scheme = useSyncExternalStore(subscribeColorScheme, getColorScheme, () => "light" as const);
   const src = scheme === "dark" ? media.dark : media.light;
   const [open, setOpen] = useState(false);
+  const enlarge = strings
+    ? media.alt
+      ? `${strings.t("changelog.page.enlarge")}: ${media.alt}`
+      : strings.t("changelog.page.enlarge")
+    : "";
+  // A before/after pair is its own control (dragged or switched), so Enlarge is a corner button.
+  if (media.before && strings)
+    return (
+      <figure className={`cl-media cl-media-pair ui-glass${className ? ` ${className}` : ""}`}>
+        <MediaCompare after={src} alt={media.alt} before={media.before} strings={strings} />
+        <button
+          type="button"
+          className="cl-compare-enlarge ui-glass"
+          aria-label={enlarge}
+          onClick={() => setOpen(true)}
+        >
+          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+            <path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9" />
+          </svg>
+        </button>
+        {open && <MediaLightbox media={media} src={src} strings={strings} onClose={() => setOpen(false)} />}
+      </figure>
+    );
   const picture = media.video ? (
     <LazyVideo key={src} src={src} alt={media.alt} />
   ) : (
@@ -50,14 +75,7 @@ export function Media({ media, className, strings }: { media: MediaRef; classNam
   return (
     <figure className={`cl-media ui-glass${className ? ` ${className}` : ""}`}>
       {strings ? (
-        <button
-          type="button"
-          className="cl-media-open"
-          aria-label={
-            media.alt ? `${strings.t("changelog.page.enlarge")}: ${media.alt}` : strings.t("changelog.page.enlarge")
-          }
-          onClick={() => setOpen(true)}
-        >
+        <button type="button" className="cl-media-open" aria-label={enlarge} onClick={() => setOpen(true)}>
           {picture}
         </button>
       ) : (
@@ -133,7 +151,9 @@ function MediaLightbox({
         </DialogButton>
       </header>
       <div className="cl-lightbox-stage">
-        {media.video ? (
+        {media.before ? (
+          <MediaCompare after={src} alt={media.alt} before={media.before} strings={strings} fit="contain" />
+        ) : media.video ? (
           <video src={src} aria-label={media.alt} muted loop playsInline autoPlay controls />
         ) : (
           <img src={src} alt={media.alt} />

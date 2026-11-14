@@ -3,7 +3,10 @@ public import AppKit
 /// An icon button of the toolbar band and the pane's tab bar controls: the chrome's hover and
 /// pressed look.
 public final class TitlebarBandButton: ClickableButton {
-    public static var side: CGFloat { Metrics.sidebarRowHeight - Metrics.space1 }
+    /// The chrome's one button size, the top row's (``TopRowSpacing/buttonSide``): the top-left band, the pane's top-right
+    /// tools, the sidebar's + and the tab bar's `+ ⌄` all draw at it (Lawrence 2026-11-11: "we want the same buttons
+    /// everywhere and for all the buttons to be the same size based on the density").
+    public static var side: CGFloat { TopRowSpacing.buttonSide }
     /// The SF Symbol it draws, or a custom glyph name ``customImage`` draws.
     public var symbol: String {
         didSet { if symbol != oldValue { renderedIconSize = 0; renderSymbol() } }
@@ -26,7 +29,7 @@ public final class TitlebarBandButton: ClickableButton {
         didSet { badgeLabel.stringValue = badge ?? ""; badgeLabel.isHidden = badge == nil; needsLayout = true }
     }
     /// The glyph's point size, read at layout so density changes apply live; nil draws at
-    /// `Metrics.smallIconSize` (a split button's menu indicator draws smaller).
+    /// `Metrics.toolbarSymbolPointSize`, the top controls' one size (a split button's menu indicator draws smaller).
     public var symbolPointSize: (() -> CGFloat)? {
         didSet { renderedIconSize = 0; renderSymbol() }
     }
@@ -77,6 +80,9 @@ public final class TitlebarBandButton: ClickableButton {
     override public func layout() {
         super.layout()
         renderSymbol()
+        // The hover fill is the button's own layer: the buttons' one corner, a tab's, which keeps its ratio at every
+        // density (Lucas 2026-11-13: "same roundness (proportionally)"; Lawrence 2026-11-12: buttons round as tabs).
+        layer?.cornerRadius = Metrics.buttonCornerRadius
         let size = min(Metrics.space3, bounds.height)
         badgeLabel.frame = NSRect(x: bounds.maxX - size, y: bounds.maxY - size, width: size, height: size)
     }
@@ -91,12 +97,13 @@ public final class TitlebarBandButton: ClickableButton {
     }
 
     private func renderSymbol() {
-        let size = symbolPointSize?() ?? Metrics.smallIconSize
+        let size = symbolPointSize?() ?? Metrics.toolbarSymbolPointSize
         guard size != renderedIconSize else { return }
         renderedIconSize = size
         image = customImage?(symbol, size)
+            ?? NSImage.packOverride(forSymbol: symbol, pointSize: size)
             ?? NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .regular))
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: Metrics.toolbarSymbolWeight))
     }
 
     private func applyText() {
@@ -123,6 +130,14 @@ public final class TitlebarBandButton: ClickableButton {
     /// Shows a menu under the button (tests record it instead).
     public var presentMenu: @MainActor (NSMenu, TitlebarBandButton) -> Void = { menu, button in
         menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: button, gap: Metrics.space1), in: button)
+    }
+
+    /// The right-click (and Control-click) menu opens while the button is disabled too (Back
+    /// with nowhere to go still lists Recently Closed); its click and long press stay off.
+    public var opensMenuWhenDisabled = false
+    /// Shows the right-click menu (tests record it instead).
+    public var presentContextMenu: @MainActor (NSMenu, NSEvent, TitlebarBandButton) -> Void = { menu, event, button in
+        NSMenu.popUpContextMenu(menu, with: event, for: button)
     }
 
     /// Told `true` as a menu this button opened (press, long-press or right-click) shows and
@@ -159,13 +174,17 @@ public final class TitlebarBandButton: ClickableButton {
     }
 
     override public func rightMouseDown(with event: NSEvent) {
-        guard isEnabled else { return }
+        guard isEnabled || opensMenuWhenDisabled else { return }
         guard let menu = menuProvider?() else { return super.rightMouseDown(with: event) }
-        showMenu { NSMenu.popUpContextMenu(menu, with: event, for: self) }
+        showMenu { presentContextMenu(menu, event, self) }
     }
 
     /// A long press shows the menu like a browser's Back button; a click runs.
     override public func mouseDown(with event: NSEvent) {
+        // Control-click is a right-click: a disabled button may still open its menu.
+        if event.modifierFlags.contains(.control), menuProvider != nil, pressMenu == nil {
+            return rightMouseDown(with: event)
+        }
         guard isEnabled else { return }
         if pressMenu != nil {
             performPressMenu()

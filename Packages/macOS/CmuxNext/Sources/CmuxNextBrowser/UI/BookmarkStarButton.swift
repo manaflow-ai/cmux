@@ -37,14 +37,16 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     /// Re-applies the star's size when the density or `browser.omnibar.*` sizes change.
     private let density = DensityBinding()
 
-    private func applyImage(size: CGFloat = OmnibarStyle.trailingIconSize) {
+    /// The star draws at `OmnibarStyle.starIconSize`: the toolbar glyph side, so its ink box is the back
+    /// arrow's and the Extensions puzzle's, clamped to the button's frame.
+    private func applyImage(size: CGFloat = OmnibarStyle.starIconSize) {
         image.image = NSImage.icon(state == .on ? .browserOmniboxStarActive : .browserOmniboxStar, size: size)
     }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = OmnibarStyle.chipCornerRadius
+        layer?.cornerRadius = OmnibarStyle.chipButtonCornerRadius
         layer?.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
         image.translatesAutoresizingMaskIntoConstraints = false
@@ -64,7 +66,7 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
         density.update { [weak self] in
             guard let self else { return }
             // Read the size even while hidden, so the loop keeps following it.
-            let size = OmnibarStyle.trailingIconSize
+            let size = OmnibarStyle.starIconSize
             if state != .hidden { applyImage(size: size) }
         }
         density.start()
@@ -72,6 +74,12 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func layout() {
+        super.layout()
+        // The bar's height can change live (density, `browser.omnibar.height`): the corner follows it.
+        layer?.cornerRadius = OmnibarStyle.chipButtonCornerRadius
+    }
 
     /// The badge takes the whole press (not its image or label) and the first
     /// one in a browser window that is not key: one click acts, as Chrome's

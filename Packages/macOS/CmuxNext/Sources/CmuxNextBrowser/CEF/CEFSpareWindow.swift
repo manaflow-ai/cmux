@@ -69,6 +69,21 @@ final class CEFSpareWindow {
     /// call (`CEFRuntime.browserCreated`). The page's is not a Chromium tab to adopt; any other one is,
     /// once the call returned and the page is known.
     private var createdDuringPage: [(browser: Int32, window: Int32, created: CEFCreatedBy)]?
+    /// A spare page's `tab_add` longer than this stalled the main thread: the page saves a new tab about
+    /// 12 ms (`cef.tab_add` p95 15 ms). One second leaves room for the first page of a cold start (Chromium's
+    /// code and color tables not yet paged in) and is still far below the 2.6-7.1 s stalls it stops repeating.
+    static let stallBudget: Duration = .seconds(1)
+    /// How long no page is made ahead after one stalled (`restsUntil`).
+    static let stallRest: Duration = .seconds(30 * 60)
+    /// The clock the stall guard reads (tests move it).
+    var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
+    /// Set when a spare page's `tab_add` took longer than `stallBudget`: until then no page is made ahead,
+    /// and each new tab makes its own with `tab_add` (as with the switch off). NIGHTLY eb6aad6, 2026-11-09
+    /// 00:14-00:32Z: three spare pages in one process held the main thread 7.1 s, 3.3 s and 2.6 s, each at
+    /// 1-4 % CPU, blocked on page-ins inside Chromium's new-browser setup (`chrome::AddTabAt` ...
+    /// `ColorProviderManager::GetColorProviderFor`, partition_alloc). Work cmux chooses to do ahead must
+    /// stop when the machine makes it slow, not repeat at every idle moment.
+    private(set) var restsUntil: ContinuousClock.Instant?
 
     var state: State {
         guard let host else { return made ? .taken : .none }
@@ -114,6 +129,7 @@ final class CEFSpareWindow {
     func take(for key: CEFPaneKey, runtime: CEFRuntime) -> CEFPaneHost? {
         guard let spare = host, key.profile == spare.key.profile, key.machineKey == nil, !key.offTheRecord,
               !key.pane.rawValue.hasPrefix(Self.panePrefix), !key.pane.rawValue.hasPrefix(CEFPaneHost.popupPrefix),
+              !key.pane.rawValue.hasPrefix(CEFPaneHost.agentPrefix),
               spare.placeholder != nil, spare.isLive || spare.isCreatingWindow else { return nil }
         host = nil
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -132,13 +148,24 @@ final class CEFSpareWindow {
     private func preparePage(in spare: CEFPaneHost, runtime: CEFRuntime) -> Bool {
         guard Self.makesPages, !pagesHeld, page == nil, spare.isLive, runtime.forkAPIVersion >= 3, let anchor = spare.placeholder?.browserID,
               let shim = runtime.shim else { return false }
+        if let restsUntil {
+            guard now() >= restsUntil else { return false }
+            self.restsUntil = nil
+        }
         createdDuringPage = []
         let add = { shim.tabAdd(anchor, "", -1, 0) }
+        let started = now()
         #if DEBUG || CMUX_BENCH_HOOKS
         let browser = runtime.benchMarks.span("cef.spare_page", add)
         #else
         let browser = add()
         #endif
+        let ended = now()
+        let took = started.duration(to: ended)
+        if took > Self.stallBudget {
+            restsUntil = ended.advanced(by: Self.stallRest)
+            runtime.logger.notice("spare page stalled: tab_add took \(took, privacy: .public); no page made ahead for \(Self.stallRest, privacy: .public)")
+        }
         let created = createdDuringPage ?? []
         createdDuringPage = nil
         // A tab Chromium made itself during the call (an extension's) goes the way of every such tab,
@@ -177,7 +204,7 @@ final class CEFSpareWindow {
         }
         guard host.visibleTab === tab, !tab.isAgentDriven, !tab.awaitsWindowMove, tab.pendingRestore == nil,
               tab.machineStore == nil, host.key.profile == .default, host.key.machineKey == nil,
-              !host.key.offTheRecord, !host.isPopupHost, !host.isSpare else { return nil }
+              !host.key.offTheRecord, !host.holdsOwnTab, !host.isSpare else { return nil }
         let runtime = host.runtime
         defer { if runtime.acceptsNewBrowsers { onNeeded?() } }
         guard let page, let shim = runtime.shim else { return nil }
@@ -296,7 +323,7 @@ final class CEFSpareWindow {
     /// so a Chromium a tab started, not the warm start, gets a spare too. The spare window itself
     /// coming up asks for its spare page.
     func windowCameUp(_ live: CEFPaneHost) {
-        guard !live.isPopupHost else { return }
+        guard !live.holdsOwnTab else { return }
         if host == nil || (live === host && page == nil && Self.makesPages) { onNeeded?() }
     }
 
@@ -334,7 +361,7 @@ extension CEFPaneHost {
     /// adopted with `tab` as their opener. A popup host closes its own
     /// placeholder in `movePopupsIn`.
     func closeSparePlaceholder(joined tab: CEFTab) {
-        guard !isPopupHost, !isSpare, placeholder != nil, placeholder !== tab, tab.browserID != nil else { return }
+        guard !holdsOwnTab, !isSpare, placeholder != nil, placeholder !== tab, tab.browserID != nil else { return }
         Task { @MainActor [weak self, weak tab] in
             guard let self, let tab, let blank = self.placeholder, self.tabs.contains(where: { $0 === tab }) else { return }
             // A spare page no tab took goes first: never the active tab, so Chromium's activation stays.

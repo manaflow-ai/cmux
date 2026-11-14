@@ -1,0 +1,104 @@
+/* A web search or fetch call's sources (WebSources.tsx): one 24px line under its row, aligned with
+   the row's words, in the muted detail size; open, a list of the pages, one 24px line each. A fetch's
+   link card is the same 24px line. Flat tonal fills, no ring (Leo, 2026-11-07: borderless). Every
+   site icon sits in a fixed 14px slot, so a favicon replacing the globe moves nothing. */
+.cv-web-sources {
+  margin: 0 0 4px var(--cv-tool-text-inset);
+  font-size: var(--text-detail);
+  color: var(--cv-text-muted);
+}
+.cv-web-sources__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: var(--cv-card-fill);
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+}
+.cv-web-sources__card {
+  gap: 8px;
+}
+.cv-web-sources__chip:hover {
+  background: var(--agent-control-hover);
+  color: var(--cv-text);
+}
+.cv-web-sources__label {
+  color: var(--cv-text);
+}
+.cv-web-sources__hosts {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-web-sources__more {
+  flex: none;
+  color: var(--cv-text-dim);
+}
+.cv-web-sources__list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.cv-web-sources__page {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: var(--ds-radius-control);
+  color: inherit;
+  text-decoration: none;
+}
+.cv-web-sources__page:hover {
+  background: var(--agent-control-hover);
+}
+.cv-web-sources__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text);
+}
+.cv-web-sources__site {
+  flex: none;
+  color: var(--cv-text-dim);
+}
+.cv-web-sources__named {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+.cv-web-sources__named:last-child {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.cv-web-sources__host {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cv-web-sources__icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--cv-text-dim);
+}
+.cv-web-sources__icon img {
+  display: block;
+  border-radius: var(--ds-radius-sm);
+  object-fit: contain;
+}

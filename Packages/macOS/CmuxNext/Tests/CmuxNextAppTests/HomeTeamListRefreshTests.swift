@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 @testable import CmuxNextApp
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 import CmuxNextTestSupport
 @testable import MessagesLabSidebar
 import Testing

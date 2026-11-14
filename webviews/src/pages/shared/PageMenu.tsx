@@ -3,9 +3,12 @@
 // refuses, Base UI owns the menu semantics, keyboard navigation, dismissal and
 // focus restoration; this adapter only supplies the pointer location and
 // page-specific actions.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "../../ui/nativeMenu";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
+import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator } from "../../ui/Menu";
+import type { NativePopupDescription, NativePopupEvent } from "../../ui/nativePopup";
+import { popupAction } from "../../ui/popupDescriptors";
 import { usePopupHost, usePortalContainer } from "../../ui/UiProvider";
 import { useEscapingPopup } from "../../ui/popupHost";
 
@@ -27,7 +30,114 @@ export interface PageMenuProps {
   returnFocus?: HTMLElement | null;
 }
 
+/** The keyboard's way to a row's menu: Shift-F10 or the context-menu key on a focused control
+ * opens it at the control's bottom start corner, as `ContextMenu` does (ui/ContextMenu.tsx). Null
+ * for any other key; a hit is handled (default prevented). */
+export function pageMenuKey(event: KeyboardEvent): { x: number; y: number; returnFocus: HTMLElement } | null {
+  if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return null;
+  if (!(event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey))) return null;
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return null;
+  event.preventDefault();
+  const rect = target.getBoundingClientRect();
+  const rtl = getComputedStyle(target).direction === "rtl";
+  return { x: rtl ? rect.right : rect.left, y: rect.bottom, returnFocus: target };
+}
+
 export function PageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
+  useEffect(() => {
+    returnFocus?.setAttribute("data-popup-open", "");
+    return () => returnFocus?.removeAttribute("data-popup-open");
+  }, [returnFocus]);
+  const popupHost = usePopupHost();
+  // A host that refuses the native rows (an older app, a mock client) gets the actionable page menu.
+  // Callers mount one PageMenu per opening, so the refusal lasts only for this menu.
+  const [refused, setRefused] = useState(false);
+  if (popupHost?.native && !refused) {
+    return (
+      <NativePageMenu
+        x={x}
+        y={y}
+        items={items}
+        onClose={onClose}
+        onRefused={() => setRefused(true)}
+        returnFocus={returnFocus}
+      />
+    );
+  }
+  return <LegacyPageMenu x={x} y={y} items={items} onClose={onClose} returnFocus={returnFocus} />;
+}
+
+/** The app path uses the same declarative native popup as every shared menu. */
+function NativePageMenu({ x, y, items, onClose, onRefused, returnFocus }: PageMenuProps & { onRefused(): void }) {
+  const finalFocus = useRef<HTMLElement | null>(returnFocus ?? null);
+  const model = useMemo<NativePopupDescription>(
+    () => ({
+      side: "bottom",
+      align: "start",
+      width: 220,
+      rows: items.flatMap((item) => [
+        ...(item.separatorBefore ? [{ id: `separator:${item.id}`, kind: "separator" as const, label: "" }] : []),
+        {
+          id: item.id,
+          kind: "action" as const,
+          label: item.label,
+          disabled: item.disabled,
+        },
+      ]),
+    }),
+    [items],
+  );
+  const native = useMemo(
+    () => ({
+      model,
+      onEvent: (event: NativePopupEvent) => {
+        if (event.type !== "pick" || !event.id) return;
+        const action = popupAction(model, event.id);
+        const item = items.find((candidate) => candidate.id === event.id);
+        if (!action || !item || item.disabled) return;
+        onClose();
+        item.run();
+      },
+      onDismiss: onClose,
+      onRefused,
+    }),
+    [items, model, onClose, onRefused],
+  );
+  const anchorStyle = { left: x, top: y };
+  return (
+    <Menu
+      open
+      native={native}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <span className="page-menu-native-anchor" style={anchorStyle} aria-hidden="true">
+        <MenuButton label="">
+          <span aria-hidden="true" />
+        </MenuButton>
+      </span>
+      <MenuPopup finalFocus={finalFocus}>
+        {items.map((item) => (
+          <span key={item.id}>
+            {item.separatorBefore ? <MenuSeparator /> : null}
+            <MenuItem
+              className={item.destructive ? "ui-menu-item-destructive" : undefined}
+              disabled={item.disabled}
+              onSelect={item.run}
+            >
+              {item.label}
+            </MenuItem>
+          </span>
+        ))}
+      </MenuPopup>
+    </Menu>
+  );
+}
+
+/** Browser and legacy hosts retain the existing actionable fallback. */
+function LegacyPageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
   const container = usePortalContainer();
   const opener = useRef<HTMLElement | null>(returnFocus ?? null);
   // A native menu can answer after its page/row has closed. Retired menus own no actions.

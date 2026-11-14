@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextHomeModel
 import CmuxNextIcons
 
 /// What a first-run row asks the app to do (`HomeNativeTranscriptView.onFirstRunAction`).
@@ -62,6 +63,31 @@ final class HomeFirstRunView: NSView {
 
     static let maxWidth: CGFloat = 340
 
+    /// How many times the panel measured its parts (the full pass of `layout()`). A pane width change that keeps the
+    /// column's width, and any layout while the panel is hidden, add none (HomeFirstRunWidthChangeTests).
+    private(set) var measurePasses = 0
+
+    /// What the last measure pass measured the parts from: the column's width, the panel's height (what fits), the scale
+    /// and everything the panel shows. A layout with the same values keeps every part's size and only centres the column
+    /// (a pane resize above `maxWidth` + 48 pt: one layout a frame in a key resize of the Home). Compared, so a part
+    /// its owner changes directly (`starters`) is in it too; `setShortcuts` clears it, because the card's `apply`
+    /// changes what shows with the same keys.
+    private struct Measured: Equatable {
+        var column, height, scale: CGFloat
+        var intro, memoryOffer: String?
+        var prompts: [String]
+        var startersLook: HomeStarterChips.Look
+        var switching: HomeSwitchKeys?
+        var agents: [HomeAgentGlance]
+    }
+
+    private var measured: Measured?
+
+    /// A hidden panel (a conversation with messages) is not measured: it is when it shows again.
+    override var isHidden: Bool {
+        didSet { if oldValue, !isHidden { needsLayout = true } }
+    }
+
     var rows: [HomeFirstRunRow] { actionRows + agentRows }
     /// The action rows, in panel order.
     var actionRows: [HomeFirstRunRow] { memoryOffer == nil ? [agent, terminal, pet] : [agent, terminal, memory, pet] }
@@ -87,7 +113,7 @@ final class HomeFirstRunView: NSView {
         intro.isHidden = true
         introHeight.isActive = true
         introWidth.isActive = true
-        agentsHeader.font = .systemFont(ofSize: 12, weight: .medium)
+        agentsHeader.font = .systemFont(ofSize: TypeScale.Base.detail, weight: TypeScale.emphasis)
         agentsHeader.isSelectable = false
         agentsHeader.lineBreakMode = .byTruncatingTail
         agentsHeader.setAccessibilityRole(.staticText)
@@ -253,7 +279,7 @@ final class HomeFirstRunView: NSView {
         hero.applyScale(scale)
         intro.applyScale(scale)
         starters.applyScale(scale)
-        agentsHeader.font = .systemFont(ofSize: 12 * scale, weight: .medium)
+        agentsHeader.font = .systemFont(ofSize: TypeScale.Base.detail * scale, weight: TypeScale.emphasis)
         applySpacing()
         for row in rows { row.applyScale(scale) }
         invalidateIntrinsicContentSize()
@@ -267,6 +293,7 @@ final class HomeFirstRunView: NSView {
         self.terminal.shortcut = terminal
         self.agent.shortcut = agent
         switchCard.apply(switching)
+        measured = nil // `apply` shows a card with keys again, also with the same keys: the fit pass decides
         needsLayout = true
     }
 
@@ -301,9 +328,21 @@ final class HomeFirstRunView: NSView {
         }
     }
 
-    override func layout() {
+    override func layout() { // perf-hot: 1ms motion-frame (each frame of a key resize of the Home)
         super.layout()
+        guard !isHidden else { return }
         let width = max(0, min(Self.maxWidth * scale, bounds.width - 48 * scale))
+        let inputs = Measured(column: width, height: bounds.height, scale: scale, intro: introText, memoryOffer: memoryOffer,
+                              prompts: starters.prompts, startersLook: starters.look, switching: switchCard.keys, agents: agents)
+        if inputs == measured {
+            // Nothing the parts are measured from changed (a pane width change around a column that keeps its
+            // own, or a layout request with no change): the column moves, no part is measured.
+            let x = (bounds.width - width) / 2
+            if stack.frame.minX != x { stack.setFrameOrigin(CGPoint(x: x, y: stack.frame.minY)) }
+            return
+        }
+        measured = inputs
+        measurePasses += 1
         for row in rows { row.width = width }
         if headerWidth.constant != width { headerWidth.constant = width }
         if cardWidth.constant != width { cardWidth.constant = width }
@@ -323,165 +362,4 @@ final class HomeFirstRunView: NSView {
         stack.frame = CGRect(x: (bounds.width - width) / 2, y: max(0, (bounds.height - size.height) / 2),
                              width: width, height: size.height)
     }
-}
-
-/// One first-run row: a glyph, a label and the action's shortcut on a raised
-/// small-radius rect with a hairline (never a capsule), taking the hover
-/// fill under the pointer. A bezel NSButton draws gray when the window is
-/// not key and reads as disabled. Clicks, VoiceOver's press, and Return while it has keyboard
-/// focus run `onClick`; Space is printable input routed to the Home message box. Tab reaches it
-/// and Up and Down move between the rows.
-final class HomeFirstRunRow: NSView {
-    let surface = NSView()
-    let glyph = NSImageView()
-    let label: ChromeLabel
-    /// The row's cmux icon.
-    let icon: IconName
-    let shortcutLabel = ChromeLabel(labelWithString: "")
-    /// An agent row's state in the shared indicator, before its status word.
-    let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
-    var onClick: () -> Void = {}
-    var title: String { label.stringValue }
-    /// The row's width (the panel's column).
-    var width: CGFloat = 300 { didSet { if width != oldValue { invalidateIntrinsicContentSize() } } }
-    /// The action's shortcut, drawn at the trailing edge; nil draws none.
-    var shortcut: String? {
-        didSet {
-            shortcutLabel.stringValue = shortcut ?? ""
-            shortcutLabel.isHidden = shortcut == nil
-            setAccessibilityHelp(shortcut)
-            needsLayout = true
-        }
-    }
-
-    static let height: CGFloat = 28
-    static var cornerRadius: CGFloat { Metrics.controlCornerRadius }
-    private var scale: CGFloat = 1
-    private var fill = NSColor.clear
-    private var hoverFill = NSColor.clear
-    private var isHovered = false { didSet { if isHovered != oldValue { paint() } } }
-
-    init(title: String, icon: IconName) {
-        label = ChromeLabel(labelWithString: title)
-        self.icon = icon
-        super.init(frame: .zero)
-        surface.wantsLayer = true
-        surface.layer?.cornerRadius = Self.cornerRadius
-        surface.layer?.cornerCurve = .continuous
-        surface.layer?.borderWidth = 1
-        addSubview(surface)
-        glyph.image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: 13))
-        glyph.imageScaling = .scaleProportionallyDown
-        label.font = .systemFont(ofSize: 13)
-        label.lineBreakMode = .byTruncatingTail
-        shortcutLabel.font = .systemFont(ofSize: 12)
-        shortcutLabel.alignment = .right
-        shortcutLabel.isHidden = true
-        for view in [glyph, label, activity, shortcutLabel] { addSubview(view) }
-        setAccessibilityElement(true)
-        setAccessibilityRole(.button)
-        setAccessibilityLabel(title)
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    nonisolated override var isFlipped: Bool { true }
-
-    override var intrinsicContentSize: NSSize { NSSize(width: width, height: Self.height * scale) }
-
-    /// Applies the live interface scale to the row's type, icon and geometry.
-    func applyScale(_ scale: CGFloat) {
-        self.scale = scale
-        surface.layer?.cornerRadius = Self.cornerRadius * scale
-        glyph.image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: 13 * scale))
-        label.font = .systemFont(ofSize: 13 * scale)
-        shortcutLabel.font = .systemFont(ofSize: 12 * scale)
-        invalidateIntrinsicContentSize()
-        needsLayout = true
-    }
-
-    /// Colours from the theme (caller runs inside `performWithTheme`).
-    func applyColors(text: NSColor, quiet: NSColor, fill: NSColor, hover: NSColor, border: NSColor) { // theme-scoped
-        label.textColor = text
-        glyph.contentTintColor = text
-        shortcutLabel.textColor = quiet
-        self.fill = fill
-        // The hover token is translucent: composite it over the raised fill.
-        hoverFill = fill.blended(withFraction: hover.alphaComponent, of: hover.withAlphaComponent(1)) ?? fill
-        surface.layer?.borderColor = border.cgColor
-        paint()
-    }
-
-    private func paint() {
-        surface.layer?.backgroundColor = (isHovered ? hoverFill : fill).cgColor
-    }
-
-    override func layout() {
-        super.layout()
-        surface.frame = bounds
-        let inset: CGFloat = 12 * scale
-        let side = CGFloat.iconRowSize(forLabelPointSize: 13 * scale)
-        glyph.frame = CGRect(x: inset, y: (bounds.height - side) / 2, width: side, height: side)
-        let shortcutWidth = shortcutLabel.isHidden ? 0 : ceil(shortcutLabel.attributedStringValue.size().width) + 4
-        let shortcutHeight = ceil(shortcutLabel.intrinsicContentSize.height)
-        shortcutLabel.frame = CGRect(x: bounds.width - inset - shortcutWidth, y: (bounds.height - shortcutHeight) / 2,
-                                     width: shortcutWidth, height: shortcutHeight)
-        let indicator: CGFloat = 13 * scale
-        activity.frame = CGRect(x: shortcutLabel.frame.minX - indicator - 4 * scale, y: (bounds.height - indicator) / 2,
-                                width: indicator, height: indicator)
-        let trailing = activity.showsGlyph ? activity.frame.minX : shortcutLabel.frame.minX
-        let textX = glyph.frame.maxX + 10 * scale
-        let textHeight = ceil(label.intrinsicContentSize.height)
-        label.frame = CGRect(x: textX, y: (bounds.height - textHeight) / 2,
-                             width: max(0, trailing - 8 * scale - textX), height: textHeight)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
-
-    override func mouseUp(with event: NSEvent) {
-        if bounds.contains(convert(event.locationInWindow, from: nil)) { onClick() }
-    }
-
-    // MARK: Keyboard
-
-    override var acceptsFirstResponder: Bool { true }
-    override var canBecomeKeyView: Bool { true }
-    override var focusRingMaskBounds: NSRect { bounds }
-
-    override func drawFocusRingMask() {
-        let radius = Self.cornerRadius * scale
-        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
-    }
-
-    override func keyDown(with event: NSEvent) {
-        guard !isHiddenOrHasHiddenAncestor else { return super.keyDown(with: event) }
-        // Return only: Home sends printable keys, Space included, to the message box first.
-        switch event.keyCode {
-        case 36, 76: if !event.isARepeat { onClick() } // Return, keypad Enter
-        case 125: focusSibling(by: 1) // Down
-        case 126: focusSibling(by: -1) // Up
-        default: super.keyDown(with: event)
-        }
-    }
-
-    /// Moves keyboard focus to the previous or next first-run row in the same column.
-    private func focusSibling(by step: Int) {
-        let rows = superview?.subviews.compactMap { $0 as? HomeFirstRunRow }.filter { !$0.isHiddenOrHasHiddenAncestor } ?? []
-        guard let index = rows.firstIndex(where: { $0 === self }), rows.indices.contains(index + step) else { return }
-        window?.makeFirstResponder(rows[index + step])
-    }
-
-    override func accessibilityPerformPress() -> Bool {
-        onClick()
-        return true
-    }
-
-    func performClick(_ sender: Any?) { onClick() }
 }

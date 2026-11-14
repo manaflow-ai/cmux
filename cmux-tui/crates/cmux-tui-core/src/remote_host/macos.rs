@@ -22,7 +22,6 @@ const LOCAL_PEERPID: libc::c_int = 0x002;
 
 /// The copy that runs.
 pub(super) struct Staged {
-    pub(super) app: PathBuf,
     pub(super) executable: PathBuf,
     /// Content digest of the signed bundle (its executable and seal).
     pub(super) digest: String,
@@ -37,7 +36,8 @@ fn embedded() -> Result<PathBuf, String> {
             .then_some(path)
             .ok_or_else(|| "CMUX_REMOTE_APP is not a bundle".into());
     }
-    let exe = std::env::current_exe().map_err(|error| format!("{error}"))?;
+    // The file itself, never the link it was started by (`~/.local/bin/acpmux`).
+    let exe = cmux_link::app_caller::own_executable()?;
     let contents = exe
         .parent()
         .and_then(Path::parent)
@@ -158,7 +158,7 @@ pub(super) fn stage(state: &Path) -> Result<Staged, String> {
     }
     prune(&root, &slot);
     let executable = app.join("Contents/MacOS").join(EXECUTABLE);
-    Ok(Staged { app, executable, digest })
+    Ok(Staged { executable, digest })
 }
 
 /// Keeps `current` and the newest other copy; removes the rest.
@@ -230,6 +230,7 @@ pub(super) fn spawn_host(
     command.inherit_fd(bootstrap_read.as_fd(), 3).map_err(|error| format!("{error}"))?;
     let mut child =
         command.spawn().map_err(|error| format!("cmux Remote did not start: {error}"))?;
+    child.detach("cmux Remote runs in its own session and outlives this daemon; launchd reaps it");
     drop(bootstrap_read);
     let pid = child.id();
     let stdout = child.stdout.take().ok_or("cmux Remote has no stdout")?;
@@ -258,7 +259,7 @@ pub(super) fn spawn_host(
 /// A live process's start time (seconds, microseconds), or None.
 pub(super) fn process_start(pid: u32) -> Option<(u64, u64)> {
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
-    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    let size = size_of::<libc::proc_bsdinfo>() as libc::c_int;
     // SAFETY: proc_pidinfo into a correctly sized buffer.
     let read = unsafe {
         libc::proc_pidinfo(
@@ -275,7 +276,7 @@ pub(super) fn process_start(pid: u32) -> Option<(u64, u64)> {
 /// The pid of a connected Unix socket's peer.
 pub(super) fn peer_pid(stream: &std::os::unix::net::UnixStream) -> Option<u32> {
     let mut pid: libc::pid_t = 0;
-    let mut length = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
+    let mut length = size_of::<libc::pid_t>() as libc::socklen_t;
     // SAFETY: getsockopt into a pid_t.
     let ok = unsafe {
         libc::getsockopt(stream.as_raw_fd(), 0, LOCAL_PEERPID, (&raw mut pid).cast(), &mut length)

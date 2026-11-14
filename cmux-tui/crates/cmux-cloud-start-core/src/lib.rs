@@ -4,8 +4,16 @@
 //! here what to do, and does it. Served to the app over the app FFI's JSON
 //! channel (`cmux-layout-reducer-ffi`, ops `cloud_*`).
 
+pub mod agent_check;
 pub mod ask;
+pub mod capability;
 pub mod harness_login;
+pub mod machine_bootstrap;
+pub mod machine_config;
+pub mod machine_create;
 pub mod machine_login;
+pub mod machine_repo;
+pub mod moves;
+pub mod sequence;
 pub mod start;
 pub mod vm_kind;

@@ -23,9 +23,12 @@ enum Strings {
         String(localized: "tabs.ax.theme", defaultValue: "theme \(name)", bundle: .module)
     }
     static var axPlayingAudio: String { String(localized: "tabs.ax.playingAudio", defaultValue: "Playing audio", bundle: .module) }
-    /// A zoomed pane's indicator's tooltip (cmux classic's wording).
+    /// A zoomed pane's indicator's tooltip and VoiceOver label (cmux classic's wording).
     static var exitZoom: String { String(localized: "tabs.zoom.exit", defaultValue: "Exit Zoom", bundle: .module) }
-    /// VoiceOver: the tab's pane is zoomed (it shows the zoom indicator).
+    /// Toggle Terminal and Chat's segments (``PaneTerminalChatToggleView``), spoken.
+    static var terminalFace: String { String(localized: "paneToolbar.terminalChat.terminal", defaultValue: "Terminal", bundle: .module) }
+    static var chatFace: String { String(localized: "paneToolbar.terminalChat.chat", defaultValue: "Chat", bundle: .module) }
+    /// VoiceOver: the tab's pane is zoomed.
     static var axZoomed: String { String(localized: "tabs.ax.zoomed", defaultValue: "Zoomed", bundle: .module) }
     /// The speaker button's tooltip and VoiceOver action (Chrome's wording).
     static var muteTab: String { String(localized: "tabs.audio.mute", defaultValue: "Mute tab", bundle: .module) }

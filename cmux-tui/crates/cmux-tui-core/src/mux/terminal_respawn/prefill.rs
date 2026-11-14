@@ -28,6 +28,10 @@
 //!     the prompt: the Return reaches the shell, with only this command.
 //!
 //!   Otherwise nothing is typed; the marker line shows the resume command.
+//! - else a shell the freeing tier parked (`park-tabs`, `relaunch.on_show`)
+//!   gets its last finished command (`kept_tabs.last_command_json`) typed
+//!   without Return, one line only, on the same marked, empty, foreground
+//!   prompt: the person runs it again with one key;
 //! - any other command never runs again and is never typed: the marker line
 //!   shows its command line (the full argv when this daemon process
 //!   launched it, else the relaunch record's argv without credential-like
@@ -159,12 +163,14 @@ impl Mux {
 
     /// What respawned terminal `terminal_id` types on its new prompt, if
     /// anything: the resume command a person set for it, else its agent's
-    /// resume, only with `resume_agents` (the setting) and a POSIX shell.
+    /// resume, only with `resume_agents` (the setting) and a POSIX shell,
+    /// else the last command of a freed shell (`freed_last`), without Return.
     pub(in crate::mux) fn respawn_prefill(
         &self,
         terminal_id: &str,
         record: Option<&StoredRelaunch>,
         resume_agents: bool,
+        freed_last: Option<&str>,
     ) -> Option<Prefill> {
         match self.terminal_resume_command(terminal_id) {
             Ok(Some(text)) => return Some(Prefill { kind: Prefilled::Resume, text, run: false }),
@@ -175,7 +181,9 @@ impl Mux {
                 );
             }
         }
-        agent_prefill(record?, resume_agents)
+        record
+            .and_then(|record| agent_prefill(record, resume_agents))
+            .or_else(|| freed_last.and_then(last_command_prefill))
     }
 
     /// Set (`Some`) or clear (`None`) the resume command of one hosted
@@ -199,6 +207,18 @@ impl Mux {
             .unwrap_or_else(PoisonError::into_inner)
             .terminal_resume_command(terminal_id)
     }
+}
+
+/// A freed shell's last command, typed on its new prompt without Return, so
+/// the person runs it again with one key. One line only: a command with a
+/// newline (a heredoc, a pasted script) would run its first lines by itself.
+fn last_command_prefill(command: &str) -> Option<Prefill> {
+    let text = command.trim();
+    (!text.is_empty() && !text.contains(['\n', '\r'])).then(|| Prefill {
+        kind: Prefilled::LastCommand,
+        text: text.to_owned(),
+        run: false,
+    })
 }
 
 /// The agent resume `record` types on its new prompt, if any: only with
@@ -274,6 +294,11 @@ fn flag_values<'a>(flags: &'a [String], names: &[&str]) -> Vec<&'a str> {
 pub(in crate::mux) enum RanText {
     Command(String),
     Agent(String),
+    /// A freed shell's last command (`kept_tabs.last_command_json`).
+    Last {
+        command: String,
+        exit_code: Option<i32>,
+    },
 }
 
 impl RanText {
@@ -281,6 +306,7 @@ impl RanText {
         match self {
             Self::Command(command) => Ran::Command(command),
             Self::Agent(command) => Ran::Agent(command),
+            Self::Last { command, exit_code } => Ran::Last { command, exit_code: *exit_code },
         }
     }
 }
@@ -501,6 +527,18 @@ mod tests {
         );
         let typed = [PROMPT, b"git sta".as_slice()].concat();
         assert_eq!(resume.input(&mut screen(&typed), true), None);
+    }
+
+    #[test]
+    fn a_freed_shells_last_command_is_typed_without_return() {
+        let last = last_command_prefill("  cargo test -p core  ").expect("one line is typed");
+        assert_eq!(last.kind, Prefilled::LastCommand);
+        assert_eq!(last.input(&mut screen(PROMPT), true).as_deref(), Some("cargo test -p core"));
+        assert_eq!(last.input(&mut screen(PROMPT), false), None, "not over a foreground job");
+        let typed = [PROMPT, b"git sta".as_slice()].concat();
+        assert_eq!(last.input(&mut screen(&typed), true), None);
+        assert_eq!(last_command_prefill("cat <<EOF\nhi\nEOF"), None, "never a multi-line one");
+        assert_eq!(last_command_prefill("   "), None);
     }
 
     #[test]

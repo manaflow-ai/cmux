@@ -125,7 +125,8 @@ import Testing
             #expect(surfaces.isEmpty == !glass, "\(style)")
             if let surface = surfaces.first {
                 #expect(surface.takesThemeTint, "the glass takes the theme's cast")
-                #expect(surface.cornerRadius == Metrics.space3)
+                // The one surface corner (fe116f8bd2f: every rounded surface on the concentric rule).
+                #expect(surface.cornerRadius == Metrics.surfaceCornerRadius)
             }
         }
     }

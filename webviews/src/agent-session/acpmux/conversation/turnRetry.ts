@@ -51,12 +51,62 @@ export type OwnedResendDeps<Client, Draft> = {
   send: (draft: Draft) => Promise<unknown>;
 };
 
+/// A prompt sent again through the composer's send (`chat.send`), settled once acpmux took it (its
+/// in-page `taken`, which holds nothing: a refused send still fails or comes back as any send's
+/// does). That send resolves only when the turn it starts ends, and a Retry's card says Retrying…
+/// only until the attempt reaches the chat (cmux#34369). A send acpmux took whose turn then failed
+/// counts as sent (direct.ts marks its error `taken`): that failure is the transcript's, on the
+/// attempt's own card. Rejects when the send was refused before acpmux took it. A send a harness
+/// switch holds is taken by the switch, so it settles when that send does.
+export function sendUntilTaken(send: (taken: () => void) => Promise<unknown>): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    send(() => resolve()).then(
+      () => resolve(),
+      (error: unknown) => ((error as { taken?: unknown } | null)?.taken === true ? resolve() : reject(error)),
+    );
+  });
+}
+
+/// A Retry that sent nothing: the chat the failed row was drawn for is not the one the pane's client
+/// reaches any more. It rejects, so the card says Retry could not run instead of taking it as sent
+/// (cmux#34369: a Retry that settled as sent with nothing sent read as a dead button).
+export class RetryNotSent extends Error {
+  constructor() {
+    super("retry.not_sent");
+    this.name = "RetryNotSent";
+  }
+}
+
 /// The prompt sent again, only to the chat the failed row was drawn for: checked before the restore
 /// and again after it, on the same client, as Cloud credential recovery does. A chat switch while the
-/// attachments are restored sends nothing to the next chat.
+/// attachments are restored sends nothing to the next chat, and rejects with ``RetryNotSent``.
 export async function resendToOwner<Client, Draft>(deps: OwnedResendDeps<Client, Draft>): Promise<unknown> {
-  if (!deps.owns() || deps.currentClient() !== deps.client) return undefined;
+  if (!deps.owns() || deps.currentClient() !== deps.client) throw new RetryNotSent();
   const draft = await deps.restore();
-  if (!deps.owns() || deps.currentClient() !== deps.client) return undefined;
+  if (!deps.owns() || deps.currentClient() !== deps.client) throw new RetryNotSent();
   return deps.send(draft);
+}
+
+export type FailedPromptRetryDeps<Client, Draft> = Omit<OwnedResendDeps<Client, Draft>, "restore"> & {
+  sessionId: string;
+  rowId: string | undefined;
+  prompt: string | undefined;
+  capabilities: ReadonlySet<string> | undefined;
+  request: TurnRetryDeps["request"];
+  restore: (rowId: string, prompt: string) => Promise<Draft>;
+};
+
+/// Failed attachment-only prompts have a defined empty text; only an absent prompt lacks a fallback.
+export function retryFailedPrompt<Client, Draft>(deps: FailedPromptRetryDeps<Client, Draft>) {
+  if (!deps.owns() || deps.currentClient() !== deps.client) return Promise.resolve("retry.failed" as const);
+  const { rowId, prompt } = deps;
+  return retryFailedTurn({
+    sessionId: deps.sessionId,
+    capabilities: deps.capabilities,
+    request: deps.request,
+    resend:
+      rowId && prompt !== undefined
+        ? () => resendToOwner({ ...deps, restore: () => deps.restore(rowId, prompt) })
+        : undefined,
+  });
 }

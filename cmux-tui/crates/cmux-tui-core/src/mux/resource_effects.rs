@@ -204,6 +204,11 @@ impl Mux {
         crate::debug_spans::mark("projection.built");
         persist_public_topology_result(operation, &mut projection.result, &projection.changes)?;
         #[cfg(test)]
+        crate::walk_counters::projection_prepared(
+            projection.patch.changes.len(),
+            projection.changes.as_array().map_or(0, Vec::len),
+        );
+        #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
         }
@@ -216,11 +221,15 @@ impl Mux {
             &projection.changes,
             projection.restates_all,
         )?;
+        let restated = std::mem::take(&mut projection.restated);
         drop(projection);
         drop(state);
         crate::debug_spans::mark("projection.intent_prepared");
         let commit =
             self.commit_effect_intent(&mut registry, intent, finish)?.into_patch_commit()?;
+        if !commit.replayed {
+            registry.mark_workspaces_whole(commit.revision, &restated);
+        }
         crate::debug_spans::mark("projection.writer_committed");
         self.state.lock().unwrap_or_else(PoisonError::into_inner).resource_revision =
             commit.revision;
@@ -267,6 +276,69 @@ impl Mux {
         )
     }
 
+    /// [`Self::commit_ordinary_full_resource_projection`] for a change that is confined to the
+    /// workspace that shows a surface (`surface` finds it in the state, under the locks): a
+    /// tab that a browser opened, a terminal that an adoption placed. Only that workspace is
+    /// projected, so the commit does not grow with the session. A surface that no workspace
+    /// shows takes the full projection.
+    #[track_caller]
+    pub(super) fn commit_ordinary_surface_projection(
+        &self,
+        actor: &Actor,
+        operation: &'static str,
+        surface: impl FnOnce(&State) -> Option<SurfaceId>,
+        result: Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let mutation = WorkspaceMutation::local("cmux-tui", actor.clone());
+        let fingerprint = serde_json::json!({"operation":operation,"result":result});
+        self.commit_resource_mutation_plan(
+            &mutation,
+            operation,
+            &fingerprint,
+            None,
+            None,
+            |state, registry| {
+                let workspace = surface(state)
+                    .and_then(|surface| state.pane_of(surface))
+                    .and_then(|pane| state.screen_of(pane))
+                    .and_then(|(workspace, _)| state.workspaces.get(workspace))
+                    .map(|workspace| workspace.public_id.clone());
+                let projection = match workspace {
+                    Some(workspace) => self.changed_workspaces_projection_locked(
+                        registry,
+                        state,
+                        &[workspace],
+                        result,
+                    )?,
+                    None => self.resource_effect_projection_locked(registry, state, result)?,
+                };
+                Ok(projection_plan(projection))
+            },
+        )
+    }
+
+    /// [`Self::commit_ordinary_surface_projection`] for the view of the terminal `terminal_id`
+    /// of a host, which an adoption placed: its placement is in one workspace.
+    #[track_caller]
+    pub(super) fn commit_placed_terminal_projection(
+        &self,
+        operation: &'static str,
+        terminal_id: &str,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        self.commit_ordinary_surface_projection(
+            &Actor::Daemon,
+            operation,
+            |state| {
+                let shown = state.surfaces.values().find(|surface| {
+                    let host = surface.terminal_host_identity();
+                    host.is_some_and(|identity| identity.terminal_id == terminal_id)
+                });
+                shown.map(|surface| surface.id)
+            },
+            serde_json::json!({}),
+        )
+    }
+
     #[track_caller]
     pub(crate) fn commit_full_resource_projection_with_mutation(
         &self,
@@ -283,14 +355,75 @@ impl Mux {
             None,
             |state, registry| {
                 let projection = self.resource_effect_projection_locked(registry, state, result)?;
-                Ok(ResourceMutationPlan::new(
-                    projection.patch,
-                    projection.result,
-                    projection.changes,
-                    |_| {},
-                ))
+                Ok(projection_plan(projection))
             },
         )
+    }
+
+    /// [`Self::commit_full_resource_projection_with_mutation`] for a terminal
+    /// just created as `surface` in the workspace whose key is
+    /// `workspace_key`: only the workspace
+    /// the surface is in now (a concurrent move can bind it elsewhere) and
+    /// the requested one are projected, as
+    /// [`Self::created_view_projection_locked`] does for an effect commit, so
+    /// the commit and its journal record do not grow with the session. When
+    /// the surface is in no workspace, the projection is full. Each keyed
+    /// `create-terminal` restated every live resource, about 1500 upserts and
+    /// 650 KB on the session stream per create at 290 workspaces in the
+    /// classic import.
+    #[track_caller]
+    pub(crate) fn commit_created_terminal_projection_with_mutation(
+        &self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        workspace_key: &str,
+        surface: Option<SurfaceId>,
+        result: Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        self.commit_resource_mutation_plan(
+            mutation,
+            operation,
+            fingerprint,
+            None,
+            None,
+            |state, registry| {
+                let placed = surface
+                    .and_then(|surface| state.pane_of(surface))
+                    .and_then(|pane| state.screen_of(pane))
+                    .and_then(|(workspace, _)| state.workspaces.get(workspace))
+                    .map(|workspace| workspace.public_id.clone());
+                let scope = placed.map(|placed| {
+                    let requested = state
+                        .workspace_by_key(workspace_key)
+                        .map(|workspace| workspace.public_id.clone())
+                        .filter(|requested| *requested != placed);
+                    std::iter::once(placed).chain(requested).collect::<Vec<_>>()
+                });
+                let projection = match scope {
+                    Some(scope) => self.resource_effect_projection_scoped_locked(
+                        registry, state, &scope, result,
+                    )?,
+                    None => self.resource_effect_projection_locked(registry, state, result)?,
+                };
+                Ok(projection_plan(projection))
+            },
+        )
+    }
+
+    /// Records why a resource effect's outcome is unknown. A
+    /// `mutation.indeterminate` response carries no cause, so this log line is
+    /// the only evidence of it. `cause` must not hold raw transport text that
+    /// can name private sockets or credentials.
+    pub(crate) fn report_resource_effect_indeterminate(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        cause: &str,
+    ) {
+        self.report_internal_diagnostic(format!(
+            "resource effect {operation} (idempotency key {idempotency_key}) is indeterminate: {cause}"
+        ));
     }
 
     #[track_caller]
@@ -388,4 +521,30 @@ impl Mux {
             .terminal_record(&host_id)?
             .is_some_and(|terminal| terminal.lifecycle != TerminalLifecycle::Tombstoned))
     }
+}
+
+/// The plan that commits `projection`: its commit drops the upserts the
+/// journal already states (a scoped walk still restates every workspace's
+/// row), a full projection's, unpruned, may seed the public fold, and the
+/// workspaces that a scoped walk stated again are marked whole in it.
+pub(super) fn projection_plan(projection: ResourceEffectProjection) -> ResourceMutationPlan {
+    ResourceMutationPlan::new(projection.patch, projection.result, projection.changes, |_| {})
+        .projected(projection.restates_all)
+        .restating(projection.restated)
+}
+
+/// [`projection_plan`] for the projection of a copy of the state (`projected`): the commit puts
+/// the copy in the place of the live state.
+pub(super) fn replacing_projection_plan(
+    projection: ResourceEffectProjection,
+    projected: State,
+) -> ResourceMutationPlan {
+    ResourceMutationPlan::replacing(
+        projection.patch,
+        projection.result,
+        projection.changes,
+        projected,
+    )
+    .projected(projection.restates_all)
+    .restating(projection.restated)
 }

@@ -1,5 +1,5 @@
 // Native chrome sends intents; the page keeps the same width, folds and section order as the web panel.
-import { DEFAULT_ORDER, setSectionOrder } from "../sectionOrder";
+import { DEFAULT_ORDER, moveTo, setSectionOrder } from "../sectionOrder";
 import {
   SESSION_INFO_WIDTH,
   setSessionInfoOpen,
@@ -37,8 +37,8 @@ export function panelAction(id: string, sections: readonly NativeInfoSection[] =
   const before = move[2]!;
   if (!shown.includes(from) || (before !== "end" && !shown.includes(before as SessionInfoSectionId))) return false;
   if (from === before) return true;
-  const next = shown.filter((section) => section !== from);
-  next.splice(before === "end" ? next.length : next.indexOf(before as SessionInfoSectionId), 0, from);
-  setSectionOrder(next);
+  // As a drag: the pinned head never moves, and nothing lands above it (sectionOrder.ts moveTo).
+  const rest = shown.filter((section) => section !== from);
+  setSectionOrder(moveTo(shown, from, before === "end" ? rest.length : rest.indexOf(before as SessionInfoSectionId)));
   return true;
 }

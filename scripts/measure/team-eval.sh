@@ -151,7 +151,7 @@ curl -fsS -m 10 -o /dev/null "$base_url/_subrouter/ready" || { echo "TEAM-EVAL t
 depth=()
 [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
 for sha in "$base" "$reference"; do
-  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch -q ${depth[@]+"${depth[@]}"} origin "$sha"
+  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch -q ${depth[@]+"${depth[@]}"} origin "$sha" 2>/dev/null || git fetch -q ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$sha"
 done
 
 export CI=1

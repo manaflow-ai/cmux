@@ -20,10 +20,19 @@ public nonisolated struct AgentPaneOpenTab: Equatable, Sendable {
     /// Browser: the profile the page's Open in Profile… or Open in New Profile row named; nil opens
     /// in the profile a new tab of the workspace gets.
     public var profile: AgentPaneOpenTabProfile?
+    /// The page's New terminal and New browser tab buttons: the new tab takes the page's place in its
+    /// pane, never the pane on the right or a new split (`newTab.picksFollowLinks` is for picks).
+    public var inPlace: Bool
+    /// Browser: the person asked for a new tab (Option-Return or a modified row click, as in Chrome's
+    /// omnibox), so the address opens where links go and the page stays. Without it a browser pick is a
+    /// navigation: it takes the page's tab (``navigatesInPlace``).
+    public var beside: Bool
 
     public init(kind: AgentPaneTabKind, text: String, cwd: String? = nil, search: Bool = false, run: Bool = true, keep: Bool = false,
-                profile: AgentPaneOpenTabProfile? = nil) {
+                profile: AgentPaneOpenTabProfile? = nil, inPlace: Bool = false, beside: Bool = false) {
         self.profile = profile
+        self.inPlace = inPlace
+        self.beside = beside
         self.kind = kind
         self.text = text
         self.cwd = cwd
@@ -31,4 +40,10 @@ public nonisolated struct AgentPaneOpenTab: Equatable, Sendable {
         self.run = run
         self.keep = keep
     }
+
+    /// Whether this open navigates the page's own tab: a browser pick (a typed address, a web search, a
+    /// visited page, a profile pick) that asked for no new tab, as Return in a browser's new tab loads there
+    /// (Lawrence 2026-11-11: "we should instead just open it as replacement of current page, so a
+    /// navigation"). `newTab.picksFollowLinks` still sends terminals and chats where links go.
+    public var navigatesInPlace: Bool { kind == .browser && !beside && !keep }
 }

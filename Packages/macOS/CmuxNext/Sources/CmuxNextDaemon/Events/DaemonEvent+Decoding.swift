@@ -54,8 +54,10 @@ extension DaemonEvent {
                 let layout = e.hasLayout ? try? d(ScreenLayoutDelta.self) : nil
                 return .layoutChanged(screen: e.screen, layout: layout, transaction: e.clientTransactionID)
             case "title-changed":
+                // `text` and `activity` are the daemon's split (D2); a daemon from before them sends the raw title only.
                 let e = try d(EventPayload.TitleChanged.self)
-                return .titleChanged(surface: e.surface, title: e.title ?? "")
+                return .titleChanged(surface: e.surface, title: e.text ?? e.title ?? "",
+                                     activity: e.activity.flatMap(TerminalTitle.Activity.init(rawValue:)))
             case "surface-resized":
                 let e = try d(EventPayload.SurfaceResized.self)
                 return .surfaceResized(surface: e.surface, size: CellSize(cols: e.cols, rows: e.rows))
@@ -169,6 +171,8 @@ private enum EventPayload {
     struct TitleChanged: Decodable {
         var surface: SurfaceID
         var title: String?
+        var text: String?
+        var activity: String?
     }
 
     struct SurfaceResized: Decodable {

@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextSettings
 import CmuxNextFocus
+import CmuxNextNotifications
 
 /// Tab lookups, the dock badge and the pane attention marks.
 extension NotificationCenterService {
@@ -178,10 +179,12 @@ extension NotificationCenterService {
         for screen in workspace.screens {
             for pane in screen.panes {
                 guard let id = shownTab(pane) ?? self.shownTab(of: pane), let shown = pane.tabs.first(where: { $0.id == id }) else { continue }
-                // An agent chat whose turn ended rings until the person goes into it, only with
-                // the opt-in agent chat ring (`notifications.attention.agentChats`).
-                let agentChat = shown.agentSession != nil
-                let agentChatLook = agentChat && attention.rings(agentChat: true)
+                // A viewed tab reads its notifications at once, so a ring only blinked (a mark or needs-you stays).
+                if shown.hasUnread, !shown.markedUnread, shown.attention == nil, NotificationPolicy(prefs: preferences).clears(.focus, for: source(of: shown)), isViewed(shown.id) { continue }
+                // A chat that is thinking, on any machine, rings nothing (Leo, 2026-11-06). One whose turn ended rings
+                // until the person goes into it, only with the opt-in agent chat ring (`notifications.attention.agentChats`).
+                if let chat = shown.agentSession, AgentTurnStateStore.shared.isWorking(chat, isChatMachine: { self.services?.machines.machineID(peer: $0) == key.machine }) { continue }
+                let agentChatLook = shown.agentSession != nil && attention.rings(agentChat: true)
                 if agentChatLook, key.machine == MachineRegistry.localID, let finished = agentFinished[shown.id] {
                     marks[LayoutPaneID(pane.id)] = AttentionMark(color: preferences.sources[.agent]?.color, generation: finished,
                                                                  agentChat: true, quiet: quietAgentFinishes.contains(shown.id))
@@ -216,8 +219,7 @@ extension NotificationCenterService {
         }
         // An agent's "needs you here" mark (tab-attention-v1) rings until Dismiss Highlight hides
         // that request; a different owner-issued request rings again.
-        guard tab.attention != nil,
-              tab.attentionRingHiddenThrough.map({ $0 != tab.attentionGeneration }) ?? true else { return nil }
+        guard tab.attention != nil, !ringHides.isHidden(tab, owner: highlightKey(for: tab)) else { return nil }
         return Self.markRingBase | Self.attentionRingBase | (tab.attentionGeneration & ~(Self.markRingBase | Self.attentionRingBase))
     }
 
@@ -258,6 +260,8 @@ extension NotificationCenterService {
                             session: daemon?.identity?.session, id: workspace.id)
     }
 
+    func hideAttentionRing(of tab: TabModel) { ringHides.hide(tab, owner: highlightKey(for: tab)) }
+
     private func highlightKey(for tab: TabModel) -> HighlightKey {
         let daemon = services?.machines.daemon(forTab: tab)
         return HighlightKey(machine: daemon?.machineID ?? MachineRegistry.localID,
@@ -281,7 +285,7 @@ extension NotificationCenterService {
         for tab in tabs where tab.markedUnread {
             dismissedMarks[highlightKey(for: tab)] = tab.markedUnreadGeneration
         }
-        for tab in tabs where tab.attention != nil { tab.attentionRingHiddenThrough = tab.attentionGeneration }
+        for tab in tabs where tab.attention != nil { hideAttentionRing(of: tab) }
         guard newest > (dismissedHighlights[key] ?? 0) else { return }
         dismissedHighlights[key] = newest
         note("highlight dismissed workspace=\(workspace.id) through=\(newest)")

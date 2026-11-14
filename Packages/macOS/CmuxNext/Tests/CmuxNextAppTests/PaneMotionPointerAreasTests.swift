@@ -14,7 +14,7 @@ import Testing
 /// closing-mode watch, the strip scrollbar) made AppKit invalidate its cursor rects when its pane moved, walk the
 /// window's views for cursor rects and rebuild the window's structural regions in the display cycle: the drag margins
 /// with a constraint walk of the window's minimum size, and every tracking area. About 2.1-2.4 ms of each median
-/// keys-held STRESS frame with motion.frameOwner.terminals on (Time Profiler of job b6c9633c, 120 Hz). The divider
+/// keys-held STRESS frame with every terminal frame owned by its window's commit (Time Profiler of job b6c9633c, 120 Hz). The divider
 /// handles already take their cursor and hover from the screen's one tracking area (DividerCursorNoRegionRebuildTests);
 /// a moving pane must cost AppKit none of this either.
 ///
@@ -120,12 +120,12 @@ struct PaneMotionPointerAreasTests {
         return window
     }
 
-    @Test(arguments: [false, true])
-    func aKeyResizeSpringCostsAppKitNoPointerAreaWork(ownFrames: Bool) throws {
+    /// Every terminal's frames go through its window's commit (cmux-ad m19 deleted `motion.frameOwner.terminals` and its
+    /// off arm): one run.
+    @Test
+    func aKeyResizeSpringCostsAppKitNoPointerAreaWork() throws {
         let rig = PaneGroundCoversPaneTests.Rig(Self.grid, focused: "p2")
         defer { rig.close() }
-        defer { PaneGroundCoversPaneTests.releaseFrames() }
-        try #require(PaneGroundCoversPaneTests.ownFrames(ownFrames), "motion.frameOwner.terminals did not take \(ownFrames)")
         let window = Self.shellWindow(rig)
         defer { window.closeAfterTest() }
         window.orderFrontRegardless()
@@ -149,7 +149,7 @@ struct PaneMotionPointerAreasTests {
         rig.commit()
         window.displayIfNeeded()
         CATransaction.flush()
-        print("HPA-COUNT case=pane-motion-pointer-areas own_frames=\(ownFrames) frames=\(frames) motion: \(inMotion) with landing: \(Spy.line)")
+        print("HPA-COUNT case=pane-motion-pointer-areas own_frames=true frames=\(frames) motion: \(inMotion) with landing: \(Spy.line)")
         try #require(frames > 3, "the press did not spring (\(frames) frames)")
         #expect(Spy.invalidations.isEmpty, "\(frames) key-resize frames made AppKit invalidate cursor rects: \(inMotion)")
         #expect(Spy.areasAdded.isEmpty, "\(frames) key-resize frames re-added tracking areas: \(inMotion)")

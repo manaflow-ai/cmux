@@ -15,8 +15,9 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { sendEntries, toolGroups } from "./toolGroups";
 import { ToolRows } from "./TurnRows";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { turnView } from "./turns";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -35,7 +36,7 @@ function installDom(): HTMLElement {
     "localStorage",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
-    saved.set(key, scope[key]);
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -53,6 +54,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   resetTranscriptDisclosure();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -160,12 +162,12 @@ test("the group draws closed as one line: Sent 8 messages, the other command onc
   expect(head.querySelector(".cv-message-group__count")?.textContent).toBe("Sent 8 messages · and 1 more command");
   expect(head.querySelector(".cv-message-group__senders")?.textContent).toBe(LANES.join(", "));
   // Closed, no message row draws.
-  expect(host.querySelectorAll(".cv-sent")).toHaveLength(0);
+  expect(host.querySelectorAll(".cv-sent-msg")).toHaveLength(0);
   expect(host.textContent?.match(/more command/g)).toHaveLength(1);
 
   await act(async () => head.click());
   expect(head.getAttribute("aria-expanded")).toBe("true");
-  const rows = [...host.querySelectorAll<HTMLElement>(".cv-sent-group__body .cv-sent")];
+  const rows = [...host.querySelectorAll<HTMLElement>(".cv-sent-group__body .cv-sent-msg")];
   expect(rows).toHaveLength(8);
   expect(rows.map((row) => row.querySelector(".cv-recipient")?.textContent)).toEqual(LANES);
   // The group's line said it: no message repeats "and 1 more command".
@@ -180,7 +182,7 @@ test("a lone send with other commands still names them on its own row, with no C
   const host = await render(
     <ToolRows row={activity([call("git push -q && acpmux send --no-wait lane 'Pushed.'", { output: "queued" })])} />,
   );
-  const row = host.querySelector<HTMLElement>(".cv-sent")!;
+  const row = host.querySelector<HTMLElement>(".cv-sent-msg")!;
   expect(row.textContent).toContain("and 1 more command");
   expect(host.querySelector(".cv-sent-group")).toBeNull();
   expect(host.querySelector('button[aria-label="Copy"]')).toBeNull();
@@ -193,9 +195,11 @@ test("a finished Claude turn of the loop draws the group's line, not 8 rows", ()
     { id: "answer", version: 1, at: 3, kind: "assistant", text: "Told all eight." },
     { id: "summary", version: 1, at: 4, kind: "turnSummary", status: "completed" },
   ];
-  // Claude's finished turn has no whole-turn "Worked for" by default (turnFoldStyle.ts): its run
-  // draws in place, and that run is the one line.
-  const view = turnView(rows, new Set(), { liveRuns: true, agentFamily: "claude" });
+  // Claude's in-place arm (claudeTurnFold.experiment.ts; the default folds the turn under "Worked
+  // for"): its run draws in place, and that run is the one line.
+  globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
+  const view = turnView(rows, new Set(), { agentFamily: "claude" });
+  delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
   expect(view.some((row) => row.kind === "worked")).toBe(false);
   const run = view.find((row) => row.id === "run")!;
   expect(run).toBeDefined();

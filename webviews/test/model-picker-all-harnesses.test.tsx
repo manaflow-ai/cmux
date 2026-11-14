@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -76,11 +77,7 @@ afterEach(() => {
 afterAll(async () => {
   // A checkbox indicator's last update lands a task after the final test: let it run on this window.
   await settle();
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
@@ -101,7 +98,7 @@ const pi = { id: "pi", name: "Pi", models: [], pickable: false, notInstalled: tr
 
 describe("harnesses this machine does not have", () => {
   test("the picker's face stays on an installed harness", async () => {
-    const { pickerFaceHarness } = await import("../src/agent-session/acpmux/ModelPicker");
+    const { pickerFaceHarness } = await import("../src/agent-session/acpmux/modelPickerModel");
     expect(pickerFaceHarness([gemini, pi, claude])).toBe("claude");
     expect(pickerFaceHarness([gemini, pi])).toBeUndefined();
   });
@@ -125,6 +122,54 @@ describe("harnesses this machine does not have", () => {
       ["claude", true, undefined],
       ["pi", false, true],
     ]);
+  });
+
+  test("the full picker lists uninstalled catalog models as disabled beside Install…", async () => {
+    const { createRoot } = await import("react-dom/client");
+    const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+    const picked: string[] = [];
+    let added = 0;
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <ModelPicker
+          catalog={[gemini, claude, pi]}
+          harness="claude"
+          model="opus"
+          label="Opus 5.5"
+          efforts={[]}
+          recents={[]}
+          onLand={(id) => picked.push(id)}
+          onCombo={(combo) => picked.push(combo.model)}
+          onHarness={(id) => picked.push(id)}
+          onEffort={() => {}}
+          onAddAgent={() => added++}
+        />,
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-picker-button")!.click());
+    await settle();
+    const doc = dom.window.document;
+    const geminiTab = [...doc.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].find(
+      (tab) => tab.textContent?.trim() === "Gemini CLI",
+    )!;
+    expect(geminiTab).not.toBeUndefined();
+    await act(async () => geminiTab.click());
+    await settle();
+    const row = [...doc.querySelectorAll<HTMLButtonElement>('.acpmux-mp-models [role="option"]')].find((item) =>
+      item.textContent?.includes("Gemini 3.1 Pro"),
+    )!;
+    expect(row).not.toBeUndefined();
+    expect(row.disabled).toBe(true);
+    expect(row.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => row.click());
+    expect(picked).toEqual([]);
+    const install = [...doc.querySelectorAll<HTMLButtonElement>(".acpmux-mp-models button")].find(
+      (item) => item.textContent?.trim() === "Install…",
+    )!;
+    expect(install).not.toBeUndefined();
+    await act(async () => install.click());
+    expect(added).toBe(1);
   });
 
   test("the compact menu lists them with their models and an Install… row", async () => {

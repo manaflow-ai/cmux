@@ -14,8 +14,12 @@ extension SidebarListViewComponents {
         if inlineRename.isActive { inlineRename.end(commit: true) }
         // A click in the list closes the group editor, like a click outside it.
         if groupEditor.isVisible { groupEditor.hide() }
-        window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
+        // The list takes the keyboard, except from another window (a Chromium page of this one) for a press that shows
+        // another workspace: the switch gives the keyboard to that workspace's content in this turn, and the list as
+        // first responder made the focus model take the key back from the page first, a change of the key window and
+        // its layout and draw in the switch's frame (`keepsKey(for:on:)`).
+        if window?.isKeyWindow == true || !showsAnotherWorkspace(event, on: clickHit(at: point)?.key) { window?.makeFirstResponder(self) }
         let hit = clickHit(at: point)
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         // A double-click on a group's name renames it in place; its first click's fold never ran, so no row moves.
@@ -45,30 +49,32 @@ extension SidebarListViewComponents {
         }
         switch row.key {
         case let .workspace(id):
-            // A control-click is a right-click: its menu (`menu(for:)`) neither selects nor switches.
-            guard !model.isPlaceholder(id), !flags.contains(.control) else {
-                self.press = nil
+            let (oldItem, oldSelection) = (model.selectedItem, model.selection)
+            switch workspacePress(id, flags: flags, clicks: event.clickCount) {
+            case .nothing:
+                // A control-click is a right-click: its menu (`menu(for:)`) neither selects nor switches.
+                // A row still being created selects nothing (the daemon has no workspace yet), but a press on it can
+                // still become a drag: Leo 2026-11-06, "I can no longer drag them, or I can only drag them after a
+                // super long time". Its drop is the create's slot (`SidebarBridge`, `reslotCreates`).
+                self.press = model.isCreating(id) && !flags.contains(.control) && event.clickCount == 1 ? press : nil
                 return
-            }
-            if event.clickCount == 2, flags.isEmpty {
+            case .renames:
                 self.press = nil
                 inlineRename.begin(row.key)
                 return
-            }
-            let (oldItem, oldSelection) = (model.selectedItem, model.selection)
-            if modifierSelect(id, flags: flags) {
+            case .selects:
                 // Shift: the drawn range, pinned tiles too; Cmd: toggle; Cmd-Shift: add the range.
-            } else if model.selection.contains(id), model.selection.count > 1 {
+                _ = modifierSelect(id, flags: flags)
+            case .holdsSelection:
                 // Keep the multi-selection so it can be dragged; collapse it
                 // on mouse-up if no drag happens.
                 press.deferredClick = id
-            } else if SidebarTunables.multiViewOn {
+            case .showsOnRelease:
                 // The multi-view prototype (#23437): a press selects nothing; the release on this row navigates.
                 press.clickOnRelease = id
-            } else {
+            case .shows:
                 // A click switches at once, on the press (Lawrence 2026-10-21: a switch on the release read as lag).
-                // Leo 2026-10-21 ("MOUSE DOWN DRAGGING ... SHOULDN'T BE IMMEDIATELY FOCUSING"): if the press becomes
-                // a drag, `beginDrag` puts the shown workspace and the selection back.
+                // A press that becomes a drag keeps this switch, as Chrome and Edge do (Leo 2026-11-08, `beginDrag`).
                 press.switchedOnPress = (model.activeWorkspaceID, model.selection)
                 model.click(id)
             }
@@ -90,7 +96,7 @@ extension SidebarListViewComponents {
             // Keyboard focus moves to the clicked disclosure (no ring), so a ring left on another one cannot take
             // the next Space or Return; the release toggles it.
             SidebarGroupKeys(list: self).focusFold(row.key, ring: false)
-        case .section, .emptySection, .emptyGroup, .folder, .block, .status:
+        case .section, .emptySection, .emptyGroup, .folder, .block, .status, .listHeader:
             break
         }
         self.press = press
@@ -170,7 +176,7 @@ extension SidebarListViewComponents {
             // The group's empty row makes a workspace in it, as the header's + does; the new row lays the list out.
             onGroupEditorItem?(group, "workspaceGroup.newWorkspace")
             return syncRowStates()
-        case .emptySection, .folder, .block:
+        case .emptySection, .folder, .block, .listHeader:
             break
         }
         reload(animated: true)

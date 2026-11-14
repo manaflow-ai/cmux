@@ -51,6 +51,8 @@ import {
   devboxSourceDigest,
   devboxSourceManifest,
   devboxTeamKindDefaultCommand,
+  devboxClaudeTeamOnboardingCheckCommand,
+  devboxWorkUserCmuxConfigDirCommand,
   normalizedBakeScript,
   normalizedDockerfileInstructions,
   rewriteDevboxAgentPins,
@@ -603,6 +605,18 @@ describe("devbox image template", () => {
     expect(readScript("build-devbox-freestyle.ts")).toContain("blesh-cache-seed");
   });
 
+  test("publishes each ble.sh cache seed atomically", () => {
+    // Shells that start at once must never read a half-copied seed: copy into a
+    // same-directory temp file, then rename it into place (#11348).
+    expect(bashrc).toContain('__cmux_tmp="$(mktemp "${__cmux_dst}.tmp.XXXXXX" 2>/dev/null)"');
+    expect(bashrc).toContain('cp "$__cmux_seed" "$__cmux_tmp"');
+    expect(bashrc).toContain('mv -f "$__cmux_tmp" "$__cmux_dst"');
+    expect(bashrc).not.toContain('cp "$__cmux_seed" "$__cmux_dst"');
+    // A failed attempt removes only the temp file it made, never a stale value.
+    expect(bashrc.indexOf("      __cmux_tmp=\n")).toBeGreaterThan(-1);
+    expect(bashrc.indexOf("      __cmux_tmp=\n")).toBeLessThan(bashrc.indexOf('if mkdir -p "${__cmux_dst%/*}"'));
+  });
+
   test("the Dockerfile is the Ubuntu 24.04 recipe the Freestyle bake replays, desktop included", () => {
     // freestyle/ubuntu is Ubuntu 24.04; the reference recipe builds on the
     // same distro so its package names, the Ghostty .deb and the desktop
@@ -779,7 +793,9 @@ test "$daemon_pid" = fixture
     const workUser = readFileSync(path.join(import.meta.dirname, "../services/vms/images/workUser.ts"), "utf8");
     expect(workUser).toContain("91-cmux-work-user");
     expect(workUser).toContain("NOPASSWD:ALL");
-    expect(readScript("upgrade-fleet-cmux-tui.ts")).toContain("cmuxTuiServiceInstallCommand");
+    // An in-place upgrade installs the service too, through its install script.
+    expect(readScript("upgrade-fleet-cmux-tui.ts")).toContain("cmuxTuiUpgradeInstallScript");
+    expect(readFileSync(path.join(import.meta.dirname, "../services/vms/drivers/cmuxTuiUpgradeInstall.ts"), "utf8")).toContain("cmuxTuiServiceInstallCommand()");
   });
 
   test("the cmux-tui units never give up after repeated failed starts", () => {
@@ -1171,6 +1187,75 @@ test "$daemon_pid" = fixture
     for (const name of ordered) expect(steps.filter((step) => step === name)).toHaveLength(1);
     for (let i = 1; i < ordered.length; i++) {
       expect(steps.indexOf(ordered[i - 1])).toBeLessThan(steps.indexOf(ordered[i]));
+    }
+  });
+
+  // Rebake 43439441654: the work user's ~/.config/cmux did not exist until the
+  // claude-onboarding seed made it, after the model-plane env; acpmux watched
+  // ~/.config for that folder (on the way to its harness sources), reloaded its
+  // catalog, and the live model probe started Claude in team mode on the fresh
+  // seed, which Claude rewrote without `theme`. The verify after the snapshot
+  // caught it; the bake now makes the folder before the daemon starts and
+  // checks the seed itself before the snapshot.
+  test("the bake makes the work user's cmux config folder before acpmux starts and checks the Claude team seed before the snapshot", () => {
+    const bake = readScript("build-devbox-freestyle.ts");
+    const steps = [...bake.matchAll(/await step\(\s*"([^"]+)"/g)].map((match) => match[1]);
+    expect(steps.filter((step) => step === "cmux-config-dir")).toHaveLength(1);
+    expect(steps.indexOf("cmux-config-dir")).toBeLessThan(steps.indexOf("acpmux-service"));
+    expect(steps.indexOf("acpmux-service")).toBeLessThan(steps.indexOf("claude-onboarding"));
+    expect(bake).toContain('await step("cmux-config-dir", devboxWorkUserCmuxConfigDirCommand());');
+    expect(devboxWorkUserCmuxConfigDirCommand()).toContain(`sudo -n -u ${DEVBOX_WORK_USER} mkdir -p ${DEVBOX_WORK_HOME}/.config/cmux`);
+    expect(bake).toContain(
+      'await step("settle-before-snapshot", `${devboxSettleBeforeSnapshotCommand()} && ${devboxClaudeTeamOnboardingCheckCommand()}`);',
+    );
+    expect(readScript("verify-devbox-image.ts")).toContain("  devboxClaudeTeamOnboardingCheckCommand(),");
+  });
+
+  test("the Claude team seed check passes on the seed and fails on the config a Claude start rewrote", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-claude-team-seed-"));
+    try {
+      const homes = [path.join(root, "root"), path.join(root, "work")];
+      const configs = homes.map((home) => path.join(home, ".config/cmux/claude-team/.claude.json"));
+      const seeded = await runChild("python3", ["-I", path.join(templateDir, "claude-onboarding.py"), ...configs], {
+        env: { ...process.env, ANTHROPIC_API_KEY: "cmux-vm-edge-placeholder" },
+      });
+      expect(seeded.status).toBe(0);
+      const check = devboxClaudeTeamOnboardingCheckCommand(homes);
+      const fresh = await runChild("/bin/sh", ["-c", check]);
+      expect(fresh.stdout).toContain("claude-team-onboarding-ok");
+      expect(fresh.status).toBe(0);
+      // The work user's file as the failing verify read it: Claude kept the
+      // seed's other keys and dropped `theme` (its default) when it wrote.
+      writeFileSync(
+        configs[1],
+        JSON.stringify({
+          customApiKeyResponses: { approved: ["-vm-edge-placeholder"], rejected: [] },
+          hasCompletedOnboarding: true,
+          projects: { "/": { hasTrustDialogAccepted: true } },
+          firstStartTime: "2026-11-13T14:19:03.206Z",
+          firstStartVersion: "2.1.299",
+          migrationVersion: 14,
+        }),
+        { mode: 0o600 },
+      );
+      const rewritten = await runChild("/bin/sh", ["-c", check]);
+      expect(rewritten.status).not.toBe(0);
+      expect(rewritten.stdout).not.toContain("claude-team-onboarding-ok");
+      // A start that kept `theme` still leaves per-install ids every clone would share.
+      writeFileSync(
+        configs[1],
+        JSON.stringify({
+          customApiKeyResponses: { approved: ["-vm-edge-placeholder"], rejected: [] },
+          hasCompletedOnboarding: true,
+          theme: "dark",
+          projects: { "/": { hasTrustDialogAccepted: true } },
+          firstStartTime: "2026-11-13T14:19:03.206Z",
+        }),
+        { mode: 0o600 },
+      );
+      expect((await runChild("/bin/sh", ["-c", check])).status).not.toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

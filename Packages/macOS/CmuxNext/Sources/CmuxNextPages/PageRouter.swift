@@ -1,5 +1,6 @@
 public import CmuxNextSettings
 public import Foundation
+import os
 
 /// The host half of a page's bridge, engine neutral: it reads pane-protocol envelopes
 /// (plans/cmux-next/pane-protocol.md "Wire") from the page, checks them against the page's
@@ -32,10 +33,10 @@ public final class PageRouter {
     /// Page calls still running, by page call id: cancelled by the page's `cancel` envelope, by
     /// navigation (`reset`) and by tab close (`close`) (app-op-routing.md "Op cancel").
     private var inFlight: [UInt64: PageCallInFlight] = [:]
-    private var closed = false
+    private(set) var closed = false
     /// Built-in streams every page gets (``PageNativeOp/pageCommand``, ``PageNativeOp/pageConnection``):
     /// subscription id to stream name.
-    private var builtIn: [UInt64: String] = [:]
+    private(set) var builtIn: [UInt64: String] = [:]
     /// The owner link state the connection stream reports.
     public private(set) var connected = true
 
@@ -101,7 +102,7 @@ public final class PageRouter {
             } catch let error as PageError {
                 return Self.error(id: id, error)
             } catch {
-                return Self.error(id: id, PageError(code: "cmux.page.failed", message: String(describing: error)))
+                return Self.error(id: id, failure(error, in: op))
             }
         case "sub":
             guard let stream = message["stream"]?.stringValue else { return Self.error(id: id, .invalidParams("missing stream")) }
@@ -111,7 +112,7 @@ public final class PageRouter {
             } catch let error as PageError {
                 return Self.error(id: id, error)
             } catch {
-                return Self.error(id: id, PageError(code: "cmux.page.failed", message: String(describing: error)))
+                return Self.error(id: id, failure(error, in: stream))
             }
         case "cancel":
             // A cancel of an unknown or finished id is a no-op; it gets no reply.
@@ -134,6 +135,15 @@ public final class PageRouter {
 
     /// The window's title bar action (DESKTOP-FEEL): a double-click on a title bar the page draws.
     public var titleBarDoubleClick: (@MainActor () -> Void)?
+    /// Go Back (true) or Go Forward (false) for the page's swipe gesture `g` (`cmux.app.history.navigate`);
+    /// true when it ran.
+    public var historyNavigate: (@MainActor (_ back: Bool, _ gesture: Int) -> Bool)?
+    /// The page is done with forwarded swipe gesture `g` (`cmux.app.swipe.release`): stop sending it.
+    public var swipeRelease: (@MainActor (Int) -> Void)?
+
+    /// The page's heartbeat (``PageNativeOp/pageHeartbeat``) with its handled-input count and whether
+    /// it holds unsaved edits: the page view feeds app health. Nil (tests, a view not wired) still answers the beat.
+    public var heartbeat: (@MainActor (_ handled: UInt64, _ edits: Bool) -> Void)?
 
     /// A popup op (`cmux.app.popup.*`, cx-6k6cg) with its params: the page view's WebPopupHost.
     public var popup: (@MainActor (String, [String: Any]) -> JSONValue)?
@@ -143,11 +153,7 @@ public final class PageRouter {
     public var contextMenu: (@MainActor ([String: Any]) async -> JSONValue)?
 
     private func call(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
-        if op == PageNativeOp.titleBarDoubleClick {
-            guard !closed else { throw PageError.closed }
-            titleBarDoubleClick?()
-            return .object([:])
-        }
+        if let reply = try hostCall(op, params: params) { return reply }
         if op == PageNativeOp.popupShow || op == PageNativeOp.popupUpdate || op == PageNativeOp.popupHide {
             guard !closed else { throw PageError.closed }
             guard case .object = params, let fields = params.foundationObject as? [String: Any] else {
@@ -180,7 +186,7 @@ public final class PageRouter {
     }
 
     private func subscribe(_ stream: String, filter: JSONValue) async throws -> UInt64 {
-        if stream == PageNativeOp.pageCommand || stream == PageNativeOp.pageConnection || stream == PageNativeOp.pagePopup {
+        if PageNativeOp.builtInStreams.contains(stream) {
             guard !closed else { throw PageError.closed }
             let sub = nextSubscription
             nextSubscription += 1
@@ -251,7 +257,7 @@ public final class PageRouter {
         return (route.provider, params)
     }
 
-    private func deliver(sub: UInt64, _ data: JSONValue, publicationID: UInt64? = nil) {
+    func deliver(sub: UInt64, _ data: JSONValue, publicationID: UInt64? = nil) {
         guard subscriptions[sub] != nil || builtIn[sub] != nil || activeStreams.contains(sub) else { return }
         let seq = (sequences[sub] ?? 0) + 1
         sequences[sub] = seq
@@ -361,6 +367,15 @@ public final class PageRouter {
             ["id": .number(Double(id)), "op": .string(call.op), "age_ms": .number(((now - call.started) * 1000).rounded())]
         }
     }
+
+    /// A provider's failure that is not a ``PageError``: logged with its Debug text, answered with
+    /// the fixed message (``PageError/failed(_:code:retryable:)``).
+    private func failure(_ error: any Error, in name: String) -> PageError {
+        Self.logger.error("page \(self.descriptor.id, privacy: .public) \(name, privacy: .public) failed: \(String(describing: error))")
+        return .failed(error)
+    }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
 
     static func error(id: UInt64, _ error: PageError) -> JSONValue {
         var envelope: [String: JSONValue] = [

@@ -78,11 +78,6 @@ fn span(d: std::time::Duration) -> String {
     }
 }
 
-/// A subagent run shorter than this, that left nothing to land, is a short
-/// task: its workspace closes when it finishes (`mark_workspace`). Oct 20-27
-/// on Lawrence's Chief: 42% of runs were under 30 minutes, the median 48.
-pub const SHORT_TASK: std::time::Duration = std::time::Duration::from_secs(30 * 60);
-
 impl Brain {
     /// Where a spawn's subagents run: `place` (`cloud`/`local`), else the
     /// saved `control cloud` default, else the env's peer; None: here.
@@ -837,10 +832,14 @@ impl Brain {
         session_id: String,
         policy: Option<String>,
         harness: Option<String>,
+        made: Option<crate::action_lifetime::Made>,
     ) {
         if let Some(sub) = self.state.sub_mut(id) {
             sub.session_id = Some(session_id);
             sub.policy = policy;
+            if made.is_some() {
+                sub.made = made;
+            }
             if harness.is_some() {
                 sub.harness = harness;
             }
@@ -948,7 +947,7 @@ impl Brain {
     }
 
     /// Workspace `key` is gone (opening it failed at spawn or on `control
-    /// show`, or a short task's idle close closed it): it is hidden, and the next `show` opens under a fresh key (a half-made
+    /// show`, or the user closed it): it has none now, and the next `show` or `hide` opens under a fresh key (a half-made
     /// workspace was closed under this one, and the daemon replays its
     /// mutations).
     pub(super) fn sub_workspace_failed(&mut self, id: &str, key: &str) {
@@ -965,7 +964,7 @@ impl Brain {
         self.rewatch_permission(id);
     }
 
-    /// `id` lost its workspace (hidden, or its open failed), or its Home card
+    /// `id` lost its workspace (the user closed it, or its open failed), or its Home card
     /// was retired: a prompt it still waits on with no Allow button left is
     /// watched again, and denied once overdue.
     pub(super) fn rewatch_permission(&mut self, id: &str) {
@@ -1749,61 +1748,41 @@ impl Brain {
     /// Under the close setting, closes a finished subagent's workspace.
     /// Its name is never changed (Lawrence 2026-10-19: "I don't like the
     /// checkmark"): the chat tab's own idle state shows that it is done, and
-    /// a name the user or the Chief gave it stays.
+    /// a name the user or the Chief gave it stays. Nothing else closes it:
+    /// a finished subagent stays where it was, in the sidebar or in the
+    /// "Chief's workspaces" group (Aziz, 2026-11-11: Chief-made agents
+    /// vanished from the sidebar).
     fn mark_workspace(&mut self, id: &str, done: bool) {
         if !done {
+            if let Some(made) = self.state.sub_mut(id).and_then(|s| s.made.as_mut()) {
+                made.expires_ms = None;
+            }
+            return;
+        }
+        if let Some(made) = self.state.sub_mut(id).and_then(|s| s.made.as_mut()) {
+            made.ended(now_ms());
+            self.save();
+        }
+        if !self.sub_close_on_finish {
             return;
         }
         let (Some(workspaces), Some((_, sub))) = (self.workspaces.clone(), self.state.sub(id))
         else {
             return;
         };
-        // Every finished one under the close setting; else a short task's
-        // (a run under SHORT_TASK whose report left nothing to land), so a
-        // sidebar does not fill with workspaces of one-off asks. Its chat
-        // stays readable (zoom).
-        let short = now_ms().saturating_sub(sub.run_ms) < SHORT_TASK.as_millis() as u64
-            && sub.run_ms > 0
-            && !sub.stopped
-            && !sub
-                .report
-                .as_deref()
-                .is_some_and(crate::sub_watch::unlanded);
-        if !(self.sub_close_on_finish || short) {
-            return;
-        }
         let Some(key) = sub.workspace.clone() else {
             return;
         };
-        // The close setting closes every finished one and forgets it; a short
-        // task closes only while none of its terminals runs a command, and its
-        // key is forgotten once that close succeeds (a kept one stays).
-        let explicit = self.sub_close_on_finish;
-        if explicit {
-            if let Some(sub) = self.state.sub_mut(id) {
-                sub.workspace = None;
-                super::control::retire_slot_key(sub);
-            }
-            self.save();
+        // The close setting closes every finished one and forgets it.
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.workspace = None;
+            super::control::retire_slot_key(sub);
         }
-        let (log, tx, id) = (self.log.clone(), self.tx.clone(), id.to_owned());
+        self.save();
+        let (log, id) = (self.log.clone(), id.to_owned());
         std::thread::spawn(move || {
-            let closed = if explicit {
-                workspaces.close(&key).map(|()| true)
-            } else {
-                workspaces.close_idle(&key)
-            };
-            match closed {
-                // A short task's key is forgotten once its workspace is gone,
-                // so a later `control show` opens a new one.
-                Ok(true) if !explicit => {
-                    let _ = tx.send(super::Input::SubagentWorkspaceFailed { id, key });
-                }
-                Ok(true) => {}
-                Ok(false) => log(&format!(
-                    "subagent {id}: its workspace stays: a terminal runs a command"
-                )),
-                Err(e) => log(&format!("subagent {id}: closing its workspace: {e}")),
+            if let Err(e) = workspaces.close(&key) {
+                log(&format!("subagent {id}: closing its workspace: {e}"));
             }
         });
     }
@@ -2802,45 +2781,87 @@ impl Brain {
                             .unwrap_or(u64::MAX),
                     )
                 })
-                .map(|(spawn, s)| crate::subagents::QueuedStart {
-                    id: s.id.clone(),
-                    spawn: spawn.clone(),
-                    launch: s.queued_launch.clone(),
-                    engine: None,
-                    extra: (!s.inbox.is_empty()).then(|| inbox_text(&s.inbox)),
-                });
-            let Some(mut queued) = next else { return };
-            queued.engine = match queued.launch.as_ref().and_then(|l| l.harness.as_deref()) {
-                Some(harness) => Some(self.engine_on(harness)),
-                None => self.spawn_engine(),
-            };
-            let id = queued.id.clone();
-            let sent = self
-                .sub_starter
-                .as_ref()
-                .is_some_and(|starter| starter.send(queued).is_ok());
-            if !sent {
-                self.sub_failed(&id, "this Chief host cannot start queued subagents");
+                .map(|(spawn, s)| (spawn.clone(), s.id.clone()));
+            let Some((spawn, id)) = next else { return };
+            if !self.start_one(&spawn, &id, "a slot is free") {
                 continue;
             }
-            let mut delivered = 0;
-            if let Some(sub) = self.state.sub_mut(&id) {
-                sub.status = SubStatus::Starting;
-                sub.run_ms = now_ms();
-                sub.queued_launch = None;
-                // Its inbox went in with its task.
-                delivered = sub.inbox.len();
-                sub.inbox.clear();
-            }
-            if delivered > 0 {
-                self.queue(
-                    format!("[{id}] got {delivered} queued message(s) from you with its task."),
-                    Source::Note,
-                );
-            }
-            self.save();
-            (self.log)(&format!("subagent {id}: a slot is free, starting it"));
         }
+    }
+
+    /// chief.stop {start: name} (Start now on a queued agent's tab in Home,
+    /// user 2026-11-07 msg 23835): queued subagent `name` starts at once,
+    /// past the live cap, the others keep their places. Answers
+    /// `{"started": bool, "note"?, "error"?}`.
+    pub(super) fn start_subagent_now(&mut self, name: &str) -> Value {
+        let found = self.state.spawns.iter().find_map(|(spawn, r)| {
+            r.subs
+                .iter()
+                .find(|s| s.id == name)
+                .map(|s| (spawn.clone(), s.status, s.cancelled))
+        });
+        let Some((spawn, status, cancelled)) = found else {
+            return json!({"started": false, "error": format!("no subagent {name}")});
+        };
+        if status != SubStatus::Queued || cancelled {
+            return json!({"started": false, "error": format!("{name} is not queued")});
+        }
+        if let Some(s) = self.state.sub_mut(name) {
+            // The person asked for it by name: a pause no longer holds it.
+            s.paused = false;
+        }
+        if !self.start_one(&spawn, name, "the user started it now") {
+            return json!({"started": false, "error": "this Chief host cannot start queued subagents"});
+        }
+        (self.log)(&format!("the owner started subagent {name} past the cap"));
+        json!({"started": true, "note": format!("Started by the user: {name}.")})
+    }
+
+    /// Starts queued subagent `id` of spawn `spawn` now (no cap check): its
+    /// launch goes to the starter, its inbox with it. False when the host
+    /// cannot start it (it failed, and says why).
+    fn start_one(&mut self, spawn: &str, id: &str, why: &str) -> bool {
+        let Some((_, s)) = self.state.sub(id) else {
+            return false;
+        };
+        let mut queued = crate::subagents::QueuedStart {
+            id: s.id.clone(),
+            spawn: spawn.to_owned(),
+            launch: s.queued_launch.clone(),
+            engine: None,
+            extra: (!s.inbox.is_empty()).then(|| inbox_text(&s.inbox)),
+        };
+        queued.engine = match queued.launch.as_ref().and_then(|l| l.harness.as_deref()) {
+            Some(harness) => Some(self.engine_on(harness)),
+            None => self.spawn_engine(),
+        };
+        let id = queued.id.clone();
+        let sent = self
+            .sub_starter
+            .as_ref()
+            .is_some_and(|starter| starter.send(queued).is_ok());
+        if !sent {
+            self.sub_failed(&id, "this Chief host cannot start queued subagents");
+            return false;
+        }
+        let mut delivered = 0;
+        if let Some(sub) = self.state.sub_mut(&id) {
+            sub.status = SubStatus::Starting;
+            sub.run_ms = now_ms();
+            sub.queued_launch = None;
+            // Its inbox went in with its task.
+            delivered = sub.inbox.len();
+            sub.inbox.clear();
+        }
+        if delivered > 0 {
+            self.queue(
+                format!("[{id}] got {delivered} queued message(s) from you with its task."),
+                Source::Note,
+            );
+        }
+        self.save();
+        (self.log)(&format!("subagent {id}: {why}, starting it"));
+        true
     }
 
     /// `text` with every mention of this Chief's subagents written as its link
@@ -3344,7 +3365,7 @@ impl Brain {
         true
     }
 
-    /// Opens hidden local subagent `id`'s workspace so its tab shows a prompt
+    /// Opens local subagent `id`'s workspace (when it has none) so its tab shows a prompt
     /// Home cannot. Nothing when this host makes no workspaces, or for a
     /// peer, an `ask` subagent or one that has a workspace already.
     fn show_for_permission(&mut self, id: &str) {

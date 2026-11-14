@@ -36,3 +36,33 @@ describe("provider-state observation schema", () => {
     expect(() => decode({ machine, state: "paused", ...invalid }, { onExcessProperty: "error" })).toThrow()
   })
 })
+
+const bind = cloudInternalOps.find((op) => op.name === "cloud.machine.bind")!
+const decodeBind = Schema.decodeUnknownSync(bind.params as Schema.Codec<unknown, unknown>)
+const bindInput = {
+  machine,
+  token_sha256: "0".repeat(64),
+  wg_public_key: `${"A".repeat(43)}=`,
+  daemon: { version: "0.40.0", capabilities: ["terminal"] },
+  keyset_version: "0123456789abcdef",
+  vm_install: `inst_${"v".repeat(20)}`,
+  now: 1
+}
+const noiseKey = Buffer.from(Uint8Array.from({ length: 32 }, (_, i) => i * 7)).toString("base64url")
+
+describe("bind schema", () => {
+  it("keeps the daemon's Noise key, and binds without one", () => {
+    expect(decodeBind({ ...bindInput, daemon_noise_key: noiseKey }, { onExcessProperty: "error" })).toEqual({ ...bindInput, daemon_noise_key: noiseKey })
+    expect(decodeBind(bindInput, { onExcessProperty: "error" })).toEqual(bindInput)
+  })
+
+  it.each([
+    noiseKey.slice(0, 42),
+    `${noiseKey}A`,
+    `${noiseKey}=`,
+    `${noiseKey.slice(0, 42)}B`,
+    Buffer.from(Uint8Array.from({ length: 32 }, (_, i) => i * 7)).toString("base64").replace(/=$/, "")
+  ])("refuses a Noise key that is not 32 bytes of canonical base64url: %s", (key) => {
+    expect(() => decodeBind({ ...bindInput, daemon_noise_key: key }, { onExcessProperty: "error" })).toThrow()
+  })
+})

@@ -46,7 +46,7 @@ struct RowMotion {
             lines.leaving.forEach { $0.removeFromSuperview() }
             return
         }
-        guard Motion.sidebar.animatesMovement else {
+        guard Motion.sidebar.animatesMovement(in: list.window) else {
             // Reduce Motion: rows take their places in one step, with no crossfade standing in
             // for the motion (DESIGN P6): no movement, and nothing a person must wait out.
             list.settleOpenings()
@@ -96,6 +96,20 @@ struct RowMotion {
         Self.fadeOut(folding)
     }
 
+    /// `view`'s opacity to `alpha` on `token`'s render-server spring from the opacity on screen: the model value at once
+    /// (AppKit keeps `alphaValue` and the layer in step; the zero-length animator group also ends a fade AppKit still
+    /// runs on the view), the spring carries what is drawn. With movement off (`Motion.sidebar`: the master switch, the
+    /// sidebar category, Reduce Motion) the row is at `alpha` in one frame.
+    private static func fade(_ view: NSView, to alpha: CGFloat, _ token: MotionSpring) {
+        // Mid-fade the presentation is on screen; otherwise the model value is, as this turn set it (a new row's 0
+        // before its first commit, where a recycled layer's presentation still shows its last row's opacity).
+        let fading = view.layer?.animation(forKey: "opacity") != nil
+        let shown = fading ? view.layer?.presentation()?.opacity ?? Float(view.alphaValue) : Float(view.alphaValue)
+        Motion.withoutAnimation { view.animator().alphaValue = alpha }
+        guard let layer = view.layer else { return }
+        Motion.sidebar.set(layer, "opacity", to: Float(alpha), spring: token, from: shown)
+    }
+
     /// Fades `views` (rows a collapse hides) out on `fadeOut`, from the opacity on screen. Their opacity is 0 at once, so
     /// the move's end recycles them as it does any closed row.
     private static func fadeOut(_ views: [SidebarRowView]) {
@@ -139,6 +153,7 @@ struct RowMotion {
         let settleAtSleep: @MainActor () -> Void = { [weak list] in
             guard !ended.isDone else { return }
             SidebarDragSpring.stop(frames.map(\.0))
+            for (view, _) in fades { view.layer?.removeAnimation(forKey: "opacity") }
             if let list {
                 list.groupLineViews.stopSprings()
                 SidebarDragSpring.stop(list.chatHistory.all)
@@ -151,10 +166,12 @@ struct RowMotion {
         // Runs once every spring added in this transaction has ended or was removed (a reused view, a snap).
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { springsEnded() } } // main-proof: CATransaction.h: the completion block is called on the main thread
         SidebarDragSpring.move(frames.map { ($0.0 as NSView, $0.1) } + companions, in: list, token, travel: travel)
-        Motion.sidebar.animate(token, in: list, {
-            for (view, alpha) in fades { view.animator().alphaValue = alpha }
-            lines()
-        }, settleAtSleep: settleAtSleep, completion: { ended.arrive() })
+        // The opening, closing and still-fading rows' opacity springs on the render server too, in this transaction, so
+        // it starts on the frame the slot changes and no main-thread frame drives it (m23 F4: through AppKit's animator
+        // the fade began on the next display-link tick, NSAnimationManager writing it per frame, so a new row stayed
+        // transparent one refresh after its slot opened and each fade step waited for the main thread).
+        for (view, alpha) in fades { Self.fade(view, to: alpha, token) }
+        Motion.sidebar.animate(token, in: list, lines, settleAtSleep: settleAtSleep, completion: { ended.arrive() })
         CATransaction.commit()
     }
 
@@ -168,7 +185,7 @@ struct RowMotion {
         Motion.withoutAnimation {
             for (key, view) in list.rowViews where view.closingEnd == nil {
                 guard let row = list.displayed.row(for: key) else { continue }
-                let target = list.frame(for: row)
+                let target = list.drawnFrame(for: row)
                 if view.frame != target { view.frame = target }
             }
             list.groupLineViews.land()
@@ -214,7 +231,7 @@ struct RowMotion {
     /// or the new row motion's start and spring) instead of showing whole over
     /// the rows still making room (cx-ai79).
     static func place(_ view: SidebarRowView, at target: NSRect, opening: SidebarRowOpening?, hidden: Bool, in list: SidebarListView) {
-        guard let opening, !hidden, Motion.sidebar.animatesMovement else {
+        guard let opening, !hidden, Motion.sidebar.animatesMovement(in: list.window) else {
             view.frame = target
             view.alphaValue = hidden ? 0 : 1
             return
@@ -272,7 +289,7 @@ struct RowMotion {
             list.addSubview(view, positioned: .above, relativeTo: top)
         }
         for view in passed {
-            guard let hide = Motion.sidebar.passOverAnimation(.move) else { return }
+            guard let hide = Motion.sidebar.passOverAnimation(.move, in: list.window) else { return }
             view.layer?.add(hide, forKey: "cmux.passOver")
         }
     }

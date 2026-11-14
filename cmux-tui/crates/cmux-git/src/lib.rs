@@ -5,18 +5,24 @@
 //! bounded reads, `write_run` for checkpoint writes. A [`Repository`] is a
 //! repository's top level plus the config overrides every read carries.
 //! `parse` reads git's machine output, `diff` turns a scope into the
-//! revisions to compare, and `refs` lists branches and suggests a base.
+//! revisions to compare, `refs` lists branches and suggests a base, and
+//! `head` reads what HEAD is on without a look at the work tree.
 //!
 //! The crate has no terminal, store or protocol types. Errors are its own
 //! enums; callers map them to their wire errors.
 
 pub mod diff;
 #[cfg(unix)]
+pub mod harness_head;
+pub mod head;
+#[cfg(unix)]
 pub mod native_hook;
 pub mod parse;
 pub mod refs;
 mod repository;
 pub mod run;
+#[cfg(unix)]
+pub mod secrets;
 #[cfg(unix)]
 pub mod sync_barrier;
 pub mod worktree_root;

@@ -4,7 +4,10 @@ import CmuxNextDaemon
 @testable import CmuxNextApp
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextCloudUI
 import CmuxNextDesign
+import CmuxNextPages
+import CmuxNextSettings
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
@@ -28,17 +31,17 @@ struct CloudIdlePauseTests {
 
     @Test func theRecordCarriesWhyItIsPausedAndItsIdleTimeout() throws {
         let data = Data(#"{"id":"vm-1","status":"paused","pauseReason":"idle","idlePauseMinutes":30}"#.utf8)
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: data)
+        let machine = try CloudMachine.classic(data)
         #expect(machine.pauseReason == .idle)
         #expect(machine.idlePauseMinutes == 30)
-        let user = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-2","status":"paused","pauseReason":"user","idlePauseMinutes":0}"#.utf8))
+        let user = try CloudMachine.classic(Data(#"{"id":"vm-2","status":"paused","pauseReason":"user","idlePauseMinutes":0}"#.utf8))
         #expect(user.pauseReason == .user)
         #expect(user.idlePauseMinutes == 0)
     }
 
     @Test func theRecordCarriesIdlePauseDiagnosticsForMachineStatus() throws {
         let data = Data(#"{"id":"vm-diag","status":"running","idlePause":{"minutes":30,"lastCheckedAt":1700000000000,"idleSince":1699998000000,"lastApiActivityAt":1699999000000,"privateAddressKnown":true,"lastDecision":{"at":1700000000000,"outcome":"idle","reason":"idle","run":{"checked":8,"elapsedMs":120}}}}"#.utf8)
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: data)
+        let machine = try CloudMachine.classic(data)
         let idle = try #require(machine.idlePause)
         #expect(idle.minutes == 30)
         #expect(idle.lastCheckedAt == 1_700_000_000_000)
@@ -51,34 +54,52 @@ struct CloudIdlePauseTests {
         #expect(idle.lastDecision?.run.checked == 8)
         #expect(idle.lastDecision?.run.elapsedMs == 120)
 
-        let fields = CloudHandlers.idlePauseFields(idle)
-        #expect(fields["minutes"] == .int(30))
-        #expect(fields["private_address_known"] == .bool(true))
-        #expect(fields["last_checked_at"] == .int(1_700_000_000_000))
-        #expect(fields["last_decision"] != .null)
-
         let services = MachineIconTests.services()
         let session = MachineIconTests.cloudMachine(services, id: "vm-diag")
         session.machine = machine
         let stats = try JSONDecoder().decode(CloudMachineStats.self, from: Data(#"{"state":"running"}"#.utf8))
-        let text = CloudHandlers.describe(session, stats, now: Date(timeIntervalSince1970: 0))
+        let status = CloudHandlers.status(session, stats, now: Date(timeIntervalSince1970: 0))
+        guard case .object(let idleFields)? = status.fields["idle_pause"] else { Issue.record("no idle_pause"); return }
+        #expect(idleFields["minutes"] == .int(30))
+        #expect(idleFields["private_address_known"] == .bool(true))
+        #expect(idleFields["last_checked_at"] == .int(1_700_000_000_000))
+        #expect(idleFields["last_decision"] != .null)
+        let text = status.text
         #expect(text.contains("idle pause: 30 minutes"))
         #expect(text.contains("idle pause decision: idle (idle)"))
 
-        let appServer = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"id":"vm-next","status":"running","idlePauseMinutes":30,"idlePause":{"minutes":30,"lastCheckedAt":1700000000000,"idleSince":1699998000000,"lastApiActivityAt":1699999000000,"privateAddressKnown":true,"lastDecision":{"at":1700000000000,"outcome":"idle","reason":"idle","run":{"checked":8,"elapsedMs":120}}}}"#.utf8))
+        let appServer = try JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: Data(#"{"id":"vm-next","status":"running","idlePauseMinutes":30,"idlePause":{"minutes":30,"lastCheckedAt":1700000000000,"idleSince":1699998000000,"lastApiActivityAt":1699999000000,"privateAddressKnown":true,"lastDecision":{"at":1700000000000,"outcome":"idle","reason":"idle","run":{"checked":8,"elapsedMs":120}}}}"#.utf8))
         let next = try #require(CloudMachine(next: appServer))
         #expect(next.idlePause?.lastDecision?.run.elapsedMs == 120)
 
-        let nextPolicy = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"id":"vm-next-policy","status":"running","idle_policy":{"idle_seconds":1800}}"#.utf8))
+        let nextPolicy = try JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: Data(#"{"id":"vm-next-policy","status":"running","idle_policy":{"idle_seconds":1800}}"#.utf8))
         let policyMachine = try #require(CloudMachine(next: nextPolicy))
         #expect(policyMachine.idlePauseMinutes == 30)
     }
 
+    /// A failed create keeps its reason only on the record (`error`): machine-status prints it, so "state failed"
+    /// says why (Leo's six failed machines read only "state failed", 2026-11-06).
+    @Test func machineStatusPrintsWhyTheMachineFailed() throws {
+        let record = try JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: Data(#"{"id":"vm-failed","status":"failed","error":{"code":"cloud.provider.unavailable","message":"VM API: HTTP 503","at":1700000000000}}"#.utf8))
+        let machine = try #require(CloudMachine(next: record))
+        let services = MachineIconTests.services()
+        let session = MachineIconTests.cloudMachine(services, id: "vm-failed")
+        session.machine = machine
+        let stats = try JSONDecoder().decode(CloudMachineStats.self, from: Data(#"{"state":"failed"}"#.utf8))
+        let fields = CloudHandlers.status(session, stats, now: Date(timeIntervalSince1970: 0)).fields
+        #expect(fields["error"] == .object(["code": .string("cloud.provider.unavailable"), "message": .string("VM API: HTTP 503")]))
+        let text = CloudHandlers.status(session, stats, now: Date(timeIntervalSince1970: 0)).text
+        #expect(text.contains("error: cloud.provider.unavailable: VM API: HTTP 503"))
+
+        let healthy = MachineIconTests.cloudMachine(services, id: "vm-ok")
+        #expect(CloudHandlers.status(healthy, stats).fields["error"] == nil)
+    }
+
     @Test func anOlderServerOrAnUnknownReasonDecodesAsNone() throws {
-        let old = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-old","status":"paused"}"#.utf8))
+        let old = try CloudMachine.classic(Data(#"{"id":"vm-old","status":"paused"}"#.utf8))
         #expect(old.pauseReason == nil)
         #expect(old.idlePauseMinutes == nil)
-        let odd = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-odd","status":"paused","pauseReason":"billing","idlePauseMinutes":"x"}"#.utf8))
+        let odd = try CloudMachine.classic(Data(#"{"id":"vm-odd","status":"paused","pauseReason":"billing","idlePauseMinutes":"x"}"#.utf8))
         #expect(odd.pauseReason == nil)
         #expect(odd.idlePauseMinutes == nil)
     }
@@ -153,13 +174,25 @@ struct CloudIdlePauseTests {
         #expect(WorkspaceHoverCardContent.connectionTone(.paused) == .secondary)
     }
 
-    @Test func theProgressViewOffersOneClickResume() {
+    /// The progress page reads a paused machine as paused (idle), not failed: its Resume is one click.
+    @Test func theProgressPageOffersOneClickResume() async throws {
         let f = Self.pausedMachine(reason: .idle)
         let creation = CloudMachineCreation(windowID: nil, session: f.session)
-        let view = CloudMachineProgressView(creation: creation, actions: .init(retry: { _ in }, dismiss: { _ in }))
-        #expect(view.showsButtons)
-        #expect(view.primaryButtonTitle == CloudStrings.resume)
-        #expect(!view.detailText.contains(CloudStrings.progressFailed("")), "paused must not read as a failed start")
+        var retried = 0
+        let provider = CloudProgressPageProvider(source: creation, actions: .init(
+            retry: { retried += 1 }, dismiss: {}, copy: { _ in }, personOnlyMessage: "person only"))
+        let state = provider.state()
+        #expect(state["stage"]?.stringValue == "paused")
+        #expect(state["idle"]?.boolValue == true)
+        #expect(state["failure"] == .null, "paused must not read as a failed start")
+        #expect(state["finished"]?.boolValue == true)
+        // Resume runs only from the person's own click.
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call(CloudProgressPageProvider.retryOp, params: .object([:]), context: PageCallContext(page: "cmux.cloud-progress"))
+        }
+        _ = try await provider.call(CloudProgressPageProvider.retryOp, params: .object([:]),
+                                    context: PageCallContext(page: "cmux.cloud-progress", userGesture: true))
+        #expect(retried == 1)
     }
 
     // MARK: One record (Machine Status)

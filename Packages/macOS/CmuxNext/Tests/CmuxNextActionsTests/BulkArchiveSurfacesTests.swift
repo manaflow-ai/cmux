@@ -4,7 +4,7 @@ import Testing
 /// Archive counterparts of the workspace row's several-at-once closes (user, 2026-11-05: "we need
 /// archive workspaces below/above etc"): Archive Other Workspaces, Archive Workspaces Below, Archive
 /// Workspaces Above and Archive Other Workspaces in Group, worded and ordered as their close rows, in
-/// the row menu's Close section, Cmd-Shift-P, the CLI and MCP.
+/// the row menu's Archive folder, Cmd-Shift-P, the CLI and MCP.
 @MainActor @Suite struct BulkArchiveSurfacesTests {
     nonisolated static let pairs: [(archive: ActionID, close: ActionID, title: String)] = [
         ("workspace.archiveOtherWorkspaces", "palette.closeOtherWorkspaces", "Archive Other Workspaces"),

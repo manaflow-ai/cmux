@@ -68,12 +68,11 @@ const snapshot = chat(
 
 /// Opens the group of messages that wait (ios-remote's steer, artifacts' queued one), which shows
 /// collapsed after the turn, so all five lines show. Each opening is its own clicked step, settled
-/// before the next: at the transcript's end an opening pushes the rows above it up by design
-/// (#32644), which the shift gate exempts only for the step's own target (`data-bottom-stack-fold`). Two
-/// raw clicks in one task started both openings outside any step, so their push-up was scored as
-/// shift in the wait that followed. A step settles after a few frames, before the fold's glide ends,
-/// so each click first lets the last fold finish (`foldsLanded`): a click during the glide stops it
-/// part-way (App.tsx `beginBottomStackFold`) and the rows above jumped the 2-4 px it had left, a
+/// before the next: two raw clicks in one task started both openings outside any step, so the rows
+/// they moved were scored as shift in the wait that followed. (At the transcript's end an opening
+/// grows down, Codex parity; a close there pins the bottom, `data-bottom-stack-fold`.) A step settles
+/// after a few frames, before the fold's glide ends, so each click first lets the last fold finish
+/// (`foldsLanded`): a click during a glide stops it part-way and the rows jumped what it had left, a
 /// shift scored in some runs and not others by frame timing alone.
 const openWaiting: Play = async (ctx) => {
   // The delivered ones sit in one "Received N messages" row (#32720): open it too.
@@ -106,8 +105,10 @@ const openReport: Play = async (ctx) => {
     row.querySelector(".cv-received__from")?.textContent?.includes("fanout-infra"),
   );
   line?.setAttribute("data-gallery-report", "");
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-received[data-gallery-report] .cv-disclosure__toggle"));
-  await ctx.click({ selector: ".cv-received[data-gallery-report] .cv-disclosure__toggle" });
+  await ctx.waitFor(() =>
+    ctx.document.querySelector(".cv-received[data-gallery-report] :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)"),
+  );
+  await ctx.click({ selector: ".cv-received[data-gallery-report] :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)" });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-received__text table") !== null);
 };
 

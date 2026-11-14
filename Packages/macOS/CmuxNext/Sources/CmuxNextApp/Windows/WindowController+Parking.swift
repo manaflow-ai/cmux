@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextDaemon
 import CmuxNextHibernation
 import CmuxNextLayout
 
@@ -58,23 +59,22 @@ extension WindowController {
         state.isOnScreenBeside(id)
     }
 
+    /// Whether this window draws tab `id` of `pane` now: no top page, the pane in the viewport of the shown workspace's
+    /// active screen (`visiblePanes`), and `id` the tab its strip shows. Never a remembered selection, which outlives
+    /// a screen switch, a page or a scroll.
+    func showsOnScreen(_ id: String, in pane: PaneModel) -> Bool {
+        guard state.page == nil, let content else { return false }
+        return content.layoutModel.visiblePanes.contains { content.panes[$0].map { $0.pane === pane && $0.stripModel.selectedID?.rawValue == id } == true }
+    }
+
     /// Parks `controller`; past the budget the oldest leave, never `controller` itself (a page may cover it).
     /// `leaving` is the workspace about to show: `show` takes it out next, so it neither counts nor leaves.
     func park(_ controller: WorkspaceContentController, leaving: String? = nil) {
         parkSerial &+= 1
         controller.park(serial: parkSerial)
         parked[controller.workspace.id] = controller
-        trimParked(keeping: controller.workspace.id, leaving: leaving)
-    }
-
-    /// Past `ParkedWorkspaceBudget.standard`'s capacity, the least recently parked workspaces leave as under
-    /// critical pressure, so a window that visited hundreds keeps a bounded set mounted.
-    private func trimParked(keeping parkedNow: String, leaving: String?) {
-        let budget = ParkedWorkspaceBudget.standard
-        let entries = parked.compactMap { $0.key == leaving ? nil : (id: $0.key, serial: $0.value.parkedSerial) }
-        guard entries.count > budget.capacity else { return }
-        let kept = Set(parked.keys.filter(keepsParked)).union([parkedNow])
-        for id in budget.evictions(parked: entries, kept: kept) {
+        // Past `ParkedWorkspaceBudget.standard`'s capacity the least recently parked leave, as under critical pressure.
+        for id in ParkedWorkspaceBudget.standard.evictions(parked: parked.mapValues(\.parkedSerial), parkedNow: controller.workspace.id, leaving: leaving, keeps: keepsParked) {
             parked.removeValue(forKey: id)?.teardown()
         }
     }

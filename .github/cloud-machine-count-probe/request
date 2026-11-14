@@ -1,0 +1,3 @@
+# A push to feat-cmux-next that changes this file runs .github/workflows/cloud-machine-count-probe.yml (6 machines
+# on staging as the paid personal test account, then deleted). Change the line below to ask for a run.
+2026-11-10 first run: the sixth machine after cmux-platform#1134

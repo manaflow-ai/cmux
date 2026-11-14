@@ -10,7 +10,7 @@ import Testing
 /// "The settings background opacity thing does not work very well" (a249): over a background
 /// picture the Opacity slider must move the window one way only, and a surface's own opacity must
 /// cover more than the tint the window really shows, not more than the theme's opaque 100%.
-@MainActor @Suite(.serialized) struct WindowOpacityOverArtTests {
+@MainActor @Suite(.serialized, .ghosttyOverrides) struct WindowOpacityOverArtTests {
     static let work = "van-gogh-starry-night"
 
     static func ghostty() -> GhosttyThemeColors {
@@ -36,14 +36,14 @@ import Testing
 
         let original = ThemeScope.app.store.input
         let colors = Self.ghostty()
-        GhosttyConfigBackground.loaded = GhosttyConfigBackground(opacity: colors.backgroundOpacity, blur: colors.backgroundBlur)
         defer {
             GhosttyRuntime.backgroundOverride = WindowBackgroundOverride()
-            GhosttyConfigBackground.loaded = GhosttyConfigBackground()
             ThemeScope.app.store.apply(original)
         }
         let scope = ThemeScope(level: .room)
         let terminal = TerminalThemeSetting(backdropScope: scope)
+        // The config files' own values, this test's (#36891: never the process-wide record).
+        terminal.ghostty = { GhosttyConfigBackground(opacity: colors.backgroundOpacity, blur: colors.backgroundBlur) }
         terminal.reload = { ThemeScope.app.store.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride)) }
         terminal.follow(settings)
         ThemeScope.app.store.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride))

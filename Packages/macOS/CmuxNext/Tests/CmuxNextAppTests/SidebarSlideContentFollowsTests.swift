@@ -38,15 +38,21 @@ struct SidebarSlideContentFollowsTests {
     }
 
     /// Mid-slide the content fills the card at the card's width of that frame, and a square card
-    /// clips nothing.
+    /// clips nothing. The card is square through `chrome.mainPane.curved` off: every frame of the
+    /// slide sets the card's corner again from the chrome (`updateMainPaneShade`), so a radius set
+    /// on the card alone lasts only to the first frame.
     @Test func theContentResizesEveryFrame() throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(DesignTunables.all)
+        TunableStore.shared.set(ChromeTunables.mainPaneCurved.key, .bool(false))
+        defer { TunableStore.shared.set(ChromeTunables.mainPaneCurved.key, nil) }
         let (window, root, content) = openRoot()
         defer { window.close() }
-        root.contentHost.setCornerRadius(0)
         let sidebar = root.sidebar.frame.width
         root.sidebar.isWidthAnimating = true
         frame(root, width: sidebar / 2)
         #expect(content.frame == root.contentHost.bounds)
+        #expect(root.contentHost.layer?.cornerRadius == 0)
         #expect(root.contentHost.layer?.masksToBounds == false, "a square card clips nothing")
         frame(root, width: sidebar / 4)
         #expect(content.frame == root.contentHost.bounds)

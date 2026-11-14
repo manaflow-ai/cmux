@@ -5,18 +5,25 @@ import Foundation
 
 extension SidebarMapping {
     /// The agents acting in `tabs` right now (cx-gg84), one per live tab with
-    /// presence, in pane order; none while the presence toggle is off, so
-    /// hook traffic does no sidebar work then. Two agents of one kind share a
+    /// presence, in pane order. While the presence toggle is off only the agents
+    /// that drive the screen or a browser (`SidebarPresence.drive`) are listed: the
+    /// row, tab and pane show those always (Lawrence 2026-11-07), and quieter
+    /// activity stays behind the prototype toggle. Two agents of one kind share a
     /// name and differ by color, the same in the sidebar, tab chip and pane tag.
     func presence(_ tabs: [TabModel], enabled: Bool = SidebarTunables.presenceDots.value) -> [SidebarPresence] {
-        guard enabled else { return [] }
-        return tabs.compactMap { tab -> SidebarPresence? in
+        tabs.compactMap { tab -> SidebarPresence? in
             guard !tab.dead, let presence = tab.presence, let activity = presence.activity else { return nil }
+            let shown = Self.activity(activity)
+            guard enabled || shown.drive != nil else { return nil }
             return SidebarPresence(
                 id: presence.session ?? "surface-\(presence.surface)",
                 name: Self.agentName(presence.agent),
-                activity: Self.activity(activity),
-                target: Self.target(path: presence.path, line: presence.line)
+                activity: shown,
+                target: Self.target(path: presence.path, line: presence.line),
+                tab: TabID(tab.id),
+                // Computer Use stops through its host; a browser stops with its agent chat's turn. A terminal
+                // agent's browser use stops in its terminal, where Go to takes the person.
+                canStop: shown == .computerUse || (shown == .browsing && tab.agentSession != nil)
             )
         }
     }

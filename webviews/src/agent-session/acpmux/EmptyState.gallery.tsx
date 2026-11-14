@@ -2,9 +2,12 @@
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { EmptyStateProjects } from "./EmptyState";
+import type { TourOfferActions } from "./repoTour/TourOffer";
 import type { Project } from "./ProjectChooser";
 
-type Props = { project?: string; picker?: EmptyStateProjects };
+type Props = { project?: string; picker?: EmptyStateProjects; tour?: TourOfferActions };
+
+const tour: TourOfferActions = { onTake: () => undefined, onDismiss: () => undefined };
 
 const projects: Project[] = [
   { cwd: "/Users/you/src/cmux", label: "cmux" },
@@ -30,7 +33,7 @@ const open: Play = async (ctx) => {
 const search: Play = async (ctx) => {
   await open(ctx);
   await ctx.type("api");
-  // The pinned actions (Do not work in a project, + New project) stay above the results while
+  // The pinned actions (No folder, + Add folder…) stay above the results while
   // searching (#26536); the search filters only the scrolling list under them.
   await ctx.waitFor(() => ctx.document.querySelectorAll('.ui-combobox-scroll [role="option"]').length === 1);
 };
@@ -39,7 +42,7 @@ export default componentEntry<Props>({
   id: "agent-pane.empty-state",
   title: "New chat hero project picker",
   area: "Agent pane",
-  covers: ["agent-session/acpmux/EmptyState.tsx#EmptyState"],
+  covers: ["agent-session/acpmux/EmptyState.tsx#EmptyState", "agent-session/acpmux/repoTour/TourOffer.tsx#TourOffer"],
   load: () => import("./EmptyState").then((module) => module.EmptyState),
   styles: () => import("./styles.css"),
   widths: { narrow: 360, normal: 640, wide: 900 },
@@ -56,17 +59,28 @@ export default componentEntry<Props>({
       props: { project: "cmux", picker: picker("/Users/you/src/cmux") },
     },
     open: {
-      note: "Search, this Mac's projects (the current one checked), other machines' folders with a globe and the machine's name, Do not work in a project, and + New project.",
+      note: "Search, this Mac's projects (the current one checked), other machines' folders with a globe and the machine's name, No folder, and + Add folder….",
       props: { project: "cmux", picker: picker("/Users/you/src/cmux") },
       play: open,
     },
     "no-project": {
-      note: "No project: the question has no folder and a quiet Choose project sits under it; Do not work in a project is checked.",
+      note: "No project: the question has no folder and a quiet Choose folder sits under it; No folder is checked.",
       props: { picker: picker() },
       play: open,
     },
+    "tour-offer": {
+      note: "A folder no chat has used: Take a tour of this repo hangs under the question, out of its flow, so the question never moves; a dim × (Not now) sits beside it.",
+      props: { project: "atlas-web", picker: picker("/Users/you/src/atlas-web"), tour },
+    },
+    "tour-offer-hover": {
+      note: "Hovering the offer fills it; the × closes it for this folder.",
+      props: { project: "atlas-web", picker: picker("/Users/you/src/atlas-web"), tour },
+      play: async (ctx) => {
+        await ctx.hover({ selector: ".acpmux-tour-offer-take" });
+      },
+    },
     search: {
-      note: "Typing filters projects and machines; the pinned Do not work in a project and + New project stay above the results while searching.",
+      note: "Typing filters projects and machines; the pinned No folder and + Add folder… stay above the results while searching.",
       props: { project: "cmux", picker: picker("/Users/you/src/cmux") },
       play: search,
     },

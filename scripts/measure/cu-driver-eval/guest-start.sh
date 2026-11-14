@@ -3,10 +3,14 @@
 # in the console user's login session: a LaunchAgent, since a process started over SSH has no window
 # server session and its windows would never show. Run over SSH as that user, from the copy of the
 # tree in ~/cu-eval:
-#   guest-start.sh REV REPS DRIVERS
+#   guest-start.sh REV REPS DRIVERS [ARG...]
+# Each ARG (bench=run, condition=..., as cu-driver-eval.sh takes them) is passed on after the rest.
 # The A/B writes ~/cu-eval/eval.log, then its exit status to ~/cu-eval/eval.status.
 set -euo pipefail
 rev=$1 reps=$2 drivers=$3
+shift 3
+extra=""
+(($#)) && extra=$(printf ' %q' "$@")
 tree="$HOME/cu-eval"
 rm -f "$tree/eval.status" "$tree/eval.log"
 cat >"$tree/run.sh" <<EOF
@@ -14,7 +18,7 @@ cat >"$tree/run.sh" <<EOF
 cd "$tree"
 CU_DRIVER_EVAL_ROOT="$tree" CU_DRIVER_EVAL_REV="$rev" CU_DRIVER_EVAL_DISPLAY=1920x1080 \\
   CU_DRIVER_EVAL_GRANT="bash $tree/scripts/measure/cu-driver-eval/tcc-grant.sh" \\
-  bash scripts/measure/cu-driver-eval.sh "reps=$reps" "drivers=$drivers" electron=1 >"$tree/eval.log" 2>&1
+  bash scripts/measure/cu-driver-eval.sh "reps=$reps" "drivers=$drivers" electron=1$extra >"$tree/eval.log" 2>&1
 echo \$? >"$tree/eval.status"
 EOF
 cat >"$tree/agent.plist" <<EOF

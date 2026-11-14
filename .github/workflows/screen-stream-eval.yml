@@ -36,8 +36,8 @@ concurrency:
 
 jobs:
   eval:
-    if: github.repository_owner == 'manaflow-ai' && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != ''
-    runs-on: ${{ vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY }}
+    if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
     timeout-minutes: 300
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -45,6 +45,11 @@ jobs:
           ref: feat-cmux-next
           fetch-depth: 1
           submodules: false
+          # A thin client on the gateway runner (glaeda GATEWAY_JOBS): only the summary script it runs
+          # here, no other blob. The measure worker checks the tree out itself.
+          filter: blob:none
+          sparse-checkout: /scripts/measure/screen-stream-eval/
+          sparse-checkout-cone-mode: false
       - name: the last successful daily run
         id: previous
         env:

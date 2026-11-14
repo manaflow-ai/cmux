@@ -124,4 +124,20 @@ struct HomeAgentRunMappingTests {
                                 "tool": ["name": "spawn", "input": ["tasks": tasks], "output": "Started a1 in /work.\n- a1: runs hidden."]]])
         #expect(short.messages.isEmpty)
     }
+
+    /// A spawn answer's `- a<N>: queued (…)` line and a tell's `outcome: queued.` mean the agent waits for a free slot
+    /// (user 2026-11-05, msg 23140: a queued a1017 said "Working for 6m 50s"); a started one and a delivered tell do not.
+    @Test func queuedSpawnsAndTellsAreMarkedQueued() throws {
+        let tasks = ["Title: One\n\nGo.", "Title: Two\n\nGo.", "Title: Three\n\nGo."]
+        let output = "Queued a2.\n- a1: started\n- a2: queued (10 subagents are at work; it starts when one finishes)\n- a3: did not start (no PTYs)"
+        let run = try mapped([
+            ["id": "tool:1", "kind": "tool", "status": "done", "tool": ["name": "spawn", "input": ["tasks": tasks], "output": output]],
+            ["id": "tool:2", "kind": "tool", "status": "done",
+             "tool": ["name": "tell", "input": ["id": "a2", "message": "More."], "output": "outcome: queued. Queued for delivery to a2 (1 waiting)"]],
+            ["id": "tool:3", "kind": "tool", "status": "done",
+             "tool": ["name": "tell", "input": ["id": "a1", "message": "More."], "output": "outcome: done. sent to a1"]],
+        ])
+        #expect(run.messages.map(\.peer) == ["a1", "a2", "a3", "a2", "a1"])
+        #expect(run.messages.map(\.queued) == [false, true, false, true, false])
+    }
 }

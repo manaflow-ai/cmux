@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 
-use super::{Command, RustVerb, parse, recorded_tree, recorded_watch_tree, tool_path};
+use super::{
+    Command, RustVerb, Swift, parse, recorded_swift_tree, recorded_tree, recorded_watch_tree,
+    tool_path,
+};
 
 fn words(words: &[&str]) -> Vec<String> {
     words.iter().map(|word| (*word).to_owned()).collect()
@@ -101,6 +104,57 @@ fn rust_takes_a_build_host_and_a_session_on_start() {
 }
 
 #[test]
+fn swift_switches_start_and_stop_with_a_tag() {
+    assert_eq!(
+        parse(&words(&["start", "--swift", "--tag", "mine"])).unwrap(),
+        Command::Swift(Swift {
+            on: true,
+            worktree: None,
+            tag: Some("mine".to_owned()),
+            detach: false,
+            setting_done: false,
+            discard: false,
+            fresh: false,
+        })
+    );
+    assert_eq!(
+        parse(&words(&[
+            "stop",
+            "--swift",
+            "--worktree=/src/wt",
+            "--detach",
+            "--setting-done",
+            "--discard"
+        ]))
+        .unwrap(),
+        Command::Swift(Swift {
+            on: false,
+            worktree: Some(PathBuf::from("/src/wt")),
+            tag: None,
+            detach: true,
+            setting_done: true,
+            discard: true,
+            fresh: false,
+        })
+    );
+    assert_eq!(
+        parse(&words(&["start", "--swift", "--fresh"])).unwrap(),
+        Command::Swift(Swift {
+            on: true,
+            worktree: None,
+            tag: None,
+            detach: false,
+            setting_done: false,
+            discard: false,
+            fresh: true,
+        })
+    );
+    // --fresh is start's: stop and the web loop refuse it.
+    assert!(parse(&words(&["stop", "--swift", "--fresh"])).is_err());
+    assert!(parse(&words(&["start", "--fresh"])).is_err());
+}
+
+#[test]
 fn rust_flags_need_rust_and_the_right_verb() {
     assert!(parse(&words(&["start", "--build-host", "h"])).is_err());
     assert!(parse(&words(&["stop", "--rust", "--build-host", "h"])).is_err());
@@ -165,4 +219,32 @@ fn reads_the_tree_the_rust_loop_watches() {
     assert_eq!(recorded_watch_tree(&file), Some(PathBuf::from("/src/my tree")));
     std::fs::write(&file, "nope\n").unwrap();
     assert_eq!(recorded_watch_tree(&file), None);
+}
+
+#[test]
+fn swift_only_flags_need_swift_and_a_switch() {
+    assert!(parse(&words(&["start", "--swift", "--port", "4300"])).is_err());
+    assert!(parse(&words(&["start", "--tag", "mine"])).is_err());
+    assert!(parse(&words(&["stop", "--detach"])).is_err());
+    assert!(parse(&words(&["status", "--swift"])).is_err());
+    assert!(parse(&words(&["start", "--swift", "--discard"])).is_err());
+    assert!(parse(&words(&["stop", "--discard"])).is_err());
+    // The other loops' flags are refused, not dropped unread.
+    assert!(parse(&words(&["start", "--swift", "--build-host", "h"])).is_err());
+    assert!(parse(&words(&["start", "--swift", "--session", "s"])).is_err());
+    assert!(parse(&words(&["start", "--swift", "--rust"])).is_err());
+    assert!(parse(&words(&["start", "--swift", "--chromium"])).is_err());
+    assert!(parse(&words(&["start", "--swift", "--src", "/s"])).is_err());
+}
+
+#[test]
+fn reads_the_tree_live_mode_ran_from() {
+    let dir = std::env::temp_dir().join(format!("cmux-live-swift-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("tree");
+    std::fs::write(&file, "/Users/me/src/cmux\n").unwrap();
+    assert_eq!(recorded_swift_tree(&file), Some(PathBuf::from("/Users/me/src/cmux")));
+    std::fs::write(&file, "relative/path").unwrap();
+    assert_eq!(recorded_swift_tree(&file), None);
+    std::fs::remove_dir_all(&dir).unwrap();
 }

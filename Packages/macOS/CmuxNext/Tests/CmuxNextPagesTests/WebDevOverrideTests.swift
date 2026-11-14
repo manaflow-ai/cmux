@@ -78,6 +78,37 @@ struct WebDevOverrideTests {
         #expect(WebDevOverride.read(file: dir.appending(path: "missing.json"), home: home) == WebDevOverride())
     }
 
+    /// An overlay built for another page bridge than the app's is refused, as a web update is, and
+    /// stays watched so an install that fits is served (docs/cmux-next/hot-reload.md, "No bridge skew").
+    @Test func anOverlayForAnotherWebABIIsRefused() throws {
+        let dir = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let overlay = dir.appending(path: "overlay", directoryHint: .isDirectory)
+        let pane = overlay.appending(path: "agent-pane", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: pane, withIntermediateDirectories: true)
+        try Data("<html></html>".utf8).write(to: pane.appending(path: "index.html"))
+        let file = dir.appending(path: WebDevOverride.fileName)
+        try Data(#"{"overlay": "\#(overlay.path)"}"#.utf8).write(to: file)
+        let manifest = overlay.appending(path: WebDevOverride.manifestName)
+
+        try Data(#"{"stamp":"1","commit":"abc","abi":4}"#.utf8).write(to: manifest)
+        let newer = WebDevOverride.read(file: file, home: home, appABI: 3)
+        #expect(newer.refusal == "the overlay (abc) needs web ABI 4; this app has 3")
+        #expect(newer.overlay != nil)
+        #expect(newer.overlayRoot("agent-pane") == nil)
+
+        try Data(#"{"stamp":"2","commit":"abc","abi":3}"#.utf8).write(to: manifest)
+        let fits = WebDevOverride.read(file: file, home: home, appABI: 3)
+        #expect(fits.refusal == nil)
+        #expect(fits.overlayRoot("agent-pane") != nil)
+
+        // An install from before manifests named an abi, and an app with no web-abi.json, check nothing.
+        try Data(#"{"stamp":"3"}"#.utf8).write(to: manifest)
+        #expect(WebDevOverride.read(file: file, home: home, appABI: 3).refusal == nil)
+        try Data(#"{"stamp":"4","abi":4}"#.utf8).write(to: manifest)
+        #expect(WebDevOverride.read(file: file, home: home, appABI: nil).refusal == nil)
+    }
+
     @Test func overlayRootNeedsTheEntryAndStaysInside() throws {
         let overlay = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: overlay) }
@@ -160,6 +191,31 @@ struct WebDevOverrideTests {
         #expect(answer.csp?.contains("ws://127.0.0.1:4181") == true)
     }
 
+    /// A proven server's document that is not HTML (a missing type, a text answer) is never drawn:
+    /// the page falls back to its bundled one, which showed the page's source as text before. HTML
+    /// with a charset is HTML, and a non-document file keeps whatever type it has.
+    @Test func aDocumentThatIsNotHTMLFallsBackToTheBundledPage() async throws {
+        let bundled = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: bundled) }
+        try write("bundled", to: bundled.appending(path: PageDescriptor.markdown.entry))
+        let root = try #require(URL(string: "http://127.0.0.1:4181/"))
+        let token = "0123456789abcdef0123456789abcdef01234567"
+        let handler = PageSchemeHandler(page: .markdown, root: bundled, devServer: nil)
+        handler.liveOverride = { WebDevOverride(server: PageDevServer(root: root, token: token)) }
+
+        for type in [nil, "text/plain", "text/plain; charset=utf-8", "application/octet-stream", "text/htmlx"] {
+            handler.fetchDevServer = { request in Self.proven(request, token: token, body: "<!doctype html>", contentType: type) }
+            #expect(try await body(handler) == "bundled", "\(type ?? "no type")")
+        }
+        handler.fetchDevServer = { request in Self.proven(request, token: token, body: "served", contentType: "Text/HTML; charset=utf-8") }
+        #expect(try await body(handler) == "served")
+
+        let script = try #require(URL(string: PageDescriptor.markdown.origin + "/src/main.tsx"))
+        handler.fetchDevServer = { request in Self.proven(request, token: token, body: "export {}", contentType: "text/javascript") }
+        let reply = try #require(await handler.reply(to: script))
+        #expect(String(decoding: reply.body, as: UTF8.self) == "export {}")
+    }
+
     /// The agent chat's page host loads from the server's agent pane entry, and its policy drops
     /// `'none'` (which may not share a source list) for the server's socket.
     @Test func theAgentPageLoadsFromTheServersAgentPane() throws {
@@ -175,11 +231,13 @@ struct WebDevOverrideTests {
 
     /// The real server's answer to `request`: the proof of `token` for the request's nonce, which
     /// the request carries while the token itself does not.
-    private nonisolated static func proven(_ request: URLRequest, token: String, body: String, status: Int = 200) -> (Data, HTTPURLResponse)? {
+    private nonisolated static func proven(_ request: URLRequest, token: String, body: String, status: Int = 200,
+                                           contentType: String? = "text/html") -> (Data, HTTPURLResponse)? {
         guard let url = request.url, let nonce = request.value(forHTTPHeaderField: PageDevServer.nonceHeader),
               nonce.count == 64, !(request.allHTTPHeaderFields ?? [:]).values.contains(token) else { return nil }
-        return HTTPURLResponse(url: url, statusCode: status, httpVersion: nil,
-                               headerFields: ["Content-Type": "text/html", PageDevServer.proofHeader: PageDevServer.proof(token: token, nonce: nonce)])
+        var headers = [PageDevServer.proofHeader: PageDevServer.proof(token: token, nonce: nonce)]
+        headers["Content-Type"] = contentType
+        return HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)
             .map { (Data(body.utf8), $0) }
     }
 

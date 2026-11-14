@@ -1,16 +1,16 @@
 //! The `agents.memory.*` keys of the cmux settings file, read at each use so
 //! a change applies to the next call. The file and its JSONC dialect are
-//! acpmux's `user_settings.rs`: `CMUX_NEXT_CONFIG_FILE`, else
+//! cmux-config's (`location`, `jsonc`): `CMUX_NEXT_CONFIG_FILE`, else
 //! `~/.config/cmux/cmux-next.json`, else `~/.config/cmux/cmux.json`. The
 //! CLI and every agent session read the same keys here, so they build the
 //! same index (a different source list would rebuild it on every switch).
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
+use cmux_config::{jsonc, location};
 
-/// The settings file override the app and tests set.
-pub const CONFIG_OVERRIDE: &str = "CMUX_NEXT_CONFIG_FILE";
+use serde_json::Value;
 
 /// What this machine's memory does.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -86,15 +86,46 @@ pub fn document(home: &Path) -> Option<Value> {
     settings_file(home)
 }
 
+/// The user's settings document as `document` finds it, telling a missing
+/// file (`Ok(None)`) from one that is there but does not read or parse
+/// (`Err`), for a read that must fail closed (`chief.permissionMode`,
+/// cmux#37392), as acpmux's own read of the file does.
+pub fn document_checked(home: &Path) -> Result<Option<Value>, String> {
+    let read = |path: &Path| match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("{}: {e}", path.display())),
+    };
+    // The environment, with `home` as HOME, so tests name their own home.
+    let env = |name: &str| match name {
+        "HOME" => Some(OsString::from(home)),
+        _ => crate::cli::env(name).map(OsString::from),
+    };
+    let text = match read(&location::config_path_from(env))? {
+        Some(text) => Some(text),
+        // No override and no cmux-next.json yet: classic cmux.json.
+        None => match location::seed_path_from(env) {
+            Some(classic) => read(&classic)?,
+            None => None,
+        },
+    };
+    let Some(text) = text else {
+        return Ok(None);
+    };
+    parse(&text).map(Some)
+}
+
+/// Settings text as JSON: cmux-config's JSONC reader (comments, trailing
+/// commas, a BOM), the dialect the app and the daemon read.
+pub fn parse(text: &str) -> Result<Value, String> {
+    let strict =
+        jsonc::strip(text).map_err(|e| format!("the settings file does not parse: {e}"))?;
+    serde_json::from_str(&strict).map_err(|e| format!("the settings file does not parse: {e}"))
+}
+
 /// The parsed settings file, or None when there is none or it does not parse.
 fn settings_file(home: &Path) -> Option<Value> {
-    let read = |path: &Path| std::fs::read_to_string(path).ok();
-    let text = match crate::cli::env(CONFIG_OVERRIDE) {
-        Some(path) => read(&expand_tilde(&path, home)),
-        None => read(&home.join(".config/cmux/cmux-next.json"))
-            .or_else(|| read(&home.join(".config/cmux/cmux.json"))),
-    }?;
-    serde_json::from_str(&strip_jsonc(&text)).ok()
+    document_checked(home).ok().flatten()
 }
 
 /// The value at a dotted key, nested or as one flat key (both forms the
@@ -104,77 +135,6 @@ pub fn value(doc: &Value, key: &str) -> Option<Value> {
         return Some(v.clone());
     }
     doc.pointer(&format!("/{}", key.replace('.', "/"))).cloned()
-}
-
-/// JSONC to JSON: `//` and `/* */` comments, then trailing commas, outside
-/// strings. A copy of acpmux's `strip_jsonc`, so this crate takes no new
-/// dependency for one settings read.
-pub fn strip_jsonc(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = String::with_capacity(text.len());
-    let (mut i, mut in_string) = (0, false);
-    while i < chars.len() {
-        let c = chars[i];
-        if in_string {
-            out.push(c);
-            if c == '\\' && i + 1 < chars.len() {
-                out.push(chars[i + 1]);
-                i += 1;
-            } else if c == '"' {
-                in_string = false;
-            }
-        } else if c == '"' {
-            in_string = true;
-            out.push(c);
-        } else if c == '/' && chars.get(i + 1) == Some(&'/') {
-            while i < chars.len() && chars[i] != '\n' {
-                i += 1;
-            }
-            continue;
-        } else if c == '/' && chars.get(i + 1) == Some(&'*') {
-            i += 2;
-            while i < chars.len() && !(chars[i] == '*' && chars.get(i + 1) == Some(&'/')) {
-                i += 1;
-            }
-            i += 2;
-            continue;
-        } else {
-            out.push(c);
-        }
-        i += 1;
-    }
-    drop_trailing_commas(&out)
-}
-
-fn drop_trailing_commas(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = String::with_capacity(text.len());
-    let mut in_string = false;
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        if in_string {
-            out.push(c);
-            if c == '\\' && i + 1 < chars.len() {
-                out.push(chars[i + 1]);
-                i += 1;
-            } else if c == '"' {
-                in_string = false;
-            }
-        } else if c == '"' {
-            in_string = true;
-            out.push(c);
-        } else if c == ',' {
-            let next = chars[i + 1..].iter().find(|c| !c.is_whitespace());
-            if !matches!(next, Some('}' | ']')) {
-                out.push(c);
-            }
-        } else {
-            out.push(c);
-        }
-        i += 1;
-    }
-    out
 }
 
 #[cfg(test)]
@@ -212,7 +172,7 @@ mod tests {
     #[test]
     fn jsonc_comments_and_trailing_commas() {
         let text = "{\n // a\n \"a\": \"x // not a comment\", /* b */\n \"b\": [1, 2,],\n}";
-        let v: Value = serde_json::from_str(&strip_jsonc(text)).unwrap();
+        let v = parse(text).unwrap();
         assert_eq!(v, json!({"a": "x // not a comment", "b": [1, 2]}));
     }
 }

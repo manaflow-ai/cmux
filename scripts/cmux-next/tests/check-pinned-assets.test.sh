@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHECK="$ROOT/check-pinned-assets.sh"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/check-pinned-assets.XXXXXX")"
-trap 'rm -rf "$TMP"' EXIT
+git_fixture_trap_exit 'rm -rf "$TMP"'
 
 git -C "$TMP" init -q
 git -C "$TMP" config user.email test@example.com

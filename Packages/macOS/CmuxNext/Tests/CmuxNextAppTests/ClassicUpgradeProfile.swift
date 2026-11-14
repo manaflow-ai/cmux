@@ -8,7 +8,8 @@ import Foundation
 struct ClassicUpgradeProfile {
     /// A tab classic saved.
     enum Panel {
-        case terminal(scrollback: String? = nil)
+        /// `folder`: its own working directory (an absolute path), else its workspace's.
+        case terminal(scrollback: String? = nil, folder: String? = nil)
         case browser(String)
         /// Markdown or file preview: stays in classic.
         case viewer(String)
@@ -163,7 +164,8 @@ struct ClassicUpgradeProfile {
 
     private func panel(_ tab: Panel, id: String, folder: String) -> [String: Any] {
         switch tab {
-        case .terminal(let scrollback):
+        case .terminal(let scrollback, let own):
+            let folder = own ?? folder
             var terminal: [String: Any] = [key("workingDirectory"): folder, key("isRemoteTerminal"): false]
             if let scrollback { terminal["scrollback"] = scrollback }
             // Classic's oldest snapshots name no panel type: a terminal.

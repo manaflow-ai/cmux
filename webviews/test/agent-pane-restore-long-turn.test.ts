@@ -17,6 +17,7 @@
 // for older history, and the turns keep coming, in order, back to the first.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -29,7 +30,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
@@ -199,7 +201,9 @@ const everyPrompt = [...Array.from({ length: OLDER_TURNS }, (_, n) => `Question 
 test("a restored chat whose current turn outgrows a page shows the turn before it after one ask", async () => {
   // About 12 MB of current turn, the size measured on the reporting machine (5.6 MB and 13.5 MB).
   const TOOLS = 120;
-  const { client, stats, state, prompts, tools } = await open(chat(chatId(1), TOOLS, 4000));
+  // 120 outputs of 16 KB outgrow an older page's 1 MiB cap (direct.ts OLDER_PAGE_BYTES), as 4 KB
+  // outgrew its 256 KiB cap before, so the first ask still lands inside the current turn.
+  const { client, stats, state, prompts, tools } = await open(chat(chatId(1), TOOLS, 16_000));
   try {
     // The open is the current turn's tail, drawn under its prompt.
     expect(prompts()).toEqual(["The current turn"]);
@@ -228,16 +232,19 @@ test("a restored chat whose current turn outgrows a page shows the turn before i
 });
 
 test("a current turn longer than one ask reads is read on by the next ask, from where it stopped", async () => {
-  // Each tool output passes an older page's 256 KiB cap, so every record is a page of its own. Each
-  // ask reads one page and publishes it before the next ask advances the cursor.
+  // Each tool output passes an older page's 1 MiB cap (direct.ts OLDER_PAGE_BYTES), so every record is
+  // a page of its own. Each ask reads one page and publishes it before the next ask advances the cursor.
   const TOOLS = 12;
-  const { client, stats, state, prompts, tools } = await open(chat(chatId(2), TOOLS, 300 * 1024));
+  const { client, stats, state, prompts, tools } = await open(chat(chatId(2), TOOLS, 1100 * 1024));
   try {
     expect(prompts()).toEqual(["The current turn"]);
     stats.historyReads = 0;
     await client.loadOlder();
     // The first page is still inside the current turn, but it is visible and the cursor advances.
-    expect(stats.historyReads).toBe(1);
+    // One page for the ask (OLDER_PAGES_PER_ASK), then the next asks' pages read ahead as it lands
+    // (OLDER_AHEAD_PAGES, 4), which those asks take from memory.
+    expect(stats.historyReads).toBeGreaterThanOrEqual(1);
+    expect(stats.historyReads).toBeLessThanOrEqual(1 + 4);
     expect(prompts()).toEqual(["The current turn"]);
     expect(state.snapshot?.canLoadOlder).toBe(true);
     // The next ask goes on from there; it may still be inside the long turn, so keep asking until
@@ -257,36 +264,39 @@ test("a current turn longer than one ask reads is read on by the next ask, from 
 
 test("a titleless completed tool update survives a page boundary until its opener arrives", async () => {
   const id = chatId(3);
-  const huge = "result\n".repeat(80_000);
-  const history: Rec[] = [
-    ["mux", "user_message", { text: "Old", promptId: "p-old" }],
-    ["mux", "turn_started", {}],
+  // Past an older page's 1 MiB cap (direct.ts OLDER_PAGE_BYTES): the result is a page of its own.
+  const huge = "result\n".repeat(160_000);
+  const history: Rec[] = (
     [
-      "in",
-      "tool_call",
-      update(id, {
-        sessionUpdate: "tool_call",
-        toolCallId: "boundary-call",
-        title: "run old",
-        kind: "execute",
-        status: "in_progress",
-        rawInput: { command: "old" },
-      }),
-    ],
-    [
-      "in",
-      "tool_call_update",
-      update(id, {
-        sessionUpdate: "tool_call_update",
-        toolCallId: "boundary-call",
-        status: "completed",
-        content: [{ type: "content", content: { type: "text", text: huge } }],
-      }),
-    ],
-    ["mux", "turn_result", { stopReason: "end_turn" }],
-    ["mux", "user_message", { text: "Current", promptId: "p-current" }],
-    ["mux", "turn_started", {}],
-  ].map(([dir, kind, msg], index) => ({
+      ["mux", "user_message", { text: "Old", promptId: "p-old" }],
+      ["mux", "turn_started", {}],
+      [
+        "in",
+        "tool_call",
+        update(id, {
+          sessionUpdate: "tool_call",
+          toolCallId: "boundary-call",
+          title: "run old",
+          kind: "execute",
+          status: "in_progress",
+          rawInput: { command: "old" },
+        }),
+      ],
+      [
+        "in",
+        "tool_call_update",
+        update(id, {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "boundary-call",
+          status: "completed",
+          content: [{ type: "content", content: { type: "text", text: huge } }],
+        }),
+      ],
+      ["mux", "turn_result", { stopReason: "end_turn" }],
+      ["mux", "user_message", { text: "Current", promptId: "p-current" }],
+      ["mux", "turn_started", {}],
+    ] as [string, string, Record<string, unknown>][]
+  ).map(([dir, kind, msg], index) => ({
     sessionId: id,
     seq: index + 1,
     at: START + index * 1000,
@@ -298,9 +308,19 @@ test("a titleless completed tool update survives a page boundary until its opene
   try {
     await client.loadOlder();
     await client.loadOlder();
-    const tool = state.snapshot?.rows
-      .flatMap((row) => row.items ?? [])
-      .find((item) => item.kind === "tool") as { tool?: { id?: string; status?: string; output?: string } } | undefined;
+    const tool = state.snapshot?.rows.flatMap((row) => row.items ?? []).find((item) => item.kind === "tool") as
+      | {
+          tool?: {
+            id?: string;
+            title?: string;
+            kind?: string;
+            command?: string;
+            inputSummary?: string;
+            status?: string;
+            output?: string;
+          };
+        }
+      | undefined;
     expect(tool?.tool?.id).toBe("boundary-call");
     expect(tool?.tool?.title).toBe("run old");
     expect(tool?.tool?.kind).toBe("execute");
@@ -315,7 +335,12 @@ test("a titleless completed tool update survives a page boundary until its opene
 
 test("reused tool ids in different turns remain separate while paging", async () => {
   const id = chatId(4);
-  const step = (text: string, promptId: string, output: string, finish = true): [string, string, Record<string, unknown>][] => [
+  const step = (
+    text: string,
+    promptId: string,
+    output: string,
+    finish = true,
+  ): [string, string, Record<string, unknown>][] => [
     ["mux", "user_message", { text, promptId }],
     ["mux", "turn_started", {}],
     [

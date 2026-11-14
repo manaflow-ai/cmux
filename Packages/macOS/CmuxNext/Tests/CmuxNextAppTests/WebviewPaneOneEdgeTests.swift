@@ -121,10 +121,12 @@ extension MainPaneGutterSuites {
             }
 
             /// Every rounded outline where the main pane meets the window's `edge`, the window's own
-            /// frame included: a card standing off the edge (a gutter step), a stroke on the card, a
-            /// card corner that is not the window's, and a chrome shade band along the edge.
+            /// frame included: a card standing off the edge (a gutter step) beyond the window's lit rim,
+            /// a stroke on the card, a card corner not concentric inside the rim, and a chrome shade band
+            /// along the card's edge. The rim (`PaneTabRowRim.height`) is the window's own outline: the
+            /// card stays inside it (Leo 2026-11-07: "the window at the edges, it just doesn't show through").
             func outlines(at edge: NSRectEdge) -> [String] {
-                let windowRadius = CEFClipShape.windowCornerRadius(window)
+                let windowRadius = CEFClipShape.windowCornerRadius(window), rim = PaneTabRowRim.height
                 var found = ["window frame radius \(windowRadius)"]
                 let bounds = root.bounds, card = root.contentHost.frame
                 let gap: CGFloat = switch edge {
@@ -133,19 +135,20 @@ extension MainPaneGutterSuites {
                 case .minY: card.minY - bounds.minY
                 default: card.minX - bounds.minX
                 }
-                if gap > 0.25 { found.append("card \(gap) pt inside the window edge") }
+                if abs(gap - rim) > 0.25 { found.append("card \(gap) pt inside the window edge, not the rim's \(rim)") }
                 if let layer = root.contentHost.layer {
                     if layer.borderWidth > 0 { found.append("card border \(layer.borderWidth)") }
-                    if layer.masksToBounds, layer.cornerRadius > 0, abs(layer.cornerRadius - windowRadius) > 0.25 {
-                        found.append("card corner \(layer.cornerRadius) inside the window's \(windowRadius)")
+                    if layer.masksToBounds, layer.cornerRadius > 0, abs(layer.cornerRadius - (windowRadius - rim)) > 0.25 {
+                        found.append("card corner \(layer.cornerRadius) not concentric inside the window's \(windowRadius)")
                     }
                 }
-                // Half a point inside the window edge, along the pane's middle.
+                // Half a point inside the card's edge (just inside the rim), along the pane's middle.
+                let inset = rim + 0.5
                 let probe: CGPoint = switch edge {
-                case .maxY: CGPoint(x: card.midX, y: bounds.maxY - 0.5)
-                case .maxX: CGPoint(x: bounds.maxX - 0.5, y: card.midY)
-                case .minY: CGPoint(x: card.midX, y: bounds.minY + 0.5)
-                default: CGPoint(x: bounds.minX + 0.5, y: card.midY)
+                case .maxY: CGPoint(x: card.midX, y: bounds.maxY - inset)
+                case .maxX: CGPoint(x: bounds.maxX - inset, y: card.midY)
+                case .minY: CGPoint(x: card.midX, y: bounds.minY + inset)
+                default: CGPoint(x: bounds.minX + inset, y: card.midY)
                 }
                 let shade = root.mainPaneShade.layer?.sublayers?.lazy.compactMap { $0 as? CAShapeLayer }.first
                 if let shade, let path = shade.path, path.contains(probe, using: .evenOdd),
@@ -175,24 +178,28 @@ extension MainPaneGutterSuites {
         }
 
         @Test func theNewTabPageHasOneSurfaceEdge() throws {
-            let file = try Self.page("<html><body></body></html>")
-            defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-            let model = AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent))
-            let newTab = try #require(AgentPaneView(model: model, source: .bundled(file)))
-            let rig = Rig(content: newTab)
-            defer { rig.tearDown() }
-            try expectOneEdge(rig, content: newTab, "New Tab")
+            try MainPaneGutterSuites.onCurvedMainPane {
+                let file = try Self.page("<html><body></body></html>")
+                defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+                let model = AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent))
+                let newTab = try #require(AgentPaneView(model: model, source: .bundled(file)))
+                let rig = Rig(content: newTab)
+                defer { rig.tearDown() }
+                try expectOneEdge(rig, content: newTab, "New Tab")
+            }
         }
 
         /// A first-party page pane (History, Settings, App Store, Activity) is a `PageWebView`.
         @Test func aPagePaneHasOneSurfaceEdge() throws {
-            let file = try Self.page("<html><body></body></html>")
-            defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-            let descriptor = PageDescriptor(id: "test.one-edge", resource: "one-edge", namespaces: [])
-            let page = try #require(PageWebView(descriptor: descriptor, root: file.deletingLastPathComponent(), routes: []))
-            let rig = Rig(content: page)
-            defer { rig.tearDown() }
-            try expectOneEdge(rig, content: page, "page pane")
+            try MainPaneGutterSuites.onCurvedMainPane {
+                let file = try Self.page("<html><body></body></html>")
+                defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+                let descriptor = PageDescriptor(id: "test.one-edge", resource: "one-edge", namespaces: [])
+                let page = try #require(PageWebView(descriptor: descriptor, root: file.deletingLastPathComponent(), routes: []))
+                let rig = Rig(content: page)
+                defer { rig.tearDown() }
+                try expectOneEdge(rig, content: page, "page pane")
+            }
         }
 
         /// A webview pane's edges are any other pane's: a plain view (a terminal's place) gets the same one.
@@ -215,16 +222,18 @@ extension MainPaneGutterSuites {
         /// either side or hidden.
         @Test(arguments: [BackdropArt?.some(.friedrichForestMoonlight), nil])
         func whereThePaneMeetsTheWindowOneOutlineShows(art: BackdropArt?) throws {
-            try #require(Metrics.mainPaneCurved, "the curved main pane is on by default")
-            try MainPaneGutterSuites.withGutter(0) {
-                for (side, hidden) in [(SidebarSide.left, false), (.right, false), (.left, true)] {
-                    let rig = Rig(content: NSView(), art: art, sidebarSide: side, sidebarHidden: hidden)
-                    defer { rig.tearDown() }
-                    if art != nil { try #require(rig.root.backdrop.art != nil, "the window shows wallpaper art") }
-                    let what = "\(art.map { "art \($0.rawValue)" } ?? "opaque"), sidebar \(hidden ? "hidden" : side.rawValue)"
-                    for edge in rig.windowEdges {
-                        let outlines = rig.outlines(at: edge)
-                        #expect(outlines.count == 1, "\(what), window edge \(edge.rawValue): one outline, got \(outlines)")
+            try MainPaneGutterSuites.onCurvedMainPane {
+                try #require(Metrics.mainPaneCurved, "the curved main pane is on by default")
+                try MainPaneGutterSuites.withGutter(0) {
+                    for (side, hidden) in [(SidebarSide.left, false), (.right, false), (.left, true)] {
+                        let rig = Rig(content: NSView(), art: art, sidebarSide: side, sidebarHidden: hidden)
+                        defer { rig.tearDown() }
+                        if art != nil { try #require(rig.root.backdrop.art != nil, "the window shows wallpaper art") }
+                        let what = "\(art.map { "art \($0.rawValue)" } ?? "opaque"), sidebar \(hidden ? "hidden" : side.rawValue)"
+                        for edge in rig.windowEdges {
+                            let outlines = rig.outlines(at: edge)
+                            #expect(outlines.count == 1, "\(what), window edge \(edge.rawValue): one outline, got \(outlines)")
+                        }
                     }
                 }
             }

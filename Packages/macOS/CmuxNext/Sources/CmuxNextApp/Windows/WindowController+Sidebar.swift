@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextLiveCode
 import CmuxNextPages
 
 extension WindowController {
@@ -24,13 +25,19 @@ extension WindowController {
             self?.root.layoutSubtreeIfNeeded()
             self?.relayoutTopRowStrips()
         }
+        // Swift live mode's mark: in the sidebar's footer, and in the top row while the sidebar is hidden.
+        services.liveCode.whenLive { [weak self] in
+            self?.sidebar.container.sidebarView.liveModeBadge = LiveModeBadgeView()
+            self?.root.liveModeBadge = LiveModeBadgeView()
+            self?.relayoutTopRowStrips()
+        }
+        sidebar.container.sidebarView.healthIndicator = services.healthFeeds.makeIndicator { [weak self] in self?.window } // app health's footer line
+        root.sidebarFloat.isAllowed = { [weak self] in self.map { $0.state.page != .home && !$0.root.presentsPage } ?? false }
         let model = sidebar.model
         sidebarObservation = Task { [weak self] in
             for await hidden in ObservationStream({ model.isHidden }) {
                 guard let self else { return }
-                if hidden { services.hoverCards.suppress(.sidebarHide) }
-                else { services.hoverCards.unsuppress(.sidebarHide) }
-                if hidden { services.hoverCards.dismiss(.action) }
+                if hidden { services.hoverCards.suppress(.sidebarHide); services.hoverCards.dismiss(.action) } else { services.hoverCards.unsuppress(.sidebarHide) }
                 root.showsTitlebarBadge = hidden && root.titlebarBadge != nil
                 root.sidebarHidden = hidden
                 root.layoutSubtreeIfNeeded()
@@ -53,8 +60,8 @@ extension WindowController {
     /// and in the top row after the traffic lights while the sidebar is
     /// hidden (strips under it start after it).
     func showIncognitoBadge() {
-        sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView()
-        root.titlebarBadge = IncognitoBadgeView()
+        sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView(title: WindowStrings.incognitoBadge, help: WindowStrings.incognitoHelp)
+        root.titlebarBadge = IncognitoBadgeView(title: WindowStrings.incognitoBadge, help: WindowStrings.incognitoHelp)
         root.showsTitlebarBadge = sidebar.model.isHidden
         root.needsLayout = true
     }

@@ -47,6 +47,38 @@ import Testing
         #expect(incoming == AgentIncoming(messages: [.init(sender: "build-box/lane-3", text: body)], messageID: "4f4d68ff", raw: text))
     }
 
+    @Test func plainSendFromACodexShellIsThatAgentsCardWithItsHarness() throws {
+        // acpmux cli/sender.rs: a Codex or Claude Code shell outside acpmux names `<harness>@<host>`.
+        let provenance = try json(#"{"kind":"agent_message","from":"fromAgent","fromName":"codex@workstation","to":"s-1","fromHarness":"codex"}"#)
+        let text = "Message from an audit agent: scope corrected."
+        let incoming = AgentIncoming.parse(text: text, provenance: provenance)
+        #expect(incoming?.messages == [.init(sender: "codex@workstation", text: text)])
+        #expect(incoming?.harness == "codex")
+        // acpmux now keeps a local sender's harness as its claim: still the card's mark.
+        let claimed = try json(#"{"kind":"agent_message","from":"fromAgent","fromName":"codex@workstation","to":"s-1","claimed":{"fromHarness":"codex"}}"#)
+        #expect(AgentIncoming.parse(text: text, provenance: claimed)?.harness == "codex")
+    }
+
+    @Test func aPromptAcpmuxCouldNotAttributeIsAnUnverifiedCardNeverThePersons() throws {
+        // acpmux prompt_provenance.rs `unverified`: a plain `acpmux send` that proves no one.
+        let provenance = try json(#"{"kind":"unverified","to":"s-1","transport":"unix","verified":false}"#)
+        let unnamed = AgentIncoming.parse(text: "Merged the fix", provenance: provenance)
+        #expect(unnamed?.unverified == true)
+        #expect(unnamed?.messages == [.init(sender: "", text: "Merged the fix")])
+        // A name it signs first is only its claim: the card names it, still unverified.
+        let named = AgentIncoming.parse(text: "[coord-deputy] Merged the fix", provenance: provenance)
+        #expect(named?.unverified == true)
+        #expect(named?.messages == [.init(sender: "coord-deputy", text: "Merged the fix")])
+    }
+
+    @Test func anEditedAgentsMessageStaysTheAgentsAndSaysItWasEdited() throws {
+        let provenance = try json(#"{"kind":"agent_message","from":"fromAgent","fromName":"lane-a","to":"s-1","editedBy":{"actor":"owner"}}"#)
+        let incoming = AgentIncoming.parse(text: "rebase first", provenance: provenance)
+        #expect(incoming?.messages == [.init(sender: "lane-a", text: "rebase first")])
+        #expect(incoming?.edited == true)
+        #expect(incoming?.unverified == false)
+    }
+
     @Test func labelNamesTheSenderWhenNothingElseDoes() {
         let text = relayed(body)
         // An older acpmux's `acpmux send` at a shell, with no provenance.
@@ -70,7 +102,7 @@ import Testing
         --- end of message m-1 ---
         """
         let incoming = AgentIncoming.parse(text: text, provenance: provenance)
-        #expect(incoming?.messages == [.init(sender: "Grid fix", text: "Tests pass.")])
+        #expect(incoming?.messages == [.init(sender: "Grid fix", text: "Tests pass.", senderID: "child-3")])
         #expect(incoming?.messageID == "m-1")
     }
 
@@ -184,6 +216,25 @@ import Testing
         #expect(store.turns.last?.incoming?.text == "Merged #36125")
     }
 
+    /// A prompt an unverified sender (a plain `acpmux send`, a Cloud phone) sent with an image is its
+    /// card, and the card's row keeps the image: the person's bubble no longer draws it.
+    @MainActor @Test func anIncomingCardKeepsThePromptsAttachments() throws {
+        let store = AgentChatStore(source: Recorder())
+        let image = AgentAttachment(id: "img-1", kind: .image, name: "screen.png", data: Data([1]))
+        store.apply(.userMessage(text: "Look at this", promptId: "p-1", turnId: "t-1", attachments: [image], at: Date()))
+        let provenance = try json(#"{"kind":"unverified","to":"s-1","transport":"unix","verified":false}"#)
+        store.apply(.promptFrom(turnId: "t-1", incoming: try #require(AgentIncoming.parse(text: "Look at this", provenance: provenance))))
+        let rows = ChatTranscriptBuilder(diffs: ChatDiffCache()).build(turns: store.turns, pendingPermission: nil, askOpen: false,
+                                                                         permissionBarHidden: false)
+        let row = try #require(rows.flatMap(\.rows).first { $0.id == "u-t-1" })
+        guard case .incoming(let incoming, let attachments, _) = row.kind else {
+            Issue.record("the prompt is not an incoming card: \(row.kind)")
+            return
+        }
+        #expect(incoming.unverified)
+        #expect(attachments.map(\.id) == ["img-1"])
+    }
+
     @Test func personsPromptAndUnknownTextStayAsWritten() throws {
         #expect(AgentIncoming.parse(text: "Fix the grid", provenance: nil) == nil)
         let person = try json(#"{"kind":"person_message","from":"s-1","fromName":"Ana"}"#)
@@ -209,5 +260,39 @@ import Testing
         let notice = "[inbox] New messages from other agents in 1 thread.\n- 1 new in messages from lane-b: Merged #36125 (thread pr:1)"
         let provenance = try json(#"{"kind":"inbox_notice","threads":[{"threadId":"pr:1","from":["lane-b"]}]}"#)
         #expect(AgentIncoming.parse(text: notice, provenance: provenance)?.messages == [.init(sender: "lane-b", text: "Merged #36125")])
+    }
+
+    /// CMUX-51: a message a Chief's turn sent (acpmux `stamp_chief` puts `fromChief` on an
+    /// `agent_message` or `session_message`) keeps the Chief as its sender and is marked as the
+    /// Chief's, so the transcript draws its blue bubble, never the person's.
+    @Test func chiefStampMarksTheChiefsMessage() throws {
+        let session = try json(#"{"kind":"session_message","from":"optchat-home-12","fromName":"Ops Chief","fromChief":"agent_ops"}"#)
+        let incoming = AgentIncoming.parse(text: "Rebase #36125.", provenance: session)
+        #expect(incoming?.chief == "agent_ops")
+        #expect(incoming?.messages == [.init(sender: "Ops Chief", text: "Rebase #36125.")])
+        let message = try json(#"{"kind":"agent_message","from":"acp:s-9","fromName":"Codex Chief","fromChief":"agent_codex","msgId":"m1"}"#)
+        #expect(AgentIncoming.parse(text: "Post the build.", provenance: message)?.chief == "agent_codex")
+    }
+
+    @Test func noChiefWithoutAValidStampOrOnOtherKinds() throws {
+        // Another agent's message: no Chief.
+        let plain = try json(#"{"kind":"session_message","from":"lane-a","fromName":"lane-a"}"#)
+        #expect(AgentIncoming.parse(text: "Merged.", provenance: plain)?.chief == nil)
+        // An id not in a Chief's shape is not one.
+        let forged = try json(#"{"kind":"session_message","from":"lane-a","fromChief":"me"}"#)
+        #expect(AgentIncoming.parse(text: "Merged.", provenance: forged)?.chief == nil)
+        // acpmux stamps only two kinds; an unverified sender claiming it is never the Chief's.
+        let unverified = try json(#"{"kind":"unverified","fromChief":"agent_ops"}"#)
+        #expect(AgentIncoming.parse(text: "Merged.", provenance: unverified)?.chief == nil)
+        // The person's own prompt stays theirs (no card at all).
+        let person = try json(#"{"kind":"person_message","fromChief":"agent_ops"}"#)
+        #expect(AgentIncoming.parse(text: "Hi", provenance: person) == nil)
+    }
+
+    /// A payload written before the field (the transcript's disk cache) still decodes, with no Chief.
+    @Test func olderPayloadDecodesWithNoChief() throws {
+        let old = #"{"messages":[{"sender":"lane-a","text":"hi"}],"raw":"hi","unverified":false,"edited":false}"#
+        let incoming = try JSONDecoder().decode(AgentIncoming.self, from: Data(old.utf8))
+        #expect(incoming.chief == nil)
     }
 }

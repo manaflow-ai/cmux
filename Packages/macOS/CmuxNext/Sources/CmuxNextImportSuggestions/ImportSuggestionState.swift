@@ -84,13 +84,6 @@ public nonisolated struct ImportSuggestionState: Codable, Sendable, Equatable {
     /// Card id to the fingerprint it had when dismissed.
     public var dismissed: [String: String] = [:]
     public var requests: [ImportRequest] = []
-    /// The sidebar's one-time Import from Conductor note was closed (``ConductorNote``): it never
-    /// shows again. Optional, so the state saved before it still decodes.
-    public var conductorNoteClosed: Bool?
-    /// Import from Conductor finished once (``ConductorNote``): the note never shows again, even
-    /// after the job ledger prunes the finished job. Optional, so the state saved before it still
-    /// decodes.
-    public var conductorImportRan: Bool?
 
     /// The most open requests kept; an older one goes when a new one comes.
     public static let maximumRequests = 6

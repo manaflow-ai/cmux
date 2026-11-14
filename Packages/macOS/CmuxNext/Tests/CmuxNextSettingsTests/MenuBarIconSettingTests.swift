@@ -12,7 +12,7 @@ struct MenuBarIconSettingTests {
     @Test func onByDefault() {
         let snapshot = Self.parse(nil)
         #expect(snapshot.showMenuBarIcon)
-        #expect(CmuxConfigSnapshot.showMenuBarIconFallback)
+        #expect(CmuxConfigSnapshot.showMenuBarIconDefault)
         #expect(snapshot.diagnostics.isEmpty)
     }
 

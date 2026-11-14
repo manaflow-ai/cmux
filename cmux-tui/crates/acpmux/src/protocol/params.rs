@@ -84,12 +84,20 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "argv",
     "author",
     "beforePromptId",
+    "callerKind",
+    "callerProtocol",
     "callerSession",
+    "cancelToken",
+    "class",
     "cliHost",
+    "compression",
     "context",
+    "createdBy",
     "cwd",
     "decisionNonce",
+    "disallowedTools",
     "dispatchSource",
+    "effort",
     "env",
     "ephemeral",
     "forceAdmit",
@@ -130,6 +138,10 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "requireFullAccess",
     "resend",
     "route",
+    "sessionCreatedAt",
+    "senderHarness",
+    "senderHarnessChecked",
+    "senderToken",
     "spawnToolCallId",
     "startLater",
     "steer",
@@ -137,13 +149,17 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "steerOnly",
     "supersede",
     "surface",
+    "tags",
     "teamMessage",
     "throughSeq",
+    "throwaway",
+    "topic",
     "via",
     "vmBoundary",
     "waitStart",
     "workflowAllowedTools",
     "workspaceId",
+    "worktree",
 ];
 
 keyed! {
@@ -169,8 +185,12 @@ keyed! {
     BookmarkGetParams: ["sessionId"];
     /// `_acpmux/bookmark_set`.
     BookmarkSetParams: ["sessionId", "seq", "bookmarked"];
+    /// `_acpmux/memory_resolve`.
+    MemoryResolveParams: ["sessionId", "offerId", "file", "accept", "dismiss"];
+    /// `_acpmux/prompt_coach`.
+    PromptCoachParams: ["sessionId", "coachId"];
     /// `_acpmux/btw`.
-    BtwParams: ["sessionId", "question", "model", "inline"];
+    BtwParams: ["sessionId", "question", "model", "inline", "targetHarness"];
     /// `_acpmux/chat/route.set`.
     ChatRouteSetParams: ["sessionId", "routeId", "when"];
     /// `_acpmux/draft_get`.
@@ -200,11 +220,11 @@ keyed! {
     /// `initialize`.
     InitializeParams: ["protocolVersion", "clientCapabilities", "clientInfo"];
     /// `_acpmux/kill`.
-    KillParams: ["sessionId", "purge"];
+    KillParams: ["sessionId", "purge", "cancelFork", "cancelToken", "ifIdle", "expectRevision"];
     /// `_acpmux/mcp/reconnect`.
     McpReconnectParams: ["sessionId", "server"];
     /// `_acpmux/models`.
-    ModelsParams: ["refresh", "probe"];
+    ModelsParams: ["refresh", "probe", "localOnly"];
     /// `_acpmux/native_history`.
     NativeHistoryParams: ["sessionId", "before", "mark"];
     /// `_acpmux/offer_respond`.

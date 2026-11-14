@@ -43,6 +43,39 @@ impl ReaderCompletion {
     }
 }
 
+/// The seat of a terminal whose child is `process`, held by the terminal's
+/// runtime from here to its drop. It is taken when the runtime is made, which
+/// is before the terminal enters the session state: the accept loop counts
+/// the terminal's connections as a terminal's from this moment, and asks no
+/// session state for it (`diagnostics/terminal_seats.rs`). The seat names
+/// `terminal`, so the accept also reads from it which terminal a client is in.
+pub(super) fn terminal_seat(
+    mux: &Weak<Mux>,
+    process: Option<u32>,
+    terminal: &Option<TerminalPublicId>,
+) -> crate::diagnostics::TerminalSeat {
+    let terminal = terminal.as_ref().map(TerminalPublicId::as_str);
+    match mux.upgrade() {
+        Some(mux) => mux.connection_stats().seat_terminal(process, terminal),
+        None => crate::diagnostics::TerminalSeat::unseated(process),
+    }
+}
+
+/// Where the host that starts a terminal of `mux` takes its seat
+/// (`diagnostics/terminal_seats.rs`, `HostSeating`): before the host starts
+/// the terminal's child, so that child's first connection is the terminal's.
+#[cfg(any(unix, windows))]
+pub(super) fn host_seating(
+    mux: &Weak<Mux>,
+    terminal: &Option<TerminalPublicId>,
+) -> crate::diagnostics::HostSeating {
+    let terminal = terminal.as_ref().map(TerminalPublicId::as_str);
+    match mux.upgrade() {
+        Some(mux) => crate::diagnostics::HostSeating::of(mux.connection_stats().clone(), terminal),
+        None => crate::diagnostics::HostSeating::default(),
+    }
+}
+
 pub(super) struct ReaderCompletionGuard(pub(super) Arc<ReaderCompletion>);
 
 impl Drop for ReaderCompletionGuard {
@@ -113,12 +146,19 @@ impl PtyTerminalRuntime {
             metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
         }
         metadata.observe_output(bytes);
+        if self.tail_pin.feed(bytes)
+            && let Some(mux) = self.mux.upgrade()
+        {
+            mux.queue_terminal_tail(self.event_surface_id);
+        }
         metadata.take_admitted_notifications(Instant::now())
     }
 
     /// Applies the OSC 133 marks of the output just written to `term`. With
-    /// `recording` false (the default) marks are dropped, any running command
-    /// is forgotten, and nothing is read from the screen. The command line
+    /// `recording` [`Off`](crate::shell_history::Recording::Off) (the
+    /// default) marks are dropped, any running command and the last one are
+    /// forgotten, and nothing is read from the screen; with `LastCommand` the
+    /// tracker keeps its newest command and returns none. The command line
     /// comes from Ghostty's semantic input cells, so a command typed before
     /// recording turned on is still read whole at `C`. It also notes whether
     /// a running command set the terminal up for interactive use
@@ -126,8 +166,9 @@ impl PtyTerminalRuntime {
     pub(super) fn observe_shell_marks(
         &self,
         term: &mut Terminal,
-        recording: impl FnOnce() -> bool,
+        recording: impl FnOnce() -> crate::shell_history::Recording,
     ) -> Vec<crate::shell_history::FinishedCommand> {
+        use crate::shell_history::Recording;
         let marks = {
             let mut metadata = self.terminal_metadata.lock().unwrap();
             // The modes after this output: a running command that took the
@@ -138,14 +179,33 @@ impl PtyTerminalRuntime {
         if marks.is_empty() {
             return Vec::new();
         }
-        let mut tracker = self.command_tracker.lock().unwrap();
-        if !recording() {
+        let mut tracker =
+            self.command_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let recording = recording();
+        if recording == Recording::Off {
             tracker.reset();
             return Vec::new();
         }
         let mut screen = crate::shell_history::TerminalCommandScreen(term);
         let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
-        marks.into_iter().filter_map(|mark| tracker.apply(mark, now_ms, &mut screen)).collect()
+        let finished: Vec<_> =
+            marks.into_iter().filter_map(|mark| tracker.apply(mark, now_ms, &mut screen)).collect();
+        if recording == Recording::History { finished } else { Vec::new() }
+    }
+
+    /// The newest finished command the tracker kept, if any.
+    pub(super) fn last_finished_command(&self) -> Option<crate::shell_history::FinishedCommand> {
+        self.command_tracker
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .last()
+            .cloned()
+    }
+
+    /// The command a park keeps: the running one, else the newest finished one.
+    pub(super) fn kept_command(&self) -> Option<crate::shell_history::FinishedCommand> {
+        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+        self.command_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).kept(now_ms)
     }
 
     pub(super) fn terminal_osc_progress(&self) -> String {
@@ -233,6 +293,8 @@ pub struct PtyTerminalRuntime {
     /// while `SurfaceMeta::resource_identity` belongs to one view placement.
     pub(super) terminal_public_id: Option<Arc<TerminalPublicId>>,
     pub(super) journal_generation: Arc<str>,
+    /// This terminal's handle on its output store log (record_output).
+    pub(super) output_log: crate::output_store::OutputLogCache,
     /// Legacy terminal hosts remain attachable, but cannot source-fence
     /// output at daemon shutdown and therefore never enter journal capture.
     pub(super) journal_capture_supported: bool,
@@ -264,6 +326,9 @@ pub struct PtyTerminalRuntime {
     /// or roster knowledge, so userland plugins can consume it through the
     /// resource API without moving detection policy into core.
     pub(super) terminal_metadata: Mutex<crate::terminal_metadata::TerminalMetadata>,
+    /// The last line of a pinned terminal (`terminal-tail-pin-v1`); idle
+    /// unless the terminal is pinned.
+    pub(crate) tail_pin: crate::terminal_tail::TailPinSlot,
     /// OSC 133 command tracking (`terminal-command-history-v1`); idle unless
     /// the daemon records terminal commands.
     pub(super) command_tracker: Mutex<crate::shell_history::CommandTracker>,
@@ -279,7 +344,9 @@ pub struct PtyTerminalRuntime {
     pub(super) pending_host_binding: Mutex<Option<crate::mux::PendingTerminalHostBinding>>,
     #[cfg(any(unix, windows))]
     pub(super) host_exit_record_path: Option<PathBuf>,
-    pub(super) pid: Option<u32>,
+    /// The child's process id, with the terminal's seat among the session's
+    /// terminals (`terminal_seat`).
+    pub(super) pid: crate::diagnostics::TerminalSeat,
     pub(super) command: Vec<String>,
     pub(super) cwd: Option<String>,
     /// How this incarnation ended, with its provenance (process end versus

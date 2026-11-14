@@ -27,6 +27,7 @@
 mod catalog;
 mod cli;
 mod deploy;
+pub mod hidden;
 mod interfaces;
 mod issue;
 pub mod module_store;
@@ -91,6 +92,7 @@ pub fn validate_manifest(manifest: &Value) -> Vec<Issue> {
     if issues.is_empty() {
         issues.extend(rules::check(manifest));
     }
+    issues.extend(hidden::manifest_issues(manifest));
     issues
 }
 

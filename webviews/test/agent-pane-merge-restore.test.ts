@@ -38,7 +38,8 @@ test("a loaded reply image has no entrance animation", () => {
 test("the turn footer actions sit on the left, and Debug Settings can put them on the right (#21344)", () => {
   expect(rule(".cv-turn-actions")?.style.justifyContent).toBe("flex-start");
   expect(rule(':root[data-turn-actions-placement="right"] .cv-turn-actions')?.style.justifyContent).toBe("flex-end");
-  expect(app).toContain("configureTurnActionsPlacement(theme.turnActionsPlacement)");
+  expect(app).toContain("applyPaneTheme(");
+  expect(read("paneTheme.ts")).toContain("configureTurnActionsPlacement(theme.turnActionsPlacement)");
 });
 
 test("disclosure rows are keyed by their chat (#21344)", () => {

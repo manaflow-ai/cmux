@@ -151,6 +151,11 @@ import Testing
         column.host.isOnLayoutSpring = true
         column.host.announceRest()
         #expect(column.page.frame.width == 384, "the close target was not held: \(column.page.frame)")
+        // The spring's first frame: the pane is on its way to the wider rest when the reopen comes. (A retarget while
+        // the pane is still at the new rest's place and size is a pane at rest: it holds nothing, `contentFrame`.)
+        column.host.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
+        column.host.layoutSubtreeIfNeeded()
+        #expect(column.page.frame.width == 384, "the close's first frame resized the chat: \(column.page.frame)")
 
         // Reopen before landing, then present two intermediate widths: the page keeps its larger size through them.
         column.host.restSize = CGSize(width: 200, height: 300)

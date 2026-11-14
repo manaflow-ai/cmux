@@ -1,27 +1,25 @@
-/// Where Cmd-T and the strip's + put a new tab (cx-d0d.58). Right after the current tab by
-/// default (Lawrence 2026-10-20, was the end as in Chrome); New Tab After Current Tab, New Tab
-/// at Start and New Tab at End (and the tab menu's New Tab to the Right) ignore the setting.
-public nonisolated enum NewTabPosition: String, Sendable, Hashable, CaseIterable {
-    /// Right after the selected tab (after its tab group), the default.
-    case afterCurrent
-    /// At the end of the pane's tabs.
-    case end
-    /// First, right after the pinned tabs.
-    case start
-}
+// NewTabPosition, its paths and defaults are generated from schemas/settings/source/tabs.json
+// (SettingsSchema+TabsChoices.generated.swift, SettingsSchema+Tabs.generated.swift).
 
-/// `tabs.newTabPosition` in cmux.json: "afterCurrent" (default), "end" or "start".
+/// `tabs.newTabPosition` (Cmd-T: "afterCurrent" by default) and `tabs.newTabButtonPosition` (the
+/// strip's +: "end" by default) in cmux.json, each "afterCurrent", "end" or "start".
 nonisolated extension NewTabPosition {
-    public static let configPath = ["tabs", "newTabPosition"]
-    public static let fallback: NewTabPosition = .afterCurrent
-
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.
     static func parse(_ root: JSONValue) -> (NewTabPosition, SettingsDiagnostic?) {
-        guard let value = root.value(at: configPath) else { return (fallback, nil) }
+        parse(root, at: configPath, fallback: fallback)
+    }
+
+    /// `tabs.newTabButtonPosition`, read like `tabs.newTabPosition`.
+    static func parseButton(_ root: JSONValue) -> (NewTabPosition, SettingsDiagnostic?) {
+        parse(root, at: buttonPath, fallback: buttonDefault)
+    }
+
+    private static func parse(_ root: JSONValue, at path: [String], fallback: NewTabPosition) -> (NewTabPosition, SettingsDiagnostic?) {
+        guard let value = root.value(at: path) else { return (fallback, nil) }
         guard let text = value.stringValue, let position = NewTabPosition(rawValue: text) else {
             let choices = NewTabPosition.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
-            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "tabs.newTabPosition", message: "expected one of \(choices)"))
+            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected one of \(choices)"))
         }
         return (position, nil)
     }
@@ -30,4 +28,6 @@ nonisolated extension NewTabPosition {
 extension CmuxConfigSnapshot {
     /// `tabs.newTabPosition`; "afterCurrent" when unset or invalid (the diagnostic is in `diagnostics`).
     public var newTabPosition: NewTabPosition { NewTabPosition.parse(root).0 }
+    /// `tabs.newTabButtonPosition`; "end" when unset or invalid (the diagnostic is in `diagnostics`).
+    public var newTabButtonPosition: NewTabPosition { NewTabPosition.parseButton(root).0 }
 }

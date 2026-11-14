@@ -14,7 +14,7 @@ import Observation
 /// (`CollapsedBandReveal`, 2026-10-09); `presence` follows the larger of the
 /// two on-screen widths, frame by frame (`WindowRootView.layout`).
 final class TitlebarToolbarBand: NSView {
-    let sidebarToggle = TitlebarBandButton(symbol: SidebarToggleIcon.currentCollapseSymbol)
+    let sidebarToggle = TitlebarBandButton(symbol: SidebarToggleIcon.panel.symbol(sidebarHidden: false))
     /// How much of the band shows: 1 with the sidebar shown, 0 with it
     /// hidden, in between while the sidebar's width (or the corner hover's
     /// `CollapsedBandReveal`) animates. The items close up toward the band's
@@ -34,6 +34,12 @@ final class TitlebarToolbarBand: NSView {
     }
     /// The sidebar state the toggle's glyph shows.
     private(set) var showsSidebarHidden = false
+    /// Where the sliding glyph's bar is (`SidebarToggleIcon.slides`): 0 at its sidebar-shown form, 1 at its hidden form.
+    private var glyphProgress: Double = 0
+    /// The leg the bar slides on, from and to a progress.
+    private var glyphLeg = (from: 0.0, to: 0.0)
+    /// Slides the bar with the sidebar's width, on the same clock and for the same time, so the two move as one.
+    private(set) lazy var glyphMotion = TimedProgress { [weak self] progress in self?.stepGlyph(progress) }
     private var iconObservation: Task<Void, Never>?
     /// Back and Forward through the location trail (R69).
     let backButton = TitlebarBandButton(symbol: "chevron.left")
@@ -50,6 +56,7 @@ final class TitlebarToolbarBand: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         sidebarToggle.customImage = SidebarToggleIcon.image(named:pointSize:) // its candidate glyphs
+        TitlebarBandButton.styleTopRow(toggle: sidebarToggle, back: backButton, forward: forwardButton) // one glyph height
         sidebarToggle.target = self
         sidebarToggle.action = #selector(toggle)
         backButton.target = self
@@ -58,6 +65,9 @@ final class TitlebarToolbarBand: NSView {
         forwardButton.action = #selector(goForward)
         backButton.menuProvider = { [weak self] in self?.historyMenu?(.back) }
         forwardButton.menuProvider = { [weak self] in self?.historyMenu?(.forward) }
+        // A dimmed arrow (nowhere to go) still lists Recently Closed and Show Full History.
+        backButton.opensMenuWhenDisabled = true
+        forwardButton.opensMenuWhenDisabled = true
         [sidebarToggle, backButton, forwardButton].forEach(addSubview)
         sidebarToggle.setAccessibilityIdentifier("cmux.titlebar.toggleSidebar")
         backButton.setAccessibilityIdentifier("cmux.titlebar.back")
@@ -86,7 +96,8 @@ final class TitlebarToolbarBand: NSView {
         direction == .back ? backButton : forwardButton
     }
 
-    /// Back and Forward are enabled only when the trail has somewhere to go.
+    /// Back and Forward click only when the trail has somewhere to go; their right-click list
+    /// opens either way (`opensMenuWhenDisabled`).
     func setHistoryEnabled(back: Bool, forward: Bool) {
         backButton.isEnabled = back
         forwardButton.isEnabled = forward
@@ -111,28 +122,39 @@ final class TitlebarToolbarBand: NSView {
     @objc func toggle() { onToggleSidebar?() }
 
     /// The toggle's glyph follows the sidebar and the chosen icon
-    /// (`SidebarToggleIcon`): with the default, collapse-left while it
-    /// shows, the sidebar glyph while it is hidden (Leo, T3 Code ref).
+    /// (`SidebarToggleIcon`). The default panel's bar slides from one form to
+    /// the other as the sidebar opens or closes (Leo 2026-11-09: "with teh
+    /// animation too on click"); a slide under way turns around from where it
+    /// shows. The other icons swap at once.
     func showSidebarState(hidden: Bool) {
+        let changed = hidden != showsSidebarHidden
         showsSidebarHidden = hidden
-        sidebarToggle.symbol = SidebarToggleIcon.tunable.value(in: iconStore).symbol(sidebarHidden: hidden)
+        let icon = SidebarToggleIcon.tunable.value(in: iconStore)
+        let target: Double = hidden ? 1 : 0
+        guard icon.slides, changed || glyphMotion.isRunning else {
+            glyphMotion.stop()
+            glyphProgress = target
+            sidebarToggle.symbol = icon.symbol(sidebarHidden: hidden)
+            return
+        }
+        guard changed else { return }
+        glyphLeg = (glyphProgress, target)
+        let duration = Motion.sidebar.canAnimate(in: self) ? Motion.sidebar.duration(hidden ? .disappear : .appear, in: window) : 0
+        glyphMotion.run(duration: duration, in: self, trace: "sidebar.toggleGlyph")
     }
 
-    /// The band's full width: the toggle, a group gap (`space3`, as after
-    /// the traffic lights), then Back and Forward `space1` apart.
-    static var width: CGFloat { TitlebarBandButton.side * 3 + Metrics.space3 + Metrics.space1 }
+    /// One frame of the bar's slide.
+    private func stepGlyph(_ progress: Double) {
+        glyphProgress = glyphLeg.from + (glyphLeg.to - glyphLeg.from) * progress
+        sidebarToggle.symbol = SidebarToggleIcon.slideSymbol(progress: glyphProgress)
+    }
 
-    /// Each item is `presence` of its width, and the gaps close with it, so
-    /// the band reaches 0 width with no jump.
+    private let ink = GlyphInkMeasure()
+    /// The buttons' slots: one ink gap between glyphs (`TopRowSpacing`); each item and gap is `presence` of it.
+    var slots: TopRowSpacing.Slots { ink.slots(for: [sidebarToggle, backButton, forwardButton].map(\.image), gap: TopRowSpacing.glyphGap) }
     override func layout() {
         super.layout()
-        let side = TitlebarBandButton.side
-        let width = side * presence
-        var x: CGFloat = 0
-        for (button, gap) in [(sidebarToggle, Metrics.space3), (backButton, Metrics.space1), (forwardButton, 0)] {
-            button.frame = NSRect(x: x, y: (bounds.height - side) / 2, width: width, height: side)
-            x += (side + gap) * presence
-        }
+        for (button, frame) in zip([sidebarToggle, backButton, forwardButton], slots.frames(presence: presence, height: bounds.height)) { button.frame = frame }
     }
 
     /// Names the toggle with its action title and bound key.

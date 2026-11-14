@@ -33,6 +33,10 @@ public nonisolated enum SidebarGroupBy: String, Hashable, Sendable, CaseIterable
     case none
     /// A header per folder: the front tab's working directory.
     case folder
+    /// Projects and Recents, as the ChatGPT app's sidebar (Lawrence 2026-11-05): every group under a
+    /// "Projects" header (the first five, then "Show N more"), then every workspace in no group under
+    /// "Recents", the newest activity first.
+    case recents
 }
 
 public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
@@ -96,6 +100,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// button, spaces strip, profile control and Search button show only while the pointer is over
     /// the sidebar. Off by default: they always show.
     public var controlsOnHover = false
+    /// `sidebar.floatOnHover` (Lawrence 2026-11-08): with the sidebar hidden, the pointer resting on
+    /// the window's sidebar edge floats the sidebar over the content until the pointer leaves it.
+    /// On by default.
+    public var floatOnHover = true
     /// Minimal mode (`sidebar.minimal`, cx-w1r5; Lawrence 2026-10-09: "some
     /// people like minimal mode"): workspace rows draw only their icon, name,
     /// unread mark and attention state (no second line, no counts or badges,
@@ -114,9 +122,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// and keeps every stored color (Lawrence 2026-10-22: "need to be able to remove all
     /// workspace colors"). On by default.
     public var showColors = true
-    /// `workspaceColors.indicatorStyle` (#25653): a workspace's color as its row's dot (the
-    /// default), a leading rail or the whole row's fill. `showColors` off draws none of them.
-    public var workspaceColorIndicator: WorkspaceColorIndicatorStyle = .dot
+    /// `workspaceColors.indicatorStyle` (#25653): a workspace's color as its row's dot, a leading
+    /// rail (the default, as in classic: Lawrence 2026-11-09, "red dot on left feels weird") or the
+    /// whole row's fill. `showColors` off draws none of them.
+    public var workspaceColorIndicator: WorkspaceColorIndicatorStyle = .leftRail
     /// `sidebar.showLocalMachine`: with more than one machine listed, this Mac's workspace rows
     /// carry its machine mark too. Off by default (Leo 2026-10-20): only another machine's rows
     /// are marked, since that is the news; this Mac is where a row runs unless it says otherwise.
@@ -128,6 +137,14 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.groupHeader.unreadCount`: a collapsed group's header shows its members' unread
     /// total on the right. Off by default, as ``groupHeaderMemberCount``.
     public var groupHeaderUnreadCount = false
+    /// `sidebar.groupHeader.background`: a group header's background is glass, solid, or (the default, `auto`)
+    /// glass where the sidebar is see-through and solid where it is opaque. It always shows (Lawrence 2026-11-05).
+    public var groupHeaderBackground: SidebarGroupBackgroundStyle = .auto
+    /// `sidebar.groupPalette` (``GroupPalette``): where group colors come from, and whether a new group takes the
+    /// palette's next color. Pure glass by default: a new group has no color until a person picks one.
+    public var groupPalette: GroupPalette = .glass
+    /// `sidebar.groupGradient` (``GroupGradient``): the gradient the ``GroupPalette/gradient`` palette steps through.
+    public var groupGradient: GroupGradient = .sunset
     /// Compact (the default), comfortable or expanded workspace rows
     /// (`sidebar.density`); minimal mode wins over expanded content.
     public var density: SidebarDensity = .compact

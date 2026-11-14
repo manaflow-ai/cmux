@@ -3,15 +3,22 @@ import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
 import { Icon } from "../icons";
-import { t } from "../strings";
+import { t, text } from "../strings";
 import { isHost } from "../validate";
 import type { EditorProps } from "./types";
 
 /** Host tokens: Return or comma adds, Backspace in an empty field removes the last one. A free-text
- * `string_list` (URL rules such as `re:^https://a,b`) takes any text and only Return adds. */
+ * `string_list` (URL rules such as `re:^https://a,b`) takes any text and only Return adds. The empty
+ * field shows the row's own placeholder; without one a host list shows its host example and a
+ * free-text list shows none, so a list of words or rules never suggests a host. */
 export function HostListEditor({ row, value, disabled, labelId }: EditorProps) {
   const store = useStore();
   const freeText = row.kind === "string_list";
+  const placeholder = row.placeholder
+    ? text(row.placeholder)
+    : freeText
+      ? undefined
+      : t("settingsPage.hostPlaceholder");
   const hosts = Array.isArray(value) ? value.map(String) : [];
   const [draft, setDraft] = useState("");
   const [invalid, setInvalid] = useState(false);
@@ -49,7 +56,7 @@ export function HostListEditor({ row, value, disabled, labelId }: EditorProps) {
           type="text"
           spellCheck={false}
           value={draft}
-          placeholder={t("settingsPage.hostPlaceholder")}
+          placeholder={placeholder}
           disabled={disabled}
           aria-labelledby={labelId}
           aria-invalid={invalid}

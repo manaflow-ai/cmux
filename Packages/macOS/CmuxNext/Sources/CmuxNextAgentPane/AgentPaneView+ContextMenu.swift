@@ -97,14 +97,13 @@ final class AgentPaneMenuAction: NSObject {
 
     @objc func run() { handler() }
 
-    /// An item titled `title` with SF Symbol `symbol` (the matching action's catalog symbol: every
-    /// cmux menu row shows one) that runs `handler`.
-    static func item(_ title: String, symbol: String, handler: @escaping () -> Void) -> NSMenuItem {
+    /// An item titled `title` with an optional SF Symbol, running `handler` when selected.
+    static func item(_ title: String, symbol: String?, handler: @escaping () -> Void) -> NSMenuItem {
         let action = AgentPaneMenuAction(handler: handler)
         let item = NSMenuItem(title: title, action: #selector(run), keyEquivalent: "")
         item.target = action
         item.representedObject = action
-        item.image = AgentPaneContextMenu.icon(symbol)
+        item.image = symbol.flatMap(AgentPaneContextMenu.icon)
         return item
     }
 }
@@ -252,7 +251,7 @@ extension AgentPaneView {
         // The display holding the button, not the window's main one: a window across two displays
         // would clamp the menu onto the other display, away from its button.
         let origin = AgentPaneContextMenu.popUpOrigin(
-            button: button, size: menu.size, visible: PopupPlacement.screen(for: button, fallback: window)?.visibleFrame,
+            button: button, size: AgentPaneContextMenu.drawnSize(of: menu), visible: PopupPlacement.screen(for: button, fallback: window)?.visibleFrame,
             window: window.convertToScreen(window.contentLayoutRect))
         menu.popUp(positioning: nil, at: view.convert(window.convertPoint(fromScreen: origin), from: nil), in: view)
     }
@@ -286,7 +285,8 @@ extension AgentPaneView {
     private func fillContextMenu(_ menu: NSMenu, target: AgentPaneMessageTarget?, selection: String?) {
         lastContextMenu = (NSEvent.mouseLocation, ProcessInfo.processInfo.systemUptime)
         let chatMenu = target == nil && selection == nil ? model.chatMenuItems?() ?? [] : []
-        AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: DevTools.isEnabled, chatMenu: chatMenu,
+        let developerTools = PageDeveloperTools()
+        AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: developerTools.isEnabled(), chatMenu: chatMenu,
                                      scope: themeScope.fullStrength, actions: .init(
             copy: { [weak self] text in
                 guard let self else { return }
@@ -298,8 +298,15 @@ extension AgentPaneView {
             retry: { [weak self] row in self?.runMessageAction("chat.retryPrompt", ["rowId": row]) },
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
             quoteReply: { [weak self] markdown in self?.runMessageAction("chat.quoteReply", ["markdown": markdown]) },
+            attachSelection: { [weak self] text in self?.runMessageAction("chat.attachSelection", ["text": text]) },
             open: { [weak self] url in self?.openLink(url) },
-            linkItems: { LinkMenu().linkItems(for: $0) },
+            linkItems: { [weak self] url in
+                // A pull request link's row opens the GitHub page or github.com beside this chat.
+                var menu = LinkMenu()
+                menu.offersGitHubPage = true
+                menu.source = self.flatMap { LinkRouter.shared.sourceTab($0) }
+                return menu.linkItems(for: url)
+            },
             pathItems: { [weak self] path in self?.pathMenuItems(path) },
             openSession: { [weak self] session, sender in
                 guard let self else { return }
@@ -314,12 +321,20 @@ extension AgentPaneView {
                     goTo()
                 }
             },
+            sessionItems: { [weak self] session in self?.model.sessionMenuItems?(session) ?? [] },
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
+            pinChapter: { [weak self] rowId, sessionId in
+                self?.runMessageAction("chat.pinChapter", ["rowId": rowId, "sessionId": sessionId])
+            },
             page: { [weak self] name, params in self?.runMessageAction(name, params) },
             pasteTarget: webView,
             inspectElement: AgentPaneTunables.pointerInspector.value ? {
                 NotificationCenter.default.post(name: .cmuxNextInspectUIElement, object: self)
-            } : nil))
+            } : nil,
+            inspectWithDevTools: { [weak self] in
+                guard let self else { return }
+                developerTools.inspect(self.page ?? self.webView)
+            }))
     }
 
     /// Retry, Edit and Resend, Open Image and a path's Open: the page's own actions, with the menu choice as the gesture.
