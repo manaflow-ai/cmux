@@ -48,6 +48,48 @@ Read the matching skill before changing an area, then only the references needed
   OS-dependent bug or a launch on 14/15 in Tart VMs: `scripts/cmux-next/os-matrix.sh --build JOB
   --os 14,15` ([MATRIX.md](scripts/fuzz/macos-matrix/MATRIX.md)). VM timing is not perf evidence.
 
+## Finishing a task
+
+A change to the Mac or iOS app is not done until the person can open it. Every agent report for
+such a change ends with the dev build link, the fleet simulator evidence and the iPhone install result.
+Use one task tag, `<task-slug>` (for example `sidebar-star-align-v1`), for the Mac and iOS builds.
+A documentation-only change needs no build; give the file path instead.
+
+- **Mac:** build the pushed exact head on the fleet and publish it to HQ, never on the person's Mac:
+
+  ```bash
+  JOB_ID=$(cmux-ci build cmux --ref "$(git rev-parse HEAD)" --tag <task-slug> \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+  cmux-ci wait "$JOB_ID"
+  cmux-ci publish-hq "$JOB_ID"
+  ```
+
+  Report the Tag Opener link `http://127.0.0.1:17320/<task-slug>`. Never `open` it (macOS sends it
+  to the default browser); team members add it to their workspace with hq's `scripts/open-dev-build.sh <task-slug>`.
+- **iOS:** run `ios/scripts/reload.sh --review --tag <task-slug>`. In one command it builds on the
+  fleet (the Mac build above included, same tag, published to HQ), installs on every connected
+  iPhone, not only the configured one, through the authenticated install
+  (`scripts/verify-iphone-auth.sh` must pass; never raw `devicectl`), then checks the build in a
+  fleet simulator (hq's `verify-remote.sh`, signed in, with a screenshot and recording). Nothing
+  boots in a simulator on the person's Mac. Details: [ios/AGENTS.md](ios/AGENTS.md#finishing-a-task).
+- **Install on every connected phone.** A phone that is connected gets the build, including one
+  you have not seen before: `--review` registers a new phone and installs on it too. The cmux-next
+  iOS app does not need Tailscale, but a fleet-built dev app talks to hq's tagged dev backend, a
+  tailnet-only `*.ts.net` host. A phone off the tailnet then installs the app but fails the auth
+  gate with "never published a signed-in app receipt"; report that as the phone's blocker and name
+  the cause. Locally built dev apps use the public staging API and have no such requirement.
+- **A phone is always connected.** No connected phone, a locked phone, a queued install or a
+  failed auth gate is a blocker to report with its error and retry command, never a step to skip
+  or replace with a simulator-only result.
+- End the report with:
+
+  ```text
+  Dev build:  http://127.0.0.1:17320/<task-slug>   (fleet job <JOB_ID>, head <sha>)
+  Simulator:  fleet simulator, signed in: <evidence dir> (screenshot.png and the recording)
+  iPhone:     <name> (<model>, <udid>): installed, verify-iphone-auth PASS
+              <name> (<model>, <udid>): BLOCKED: <reason>; retry: <command>   (one line per connected phone)
+  ```
+
 ## cmux-next checks before every push
 
 Before every push, run `python3 scripts/cmux-next/prepush-gate.py` (the pre-push hook runs it
