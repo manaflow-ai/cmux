@@ -381,6 +381,9 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             "workspace=\(request.workspaceToken) reason=\(request.reason)"
         )
 #endif
+        // All borrowed surface work and main-actor callbacks have drained.
+        // Ghostty forbids any further surface calls after native retirement.
+        ghostty_surface_request_process_termination(request.surface)
         request.freeSurface(request.surface)
     }
 

@@ -136,32 +136,6 @@ import Testing
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
     }
 
-    @Test func agentHibernationSuspendKeepsTeeLeaseUntilNativeFree() async {
-        let recorder = TeardownOrderRecorder()
-        let registry = TerminalSurfaceRegistry()
-        let surface = makeSurface(registry: registry)
-        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
-        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
-        surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        defer { runtimeSurface.deallocate() }
-        surface.mobileByteTeeLease = RecordingTerminalByteTeeLease(recorder: recorder)
-        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
-            recorder.record(.nativeFree)
-        }
-        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
-
-        surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test.hibernate")
-
-        #expect(
-            !recorder.events.contains(.teeLeaseRelease),
-            "tee lease was released before the native free; the IO reader thread can still fire the tee callback"
-        )
-
-        let completed = await recorder.waitForEventCount(2)
-        #expect(completed, "timed out waiting for native free and tee-lease release")
-        #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
-    }
-
     @Test func agentHibernationResetWaitsForAgentExitAndRunsBeforeNativeFree() async throws {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)
@@ -475,7 +449,7 @@ import Testing
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
     }
 
-    private func makeSurface(
+    func makeSurface(
         registry: any TerminalSurfaceRegistering = FakeSurfaceRegistry(),
         runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator =
             TerminalSurfaceRuntimeTeardownCoordinator()

@@ -50,6 +50,14 @@ static bool cmux_test_surface_free_should_block = false;
 static bool cmux_test_surface_free_started = false;
 static bool cmux_test_surface_free_released = false;
 static void* cmux_test_surface_free_target = NULL;
+typedef struct {
+    void* surface;
+    uint32_t count;
+} GhosttyRuntimeTestTerminationCount;
+static pthread_mutex_t cmux_test_surface_request_process_termination_mutex = PTHREAD_MUTEX_INITIALIZER;
+// Swift Testing can run serialized suites concurrently, so these counts are
+// reset per surface instead of through the global runtime-stub reset.
+static GhosttyRuntimeTestTerminationCount cmux_test_surface_request_process_termination_counts[32];
 static pthread_mutex_t cmux_test_process_output_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t cmux_test_process_output_condition = PTHREAD_COND_INITIALIZER;
 static bool cmux_test_process_output_should_block = false;
@@ -273,6 +281,59 @@ void cmux_test_ghostty_surface_free_blocking_reset(void) {
     cmux_test_surface_free_target = NULL;
     pthread_cond_broadcast(&cmux_test_surface_free_condition);
     pthread_mutex_unlock(&cmux_test_surface_free_mutex);
+}
+
+static GhosttyRuntimeTestTerminationCount* cmux_test_surface_request_process_termination_count_for(
+    void* surface,
+    bool create
+) {
+    GhosttyRuntimeTestTerminationCount* empty = NULL;
+    for (size_t index = 0;
+         index < sizeof(cmux_test_surface_request_process_termination_counts) /
+             sizeof(cmux_test_surface_request_process_termination_counts[0]);
+         index++) {
+        GhosttyRuntimeTestTerminationCount* entry =
+            &cmux_test_surface_request_process_termination_counts[index];
+        if (entry->surface == surface) return entry;
+        if (empty == NULL && entry->surface == NULL) empty = entry;
+    }
+    if (create && empty != NULL) {
+        empty->surface = surface;
+        return empty;
+    }
+    if (create) {
+        // A test armed more surfaces than this bounded stub can track. Do not
+        // silently turn a required ordering assertion into a false negative.
+        abort();
+    }
+    return NULL;
+}
+
+void cmux_test_ghostty_surface_request_process_termination_reset(void* surface) {
+    pthread_mutex_lock(&cmux_test_surface_request_process_termination_mutex);
+    // Arm only the surface whose ordering a test is asserting. Other tests
+    // may retire many surfaces concurrently, and do not need a counter slot.
+    GhosttyRuntimeTestTerminationCount* entry =
+        cmux_test_surface_request_process_termination_count_for(surface, true);
+    if (entry != NULL) entry->count = 0;
+    pthread_mutex_unlock(&cmux_test_surface_request_process_termination_mutex);
+}
+
+void cmux_test_ghostty_surface_request_process_termination_clear(void* surface) {
+    pthread_mutex_lock(&cmux_test_surface_request_process_termination_mutex);
+    GhosttyRuntimeTestTerminationCount* entry =
+        cmux_test_surface_request_process_termination_count_for(surface, false);
+    if (entry != NULL) *entry = (GhosttyRuntimeTestTerminationCount){0};
+    pthread_mutex_unlock(&cmux_test_surface_request_process_termination_mutex);
+}
+
+uint32_t cmux_test_ghostty_surface_request_process_termination_call_count(void* surface) {
+    pthread_mutex_lock(&cmux_test_surface_request_process_termination_mutex);
+    GhosttyRuntimeTestTerminationCount* entry =
+        cmux_test_surface_request_process_termination_count_for(surface, false);
+    const uint32_t count = entry == NULL ? 0 : entry->count;
+    pthread_mutex_unlock(&cmux_test_surface_request_process_termination_mutex);
+    return count;
 }
 
 void cmux_test_ghostty_process_output_blocking_begin(void *surface) {
@@ -580,6 +641,13 @@ bool ghostty_surface_set_font_size_action_callback(
 }
 
 void ghostty_surface_config_new(void) {}
+void ghostty_surface_request_process_termination(void *surface) {
+    pthread_mutex_lock(&cmux_test_surface_request_process_termination_mutex);
+    GhosttyRuntimeTestTerminationCount* entry =
+        cmux_test_surface_request_process_termination_count_for(surface, false);
+    if (entry != NULL) entry->count++;
+    pthread_mutex_unlock(&cmux_test_surface_request_process_termination_mutex);
+}
 void ghostty_surface_free(void *surface) {
     const struct timespec timeout = cmux_test_surface_free_timeout();
     pthread_mutex_lock(&cmux_test_surface_free_mutex);
