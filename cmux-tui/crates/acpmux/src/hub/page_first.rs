@@ -310,7 +310,6 @@ pub(crate) struct ClosedListed {
     pub(crate) all: usize,
     pub(crate) remote: usize,
 }
-}
 
 /// The rows a window of the kept order holds past a page's `limit`: a filter or two may leave a
 /// few of them out without a second read.
