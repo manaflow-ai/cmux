@@ -28,8 +28,8 @@ pub(crate) fn pixel_size(bytes: &[u8]) -> Option<(u32, u32)> {
         |at: usize| Some(u16::from_le_bytes(bytes.get(at..at + 2)?.try_into().ok()?) as u32);
     let u32be = |at: usize| Some(u32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?));
     let u24le = |at: usize| {
-        let b = bytes.get(at..at + 3)?;
-        Some(u32::from(b[0]) | (u32::from(b[1]) << 8) | (u32::from(b[2]) << 16))
+        let &[b0, b1, b2] = bytes.get(at..at + 3)? else { return None };
+        Some(u32::from(b0) | (u32::from(b1) << 8) | (u32::from(b2) << 16))
     };
     let at = |offset: usize, magic: &[u8]| bytes.get(offset..offset + magic.len()) == Some(magic);
     // PNG (and APNG): the IHDR chunk's width and height.
@@ -46,8 +46,7 @@ pub(crate) fn pixel_size(bytes: &[u8]) -> Option<(u32, u32)> {
             return size(u16le(26)? & 0x3fff, u16le(28)? & 0x3fff);
         }
         if at(12, b"VP8L") {
-            let b = bytes.get(21..25)?;
-            let bits = u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+            let bits = u32::from_le_bytes(bytes.get(21..25)?.try_into().ok()?);
             return size((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1);
         }
         if at(12, b"VP8X") {
@@ -66,10 +65,7 @@ pub(crate) fn pixel_size(bytes: &[u8]) -> Option<(u32, u32)> {
         let mut rotated = false;
         let mut i = 2;
         while i + 9 < bytes.len() {
-            if bytes[i] != 0xff {
-                return None;
-            }
-            let marker = bytes[i + 1];
+            let &[0xff, marker] = bytes.get(i..i + 2)? else { return None };
             if marker == 0xff {
                 i += 1;
                 continue;
