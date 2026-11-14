@@ -88,9 +88,22 @@ export type OlderReserveInput = {
   /// How far the reader has scrolled up among the rows in total while room was owed: what it rose
   /// since the last pass pays some of the room owed (`payOlderRoom`).
   rose?: number;
+  /// The scroller's height (0 or undefined while it has none). Loaded rows shorter than it hold no
+  /// room (`fillsView`).
+  viewHeight?: number;
   /// Keep the native thumb's range while the pointer owns it, consuming only the space pages fill.
   dragging?: boolean;
 };
+
+/// Whether the loaded rows reach at least a view's height. Rows short of it hold no room above them:
+/// at the latest row the view's top would lie inside the room, a blank band over a short tail drawn
+/// at the view's foot, for as long as no page came to fill it (Leo, 2026-11-11: his chat's view was
+/// blank down to a few rows at its foot, a kept tail whose older pages had not landed). A short tail
+/// draws from the view's top, as any short chat does, and the room is estimated once the rows fill
+/// the view. Room above rows that fill it never shows at the latest row.
+export function fillsView(rowsHeight: number, viewHeight: number | undefined): boolean {
+  return !(viewHeight !== undefined && viewHeight > 0 && rowsHeight < viewHeight);
+}
 
 /// Where the pin is now: its last index, moved by the rows that came or went (a page prepends), or
 /// a search. -1 when it left the rows.
@@ -154,6 +167,12 @@ export function olderReserve(
       reserve: 0,
       state: previous ? { ...previous, room: 0, end: 0, height: 0, unseeded: undefined } : undefined,
     };
+  // A tail shorter than the view holds no room, and seeds it again once it fills the view.
+  if (input.canLoadOlder && !fillsView(input.rowsHeight, input.viewHeight)) {
+    if (!previous) return { reserve: 0, state: undefined };
+    const { owed: _owed, ...rest } = previous;
+    return { reserve: 0, state: { ...rest, room: 0, end: 0, unseeded: true } };
+  }
   const found = previous ? findPin(previous, rows) : -1;
   const pin = found >= 0 ? found : firstPrompt(rows);
   const top = input.rowTop(pin);

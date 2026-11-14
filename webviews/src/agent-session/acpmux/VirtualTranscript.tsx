@@ -3,13 +3,13 @@ import React, {
   useCallback,
   useDeferredValue,
   useEffect,
-  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
   useState,
   useSyncExternalStore,
+  useInsertionEffect,
 } from "react";
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
@@ -52,14 +52,14 @@ import {
 } from "./model";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
-import { animateScroll, MOTION_SCROLL_EVENT, scrollRunning, stopScroll } from "./threadMinimap/scrollMotion";
+import { animateScroll, MOTION_SCROLL_EVENT, stopScroll, scrollRunning } from "./threadMinimap/scrollMotion";
 import { holdMomentum, installMomentumHold } from "./threadMinimap/momentumHold";
 import {
   JUMP_CURVE,
   jumpDuration,
   jumpGlideStart,
-  railBottomShadowReach,
   transcriptFadeReach,
+  railBottomShadowReach,
 } from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
@@ -164,9 +164,9 @@ import {
   foldFind,
   findRowIndex,
   findMemberRowId,
-  rowHolds,
   paintFindHighlights,
   type ChatFind,
+  rowHolds,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
 import { LIVE_THINKING, THINKING, WORKED, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
@@ -209,7 +209,7 @@ import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { OlderAhead } from "./conversation/olderAhead";
-import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
+import { type OlderReserve, olderReserve, fillsView } from "./conversation/olderReserve";
 import { type ChatOpen, type ChatRows, drawnKey, happenedAfterOpen, openChat } from "./conversation/openBreakpoint";
 import { hasPromptTops, keepPromptTops, knownPromptTop } from "./conversation/transcriptHeights";
 import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
@@ -3689,8 +3689,15 @@ function TranscriptView({
           );
     // Gone until a page lands above the first row (a new first row): then estimated again, from the
     // rows that page brought.
+    // A tail shorter than the view holds no room at all (olderReserve.ts `fillsView`): it draws from
+    // the view's top, never under a blank band, and a page that fills the view seeds the room.
+    const loadedHeight = placed.totalHeight - placedOrigin;
     const gone =
-      canLoadOlder && roomGone && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId
+      canLoadOlder &&
+      roomGone &&
+      roomGone.sessionId === sessionId &&
+      rows[0]?.id === roomGone.firstId &&
+      fillsView(loadedHeight, height)
         ? roomGone
         : undefined;
     const reserved = gone
@@ -3699,7 +3706,7 @@ function TranscriptView({
           sessionId,
           rows,
           rowTop: (index) => placed.geometry.topAt(index) - placedOrigin,
-          rowsHeight: placed.totalHeight - placedOrigin,
+          rowsHeight: loadedHeight,
           canLoadOlder,
           earlier: earlier?.length,
           promptCount,
@@ -3709,6 +3716,7 @@ function TranscriptView({
           knownAbove: hasPromptTops(sessionId, rowWidth)
             ? (row) => knownPromptTop(sessionId, rowWidth, row.id)
             : undefined,
+          viewHeight: height,
         });
     olderRoom.current = reserved.state;
     const layout = placedWithOrigin(placed, reserved.reserve);
@@ -3741,6 +3749,7 @@ function TranscriptView({
     promptCount,
     roomGone,
     roomRose,
+    height,
     draggedHeight,
   ]);
   // A chat held whole keeps each prompt's measured place (transcriptHeights.ts), so the next open on
@@ -5282,9 +5291,9 @@ function TranscriptView({
     if (!node || !first || !canLoadOlder || room <= 0.5 || !didOpenAtLatest.current || node.clientHeight === 0) return;
     if (userScrollIntent(node).isScrollbarDragging()) return;
     if (layoutScrollTop(node) - room >= node.clientHeight * OLDER_LATE_VIEWPORTS) return;
-    // A tail shorter than the view keeps its place at the view's foot: the room left is what lies
-    // between the view's top and the rows, so nothing scrolls (read from the scroller itself, whose
-    // height also holds the thread's own padding).
+    // What is left is only what the thread's own padding leaves past the view (rows that fill it, a
+    // shorter tail holds no room: olderReserve.ts `fillsView`), so nothing scrolls into the room (read
+    // from the scroller itself, whose height also holds the thread's own padding).
     const next = Math.max(0, Math.floor(room - Math.max(0, node.scrollHeight - node.clientHeight)));
     if (next >= room - 0.5) return;
     setRoomGone({ sessionId, firstId: first.id, room: next });
