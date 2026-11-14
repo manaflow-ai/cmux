@@ -1851,7 +1851,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
 
     def test_a_refused_request_of_the_plugin_fails_a_launch_that_passed_all_else(self):
         # One record is the whole rule: the daemon writes the first refusal at once and counts the repeats of the
-        # next minute into a later line, and a launch of 30 s ends before that line.
+        # next minute into a later line, and a short launch ends before that line.
         verdicts = gate_verdicts()
         self.request_log = {"empty": {"slow-requests.jsonl": [START_LINE, request_line()]}}
         status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
@@ -1917,11 +1917,12 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
             request_line(kind=""),                            # the same refusal, of a client with no kind: nothing
             request_line(kind="mcp", client_name="mcp"),      # the same refusal, of a client of another kind: nothing
             request_line(kind="Plugin"),                      # a kind that is not the daemon's word: nothing
-            request_line(error="", outcome="client_gone"),    # the plugin's request with no error code: nothing
+            request_line(error="", outcome="client_gone", reply_ms=None),  # the plugin, no error code: nothing
             request_line(error=""),                           # the plugin's request that ended well: nothing
             json.dumps({"kind": "plugin_restart", "side": "daemon", "at": "2026-11-14T19:30:01.000Z",
                         "at_ms": 1794684601000, "restarts": 1, "failures": 1, "delay_ms": 500}),  # a finding
-            json.dumps({"kind": "lock", "side": "daemon", "at_ms": 1794684602000})]}}
+            json.dumps({"kind": "lock", "side": "daemon", "at": "2026-11-14T19:30:02.000Z", "at_ms": 1794684602000,
+                        "lock": "registry", "holder": "src/mux.rs:1", "held_ms": 120.0, "wait_ms": 0.0})]}}
         status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual(report["verdict"], "pass")
@@ -2080,6 +2081,13 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         for index in range(9):
             os.symlink(elsewhere, before / f"slow-requests.jsonl.{index}")
         self.assertEqual(smoke.request_log(home)["files"], 2)
+        # A link to a folder is not walked: the log in that folder is not of this home.
+        folder = self.dir / "elsewhere-folder"
+        folder.mkdir()
+        (folder / "slow-requests.jsonl").write_text(request_line() + "\n")
+        os.symlink(folder, before / "linked")
+        self.assertEqual(smoke.request_log(home)["files"], 2)
+        os.remove(before / "linked")
         # At most 8 files are read: 9 regular files that are read before the session's.
         for index in range(9):
             (before / f"slow-requests.jsonl.r{index}").write_text(START_LINE + "\n")
