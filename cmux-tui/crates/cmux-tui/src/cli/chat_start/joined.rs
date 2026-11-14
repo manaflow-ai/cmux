@@ -20,6 +20,7 @@ use std::io::Write as _;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use cmux_json::JsonGet as _;
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode, Start, UsageError};
@@ -77,8 +78,8 @@ where
     }
     let hub_hosts: Vec<String> = (sources.hub)()
         .iter()
-        .filter(|peer| text(peer, "via") == Some("hub"))
-        .filter_map(|peer| text(peer, "name").map(str::to_owned))
+        .filter(|peer| peer.get_str("via") == Some("hub"))
+        .filter_map(|peer| peer.get_str("name").map(str::to_owned))
         .collect();
     let on_hub = |host: &str| hub_hosts.iter().any(|listed| listed.eq_ignore_ascii_case(host));
     if by_id.is_none() && on_hub(selector) {
@@ -133,38 +134,39 @@ where
 /// The row `key` names: by id, or (`by_id` false) by id, name or hostname, a live one first.
 /// Err: the ids of several live rows with that name.
 fn find<'a>(key: &str, by_id: bool, rows: &'a [Value]) -> Result<Option<&'a Value>, Vec<String>> {
-    let joined = || rows.iter().filter(|row| text(row, "kind").is_none_or(|kind| kind == "joined"));
-    if let Some(row) = joined().find(|row| text(row, "id") == Some(key)) {
+    let joined =
+        || rows.iter().filter(|row| row.get_str("kind").is_none_or(|kind| kind == "joined"));
+    if let Some(row) = joined().find(|row| row.get_str("id") == Some(key)) {
         return Ok(Some(row));
     }
     if by_id {
         return Ok(None);
     }
     let named: Vec<&Value> = joined()
-        .filter(|row| text(row, "name") == Some(key) || text(row, "hostname") == Some(key))
+        .filter(|row| row.get_str("name") == Some(key) || row.get_str("hostname") == Some(key))
         .collect();
     let live: Vec<&Value> =
-        named.iter().copied().filter(|row| text(row, "state") != Some("revoked")).collect();
+        named.iter().copied().filter(|row| row.get_str("state") != Some("revoked")).collect();
     match (live.as_slice(), named.as_slice()) {
         ([one], _) | ([], [one]) => Ok(Some(*one)),
         ([], []) => Ok(None),
         (several, _) if !several.is_empty() => {
-            Err(several.iter().filter_map(|row| text(row, "id").map(str::to_owned)).collect())
+            Err(several.iter().filter_map(|row| row.get_str("id").map(str::to_owned)).collect())
         }
         (_, several) => {
-            Err(several.iter().filter_map(|row| text(row, "id").map(str::to_owned)).collect())
+            Err(several.iter().filter_map(|row| row.get_str("id").map(str::to_owned)).collect())
         }
     }
 }
 
 /// `row` as the machine a chat starts on, or why it cannot take one now.
 fn machine(row: &Value, on_hub: &dyn Fn(&str) -> bool) -> Result<JoinedMachine, Value> {
-    let id = text(row, "id").unwrap_or_default().to_owned();
-    let name = text(row, "name").unwrap_or(&id).to_owned();
+    let id = row.get_str("id").unwrap_or_default().to_owned();
+    let name = row.get_str("name").unwrap_or(&id).to_owned();
     // The hub knows it by the host name it heartbeats with; a label is only the list's.
-    let host = text(row, "hostname").filter(|host| !host.is_empty()).unwrap_or(&name).to_owned();
+    let host = row.get_str("hostname").filter(|host| !host.is_empty()).unwrap_or(&name).to_owned();
     let details = json!({"device": format!("{PREFIX}{id}"), "name": name, "host": host});
-    match text(row, "state") {
+    match row.get_str("state") {
         Some("revoked") => Err(refusal(
             "chat_target.revoked",
             format!("{name} was revoked and takes no chats"),
@@ -261,7 +263,7 @@ pub(in crate::cli) fn start_words(
 ) -> Result<Vec<String>, UsageError> {
     if start.wait || start.timeout.is_some() {
         return Err(UsageError::new(
-            "--wait and --timeout wait for a Cloud chat; a joined machine's reply is `cmux acp last HOST/NAME`",
+            "--wait and --timeout wait for a chat here or in Cloud; a joined machine's reply is `cmux acp last HOST/NAME`",
         ));
     }
     let mut words: Vec<String> =
@@ -291,8 +293,8 @@ pub(in crate::cli) enum Settled {
 }
 
 pub(in crate::cli) fn settled(receipt: &Value) -> Settled {
-    let detail = || text(receipt, "detail").unwrap_or("no detail").to_owned();
-    match text(receipt, "state") {
+    let detail = || receipt.get_str("detail").unwrap_or("no detail").to_owned();
+    match receipt.get_str("state") {
         Some("delivered") => Settled::Started,
         Some(state @ ("refused" | "expired")) => Settled::Refused(format!("{state}: {}", detail())),
         _ => Settled::Pending,
@@ -330,11 +332,13 @@ pub(in crate::cli) fn run(global: &GlobalArgs, start: &Start, machine: &JoinedMa
         },
         None => None,
     };
+    // `cmux chat send TEXT` (no SESSION) goes on with this chat, as after a start here.
+    super::super::last_chat::remember(&target, None);
     let answer = json!({
         "session_id": target,
         "machine": {"id": machine.id, "name": machine.name, "host": machine.host},
         "placement": machine.id.as_ref().map_or_else(|| format!("hub:{}", machine.host), |id| format!("{PREFIX}{id}")),
-        "remote_session_id": text(&receipt, "detail"),
+        "remote_session_id": receipt.get_str("detail"),
         "start": receipt,
         "prompt": sent,
         "next": {
@@ -358,7 +362,7 @@ pub(in crate::cli) fn run(global: &GlobalArgs, start: &Start, machine: &JoinedMa
 /// The start's receipt once the machine answered: the session runs there. Read every
 /// [`RECEIPT_EVERY`] until [`START_DEADLINE`].
 fn wait_started(enqueued: &Value) -> Result<Value, Value> {
-    let Some(id) = text(enqueued, "messageId").map(str::to_owned) else {
+    let Some(id) = enqueued.get_str("messageId").map(str::to_owned) else {
         return Err(error("acpmux.invalid_response", "acpmux's start answered no receipt", false));
     };
     let deadline = Instant::now() + START_DEADLINE;
@@ -457,8 +461,4 @@ fn refusal(code: &str, message: String, next: &str, mut details: Value) -> Value
     }
     json!({"code": code, "message": format!("{message}; {next}"), "details": details,
            "retryable": false})
-}
-
-fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
-    value.get(key).and_then(Value::as_str)
 }

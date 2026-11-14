@@ -86,12 +86,17 @@ extension TerminalSurfaceView: NSMenuItemValidation {
     // MARK: Drag and drop
 
     public override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        TerminalPasteboard.pasteText(from: sender.draggingPasteboard) == nil ? [] : .copy
+        TerminalPasteboard.pasteText(from: sender.draggingPasteboard) != nil
+            || (session?.io.uploadsPasteboardFiles == true && TerminalPasteboard.hasImage(sender.draggingPasteboard)) ? .copy : []
     }
 
     /// Dropped files paste as shell-escaped paths, dropped text as text.
     /// Delivered through `ghostty_surface_text` so bracketed paste applies.
     public override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        if surface != nil, session?.handOffFilePaste(sender.draggingPasteboard) == true {
+            window?.makeFirstResponder(self)
+            return true
+        }
         guard let surface, let text = TerminalPasteboard.pasteText(from: sender.draggingPasteboard) else { return false }
         text.withCString { pointer in
             ghostty_surface_text(surface, pointer, UInt(text.utf8.count))

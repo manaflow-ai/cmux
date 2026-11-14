@@ -29,6 +29,7 @@
 //! [`github_repos`] (repository discovery through the platform connector),
 //! [`github_status`] (the person's connected GitHub account, no token),
 //! [`carrier_ticket`] (the session host's relay Register ticket),
+//! `carrier_server` (the thread and socket that answer it off the poll loop),
 //! [`handoff`] (hand-off reports for the machine's agent sessions, over the
 //! same socket), `github_minter` (the thread that answers both off the poll
 //! loop),
@@ -39,9 +40,13 @@
 //! machine, and their next machine gets it from their own machine's snapshot.
 
 #[cfg(target_os = "linux")]
+mod agent_socket;
+#[cfg(target_os = "linux")]
 mod bootstrap_role;
 #[cfg(unix)]
 pub mod carrier_keyset;
+#[cfg(unix)]
+pub mod carrier_server;
 pub mod carrier_ticket;
 pub mod client;
 pub mod clone_mark;

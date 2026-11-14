@@ -769,6 +769,64 @@ fn column_panes(wire: &Wire) -> Vec<Vec<PaneId>> {
     })
 }
 
+/// Split Up (`split {before: true}`, split-before-v1, or `pane.split` toward `up`) of a pane below
+/// the docked agent chat lands the new pane between the chat and its target, as `down` then
+/// `swap-pane` did (#38602 review F1); Split Up of the chat itself is still refused.
+#[test]
+fn agent_chat_dock_takes_split_up_below_the_chat() {
+    let (mut wire, panes) = Wire::with_columns(2);
+    wire.ok(json!({
+        "cmd": "set-column-dock", "pane": panes[0], "dock": true, "edge": "left", "role": "agent_chat",
+    }));
+    let below = wire.ok(json!({"cmd": "split", "pane": panes[0], "dir": "down"}));
+    let below: SurfaceId = serde_json::from_value(below["surface"].clone()).unwrap();
+    let below = wire.mux.with_state(|state| state.pane_of(below).unwrap());
+
+    let up = wire.ok(json!({"cmd": "split", "pane": below, "dir": "down", "before": true}));
+    let up: SurfaceId = serde_json::from_value(up["surface"].clone()).unwrap();
+    let up = wire.mux.with_state(|state| state.pane_of(up).unwrap());
+    assert_eq!(
+        column_panes(&wire)[0],
+        vec![panes[0], up, below],
+        "the new pane sits between the chat and its target"
+    );
+
+    let fields = serde_json::Map::from_iter([(
+        crate::mux::PANE_BROWSER_URL_FIELD.to_string(),
+        json!("https://example.com/"),
+    )]);
+    let page = wire
+        .mux
+        .split_browser_pane_with_fields_as(
+            &crate::Actor::Daemon,
+            below,
+            "up",
+            None,
+            fields.clone(),
+            Some((38, 11)),
+        )
+        .expect("a background Split Up below the chat is taken");
+    let page = wire.mux.with_state(|state| state.pane_of(page.id).unwrap());
+    assert_eq!(column_panes(&wire)[0], vec![panes[0], up, page, below]);
+
+    let before = column_panes(&wire);
+    let refused =
+        wire.send(json!({"cmd": "split", "pane": panes[0], "dir": "down", "before": true}));
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert!(refused.to_string().contains("dock-column-agent-chat"), "{refused}");
+    let refused = wire.mux.split_browser_pane_with_fields_as(
+        &crate::Actor::Daemon,
+        panes[0],
+        "up",
+        None,
+        fields,
+        Some((38, 11)),
+    );
+    assert!(refused.is_err(), "nothing lands above the chat");
+    assert_eq!(column_panes(&wire), before, "a refused split changes nothing");
+    assert!(wire.mux.with_state(|state| crate::mux::pane_is_agent_chat_top(state, panes[0])));
+}
+
 /// #29848: Split Down (Cmd-Shift-D) from the docked agent chat, or from a
 /// pane below it, adds a pane below in the dock, as classic cmux does; the
 /// chat stays the dock's top pane and the dock keeps its role. Every other

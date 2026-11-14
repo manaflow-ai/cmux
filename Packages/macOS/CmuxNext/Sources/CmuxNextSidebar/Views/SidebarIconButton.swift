@@ -198,8 +198,14 @@ final class SidebarIconButton: ClickableButton {
         if takesKeyFocus { keyRepaint.track() }
     }
 
+    /// Draws its hover, pressed and focus fills as a circle instead of the rounded square.
+    var isRound = false {
+        didSet { needsDisplay = true }
+    }
+
     override func updateLayer() {
-        layer?.cornerRadius = Metrics.itemCornerRadius
+        // isRound: a light round x on a card (Lawrence 2026-11-07, "the X sits in a heavy box").
+        layer?.cornerRadius = isRound ? min(bounds.width, bounds.height) / 2 : Metrics.buttonCornerRadius // radius-allow: isRound
         performWithTheme {
             contentTintColor = tintOverride ?? (hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary)
         }

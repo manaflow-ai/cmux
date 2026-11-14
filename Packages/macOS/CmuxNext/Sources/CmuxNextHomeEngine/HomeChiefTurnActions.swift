@@ -1,4 +1,5 @@
 public import CmuxHomeCore
+import CmuxNextActions
 public import CmuxNextDaemon
 public import CmuxNextHome
 
@@ -15,10 +16,29 @@ public final class HomeChiefTurnActions {
     private var inFlight = false
 
     public var onStopFailure: ((HomeChiefEngineError) -> Void)?
+    /// The app's Chief Homes (``HomeChiefHomes/turnActions(for:)``): Stop and the pill's Start now row run its
+    /// registry's actions. Nil: neither.
+    private weak var homes: HomeChiefHomes?
 
-    public init(transcript: HomeNativeTranscriptView) {
+    public convenience init(transcript: HomeNativeTranscriptView) {
+        self.init(transcript: transcript, homes: nil)
+    }
+
+    init(transcript: HomeNativeTranscriptView, homes: HomeChiefHomes?) {
         self.transcript = transcript
+        self.homes = homes
         transcript.onContinue = { [weak self] in self?.continueTurn() }
+        // The stop button (a click, Esc, Cmd-.) runs the shared stop action (HomeChiefActions in the App).
+        if let homes {
+            transcript.onStop = { [weak homes] in _ = homes?.registry?.perform("home.stopChief", invocation: ActionInvocation(origin: .user)) }
+        }
+    }
+
+    /// This Home's transcript and its Chief control while it can start a queued agent (a Chief of this Mac or
+    /// a paired server); nil otherwise.
+    var startingChief: (transcript: HomeNativeTranscriptView, control: HomeChiefTurnControl)? {
+        guard let transcript, let control else { return nil }
+        return (transcript, control)
     }
 
     public func update(control: HomeChiefTurnControl, isChief: Bool, working: Bool, sequence: Seq) {
@@ -34,8 +54,14 @@ public final class HomeChiefTurnActions {
         transcript?.onChiefRetry = self.control == nil ? nil : { [weak self] message in self?.retry(message) }
         // `/` lists this Chief's skills when its host runs here: it reads the same folders (slash_skills.rs).
         transcript?.slashSkillsHome = self.control?.brainHome
-        // Start now on a queued agent's tab: this chat's own Chief starts it past the cap (user 2026-11-07, msg 23835).
+        // Start now on a queued agent's pill card: this chat's own Chief starts it past the cap.
         transcript?.onStartAgent = self.control.map { control in { peer in await control.startNow(peer) == nil } }
+        // Its menu's Start now is the registered action's row, on this chat's Chief.
+        let conversation = transcript?.conversationID.rawValue ?? ""
+        transcript?.startAgentMenuItem = { [weak homes] peer in
+            homes?.registry?.makeContextMenuItem(for: HomeChiefHomes.startQueuedAgent, in: .agentChat,
+                                                 arguments: ["agent": .string(peer), "conversation": .string(conversation)])
+        }
         refresh()
     }
 

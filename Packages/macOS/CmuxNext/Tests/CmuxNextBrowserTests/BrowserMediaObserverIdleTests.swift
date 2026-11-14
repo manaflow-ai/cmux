@@ -21,8 +21,12 @@ import Testing
     function fire(type, target) { (listeners[type] || []).forEach(function (f) { f({ type: type, target: target }); }); runTimeouts(); }
     var window = this, top = this, frames = { length: 0 }, navigator = {}, location = { href: 'https://example.com/' };
     var media = [];
+    // The observer asks the page world's hidden-sound recorder with a document event; no recorder
+    // runs here, so nothing answers: no sound outside the document.
+    function CustomEvent(type, init) { this.type = type; this.detail = init ? init.detail : null; }
     var document = {
       title: 'A page', pictureInPictureElement: null, visibilityState: 'visible', addEventListener: function () {},
+      dispatchEvent: function () { return true; },
       querySelectorAll: function (s) { return /video|audio/.test(s) ? media : []; },
     };
     function video(playing) {

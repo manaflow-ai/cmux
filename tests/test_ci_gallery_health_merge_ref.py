@@ -16,10 +16,21 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import sys
+
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 WORKFLOW = ROOT / ".github" / "workflows" / "gallery-health.yml"
 
 
@@ -53,6 +64,23 @@ class GalleryHealthMergeRef(unittest.TestCase):
         self.assertIn('git diff --name-only HEAD^1 HEAD', run)
         self.assertNotIn("git merge-base", run)
 
+    def test_the_upload_carries_only_the_screenshots_a_reader_needs(self) -> None:
+        # cmuxterm-hq#9131: the upload carried a screenshot of every passing state, ~190 MB a shard on a
+        # full render, and nothing read them. upload-set.ts drops them first (upload-set.test.ts holds what
+        # it keeps); it runs after the base replay has read health.json, on the folder the upload takes.
+        names = [entry.get("name") for entry in steps()]
+        trim = step("Keep only the screenshots a reader needs")
+        upload = step("Upload the health run")
+        self.assertLess(names.index("Judge the red states against the base"), names.index(trim["name"]))
+        self.assertEqual(names.index(trim["name"]) + 1, names.index(upload["name"]))
+        self.assertIn("always()", trim["if"])
+        self.assertIn('upload-set.ts --dir "$RUNNER_TEMP/health"', trim["run"])
+        self.assertEqual(upload["with"]["path"], "${{ runner.temp }}/health")
+        # More screenshots only on an explicit dispatch input, empty by default.
+        inputs = triggers()["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs["screenshots"]["default"], "")
+        self.assertEqual(trim["env"]["KEEP"], "${{ inputs.screenshots }}")
+
     def test_reports_keep_the_pull_request_head(self) -> None:
         # The artifact names the head the pull request shows, beside the merge commit rendered.
         record = step("Record what was rendered")
@@ -77,8 +105,9 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertIn("steps.render.outcome == 'failure'", judge["if"])
         self.assertIn("!cancelled()", judge["if"])
         names = [entry.get("name") for entry in steps()]
-        self.assertEqual(names.index("Judge the red states against the base"),
-                         names.index("Render the gallery and judge it") + 1)
+        # Only the base gallery's download sits between them, and it runs only when the render failed too.
+        self.assertEqual(names[names.index("Render the gallery and judge it") + 1:names.index("Judge the red states against the base")],
+                         ["Fetch the base gallery"])
         self.assertLess(names.index("Judge the red states against the base"), names.index("Upload the health run"))
 
     def test_the_base_is_the_merges_first_parent_rendered_by_the_same_checker(self) -> None:
@@ -111,12 +140,12 @@ class GalleryHealthBaseReds(unittest.TestCase):
     def test_every_health_run_may_render(self) -> None:
         # health.ts refuses to render without CMUX_GALLERY_IN_VM=1 and writes no verdict; the base replay
         # first ran without it, so no base result ever existed and every red failed (review of #27100).
-        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-        job_env = workflow["jobs"]["health"].get("env") or {}
-        runs = [entry for entry in steps() if "bun health.ts" in str(entry.get("run", ""))]
+        workflow = workflow_jobs.document(WORKFLOW)
+        job = workflow["jobs"]["health"]
+        runs = [entry for entry in job["steps"] if "bun health.ts" in str(entry.get("run", ""))]
         self.assertEqual(len(runs), 2)
         for entry in runs:
-            env = {**job_env, **(entry.get("env") or {})}
+            env = workflow_jobs.effective_env(workflow, job, entry)
             self.assertEqual(str(env.get("CMUX_GALLERY_IN_VM")), "1", entry.get("name"))
 
     def test_a_base_replay_with_no_verdict_fails_loudly(self) -> None:
@@ -133,6 +162,78 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertIn("for pass in 1 2", run)
         self.assertIn("--retries 0", run)
 
+    def test_the_base_builds_only_the_red_entries(self) -> None:
+        # The whole gallery (3,224 modules) took ~80 s of every judged shard to replay a handful of states
+        # (2026-11-11); galleryEntrySubset builds only CMUX_GALLERY_ENTRIES.
+        run = step("Judge the red states against the base")["run"]
+        build = next(line for line in run.splitlines() if "bun run gallery:build" in line)
+        self.assertIn('CMUX_GALLERY_ENTRIES="$entries"', build)
+        self.assertLess(run.index("entries=$(python3"), run.index(build))
+        config = (ROOT / "webviews/vite.config.gallery.ts").read_text(encoding="utf-8")
+        self.assertIn("galleryEntrySubset()", config)
+
+    def test_the_base_gallery_is_built_once_a_run_for_the_shards_to_fetch(self) -> None:
+        # Each judged shard built the whole base gallery itself (~55-85 s, 2026-11-11), and 54 of 72 pull request
+        # runs judged all 16 shards. One job builds it while the shards render the head.
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        job = workflow["jobs"]["base-gallery"]
+        self.assertIn("github.event_name == 'pull_request'", job["if"])
+        self.assertIn("head.repo.full_name == github.repository", job["if"])
+        self.assertNotIn("needs", job, "it runs beside the shards, not before them")
+        self.assertNotIn("needs", workflow["jobs"]["health"])
+        runs_on = "\n".join(workflow_jobs.runs_on_cells(job) or ["<unresolved matrix>"])
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runs_on)
+        self.assertNotIn("blacksmith", runs_on)
+        # It checks out what the shards check out, and restores the base by the judge step's own command.
+        self.assertEqual(job["steps"][0]["with"], step("Checkout")["with"])
+        build = next(entry for entry in job["steps"] if entry.get("name") == "Build the base gallery")["run"]
+        restore = next(line.strip() for line in build.splitlines() if line.strip().startswith("git restore"))
+        judge = step("Judge the red states against the base")["run"]
+        self.assertIn(restore.replace('"$base"', '"$BASE_SHA"'), judge)
+        self.assertIn("base=$(git rev-parse HEAD^1)", build)
+        self.assertIn('> "$RUNNER_TEMP/base-gallery/base-sha.txt"', build)
+        upload = next(entry for entry in job["steps"] if entry.get("name") == "Upload the base gallery")
+        fetch = step("Fetch the base gallery")
+        self.assertEqual(upload["with"]["name"], fetch["with"]["name"])
+        # A whole-workflow rerun uploads the same name again under the same run (review F1 of #41429).
+        self.assertIs(upload["with"].get("overwrite"), True)
+        self.assertEqual(fetch["with"]["path"], "${{ runner.temp }}/base-gallery")
+        self.assertIs(fetch.get("continue-on-error"), True)
+        self.assertIn("steps.render.outcome == 'failure'", fetch["if"])
+        names = [entry.get("name") for entry in steps()]
+        self.assertEqual(names.index("Fetch the base gallery") + 1, names.index("Judge the red states against the base"))
+
+    def test_a_shard_uses_the_fetched_gallery_only_for_its_own_base(self) -> None:
+        judge = step("Judge the red states against the base")["run"]
+        check = judge.index('"$(cat "$RUNNER_TEMP/base-gallery/base-sha.txt" 2>/dev/null)" = "$BASE_SHA"')
+        build = judge.index("bun run gallery:build")
+        self.assertLess(check, build)
+        self.assertLess(check, judge.index('rm -rf "$RUNNER_TEMP/base-gallery"'))
+        # Run the branch: a gallery for another base (a moved merge ref) is not used.
+        with tempfile.TemporaryDirectory(prefix="gallery-base-") as tmp:
+            block = judge[judge.index('if [ "$(cat'):judge.index("\nfi\n", check) + len("\nfi\n")]
+            gallery = Path(tmp) / "base-gallery"
+            for stamped, built in (("a" * 40, False), ("b" * 40, True)):
+                gallery.mkdir(exist_ok=True)
+                (gallery / "base-sha.txt").write_text(stamped + "\n")
+                env = {**os.environ, "RUNNER_TEMP": tmp, "BASE_SHA": "a" * 40, "entries": "x",
+                       "PATH": f"{tmp}/bin:{os.environ['PATH']}"}
+                (Path(tmp) / "bin").mkdir(exist_ok=True)
+                (Path(tmp) / "bin/bun").write_text("#!/bin/sh\necho BUILT\n")
+                (Path(tmp) / "bin/bun").chmod(0o755)
+                out = subprocess.run(["bash", "-euc", block], env=env, capture_output=True, text=True, check=True).stdout
+                self.assertEqual("BUILT" in out, built, out)
+
+    def test_the_two_base_renders_run_side_by_side_each_one_case_at_a_time(self) -> None:
+        # One after the other they were ~55 s each for ten red cases, most of it waiting out a play's timeout.
+        run = step("Judge the red states against the base")["run"]
+        replay = run[run.index("for pass in 1 2"):]
+        self.assertIn("--concurrency 1", replay)
+        self.assertIn(") &", replay)
+        self.assertLess(replay.index(") &"), replay.index("\nwait\n"))
+        # Both verdicts are read only after both renders ended.
+        self.assertLess(replay.index("\nwait\n"), replay.index('[ ! -s "$RUNNER_TEMP/health/base/$pass/health.json" ]'))
+
     def test_one_classifier_judges_it_and_fails_closed(self) -> None:
         run = step("Judge the red states against the base")["run"]
         self.assertIn("scripts/ci/test_reds.py", run)
@@ -140,10 +241,57 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertIn("--annotate", run)
         # The classifier is copied before the base replaces it in the checkout.
         self.assertLess(run.index("cp scripts/ci/test_reds.py"), run.index("git restore"))
-        # A push has no base to compare with; a failed render with no red state is a tool failure.
-        self.assertIn('[ "$EVENT" != pull_request ] || [ -z "$BASE_SHA" ]', run)
+        # Only a run with no base (the nightly dispatch, a new tip) fails on every red; a failed render
+        # with no red state is a tool failure.
+        self.assertIn('if [ -z "$BASE_SHA" ]; then', run)
+        self.assertNotIn("!= pull_request", run)
         self.assertIn('[ "$rc" = 2 ]', run)
         self.assertTrue(run.rstrip().endswith('exit "$rc"'))
+
+
+class GalleryHealthPushBase(unittest.TestCase):
+    """A push to feat-cmux-next is judged against the tip it replaced, so a red names the push that
+    caused it. With no base, every red failed every push (8 of 8 shards on 6 of 8 pushes, 2026-11-10)
+    and a red one push introduced could not be told from one already there."""
+
+    def resolve(self, event: str, before: str) -> dict[str, str]:
+        run = step("Resolve the head and the merge")["run"]
+        with tempfile.TemporaryDirectory() as tmp:
+            git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t"]
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            shas = []
+            for n in range(2):
+                subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", str(n)], check=True)
+                shas.append(subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True,
+                                           text=True).stdout.strip())
+            out = Path(tmp) / "out"
+            env = {**os.environ, "EVENT": event, "PR_HEAD": "", "GITHUB_OUTPUT": str(out),
+                   "BEFORE": shas[0] if before == "previous" else before}
+            subprocess.run(["bash", "-c", run], cwd=tmp, env=env, check=True, capture_output=True)
+            values = dict(line.split("=", 1) for line in out.read_text().splitlines())
+            return {**values, "previous": shas[0], "tip": shas[1]}
+
+    def test_a_push_compares_with_the_tip_it_replaced(self) -> None:
+        self.assertIn("github.event.before", str(step("Resolve the head and the merge").get("env")))
+        values = self.resolve("push", "previous")
+        self.assertEqual(values["base_sha"], values["previous"])
+        self.assertEqual(values["head_sha"], values["tip"])
+
+    def test_a_push_fetches_the_history_its_before_is_in(self) -> None:
+        """A push compares with `before`, which may be any depth back, so it fetches full history. GitHub's
+        `cond && a || b` gives b whenever a is falsy, and 0 is falsy: `push && 0 || 2` fetched depth 2 on
+        every push, and a multi-commit push lost its base (review of cmux#40994)."""
+        depth = str(step("Checkout")["with"]["fetch-depth"])
+        match = re.fullmatch(r"\$\{\{ github\.event_name == 'push' && (\S+) \|\| (\S+) \}\}", depth)
+        self.assertIsNotNone(match, depth)
+        when_push, otherwise = match.group(1), match.group(2)
+        self.assertNotIn(when_push, {"0", "false", "''", "null"}, "a falsy value here makes `||` take the right side")
+        self.assertEqual(int(when_push.strip("'")), 0)
+        self.assertEqual(int(otherwise.strip("'")), 2)
+
+    def test_a_new_tip_or_the_nightly_has_no_base(self) -> None:
+        self.assertEqual(self.resolve("push", "0" * 40)["base_sha"], "")
+        self.assertEqual(self.resolve("workflow_dispatch", "")["base_sha"], "")
 
 
 class GalleryHealthBrowserConsistency(unittest.TestCase):
@@ -168,12 +316,12 @@ class GalleryHealthBrowserConsistency(unittest.TestCase):
                 script = work / name
                 script.write_text(contents)
                 script.chmod(0o755)
-            env = {
+            env = git_fixture_env.fixture_env({
                 "PATH": str(work / "bin") + os.pathsep + os.defpath,
                 "GITHUB_WORKSPACE": str(work), "GITHUB_ENV": str(env_file),
                 "RUNNER_TEMP": str(work), "TEST_BROWSER": browser, "TEST_LAUNCHES": str(launches),
                 "ALL": "true", "IDS": "", "SHARD": "0", "pass": "1",
-            }
+            })
             render = next(entry for entry in steps if entry.get("id") == "render")
             for entry in steps:
                 script = entry.get("run", "")
@@ -208,6 +356,49 @@ def tracked(*paths: str) -> list[str]:
                           capture_output=True, text=True).stdout.split()
 
 
+# The scripts a gallery render runs: the build's entry points, the scripts build-agent-pane-web.sh runs, and
+# the checker. What they reach through relative imports, and the files beside them they name in a string
+# (broken-allowlist.json), is what a render reads from those folders; the workflow lists those files by name.
+RENDER_SCRIPTS = (
+    "webviews/vite.config.ts",
+    "webviews/vite.config.gallery.ts",
+    "webviews/scripts/pages/gen-strings.mjs",
+    "webviews/scripts/pages/split-strings.mjs",
+    "webviews/scripts/agent-pane/bundle.mjs",
+    "webviews/scripts/agent-pane/tailwind-css.mjs",
+    "webviews/scripts/gallery/manifest.ts",
+    "webviews/scripts/gallery/touched.ts",
+    "scripts/gallery-matrix/health.ts",
+    "scripts/gallery-matrix/unplaced.py",
+    "scripts/gallery-matrix/upload-set.ts",
+)
+_RELATIVE = re.compile(r"""(?:\bfrom\s*|\bimport\s*\(?\s*|\bnew\s+URL\(\s*)["'](\.{1,2}/[^"'?$]+)""")
+_SIBLING = re.compile(r"""["']([\w.-]+\.(?:json|py|ts|mjs))["']""")
+
+
+def render_script_closure() -> set[str]:
+    """Repo paths reachable from RENDER_SCRIPTS: relative imports, and a sibling file named in a string."""
+    files = set(tracked("webviews", "scripts/gallery-matrix", "config/vite-plus"))
+    seen: set[str] = set()
+    queue = list(RENDER_SCRIPTS)
+    while queue:
+        name = queue.pop()
+        if name in seen or name not in files:
+            continue
+        seen.add(name)
+        text = (ROOT / name).read_text(encoding="utf-8", errors="replace")
+        folder = os.path.dirname(name)
+        targets = [os.path.normpath(os.path.join(folder, spec)) for spec in _RELATIVE.findall(text)]
+        targets += [os.path.join(folder, sibling) for sibling in _SIBLING.findall(text)]
+        for target in targets:
+            for candidate in (target, *(target + ext for ext in (".ts", ".tsx", ".mjs", ".js")),
+                              re.sub(r"\.js$", ".ts", target)):
+                if candidate in files:
+                    queue.append(candidate)
+                    break
+    return seen
+
+
 class GalleryHealthPathRouting(unittest.TestCase):
     """A pull request runs gallery health only when a path the gallery render reads changes.
 
@@ -237,6 +428,9 @@ class GalleryHealthPathRouting(unittest.TestCase):
             "scripts/ci/test_reds.py",
             ".github/workflows/gallery-health.yml",
             "Resources/ghostty/themes/Token Dark",
+            "webviews/src/gallery/fixtures/markdown-showcase.md",
+            "scripts/gallery-matrix/broken-allowlist.json",
+            "scripts/gallery-matrix/geometry-collector.ts",
         ):
             self.assertTrue(triggered(path, paths), path)
 
@@ -250,6 +444,16 @@ class GalleryHealthPathRouting(unittest.TestCase):
             "webviews/README.md",
             "bun.lock",
             "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift",
+            # The matrix's other tools, benches, capture tools and docs: no render reads them.
+            "scripts/gallery-matrix/README.md",
+            "scripts/gallery-matrix/geometry-audit.ts",
+            "scripts/gallery-matrix/health.test.ts",
+            "webviews/scripts/agent-pane/hidden-idle-bench.ts",
+            "webviews/scripts/agent-pane/chat-load/reopen.sh",
+            "webviews/scripts/gallery/capture-window-chrome.ts",
+            "webviews/scripts/pages/layout-check.mjs",
+            "webviews/src/ui/README.md",
+            "webviews/src/gallery/ENTRIES.md",
         ):
             self.assertFalse(triggered(path, paths), path)
 
@@ -264,9 +468,51 @@ class GalleryHealthPathRouting(unittest.TestCase):
         paths = triggers()["pull_request"]["paths"]
         files = [path for path in tracked(".") if any(pattern.search(path) for pattern in broad)]
         # A unit test beside the gallery (`*.test.ts`) is never bundled, so it renders nothing either.
+        # A matrix tool or a gallery script no render runs (geometry-audit.ts, capture-window-chrome.ts) and a doc
+        # (ENTRIES.md) change no render either: of those folders, only what the render scripts reach must trigger.
+        reached = render_script_closure()
         missed = [path for path in files
-                  if path != "bun.lock" and not re.search(r"\.test\.tsx?$", path) and not triggered(path, paths)]
+                  if path != "bun.lock" and not re.search(r"\.test\.tsx?$", path) and not path.endswith(".md")
+                  and (path in reached or not path.startswith(("scripts/gallery-matrix/", "webviews/scripts/gallery/")))
+                  and not triggered(path, paths)]
         self.assertEqual(missed, [])
+
+    def test_every_script_a_render_runs_triggers_it(self) -> None:
+        # The scripts folders are routed file by file; a module the build or the checker starts importing must
+        # join the list, or a change to it would skip the check.
+        paths = triggers()["pull_request"]["paths"]
+        reached = render_script_closure()
+        self.assertGreater(len(reached), 20)
+        self.assertIn("scripts/gallery-matrix/shift-baseline.json", reached)
+        self.assertIn("webviews/scripts/pages/gen-feature-tips.mjs", reached)
+        self.assertEqual(sorted(path for path in reached if not triggered(path, paths)), [])
+
+    def test_every_routed_script_is_one_a_render_runs(self) -> None:
+        # The other way round: a file listed by name under the scripts folders is one a render reaches, so the
+        # list keeps no file nothing reads.
+        paths = triggers()["pull_request"]["paths"]
+        reached = render_script_closure()
+        folders = ("scripts/gallery-matrix/", "webviews/scripts/agent-pane/", "webviews/scripts/pages/",
+                   "webviews/scripts/gallery/", "webviews/scripts/lint/")
+        listed = [path for path in paths if path.startswith(folders) and not path.endswith("/bun.lock")]
+        self.assertTrue(listed)
+        self.assertEqual(sorted(path for path in listed if path not in reached), [])
+
+    def test_a_markdown_file_a_gallery_source_imports_triggers_it(self) -> None:
+        # webviews/src Markdown is routed only under src/gallery/fixtures/; a page that imports one from
+        # elsewhere (`?raw`) must still start the check.
+        paths = triggers()["pull_request"]["paths"]
+        pattern = re.compile(r"""["'](\.{1,2}/[^"'?]+\.md)(?:\?raw)?["']""")
+        missed = set()
+        for name in tracked("webviews/src"):
+            if not re.search(r"\.(ts|tsx|js|mjs|css)$", name) or re.search(r"\.test\.tsx?$", name):
+                continue
+            text = (ROOT / name).read_text(encoding="utf-8", errors="replace")
+            for match in pattern.finditer(text):
+                target = os.path.normpath(os.path.join(os.path.dirname(name), match.group(1)))
+                if (ROOT / target).is_file() and not triggered(target, paths):
+                    missed.add(f"{target} (from {name})")
+        self.assertEqual(sorted(missed), [])
 
     def test_every_file_the_gallery_imports_from_outside_webviews_triggers_it(self) -> None:
         # A gallery file, a component or a stylesheet that imports a fixture, a schema or a font from outside
@@ -277,6 +523,9 @@ class GalleryHealthPathRouting(unittest.TestCase):
         for name in tracked("webviews/src", "webviews/dev-server", "webviews/scripts/gallery",
                             "webviews/scripts/agent-pane", "webviews/scripts/pages"):
             if not re.search(r"\.(ts|tsx|js|mjs|css)$", name) or re.search(r"\.test\.tsx?$", name):
+                continue
+            # A script no render runs (a bench, a capture tool) is not routed, and neither is what it imports.
+            if not triggered(name, paths):
                 continue
             text = (ROOT / name).read_text(encoding="utf-8", errors="replace")
             for match in pattern.finditer(text):
@@ -353,6 +602,82 @@ class GalleryHealthPathRouting(unittest.TestCase):
         self.assertIn("echo .github/workflows/gallery-health.yml", branch)
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         self.assertIn("github.event_name", workflow["concurrency"]["group"])
+
+
+def sparse_patterns() -> list[str]:
+    checkout = step("Checkout")["with"]
+    return [line.strip() for line in str(checkout["sparse-checkout"]).splitlines() if line.strip()]
+
+
+def in_sparse(path: str, patterns: list[str]) -> bool:
+    """Whether the job's allow-list checkout (non-cone: folders, files and `**` globs, no negation) has PATH."""
+    for pattern in patterns:
+        rel = pattern.lstrip("/")
+        if rel.endswith("/") and path.startswith(rel):
+            return True
+        if "*" in rel and unplaced_tool.glob_regex(rel).match(path):
+            return True
+        if rel == path:
+            return True
+    return False
+
+
+class GalleryHealthTime(unittest.TestCase):
+    """Leo, 2026-11-11: "what the heck is 30 minutes of 'gallery health'". Each shard's job is held to 10 minutes."""
+
+    def test_the_checkout_has_every_path_a_render_reads(self) -> None:
+        # The checkout takes only the folders a render reads (the full tree's blobs were ~60 s of every shard);
+        # each routed path is what a render reads, so each routed file must be in it, and so must the job's tools.
+        patterns = sparse_patterns()
+        checkout = step("Checkout")["with"]
+        self.assertIs(checkout["sparse-checkout-cone-mode"], False)
+        self.assertEqual(str(checkout["filter"]), "blob:none")
+        self.assertFalse(any(p.startswith("!") for p in patterns), "an allow-list: name what the job reads")
+        routed = triggers()["pull_request"]["paths"]
+        missing = [path for path in tracked() if triggered(path, routed) and not in_sparse(path, patterns)]
+        self.assertEqual(missing, [], "add these to the Checkout step's sparse-checkout")
+        for path in ("scripts/ci/api_call_log/env.sh", "scripts/ci/test_reds.py", "scripts/ci/ensure-system-chrome.sh",
+                     ".github/actions/playwright-apt-cache/action.yml", ".github/workflows/gallery-health.yml",
+                     "scripts/gallery-matrix/upload-set.ts", "webviews/package.json"):
+            self.assertTrue(in_sparse(path, patterns), path)
+        self.assertFalse(in_sparse("cmux-tui/Cargo.toml", patterns))
+        self.assertFalse(in_sparse("Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift", patterns))
+
+    def test_a_shard_past_its_case_budget_fails_naming_the_shard_count(self) -> None:
+        cap = step("Hold each shard within its time budget")
+        self.assertEqual(cap["env"]["SHARDS"], "${{ strategy.job-total }}")
+        self.assertIn("matrix.shard == 0", cap["if"])
+        self.assertIn("!cancelled()", cap["if"])
+        names = [entry.get("name") for entry in steps()]
+        # It counts before the base replay restores the base's webviews/ (review of #41296), goes on so the
+        # render still gives its verdict, and a later step fails the job.
+        self.assertLess(names.index("Hold each shard within its time budget"), names.index("Render the gallery and judge it"))
+        self.assertIs(cap["continue-on-error"], True)
+        fail = step("Fail past the case budget")
+        self.assertIn("steps.cap.outcome == 'failure'", fail["if"])
+        self.assertLess(names.index("Judge the red states against the base"), names.index("Fail past the case budget"))
+        self.assertIn("exit 1", fail["run"])
+        with tempfile.TemporaryDirectory(prefix="gallery-cap-") as tmp:
+            root = Path(tmp)
+            (root / "webviews/scripts/gallery").mkdir(parents=True)
+            (root / "bin").mkdir()
+            # A stand-in manifest.ts: bun writes N cases to --out.
+            (root / "bin/bun").write_text(
+                "#!/bin/sh\nwhile [ $# -gt 0 ]; do [ \"$1\" = --out ] && { python3 -c \"import json,sys; "
+                "json.dump([{}]*int(sys.argv[1]), open(sys.argv[2], 'w'))\" \"$CASES\" \"$2\"; }; shift; done\n")
+            (root / "bin/bun").chmod(0o755)
+
+            def run(cases: int) -> subprocess.CompletedProcess:
+                env = {**os.environ, "PATH": f"{root / 'bin'}:{os.environ['PATH']}", "RUNNER_TEMP": tmp,
+                       "CASES": str(cases), "SHARDS": "16", "MAX_CASES_PER_SHARD": cap["env"]["MAX_CASES_PER_SHARD"]}
+                return subprocess.run(["bash", "-c", cap["run"]], cwd=root, env=env, capture_output=True, text=True)
+
+            limit = 16 * int(cap["env"]["MAX_CASES_PER_SHARD"])
+            self.assertEqual(run(limit).returncode, 0, run(limit).stdout + run(limit).stderr)
+            over = run(limit + 1)
+            self.assertEqual(over.returncode, 1, over.stdout + over.stderr)
+            self.assertIn("::error", over.stdout)
+            self.assertIn("to 17 shards", over.stdout)
 
 
 if __name__ == "__main__":

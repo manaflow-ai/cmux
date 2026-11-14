@@ -69,11 +69,15 @@ never by a ws_ or tab_ id.
 
 next answers the tab the person should go to next, as JSON {target,
 queue_length, focused}: tabs where they must act first (a request, a blocked
-agent or program), then unread error and warning notifications, then other
-unread ones, each oldest first. target is the entry after the focused tab (or
-after --after), wrapping to the first, or null. It moves focus only with
---focus. list answers the whole queue as {queue}. The TUI key `Ctrl-b a`
-(next-attention) visits the same order; `Ctrl-b A` lists it.
+agent or program), then unread error and warning notifications, then
+finished agent turns nobody viewed (kind done), then other unread ones (a
+bell), each oldest first. target is the first entry, the most urgent one; with
+--after it is the entry after that tab, wrapping to the first, so a loop that
+passes the last target visits each entry once. null when nothing needs the
+person. It moves focus only with --focus. A blocked entry's reason is the
+agent's own message (the permission it asks for). list answers the whole
+queue as {queue}. The TUI key `Ctrl-b a` (next-attention) visits the same
+order from the tab the person looks at; `Ctrl-b A` lists it.
 ";
 
 pub(super) const NOTIFY_HELP: &str = "\
@@ -187,7 +191,8 @@ USAGE
 pub(super) const GIT_HELP: &str = "\
 USAGE
   cmux git status [TARGET]
-  cmux git diff [TARGET] [--scope <scope>] [--patch] [--max-patch-bytes <n>]
+  cmux git diff [TARGET] [--scope <scope> | --scope commits --base <commit> --head <commit>]
+    [--patch] [--max-patch-bytes <n>]
     [--max-files <n>] [--context-lines <n>] [--after-path <path>]
     [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
   cmux git branches [TARGET] [--limit <n>]
@@ -211,6 +216,9 @@ USAGE
   cmux git worktree apply [TARGET]
   cmux git worktree remove [TARGET] [--discard]
   cmux git worktree setup [TARGET] [--since <offset>]
+  cmux git comments list [--root <path>]
+  cmux git comments save [--root <path>] --comment <json-object>
+  cmux git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
 
 TARGET
   --path <path>          A file or folder in the repository
@@ -228,6 +236,9 @@ SCOPES
   committed    HEAD against its first parent
   branch       The working tree against the merge base with the base branch,
                with untracked files
+  commits      --head against its merge base with --base (a pull request's
+               change), both full commit ids already in the repository;
+               nothing is fetched
 
 status prints the branch, upstream, how far it is ahead and behind, the base
 branch (the one a worktree create recorded for the branch, else origin's
@@ -294,6 +305,14 @@ The main checkout is never removed. Before it goes, the project's teardown runs.
 worktree setup shows the project's worktree recipe (.worktreeinclude,
 .cmux/worktree.toml and the saved one) and, in a worktree worktree create made,
 its setup: state, port and output (from byte --since).
+
+comments are the diff page's review comments, kept by the session host for a
+worktree root (--root, the current directory by default; give the worktree's
+top folder, as the diff page does). list prints them. save adds the comment
+object (filePath, side, startLine, endLine, message, ...), or replaces the
+saved one whose id it names; the session host sets createdAt and updatedAt.
+delete removes the named comments; --versions-json maps an id to the updatedAt
+you read, so a comment edited since then is kept.
 ";
 
 /// Levenshtein distance, for "did you mean" scope suggestions.

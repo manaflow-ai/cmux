@@ -57,6 +57,7 @@ const SILENT_FOR: Duration = Duration::from_secs(70);
 const MAX_CALLS: usize = 32;
 /// All calls' request bodies held at once, from the first body frame until the provider call ends.
 const MAX_HELD_BYTES: usize = 64 * 1024 * 1024;
+// timeout: a WebSocket upgrade that never completes fails the connect.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 /// The backend refuses a frame over 1 MiB; answer chunks stay well under it once base64'd.
 const CHUNK_BYTES: usize = 192 * 1024;
@@ -1022,6 +1023,7 @@ async fn refresh_codex(
 ) -> Result<CodexLogin, String> {
     let response = http
         .post(CODEX_TOKEN_URL)
+        // timeout: a token endpoint that never answers fails this refresh.
         .timeout(Duration::from_secs(20))
         .form(&[
             ("grant_type", "refresh_token"),

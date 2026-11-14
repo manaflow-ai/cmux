@@ -725,12 +725,16 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     /// (the web panel's `.acpmux-session-info-section__handle`; Leo, 2026-11-07: "the grip and the lef
     /// tside aren't flush... simply don't highlight and have a thing you can click"). While it shows it
     /// takes the trailing value's place. A line with a control at its right end (a switch, buttons, a
-    /// menu) keeps the grip in its right inset, past the control, so the grip never covers it.
+    /// menu) keeps the grip in its right inset, past the control, so the grip never covers it: there the
+    /// box is the inset itself, narrower than an icon box, since one centred on the dots ran 4 pt past the
+    /// line's right end and over the control.
     var gripHitRect: CGRect? {
         guard grip != nil else { return nil }
-        let box = LayoutGrid.iconBox, pill = min(LayoutGrid.pill, bounds.height)
+        let pill = min(LayoutGrid.pill, bounds.height)
         let dots = SessionInfoGripView.size.width
-        let dotsRight = gripCoversTrailing ? bounds.width - SessionInfoMetrics.trail : bounds.width - (SessionInfoMetrics.trail - dots) / 2
+        let inset = SessionInfoMetrics.trail
+        let box = gripCoversTrailing ? LayoutGrid.iconBox : inset
+        let dotsRight = gripCoversTrailing ? bounds.width - inset : bounds.width - (inset - dots) / 2
         let midX = dotsRight - dots / 2
         // Centred on the drawn grip, which sits on the title's line: a row whose subtitle wraps puts its
         // title, and so its grip, above the row's middle, and the box must still hold every dot.
@@ -928,8 +932,13 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     override func mouseDown(with event: NSEvent) {
         focusEnclosingSessionInfoPanel()
         let point = convert(event.locationInWindow, from: nil)
-        pressedGrip = line.reorderable && line.id != nil && (gripHitRect?.contains(point) == true)
-        dragStart = pressedGrip ? point : nil
+        let reorderable = line.reorderable && line.id != nil
+        pressedGrip = reorderable && (gripHitRect?.contains(point) == true)
+        // A press anywhere on a reorderable line can start a drag (Lucas, 2026-11-10: "you don't
+        // necessarily need to hover on the 6 dot selector"). It becomes a drag only past the 4 pt
+        // threshold, so a plain click still folds or runs the line. Buttons, toggles and the menu are
+        // their own views and take their presses before this line sees them.
+        dragStart = reorderable ? point : nil
         isDragging = false
     }
     override func mouseDragged(with event: NSEvent) {
@@ -1101,7 +1110,7 @@ final class SessionInfoButtonView: NSView {
         }
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = Metrics.controlCornerRadius
+        layer?.cornerRadius = Metrics.buttonCornerRadius
         addSubview(content)
         themedToolTip = button.label
         setAccessibilityElement(true)
@@ -1145,7 +1154,7 @@ final class SessionInfoButtonView: NSView {
     override var acceptsFirstResponder: Bool { enabled }
     override var canBecomeKeyView: Bool { enabled && NSApp.isFullKeyboardAccessEnabled }
     override var focusRingMaskBounds: NSRect { bounds }
-    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: Metrics.controlCornerRadius, yRadius: Metrics.controlCornerRadius).fill() }
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: Metrics.buttonCornerRadius, yRadius: Metrics.buttonCornerRadius).fill() }
     override func keyDown(with event: NSEvent) {
         if SessionInfoKeys.presses(event), press() { return }
         super.keyDown(with: event)
@@ -1217,7 +1226,7 @@ final class SessionInfoSegmentsView: NSView {
         for value in values {
             let width = bounds.width * CGFloat(max(0, value.share) / total)
             colors.color(for: value.color).setFill()
-            NSBezierPath(roundedRect: CGRect(x: x, y: bounds.minY, width: width, height: bounds.height), xRadius: bounds.height / 2, yRadius: bounds.height / 2).fill()
+            NSBezierPath(roundedRect: CGRect(x: x, y: bounds.minY, width: width, height: bounds.height), xRadius: bounds.height / 2, yRadius: bounds.height / 2).fill() // radius-allow: a capsule meter segment, not a button
             x += width
         }
     }
@@ -1242,8 +1251,8 @@ final class SessionInfoMeterView: NSView {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.height / 2
-        fill.cornerRadius = bounds.height / 2
+        layer?.cornerRadius = bounds.height / 2 // radius-allow: a capsule meter track, not a button
+        fill.cornerRadius = bounds.height / 2 // radius-allow: the meter's capsule fill
         // motion: allow the fill's frame is set, never animated (layout, not an animation)
         CATransaction.begin()
         CATransaction.setDisableActions(true)

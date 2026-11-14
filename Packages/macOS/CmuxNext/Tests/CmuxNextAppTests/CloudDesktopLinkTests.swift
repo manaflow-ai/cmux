@@ -93,6 +93,8 @@ import Testing
         #expect(!undeclared.opensCarrierDesktop)
         var next = desktop
         next.provider = "cmux-next"
+        #expect(!next.opensCarrierDesktop, "a declared desktop capability is not the record's `desktop`")
+        next.servesDesktop = true
         #expect(next.opensCarrierDesktop)
         next.createdBy = "user_00000000000000000002"
         #expect(next.opensCarrierDesktop, "the carrier refuses a teammate (service_refused), not the app")
@@ -251,6 +253,7 @@ import Testing
         let live = try await row("tab_state_live")
         #expect(live["viewer"]?.stringValue == "rd")
         #expect(live["connected"]?.boolValue == false, "no frame path yet: connecting")
+        #expect(live["session"]?.objectValue?["end_reason"] == CmuxNextSettings.JSONValue.null, "a live session has no end reason")
         #expect(live["control"]?.stringValue == "agent")
         #expect(session.selectMode(.control))
         #expect(try await row("tab_state_live")["control"]?.stringValue == "person")

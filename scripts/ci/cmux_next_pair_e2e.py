@@ -105,12 +105,22 @@ def takes_pair_url_env():
 
 
 def dev_credential():
-    """(email, password) of the DEBUG dev account (AuthCoordinator's "42" shortcut), as mac.py reads it."""
-    src = os.path.join(ROOT, "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift")
-    m = re.search(r'CMUXAuthAutoLoginCredentials\(email:\s*"([^"]+)",\s*password:\s*"([^"]+)"\)', open(src).read())
-    if not m:
-        raise SystemExit("DEBUG dev credential not found in CmuxAuthRuntime")
-    return m.group(1), m.group(2)
+    """(email, password) of the DEBUG dev account, from the environment (`CMUX_UITEST_STACK_EMAIL` /
+    `CMUX_UITEST_STACK_PASSWORD`, the names the app reads), else from the CI auth profile
+    (`~/.secrets/cmuxterm-dev.env`, which ios-e2e.yml materializes from the existing dogfood secrets
+    under those same names); the source holds no credential."""
+    keys = ("CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD")
+    found = {k: os.environ.get(k, "") for k in keys}
+    profile = os.path.expanduser("~/.secrets/cmuxterm-dev.env")
+    if not all(found.values()) and os.path.isfile(profile):
+        for line in open(profile):
+            k, sep, v = line.rstrip("\n").partition("=")
+            if sep and k in keys and not found[k]:
+                found[k] = v
+    if not all(found.values()):
+        raise SystemExit("DEBUG dev credential: set CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD "
+                         "(or provide ~/.secrets/cmuxterm-dev.env)")
+    return found[keys[0]], found[keys[1]]
 
 
 def machine_id(bundle_id):
@@ -182,6 +192,10 @@ def main():
     for flag in ("--mac-app", "--ios-app", "--sims", "--udid", "--bundle-id", "--work", "--out", "--summary"):
         ap.add_argument(flag, required=True)
     a = ap.parse_args()
+    # The theme leg runs on a tree that carries its Ghostty config (a demo branch adds it; the step
+    # takes no argument for it): the Mac runs that config, and once paired the phone opens that
+    # Mac's terminal; both screens are kept (screens/theme-*.png).
+    a.theme = THEME_CONFIG if os.path.isfile(THEME_CONFIG) else None
     proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
     proof = read_proof(proof_path, artifact_root=a.out) if proof_path else None
     cloud_ok = proof is None
@@ -222,6 +236,8 @@ def main():
                # (step 423a0bae's showed only other Macs) and name no host.
                CMUX_NEXT_MOBILE_DEVICE_NAME=RIG_MAC_NAME,
                CMUX_NEXT_SOCKET_MODE="automation")
+    if a.theme:
+        env["CMUX_NEXT_GHOSTTY_CONFIG"] = os.path.realpath(a.theme)
 
     def rpc(method, params=None, timeout=30):
         try:
@@ -418,6 +434,8 @@ def main():
             phone_log.wait(re.compile(r"live data on"), 60)
             time.sleep(5)  # bounded, as above
             note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
+            if a.theme and paired:
+                note(f"- theme: {theme_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, phone_shot, rpc, screens)}")
             if paired and probe:
                 # The phone lists this Mac by the rig's device name (CMUX_NEXT_MOBILE_DEVICE_NAME), not the
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
@@ -471,6 +489,24 @@ def main():
 
 ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
 LINK_REFUSED = re.compile(r"mac_identity_changed|bad_mac_proof")
+
+
+THEME_CONFIG = os.path.join(ROOT, "cmux-next-ios/verify/pair-e2e-theme.ghostty")
+
+
+def theme_leg(simctl, udid, bundle_id, phone_env, phone_log, phone_shot, rpc, screens):
+    """The phone opens the paired Mac's first terminal (DEBUG demo `live-terminal`, which prints the
+    palette in it); the phone and the Mac window are captured. Returns the summary line."""
+    since = time.monotonic()
+    subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+    subprocess.run(simctl + ["launch", udid, bundle_id, "-cmux-mobile-no-restore", "-cmux-mobile-demo", "live-terminal"],
+                   env=phone_env, check=True, capture_output=True)
+    shown = phone_log.wait_at(re.compile(r"demo step: live-terminal (shown|no \w+)"), 240, since=since)
+    outcome = shown[1].group(1) if shown else "timed out"
+    phone = phone_shot("theme-phone-terminal")
+    mac = rpc("debug.window_snapshot", {"path": os.path.join(screens, "theme-mac-window.png")}, timeout=60)
+    mac_line = "screens/theme-mac-window.png" if isinstance(mac, dict) and not mac.get("error") else f"no Mac snapshot ({mac.get('error')})"
+    return f"live-terminal {outcome}; phone {phone}; Mac {mac_line}"
 
 
 def log_time(line):
@@ -632,7 +668,8 @@ def _forget_tag_files(app, bundle, tag, ls_env):
     for home in homes:
         support = os.path.join(home, "Library/Application Support")
         dirs += [os.path.join(support, bundle), os.path.join(support, "cmux", bundle),
-                 os.path.join(support, "cmux/tags", tag), os.path.join(support, "cmux-next", safe),
+                 os.path.join(support, "cmux-next/tags", tag), os.path.join(support, "cmux/tags", tag),
+                 os.path.join(support, "cmux-next", safe),
                  os.path.join(home, ".cmux/chief/isolated", tag)]
         files += [os.path.join(support, f"cmux/cmuxd-dev-{tag}.sock"),
                   os.path.join(support, f"cmux/dev-{slug}-last-socket-path"),

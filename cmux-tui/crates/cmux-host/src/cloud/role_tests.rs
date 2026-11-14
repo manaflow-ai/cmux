@@ -14,8 +14,15 @@ fn vm_receiver_client_socket_discards_reply_after_its_write_deadline() {
     use std::io::Read;
     let root = tempfile::tempdir().unwrap();
     let (_control, theirs) = UnixStream::pair().unwrap();
-    let mut worker =
-        Worker::new(Paths::new(root.path()), "vm-1".into(), None, theirs, Arc::default()).unwrap();
+    let mut worker = Worker::new(
+        Paths::new(root.path()),
+        "vm-1".into(),
+        None,
+        theirs,
+        Arc::default(),
+        Arc::default(),
+    )
+    .unwrap();
     let (mut caller, stream) = UnixStream::pair().unwrap();
     stream.set_nonblocking(true).unwrap();
     caller.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
@@ -46,8 +53,14 @@ fn agent_socket_clients_never_stop_the_worker() {
     let (ours, theirs) = UnixStream::pair().unwrap();
     let worker_paths = paths.clone();
     let thread = std::thread::spawn(move || {
-        let mut worker =
-            Worker::new(worker_paths, "vm-1".to_owned(), None, theirs, Arc::default())?;
+        let mut worker = Worker::new(
+            worker_paths,
+            "vm-1".to_owned(),
+            None,
+            theirs,
+            Arc::default(),
+            Arc::default(),
+        )?;
         worker.run()
     });
     let socket = paths.at(AGENT_SOCKET);
@@ -79,8 +92,14 @@ fn github_token_asks_get_one_reply_line() {
     let (ours, theirs) = UnixStream::pair().unwrap();
     let worker_paths = paths.clone();
     let thread = std::thread::spawn(move || {
-        let mut worker =
-            Worker::new(worker_paths, "vm-1".to_owned(), None, theirs, Arc::default())?;
+        let mut worker = Worker::new(
+            worker_paths,
+            "vm-1".to_owned(),
+            None,
+            theirs,
+            Arc::default(),
+            Arc::default(),
+        )?;
         worker.run()
     });
     let socket = paths.at(AGENT_SOCKET);

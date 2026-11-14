@@ -27,7 +27,7 @@ use crate::config::{Config, Paths, STATUS_FILE};
 use crate::proc_roles::RolePaths;
 use crate::status;
 
-const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity|clone-mark [--root DIR] | cloud identity | cloud carrier-ticket | update status|check|guard --to N | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | --commit …";
+const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity|clone-mark [--root DIR] | cloud identity | cloud carrier-ticket | update status|check [--skip-resume-hold]|guard --to N | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | --commit …";
 
 fn code(n: u8) -> u8 {
     n
@@ -314,6 +314,12 @@ fn logs_verb(args: &[String]) -> u8 {
 #[cfg(target_os = "linux")]
 fn run_agent(mut cfg: Config) -> u8 {
     use crate::agent::{ActionLog, Agent};
+    // A machine an image made takes the channel's build first, within a bound, so
+    // its first Cloud report (ready) and its session host come from that build: before
+    // anything starts. After a flip this execs the unit's command and never returns.
+    if !crate::updater::first_ready::run(&cfg.paths) {
+        return code(1);
+    }
     // Without a layout the agent still binds and supervises; roles only
     // report the error.
     let install = install_layout(cfg.server_mode);
@@ -353,6 +359,13 @@ fn run_agent(mut cfg: Config) -> u8 {
     } else {
         None
     };
+    // This is cmux-host.service starting: a restart of it that an updater, the
+    // operator's `cmux host update check` or the guard queued is done, so the
+    // Cloud role's binds may go out again (updater/gate.rs). Before any role
+    // starts, so before the first bind.
+    if cfg.paths.is_system_root() {
+        crate::updater::gate::Gate::new(&cfg.paths).service_started();
+    }
     let cloud = crate::cloud::role::CloudRole::new(cfg.paths.clone())
         .with_root_bootstrap(bootstrap.clone());
     // The updater is last: it starts once every other role runs, and it
@@ -483,11 +496,19 @@ fn clone_mark(paths: &Paths) -> Result<serde_json::Value, String> {
 fn carrier_ticket() -> u8 {
     use crate::cloud::carrier_ticket::{REQUEST_KEY, ticket_of};
     let line = serde_json::json!({ REQUEST_KEY: {} }).to_string();
-    let reply = crate::github_cli::agent_reply(
-        std::path::Path::new(crate::cloud::wire::AGENT_SOCKET),
-        &line,
-        Duration::from_secs(30),
-    );
+    // The ticket's own socket and thread (`cloud/carrier_server.rs`); a
+    // cmux-host from before it has only the agent socket.
+    let wait = Duration::from_secs(30);
+    let reply =
+        match std::os::unix::net::UnixStream::connect(crate::cloud::carrier_server::CARRIER_SOCKET)
+        {
+            Ok(stream) => crate::github_cli::reply_on(stream, &line, wait),
+            Err(_) => crate::github_cli::agent_reply(
+                std::path::Path::new(crate::cloud::wire::AGENT_SOCKET),
+                &line,
+                wait,
+            ),
+        };
     match reply.map_err(|e| e.to_string()).and_then(|reply| ticket_of(&reply)) {
         Ok(ticket) => {
             println!("{ticket}");

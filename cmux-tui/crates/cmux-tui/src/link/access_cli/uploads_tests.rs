@@ -10,7 +10,7 @@ use std::thread::JoinHandle;
 
 use serde_json::{Value, json};
 
-use super::{cancel, upload, upload_with_id};
+use super::{cancel, dropped_place, upload, upload_with_id};
 
 /// The most bytes one `fs.write` part carries (the sync remote's part).
 const PART_BYTES: u64 = 8 * 1024 * 1024;
@@ -162,4 +162,45 @@ fn upload_cancel_only_deletes_its_owned_directory() {
     let seen = machine.join().unwrap();
     assert_eq!(seen.files, [(other.to_string(), 12)].into());
     assert!(seen.writes.is_empty());
+}
+
+/// A file the person dropped from iCloud Drive, a cloud-storage folder,
+/// another volume or the Mac's shared folder may go, though the home
+/// folder's share rules refuse it; the rest of `~/Library`, system and
+/// temporary folders, other people's homes, and any dot or credential
+/// folder on the way stay refused.
+#[test]
+fn a_dropped_file_may_come_from_icloud_cloud_storage_or_another_volume() {
+    let homes = vec![std::path::PathBuf::from("/Users/me")];
+    let goes = |path: &str| dropped_place(Path::new(path), &homes);
+    for allowed in [
+        "/Users/me/Library/Mobile Documents/com~apple~CloudDocs/report.pdf",
+        "/Users/me/Library/Mobile Documents/com~apple~CloudDocs/Work/deck.key.pdf",
+        "/Users/me/Library/CloudStorage/GoogleDrive-me@example.com/My Drive/notes.txt",
+        "/Volumes/Backup/photos/shot.png",
+        "/Volumes/Shared Drive/x.zip",
+        "/Users/Shared/handoff.mov",
+    ] {
+        assert!(goes(allowed), "{allowed} was refused");
+    }
+    for refused in [
+        "/Users/me/Library/Keychains/login.db",
+        "/Users/me/Library/Application Support/app/data.sqlite",
+        "/Users/me/Library/Mobile Documents/iCloud~com~example~vault/Documents/vault.dat",
+        "/Users/me/Library/Mobile Documents/com~apple~CloudDocs",
+        "/Users/me/Library/CloudStorage/loose.txt",
+        "/Users/me/Library/Mobile Documents/com~apple~CloudDocs/.ssh/config",
+        "/Users/me/Library/CloudStorage/Dropbox/gcloud/application_default.json",
+        "/Volumes/loose.txt",
+        "/Volumes/Backup/.aws/config.txt",
+        "/Volumes/Backup/home/GCloud/token.txt",
+        "/Users/other/Documents/secret.txt",
+        "/private/etc/hosts",
+        "/private/tmp/file.txt",
+        "/private/var/folders/xy/T/file.txt",
+        "/etc/hosts",
+        "/Users/Shared/.hidden/file.txt",
+    ] {
+        assert!(!goes(refused), "{refused} would go");
+    }
 }

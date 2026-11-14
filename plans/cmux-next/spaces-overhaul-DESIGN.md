@@ -72,6 +72,10 @@ macOS uses Ctrl-arrows and Ctrl-digits for Mission Control. The asked keys clash
 | Ctrl-Cmd-Left / Right: previous / next space | Ghostty's pane resize `resize_split` (reserved, schemas/keybindings/ghostty-reserved-keys.json; changing it needs Lawrence's OK) | **Ctrl-Opt-Cmd-Left / Right** |
 | Ctrl-Cmd-1…9: space N | Focus Pane by Number (`focusPaneByNumber`) | **Ctrl-Opt-Cmd-1…9** |
 
+Nov 7 follow-up (Lawrence: "do ctrl option cmd hl for navigating spaces"): **Ctrl-Opt-Cmd-H / L** are now the
+Previous / Next Space catalog keys; Ctrl-Opt-Cmd-Left / Right stay as aliases. No shipped cmux, Ghostty or
+macOS default holds that chord.
+
 The old space keys keep working: Opt-Cmd-[ / ] stay as aliases of previous / next, and Ctrl-Opt-1…9
 stays the digit scheme's space key (ShortcutDigitScheme, onboarding's Number Keys card). Each key
 follows its action: rebinding or unbinding the action in Settings or `cmux.json`
@@ -79,6 +83,14 @@ follows its action: rebinding or unbinding the action in Settings or `cmux.json`
 checks the shipped table: no two default entries with the same keys and the same `when` run
 different actions. `SpaceKeysTests` checks that the space keys win in a terminal, a page and an
 agent chat, that the asked keys keep their pane meaning, and that no space key is Ctrl alone.
+
+## The space menu
+
+A space dot's right-click menu opens as the workspace group menu does (Leo 2026-11-11: "this colour selection for
+spaces is wack"): the space's name in an editable field, then its colors as one row of swatches drawn in the colors
+themselves, No Color first and the current one ringed (`MenuIdentityHeader`). Set Space Theme and Reset Space Theme
+are rows of their own; no color pick opens into a theme list. A dot in the switcher draws its space's color exactly
+as its swatch does, at full strength; the current space has its chip. Gallery: `AASpaceColorMenuGalleryTests`.
 
 ## Plan for the unbuilt rules
 

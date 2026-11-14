@@ -41,7 +41,13 @@ struct TeamSidebar: View {
                     ForEach(store.teams) { team in
                         row(team)
                     }
-                    if store.teams.isEmpty {
+                    if store.teams.isEmpty, store.awaitsAccountData {
+                        // Teams still loading: never "No teams".
+                        CmuxSpinner(label: Text("Loading teams…"))
+                            .padding(.horizontal, theme.metrics.sideMargin)
+                            .padding(.vertical, 8)
+                            .accessibilityIdentifier("sidebar.teams.loading")
+                    } else if store.teams.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("No teams. Create one to share Macs and workspaces.")
                                 .font(theme.type.rowSubtitle)
@@ -62,7 +68,7 @@ struct TeamSidebar: View {
             .scrollIndicators(.hidden)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.colors.bg.color.ignoresSafeArea())
+        .background(CmuxMobileBackdrop().ignoresSafeArea())
         .alert("Create team", isPresented: $creatingTeam) {
             TextField("Team name", text: $newTeamName)
                 // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
@@ -124,7 +130,7 @@ struct TeamSidebar: View {
                 onlineCount: team.listedMacs.filter(\.isOnline).count,
                 isSelected: selected
             )
-            .animation(theme.motion.snap.animation, value: selected)
+            .animation(theme.motion.snap.animation.unlessReduceMotion, value: selected)
         }
         .buttonStyle(SidebarRowStyle())
         .padding(.horizontal, theme.metrics.selectedRowInset)

@@ -56,9 +56,6 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
         ("linux_sandbox_keeper.rs", "Command::new(daemon_env::bin())"),
         ("linux_sandbox_init.rs", "Command::new(daemon_env::bin())"),
         ("remote_sandbox_linux.rs", "PathBuf::from(daemon_env::bin())"),
-        // The background-task runner the in-process hub starts; it inherits this process's
-        // hermetic environment.
-        ("hub_integration/bg_tasks.rs", "crate::daemon_env::bin().into()"),
         // The binary `Daemon::start` runs after `apply`, and the copy of it a test replaces.
         ("durable_agents.rs", "let exe = daemon_env::bin().to_path_buf();"),
         ("durable_agents/bg_replaced_binary.rs", "std::fs::copy(daemon_env::bin(), &copy)"),
@@ -66,6 +63,11 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
         ("app_orphan_exit.rs", "let source = daemon_env::bin();"),
         // Reads the binary's bytes; starts nothing.
         ("binary_build_stamp.rs", "std::fs::read(daemon_env::bin())"),
+        // Machine A's send relay scripts: the hermetic daemon A (started by `cli`, which calls
+        // `apply`) runs them, so the acpmux they start inherits its environment.
+        ("cross_host_send_cli.rs", "let exe = daemon_env::sh_quote(daemon_env::bin().display());"),
+        // Compares an agent's ACPMUX_BIN with the binary; starts nothing.
+        ("caller_declared_cli.rs", "canonical(daemon_env::bin())"),
     ];
     let mut files = Vec::new();
     rust_files(&tests, &mut files);

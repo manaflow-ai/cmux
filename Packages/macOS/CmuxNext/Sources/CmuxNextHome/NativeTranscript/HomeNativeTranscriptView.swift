@@ -30,10 +30,6 @@ public final class HomeNativeTranscriptView: NSView {
     }
     let transcript: MessagesLabHomeView
     let firstRun = HomeFirstRunView()
-    /// The agent pane's tabs (one per agent opened from its pill) and its view on the right; the view is made
-    /// at the first open (HomeNativeTranscriptView+AgentPane.swift).
-    lazy var agentPane = HomeAgentPane(conversation: conversationID, threads: binding.store)
-    var agentPaneView: HomeAgentPaneView?
     var starterSent = false
     var starterIntakes = 0 { didSet { updateStarterAvailability() } }
     let me: ParticipantID
@@ -81,11 +77,16 @@ public final class HomeNativeTranscriptView: NSView {
         get { transcript.onAppLink }
         set { transcript.onAppLink = newValue }
     }
-    /// Start now on a queued agent's tab: the host asks this chat's Chief to start it past the cap; true when
-    /// it did (nil: no Start now).
-    public var onStartAgent: ((String) async -> Bool)? {
-        didSet { agentPaneView?.onStartAgent = onStartAgent }
-    }
+    /// Start now on a queued agent's pill card: the host asks this chat's Chief to start it past the cap; true
+    /// when it did. Nil: no Start now, on the card or in the pill's menu.
+    public var onStartAgent: ((String) async -> Bool)?
+    /// The pill's menu row Start now for queued agent `peer`: the host's registry builds it from the
+    /// `home.startQueuedAgent` action, so the menu runs the palette's and the CLI's path. Nil: no row.
+    public var startAgentMenuItem: ((String) -> NSMenuItem?)?
+    /// The card a click on a pill with no workspace showed (``openAgent(_:at:)``).
+    var agentCard: HomeAgentPillCard?
+    /// The last Start now request of its card, while it runs and after.
+    var pendingAgentStart: Task<Void, Never>?
     /// Forward… on a bubble: the host routes its text to another chat (nil: no Forward…).
     public var onForward: ((String) -> Void)? {
         get { transcript.onForward }
@@ -130,6 +131,9 @@ public final class HomeNativeTranscriptView: NSView {
     }
     /// A chosen sent-bubble colour (opt in); nil keeps the style's (iMessage blue, or the theme's accent).
     public var accentOverride: NSColor? { didSet { applyTheme() } }
+    /// Whether the chat leaves its background clear (the floating Chief's see-through styles): the theme's
+    /// background goes to no alpha, so the window behind shows between the bubbles.
+    public var clearsBackground = false { didSet { if clearsBackground != oldValue { applyTheme() } } }
     /// The bubbles' look: iMessage's (the default) or the theme's colours; follows
     /// `home.chiefBubbleStyle` (`DesignSettings.homeChiefBubblesThemed`, `followBubbleStyle`).
     public var bubbleStyle: HomePalette.BubbleStyle = .iMessage { didSet { if bubbleStyle != oldValue { applyTheme() } } }
@@ -171,6 +175,8 @@ public final class HomeNativeTranscriptView: NSView {
     let headerPanels = HomeHeaderPanelBar()
     /// The section pinned under the header (HomeNativeTranscriptView+PinnedSection.swift) and its measured height.
     var pinned: (view: NSView, height: CGFloat?)?
+    /// The Set Up cmux card under the pinned section (HomeNativeTranscriptView+PinnedSection.swift) and its height.
+    var setupCard: (view: NSView, height: CGFloat)?
     /// The window's key and occlusion observers; each token removes itself when released (on any thread).
     private var observers: [MainActorObservation] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
@@ -224,7 +230,11 @@ public final class HomeNativeTranscriptView: NSView {
             self?.onHideSwitchKeys()
         }
         firstRun.switchCard.onOpenSettings = { [weak self] in self?.onOpenKeyboardShortcutSettings() }
-        transcript.onAgentPill = { [weak self] peer in self?.openAgent(peer) }
+        transcript.onAgentPill = { [weak self] peer, pill in
+            guard let self else { return }
+            self.openAgent(peer, at: self.convert(pill, from: nil))
+        }
+        transcript.agentPillMenu = { [weak self] peer in self?.agentPillMenuItems(peer) ?? [] }
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         // A long draft grows the field with no size change: refit the panel and the notice above it.
@@ -240,7 +250,6 @@ public final class HomeNativeTranscriptView: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
-
 
     /// The hover cards of link chips (``enableLinkPreviews(coordinator:previewer:)``), nil until the host enables them.
     private(set) var linkPreviews: HomeLinkChipHoverSource?
@@ -262,7 +271,7 @@ public final class HomeNativeTranscriptView: NSView {
         stopped = true
         if let linkPreviews { linkPreviews.coordinator.unregister(linkPreviews) }
         intake?.cancel()
-        agentPaneView?.stop()
+        closeAgentCard()
         voice.close()
         transcript.stop()
         binding.stop()
@@ -349,6 +358,10 @@ public final class HomeNativeTranscriptView: NSView {
     /// The primary input (spec/app-screens.md section 3): the message box's
     /// text view. Hosts focus this view, not the transcript.
     public var primaryInput: NSView { transcript.primaryInput }
+
+    /// Where the keyboard goes when Home gets focus or a key typed elsewhere in it: the picture viewer while it is
+    /// open over the chat (its Esc, arrows and letters are its own), else ``primaryInput``.
+    public var keyboardTarget: NSView { transcript.keyboardTarget }
 
     /// The home (`$MUX_HOME`) of the Chief that answers here, when its host runs on this Mac: `/` in the
     /// message box then lists its skills, the person's Claude Code skills and their plugins' skills (the
@@ -489,7 +502,6 @@ public final class HomeNativeTranscriptView: NSView {
         // debugTranscriptWidthTrim narrows it (automation: a pane width change).
         var place = bounds.offsetBy(dx: debugTranscriptOffset.x, dy: debugTranscriptOffset.y)
         place.size.width = max(0, place.width - debugTranscriptWidthTrim)
-        place.size.width = max(0, place.width - layoutAgentPane())
         if transcript.frame != place {
             let resized = transcript.frame.size != place.size
             transcript.frame = place
@@ -593,7 +605,8 @@ public final class HomeNativeTranscriptView: NSView {
     /// Fixture colours, and the first-run panel's colours.
     private func applyTheme() {
         let accent = accentOverride, style = bubbleStyle, chosen = bubbleColors
-        let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }.applying(chosen)
+        var active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }.applying(chosen)
+        if clearsBackground { active.background.alpha = 0 }
         // A chosen sent colour replaces MessagesLab's measured blue (and its white text).
         let measured = chosen.sent == nil && chosen.sentText == nil
             && performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }
