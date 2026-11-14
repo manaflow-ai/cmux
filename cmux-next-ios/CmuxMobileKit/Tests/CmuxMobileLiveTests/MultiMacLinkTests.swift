@@ -407,6 +407,8 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         let dialer = PerMacDialer()
         let live = coordinator(store: store, dialer: dialer)
         defer { live.stop() }
+        // The banner speaks at once here (not after the quiet wait, `QuietBannerTests`).
+        live.bannerQuietFor = .zero
         live.showing(macIDs: nil)
         await settle { store.macConnection["m1"] == .connected && store.macConnection["m2"] == .connected }
         let first = try #require(live.sessions["m1"])

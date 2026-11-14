@@ -41,6 +41,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     @State private var query = ""
     @State private var unreadOnly = false
     @State private var homeRetries = 0
+    /// Home's connection banner over kept rows waits out a blip (Workspaces' banner does too):
+    /// the kept rows say what Home has, the Mac's link retries on its own.
+    @State private var bannerGate = QuietStatusGate()
     /// The New Chief name prompt is up.
     @State private var namingChief = false
     @State private var newChiefName = ""
@@ -103,7 +106,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
 
     /// The connection toast over kept rows, the states Workspaces' toast uses (``ConnectionBannerState``).
     private var homeBanner: ConnectionBannerState? {
-        guard let status = connectionStatus, keptRowsShow else { return nil }
+        guard let status = connectionStatus, keptRowsShow, bannerGate.isShown else { return nil }
         let mac = macTag ?? String(localized: "your Mac")
         if status.isRetrying { return .reconnecting(to: mac, identity: homeMacID) }
         switch status.kind {
@@ -426,6 +429,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         // 2026-11-13: "reuse the toast strategy"). It takes its own room and covers no row; a
         // swipe hides it. With nothing kept, the empty state says it instead.
         .cmuxMobileBanner(homeBanner, retry: { Task { await retryHome() } })
+        .onChange(of: connectionStatus != nil && keptRowsShow, initial: true) { _, down in
+            bannerGate.update(down: down)
+        }
         .onChange(of: connectionStatus?.kind, initial: true) { old, kind in
             // VoiceOver hears that Home is not live when it stops being live (also on arriving
             // with the Mac already away), not on each retry.

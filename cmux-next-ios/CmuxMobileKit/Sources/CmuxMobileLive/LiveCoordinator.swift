@@ -26,6 +26,12 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "live")
 @Observable
 public final class LiveCoordinator {
     public internal(set) var banner: ConnectionBannerState?
+    /// The phone's network has been gone for at least ``bannerQuietFor``: the "Offline" banner shows.
+    public internal(set) var networkOfflineShows = false
+    /// How long a link or the network is down before a banner says so (``QuietStatusGate``'s bound,
+    /// the one the terminal and chat status lines use). Tests shorten it.
+    @ObservationIgnored var bannerQuietFor: Duration = QuietStatusGate.threshold
+    @ObservationIgnored var networkBannerTask: Task<Void, Never>?
     public private(set) var registeredTeamID: String?
     public private(set) var presenceConnected = false
     public internal(set) var chiefStatus: String?
@@ -359,12 +365,19 @@ public final class LiveCoordinator {
             log.info("network lost")
             incidents.network(nil)
             ConnectTimeline.shared.mark("network_lost")
-            // The offline banner and the Workspaces page's offline wording (CMUX-49).
-            if !store.isOffline { store.isOffline = true }
+            // The Workspaces page's offline wording (CMUX-49) at once; the banner after the
+            // quiet wait (a Wi-Fi to cellular move loses the path for a moment).
+            if !store.isOffline {
+                store.isOffline = true
+                networkLost(at: .now)
+            }
         case .changed(let path):
             log.info("network changed: \(path, privacy: .public)")
             incidents.network(Self.networkKind(path))
             if store.isOffline { store.isOffline = false }
+            networkBannerTask?.cancel()
+            networkBannerTask = nil
+            if networkOfflineShows { networkOfflineShows = false }
             presence?.kick()
             discovery.wake()
             guard let teamID = registeredTeamID else { return }
@@ -374,6 +387,22 @@ public final class LiveCoordinator {
             for session in sessions.values where session !== focused {
                 session.link.send(.networkChanged)
             }
+        }
+    }
+
+    /// The phone has no network: the "Offline" banner shows once it has lasted ``bannerQuietFor``.
+    func networkLost(at instant: ContinuousClock.Instant) {
+        networkBannerTask?.cancel()
+        if networkOfflineShows { networkOfflineShows = false }
+        let wait = bannerQuietFor - (ContinuousClock.now - instant)
+        guard wait > .zero else {
+            networkOfflineShows = true
+            return
+        }
+        networkBannerTask = Task { [weak self, clock] in
+            do { try await clock.sleep(for: wait) } catch { return }
+            guard let self, !Task.isCancelled, self.store.isOffline else { return }
+            self.networkOfflineShows = true
         }
     }
 
@@ -799,6 +828,7 @@ public final class LiveCoordinator {
         if store.macLinkStatus[id] != nil { store.macLinkStatus[id] = nil }
         store.macLinkDiagnostics[id] = nil
         session.offlineTask?.cancel()
+        session.quietTask?.cancel()
         session.workspacesTimeout?.cancel()
         session.acpmux.cancelWaiters()
         // Signed out: the unbind below ends each chat's link, which saves its kept copy; nothing
@@ -972,6 +1002,10 @@ public final class LiveCoordinator {
         incidents.stop()
         networkTask?.cancel()
         networkTask = nil
+        networkBannerTask?.cancel()
+        networkBannerTask = nil
+        bannerTask?.cancel()
+        bannerTask = nil
         discovery.stop()
         teamTask?.cancel()
         presence?.stop()
@@ -1061,6 +1095,10 @@ public final class LiveCoordinator {
         presence?.backgrounded = false
         presence?.kick()
         discovery.resume()
+        // A link that went down while the app was away gets the same quiet wait as a fresh
+        // drop: coming back to the app shows the cached screen, not "Reconnecting…".
+        for session in sessions.values { restartQuiet(session) }
+        if store.isOffline { networkLost(at: .now) }
         for session in sessions.values { session.link.send(.resume) }
     }
 

@@ -57,6 +57,17 @@ import Testing
         #expect(store.macConnection["m1"] == .connecting, "got \(String(describing: store.macConnection["m1"]))")
     }
 
+    @Test func theBannerSpeaksOnceTheBoundPasses() async throws {
+        let store = rig.emptyStore()
+        let live = await connected(store, PerMacDialer())
+        defer { live.stop() }
+        live.bannerQuietFor = .milliseconds(200)
+        _ = try drop(live)
+        #expect(live.banner == nil)
+        await rig.settle { live.banner != nil }
+        #expect(live.banner == .reconnecting(to: "Aziz's MacBook Pro", identity: "m1"))
+    }
+
     @Test func aRecoveryUnderTheBoundNeverFlashesConnected() async throws {
         let store = rig.emptyStore()
         let live = await connected(store, PerMacDialer())
@@ -75,5 +86,17 @@ import Testing
         #expect(live.banner == nil, "no \"Connected\" for a banner that never showed")
     }
 
+    @Test func aLostNetworkSaysOfflineOnlyAfterTheBound() async throws {
+        let store = rig.emptyStore()
+        let live = await connected(store, PerMacDialer())
+        defer { live.stop() }
+        live.bannerQuietFor = .milliseconds(200)
+        live.networkPathChanged(.lost)
+        #expect(store.isOffline, "the Workspaces wording still knows at once")
+        #expect(!live.networkOfflineShows, "a Wi-Fi to cellular move says nothing")
+        await rig.settle { live.networkOfflineShows }
+        live.networkPathChanged(.changed("wifi"))
+        #expect(!live.networkOfflineShows)
+    }
 }
 #endif

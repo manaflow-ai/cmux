@@ -48,6 +48,15 @@ final class MacSession {
     /// When this link last stopped being connected (nil: connected or idle).
     var linkDownSince: ContinuousClock.Instant?
     var offlineTask: Task<Void, Never>?
+    /// When this outage's quiet wait began (nil: connected or idle). Unlike `linkDownSince` it
+    /// starts again on foreground: a link that went down while the app was away gets the same
+    /// quiet wait as a fresh drop.
+    var quietSince: ContinuousClock.Instant?
+    /// The quiet wait ran out for this outage: the banner, the Mac's "Can't connect" and Home's
+    /// "not live" states may speak.
+    var outageShows = false
+    /// Ends the quiet wait (`LiveCoordinator.updateQuiet`).
+    var quietTask: Task<Void, Never>?
     /// Why the chat (acpmux) channel failed on the current link, shown in the status line.
     var chatsError: String?
     var daemonError: String?
