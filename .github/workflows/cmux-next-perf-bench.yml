@@ -78,14 +78,25 @@ jobs:
           fi
           target=()
           [ -n "$WORKER" ] && target=(--target-worker "$WORKER")
+          bench() {
+            "$client" run --class exclusive --measurement --label bench "$@" \
+              --script scripts/measure/perf-bench.sh --ref "$sha" --timeout 23400 \
+              --artifact artifacts/perf-bench/results.json ${target[@]+"${target[@]}"} \
+              --arg="rounds=$ROUNDS" --arg="browsers=$BROWSERS" --arg="gate=$GATE" \
+              --arg="tabswitch=$TABSWITCH" --arg="palette=$PALETTE" | tee "$RUNNER_TEMP/bench.log"
+          }
           status=0
-          # cmux20 is owner-only for pool perf-lead (hq fleet.json owner_only_hosts): the controller refuses a
-          # --label bench step that is not a measurement of that pool (HTTP 409, run 42183675700).
-          "$client" run --class exclusive --measurement --pool perf-lead --label bench \
-            --script scripts/measure/perf-bench.sh --ref "$sha" --timeout 23400 \
-            --artifact artifacts/perf-bench/results.json ${target[@]+"${target[@]}"} \
-            --arg="rounds=$ROUNDS" --arg="browsers=$BROWSERS" --arg="gate=$GATE" \
-            --arg="tabswitch=$TABSWITCH" --arg="palette=$PALETTE" | tee "$RUNNER_TEMP/bench.log" || status=$?
+          # While cmux20 is owner-only for pool perf-lead (hq fleet.json owner_only_hosts), the controller refuses a
+          # --label bench step that is not a measurement of that pool (HTTP 409, run 42183675700). The perf-lead
+          # reservation was released on 2026-11-06 (cmuxterm-hq #7351), and since then a --pool perf-lead job is
+          # refused at submit with "pool perf-lead reserves no worker now" (runs 42359393629, 42466844216). The
+          # refusal comes before any step exists, so the bench submits once more with no pool.
+          bench --pool perf-lead || status=$?
+          if [ "$status" -ne 0 ] && grep -q 'pool perf-lead reserves no worker' "$RUNNER_TEMP/bench.log"; then
+            echo "::notice title=No perf-lead pool::pool perf-lead reserves no worker; the bench is submitted with no pool."
+            status=0
+            bench || status=$?
+          fi
           # The report prints BENCH.md into the step log; show it on the run page.
           sed -n '/^# xbench, /,$p' "$RUNNER_TEMP/bench.log" | grep -v '^PERF-BENCH-' >> "$GITHUB_STEP_SUMMARY" || true
           grep -E '^(PERF-BENCH-GATE|PERF-BUDGET)' "$RUNNER_TEMP/bench.log" >> "$GITHUB_STEP_SUMMARY" || true
