@@ -183,6 +183,13 @@ public protocol TerminalSession: AnyObject {
     /// Mac releases its size when told false and claims it again on true).
     /// Driven by ``TerminalSizeClaimer``. Sessions without a Mac ignore it.
     func setClaimsSize(_ claims: Bool)
+    /// Whether the session receives the terminal's output now. False: nobody
+    /// can see the page (``TerminalStreamGate``), so a session on the Mac
+    /// closes its output stream and the screen keeps what it shows as its
+    /// cache; true again: it opens the stream and the screen gets the
+    /// terminal as it is now (one replay). Sessions that cannot stop their
+    /// output ignore it.
+    func setStreaming(_ streaming: Bool)
     /// The app is leaving for the background or coming back with its claim
     /// kept: a claimed size is reported again now, so the Mac's size lease
     /// runs from this moment (its 45 s match the phone's background grace).
@@ -232,6 +239,8 @@ extension TerminalSession {
     public func setOutputPaused(_ paused: Bool) {}
 
     public func setClaimsSize(_ claims: Bool) {}
+
+    public func setStreaming(_ streaming: Bool) {}
 
     public func renewSizeClaim() {}
 
