@@ -155,10 +155,7 @@ pub(super) fn start(place: Place, recipe: Recipe) -> Value {
     };
     if allocated.is_err() {
         // The ports that other worktrees have are not known: nothing runs.
-        let mut options = OpenOptions::new();
-        if let Some(mut log) =
-            open_as_own(options.create(true).append(true), &place.git_dir.join(LOG_FILE))
-        {
+        if let Some(mut log) = open_log(&place.git_dir) {
             let _ = writeln!(log, "Setup did not start: {PORTS_NOT_READ}");
         }
         finish(&mut status, &status_path, "failed", None);
@@ -201,11 +198,9 @@ fn run(place: &Place, recipe: &Recipe, status: &mut Status, handle: &Run, lock: 
     let status_path = place.git_dir.join(STATUS_FILE);
     let cancel_path = place.git_dir.join(CANCEL_FILE);
     let cancelled = || handle.is_cancelled() || cancel_path.exists();
-    let mut log =
-        match OpenOptions::new().create(true).append(true).open(place.git_dir.join(LOG_FILE)) {
-            Ok(log) => log,
-            Err(_) => return finish(status, &status_path, "failed", None),
-        };
+    let Some(mut log) = open_log(&place.git_dir) else {
+        return finish(status, &status_path, "failed", None);
+    };
     if !recipe.include.is_empty() {
         let _ = writeln!(log, "Copying files listed in {} ...", worktree_include::FILE_NAME);
         let patterns = worktree_include::parse(recipe.include.iter().map(String::as_str));
@@ -406,7 +401,7 @@ pub(super) fn teardown(place: &Place, teardown: Option<&str>) -> Option<Value> {
     stop(place);
     let script = teardown?;
     let path = place.git_dir.join(LOG_FILE);
-    let log = OpenOptions::new().create(true).read(true).append(true).open(&path).ok()?;
+    let log = open_log(&place.git_dir)?;
     let start = log.metadata().map_or(0, |metadata| metadata.len());
     let _ = writeln!(&log, "$ {script}");
     let outcome = shell(
@@ -548,7 +543,9 @@ fn stop(place: &Place) {
         // The marker goes first: a run whose status says copying may not
         // hold its lock yet, and it checks the marker once it does.
         if read_status(&place.git_dir).is_some_and(|status| live(&status)) {
-            let _ = fs::write(place.git_dir.join(CANCEL_FILE), b"");
+            let mut options = OpenOptions::new();
+            options.create(true).truncate(true).write(true);
+            drop(open_as_own(&mut options, &place.git_dir.join(CANCEL_FILE)));
         }
         if unfinished(read_status(&place.git_dir)) {
             let deadline = Instant::now() + STOP_WAIT;
@@ -608,12 +605,10 @@ fn running() -> &'static Mutex<HashMap<PathBuf, Arc<Run>>> {
 #[cfg(unix)]
 fn hold(git_dir: &Path) -> Option<File> {
     use std::os::fd::AsRawFd as _;
-    let file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(git_dir.join(LOCK_FILE))
-        .ok()?;
+    // A link or a named pipe in the lock's place is nobody's lock.
+    let mut options = OpenOptions::new();
+    let file =
+        open_as_own(options.create(true).truncate(false).write(true), &git_dir.join(LOCK_FILE))?;
     // SAFETY: a live descriptor; flock(2) only locks it.
     (unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0).then_some(file)
 }
@@ -722,10 +717,30 @@ fn open_as_own(options: &mut OpenOptions, path: &Path) -> Option<File> {
     file.metadata().ok()?.is_file().then_some(file)
 }
 
-fn write_status(path: &Path, status: &Status) -> std::io::Result<()> {
+/// Opens the log of the worktree whose git folder is `git_dir`, for a read
+/// and for writes at its end, and makes it when there is none
+/// ([`open_as_own`]).
+fn open_log(git_dir: &Path) -> Option<File> {
+    let mut options = OpenOptions::new();
+    open_as_own(options.create(true).read(true).append(true), &git_dir.join(LOG_FILE))
+}
+
+/// Writes `bytes` as the whole of the JSON file `path` that cmux keeps in a
+/// git folder: to a second name beside it, which then takes its name. The
+/// second name is made new ([`open_as_own`]): what is at that name goes
+/// first, and a link that comes there after that stops the write.
+fn write_own(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let partial = path.with_extension("json.partial");
-    fs::write(&partial, serde_json::to_vec(status)?)?;
+    let _ = fs::remove_file(&partial);
+    let mut options = OpenOptions::new();
+    let mut file = open_as_own(options.write(true).create_new(true), &partial)
+        .ok_or(std::io::ErrorKind::AlreadyExists)?;
+    file.write_all(bytes)?;
     fs::rename(partial, path)
+}
+
+fn write_status(path: &Path, status: &Status) -> std::io::Result<()> {
+    write_own(path, &serde_json::to_vec(status)?)
 }
 
 fn now_ms() -> u64 {
@@ -795,9 +810,8 @@ mod ports {
     }
 
     fn save(path: &Path, ports: &BTreeMap<String, u16>) {
-        let partial = path.with_extension("json.partial");
-        if serde_json::to_vec_pretty(ports).is_ok_and(|bytes| fs::write(&partial, bytes).is_ok()) {
-            let _ = fs::rename(partial, path);
+        if let Ok(bytes) = serde_json::to_vec_pretty(ports) {
+            let _ = write_own(path, &bytes);
         }
     }
 

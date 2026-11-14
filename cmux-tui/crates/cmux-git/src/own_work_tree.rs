@@ -31,6 +31,11 @@ use crate::run::GitFailure;
 /// How the problem text of each refusal of the open starts.
 const REFUSED: &str = "this folder is not opened: ";
 
+/// How a problem text ends when a person must decide what is right. A
+/// problem text names no command to run: the open does not know for which
+/// folder a command changes the git folder.
+const ASK: &str = "; ask the person who owns this folder what to do";
+
 /// The most bytes of a `.git` file or of a git folder's record that are
 /// read: git's own limit for a `.git` file.
 const MAX_RECORD_BYTES: u64 = 1024 * 1024;
@@ -143,14 +148,10 @@ pub(crate) fn check(
             )));
         }
         Names::Not => String::new(),
-        Names::NoWorkTree => format!(
-            ": the git folder names no work tree (to mend it, run `git config core.worktree \
-             \"$(pwd)\"` in {})",
-            top.display()
-        ),
-        Names::OtherPlace => ": the git folder has the record of a work tree at another place \
-                              (if this work tree was moved, run `git worktree repair` in it)"
-            .to_string(),
+        Names::NoWorkTree => format!(": the git folder names no work tree{ASK}"),
+        Names::OtherPlace => {
+            format!(": the git folder has the record of a work tree at another place{ASK}")
+        }
     };
     Err(GitFailure::Exit(format!(
         "{REFUSED}the work tree {} and the git folder that git gives for it do not name each \
