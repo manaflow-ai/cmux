@@ -206,7 +206,7 @@ fn events_request() -> String {
 /// the detector's connection does, until the queue closes.
 fn read_connection(
     outbound: Arc<BoundedOutbound>,
-) -> (std::sync::mpsc::Receiver<Value>, std::thread::JoinHandle<()>) {
+) -> (std::sync::mpsc::Receiver<Value>, JoinHandle<()>) {
     let (messages, receiver) = std::sync::mpsc::channel();
     let reader = std::thread::spawn(move || {
         while let Some(item) = outbound.recv() {
