@@ -1213,6 +1213,243 @@ mod tests {
         assert!(!spells("v2.pr01.append", "v2.pr01.append_time"));
     }
 
+    /// The nightly's gate script. Read at build time, so a change to the script is an input of
+    /// this crate's tests and the pull request that makes it runs them.
+    const GATE_SCRIPT: &str = include_str!("../../../../../scripts/cmux-next/run-v2-gates.sh");
+
+    /// A crate and one of its test targets: `lib`, or a test binary's name.
+    type Target = (String, String);
+
+    /// A function of a source: its name, its first line and its last.
+    type Function = (String, usize, usize);
+
+    /// The script's gate lines, each as the target it runs and its filter. A runner is a shell
+    /// function whose `cargo test` names a crate and `--lib` or one `--test`; a line of a
+    /// runner's name and one word runs that target's tests whose names hold the word.
+    fn gate_script_filters(script: &str) -> Vec<(Target, String)> {
+        let opened = regex::Regex::new(r"^(run_[a-z_]+)\(\) \{$").unwrap();
+        let cargo =
+            regex::Regex::new(r#"cargo test .*-p (\S+) (?:--lib|--test (\S+)) "\$1""#).unwrap();
+        let mut runners: HashMap<&str, Target> = HashMap::new();
+        let mut current = None;
+        let mut filters = Vec::new();
+        for line in script.lines() {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            if let Some(found) = opened.captures(line) {
+                current = found.get(1).map(|runner| runner.as_str());
+            } else if line == "}" {
+                current = None;
+            } else if let (Some(runner), Some(found)) = (current, cargo.captures(line)) {
+                let target = found.get(2).map_or("lib", |target| target.as_str());
+                runners.insert(runner, (found[1].to_owned(), target.to_owned()));
+            } else if let [runner, filter] = words[..]
+                && let Some(target) = runners.get(runner)
+            {
+                filters.push((target.clone(), filter.to_owned()));
+            }
+        }
+        filters
+    }
+
+    /// The target a source is compiled into: `lib` under `src`, the binary's name under `tests`.
+    /// A bench has none: the gate script runs tests only.
+    fn target_of(file: &Path) -> Option<Target> {
+        let crates = Path::new(env!("CARGO_MANIFEST_DIR")).parent()?;
+        let mut parts = file.strip_prefix(crates).ok()?.iter().filter_map(|part| part.to_str());
+        let package = parts.next()?.to_owned();
+        let target = match parts.next()? {
+            "src" => "lib",
+            "tests" => {
+                let binary = parts.next()?;
+                binary.strip_suffix(".rs").unwrap_or(binary)
+            }
+            _ => return None,
+        };
+        Some((package, target.to_owned()))
+    }
+
+    /// A source's lines, its functions, and each gate name it spells with the name's line.
+    struct Source<'a> {
+        lines: Vec<&'a str>,
+        functions: Vec<Function>,
+        names: Vec<(usize, &'a str)>,
+    }
+
+    impl<'a> Source<'a> {
+        /// Functions are read by rustfmt's indentation: one ends at the first later line that is
+        /// its own indentation and a `}`, and one whose first line ends it (`fn f() {}`, a
+        /// trait's `fn f();`) is that line alone.
+        fn read(text: &'a str) -> Self {
+            let lines: Vec<&'a str> = text.lines().collect();
+            let opened =
+                regex::Regex::new(r"^( *)(?:pub(?:\([a-z:]+\))? )?(?:async )?fn ([a-z0-9_]+)")
+                    .unwrap();
+            let name = regex::Regex::new(NAME_IN_SOURCE).unwrap();
+            let mut functions = Vec::new();
+            let mut names = Vec::new();
+            for (at, line) in lines.iter().copied().enumerate() {
+                names.extend(name.find_iter(line).map(|found| (at, found.as_str())));
+                let Some(found) = opened.captures(line) else { continue };
+                let close = format!("{}}}", &found[1]);
+                let last = if line.ends_with('}') || line.ends_with(';') {
+                    at
+                } else {
+                    let later = lines[at + 1..].iter().position(|later| *later == close);
+                    later.map_or(at, |later| at + 1 + later)
+                };
+                functions.push((found[2].to_owned(), at, last));
+            }
+            Self { lines, functions, names }
+        }
+
+        /// The functions that reach a line spelling this row's name: the functions around the
+        /// line, then every function of this source that calls one already reached, so a test
+        /// that writes its rows through a helper is found. A helper that many tests call makes
+        /// the check weak for its rows (a gate line for any of those tests passes them); it
+        /// never fails a row whose test the script runs.
+        fn reaches(&self, row: &str) -> HashSet<String> {
+            let mut reached: HashSet<String> = HashSet::new();
+            for (at, name) in &self.names {
+                if spells(name, row) {
+                    let around =
+                        self.functions.iter().filter(|(_, first, last)| first <= at && at <= last);
+                    reached.extend(around.map(|(function, _, _)| function.clone()));
+                }
+            }
+            loop {
+                let calls: Vec<regex::Regex> = reached
+                    .iter()
+                    .map(|function| regex::Regex::new(&format!(r"\b{function}\(")).unwrap())
+                    .collect();
+                let calls_one = |line: &&str| calls.iter().any(|call| call.is_match(line));
+                let callers: Vec<String> = self
+                    .functions
+                    .iter()
+                    .filter(|(function, first, last)| {
+                        !reached.contains(function)
+                            && self.lines[first + 1..=*last].iter().any(calls_one)
+                    })
+                    .map(|(function, _, _)| function.clone())
+                    .collect();
+                if callers.is_empty() {
+                    return reached;
+                }
+                reached.extend(callers);
+            }
+        }
+    }
+
+    /// A row is marked measured only when the nightly can write it. The nightly starts the gate
+    /// tests the script names and no others, so a marked row whose test has no line there fails
+    /// the nightly's "no measure" step on base, after the pull request that marked it merged.
+    #[test]
+    fn a_measured_row_has_a_gate_script_line() {
+        let filters = gate_script_filters(GATE_SCRIPT);
+        assert!(filters.len() >= 20, "the scan read too few gate script lines: {filters:?}");
+        let mut files: Vec<PathBuf> =
+            names_in_sources().into_iter().map(|(_, file)| file).collect();
+        files.sort();
+        files.dedup();
+        let texts: Vec<(PathBuf, String)> = files
+            .into_iter()
+            .map(|file| {
+                let text = fs::read_to_string(&file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
+                (file, text)
+            })
+            .collect();
+        let sources: Vec<(&Path, Source<'_>)> =
+            texts.iter().map(|(file, text)| (file.as_path(), Source::read(text))).collect();
+        for row in GATE_ROWS.iter().filter(|row| row.measured) {
+            let mut run = false;
+            let mut writers = Vec::new();
+            for (file, source) in &sources {
+                let mut reached: Vec<String> = source.reaches(row.name).into_iter().collect();
+                if reached.is_empty() {
+                    continue;
+                }
+                reached.sort();
+                let target = target_of(file);
+                run |= filters.iter().any(|(of, filter)| {
+                    target.as_ref() == Some(of)
+                        && reached.iter().any(|function| function.contains(filter.as_str()))
+                });
+                writers.push((target, reached));
+            }
+            assert!(
+                run,
+                "{} is marked measured and scripts/cmux-next/run-v2-gates.sh runs no test that \
+                 writes it: add a line for one of {writers:?}",
+                row.name
+            );
+        }
+    }
+
+    #[test]
+    fn a_gate_script_line_is_read_with_its_runners_crate_and_target() {
+        let script = [
+            "run_lib() {",
+            "  run cargo test --release -p acpmux-book --lib \"$1\" -- --ignored --nocapture",
+            "}",
+            "",
+            "run_connection() {",
+            "  run cargo test --profile gate -p acpmux --test v2_connection \"$1\" -- --ignored",
+            "}",
+            "",
+            "gates() {",
+            "  run_lib first_gate",
+            "  run_connection second_gate",
+            "  run_nothing third_gate",
+            "}",
+            "run_group gates gates",
+        ]
+        .join("\n");
+        let line = |package: &str, target: &str, filter: &str| {
+            ((package.to_owned(), target.to_owned()), filter.to_owned())
+        };
+        assert_eq!(
+            gate_script_filters(&script),
+            [
+                line("acpmux-book", "lib", "first_gate"),
+                line("acpmux", "v2_connection", "second_gate")
+            ]
+        );
+    }
+
+    #[test]
+    fn a_row_is_reached_through_the_functions_around_its_name_and_their_callers() {
+        let text = [
+            "fn write_rows(out: &Path) {",
+            "    measure(out, \"v2.pr99.through_a_helper\");",
+            "}",
+            "",
+            "fn empty() {}",
+            "",
+            "mod tests {",
+            "    #[test]",
+            "    fn first_gate() {",
+            "        fn inner() {",
+            "            measure(out, \"v2.pr99.inner\");",
+            "        }",
+            "        write_rows(out);",
+            "    }",
+            "",
+            "    async fn other_gate() {",
+            "        rewrite_rows(out);",
+            "    }",
+            "}",
+        ]
+        .join("\n");
+        let source = Source::read(&text);
+        let reached = |row: &str| {
+            let mut functions: Vec<String> = source.reaches(row).into_iter().collect();
+            functions.sort();
+            functions
+        };
+        assert_eq!(reached("v2.pr99.through_a_helper"), ["first_gate", "write_rows"]);
+        assert_eq!(reached("v2.pr99.inner"), ["first_gate", "inner"]);
+        assert!(reached("v2.pr99.absent").is_empty());
+    }
+
     fn change_row() -> &'static GateRow {
         GATE_ROWS.iter().find(|row| row.name == "v2.pr05.summary_change").unwrap()
     }

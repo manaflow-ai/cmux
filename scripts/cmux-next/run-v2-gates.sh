@@ -63,6 +63,7 @@ run_group acpmux-book book_gates
 core_gates() {
   run_core replay_frame_gate
   run_core replay_append_gate
+  run_core replay_open_hold_gate
   run_core single_encode_gate
   run_core list_window_gate_measures_running_subscriptions_at_both_sizes
   run_core pr05b_compaction_keeps_writing_through_one_million_changes

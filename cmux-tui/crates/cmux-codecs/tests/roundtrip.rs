@@ -6,7 +6,10 @@ use cmux_codecs::bench::scene::{Scene, SceneKind};
 use cmux_codecs::{open_decoder, open_encoder, psnr_y};
 use cmux_encode::{Codec, EncCfg, I420};
 
-fn roundtrip(codec: Codec) {
+/// Capture times as the native host sends them: microseconds of a real clock.
+const WALL_CLOCK_US: i64 = 1_794_671_439_604_000;
+
+fn roundtrip(codec: Codec, pts_base: i64) {
     let cfg =
         EncCfg { width: 640, height: 360, fps: 30, kbps: 4000, threads: 2, screen_content: true };
     let Some(mut enc) = open_encoder(codec, &cfg).expect("encoder") else { return };
@@ -22,7 +25,8 @@ fn roundtrip(codec: Codec) {
     for i in 0..20 {
         let force = i == 0 || i == 12;
         pictures.push(scene.picture().clone());
-        let idr = enc.encode(scene.picture(), force, i * 33_333, &mut au).expect("encode");
+        let idr =
+            enc.encode(scene.picture(), force, pts_base + i * 33_333, &mut au).expect("encode");
         if !au.is_empty() {
             assert_eq!(
                 codec.is_keyframe(&au),
@@ -36,7 +40,7 @@ fn roundtrip(codec: Codec) {
             if dec.decode(&au, &mut out).expect("decode") {
                 shown += 1;
                 // The picture this unit carries (an encoder with lookahead returns an older one).
-                let n = enc.output_pts().map_or(i, |pts| pts / 33_333) as usize;
+                let n = enc.output_pts().map_or(i, |pts| (pts - pts_base) / 33_333) as usize;
                 let p = psnr_y(&pictures[n], &out);
                 assert!(p > 20.0, "{codec:?} frame {n}: PSNR {p:.1} dB, not this picture");
                 // A real-time CBR keyframe starts coarse; quality is judged once rate control settles.
@@ -54,17 +58,32 @@ fn roundtrip(codec: Codec) {
 
 #[test]
 fn h264() {
-    roundtrip(Codec::H264);
+    roundtrip(Codec::H264, 0);
 }
 
 #[test]
 fn vp9() {
-    roundtrip(Codec::Vp9);
+    roundtrip(Codec::Vp9, 0);
 }
 
 #[test]
 fn av1() {
-    roundtrip(Codec::Av1);
+    roundtrip(Codec::Av1, 0);
+}
+
+#[test]
+fn h264_wall_clock_pts() {
+    roundtrip(Codec::H264, WALL_CLOCK_US);
+}
+
+#[test]
+fn vp9_wall_clock_pts() {
+    roundtrip(Codec::Vp9, WALL_CLOCK_US);
+}
+
+#[test]
+fn av1_wall_clock_pts() {
+    roundtrip(Codec::Av1, WALL_CLOCK_US);
 }
 
 #[test]
