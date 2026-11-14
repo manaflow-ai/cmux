@@ -2,7 +2,7 @@ use super::*;
 use crate::wire::{
     FolderPageResult, FolderPosition, FolderWindow, ListView, Page, PageKey, PageSide,
 };
-use acpmux_book::index::folders::{FolderKey, FolderOp};
+use acpmux_book::index::folders::{FolderKey, FolderOp, FolderRow};
 
 fn row(id: &str, folder: &str, at: u64) -> Summary {
     let mut row = Summary::new(id);
@@ -394,4 +394,48 @@ fn keyed_folder_pages_reserve_bytes_for_unanswered_identities() {
     let reply: FolderPageResult = frame.decode_json().unwrap();
     assert_eq!(reply.rows.len(), 1);
     assert_eq!(reply.rest, keys.into_iter().skip(1).collect::<Vec<_>>());
+}
+
+#[test]
+fn oversized_folder_step_clears_the_tail_atomically() {
+    for count in [70, 300] {
+        let (hub, writer) = Hub::new(SummaryIndex::new());
+        let subscription = hub.subscribe(&sub()).unwrap();
+        let mut next = SummaryIndex::new();
+        for n in 0..count {
+            next = next
+                .apply(n + 1, row(&format!("chat-{n}"), &format!("{}-{n}", "x".repeat(1000)), n));
+        }
+        let ops = next.folders().iter().cloned().map(FolderOp::Folder).collect::<Vec<_>>();
+        writer.publish_folder_index(next, &ops);
+        assert_eq!(hub.folder_state.lock().unwrap().retained_bytes(), 0);
+        assert!(matches!(
+            subscription.receiver.try_next_raw(None, 256 * 1024),
+            Some(RawRead::Lagged)
+        ));
+        assert_eq!(hub.snapshot().folders().len(), count as usize);
+    }
+}
+
+#[test]
+fn folder_tail_byte_bound_never_splits_a_move() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    writer.apply(row("one", "/a", 1)).unwrap();
+    let subscription = hub.subscribe(&sub()).unwrap();
+    writer.apply(row("one", "/b", 2)).unwrap();
+    let RawRead::Span(span) = subscription.receiver.try_next_raw(None, 256 * 1024).unwrap() else {
+        panic!("move")
+    };
+    subscription.receiver.reposition(subscription.cursor);
+    assert!(matches!(
+        subscription.receiver.try_next_raw(None, span.bytes.len() - 1),
+        Some(RawRead::Lagged)
+    ));
+    subscription.receiver.reposition(subscription.cursor);
+    let RawRead::Span(exact) = subscription.receiver.try_next_raw(None, span.bytes.len()).unwrap()
+    else {
+        panic!("whole move")
+    };
+    assert_eq!(exact.bytes, span.bytes);
+    assert_eq!(exact.last_seq, span.last_seq);
 }

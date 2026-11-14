@@ -21,6 +21,10 @@ use crate::wire::{Frame, FrameError, FrameKind, Origin, Sub};
 mod compaction;
 mod disk;
 #[cfg(test)]
+mod folder_budget_tests;
+#[cfg(test)]
+mod folder_tail_gates;
+#[cfg(test)]
 mod folder_tests;
 mod folders;
 mod history;
@@ -872,16 +876,6 @@ impl Hub {
         }
         let max = request.max_bytes as usize;
         if max > crate::wire::MAX_PAGE_BYTES || max <= 8192 + request.sid.len() {
-            return Err(HubError::InvalidPage);
-        }
-        if request.view == Some(crate::wire::ListView::Live)
-            && request.filter.as_ref().is_some_and(|filter| {
-                filter.family.is_some()
-                    || filter.forks.is_some()
-                    || filter.folder.is_some()
-                    || filter.cold
-            })
-        {
             return Err(HubError::InvalidPage);
         }
         if folders::is_folders(request.view) {

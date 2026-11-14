@@ -44,6 +44,22 @@ fn visible(index: &SummaryIndex, row: &FolderRow) -> bool {
     !index.is_origin_removed(&row.origin) && !index.is_origin_leaving(&row.origin)
 }
 
+// Account for JSON escaping in both identities carried by a continuation.
+// The fixed envelope reserve remains shared with list paging; cursor bytes
+// are additional because a legal escaped folder can exceed that reserve.
+fn continuation_bytes(row: &FolderRow) -> usize {
+    let key = FolderPosition {
+        at: row.at,
+        origin: row.origin.to_string(),
+        folder: row.folder.to_string(),
+    };
+    serde_json::to_vec(&key).map_or(usize::MAX, |bytes| bytes.len())
+}
+
+fn envelope_reserve(sid: &str) -> Result<usize, HubError> {
+    Ok(8192 + serde_json::to_vec(sid).map_err(FrameError::Encode)?.len())
+}
+
 impl Hub {
     pub(super) fn folder_window(&self, sub: &Sub) -> Result<Frame, HubError> {
         if sub.filter.is_some() || !matches!(sub.anchor, None | Some(Anchor::End)) {
@@ -55,20 +71,31 @@ impl Hub {
         let state = self.folder_state.lock().map_err(|_| HubError::WriterGone)?;
         let seq = state.seq;
         let index = self.snapshot();
+        let origins = index
+            .origins()
+            .map(|origin| Origin {
+                id: origin.id.clone(),
+                state: origin.state,
+                since: origin.since,
+                extra: origin
+                    .extra
+                    .as_ref()
+                    .and_then(|extra| serde_json::from_str(extra.get()).ok()),
+            })
+            .collect::<Vec<_>>();
+        let origin_bytes = serde_json::to_vec(&origins).map_err(FrameError::Encode)?.len();
+        let reserve = envelope_reserve(&sub.sid)?.saturating_add(origin_bytes);
         let anchor = None;
         let side = FolderReadSide::After;
         let page = index
             .folders()
-            .read_page_visible(
+            .read_page_accounted(
                 anchor.as_ref(),
                 side,
                 true,
-                (
-                    validate_window(sub)?,
-                    crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
-                ),
+                (validate_window(sub)?, crate::wire::MAX_PAGE_BYTES.saturating_sub(reserve)),
                 sub.filter.as_ref(),
-                |row| visible(&index, row),
+                (|row| visible(&index, row), continuation_bytes),
             )
             .map_err(HubError::page_error)?;
         let window = FolderWindow {
@@ -80,18 +107,7 @@ impl Hub {
             has_after: page.has_after,
             before_key: page.before_key.map(position),
             after_key: page.after_key.map(position),
-            origins: index
-                .origins()
-                .map(|origin| Origin {
-                    id: origin.id.clone(),
-                    state: origin.state,
-                    since: origin.since,
-                    extra: origin
-                        .extra
-                        .as_ref()
-                        .and_then(|extra| serde_json::from_str(extra.get()).ok()),
-                })
-                .collect(),
+            origins,
         };
         let frame = Frame::json(FrameKind::Window, &window)?;
         if frame.encoded_len() > crate::wire::MAX_PAGE_BYTES {
@@ -105,7 +121,7 @@ impl Hub {
         validate_filter(request.filter.as_ref())?;
         let index = self.snapshot();
         let max = request.max_bytes as usize;
-        let budget = max.saturating_sub(8192 + request.sid.len());
+        let budget = max.saturating_sub(envelope_reserve(&request.sid)?);
         acpmux_book::index::folders::Folders::validate_page_bound(MAX_WINDOW_ROWS, budget)
             .map_err(HubError::page_error)?;
         let mut reply = FolderPageResult {
@@ -190,13 +206,13 @@ impl Hub {
             };
             let page = index
                 .folders()
-                .read_page_visible(
+                .read_page_accounted(
                     anchor.as_ref(),
                     side,
                     false,
                     (MAX_WINDOW_ROWS, budget),
                     request.filter.as_ref(),
-                    |row| visible(&index, row),
+                    (|row| visible(&index, row), continuation_bytes),
                 )
                 .map_err(HubError::page_error)?;
             reply.rows = page.rows.iter().map(|row| row.as_ref().clone()).collect();
@@ -270,6 +286,11 @@ impl FolderState {
         self.tail.clear();
         self.tail_bytes = 0;
     }
+
+    #[cfg(test)]
+    pub(super) fn retained_bytes(&self) -> usize {
+        self.tail_bytes
+    }
 }
 
 impl Hub {
@@ -302,7 +323,8 @@ impl ListReceiver {
         }
         let mut bytes = Vec::new();
         let mut last_seq = subscriber.cursor;
-        for step in state.tail.iter().filter(|step| step.seq > subscriber.cursor) {
+        let start = state.tail.partition_point(|step| step.seq <= subscriber.cursor);
+        for step in state.tail.range(start..) {
             let separator = usize::from(!bytes.is_empty());
             if bytes.len().saturating_add(separator).saturating_add(step.bytes.len()) > max_bytes {
                 break;

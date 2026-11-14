@@ -60,7 +60,8 @@ pub trait OfferSink: Send + Sync {
 }
 
 /// A source owns its delivery tasks and the order of its frames. `subscribe`
-/// queues its first frame through the handle before returning. `NotFed` consumes
+/// offers its first frame before any of its deltas; readiness may be awaited in
+/// the sid's task after subscribe returns. `NotFed` consumes
 /// the offered frame: the source retains only its last taken cursor until resume.
 pub type CloseFuture<'a> = std::pin::Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 

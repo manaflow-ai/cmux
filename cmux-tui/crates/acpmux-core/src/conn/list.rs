@@ -122,16 +122,16 @@ impl Source for HubSource {
         Ok(())
     }
     fn page(&self, page: &Page, _person: Option<&[u8]>) -> Result<Frame, ConnError> {
-        let task = self
+        let tasks = self
             .tasks
             .lock()
-            .map_err(|_| ConnError::InvalidRequest("list source poisoned".into()))?
-            .get(&page.sid)
-            .ok_or_else(|| ConnError::UnknownSubscription(page.sid.clone()))?;
+            .map_err(|_| ConnError::InvalidRequest("list source poisoned".into()))?;
+        let task =
+            tasks.get(&page.sid).ok_or_else(|| ConnError::UnknownSubscription(page.sid.clone()))?;
         if task.view == Some(crate::wire::ListView::Folders)
             && !task.window_out.load(Ordering::Acquire)
         {
-            return Err(ConnError::InvalidRequest("folder window is not ready".into()));
+            return Err(crate::hub::HubError::InvalidPage.into());
         }
         let held_view = task.view;
         Ok(self.hub.page_for_view(page, held_view)?)
@@ -303,6 +303,14 @@ async fn pump(
             held.paused.store(false, Ordering::Release);
             sub.cursor = Some(*resume.borrow_and_update());
             sub.edition = Some(0);
+            if sub.view == Some(crate::wire::ListView::Folders) {
+                // Credit resumes this live sid from its last accepted step.
+                // A new sub still always starts with a window; only a tail
+                // overrun below needs to replace this sid's existing window.
+                receiver.reposition(sub.cursor.unwrap_or_default().0);
+                mode = Mode::Live;
+                continue;
+            }
             let Ok(delivery) = open(&hub, &sub) else {
                 sink.fail(&sub.sid);
                 return;
@@ -328,6 +336,14 @@ async fn pump(
             held.paused.store(false, Ordering::Release);
             sub.cursor = Some(*resume.borrow());
             sub.edition = Some(0);
+            if sub.view == Some(crate::wire::ListView::Folders) {
+                // Credit resumes this live sid from its last accepted step.
+                // A new sub still always starts with a window; only a tail
+                // overrun below needs to replace this sid's existing window.
+                receiver.reposition(sub.cursor.unwrap_or_default().0);
+                mode = Mode::Live;
+                continue;
+            }
             let Ok(delivery) = open(&hub, &sub) else {
                 sink.fail(&sub.sid);
                 return;

@@ -546,19 +546,10 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "5f",
         name: "v2.pr05f.tail_replay",
-        done_when: "A folders sid that is behind the retained tail receives its unread steps in one ordered frame; the tail remains under 64 KiB through the 10k run.",
+        done_when: "A live folders sid reads 100 retained steps within 1.2x at 2,000 folders against 5, with pooled samples within 2x.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
-        god_max: None,
-    },
-    GateRow {
-        pr: "5f",
-        name: "v2.pr05f.tail_lag_window",
-        done_when: "A folders sid older than the retained tail gets a fresh window and remains subscribed.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
         god_max: None,
     },
     GateRow {

@@ -1,8 +1,8 @@
 use acpmux_client::ffi::{
-    ACPMUX_CLIENT_OK, Bytes, acpmux_client_bytes_free, acpmux_client_connected, acpmux_client_free,
-    acpmux_client_new, acpmux_client_next_change, acpmux_client_page, acpmux_client_received,
-    acpmux_client_subscribe, acpmux_client_subscribe_mirror, acpmux_client_take_send,
-    acpmux_client_unwant, acpmux_client_want,
+    ACPMUX_CLIENT_OK, Bytes, FolderChangeJson, acpmux_client_bytes_free, acpmux_client_connected,
+    acpmux_client_free, acpmux_client_new, acpmux_client_next_change, acpmux_client_page,
+    acpmux_client_received, acpmux_client_subscribe, acpmux_client_subscribe_mirror,
+    acpmux_client_take_send, acpmux_client_unwant, acpmux_client_want,
 };
 use acpmux_client::wire::{
     FolderPosition, Frame, FrameKind, HelloReply, Limits, ListView, Page, PageSide, Sub,
@@ -188,6 +188,11 @@ fn folder_changes_are_readable_through_the_ffi_json_surface() {
         acpmux_client_next_change(handle, &mut change);
         let value: serde_json::Value =
             serde_json::from_slice(std::slice::from_raw_parts(change.ptr, change.len)).unwrap();
+        let decoded: FolderChangeJson = serde_json::from_value(value.clone()).unwrap();
+        assert!(
+            matches!(decoded, FolderChangeJson::FolderWindow { window } if window.rows.is_empty())
+        );
+        assert_eq!(value.get("kind"), Some(&serde_json::Value::String("folderWindow".into())));
         assert_eq!(value.get("sid"), Some(&serde_json::Value::String("folders".into())));
         assert_eq!(value.get("cursor"), Some(&serde_json::Value::from(1u64)));
         acpmux_client_bytes_free(change);
@@ -217,6 +222,8 @@ fn folder_changes_are_readable_through_the_ffi_json_surface() {
         acpmux_client_next_change(handle, &mut change);
         let value: serde_json::Value =
             serde_json::from_slice(std::slice::from_raw_parts(change.ptr, change.len)).unwrap();
+        let decoded: FolderChangeJson = serde_json::from_value(value.clone()).unwrap();
+        assert!(matches!(decoded, FolderChangeJson::FolderPage { page } if page.rows.is_empty()));
         assert_eq!(value.get("kind"), Some(&serde_json::Value::String("folderPage".into())));
         assert_eq!(value.pointer("/page/sid"), Some(&serde_json::Value::String("folders".into())));
         acpmux_client_bytes_free(change);
@@ -238,12 +245,16 @@ fn folder_changes_are_readable_through_the_ffi_json_surface() {
         acpmux_client_next_change(handle, &mut change);
         let value: serde_json::Value =
             serde_json::from_slice(std::slice::from_raw_parts(change.ptr, change.len)).unwrap();
+        let decoded: FolderChangeJson = serde_json::from_value(value.clone()).unwrap();
+        assert!(matches!(decoded, FolderChangeJson::Folder { seq: 2, .. }));
         assert_eq!(value.get("kind"), Some(&serde_json::Value::String("folder".into())));
         assert_eq!(value.get("seq"), Some(&serde_json::Value::from(2u64)));
         acpmux_client_bytes_free(change);
         acpmux_client_next_change(handle, &mut change);
         let value: serde_json::Value =
             serde_json::from_slice(std::slice::from_raw_parts(change.ptr, change.len)).unwrap();
+        let decoded: FolderChangeJson = serde_json::from_value(value.clone()).unwrap();
+        assert!(matches!(decoded, FolderChangeJson::FolderGone { seq: 3, .. }));
         assert_eq!(value.get("kind"), Some(&serde_json::Value::String("folderGone".into())));
         assert_eq!(value.get("seq"), Some(&serde_json::Value::from(3u64)));
         assert_eq!(value.get("origin"), Some(&serde_json::Value::String("local".into())));
