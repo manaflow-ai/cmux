@@ -9,7 +9,15 @@
 // the row at the top of the viewport keeps its place when rows above it change height or older
 // messages are prepended. A `focus` row (a message a link opened) is scrolled to the middle once,
 // after layout, and the reader stops following the bottom.
-import { useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+//
+// Only the reader leaves the bottom (https://github.com/manaflow-ai/cmux/issues/34562): a scroll
+// event stops the following only when it moved up from where the window last put the scroller.
+// While a chat opens, the window's own pins leave scroll events queued, and rows still grow under
+// them (a code block's highlighting, a picture, a link card). Read at the bottom's old height, such
+// an event looked like the reader scrolling up and left the chat in the middle of its history. The
+// scroller's own size is watched too: a shorter viewport (a growing message box, a smaller pane)
+// keeps the newest message in view.
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 
 const NEAR_BOTTOM_PX = 48;
 const OVERSCAN_PX = 800;
@@ -40,6 +48,18 @@ class TimelineMetrics {
     const viewport = clientHeight || this.snapshot.viewport;
     if (scrollTop === this.snapshot.scrollTop && viewport === this.snapshot.viewport) return;
     this.publish({ ...this.snapshot, scrollTop, viewport });
+  }
+
+  /** The scroller's ref: a change of its height is read as a scroll (the window follows it). */
+  watchViewport(element: HTMLElement): () => void {
+    // Always publishes: the window's layout effect then runs again (pins, or keeps the anchor), even
+    // when the scroll position and the last viewport read the same.
+    const observer = new ResizeObserver(() => {
+      const viewport = element.clientHeight || this.snapshot.viewport;
+      this.publish({ ...this.snapshot, scrollTop: element.scrollTop, viewport });
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
   }
 
   /** Another conversation: the old rows' heights are dropped (rows re-measure as they render). */
@@ -134,6 +154,13 @@ export function useTimelineWindow(
     atBottom: true,
     anchor: undefined as { key: string; offset: number } | undefined,
     focused: undefined as string | undefined,
+    /** Where the window last put the scroller while it followed the bottom (or the reader left it
+     * while it did not): a scroll event above it is the reader's. The reader's own steps inside the
+     * near-bottom band do not move it, so a slow scroll up crosses the band and unpins. */
+    top: 0,
+    /** The scroller whose size is watched, and the watch's end. */
+    watched: undefined as HTMLElement | undefined,
+    unwatch: undefined as (() => void) | undefined,
   });
   const anchorFor = (element: HTMLElement) => {
     const top = element.scrollTop;
@@ -145,7 +172,17 @@ export function useTimelineWindow(
   useLayoutEffect(() => {
     const element = scroller.current;
     const state = memory.current;
-    if (!element) return;
+    if (!element) {
+      state.unwatch?.();
+      state.unwatch = undefined;
+      state.watched = undefined;
+      return;
+    }
+    if (element !== state.watched) {
+      state.unwatch?.();
+      state.watched = element;
+      state.unwatch = metrics.watchViewport(element);
+    }
     if (conversation !== state.conversation) {
       const first = state.conversation === undefined;
       state.conversation = conversation;
@@ -170,9 +207,18 @@ export function useTimelineWindow(
       }
     }
     state.anchor = anchorFor(element);
+    state.top = element.scrollTop;
     // Sync, before paint: the window renders the rows at the new position in the same frame.
     metrics.readScroll(element);
   });
+  useEffect(() => {
+    const state = memory.current;
+    return () => {
+      state.unwatch?.();
+      state.unwatch = undefined;
+      state.watched = undefined;
+    };
+  }, []);
 
   return {
     items,
@@ -183,7 +229,16 @@ export function useTimelineWindow(
       const element = scroller.current;
       if (!element) return false;
       const state = memory.current;
-      state.atBottom = element.scrollHeight - element.scrollTop - element.clientHeight < NEAR_BOTTOM_PX;
+      if (element.scrollHeight - element.scrollTop - element.clientHeight < NEAR_BOTTOM_PX) {
+        state.atBottom = true;
+      } else if (!state.atBottom || element.scrollTop < state.top - 0.5) {
+        state.atBottom = false;
+        state.top = element.scrollTop;
+      } else {
+        // Not the reader: the rows grew under a chat that follows the bottom; it stays there.
+        element.scrollTop = element.scrollHeight;
+        state.top = element.scrollTop;
+      }
       state.anchor = anchorFor(element);
       metrics.readScroll(element);
       return element.scrollTop < LOAD_OLDER_PX;
