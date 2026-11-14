@@ -164,21 +164,38 @@ async fn replay_once(verbose: bool) -> (usize, usize) {
     (replay.0, replay.1)
 }
 
+fn timed_append(
+    hub: &Hub,
+    mut writer: HubWriter,
+    target: u64,
+    offset: usize,
+    permit: &AtomicBool,
+) -> Result<(HubWriter, u128, usize), crate::hub::HubError> {
+    // Both sides append on the test's calling thread, as the original
+    // baseline did. Moving only the replay writer through a blocking worker
+    // measured a different execution path and cache handoff.
+    let start = Instant::now();
+    permit.store(true, Ordering::Release);
+    writer.apply(summary(format!("append-{offset}"), target + 1, true))?;
+    // Observe completed copy work before stopping either side's clock.
+    let copies_during = hub.history_raw_copies();
+    Ok((writer, start.elapsed().as_nanos().max(1), copies_during))
+}
+
 fn append_round() -> Vec<u128> {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     let target = fill_ring(&hub, &mut writer, true);
-    // Keep fan-out identical on both sides. The control has the same one
-    // subscriber registered, but it does not copy history during the samples.
+    // Same fan-out as the replay side; no raw copies.
     let _receiver = hub.subscribe_replay(&Sub::new("replay", "list"), target).unwrap();
-    (0..SAMPLES)
-        .map(|offset| {
-            let start = Instant::now();
-            writer
-                .apply(summary(format!("append-{offset}"), target + offset as u64 + 1, true))
-                .unwrap();
-            start.elapsed().as_nanos().max(1)
-        })
-        .collect()
+    let mut samples = Vec::with_capacity(SAMPLES);
+    for offset in 0..SAMPLES {
+        let permit = AtomicBool::new(false);
+        let (next, elapsed, _) =
+            timed_append(&hub, writer, target + offset as u64, offset, &permit).unwrap();
+        writer = next;
+        samples.push(elapsed);
+    }
+    samples
 }
 
 async fn append_replay_sample(
@@ -196,14 +213,17 @@ async fn append_replay_sample(
     hub.reset_history_raw_copies();
     let copy_stop = stop.clone();
     let copy_task = tokio::task::spawn_blocking(move || {
-        while !copy_stop.load(Ordering::Acquire) {
-            receiver.reposition(cursor);
-            let Some(RawRead::Span(_)) =
+        // Use the daemon's frame path, including its reserve and free.
+        let mut replay_cursor = cursor;
+        while !copy_stop.load(Ordering::Acquire) || replay_cursor != cursor {
+            receiver.reposition(replay_cursor);
+            let Some(RawRead::Span(span)) =
                 receiver.try_next_raw(Some(target), MAX_REPLAY_FRAME_BYTES)
             else {
-                std::thread::yield_now();
-                continue;
+                panic!("retained replay copy lost its span");
             };
+            replay_cursor = if span.last_seq >= target { cursor } else { span.last_seq };
+            drop(span);
             std::thread::yield_now();
         }
     });
@@ -222,20 +242,11 @@ async fn append_replay_sample(
         copy_task.await.unwrap();
         panic!("raw replay copier did not start");
     }
-    let task_permit = permit.clone();
-    let task = tokio::task::spawn_blocking(move || {
-        let start = Instant::now();
-        task_permit.store(true, Ordering::Release);
-        let mut writer = writer;
-        writer.apply(summary(format!("during-{offset}"), target + 1, true)).unwrap();
-        (writer, start.elapsed().as_nanos().max(1))
-    });
-    let result = task.await;
-    let copies_during = hub.history_raw_copies();
+    let result = timed_append(&hub, writer, target, offset, &permit);
     permit.store(true, Ordering::Release);
     stop.store(true, Ordering::Release);
     copy_task.await.unwrap();
-    let (writer, elapsed) = result.unwrap();
+    let (writer, elapsed, copies_during) = result.unwrap();
     (writer, elapsed, copies_during)
 }
 
@@ -344,12 +355,11 @@ async fn replay_append_gate() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "release gate; run with --profile gate --ignored --nocapture"]
 async fn replay_open_hold_gate() {
-    let small_rounds = [replay_open_round(false).await];
     let god_rounds = [replay_open_round(true).await];
-    let small = best_p95(&small_rounds);
     let god = best_p95(&god_rounds);
     let all = p95(&god_rounds[0]);
-    emit("v2.pr05c.replay_open_hold", small, god, all, "ns");
+    // This row has an absolute 1 ms bound, not a small/god ratio.
+    emit("v2.pr05c.replay_open_hold", god, god, all, "ns");
     assert!(god <= 1_000_000, "replay open hold exceeded 1ms p95: {god}ns");
 }
 

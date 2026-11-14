@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextDesignTokens
 @testable import CmuxNextTabs
 import CmuxNextTestSupport
 import Testing
@@ -43,21 +44,27 @@ import Testing
         #expect(reveal.restAlpha == 0)
     }
 
-    /// The pane-type chooser (#27004) sits beside the plus, so it hides, shows and stays for its menu with
-    /// it: a hover-only plus never leaves the chevron alone next to an empty slot.
-    @Test func thePaneTypeChooserFadesWithThePlus() throws {
+    /// The pane-type chooser (#27004) sits beside the plus. With `tabs.chevronOnHover` off it hides, shows and stays
+    /// for its menu with the plus: a hover-only plus never leaves the chevron alone next to an empty slot.
+    @Test func thePaneTypeChooserFadesWithThePlusWhenNotHoverOnly() throws {
         let previousPlusButton = DesignSettings.shared.plusButton
         let previousAnimationSpeed = DesignSettings.shared.animationSpeed
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(TabTunables.all)
+        let previousChevron = TunableStore.shared.override(TabTunables.chevronOnHover.key)
+        try #require(TunableStore.shared.set(TabTunables.chevronOnHover.key, .bool(false)) == .bool(false))
         // This checks the reveal's end states, not the fade's progress on the display clock.
         DesignSettings.shared.animationSpeed = .off
         DesignSettings.shared.plusButton = .hover
         defer {
             DesignSettings.shared.plusButton = previousPlusButton
             DesignSettings.shared.animationSpeed = previousAnimationSpeed
+            _ = TunableStore.shared.set(TabTunables.chevronOnHover.key, previousChevron)
         }
         let (strip, window) = Self.strip()
         defer { window.closeAfterTest() }
         strip.showsNewTabMenuButton = true
+        strip.reveal.applyPlusButtonMode()
         let chooser = strip.newTabMenuButton
         #expect(!chooser.isHidden)
         let reveal = try #require(HoverReveal.owner(of: strip.newTabButton))
@@ -74,6 +81,46 @@ import Testing
         strip.reveal.applyPlusButtonMode()
         #expect(HoverReveal.owner(of: chooser) == nil)
         #expect(chooser.alphaValue == 1, "always keeps the chooser fully shown, like the plus")
+    }
+
+    /// The default (`tabs.chevronOnHover`, Lucas 2026-11-12, #41212: "the chevron should only show up when the + button
+    /// is hovered directly"): a hover anywhere on the strip shows the + but not the ⌄; the ⌄ shows for its own menu
+    /// and keeps its slot (alpha only), so nothing moves as it shows.
+    @Test func thePaneTypeChooserShowsOnlyForThePlusOrItsMenuByDefault() throws {
+        let previousPlusButton = DesignSettings.shared.plusButton
+        let previousAnimationSpeed = DesignSettings.shared.animationSpeed
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(TabTunables.all)
+        let previousChevron = TunableStore.shared.override(TabTunables.chevronOnHover.key)
+        _ = TunableStore.shared.set(TabTunables.chevronOnHover.key, nil)
+        DesignSettings.shared.animationSpeed = .off
+        DesignSettings.shared.plusButton = .hover
+        defer {
+            DesignSettings.shared.plusButton = previousPlusButton
+            DesignSettings.shared.animationSpeed = previousAnimationSpeed
+            _ = TunableStore.shared.set(TabTunables.chevronOnHover.key, previousChevron)
+        }
+        #expect(TabTunables.chevronOnHover.value)
+        let (strip, window) = Self.strip()
+        defer { window.closeAfterTest() }
+        strip.showsNewTabMenuButton = true
+        strip.reveal.applyPlusButtonMode()
+        let chooser = strip.newTabMenuButton
+        #expect(!chooser.isHidden, "it keeps its slot")
+        let slot = chooser.frame
+        let reveal = try #require(HoverReveal.owner(of: strip.newTabButton))
+        #expect(HoverReveal.owner(of: chooser) == nil, "the ⌄ stays out of the strip's reveal")
+        #expect(chooser.alphaValue == 0)
+        reveal.setPointerInside(true)
+        #expect(strip.newTabButton.alphaValue == 1, "a hover on the strip shows the +")
+        #expect(chooser.alphaValue == 0, "but not the ⌄")
+        chooser.isHighlighted = true // its menu is open
+        strip.updateChooserReveal()
+        #expect(chooser.alphaValue == 1, "the ⌄ shows while its menu is open")
+        chooser.isHighlighted = false
+        strip.updateChooserReveal()
+        #expect(chooser.alphaValue == 0)
+        #expect(chooser.frame == slot, "showing and hiding moves nothing")
     }
 
     @Test func aRevealsRestAlphaIsWhatItsViewsShowAtRest() {

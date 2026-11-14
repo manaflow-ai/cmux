@@ -36,6 +36,23 @@ def log(*binaries):
     return "\n\n".join(binaries) + "\n"
 
 
+def starts_a_test(source):
+    """Whether a plain `cargo test` starts a test of this Rust file: a `#[test]` or `#[tokio::test]` whose block of
+    attributes holds no `#[ignore]`."""
+    lines = [line.strip() for line in source.splitlines()]
+    for n, line in enumerate(lines):
+        if not re.match(r"#\[(?:tokio::)?test\b", line):
+            continue
+        first = last = n
+        while first > 0 and lines[first - 1].startswith("#["):
+            first -= 1
+        while last + 1 < len(lines) and lines[last + 1].startswith("#["):
+            last += 1
+        if not any(attribute.startswith("#[ignore") for attribute in lines[first:last + 1]):
+            return True
+    return False
+
+
 HEAD = log(
     binary(("hub::inbox_tests::keeps_order", "ok"), ("hub::turn_cap_tests::caps", "FAILED")),
     binary(("agent_inbox::delivers", "FAILED"), ("carried_turns::carries", "ok")),
@@ -267,6 +284,29 @@ class Scope(unittest.TestCase):
                     self.assertEqual(targets - named["--test"], set(),
                                      f"cmux-tui-spec.yml's acpmux tests job misses {name}'s tests/ files: add "
                                      "`--test NAME` to its suites for each")
+            # acpmux's own tests/v2_*.rs. tests/v2_gate_home.rs is the only test build of the v2 gate registry
+            # (benches/v2/mod.rs) and no hosted job ran it: cmux#42725 made the report refuse a run that leaves a
+            # measured row out, and two of the file's tests stayed red on the base. A v2_* file joins `suites`
+            # unless every test in it is #[ignore]d (a release gate cmux-ci runs by name).
+            found = []
+            for path in tree.files(f"{self.CRATE}/tests", ".rs"):
+                name = posixpath.basename(path)[:-3]
+                if posixpath.dirname(path) != f"{self.CRATE}/tests" or not name.startswith("v2_"):
+                    continue
+                found.append(name)
+                with self.subTest(target=name):
+                    self.assertTrue(name in named["--test"] or not starts_a_test(tree.text(path)),
+                                    f"cmux-tui-spec.yml's acpmux tests job misses acpmux's tests/{name}.rs, which "
+                                    f"holds a test a plain run starts: add `--test {name}` to its suites")
+            self.assertIn("v2_gate_home", found)
+
+    def test_a_file_of_ignored_gates_starts_no_test(self):
+        gate = '#[test]\n#[ignore = "release gate"]\nfn a() {}\n'
+        self.assertFalse(starts_a_test(gate))
+        self.assertFalse(starts_a_test('#[ignore]\n#[tokio::test(flavor = "multi_thread")]\nasync fn a() {}\n'))
+        self.assertFalse(starts_a_test("fn helper() {}\n"))
+        self.assertTrue(starts_a_test(gate + "\n#[test]\nfn b() {}\n"))
+        self.assertTrue(starts_a_test("    #[tokio::test]\n    async fn c() {}\n"))
 
 
 class Cli(unittest.TestCase):

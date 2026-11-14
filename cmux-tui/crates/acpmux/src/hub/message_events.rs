@@ -93,13 +93,25 @@ pub(super) fn restore_message_options(opts: &mut PromptOptions, provenance: Opti
 /// after persisting a prompt or queue record. The append path deduplicates by
 /// `messageId` and the outgoing target scope, so this is safe on every log load.
 pub(super) fn recover_message_events(hub: &Arc<Hub>, session: &Arc<Session>) {
+    recover_message_events_after(hub, session, 0);
+}
+
+/// [`recover_message_events`] of the records past `after`, a restore point's seq: every copy of
+/// a message before it was written (`restore_point.rs`). Returns whether every copy is written
+/// now, none left for a later repair.
+pub(super) fn recover_message_events_after(
+    hub: &Arc<Hub>,
+    session: &Arc<Session>,
+    after: u64,
+) -> bool {
     let mut pending = Vec::new();
     // A fork copies historical `user_message` records before its `forked` marker. Those records
     // describe the parent's delivery and must never recreate a sender-side copy in the child.
     // Stay conservative if a crash left no marker: skip the inherited prefix entirely.
     let mut inherited = session.meta().fork_seq.is_some();
-    let _ = hub.store.scan_kinds(
+    let scanned = hub.store.scan_kinds_after(
         &session.id,
+        after,
         &["queued", "user_message", "inbox", "forked"],
         &mut |record| {
             if inherited {
@@ -119,12 +131,14 @@ pub(super) fn recover_message_events(hub: &Arc<Hub>, session: &Arc<Session>) {
             true
         },
     );
+    let mut written = scanned.is_ok();
     for message in pending {
-        append_or_repair(hub, &session.id, &message, None);
+        written &= append_or_repair(hub, &session.id, &message, None);
         if message.record_sender_copy && message.sender_session != session.id {
-            append_or_repair(hub, &message.sender_session, &message, Some(&session.id));
+            written &= append_or_repair(hub, &message.sender_session, &message, Some(&session.id));
         }
     }
+    written
 }
 
 /// A digest user message carries each joined prompt's original provenance one level down. Keep
@@ -319,23 +333,25 @@ pub(super) fn record_message_context(
     }
 }
 
+/// Whether the copy is written now (or has no chat to go to); false while a repair or the
+/// store's load still holds it.
 fn append_or_repair(
     hub: &Arc<Hub>,
     session_id: &str,
     message: &MessageContext,
     target_scope: Option<&str>,
-) {
+) -> bool {
     let session = match resolve_exact(hub, session_id) {
         Some(session) => session,
         // The load may have installed it since the lookup: once loaded, a second lookup is the
         // answer.
         None if hub.store_loaded() => match resolve_exact(hub, session_id) {
             Some(session) => session,
-            None => return,
+            None => return true,
         },
         None => {
             append_once_loaded(hub, session_id, message, target_scope);
-            return;
+            return false;
         }
     };
     if !hub.append_message_event_scoped(
@@ -348,7 +364,9 @@ fn append_or_repair(
         None,
     ) {
         schedule_projection_repair(hub, session_id, message, target_scope);
+        return false;
     }
+    true
 }
 
 /// A session not installed yet while the saved sessions still load (a lazy `session/load` of
