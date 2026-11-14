@@ -2313,6 +2313,77 @@ tail"#;
     }
 
     #[test]
+    fn folder_and_summary_sids_advance_from_their_own_ops_not_delta_cursor() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        client.subscribe(Sub::new("summary", "list")).unwrap();
+        client
+            .subscribe(Sub { view: Some(ListView::Folders), ..Sub::new("folders", "list") })
+            .unwrap();
+        while client.take_send().is_some() {}
+
+        let summary_window = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({
+                "sid":"summary","cursor":1,"rows":[],"hasBefore":false,
+                "hasAfter":false,"edition":1
+            }),
+        )
+        .unwrap()
+        .encode();
+        let folder_window = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({
+                "sid":"folders","cursor":2,"rows":[],"hasBefore":false,
+                "hasAfter":false,"edition":1
+            }),
+        )
+        .unwrap()
+        .encode();
+        client.received(&summary_window);
+        assert!(matches!(client.next_change(), Some(Change::Window(_))));
+        client.received(&folder_window);
+        assert!(matches!(client.next_change(), Some(Change::FolderWindow(_))));
+
+        // The envelope cursor is deliberately stale and must not advance either
+        // sid. The folder operation on a summary sid is skipped and counted.
+        let summary_folder = Frame::json(
+            FrameKind::Delta,
+            &serde_json::json!({
+                "sid":"summary","cursor":999,"ops":[{"op":"folder","seq":4,
+                "row":{"origin":"local","folder":"/work","newest":{"origin":"local","chatId":"chat"},"at":4,"count":1}}]
+            }),
+        )
+        .unwrap()
+        .encode();
+        let before = client.skip_counters();
+        client.received(&summary_folder);
+        assert_eq!(client.skip_counters().unknown_op, before.unknown_op + 1);
+        assert_eq!(client.subscriptions.get("summary").unwrap().cursor, Cursor(4));
+        assert_eq!(client.subscriptions.get("folders").unwrap().cursor, Cursor(2));
+
+        let folder_delta = Frame::json(
+            FrameKind::Delta,
+            &serde_json::json!({
+                "sid":"folders","cursor":1000,"ops":[{"op":"folder","seq":7,
+                "row":{"origin":"local","folder":"/work","newest":{"origin":"local","chatId":"chat"},"at":7,"count":1}}]
+            }),
+        )
+        .unwrap()
+        .encode();
+        client.received(&folder_delta);
+        assert_eq!(client.subscriptions.get("summary").unwrap().cursor, Cursor(4));
+        assert_eq!(client.subscriptions.get("folders").unwrap().cursor, Cursor(7));
+        assert!(matches!(client.next_change(), Some(Change::Folder { seq: 7, .. })));
+    }
+
+    #[test]
     fn mirror_api_refuses_folders_before_registering_a_sid() {
         let mut client = Client::<Value>::connected_v2();
         let mut sub = Sub::new("folders", "list");
