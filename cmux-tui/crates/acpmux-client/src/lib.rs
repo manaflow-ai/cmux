@@ -150,6 +150,7 @@ struct MirrorState {
     seen: HashMap<(String, String), ListKey>,
     touched: HashSet<(String, String)>,
     pending_wanted: VecDeque<ListKey>,
+    pending_wanted_ids: HashSet<(String, String)>,
     // Decision 166: a window or a successful page permits one immediate retry.
     read_error_since_progress: bool,
     reads_stopped: bool,
@@ -583,12 +584,14 @@ where
         for key in keys {
             let id = Self::row_identity(&key);
             if !mirror.wanted.contains_key(&id) && mirror.wanted.len() >= 4096 {
-                return Err(FrameError::InvalidLength(mirror.wanted.len()));
+                if !Self::evict_internal_wanted(mirror) {
+                    return Err(FrameError::InvalidLength(mirror.wanted.len()));
+                }
             }
             mirror.wanted.insert(id, key.clone());
             mirror.caller_wanted.insert(Self::row_identity(&key));
             mirror.internal_wanted.remove(&Self::row_identity(&key));
-            mirror.pending_wanted.push_back(key);
+            Self::queue_pending_wanted(mirror, key);
         }
         // An explicit want may read pending keys after a stop, but does not
         // replenish the retry allowance or restart the view's walk.
@@ -616,7 +619,7 @@ where
             if !mirror.internal_wanted.contains(&id) {
                 mirror.wanted.remove(&id);
             }
-            mirror.pending_wanted.retain(|pending| pending != &key);
+            mirror.pending_wanted_ids.remove(&id);
         }
         Ok(())
     }
@@ -748,9 +751,8 @@ where
         );
         if let Some(old_parent) = previous.as_ref().and_then(|facts| facts.parent.clone())
             && Some(old_parent.clone()) != parent
-            && let Some(children) = mirror.parent_children.get_mut(&old_parent)
         {
-            children.remove(&id);
+            Self::detach_child(mirror, &id);
         }
         if let Some(parent) = parent.clone() {
             mirror.child_parent.insert(id.clone(), parent.clone());
@@ -767,24 +769,21 @@ where
                 };
                 mirror.wanted.insert(parent.clone(), key.clone());
                 mirror.internal_wanted.insert(parent);
-                mirror.pending_wanted.push_back(key);
+                Self::queue_pending_wanted(mirror, key);
             }
         } else {
             mirror.child_parent.remove(&id);
         }
-        let parent_changed = previous.is_some_and(|old| {
+        let parent_changed = previous.as_ref().is_none_or(|old| {
             old.answered != true || old.archived != summary.archived || old.parent != parent
         });
         if parent_changed {
             if let Some(children) = mirror.parent_children.get(&id).cloned() {
                 for child in children {
                     if let Some(key) = mirror.held.get(&child).cloned()
-                        && !mirror
-                            .pending_wanted
-                            .iter()
-                            .any(|pending| Self::row_identity(pending) == child)
+                        && !mirror.pending_wanted_ids.contains(&child)
                     {
-                        mirror.pending_wanted.push_back(key);
+                        Self::queue_pending_wanted(mirror, key);
                     }
                 }
             }
@@ -797,13 +796,7 @@ where
                     mirror.wanted.insert(id.clone(), key.clone());
                 }
                 mirror.internal_wanted.insert(id);
-                if !mirror
-                    .pending_wanted
-                    .iter()
-                    .any(|pending| Self::row_identity(pending) == Self::row_identity(&key))
-                {
-                    mirror.pending_wanted.push_back(key);
-                }
+                Self::queue_pending_wanted(mirror, key);
             }
         }
     }
@@ -842,7 +835,7 @@ where
                 if let Some(children) = mirror.parent_children.get(&id).cloned() {
                     for child in children {
                         if let Some(key) = mirror.held.get(&child).cloned() {
-                            mirror.pending_wanted.push_back(key);
+                            Self::queue_pending_wanted(mirror, key);
                         }
                     }
                 }
@@ -853,16 +846,11 @@ where
     fn release_parent_if_unused(&mut self, sid: &str, child: &(String, String)) {
         let Some(sub) = self.subscriptions.get_mut(sid) else { return };
         let Some(mirror) = sub.mirror.as_mut() else { return };
-        let Some(parent) = mirror.child_parent.get(child).cloned() else { return };
-        let child_held = mirror
-            .parent_children
-            .get(&parent)
-            .is_some_and(|children| children.iter().any(|id| mirror.held.contains_key(id)));
-        if !child_held && !mirror.caller_wanted.contains(&parent) {
-            mirror.internal_wanted.remove(&parent);
-            mirror.wanted.remove(&parent);
-            mirror.pending_wanted.retain(|key| Self::row_identity(key) != parent);
+        if mirror.held.contains_key(child) {
+            return;
         }
+        Self::detach_child(mirror, child);
+        Self::prune_parent_tracking(mirror);
     }
 
     fn render_row(&self, sid: &str, row: T) -> T {
@@ -892,6 +880,108 @@ where
 
     fn row_identity(key: &ListKey) -> (String, String) {
         (key.origin.clone(), key.chat_id.clone())
+    }
+
+    fn queue_pending_wanted(mirror: &mut MirrorState, key: ListKey) {
+        let id = Self::row_identity(&key);
+        if mirror.pending_wanted_ids.insert(id) {
+            mirror.pending_wanted.push_back(key);
+        }
+    }
+
+    fn queue_pending_wanted_front(mirror: &mut MirrorState, key: ListKey) {
+        let id = Self::row_identity(&key);
+        if mirror.pending_wanted_ids.insert(id) {
+            mirror.pending_wanted.push_front(key);
+        }
+    }
+
+    fn pop_pending_wanted(mirror: &mut MirrorState) -> Option<ListKey> {
+        while let Some(key) = mirror.pending_wanted.pop_front() {
+            let id = Self::row_identity(&key);
+            if mirror.pending_wanted_ids.remove(&id) {
+                return Some(key);
+            }
+        }
+        None
+    }
+
+    fn detach_child(mirror: &mut MirrorState, child: &(String, String)) {
+        let Some(parent) = mirror.child_parent.remove(child) else { return };
+        let parent_empty = if let Some(children) = mirror.parent_children.get_mut(&parent) {
+            children.remove(child);
+            children.is_empty()
+        } else {
+            false
+        };
+        if parent_empty {
+            mirror.parent_children.remove(&parent);
+            mirror.parent_facts.remove(&parent);
+            if mirror.internal_wanted.remove(&parent) && !mirror.caller_wanted.contains(&parent) {
+                mirror.wanted.remove(&parent);
+                mirror.pending_wanted_ids.remove(&parent);
+            }
+        }
+    }
+
+    fn remove_held(mirror: &mut MirrorState, id: &(String, String)) {
+        mirror.held.remove(id);
+        Self::detach_child(mirror, id);
+    }
+
+    fn prune_parent_tracking(mirror: &mut MirrorState) {
+        let orphaned: Vec<_> = mirror
+            .child_parent
+            .keys()
+            .filter(|id| !mirror.held.contains_key(*id))
+            .cloned()
+            .collect();
+        for child in orphaned {
+            Self::detach_child(mirror, &child);
+        }
+        let empty_parents: Vec<_> = mirror
+            .parent_children
+            .iter()
+            .filter_map(|(parent, children)| children.is_empty().then_some(parent.clone()))
+            .collect();
+        for parent in empty_parents {
+            mirror.parent_children.remove(&parent);
+            mirror.parent_facts.remove(&parent);
+            if mirror.internal_wanted.remove(&parent) && !mirror.caller_wanted.contains(&parent) {
+                mirror.wanted.remove(&parent);
+                mirror.pending_wanted_ids.remove(&parent);
+            }
+        }
+    }
+
+    fn evict_internal_wanted(mirror: &mut MirrorState) -> bool {
+        let Some(parent) = mirror.internal_wanted.iter().next().cloned() else { return false };
+        mirror.internal_wanted.remove(&parent);
+        mirror.wanted.remove(&parent);
+        mirror.pending_wanted_ids.remove(&parent);
+        if let Some(facts) = mirror.parent_facts.get_mut(&parent) {
+            facts.answered = false;
+        }
+        if let Some(children) = mirror.parent_children.get(&parent).cloned() {
+            for child in children {
+                if let Some(key) = mirror.held.get(&child).cloned() {
+                    Self::queue_pending_wanted(mirror, key);
+                }
+            }
+        }
+        true
+    }
+
+    fn invalidate_parent(mirror: &mut MirrorState, id: &(String, String)) {
+        let Some(facts) = mirror.parent_facts.get_mut(id) else { return };
+        facts.answered = false;
+        if let Some(children) = mirror.parent_children.get(id).cloned() {
+            for child in children {
+                if let Some(key) = mirror.held.get(&child).cloned() {
+                    Self::queue_pending_wanted(mirror, key);
+                }
+            }
+        }
     }
 
     fn start_mirror_walk(&mut self, sid: &str) {
@@ -950,12 +1040,12 @@ where
         let page = {
             let Some(sub) = self.subscriptions.get_mut(sid) else { return };
             let Some(mirror) = sub.mirror.as_mut() else { return };
-            if mirror.walking || mirror.reads_stopped || mirror.pending_wanted.is_empty() {
+            if mirror.walking || mirror.reads_stopped || mirror.pending_wanted_ids.is_empty() {
                 return;
             }
             let mut keys = Vec::with_capacity(100);
             while keys.len() < 100 {
-                let Some(key) = mirror.pending_wanted.pop_front() else { break };
+                let Some(key) = Self::pop_pending_wanted(mirror) else { break };
                 keys.push(key);
             }
             if keys.is_empty() {
@@ -998,7 +1088,7 @@ where
                 .map(|(_, key)| key.clone())
                 .collect();
             for key in &stale {
-                mirror.held.remove(&Self::row_identity(key));
+                Self::remove_held(mirror, &Self::row_identity(key));
             }
             mirror.walking = false;
             mirror.whole = true;
@@ -1028,7 +1118,11 @@ where
             && let Some(mirror) = sub.mirror.as_mut()
         {
             mirror.pending_wanted.clear();
-            mirror.pending_wanted.extend(mirror.wanted.values().cloned());
+            mirror.pending_wanted_ids.clear();
+            let wanted: Vec<_> = mirror.wanted.values().cloned().collect();
+            for key in wanted {
+                Self::queue_pending_wanted(mirror, key);
+            }
         }
         self.maybe_start_wanted(sid);
     }
@@ -1129,6 +1223,11 @@ where
                             }
                         }
                     }
+                }
+                if let Some(sub) = self.subscriptions.get_mut(&sid)
+                    && let Some(mirror) = sub.mirror.as_mut()
+                {
+                    Self::prune_parent_tracking(mirror);
                 }
                 if mirror {
                     window.rows = self.render_rows(&sid, raw_rows);
@@ -1350,7 +1449,7 @@ where
         {
             for key in keys.into_iter().rev() {
                 if let wire::PageKey::Summary(key) = key {
-                    mirror.pending_wanted.push_front(key);
+                    Self::queue_pending_wanted_front(mirror, key);
                 }
             }
         }
@@ -1386,6 +1485,11 @@ where
                 !emitted,
             );
             emitted = true;
+        }
+        if let Some(sub) = self.subscriptions.get_mut(&sid)
+            && let Some(mirror) = sub.mirror.as_mut()
+        {
+            Self::prune_parent_tracking(mirror);
         }
         if !emitted {
             self.charge_frame_now(Some(&sid), frame_bytes);
@@ -1453,7 +1557,7 @@ where
                 if live || mirror.caller_wanted.contains(&id) {
                     mirror.held.insert(id.clone(), key.clone());
                 } else {
-                    mirror.held.remove(&id);
+                    Self::remove_held(mirror, &id);
                 }
             }
             let cursor = self.subscriptions.get(&sid).map(|sub| sub.cursor.0).unwrap_or_default();
@@ -1484,8 +1588,12 @@ where
                     && let Some(mirror) = sub.mirror.as_mut()
                 {
                     let id = Self::row_identity(&key);
-                    mirror.held.remove(&id);
-                    mirror.wanted.remove(&id);
+                    Self::invalidate_parent(mirror, &id);
+                    Self::remove_held(mirror, &id);
+                    mirror.caller_wanted.remove(&id);
+                    if !mirror.internal_wanted.contains(&id) {
+                        mirror.wanted.remove(&id);
+                    }
                 }
                 let cursor =
                     self.subscriptions.get(&sid).map(|sub| sub.cursor.0).unwrap_or_default();
@@ -1507,10 +1615,10 @@ where
                 && let Some(mirror) = sub.mirror.as_mut()
             {
                 let id = Self::row_identity(&key);
+                Self::invalidate_parent(mirror, &id);
+                mirror.caller_wanted.remove(&id);
                 mirror.internal_wanted.remove(&id);
-                if !mirror.caller_wanted.contains(&id) {
-                    mirror.wanted.remove(&id);
-                }
+                mirror.wanted.remove(&id);
             }
         }
         for key in page.unknown {
@@ -1528,8 +1636,13 @@ where
             let Some(sub) = self.subscriptions.get_mut(&sid) else { return };
             let Some(mirror) = sub.mirror.as_mut() else { return };
             for key in &requested_keys {
-                mirror.pending_wanted.retain(|pending| pending != key);
+                mirror.pending_wanted_ids.remove(&Self::row_identity(key));
             }
+        }
+        if let Some(sub) = self.subscriptions.get_mut(&sid)
+            && let Some(mirror) = sub.mirror.as_mut()
+        {
+            Self::prune_parent_tracking(mirror);
         }
         if !page.rest.is_empty() {
             if answered == 0 {
@@ -1540,7 +1653,7 @@ where
                 let Some(sub) = self.subscriptions.get_mut(&sid) else { return };
                 let Some(mirror) = sub.mirror.as_mut() else { return };
                 for key in page.rest.iter().rev() {
-                    mirror.pending_wanted.push_front(key.clone());
+                    Self::queue_pending_wanted_front(mirror, key.clone());
                 }
             }
             self.maybe_start_wanted(&sid);
@@ -1662,7 +1775,7 @@ where
                     });
                     let left = live_view && !live && held && !wanted;
                     let deliver =
-                        !mirrored || !live_view || live || held || wanted && !internal_only;
+                        !mirrored || (!internal_only && (!live_view || live || held || wanted));
                     if let Some(sub) = self.subscriptions.get_mut(&sid)
                         && let Some(mirror) = sub.mirror.as_mut()
                         && let Some(key) = key
@@ -1674,11 +1787,16 @@ where
                         if live || mirror.caller_wanted.contains(&id) {
                             mirror.held.insert(id, key);
                         } else {
-                            mirror.held.remove(&id);
+                            Self::remove_held(mirror, &id);
                         }
                     }
                     if !live && let Some(key) = value.as_ref().and_then(Self::row_key) {
                         self.release_parent_if_unused(&sid, &Self::row_identity(&key));
+                    }
+                    if let Some(sub) = self.subscriptions.get_mut(&sid)
+                        && let Some(mirror) = sub.mirror.as_mut()
+                    {
+                        Self::prune_parent_tracking(mirror);
                     }
                     if left {
                         let charge = !charged;
@@ -1727,11 +1845,19 @@ where
                         if mirror.walking {
                             mirror.touched.insert(id.clone());
                         }
-                        mirror.held.remove(&id);
+                        Self::invalidate_parent(mirror, &id);
+                        Self::remove_held(mirror, &id);
                         mirror.wanted.remove(&id);
                         mirror.internal_wanted.remove(&id);
+                        mirror.caller_wanted.remove(&id);
+                        mirror.pending_wanted_ids.remove(&id);
                     }
                     self.release_parent_if_unused(&sid, &(origin.clone(), chat_id.clone()));
+                    if let Some(sub) = self.subscriptions.get_mut(&sid)
+                        && let Some(mirror) = sub.mirror.as_mut()
+                    {
+                        Self::prune_parent_tracking(mirror);
+                    }
                     let why = raw.get("why").and_then(Value::as_str).map(str::to_owned);
                     self.push_change(
                         Change::Gone { sid: sid.clone(), seq, origin, chat_id, why, replay },
