@@ -68,6 +68,20 @@ fn persisted_outcome(result: Value, settled: Value) -> Result<Value, RpcError> {
     Ok(result)
 }
 
+/// The kinds `Hub::logged_prompt_state` reads a prompt's state from: each is in
+/// `INDEXED_KINDS`, so the read takes the log's copies (a test keeps them there).
+pub(crate) const PROMPT_STATE_KINDS: &[&str] = &[
+    "turn_stop_requested",
+    "queued",
+    "user_message",
+    "turn_started",
+    "turn_result",
+    "prompt_refused",
+    "queue_declined",
+    "queue_removed",
+    "dequeued",
+];
+
 impl Hub {
     /// Read an accepted prompt without submitting another turn. An adopted active turn
     /// may have no in-memory ledger entry: its persisted completion wakes this wait.
@@ -418,7 +432,10 @@ impl Hub {
         // The inbox digest that took it, once one did (`inbox_digest.rs`). Its turn is the
         // digest's only once the digest's turn starts: one that never did gave it back.
         let mut digest: Option<String> = None;
-        let _ = self.store.scan(&session.id, 0, &mut |rec| {
+        // Every resend reads this (a team message, a watch, an outbox retry), on chats that
+        // grow to a million records: the kinds below only, from the log's copies of them
+        // (`store/kind_index.rs`), never the log.
+        let _ = self.store.scan_kinds(&session.id, PROMPT_STATE_KINDS, &mut |rec| {
             let field = |k: &str| rec.msg.get(k).and_then(Value::as_str);
             // Admission installs the live turn before user_message is durable. Stop can
             // therefore be journaled before we learn which turn owns this prompt.

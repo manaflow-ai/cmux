@@ -2,7 +2,7 @@
 // Keep the frame on the shared grid; interactive expansion is still measured by the transcript.
 import { layout, prepare, prepareWithSegments, layoutWithLines } from "@chenglou/pretext";
 import typeScale from "../../../../../schemas/type-scale/type-scale.json";
-import { chatDisplay, chatMetrics } from "../chatDisplay";
+import { chatDensityTextScale, drawnFontSize, chatDisplay, chatMetrics } from "../chatDisplay";
 import { chatUiFontVariables, chatUiMeasureStack, chatUiTracking } from "../chatUiFont";
 import type { AcpmuxPermission } from "../model";
 import { currentLanguage, translate } from "../i18n";
@@ -103,7 +103,7 @@ export function permissionCardHeight(permission: AcpmuxPermission | undefined, w
   // Immutable permission snapshots retain their estimate while unrelated reply tokens stream.
   // Keep only the current width per ask; old asks are released with their snapshot.
   // The font's stack and its name: two fonts that share a stack track differently.
-  const key = `${width}/${scale}/${currentLanguage()}/${cardFont()}/${chatDisplay().uiFont}/${chatDisplay().font}/${chatDisplay().fontSize}/${chatDisplay().lineHeight}`;
+  const key = `${width}/${scale}/${currentLanguage()}/${cardFont()}/${chatDisplay().uiFont}/${chatDisplay().font}/${drawnFontSize(chatDisplay())}/${chatDisplay().lineHeight}`;
   const cached = estimates.get(permission);
   if (cached?.key === key) return cached.height;
   const height = estimatePermission(permission, width, scale);
@@ -122,7 +122,9 @@ const CONTROL_ROW = 28;
 const PLAN_BUILD_CHEVRON = 26;
 
 function estimatePermission(permission: AcpmuxPermission, width: number, scale: number): number {
-  if (permission.question) return questionHeight(permission.question, width / scale) * scale;
+  // The prompt bubble's padding in the card's unscaled units: drawn at the density text scale (conversation.css).
+  if (permission.question)
+    return questionHeight(permission.question, width / scale, chatDensityTextScale() / scale) * scale;
   const room = Math.max(1, width / scale - 2 * EDGE);
   const external = permission.externalAccess;
   const plan = permission.plan;
@@ -178,7 +180,7 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
   return height * scale;
 }
 
-function questionHeight(question: AgentQuestion, width: number): number {
+function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1): number {
   const room = Math.max(1, width - 2 * padding - 1);
   const text = (value: string, available = room, line = body.lineHeight, size = body.size, weight = 400) =>
     textHeight(plainText(value), available, size, line, false, weight);
@@ -192,16 +194,17 @@ function questionHeight(question: AgentQuestion, width: number): number {
     const metrics = chatMetrics(display);
     const tracking = chatUiFontVariables(display.uiFont)["--cv-tracking"];
     let letterSpacing = tracking ? Number.parseFloat(tracking) : 0;
-    if (tracking?.endsWith("em")) letterSpacing *= display.fontSize;
-    const bubbleRoom = Math.max(1, width * 0.7 - 32);
+    if (tracking?.endsWith("em")) letterSpacing *= drawnFontSize(display);
+    // The bubble's 16 px sides and 10 px block padding (conversation.css .cv-user__bubble).
+    const bubbleRoom = Math.max(1, width * 0.7 - 32 * bubbleScale);
     const bubbleText = (value: string) =>
-      textHeight(plainText(value), bubbleRoom, display.fontSize, metrics.lineHeight, false, 400, {
+      textHeight(plainText(value), bubbleRoom, drawnFontSize(display), metrics.lineHeight, false, 400, {
         font: metrics.measureFont,
         letterSpacing,
         preserveWhitespace: true,
       });
     return (
-      20 +
+      20 * bubbleScale +
       question.items.reduce(
         (sum, item) => sum + bubbleText(item.prompt) + 2 + bubbleText(itemAnswerText(item, answer)) + 8,
         -8,
@@ -213,7 +216,8 @@ function questionHeight(question: AgentQuestion, width: number): number {
   if (!item) return 24;
   const promptCard = question.source.harness !== "acp" && !consentChoice(question) && !question.items.some(hasPreviews);
   if (promptCard) {
-    const contentSize = chatDisplay().fontSize;
+    // The size the chat draws at the density (chatDisplay.ts drawnFontSize), as the card's text is.
+    const contentSize = drawnFontSize(chatDisplay());
     const line = contentSize * chatDisplay().lineHeight;
     const inner = Math.max(1, width - 32);
     let height = 32 + 24 + 24 + text(item.prompt, inner, line, contentSize);

@@ -4,9 +4,13 @@
 mod bench;
 mod blocks;
 mod checkpoint;
+pub use checkpoint::Saved;
 mod claude;
 mod fold;
 mod input;
+mod kinds;
+#[cfg(test)]
+mod kinds_tests;
 #[cfg(test)]
 mod tests;
 mod v1;
@@ -15,10 +19,13 @@ use crate::row::{Row, RowKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub const VERSION: u32 = 6;
-pub const MAX_STATE_BYTES: usize = 64 * 1024;
+/// Version 8 writes the turn-end notice with its result's fields in every book (decision 231);
+/// an older book rebuilds from raw.
+pub const VERSION: u32 = 8;
+/// The translator's segment and the queue's records together.
+pub const MAX_STATE_BYTES: usize = MAX_TRANSLATOR_BYTES + 32 * MAX_QUEUE_ENTRIES;
 pub const MAX_TRANSLATOR_BYTES: usize = 32 * 1024;
-const MAX_QUEUE_ENTRIES: usize = 1024;
+const MAX_QUEUE_ENTRIES: usize = crate::checkpoint::MAX_PROMPTS;
 const MAX_KEY_BYTES: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,6 +88,8 @@ pub enum BodySource {
 pub enum QueueChange {
     Add(QueueEntry),
     Remove(u64),
+    /// The entries' order changed (`queue_order`); no entry did.
+    Order,
 }
 
 /// The compact queue checkpoint record. Its packed representation is deliberately 32 bytes:
@@ -161,18 +170,24 @@ impl OwnedRow {
         }
     }
     fn field(&mut self, key: &str, value: &str) -> bool {
-        let truncated = value.len() > MAX_KEY_BYTES;
-        let mut end = value.len().min(MAX_KEY_BYTES);
-        while !value.is_char_boundary(end) {
-            end -= 1;
-        }
+        self.field_capped(key, value, MAX_KEY_BYTES)
+    }
+    /// A string field cut at `cap` bytes, on a character; true when it was cut.
+    fn field_capped(&mut self, key: &str, value: &str, cap: usize) -> bool {
         self.fields.insert(
             key.into(),
-            serde_json::to_string(value.get(..end).unwrap_or_default())
-                .unwrap_or_else(|_| "\"\"".into()),
+            serde_json::to_string(cut(value, cap)).unwrap_or_else(|_| "\"\"".into()),
         );
-        truncated
+        value.len() > cap
     }
+}
+/// At most `cap` bytes of `value`, cut on a character.
+fn cut(value: &str, cap: usize) -> &str {
+    let mut end = value.len().min(cap);
+    while !value.is_char_boundary(end) {
+        end = end.saturating_sub(1);
+    }
+    value.get(..end).unwrap_or_default()
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Stream {
@@ -198,7 +213,8 @@ struct PromptEvent<'a> {
     body: Option<&'a serde_json::value::RawValue>,
     images: Option<&'a serde_json::value::RawValue>,
 }
-fn prompt_hash(key: &str) -> u64 {
+/// The key a waiting prompt's id is kept by in the queue.
+pub fn prompt_hash(key: &str) -> u64 {
     key.bytes().fold(0xcbf29ce484222325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3))
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -216,8 +232,10 @@ pub struct State {
     plan: Option<OwnedRow>,
     compaction: Option<OwnedRow>,
     prompts: BTreeMap<u64, Prompt>,
+    /// The waiting prompts in v1's order: the order its restore gives them, which runs them
+    /// first to last, skipping held ones. Its records are a checkpoint's prompt section.
     #[serde(skip)]
-    queue: BTreeMap<u64, QueueEntry>,
+    queue: Vec<QueueEntry>,
     queue_overflowed: u64,
     settled_prompts: Vec<u64>,
     replayed_prompts: u64,
@@ -237,7 +255,64 @@ pub struct State {
     line_errors: u64,
     turn_start_ms: u64,
     at_ms: u64,
+    /// A Claude turn's tokens so far, its calls counted once by message id.
+    claude: ClaudeTurn,
+    /// Kinds in none of the tables (`kinds.rs`), by name: 32 names, then `other`.
+    #[serde(skip)]
+    unknown_kinds: BTreeMap<String, u64>,
 }
+/// A turn's token split, as the view's `TurnTokenSplit` names it. `context` and `calls` are
+/// absent when zero.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct Tokens {
+    output: u64,
+    input: u64,
+    cache_read: u64,
+    cache_write: u64,
+    context: u64,
+    calls: u64,
+}
+impl Tokens {
+    /// None for a turn that spent nothing, which the view does not draw.
+    fn json(self) -> Option<String> {
+        use std::fmt::Write;
+        if [self.output, self.input, self.cache_read, self.cache_write].iter().all(|n| *n == 0) {
+            return None;
+        }
+        let mut out = format!(
+            r#"{{"output":{},"input":{},"cacheRead":{},"cacheWrite":{}"#,
+            self.output, self.input, self.cache_read, self.cache_write
+        );
+        if self.context > 0 {
+            let _ = write!(out, r#","context":{}"#, self.context);
+        }
+        if self.calls > 0 {
+            let _ = write!(out, r#","calls":{}"#, self.calls);
+        }
+        out.push('}');
+        Some(out)
+    }
+    fn add(self, other: Self) -> Self {
+        Self {
+            output: self.output.saturating_add(other.output),
+            input: self.input.saturating_add(other.input),
+            cache_read: self.cache_read.saturating_add(other.cache_read),
+            cache_write: self.cache_write.saturating_add(other.cache_write),
+            context: other.context,
+            calls: self.calls.saturating_add(other.calls),
+        }
+    }
+}
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct ClaudeTurn {
+    /// The calls before the one streaming now.
+    sum: Tokens,
+    /// The newest call's usage: each of its lines repeats it, the last one whole.
+    call: Tokens,
+    message: String,
+}
+const MAX_UNKNOWN_KINDS: usize = 32;
+const UNKNOWN_OTHER: &str = "other";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
     InvalidJson,
@@ -282,8 +357,8 @@ pub fn translate(
         return Ok(Vec::new());
     }
     state.bound_open_rows(&mut out);
-    // The queue is counted separately from the translator's 32 KiB budget. The
-    // combined checkpoint is at most 64 KiB, including the queue count.
+    // The queue is counted apart from the translator's 32 KiB segment: its records go to the
+    // book's prompt section.
     Ok(out.ops)
 }
 fn bounded(s: &str) -> Result<(), Error> {
@@ -294,8 +369,10 @@ fn bounded(s: &str) -> Result<(), Error> {
     }
 }
 /// Explicit lossy-cap/late-identity outcomes, for the actor's counters.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Counters {
+    /// Kinds the translator has no line for, by name (`kinds.rs`); zero over every known log.
+    pub unknown_kinds: BTreeMap<String, u64>,
     pub forced_rows: u64,
     pub forced_steers: u64,
     pub dropped_fold_steers: u64,
@@ -308,8 +385,15 @@ pub struct Counters {
     pub queue_overflowed: u64,
 }
 impl State {
+    /// Whether raw is currently inside a turn, independent of its open body rows.
+    /// `turn` outlives the turn so late background rows keep its id; the key ends with it.
+    pub fn in_turn(&self) -> bool {
+        !self.turn_key.is_empty()
+    }
+
     pub fn counters(&self) -> Counters {
         Counters {
+            unknown_kinds: self.unknown_kinds.clone(),
             forced_rows: self.forced_rows,
             forced_steers: self.forced_steers,
             dropped_fold_steers: self.dropped_fold_steers.saturating_add(self.fold.dropped_steers),
@@ -324,6 +408,19 @@ impl State {
     }
     pub fn last_row_id(&self) -> u64 {
         self.last_id
+    }
+    /// The waiting prompts, by id hash. A checkpoint keeps them as [`Saved::prompts`].
+    pub fn queue(&self) -> impl Iterator<Item = &QueueEntry> {
+        self.queue.iter()
+    }
+    pub fn queued(&self, id_hash: u64) -> Option<QueueEntry> {
+        self.queue.iter().find(|entry| entry.id_hash == id_hash).copied()
+    }
+    fn queue_slot(&self, id_hash: u64) -> Option<usize> {
+        self.queue.iter().position(|entry| entry.id_hash == id_hash)
+    }
+    pub fn queue_len(&self) -> usize {
+        self.queue.len()
     }
     pub fn open_rows(&self) -> impl Iterator<Item = &OwnedRow> {
         self.stored_rows().filter(|row| row.open)
@@ -386,27 +483,76 @@ impl State {
             return;
         }
         let entry = QueueEntry::new(hash, at_ms, held, place, span, text_len);
-        if let Some(old) = self.queue.get(&hash).copied() {
-            if old == entry {
+        // A `queued` goes to the end, as v1's restore reads it; one queued again (a requeue
+        // after a failed turn) leaves its old place. The same record read again changes nothing.
+        if let Some(slot) = self.queue_slot(hash) {
+            if self.queue.get(slot).is_some_and(|old| old.place == place && old.span == entry.span)
+            {
                 return;
             }
-            self.queue.insert(hash, entry);
-            out.emit(Change::Queue(QueueChange::Add(entry)));
-            return;
-        }
-        if self.queue.len() >= MAX_QUEUE_ENTRIES {
+            self.queue.remove(slot);
+        } else if self.queue.len() >= MAX_QUEUE_ENTRIES {
             self.queue_overflowed = self.queue_overflowed.saturating_add(1);
             return;
         }
-        self.queue.insert(hash, entry);
+        self.queue.push(entry);
         out.emit(Change::Queue(QueueChange::Add(entry)));
+    }
+    /// `queue_order`: the entries `order` names first, in its order; the others after them in
+    /// the order they had. An id that does not wait, or is not a string, is skipped. One pass
+    /// over the queue and one over `order`; nothing moves unless the whole list was read.
+    fn queue_order(
+        &mut self,
+        order: Option<&serde_json::value::RawValue>,
+        out: &mut input::Output<'_>,
+    ) {
+        let Some(order) = order else { return };
+        let slots: std::collections::HashMap<u64, usize> =
+            self.queue.iter().enumerate().map(|(slot, entry)| (entry.id_hash, slot)).collect();
+        let mut taken = vec![false; self.queue.len()];
+        let mut placed: Vec<QueueEntry> = Vec::with_capacity(self.queue.len());
+        let listed = input::each(order, |id| {
+            if let Ok(id) = input::text(id)
+                && let Some(&slot) = slots.get(&prompt_hash(&id))
+                && let Some(seen) = taken.get_mut(slot)
+                && !*seen
+                && let Some(entry) = self.queue.get(slot)
+            {
+                *seen = true;
+                placed.push(*entry);
+            }
+            Ok(())
+        });
+        if listed.is_err() || placed.is_empty() {
+            return;
+        }
+        for (entry, seen) in self.queue.iter().zip(&taken) {
+            if !*seen {
+                placed.push(*entry);
+            }
+        }
+        if placed != self.queue {
+            self.queue = placed;
+            out.emit(Change::Queue(QueueChange::Order));
+        }
+    }
+    /// Sent now (`queue_order` with `next`): no longer held.
+    fn queue_release(&mut self, id: &str, out: &mut input::Output<'_>) {
+        let Some(slot) = self.queue_slot(prompt_hash(id)) else { return };
+        if let Some(entry) = self.queue.get_mut(slot)
+            && entry.held()
+        {
+            *entry = entry.with_held(false);
+            out.emit(Change::Queue(QueueChange::Add(*entry)));
+        }
     }
     fn queue_remove(&mut self, id: &str, out: &mut input::Output<'_>) {
         if id.is_empty() {
             return;
         }
         let hash = prompt_hash(id);
-        if self.queue.remove(&hash).is_some() {
+        if let Some(slot) = self.queue_slot(hash) {
+            self.queue.remove(slot);
             out.emit(Change::Queue(QueueChange::Remove(hash)));
         }
     }
@@ -420,10 +566,10 @@ impl State {
         input::each(raw, |id| {
             let id = input::text(id)?;
             let hash = prompt_hash(&id);
-            if let Some(entry) = self.queue.get(&hash).copied() {
+            if let Some(entry) = self.queue.iter_mut().find(|entry| entry.id_hash == hash) {
                 let next = entry.with_held(held);
-                if next != entry {
-                    self.queue.insert(hash, next);
+                if next != *entry {
+                    *entry = next;
                     out.emit(Change::Queue(QueueChange::Add(next)));
                 }
             }
@@ -431,11 +577,10 @@ impl State {
         })
     }
     fn queue_set_all_held(&mut self, held: bool, out: &mut input::Output<'_>) {
-        let entries: Vec<_> = self.queue.values().copied().collect();
-        for entry in entries {
+        for entry in &mut self.queue {
             let next = entry.with_held(held);
-            if next != entry {
-                self.queue.insert(next.id_hash, next);
+            if next != *entry {
+                *entry = next;
                 out.emit(Change::Queue(QueueChange::Add(next)));
             }
         }
@@ -509,6 +654,106 @@ impl State {
         self.fold = fold::Fold::default();
         self.turn_key.clear();
         // Background tools may complete after this turn. Preserve their original IDs.
+    }
+    /// A kind in none of the tables: counted by name, never dropped silently (`kinds.rs`).
+    fn unknown(&mut self, kind: &str) {
+        let named = self
+            .unknown_kinds
+            .len()
+            .saturating_sub(usize::from(self.unknown_kinds.contains_key(UNKNOWN_OTHER)));
+        let key = if self.unknown_kinds.contains_key(kind)
+            || (named < MAX_UNKNOWN_KINDS && kind.len() <= 64)
+        {
+            kind
+        } else {
+            UNKNOWN_OTHER
+        };
+        let n = self.unknown_kinds.entry(key.to_owned()).or_insert(0);
+        *n = n.saturating_add(1);
+    }
+    /// Copy a table line's fields from `msg` into the row's fields, one pass over its keys.
+    fn copy(
+        &mut self,
+        row: &mut OwnedRow,
+        fields: &[kinds::Field],
+        msg: &serde_json::value::RawValue,
+    ) {
+        let mut cut = 0u64;
+        let _ = input::entries(msg, |key, value| {
+            for field in fields.iter().filter(|field| field.from == key) {
+                match field.ty {
+                    kinds::Ty::Str(cap) => {
+                        if let Ok(text) = input::text(value)
+                            && !text.is_empty()
+                            && row.field_capped(field.to, &text, cap)
+                        {
+                            cut = cut.saturating_add(1);
+                        }
+                    }
+                    kinds::Ty::True => {
+                        if value.get() == "true" {
+                            row.fields.insert(field.to.into(), "true".into());
+                        }
+                    }
+                }
+            }
+        });
+        self.cut_fields = self.cut_fields.saturating_add(cut);
+    }
+    /// A row drawn from one line by its table line: the row, its fields, then its text.
+    /// The row comes back open; the caller settles it.
+    fn drawn(
+        &mut self,
+        spec: &kinds::Drawn,
+        msg: &serde_json::value::RawValue,
+        out: &mut input::Output<'_>,
+    ) -> Result<OwnedRow, Error> {
+        let mut row = self.row(spec.kind, out)?;
+        if !spec.notice.is_empty() && row.field("notice", spec.notice) {
+            self.cut_fields = self.cut_fields.saturating_add(1);
+        }
+        self.copy(&mut row, spec.fields, msg);
+        out.row(&row);
+        let mut text: Option<(usize, &serde_json::value::RawValue)> = None;
+        input::entries(msg, |key, value| {
+            if let Some(rank) = spec.text.iter().position(|name| *name == key)
+                && value.get() != "null"
+                && text.is_none_or(|(best, _)| rank < best)
+            {
+                text = Some((rank, value));
+            }
+        })?;
+        if let Some((_, raw)) = text {
+            out.body(row.id, BodyField::Content, false, raw);
+        }
+        Ok(row)
+    }
+    /// The turn-end notice settles, the group row takes its status, and the turn finishes.
+    fn end_turn(&mut self, mut end: OwnedRow, status: &str, out: &mut input::Output<'_>) {
+        end.open = false;
+        out.row(&end);
+        if !status.is_empty()
+            && let Some(group) = &mut self.group
+            && group.field("status", status)
+        {
+            self.cut_fields = self.cut_fields.saturating_add(1);
+        }
+        self.finish(out);
+    }
+    /// One Claude model call's usage. Every line of a call repeats it; a new id is a new call.
+    fn claude_call(&mut self, message: &str, call: Tokens) {
+        if message != self.claude.message || message.is_empty() {
+            self.claude.sum = self.claude.sum.add(self.claude.call);
+            self.claude.message = message.into();
+        }
+        self.claude.call = Tokens { calls: 1, ..call };
+    }
+    /// The Claude turn's split so far: its calls added up, and the newest call's context.
+    fn claude_tokens(&mut self) -> Tokens {
+        let call = self.claude.call;
+        let mut sum = std::mem::take(&mut self.claude).sum.add(call);
+        sum.context = call.input.saturating_add(call.cache_read).saturating_add(call.cache_write);
+        sum
     }
     fn supersede(&mut self, key: &str, out: &mut input::Output<'_>) {
         if key.is_empty() || self.reply.as_ref().is_none_or(|s| s.message != key) {
@@ -619,7 +864,7 @@ impl State {
         if self.settled_prompts.contains(&hash) {
             return Ok(());
         }
-        if let Some(entry) = self.queue.get(&hash).copied() {
+        if let Some(entry) = self.queued(hash) {
             let already_steer = self
                 .prompts
                 .get(&hash)

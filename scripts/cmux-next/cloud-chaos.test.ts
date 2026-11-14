@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import * as chaos from "./cloud-chaos.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-import { causeEndedAt, chaosProbeRow, countedSteps, countingTurnScript, countMarker, dropCommand, FAULTS, journalCommand, journalEvent, judgeLoss, judgeTerminal, NOT_INJECTED, relayCutCommand, SeqTerminal, sessionHostKillCommand, type ChaosResult, type SeqEvent, type TerminalRead } from "./cloud-chaos.ts";
+import { causeEndedAt, chaosProbeRow, countedSteps, countingTurnScript, countMarker, dropCommand, FAULTS, feltTurnScript, journalCommand, journalEvent, judgeLoss, judgeTerminal, NOT_INJECTED, relayCutCommand, SeqTerminal, sessionHostKillCommand, type ChaosResult, type SeqEvent, type TerminalRead } from "./cloud-chaos.ts";
 
 const ok = (fault: string, ms: number): ChaosResult => ({ fault, outcome: "ok", felt_ms: ms, recover_ms: Math.round(ms / 3), carrier: "resumed the session", turn: "completed once", detail: "" });
 
@@ -195,13 +195,25 @@ describe("judgeLoss", () => {
 });
 
 describe("the counting turn", () => {
-  test("the shared model stub plays it from the turn's own prompt; only a step's output carries its number", () => {
+  test("the felt turn is text-only and matches warm-up and reply prompts", () => {
+    const turn = feltTurnScript();
+    expect(new RegExp(turn.match).test("[chaos-felt jr-1-warm] warm up.")).toBe(true);
+    expect(turn.steps).toEqual([{ text: "Felt reply {{prompt}}." }]);
+    expect(turn.steps.some((step) => "shell" in step)).toBe(false);
+  });
+
+  test("the shared model stub plays it from the turn's own prompt as Reads of the written files; only a read's result carries its number", () => {
     const script = { version: 1, steps: [{ shell: "echo first" }, { text: "done" }], turns: [countingTurnScript(3)] };
     const dir = mkdtempSync(join(tmpdir(), "chaos-count-"));
     try {
+      // The files, as the guest command writes them in the chat's folder.
+      const wrote = spawnSync("sh", ["-c", chaos.countingFilesCommand(dir, "t1-f0", 3)], { encoding: "utf8" });
+      const folder = /@@dir (\S+)/.exec(wrote.stdout)?.[1] ?? "";
+      expect(folder).toBe(join(dir, "chaos-count", "t1-f0"));
       const file = join(dir, "script.json");
       writeFileSync(file, JSON.stringify(script));
       // An earlier turn's tool result, then the counting prompt and k of its own results: the step the stub plays.
+      const prompt = chaos.countingPrompt("t1-f0", "drop 5 s", folder);
       const py = [
         "import json, sys",
         `sys.path.insert(0, ${JSON.stringify(fileURLToPath(new URL("../../tests/fixtures/model-stub", import.meta.url)))})`,
@@ -209,29 +221,44 @@ describe("the counting turn", () => {
         "s = m.Stub(m.load_script(sys.argv[1]), 'n', None)",
         "out = []",
         "for k in range(5):",
-        "    r = m.Results(['first'] + ['x'] * k, 'p', [('hi', 0), ('[chaos-count t1-f0] count', 1)])",
-        "    i, step, res, turn = s.step(r, ['Bash'])",
-        "    out.append([i, turn, m.render(step.get('shell', step.get('text', '')), 'n', res)])",
+        "    r = m.Results(['first'] + ['x'] * k, 'p', [('hi', 0), (sys.argv[2], 1)])",
+        "    i, step, res, turn = s.step(r, ['Bash', 'Read'])",
+        "    call = m.anthropic_tool_call(step, ['Bash', 'Read'], 'n', res) if 'tool' in step else m.render(step['text'], 'n', res)",
+        "    out.append([i, turn, call, step.get('pause', 0)])",
         "print(json.dumps(out))",
       ].join("\n");
-      const r = spawnSync("python3", ["-c", py, file], { encoding: "utf8" });
+      const r = spawnSync("python3", ["-c", py, file, prompt], { encoding: "utf8" });
       expect(r.stderr).toBe("");
-      const played = JSON.parse(r.stdout) as Array<[number, number, string]>;
+      const played = JSON.parse(r.stdout) as Array<[number, number, any, number]>;
       expect(played.map((p) => p[0])).toEqual([0, 1, 2, 3, 3]);
       expect(played[3][2]).toBe("Counted 3 steps for t1-f0.");
-      const cmd = played[1][2];
-      expect(cmd).toBe("sleep 0.2; printf '%s-%s-%s\\n' chaos t1-f0 2");
-      expect(countedSteps("t1-f0", cmd)).toEqual([]);
-      const ran = spawnSync("sh", ["-c", cmd], { encoding: "utf8" }).stdout;
-      expect(countedSteps("t1-f0", ran)).toEqual([2]);
+      // A Read (no shell, so no policy asks a person), paced by the stub.
+      const call = played[1][2];
+      expect(call).toEqual({ name: "Read", input: { file_path: join(folder, "2.txt") } });
+      expect(played[1][3]).toBe(0.2);
+      expect(countedSteps("t1-f0", JSON.stringify(call))).toEqual([]);
+      const read = spawnSync("cat", [call.input.file_path], { encoding: "utf8" }).stdout;
+      expect(countedSteps("t1-f0", read)).toEqual([2]);
       expect(countMarker("t1-f0")).toBe("[chaos-count t1-f0]");
+      expect(new RegExp(countingTurnScript().match).test(prompt)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("no counting step runs a shell", () => {
+    expect(countingTurnScript().steps.some((step) => "shell" in step)).toBe(false);
+  });
 });
 
 describe("judgeLoss on a turn a restart cut short", () => {
+  test("an interrupted turn with journal events but no counted output cannot pass", () => {
+    const j = [{ seq: 40, ks: [] }, { seq: 41, ks: [] }];
+    const v = judgeLoss({ n: 10, journal: j, client: j, interrupted: true });
+    expect(v.ok).toBe(false);
+    expect(v.text).toContain("no counting steps");
+  });
+
   test("every step up to the last one reached, and no more", () => {
     const j = turn(10).slice(0, 12); // steps 1..6 ran
     expect(judgeLoss({ n: 10, journal: j, client: j }).ok).toBe(false);
@@ -239,6 +266,25 @@ describe("judgeLoss on a turn a restart cut short", () => {
     expect(v.text).toBe("no lost output: seq 40..51 contiguous, steps 1..6 of 10 (the turn was cut short) once on both sides");
     const holed = j.filter((e) => e.seq !== 43);
     expect(judgeLoss({ n: 10, journal: j, client: holed, interrupted: true }).text).toContain("the client is missing step 2");
+  });
+});
+
+describe("judgeLoss at the fault boundary", () => {
+  test("a complete transcript does not excuse a fault outside the counting turn", () => {
+    const j = turn(10);
+    for (const injection of [
+      { step: 0, running: true },
+      { step: 3, running: true },
+      { step: 4, running: false },
+      { step: 10, running: true },
+      { step: 10, running: false },
+    ]) {
+      const v = judgeLoss({ n: 10, journal: j, client: j, injection });
+      expect(v.ok).toBe(false);
+      expect(v.text).toContain("fault was not armed during counting output");
+    }
+    expect(judgeLoss({ n: 10, journal: j, client: j, injection: { step: 4, running: true } }).ok).toBe(true);
+    expect(judgeLoss({ n: 10, journal: j, client: j, injection: { step: 9, running: true } }).ok).toBe(true);
   });
 });
 
@@ -278,6 +324,29 @@ describe("journalCommand", () => {
       expect(events).toEqual([{ seq: 5, ks: [] }, { seq: 6, ks: [1], call: "a" }]);
       expect(r.stdout).not.toContain("xxxxx");
       expect(spawnSync("cat", [join(bin, "args")], { encoding: "utf8" }).stdout.trim()).toBe("acp tail ses-1 --since 4");
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
+  test("a permission ask comes through as its tool's kind and a cut title, and the notes name it", () => {
+    const bin = mkdtempSync(join(tmpdir(), "chaos-tail-"));
+    try {
+      const lines = [
+        { seq: 7, kind: "turn_started" },
+        { seq: 8, kind: "permission_request", msg: { request: { toolCall: { kind: "execute", title: `sleep 0.2; ${"y".repeat(100)}`, rawInput: { command: "secret-arg" } } } } },
+      ];
+      writeFileSync(join(bin, "c"), `#!/bin/sh\ncat <<'EOF'\n${lines.map((l) => JSON.stringify(l)).join("\n")}\nEOF\n`);
+      chmodSync(join(bin, "c"), 0o755);
+      const r = spawnSync("sh", ["-c", `c=${join(bin, "c")}; ${journalCommand("ses-1", 6)}`], { encoding: "utf8" });
+      expect(r.stdout).not.toContain("secret-arg");
+      const notes: chaos.JournalNotes = { kinds: {}, asks: [] };
+      for (const l of r.stdout.split("\n").filter((x) => x.startsWith("{"))) chaos.noteJournalLine(notes, JSON.parse(l));
+      expect(notes.kinds).toEqual({ turn_started: 1, permission_request: 1 });
+      const text = chaos.journalNotesText(notes);
+      expect(text).toContain("1 permission ask: seq 8: execute \"sleep 0.2; yyy");
+      expect(text).not.toContain("y".repeat(60));
+      expect(chaos.journalNotesText({ kinds: { turn_started: 1 }, asks: [] })).toBe("the turn's journal records: turn_started 1; no permission ask");
     } finally {
       rmSync(bin, { recursive: true, force: true });
     }
@@ -422,14 +491,48 @@ describe("the chat's surface after a restart", () => {
   const fakeDial = (answer: (frame: any) => any) => {
     const frames: any[] = [];
     let onDial: () => void = () => undefined;
+    let onLine: (m: any) => void = () => undefined;
     const dial = {
       dials: 0,
       start() { this.dials += 1; queueMicrotask(() => onDial()); },
       async request(frame: any) { frames.push(frame); return { ok: true, data: answer(frame) }; },
       stop() {},
     };
-    return { frames, dial, make: (_onLine: (m: any) => void, d: () => void) => { onDial = d; return dial; }, redial: () => onDial() };
+    return { frames, dial, make: (line: (m: any) => void, d: () => void) => { onLine = line; onDial = d; return dial; }, redial: () => onDial(), push: (m: any) => onLine(m) };
   };
+
+  for (const redial of [false, true]) test(`records beside an attach reply survive ${redial ? "redial" : "initial attach"}`, async () => {
+    let attachingAgain = false;
+    const f = fakeDial((frame) => {
+      switch (frame.cmd) {
+        case "identify": return { registry_id: "r" };
+        case "create-workspace": return { workspace: 1 };
+        case "new-conversation-tab": return { surface: 7, tab_resource_id: "tab_chat" };
+        case "agent-session-start": return { session: "s-1" };
+        case "list-workspaces": return tree([{ surface: 7, tab_resource_id: "tab_chat", conversation: agent("s-1") }]).data;
+        case "agent-session-attach": {
+          if (!redial || attachingAgain) {
+            // ClientDial resolves the reply, then handles the next line in
+            // that stdout chunk before attach's await continuation can run.
+            queueMicrotask(() => f.push({ surface: 7, event: "agent-session-record", record: { seq: 11 } }));
+          }
+          return { lastSeq: 10, events: [], hasMore: false };
+        }
+        default: return {};
+      }
+    });
+    const chat = new chaos.ChatClient({ cmux: "", env: {}, machine: "m", exec: async () => ({ code: 0, stdout: "", stderr: "" }), guest: "", session: "", tag: "t" }, f.make);
+    try {
+      await chat.open("claude");
+      if (redial) {
+        attachingAgain = true;
+        f.redial();
+        await chat.caughtUp(11, 1_000);
+      }
+      expect(chat.received.map((r) => r.seq)).toEqual([11]);
+      expect(chat.held).toBe(11);
+    } finally { chat.stop(); }
+  });
 
   test("after a redial the chat attaches, and prompts, on the tab's new surface", async () => {
     let surface = 7;

@@ -123,7 +123,10 @@ class Recorder:
         try:
             self.proc.wait(timeout=SAVE_TIMEOUT_S)
         except subprocess.TimeoutExpired:
-            self.proc.kill()  # the xctrace this recorder started, by its own handle
+            try:
+                os.killpg(self.proc.pid, signal.SIGKILL)  # the xctrace this recorder started, and its group
+            except (ProcessLookupError, PermissionError):
+                pass
             self.proc.wait()
         return os.path.exists(self.path)
 

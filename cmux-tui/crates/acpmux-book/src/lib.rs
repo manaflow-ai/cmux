@@ -28,6 +28,10 @@ pub mod row;
 pub mod translate;
 
 #[cfg(test)]
+mod chat_read_gates;
+#[cfg(test)]
+mod chat_read_tests;
+#[cfg(test)]
 mod log_bench;
 #[cfg(test)]
 mod log_tests;
@@ -37,3 +41,5 @@ mod recover_tests;
 mod row_tests;
 #[cfg(test)]
 mod testkit;
+#[cfg(test)]
+mod turns_read_tests;

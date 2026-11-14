@@ -1,6 +1,13 @@
 public import Foundation
 import CmuxNextCompat
 
+/// A failure whose credential relay answer is its own: the relay sends ``relayRefusal`` (`{code, message,
+/// retryable, details?}`) as is, in place of "the cmux API did not answer". A Keychain call that Rust's deadline
+/// ended is one (cmux-cloud-config `keychain::refusal`): the person reads which Keychain item to unlock or allow.
+public protocol CredentialRelayRefusal: Error {
+    var relayRefusal: JSONValue { get }
+}
+
 /// The Mac side of the host credential relay (cx-wb5.63, slice B of
 /// cx-wb5.57; cmux-tui-core `apps/relay.rs`): a first-party app server
 /// (`cmux/cloud`) sends `relay.op` / `relay.session`; the supervisor routes
@@ -192,6 +199,8 @@ public nonisolated struct CloudCredentialRelay: Sendable {
             return Self.answer(status: reply.status, body: reply.body)
         } catch {
             if await !session().signedIn { return Self.notSignedIn }
+            // A failure that carries its own answer (a Keychain call past Rust's deadline names its item) goes as is.
+            if let refusal = error as? any CredentialRelayRefusal { return Answer(ok: false, body: refusal.relayRefusal) }
             return Self.failure("owner.unreachable", "the cmux API did not answer", retryable: true)
         }
     }

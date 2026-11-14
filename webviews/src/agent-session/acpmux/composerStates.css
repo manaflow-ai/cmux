@@ -28,7 +28,7 @@
   --agent-motion-calm: var(--cmux-motion-large, 240ms);
   /* A sent prompt's one motion: its room, its bubble and the thread's rise (the scale's send step;
      shared/theme.ts scales it as the host scaled the move step). */
-  --agent-motion-send: var(--cmux-motion-send, 180ms);
+  --agent-motion-send: var(--cmux-motion-send, 0ms);
   --agent-motion-send-fade: var(--agent-motion-send);
   /* The send tokens as the root holds them (the host's inline value, or the minimal motion's 0), for
      a part of the page that caps them below (SEND-SLIM) without reading its own value. */
@@ -284,13 +284,13 @@
   mask: linear-gradient(black calc(100% - var(--acpmux-tray-tuck, 0px)), transparent 0);
 }
 /* Codex's look tucks New Tab's tray (.nt-above, composerLook.css) under the box the same way, less
-   the composer's gap (--nt-composer-gap, newtab/screen.css): over the desktop it showed through the
+   the room it shows under its chips (--nt-tray-room, composerLook.css): over the desktop it showed through the
    box's glass as a band across the field's top (Leo 2026-10-23, cx-ncc.113.116). The tray now ends
    at the box's top edge; the box stays glass. */
 :root:not([data-reduce-transparency]) .nt-composer[data-composer-look="codex"]
   > .nt-above:has(+ .nt-box) {
   mask: linear-gradient(
-    black calc(100% - var(--acpmux-tray-tuck, 0px) + var(--nt-composer-gap, 0px)),
+    black calc(100% - var(--acpmux-tray-tuck, 0px) + var(--nt-tray-room, var(--nt-composer-gap, 0px))),
     transparent 0
   );
 }

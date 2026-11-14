@@ -325,6 +325,16 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/markRead",
+      "params": {
+        "$ref": "#/types/SessionRef"
+      },
+      "result": {
+        "$ref": "#/types/Done"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/seen",
       "params": {
         "$ref": "#/types/SeenParams"
@@ -865,6 +875,14 @@
       "name": "_acpmux/watch_take_over",
       "params": {
         "$ref": "#/types/WatchTakeOverParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/release_to_watch",
+      "params": {
+        "$ref": "#/types/ReleaseToWatchParams"
       },
       "result": true
     },
@@ -2080,6 +2098,24 @@
     {
       "kind": "request",
       "name": "_acpmux/machine_consent_refused",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_leave_if_auto",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_signed_in",
       "params": true,
       "result": true
     },
@@ -5256,6 +5292,16 @@
         "error",
         "name"
       ],
+      "type": "object"
+    },
+    "ReleaseToWatchParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
+      },
       "type": "object"
     },
     "RequestMeta": {

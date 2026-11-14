@@ -96,6 +96,7 @@ MODEL_BY_PATH = {
     'types/LayoutUndoUndone': models.LayoutUndoUndone,
     'types/ListAgentsResult': models.ListAgentsResult,
     'types/ListTerminalsResult': models.ListTerminalsResult,
+    'types/ListWorkspacesKnown': models.ListWorkspacesKnown,
     'types/LivePane': models.LivePane,
     'types/MachineListeningTcpResult': models.MachineListeningTcpResult,
     'types/MachinePlatform': models.MachinePlatform,
