@@ -38,7 +38,7 @@
 //     bun bench/first-load-after-restart.bench.ts
 // GATE=1 fails if content takes over 2 s, blanks, shifts, or never becomes live. TRACE=1 prints each
 // mode's worst round frame by frame. One `FIRST_LOAD_JSON {...}` line carries every number.
-// PANE_SOURCE_REF=<sha> loads that immutable App/direct revision under this same harness for a baseline.
+// PANE_SOURCE_REF=<sha> loads that immutable App/direct/hostRetry revision under this same harness for a baseline.
 /// <reference types="bun" />
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -416,7 +416,7 @@ try {
   const sourceRef = process.env.PANE_SOURCE_REF;
   const priorSources = new Map<string, string>();
   if (sourceRef)
-    for (const file of ["App.tsx", "direct.ts"])
+    for (const file of ["App.tsx", "direct.ts", "hostRetry.ts"])
       priorSources.set(
         path.join(webviews, "src/agent-session/acpmux", file),
         execFileSync("git", ["show", `${sourceRef}:webviews/src/agent-session/acpmux/${file}`], {
