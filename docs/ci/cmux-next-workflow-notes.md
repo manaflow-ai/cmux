@@ -3070,16 +3070,19 @@ other route keeps 15.
 
 ## note-350
 
-Above `macos-placement: CMUX_BLACKSMITH_MACOS` in `.github/workflows/cmux-next.yml`.
+Above `macos-placement: CI_BLACKSMITH_MACOS` in `.github/workflows/cmux-next.yml`.
 
 The off switch for Blacksmith macOS (Leo, 2026-11-11: "just stop using blacksmith temporarily"), HQ's
 `HQ_BLACKSMITH_MACOS` pattern (cmuxterm-hq `docs/handbook/label-no-pool-lists.md`). Only the repository
-variable `CMUX_BLACKSMITH_MACOS` set to `on` lets a Mac job take a Blacksmith macOS label. Unset, the placement
+variable `CI_BLACKSMITH_MACOS` set to `on` lets a Mac job take a Blacksmith macOS label. Unset, the placement
 lists no job for a Blacksmith slot, overflow or retry label, and writes no GUI overflow
 (`next_macos_cascade.blacksmith_on()`); `GUI_LAST_RESORT` is the owned GUI label; and every
 `fromJSON(vars.RUNNER_POOLS).macos_26` and `.macos_26_large` read in a Mac job's runs-on is wrapped
-`(vars.CMUX_BLACKSMITH_MACOS == 'on' && <read> || '<owned label>')`: `glaeda-gui-std-xcode-26.6` for the GUI jobs
-(swift-test, daemon-test, generated-files), `glaeda-side-std-xcode-26.6` for the rest. The DEV landing compile
+`(vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || <read>)`: the owned side lane while the switch
+is off. The owned label comes from the variable, not a literal: tests/test_ci_self_hosted_guard.sh allows an owned
+literal only after a fork branch, which swift-canary has none of, and tests/test_ci_repo_variable_defaults.py wants a
+pool terminal. The variable's own fallback is declared in `.github/single-host-fallbacks.json`. The name carries no
+`cmux` token: the self-hosted guard reads one as a fleet label. The DEV landing compile
 (dispatch only, no pull request) keeps `dev_landing_place.py`'s own Blacksmith pick for now. Setting the variable
 to `on` resumes Blacksmith macOS with no code change. A fork's pull request keeps its Blacksmith literal: it
 gets no repository variables and never runs on an owned Mac.

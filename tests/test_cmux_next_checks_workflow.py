@@ -2582,8 +2582,8 @@ FAST_TIER_REPORT_CLAUSE = (
     "&& needs.fast-tier-fleet.outputs.verdict != 'queued' "
     "&& fromJSON(vars.RUNNER_POOLS).linux_2 || "
     "needs.fast-tier-fleet.outputs.verdict == 'queued' && needs.fast-tier-handback-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.fast-tier-handback-placement.outputs.runner || "
-    "needs.fast-tier-fleet.outputs.verdict == 'queued' && (vars.CMUX_BLACKSMITH_MACOS == 'on' && "
-    "fromJSON(vars.RUNNER_POOLS).macos_26 || 'glaeda-side-std-xcode-26.6') || "
+    "needs.fast-tier-fleet.outputs.verdict == 'queued' && (vars.CI_BLACKSMITH_MACOS != 'on' && "
+    "vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || "
 )
 
 
@@ -2598,8 +2598,10 @@ class FastTierRunner(unittest.TestCase):
         self.assertLess(runs_on.index(FAST_TIER_FORK_CLAUSE), runs_on.index("outputs.fast_runner"))
         self.assertTrue(runs_on.index(FAST_TIER_FORK_CLAUSE) + len(FAST_TIER_FORK_CLAUSE) == runs_on.index(FAST_LANE_CLAUSE))
         self.assertIn(FAST_LANE_CLAUSE + FAST_TIER_REPORT_CLAUSE, runs_on)
-        self.assertLess(runs_on.index("outputs.retry_runner"), runs_on.index("vars.CI_SIDE_LANE_RUNNER"))
-        self.assertLess(runs_on.index("outputs.deferred_runner"), runs_on.index("vars.CI_SIDE_LANE_RUNNER"))
+        # The owned side lane route; the Blacksmith off switch (note-350) reads the variable earlier as well.
+        side = runs_on.index("vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER")
+        self.assertLess(runs_on.index("outputs.retry_runner"), side)
+        self.assertLess(runs_on.index("outputs.deferred_runner"), side)
         self.assertIn("outputs.owned_jobs", runs_on)
         self.assertIn("outputs.retry_runner", runs_on)
         # No env value mirrors runs-on with the old route.
@@ -2743,7 +2745,7 @@ def evaluate(expression: str, context: dict):
     text = re.sub(r"!(?!=)", " not ", text)
     text = re.sub(r"(?<!')\btrue\b(?!')", "True", text)
     # Blacksmith macOS on unless a test says otherwise (docs/ci/cmux-next-workflow-notes.md#note-350).
-    eval_context = {"vars.RUNNER_POOLS": DEFAULT_RUNNER_POOLS, "vars.CMUX_BLACKSMITH_MACOS": "on", **context}
+    eval_context = {"vars.RUNNER_POOLS": DEFAULT_RUNNER_POOLS, "vars.CI_BLACKSMITH_MACOS": "on", **context}
     names = {
         "_ctx": _UnsetIsEmpty(eval_context),
         "always": lambda: True,

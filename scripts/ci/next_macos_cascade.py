@@ -192,12 +192,12 @@ OWNED_HEALTH_QUEUE_SECONDS = 3 * 60
 # (reserved_from()): pr_runner_pool.MAX_SNAPSHOT_MINUTES, the oldest artifact the read fetches at all.
 RESERVED_SNAPSHOT_MINUTES = 45
 # The off switch for Blacksmith macOS (Leo, 2026-11-11: "just stop using blacksmith temporarily"). Only the
-# repository variable CMUX_BLACKSMITH_MACOS set to `on` lets a cmux-next job take a Blacksmith macOS label,
+# repository variable CI_BLACKSMITH_MACOS set to `on` lets a cmux-next job take a Blacksmith macOS label,
 # as HQ's HQ_BLACKSMITH_MACOS does (cmuxterm-hq docs/handbook/label-no-pool-lists.md). Unset, every label in
 # LABELS is unavailable (place()) and the GUI jobs take no Blacksmith overflow (side_lane_placement.gui_overflow()),
 # so a job stays on its owned label. On 2026-11-14 cmux#42922's daemon tests (run 43590543702, job 132454414807)
 # sat queued on blacksmith-6vcpu-macos-26 with 0 of its 39 runners online.
-BLACKSMITH_SWITCH = "CMUX_BLACKSMITH_MACOS"
+BLACKSMITH_SWITCH = "CI_BLACKSMITH_MACOS"
 SCALE_SET_GROUP = "Blacksmith scale sets - {label}"
 API = "https://api.github.com"
 # A refused read is logged with its detail and raised, never retried here: the reads share

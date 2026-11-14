@@ -74,9 +74,9 @@ from test_seed_derived_data import evaluate, github_context as seed_github_conte
 
 
 def github_context(event_name, ref="refs/heads/main", **variables):
-    """test_seed_derived_data.github_context with Blacksmith macOS on (vars.CMUX_BLACKSMITH_MACOS): these tests
+    """test_seed_derived_data.github_context with Blacksmith macOS on (vars.CI_BLACKSMITH_MACOS): these tests
     model the Blacksmith routes; BlacksmithMacosOffSwitch reads the switch off."""
-    return seed_github_context(event_name, ref, **{"CMUX_BLACKSMITH_MACOS": "on", **variables})
+    return seed_github_context(event_name, ref, **{"CI_BLACKSMITH_MACOS": "on", **variables})
 import workflow_jobs  # noqa: E402
 
 
