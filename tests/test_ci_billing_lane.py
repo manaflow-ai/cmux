@@ -285,6 +285,14 @@ class Wiring(unittest.TestCase):
         self.assertIn("billing_lane.py web-tests >", block)
         self.assertIn("billing_lane.py web-tests --db >", block)
 
+    def test_unit_tests_see_no_database(self) -> None:
+        # A job-level DATABASE_URL sends the unit tests to the empty service
+        # database instead of their fakes (the first run of #42867 failed so).
+        block = self.jobs["billing"]
+        self.assertNotIn("DATABASE_URL", block[:block.index("    steps:")])
+        unit = block[block.index("- name: Billing tests"):block.index("- name: Apply migrations")]
+        self.assertNotIn("DATABASE_URL", unit)
+
     def test_ios_job_runs_on_its_routes(self) -> None:
         block = self.jobs["ios-billing"]
         self.assertIn("needs.billing.outputs.ios == 'true' || needs.billing.outputs.storekit_kind != ''", block)

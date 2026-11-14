@@ -202,9 +202,6 @@ jobs:
           --health-interval 1s
           --health-timeout 5s
           --health-retries 30
-    env:
-      DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-      DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -289,9 +286,14 @@ jobs:
           bun test --isolate "${files[@]}"
 
       # The second pass proves every migration is idempotent, as in ci-web.yml.
+      # The database URL is set only on the database steps: with it, the unit
+      # tests above would query an empty database instead of their fakes.
       - name: Apply migrations
         if: ${{ !cancelled() && steps.route.outputs.web == 'true' }}
         working-directory: web
+        env:
+          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
         run: |
           bun scripts/db-migrate.mjs
           bun scripts/db-migrate.mjs
@@ -301,6 +303,8 @@ jobs:
         working-directory: web
         env:
           CMUX_DB_TEST: "1"
+          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
         run: |
           python3 ../scripts/ci/billing_lane.py web-tests --db > "$RUNNER_TEMP/billing-db-tests.txt"
           mapfile -t files < "$RUNNER_TEMP/billing-db-tests.txt"
