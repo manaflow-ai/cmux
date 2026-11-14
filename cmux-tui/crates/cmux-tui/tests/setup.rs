@@ -1696,67 +1696,140 @@ fn cmux_setup_mcp_writes_nothing_until_the_person_answers() {
     }
 }
 
-/// A cmux launched on its own settings file (`CMUX_NEXT_CONFIG_FILE`, a
-/// tagged build's) writes that file into the entry's `env`, so the server
-/// reads the person's answer from it in any terminal; before, the entry had
-/// no `env` and the server read the shared cmux-next.json, found
-/// `agents.cmuxMcp` off there and refused (tag cu-fresh, 2026-11-13). A run
-/// on the shared file replaces that entry with one without `env`.
+/// A cmux on its own settings file (`CMUX_NEXT_CONFIG_FILE` naming another
+/// file than the shared one: a tagged build's) never writes the person's
+/// global agent configs, and never removes an existing install's entry: it
+/// does a dry run that says why and names the shim folder through which its
+/// own terminals give their agents cmux's server (they carry the settings
+/// file). Before, it wrote its DerivedData path into `~/.claude.json` and
+/// took over every other build's agents (tag cu-fresh, 2026-11-13).
 #[test]
-fn cmux_setup_mcp_names_its_own_settings_file_in_the_entry() {
-    let world = World::new("mcpcfg").with_fake_mcp_clients();
-    let cmux = env!("CARGO_BIN_EXE_cmux-tui");
+fn cmux_setup_mcp_on_its_own_settings_file_writes_no_global_agent_config() {
+    let world = World::new("mcpdev").with_fake_mcp_clients();
     let claude_json = world.home.join(".claude.json");
     let codex_toml = world.home.join(".codex").join("config.toml");
-    // The shared file says no; the tagged build's own file says yes.
+    // The shared file says no; this build's own file says yes.
     world.settings(&json!({"agents": {"cmuxMcp": "off"}}));
     let own = world.home.join(".config/cmux/cmux-next-tagged.json");
     std::fs::write(&own, json!({"agents": {"cmuxMcp": "on"}}).to_string()).unwrap();
-    let own_path = own.to_str().unwrap();
     let run = |args: &[&str]| -> Value {
         let output = world.command(args).env("CMUX_NEXT_CONFIG_FILE", &own).output().unwrap();
-        serde_json::from_slice(&output.stdout)
-            .unwrap_or_else(|error| panic!("{error}: {}", String::from_utf8_lossy(&output.stderr)))
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        serde_json::from_slice(&output.stdout).unwrap()
     };
 
-    let changed = run(&["setup", "mcp"]);
-    assert_eq!(changed["state"], "changed", "{changed}");
-    assert_eq!(changed["server"]["env"], json!({"CMUX_NEXT_CONFIG_FILE": own_path}), "{changed}");
-    assert_eq!(
-        world.take_mcp_calls(),
-        [
-            format!(
-                "claude mcp add --env CMUX_NEXT_CONFIG_FILE={own_path} --scope user cmux -- {cmux} mcp serve"
-            ),
-            format!(
-                "codex mcp add --env CMUX_NEXT_CONFIG_FILE={own_path} cmux -- {cmux} mcp serve"
-            ),
-        ]
-    );
-    let claude: Value =
-        serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
-    assert_eq!(claude["mcpServers"]["cmux"]["env"]["CMUX_NEXT_CONFIG_FILE"], own_path, "{claude}");
-    let codex: toml::Table = std::fs::read_to_string(&codex_toml).unwrap().parse().unwrap();
-    assert_eq!(
-        codex["mcp_servers"]["cmux"]["env"]["CMUX_NEXT_CONFIG_FILE"].as_str(),
-        Some(own_path),
-        "{codex}"
-    );
-    // Again on the same file: nothing to do.
-    let again = run(&["setup", "mcp"]);
-    assert_eq!(again["state"], "ok", "{again}");
-    assert_eq!(again["clients"][0]["entry"]["settings_file"], own_path, "{again}");
-    assert!(world.take_mcp_calls().is_empty(), "a second run ran a CLI");
+    for args in [&["setup", "mcp"][..], &["setup", "mcp", "--dry-run"]] {
+        let result = run(args);
+        assert_eq!(result["state"], "ok", "{result}");
+        assert_eq!(result["scope"], "terminals", "{result}");
+        assert_eq!(result["dry_run"], true, "{result}");
+        assert_eq!(result["undo"], Value::Null, "{result}");
+        let states: Vec<_> =
+            result["clients"].as_array().unwrap().iter().map(|c| &c["state"]).collect();
+        assert_eq!(states, [&json!("terminals"), &json!("terminals")], "{result}");
+        let why = result["terminals"]["why"].as_str().unwrap();
+        assert!(why.contains("cmux-next-tagged.json"), "{why}");
+        assert!(result["terminals"]["shims"].is_string(), "{result}");
+        assert!(result["terminals"]["text"].as_str().unwrap().contains("shims"), "{result}");
+    }
+    assert!(world.take_mcp_calls().is_empty(), "a DEV build ran an agent's mcp add");
+    assert!(!claude_json.exists() && !codex_toml.exists(), "a DEV build wrote a global config");
 
-    // A cmux on the shared file (yes there now) replaces it with an entry without `env`.
-    world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
-    let shared = world.json(&["setup", "mcp"]);
-    assert_eq!(shared["state"], "changed", "{shared}");
-    assert_eq!(shared["clients"][0]["entry"]["settings_file"], own_path, "{shared}");
-    let claude: Value =
+    // An existing install's entry is not the DEV build's to touch: not even `--remove` takes it out.
+    let installed = json!({"mcpServers": {"cmux": {"type": "stdio", "command": "/bin/echo", "args": ["mcp", "serve"]}}});
+    std::fs::write(&claude_json, installed.to_string()).unwrap();
+    let removed = run(&["setup", "mcp", "--remove"]);
+    assert_eq!(removed["scope"], "terminals", "{removed}");
+    assert_eq!(removed["action"], "remove", "{removed}");
+    assert!(world.take_mcp_calls().is_empty(), "a DEV build removed an install's entry");
+    let after: Value =
         serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
-    assert_eq!(claude["mcpServers"]["cmux"]["env"], json!({}), "{claude}");
-    // Its undo puts the tagged entry back, `env` and all.
-    let undo = shared["undo"].as_str().unwrap();
-    assert!(undo.contains(&format!("--env CMUX_NEXT_CONFIG_FILE={own_path}")), "{undo}");
+    assert_eq!(after, installed);
+
+    // `status` agrees: nothing to set up.
+    let status = run(&["setup", "status"]);
+    let check = status["checks"].as_array().unwrap().iter().find(|c| c["task"] == "mcp").unwrap();
+    assert_eq!((&check["state"], &check["scope"]), (&json!("ok"), &json!("terminals")), "{check}");
+
+    // The same file named through the shared path is the shared file: a normal run.
+    std::fs::write(&claude_json, "{}").unwrap();
+    let shared = world
+        .command(&["setup", "mcp", "--dry-run"])
+        .env("CMUX_NEXT_CONFIG_FILE", "~/.config/cmux/cmux-next.json")
+        .output()
+        .unwrap();
+    let shared: Value = serde_json::from_slice(&shared.stdout).unwrap();
+    assert_eq!(shared["scope"], Value::Null, "{shared}");
+}
+
+/// A shipped build cleans up after DEV builds: a global `cmux` entry that
+/// names a settings file, or whose command runs from a DEV build (a tagged
+/// bundle, Xcode's DerivedData), is replaced by its own, and the undo line
+/// puts the old one back.
+#[test]
+fn cmux_setup_mcp_from_a_shipped_build_replaces_a_dev_builds_entry() {
+    let world = World::new("mcpclean").with_fake_mcp_clients();
+    let cmux = env!("CARGO_BIN_EXE_cmux-tui");
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
+    let claude_json = world.home.join(".claude.json");
+    let root = world.home.parent().unwrap().to_path_buf();
+    // A tagged DEV bundle whose CLI still runs.
+    let app = root.join("apps/cmux DEV cu-fresh.app");
+    std::fs::create_dir_all(app.join("Contents")).unwrap();
+    std::fs::write(
+        app.join("Contents/Info.plist"),
+        r#"<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.cmuxterm.app.debug.cu.fresh</string></dict></plist>"#,
+    )
+    .unwrap();
+    let dev_cli = app.join("Contents/Resources/bin/cmux");
+    World::executable(&dev_cli, "#!/bin/sh\nexit 0\n");
+    let derived = root.join("Library/Developer/Xcode/DerivedData/cmux-a/Build/Products/Debug/cmux");
+    World::executable(&derived, "#!/bin/sh\nexit 0\n");
+    let file = world.home.join(".config/cmux/cmux-next-tagged.json");
+    std::fs::write(&file, "{}").unwrap();
+    let file = file.to_str().unwrap().to_owned();
+    let cases: [(&str, Value); 3] = [
+        ("tagged", json!({"command": dev_cli.to_str().unwrap(), "args": ["mcp", "serve"]})),
+        ("derived", json!({"command": derived.to_str().unwrap(), "args": ["mcp", "serve"]})),
+        (
+            "settings",
+            json!({"command": cmux, "args": ["mcp", "serve"], "env": {"CMUX_NEXT_CONFIG_FILE": file}}),
+        ),
+    ];
+    for (name, entry) in cases {
+        let old = json!({"mcpServers": {"cmux": entry}});
+        std::fs::write(&claude_json, old.to_string()).unwrap();
+        world.take_mcp_calls();
+        let result = world.json(&["setup", "mcp", "claude"]);
+        assert_eq!(result["state"], "changed", "{name}: {result}");
+        let calls = world.take_mcp_calls();
+        assert_eq!(
+            calls,
+            [
+                "claude mcp remove --scope user cmux".to_owned(),
+                format!("claude mcp add --scope user cmux -- {cmux} mcp serve"),
+            ],
+            "{name}"
+        );
+        let now: Value =
+            serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
+        assert_eq!(now["mcpServers"]["cmux"]["command"], cmux, "{name}: {now}");
+        assert_eq!(now["mcpServers"]["cmux"]["env"], json!({}), "{name}: {now}");
+        // The undo line puts the DEV build's entry back as it was.
+        let undo = result["undo"].as_str().unwrap();
+        world.shell(undo);
+        let back: Value =
+            serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
+        assert_eq!(
+            back["mcpServers"]["cmux"]["command"], old["mcpServers"]["cmux"]["command"],
+            "{name}: {undo}"
+        );
+        if name == "settings" {
+            assert_eq!(
+                back["mcpServers"]["cmux"]["env"]["CMUX_NEXT_CONFIG_FILE"],
+                file.as_str(),
+                "{undo}"
+            );
+        }
+    }
 }

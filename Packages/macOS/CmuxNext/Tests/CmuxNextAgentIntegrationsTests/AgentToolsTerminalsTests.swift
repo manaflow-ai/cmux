@@ -1,0 +1,22 @@
+import CmuxNextAgentIntegrations
+import Foundation
+import Testing
+
+/// A DEV build, or a build on its own settings file, never writes the person's global agent configs:
+/// its `cmux setup mcp` is a dry run whose installed agents are `terminals` (they get cmux's server
+/// in this build's terminals, through the shims). Settings and the onboarding step show them as
+/// available there, never as "Not added".
+struct AgentToolsTerminalsTests {
+    @Test func aTerminalsReportShowsItsAgentsAsAvailableInCmuxTerminals() throws {
+        let report = """
+        {"scope": "terminals", "dry_run": true, "clients": [
+          {"id": "claude", "name": "Claude Code", "installed": true, "state": "terminals"},
+          {"id": "codex", "name": "Codex", "installed": true, "state": "terminals"},
+          {"id": "gemini", "name": "Gemini", "installed": false, "state": "not_applicable"}
+        ]}
+        """
+        let agents = try #require(AgentToolsAgent.agents(setupReport: Data(report.utf8)))
+        #expect(agents.map(\.state.rawValue) == ["terminals", "terminals"])
+        #expect(agents.map(\.id) == ["claude", "codex"])
+    }
+}

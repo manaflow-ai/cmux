@@ -4,6 +4,7 @@ import table from "./generated/strings.json";
 import type { OnboardingFooter } from "./ops";
 import { agentToolsState } from "./fixtures";
 import {
+  agentToolsDetail,
   agentToolsStatus,
   countsLine,
   keychainLine,
@@ -118,5 +119,14 @@ describe("Return and Escape", () => {
     expect(keyIntent({ key: "Enter", target: element(null, { tagName: "INPUT", type: "checkbox" }) }, footer)).toBe(
       "next",
     );
+  });
+});
+
+describe("cmux Tools in a DEV build", () => {
+  test("an agent a DEV build's terminals give cmux's tools says so, never Not added", () => {
+    const tools = agentToolsState("added").agentTools!;
+    const row = { id: "claude", name: "Claude Code", state: "terminals" as const };
+    expect(agentToolsDetail(en, row, tools)).toBe("Gets cmux’s tools in cmux terminals");
+    expect(agentToolsDetail(de, row, tools)).toBe("Erhält die Werkzeuge von cmux in cmux-Terminals");
   });
 });

@@ -48,3 +48,28 @@ test("Add Now adds to the ready agents and answers yes; Remove takes cmux out", 
   expect(button(element, "remove").disabled).toBe(true);
   page.unmount();
 });
+
+test("a DEV build's agents show as available in cmux terminals, with nothing to add or remove", async () => {
+  const page = await renderPage({
+    path: "/settings/agents",
+    setup: (provider) => {
+      provider.agentTools = {
+        loaded: true,
+        applying: false,
+        failed: false,
+        rows: [
+          { id: "claude", name: "Claude Code", state: "terminals" },
+          { id: "codex", name: "Codex", state: "terminals" },
+        ],
+      };
+    },
+  });
+  await settle();
+  const element = card(page.container);
+  expect(states(element)).toEqual(["claude:terminals", "codex:terminals"]);
+  expect(element.textContent).toContain("Available in cmux terminals");
+  expect(element.textContent).not.toContain("Not added");
+  expect(button(element, "add").disabled).toBe(true);
+  expect(button(element, "remove").disabled).toBe(true);
+  page.unmount();
+});
