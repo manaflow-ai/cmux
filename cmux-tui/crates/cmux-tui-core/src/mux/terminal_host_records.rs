@@ -132,6 +132,20 @@ fn host_that_lives(
     host.filter(|_| liveness == TerminalHostLiveness::Live)
 }
 
+/// The answer for a record and, for that answer, the process of the
+/// record's host for a seat ([`host_that_lives`]). `host` reads the process
+/// BEFORE `answer` asks if the host lives: when the answer is that the host
+/// lives, the host had its process id for the whole time between the two.
+#[cfg(any(unix, windows))]
+fn host_read_before_the_answer(
+    host: impl FnOnce() -> Option<crate::diagnostics::KeptHost>,
+    answer: impl FnOnce() -> TerminalHostLiveness,
+) -> (TerminalHostLiveness, Option<crate::diagnostics::KeptHost>) {
+    let host = host();
+    let liveness = answer();
+    (liveness, host_that_lives(liveness, host))
+}
+
 #[cfg(all(test, any(unix, windows)))]
 mod kept_host_tests;
 
@@ -147,7 +161,7 @@ impl Mux {
     /// seat.
     ///
     /// The host's process is read before the answer and seated only when the
-    /// answer is that the host lives ([`host_that_lives`]). No seat: an
+    /// answer is that the host lives ([`host_read_before_the_answer`]). No seat: an
     /// answer that is not that one, or a start that is not read or is not
     /// before this daemon's. `terminal`: the terminal's public id, when the
     /// pass has it.
@@ -157,9 +171,10 @@ impl Mux {
         record: &crate::terminal_host_runtime::TerminalHostRecord,
         terminal: Option<&TerminalPublicId>,
     ) -> (TerminalHostLiveness, crate::diagnostics::KeptHostSeat) {
-        let host = crate::diagnostics::KeptHost::read(record.host_pid);
-        let liveness = terminal_host_record_liveness(record_path, record);
-        let host = host_that_lives(liveness, host);
+        let (liveness, host) = host_read_before_the_answer(
+            || crate::diagnostics::KeptHost::read(record.host_pid),
+            || terminal_host_record_liveness(record_path, record),
+        );
         if host.is_none() {
             return (liveness, crate::diagnostics::KeptHostSeat::default());
         }
