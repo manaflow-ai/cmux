@@ -236,9 +236,10 @@ struct CmuxRemoteSharingSetupTests {
         #expect(fixture.presented == ["cmux.dialog.screenSharing.setup.screen"])
     }
 
-    @Test func beginPresentsOverviewSynchronouslyAndCancelReturnsFalse() async throws {
+    @Test(arguments: ["cli", "mcp", "script", "remote", "page", "socket", "app", "agent", "terminal", "nested"])
+    func automationPresentsOverviewEvenWithReadyPermissions(caller: String) async throws {
         _ = NSApplication.shared
-        let fixture = Fixture(permissions: (false, false), answers: [])
+        let fixture = Fixture(permissions: (true, true), answers: [])
         let setup = fixture.setup()
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 640, height: 480), styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -249,7 +250,15 @@ struct CmuxRemoteSharingSetupTests {
         }
         window.orderFrontRegardless()
 
-        let effect = setup.begin(in: window)
+        var invocation = ActionInvocation(origin: ActionOrigin(rawValue: caller) ?? .user)
+        invocation.viaControlSocket = caller == "socket"
+        invocation.callerApp = caller == "app" ? "example-app" : nil
+        invocation.callerAgentSession = caller == "agent" ? "example-session" : nil
+        invocation.callerTerminal = caller == "terminal" ? "example-terminal" : nil
+        let scope = ActionRunScope(origin: caller == "nested" ? .script : invocation.origin, allowsViewChange: false)
+        let effect = ActionRunScope.carrying(scope) {
+            setup.begin(in: window, invocation: invocation)
+        }
         let overview = try #require(CmuxDialogCenter.shared.records.first {
             $0.spec.identifier == "cmux.dialog.screenSharing.setup.overview"
         })
@@ -275,18 +284,19 @@ struct CmuxRemoteSharingSetupTests {
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 640, height: 480), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        var presented: [String] = []
+        let observer = CmuxDialogCenter.shared.observe { event in
+            guard case .opened(let record) = event else { return }
+            presented.append(record.spec.identifier ?? "")
+            _ = CmuxDialogCenter.shared.press(record.id, button: "cancel")
+        }
         defer {
+            CmuxDialogCenter.shared.stopObserving(observer)
             CmuxDialogCenter.shared.dismissAll()
             window.close()
         }
 
         let effect = fixture.setup().begin(in: window)
-        // Close an unexpected overview so a regression fails instead of hanging on its answer.
-        let overview = CmuxDialogCenter.shared.records.first {
-            $0.spec.identifier == "cmux.dialog.screenSharing.setup.overview"
-        }
-        #expect(overview == nil)
-        if let overview { _ = CmuxDialogCenter.shared.press(overview.id, button: "cancel") }
         guard case .appliedResult(let result) = effect.kind else {
             Issue.record("Share should return an applied result effect")
             return
@@ -298,8 +308,49 @@ struct CmuxRemoteSharingSetupTests {
         }
         #expect(fields["shared"] == .bool(true))
         #expect(fixture.enables == 1)
+        #expect(presented.isEmpty)
         #expect(fixture.screenRequests == 0 && fixture.controlRequests == 0)
         #expect(CmuxDialogCenter.shared.records.isEmpty)
+    }
+
+    @Test(arguments: ["screen", "control", "both", "revoked"])
+    func nativeSharePreservesMissingPermissionConsent(missing: String) async throws {
+        _ = NSApplication.shared
+        let fixture = Fixture(permissions: (true, true), answers: [])
+        var setup = fixture.setup()
+        var reads = 0
+        setup.refresh = {
+            reads += 1
+            if missing == "revoked" { return (reads == 1, true) }
+            return (missing == "control", missing == "screen")
+        }
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 640, height: 480), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        var presented: [String] = []
+        let observer = CmuxDialogCenter.shared.observe { event in
+            guard case .opened(let record) = event else { return }
+            presented.append(record.spec.identifier ?? "")
+            _ = CmuxDialogCenter.shared.press(record.id, button: "cancel")
+        }
+        defer {
+            CmuxDialogCenter.shared.stopObserving(observer)
+            CmuxDialogCenter.shared.dismissAll()
+            window.close()
+        }
+        let effect = setup.begin(in: window)
+        guard case .appliedResult(let result) = effect.kind else {
+            Issue.record("Share should return an applied result effect")
+            return
+        }
+        let outcome = await result()
+        guard case .success(let fields) = outcome else {
+            Issue.record("Cancelling permission setup should return shared:false")
+            return
+        }
+        #expect(fields["shared"] == .bool(false))
+        #expect(fixture.enables == 0)
+        #expect(presented == ["cmux.dialog.screenSharing.setup.\(missing == "revoked" ? "screen" : "overview")"])
     }
 
     @Test func readyPermissionsEnableWithoutPrompts() async throws {

@@ -21,8 +21,27 @@ struct CmuxRemoteSharingSetup {
         enable = { try await host.setSharing(true, requestPermissions: false) }
     }
 
-    /// Commit the sheet on the action's own turn; all permission reads and hub work follow it.
-    func begin(in window: NSWindow) -> ActionEffect {
+    /// A native Share click is consent when both grants are ready. Automation still commits its
+    /// confirmation sheet on the action's own turn, regardless of the origin it claims.
+    func begin(in window: NSWindow, invocation: ActionInvocation = .init()) -> ActionEffect {
+        if invocation.isPersonsOwnRun && ActionRunScope.isPersonsAction() {
+            return .applied(result: {
+                do {
+                    let permissions = await refresh()
+                    guard !Task.isCancelled else { return .success(["shared": .bool(false)]) }
+                    let shared: Bool
+                    if permissions.screen && permissions.control {
+                        // Recheck before enabling: a grant can disappear after the first read.
+                        shared = try await proceed(after: "continue") { spec in
+                            await CmuxDialogCenter.shared.present(spec, in: .window(window)).button
+                        }
+                    } else {
+                        shared = try await confirm(in: window)
+                    }
+                    return .success(["shared": .bool(shared)])
+                } catch { return .failure(ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))) }
+            })
+        }
         let center = CmuxDialogCenter.shared
         let (answers, sink) = AsyncStream.makeStream(of: CmuxDialogAnswer.self, bufferingPolicy: .bufferingNewest(1))
         let id = center.present(Self.spec(.overview), in: .window(window)) { answer in

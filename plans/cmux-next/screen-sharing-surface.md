@@ -16,7 +16,7 @@ The old web Machines section and remote-chat transient rows are not mounted in t
 
 ## Host guide and source
 
-Share This Mac immediately presents a standard `CmuxDialogSpec` sheet. Its overview names this Mac's main display and explains approval, the host indicator, and Stop. This implementation shares that existing display source; it does not imply that window, tab, or external-device capture is implemented. A future source picker must retain one Share entry and make its source explicit before capture begins.
+Share This Mac from a native click, menu, or palette rechecks Screen Recording and Accessibility. When both grants are ready, that action enables sharing without another Continue click. First-time permissions still use a standard `CmuxDialogSpec` guide. Automation, control-socket calls (even with a claimed user origin), attributed callers, and actions nested inside automation always require the overview confirmation. Its overview names this Mac's main display and explains approval, the host indicator, and Stop. This implementation shares that existing display source; it does not imply that window, tab, or external-device capture is implemented. A future source picker must retain one Share entry and make its source explicit before capture begins.
 
 The guide then offers Screen Recording permission and an explicit Check Again step. A fresh `cmux rd permissions` child checks the app's responsible-process permissions with the same binary used for capture. Failure cannot grant permission. Accessibility has its own optional Allow and Check Again steps, plus Continue Without Control. Cancel never enables sharing. The existing device approval flow still owns who may view or control; a granted macOS permission alone is not remote authorization.
 

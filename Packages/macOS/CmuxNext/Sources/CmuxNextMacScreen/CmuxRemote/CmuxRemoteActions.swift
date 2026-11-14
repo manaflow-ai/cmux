@@ -59,10 +59,10 @@ extension CmuxRemoteActionEnvironment {
                 return nil
             }
         })
-        _ = registry.bindEffect("macScreen.shareThisMac", unavailable: { environment.hub() == nil ? CmuxRemoteStrings.signedOut : nil }, effect: { _ in
+        _ = registry.bindEffect("macScreen.shareThisMac", unavailable: { environment.hub() == nil ? CmuxRemoteStrings.signedOut : nil }, effect: { invocation in
             guard environment.hub() != nil else { return .refused(CmuxRemoteStrings.signedOut) }
             guard let window = environment.window() else { return .refused(L.t("macScreen.setup.noWindow", "Open a cmux window to share this Mac.")) }
-            return CmuxRemoteSharingSetup(host: environment.screenHost).begin(in: window)
+            return CmuxRemoteSharingSetup(host: environment.screenHost).begin(in: window, invocation: invocation)
         })
         _ = registry.bindEffect("macScreen.stopSharingThisMac", effect: { _ in
             // Stop locally on this turn, even when the hub cannot be reached.
