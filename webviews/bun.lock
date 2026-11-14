@@ -40,6 +40,7 @@
         "axe-core": "4.13.0",
         "babel-plugin-react-compiler": "^1.0.0",
         "esbuild": "0.27.7",
+        "fflate": "0.8.3",
         "happy-dom": "^20.14.5",
         "jsdom": "^29.1.1",
         "oxc-transform-react": "0.145.0",
