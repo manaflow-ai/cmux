@@ -1017,8 +1017,16 @@ set_plist_env() {
 set_plist_url_scheme() {
   local plist="$1"
   local scheme="$2"
-  /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 \"${scheme}\"" "$plist" 2>/dev/null \
-    || true
+  local index=0 name
+  # Find the auth URL type by name; its position in CFBundleURLTypes is not fixed.
+  while name="$(/usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:${index}:CFBundleURLName" "$plist" 2>/dev/null)"; do
+    if [[ "$name" == *.auth ]]; then
+      /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:${index}:CFBundleURLSchemes:0 \"${scheme}\"" "$plist" 2>/dev/null \
+        || true
+      return 0
+    fi
+    index=$((index + 1))
+  done
 }
 
 # Prints the selected Xcode's version ("26.3"), or nothing when xcodebuild cannot say.
