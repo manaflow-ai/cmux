@@ -13,7 +13,7 @@
 //! cargo test -p cmux-tui-core --release --lib -- list_workspaces_bench --nocapture
 //! (with CMUX_LIST_WORKSPACES_BENCH=50)
 
-use super::tests::captured_writer;
+use super::super::tests::captured_writer;
 use super::*;
 use crate::SurfaceOptions;
 

@@ -2,7 +2,7 @@
 //! workspaces in sidebar order and `total`, so a phone draws its first screen
 //! from a god session as fast as from a small one.
 
-use super::tests::captured_writer;
+use super::super::tests::captured_writer;
 use super::*;
 use crate::SurfaceOptions;
 

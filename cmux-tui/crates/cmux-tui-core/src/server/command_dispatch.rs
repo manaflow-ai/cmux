@@ -32,12 +32,13 @@ pub(super) fn handle_command_with_cancellation(
     // public ids; a released SDK rejects the unknown fields.
     let public_ids = cmd.names_a_terminal_view()
         && mux.control_clients.supports_capability(client, TERMINAL_PUBLIC_IDS_CAPABILITY);
+    let pruned = cmd.prunes_its_own_reply();
     let mut result = dispatch_command(mux, client, cmd, writer, cancellation);
     if public_ids && let Ok(reply) = &mut result {
         *reply = cmd_terminals::with_public_ids(mux, std::mem::take(reply));
     }
     // A remote device's lists leave incognito workspaces out (#31210).
-    if let Ok(reply) = &mut result {
+    if !pruned && let Ok(reply) = &mut result {
         incognito_remote::prune_reply(mux, client, reply);
     }
     if let Some(claim) = claim
@@ -46,28 +47,6 @@ pub(super) fn handle_command_with_cancellation(
         claim.finish(mux, client);
     }
     result
-}
-
-impl Command {
-    /// The commands whose reply names one terminal or view by `surface` and
-    /// `terminal_id`: with `terminal-public-ids-v1` they carry its public ids.
-    fn names_a_terminal_view(&self) -> bool {
-        matches!(
-            self,
-            Self::Run { .. }
-                | Self::ResolveTerminal { .. }
-                | Self::NewTab { .. }
-                | Self::NewBrowserTab { .. }
-                | Self::NewWorkspace { .. }
-                | Self::CreateTerminal { .. }
-                | Self::NewScreen(_)
-                | Self::NewPane { .. }
-                | Self::NewPaneRight(_)
-                | Self::Split(_)
-                | Self::MoveTerminal { .. }
-                | Self::NewRow(_)
-        )
-    }
 }
 
 fn dispatch_command(

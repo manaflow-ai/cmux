@@ -766,3 +766,53 @@ fn a_remote_devices_known_moves_with_the_sidebar_order_it_sees() {
     assert_ne!(after["tree_revision"], known["tree_revision"], "{after}");
     mux.shutdown();
 }
+
+#[test]
+fn a_remote_devices_page_counts_with_the_view_its_rows_were_read_with() {
+    // hq#8813 review: a workspace that turns incognito while a page is read
+    // is read again with the new view, never left out of the rows by a later
+    // prune but still counted in `total`.
+    let mux = test_mux();
+    let app = app(&mux);
+    let _first = create(&mux, &app, "page-first", false);
+    let phone = phone(&mux);
+    let mut reads = 0;
+    let reply = crate::server::incognito_remote::list_with_one_view(&mux, phone.0, |view| {
+        reads += 1;
+        if reads == 1 {
+            // After the view was read, before the rows are.
+            create(&mux, &app, "page-private", true);
+        }
+        Ok(crate::server::list_workspaces_reply_first(&mux, 50, view)?.0)
+    })
+    .unwrap();
+    assert_eq!(reads, 2, "the page was not read again with the new view: {reply}");
+    assert!(!reply.to_string().contains("page-private"), "{reply}");
+    let rows = reply["workspaces"].as_array().unwrap();
+    assert_eq!(reply["total"], json!(rows.len()), "{reply}");
+
+    // Through the socket: the page and `total` agree on what the phone sees.
+    let page = line(&mux, &phone, json!({"id": "p", "cmd": "list-workspaces", "limit": 50}));
+    let rows = page["data"]["workspaces"].as_array().unwrap();
+    assert!(!page.to_string().contains("page-private"), "{page}");
+    assert_eq!(page["data"]["total"], json!(rows.len()), "{page}");
+    mux.shutdown();
+}
+
+#[test]
+fn a_remote_devices_unchanged_reply_leaves_out_counters_it_did_not_send() {
+    // `Tree` declares the counters optional, not nullable: a `known` with only
+    // the registry and tree revision is answered without them, never null.
+    let mux = test_mux();
+    let app = app(&mux);
+    let _private = create(&mux, &app, "private-partial", true);
+    let phone = phone(&mux);
+    let held = listed_since(&mux, &phone, json!({}));
+    let known = json!({"registry_id": held["registry_id"], "tree_revision": held["tree_revision"]});
+    let again = listed_since(&mux, &phone, known);
+    assert_eq!(again["unchanged"], true, "{again}");
+    for counter in ["workspace_revision", "pane_revision", "terminal_revision"] {
+        assert!(again.get(counter).is_none(), "{counter} must be left out, not null: {again}");
+    }
+    mux.shutdown();
+}

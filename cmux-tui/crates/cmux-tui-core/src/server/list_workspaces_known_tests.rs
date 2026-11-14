@@ -3,7 +3,7 @@
 //! nothing the tree shows changed. A client that sends no `known` gets the
 //! reply it got before, byte for byte.
 
-use super::tests::captured_writer;
+use super::super::tests::captured_writer;
 use super::*;
 use crate::SurfaceOptions;
 

@@ -566,6 +566,12 @@ impl Hidden {
         self.all || self.names.contains(public_id)
     }
 
+    /// Whether this view keeps from the device everything `later` keeps
+    /// from it: a reply read with it leaves out all that `later` would.
+    fn covers(&self, later: &Hidden) -> bool {
+        self.all || (!later.all && later.names.is_subset(&self.names))
+    }
+
     /// Why a remote device's `request` is refused: the kind and selector of
     /// the hidden object it names, or the current workspace when it names
     /// none and acts on an incognito current workspace.
@@ -627,6 +633,36 @@ pub(super) fn list_view(mux: &Mux, client: u64) -> Option<Hidden> {
     let hidden = hidden(mux);
     (hidden.is_some() || crate::state::store::any_ephemeral_noted())
         .then(|| hidden.unwrap_or_default())
+}
+
+/// A remote device's `list-workspaces` with `known` or `limit`, read by
+/// `read` with one view of what the device may see, for its rows, `total`
+/// and revision alike. The view is read again after the reply: a workspace
+/// that turned incognito meanwhile was read as visible, so the reply is read
+/// again with the new view rather than pruned afterwards, which would leave
+/// it counted in `total` or the digest. The reply is pruned here with the
+/// view it was read with, so the dispatcher's later prune is skipped for it
+/// (`handle_command_with_cancellation`). A view that keeps changing fails.
+pub(super) fn list_with_one_view(
+    mux: &Mux,
+    client: u64,
+    mut read: impl FnMut(Option<&Hidden>) -> anyhow::Result<Value>,
+) -> anyhow::Result<Value> {
+    let mut view = list_view(mux, client);
+    for _ in 0..4 {
+        let mut reply = read(view.as_ref())?;
+        let later = list_view(mux, client);
+        let empty = Hidden::default();
+        let held = view.as_ref().unwrap_or(&empty);
+        if later.as_ref().is_none_or(|later| held.covers(later)) {
+            if let Some(view) = &view {
+                view.prune_reply(&mut reply);
+            }
+            return Ok(reply);
+        }
+        view = later;
+    }
+    anyhow::bail!("the incognito workspaces changed while the list was read; list again")
 }
 
 /// Leave hidden rows out of a remote device's command reply.
