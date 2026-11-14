@@ -189,9 +189,11 @@ impl Mux {
             "tab_id":identity.tab_id,
             "browser_id":identity.content_id,
         });
-        if let Err(error) = self.commit_ordinary_full_resource_projection(
+        let adopted = surface.id;
+        if let Err(error) = self.commit_ordinary_surface_projection(
             &Actor::Daemon,
             "browser.target.adopt",
+            move |_| Some(adopted),
             result,
         ) {
             #[cfg(test)]

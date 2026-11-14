@@ -715,6 +715,11 @@ pub(crate) struct ResourceEffectProjection {
     /// `changes` restate every live resource (a full projection), so a
     /// commit may seed the registry's public topology fold from them.
     pub(crate) restates_all: bool,
+    /// The workspaces of which `changes` state each live value again (a scoped walk of a
+    /// workspace that the fold did not hold whole). The commit marks them whole
+    /// (`WorkspaceRegistry::mark_workspaces_whole`). Empty for a full projection: the fold
+    /// that folds it is complete.
+    pub(crate) restated: Vec<crate::resource::WorkspacePublicId>,
 }
 
 impl ResourceEffectProjection {
