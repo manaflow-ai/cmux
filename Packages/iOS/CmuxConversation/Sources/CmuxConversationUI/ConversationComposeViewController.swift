@@ -35,7 +35,7 @@ public final class ConversationComposeViewController: UIViewController {
     let serviceSubtitle = UILabel()
     /// cmux Home's refusal line under To: (the Mac's `HomeNewMessageView.notice`), in place of Messages' alert.
     let notice = UILabel()
-    let suggestionsTable = UITableView(frame: .zero, style: .plain)
+    let suggestionsTable = ComposeSuggestionsTable(frame: .zero, style: .plain)
     let composer = ConversationComposerView()
     /// Holds the existing conversation under To: (``existingConversation``).
     private let existingContainer = ComposeExistingContainer()
@@ -297,6 +297,8 @@ public final class ConversationComposeViewController: UIViewController {
         let atTop = table.contentOffset.y <= -table.contentInset.top + 0.5
         table.contentInset = insets
         table.verticalScrollIndicatorInsets = insets
+        // The system edge effects cover To: and the message bar, not only the status bar.
+        table.edgeInsets = insets
         if atTop { table.contentOffset.y = -top }
     }
 
@@ -1176,6 +1178,22 @@ extension ConversationComposeViewController: PHPickerViewControllerDelegate, UII
         picker.dismiss(animated: true)
         guard let image = info[.originalImage] as? UIImage, let data = image.jpegData(compressionQuality: 0.92) else { return }
         composer.addAttachment(ComposerAttachment(image: image, data: data, mimeType: "image/jpeg"))
+    }
+}
+/// New Message's list reports To: (and the refusal line) and the message bar as its safe area, so
+/// the system scroll edge effect covers both bars wherever they sit, as the transcript does
+/// (`TranscriptCollectionView`). Content insets are set by hand (adjustment is off), so this
+/// changes nothing else.
+final class ComposeSuggestionsTable: UITableView {
+    var edgeInsets: UIEdgeInsets = .zero {
+        didSet { if edgeInsets != oldValue { safeAreaInsetsDidChange() } }
+    }
+
+    override var safeAreaInsets: UIEdgeInsets {
+        var insets = super.safeAreaInsets
+        insets.top = max(insets.top, edgeInsets.top)
+        insets.bottom = max(insets.bottom, edgeInsets.bottom)
+        return insets
     }
 }
 #endif
