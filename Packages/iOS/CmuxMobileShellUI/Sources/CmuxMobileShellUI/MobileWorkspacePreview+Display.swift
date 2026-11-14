@@ -82,6 +82,9 @@ extension MobileWorkspacePreview {
             parts.append(displayDescription)
         }
         parts.append(previewLine)
+        if let taskStatus {
+            parts.append(taskStatus.label)
+        }
         // A healthy connection contributes no status text anywhere, including VoiceOver.
         if connectionStatus != .connected {
             parts.append(connectionStatus.label)
