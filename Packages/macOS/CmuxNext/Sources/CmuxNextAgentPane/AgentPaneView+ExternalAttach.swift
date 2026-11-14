@@ -21,6 +21,7 @@ extension AgentPaneView {
     /// mimeType, bytes, source}], text}` (``AgentPaneModel/composerJSON(session:page:kept:)``). The
     /// page answers for its own composer; a page that can't (an older one, or past `timeout`) leaves
     /// the chips the chat keeps for its draft.
+    // timeout: only how long a control-socket readback waits for a stalled page before it answers from the kept chips; nothing the person does waits on it
     public func composerReadback(timeout: Duration = .milliseconds(1500)) async -> JSONValue {
         let session = model.sessionId
         let answer = try? await callPageScript("return window.cmuxAcpmuxBridge?.composerState?.() ?? null", timeout: timeout)
