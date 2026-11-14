@@ -1793,11 +1793,12 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(60)).await;
         assert!(!phone.is_closed(), "{:?}", phone.closed_state().borrow().clone());
         assert!(phone.traffic_ago() >= Duration::from_secs(60), "pings and pongs are not traffic");
+        // Taken before closing: the close frame is not a keepalive.
+        let mut taken = writes.lock().unwrap().clone();
+        taken.dedup();
         phone.close("done");
         mac.close("done");
-        let mut writes = writes.lock().unwrap().clone();
-        writes.dedup();
-        writes
+        taken
     }
 
     /// Off: a ping 15 s after the last pong, as before. On: a ping on every
