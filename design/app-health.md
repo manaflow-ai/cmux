@@ -74,6 +74,12 @@ page that hangs while resting reads as stuck once someone types or clicks in it.
 when its last beat was answered `{rest: true}`: the host says so only when the linked health model
 takes rests (`CMUX_HEALTH_ABI_VERSION` 2), so an older pinned model keeps the 2 s beat.
 
+A repair that loads the page again (reload, renderer restart) waits at least `PAGE_BOOT_MS` (30 s)
+for the new document before the next step; its load ends the episode. With the 2 s backoff alone, a
+busy agent chat on a loaded Mac was still loading when its renderer was killed, twice, and the pane
+stayed blank (Leo, 2026-11-11: "i tried uploading this video to my nightly app and it just made the
+screen blank").
+
 ## Treatment
 
 Where it sits. Native gallery: `AAAppHealthIndicatorGalleryTests` renders `a-overlay` (shipped), `b-dot`
