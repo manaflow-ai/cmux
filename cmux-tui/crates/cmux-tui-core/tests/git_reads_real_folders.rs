@@ -11,7 +11,9 @@
 //!   shared git folder: no port and no lock state come from a link, and no file is made
 //!   through one. A named pipe in the place of one of these files is not read either.
 //! - `git.diff` counts the lines of each untracked file that git lists. It counts no line of
-//!   a file below a link, also when the link took a folder's place after git's listing.
+//!   a file below a link, also when the link took a folder's place after git's listing. It
+//!   counts the lines in a work tree below a folder that the daemon's user can pass and
+//!   cannot list.
 //! - `git.files.search` and `git.files.list` say of a listed name if it is a folder (a
 //!   submodule). A link is a file whatever its target is, also when git lists tracked paths
 //!   below its name. A name below a link is no folder and no search result, also when the
@@ -364,6 +366,36 @@ fn git_diff_counts_no_line_through_an_untracked_link() {
         assert_eq!(file["additions"], 0, "{path}: lines of a file behind a link: {file}");
         assert_eq!(file["binary"], Value::Null, "{path}: {file}");
     }
+}
+
+/// The work tree is below a folder that has the search right only: a name in it is reached,
+/// and its names are not listed. The daemon needs no list of a folder above a work tree.
+#[test]
+fn git_diff_counts_the_lines_of_an_untracked_file_below_a_folder_that_is_passed_and_not_listed() {
+    let above = fixture().dir.join(unique("p"));
+    let repo = above.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "--quiet", "--initial-branch=main"]);
+    std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&repo, &["add", "a.txt"]);
+    git(&repo, &["commit", "--quiet", "-m", "a.txt"]);
+    std::fs::write(repo.join("new.txt"), "one\ntwo\n").unwrap();
+    let mut client = Client::of_a_new_daemon();
+
+    // A user that has each right (root) passes the folder with and without the right to list.
+    std::fs::set_permissions(&above, std::fs::Permissions::from_mode(0o111)).unwrap();
+    let reply = client.reply_with("git.diff", &repo, &[("scope", "uncommitted")]);
+    // The old rights, before the reply is looked at: the fixture's folder can be removed.
+    std::fs::set_permissions(&above, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert_eq!(reply["ok"], true, "git.diff failed: {reply}");
+    let files = reply["result"]["files"].as_array().unwrap_or_else(|| panic!("no files: {reply}"));
+    let file = files
+        .iter()
+        .find(|file| file["path"] == "new.txt")
+        .unwrap_or_else(|| panic!("no new.txt in {reply}"));
+    assert_eq!(file["status"], "untracked", "{file}");
+    assert_eq!(file["additions"], 2, "the lines of the untracked file: {file}");
 }
 
 /// What `git.diff` says of the untracked `dir/new.txt` when `dir` becomes a link to a folder

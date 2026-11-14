@@ -465,6 +465,25 @@ mod tests {
     }
 
     #[test]
+    fn work_tree_entry_takes_a_top_folder_below_a_folder_that_can_be_passed_and_not_listed() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let top = fresh_folder();
+        let above = top.join("above");
+        let root = above.join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("file"), "inside").unwrap();
+        // The search right only: a name in `above` is reached, and its names are not listed.
+        // A user that has each right (root) passes it with and without the right to list.
+        std::fs::set_permissions(&above, std::fs::Permissions::from_mode(0o111)).unwrap();
+        let read = Tree::open(&root).and_then(|mut tree| text(&mut tree, "file"));
+        // The old rights, before the result is looked at: the folder can be removed.
+        std::fs::set_permissions(&above, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(read.as_deref(), Some("inside"), "the folder above is passed");
+
+        std::fs::remove_dir_all(top).unwrap();
+    }
+
+    #[test]
     fn work_tree_entry_gives_a_link_by_its_target_text_and_a_file_by_one_stat_entry() {
         let top = fresh_folder();
         let root = top.join("root");
