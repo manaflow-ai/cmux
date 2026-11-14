@@ -73,7 +73,6 @@ on:
     types: [labeled]
     paths:
       - 'Packages/macOS/CmuxNext/Sources/**'
-      - 'Packages/macOS/CmuxNext/Resources/**'
       - 'Packages/macOS/CmuxNext/Tests/**'
       - 'webviews/**'
       - 'agent-chat/**'
@@ -136,12 +135,14 @@ jobs:
             scripts/ci/cmux_next_media_runner.py
             scripts/ci/pr_runner_pool.py
             scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
             scripts/ci/media_auto_tour.py
             scripts/cmux-next/media/path_map.py
             scripts/cmux-next/media/whats-new-clips.py
             scripts/cmux-next/media/tour.py
             release-notes/next/highlights
             release-notes/next/clips
+            scripts/ci/warm_distance.py
           sparse-checkout-cone-mode: false
 
       - name: Decide whether this pull request gets a tour
@@ -238,7 +239,7 @@ jobs:
           git fetch --no-tags --quiet --filter=blob:none --shallow-since="@$((head_time - 8 * 86400))" origin "$HEAD"
           # The previous tip is in that history; a depth-1 fetch of it would cut the history at it.
           git cat-file -e "$BASE^{commit}" 2>/dev/null || git fetch --no-tags --quiet --filter=blob:none --depth=1 origin "$BASE"
-          python3 scripts/cmux-next/media/whats-new-clips.py plan --base "$BASE" --head "$HEAD" \
+          python3 scripts/cmux-next/media/whats-new-clips.py plan --app mac --base "$BASE" --head "$HEAD" \
             --out "$RUNNER_TEMP/clips-plan.json" --tours "$RUNNER_TEMP/clip-tours" | tee /dev/stderr
           echo "plan=$(python3 -c 'import json, sys; print(json.dumps(json.load(open(sys.argv[1])), separators=(",", ":")))' "$RUNNER_TEMP/clips-plan.json")" >> "$GITHUB_OUTPUT"
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
@@ -377,9 +378,6 @@ jobs:
           set -euo pipefail
           echo "runner user: $(id -un), console user: $(stat -f %Su /dev/console)"
           system_profiler SPDisplaysDataType 2>/dev/null | sed -n '/Displays:/,$p' | head -20 || true
-          if [ -f scripts/ci/preflight-e2e-screen-capture.py ]; then
-            python3 scripts/ci/preflight-e2e-screen-capture.py
-          fi
 
       # The same grant main's E2E recorder makes on these Macs
       # (.github/actions/e2e-run-tests on main): screencapture from a job

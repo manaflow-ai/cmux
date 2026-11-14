@@ -18,7 +18,13 @@ use crate::workspace_registry::{
 };
 use crate::{ResourceSelectors, ResourceTarget, SurfaceId};
 use live_screen::registry_screen_from_live;
+pub(crate) use projection_crosscheck::JournalCheck;
 use published_screens::PublishedScreens;
+pub(crate) use scoped_projection::CHANGED_WORKSPACES_MAX;
+pub(crate) use scoped_projection::WorkspaceRows;
+#[cfg(all(test, unix))]
+pub(crate) use scoped_projection::without_crosscheck;
+pub(crate) use split_ids::collect_screen_split_ids;
 pub(crate) use split_ids::ensure_screen_split_public_ids;
 use split_ids::ensure_split_public_ids;
 
@@ -711,6 +717,11 @@ pub(crate) struct ResourceEffectProjection {
     /// `changes` restate every live resource (a full projection), so a
     /// commit may seed the registry's public topology fold from them.
     pub(crate) restates_all: bool,
+    /// The workspaces of which `changes` state each live value again (a scoped walk of a
+    /// workspace that the fold did not hold whole). The commit marks them whole
+    /// (`WorkspaceRegistry::mark_workspaces_whole`). Empty for a full projection: the fold
+    /// that folds it is complete.
+    pub(crate) restated: Vec<crate::resource::WorkspacePublicId>,
 }
 
 impl ResourceEffectProjection {

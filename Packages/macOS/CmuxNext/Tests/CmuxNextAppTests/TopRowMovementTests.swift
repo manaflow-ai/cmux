@@ -24,7 +24,11 @@ import Testing
         TunableStore.shared.activate(file: nil)
         let key = TopRowLineLook.tunable.key, look = TunableStore.shared.override(key)
         TunableStore.shared.set(key, TopRowLineLook.lights.tunableValue)
+        // These measure the tab pill's gaps; the flush corner (the default over this chrome) runs the
+        // selected pill to the strip's bottom and has its own suites.
+        MainPaneGutterSuites.pinsCornerFlushOff(true)
         defer {
+            MainPaneGutterSuites.pinsCornerFlushOff(false)
             TunableStore.shared.set(key, look)
             (design.tabBarPosition, design.titlebar, design.densityTokens) = before
         }
@@ -94,13 +98,13 @@ import Testing
             #expect(abs(try pillCenterFromTop(f) - line.centerY) <= 0.5, "on the top row the pill centers on the line")
             let onLine = try pillTop(f)
             try #require(onLine != centered(f), "the line and the strip's own centering differ here")
-            let buttonOnLine = f.toolbar.moreButton.frame.minY
+            let buttonOnLine = f.toolbar.zoomButton.frame.minY
 
             move(f, by: -300)
             #expect(!WindowTitlebar.isInTopRow(f.strip))
             #expect(try pillTop(f) == centered(f), "moved down, the pill keeps the strip's own centering, not the line's offset")
-            #expect(f.toolbar.moreButton.frame.minY == PaneToolbarView.edgeInset(height: f.toolbar.bounds.height))
-            #expect(f.toolbar.moreButton.frame.minY != buttonOnLine)
+            #expect(f.toolbar.zoomButton.frame.minY == PaneToolbarView.edgeInset(height: f.toolbar.bounds.height))
+            #expect(f.toolbar.zoomButton.frame.minY != buttonOnLine)
         }
     }
 
@@ -156,18 +160,18 @@ import Testing
             defer { f.window.closeAfterTest() }
             #expect(!WindowTitlebar.isInTopRow(f.strip))
             #expect(try pillTop(f) == centered(f))
-            let buttonBelow = f.toolbar.moreButton.frame.minY
+            let buttonBelow = f.toolbar.zoomButton.frame.minY
 
             move(f, by: f.container.bounds.maxY - (try cardTop(f)) - f.strip.frame.maxY)
             let line = try #require(WindowTitlebar.topRowLine(in: f.window))
             try #require(WindowTitlebar.isInTopRow(f.strip))
             #expect(abs(try pillCenterFromTop(f) - line.centerY) <= 0.5, "moved up onto the top row, the pill takes the line")
             #expect(try pillTop(f) != centered(f))
-            let button = f.toolbar.convert(f.toolbar.moreButton.frame, to: nil)
+            let button = f.toolbar.convert(f.toolbar.zoomButton.frame, to: nil)
             if TitlebarBandButton.side <= 2 * line.centerY {
                 #expect(abs(f.container.bounds.maxY - button.midY - line.centerY) <= 0.5, "the toolbar's buttons take the line too")
             }
-            #expect(f.toolbar.moreButton.frame.minY != buttonBelow)
+            #expect(f.toolbar.zoomButton.frame.minY != buttonBelow)
         }
     }
 }

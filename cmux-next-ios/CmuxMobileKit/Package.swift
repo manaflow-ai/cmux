@@ -35,6 +35,8 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxAgentQuestion"),
         // Shared Stack Auth runtime (used as-is; do not modify from here).
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
+        // Connectivity observability: verbose for the cmux team, sampled for everyone.
+        .package(path: "../../Packages/Shared/CmuxConnectivityTelemetry"),
         .package(path: "../../Packages/Shared/CMUXAuthCore"),
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
         // Safari-style tabs (workspaces) and the Messages-style conversation (Chief).
@@ -42,6 +44,8 @@ let package = Package(
         // Shared composer and keyboard support from the classic app, used as-is.
         .package(path: "../../Packages/iOS/CmuxMobileSupport"),
         .package(path: "../../Packages/iOS/CmuxConversation"),
+        // App Store plans (StoreKit 2, server-verified by cmux.com), shared with the classic app.
+        .package(path: "../../Packages/iOS/CmuxMobileBilling"),
         // The agents' brand marks (Claude, Codex), shared with the Mac app.
         .package(path: "../../Packages/Shared/CmuxAgentBrands"),
         // The Action Button call flow (plans/cmux-next/ios-action-button-DESIGN.md).
@@ -53,9 +57,12 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxVNCWebRTC"),
         // The one spinner, on the period every cmux spinner turns at (shared with the web pages and the Mac).
         .package(path: "../../Packages/Shared/CmuxSpinner"),
+        // The Mac chrome's colors from a terminal theme (ThemeTokens.derive): the phone derives the
+        // same palette from the theme its Mac sends, or from its cached copy offline (ask-87d30da8e5).
+        .package(path: "../../Packages/Shared/CmuxTheme"),
     ],
     targets: [
-        .target(name: "CmuxMobileDesign", dependencies: [.product(name: "CmuxSpinner", package: "CmuxSpinner")], resources: [.process("Resources")]),
+        .target(name: "CmuxMobileDesign", dependencies: [.product(name: "CmuxSpinner", package: "CmuxSpinner"), .product(name: "CmuxTheme", package: "CmuxTheme")], resources: [.process("Resources")]),
         // Push payloads, notification buttons, the App Group outbox and chat
         // snapshots: Foundation and UserNotifications only, so the notification
         // extensions link it without the app's modules (verify/rich-push.md).
@@ -99,6 +106,7 @@ let package = Package(
                 .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
+                .product(name: "CmuxMobileBilling", package: "CmuxMobileBilling"),
             ]
         ),
         .target(
@@ -106,10 +114,10 @@ let package = Package(
             dependencies: [.product(name: "CmuxSpinner", package: "CmuxSpinner"), "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth"],
             resources: [.process("Resources")]
         ),
-        .target(name: "CmuxMobileSettings", dependencies: [.product(name: "CmuxSpinner", package: "CmuxSpinner"), "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth", "CmuxMobileOnboarding", "CmuxMobileRealtime", "CmuxMobileScreenSharing"], resources: [.process("Resources")]),
+        .target(name: "CmuxMobileSettings", dependencies: [.product(name: "CmuxSpinner", package: "CmuxSpinner"), "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth", "CmuxMobileOnboarding", "CmuxMobileRealtime", "CmuxMobileScreenSharing", .product(name: "CmuxMobileBillingUI", package: "CmuxMobileBilling", condition: .when(platforms: [.iOS])), .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry")], resources: [.process("Resources")]),
         // Streamed browser tabs: a Mac browser page as H.264 video over the link's
         // `browser` service (VideoToolbox decode, rb input, rb.page chrome).
-        .target(name: "CmuxMobileBrowserStream", dependencies: ["CmuxMobileDesign", "CmuxMobileTransport", "CmuxMobileRealtime"]),
+        .target(name: "CmuxMobileBrowserStream", dependencies: ["CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileTransport", "CmuxMobileRealtime"]),
         // Workspaces list and the per-workspace TabsKit navigation (last tab first).
         .target(name: "CmuxMobileWorkspaces", dependencies: [
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
@@ -136,8 +144,11 @@ let package = Package(
         .target(name: "CmuxMobileLive", dependencies: [
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileTransport", "CmuxMobileAgentChat", "CmuxMobileArtifacts", "CmuxMobileFeed", "CmuxMobileChief", "CmuxMobileTerminal",
             "CmuxMobileBrowserStream", "CmuxMobileNotifications",
+            // The classic app's leftovers after an update (ClassicLeftovers): the plan is Rust's.
+            .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+            .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
         ]),
         .target(
@@ -160,7 +171,7 @@ let package = Package(
         // the approval flow and the full-screen viewer (CmuxScreenKitUI) of a Mac's screen.
         .target(name: "CmuxMobileScreenSharing", dependencies: [
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
-            "CmuxMobileDesign",
+            "CmuxMobileDesign", "CmuxMobileModel",
             .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
             .product(name: "CmuxScreenKit", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxScreenKitUI", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
@@ -188,9 +199,12 @@ let package = Package(
                 "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth", "CmuxMobileOnboarding", "CmuxMobileSettings",
                 "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTransport", "CmuxMobileWorkspaces", "CmuxMobileChief", "CmuxMobileLive", "CmuxMobileTerminal",
                 "CmuxMobileBrowserStream", "CmuxMobileNotifications", "CmuxMobileVoice", "CmuxMobileRealtime", "CmuxMobileScreenSharing",
+                .product(name: "CmuxMobileBilling", package: "CmuxMobileBilling"),
+                .product(name: "CmuxMobileBillingUI", package: "CmuxMobileBilling", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
+                .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),
             ]
         ),
         .testTarget(name: "CmuxMobileRealtimeTests", dependencies: ["CmuxMobileRealtime"]),
@@ -207,22 +221,28 @@ let package = Package(
         .testTarget(name: "CmuxMobileNotificationsTests", dependencies: ["CmuxMobileNotifications"]),
         .testTarget(name: "CmuxMobileTransportTests", dependencies: ["CmuxMobileTransport"]),
         .testTarget(name: "CmuxMobileAgentChatTests", dependencies: ["CmuxMobileAgentChat", "CmuxMobileDiff", "CmuxMobileMarkdown", "CmuxMobileArtifacts", "CmuxMobileDesign", "CmuxMobileTransport", "CmuxMobileRealtime"]),
-        .testTarget(name: "CmuxMobileTerminalTests", dependencies: ["CmuxMobileTerminal"]),
+        .testTarget(name: "CmuxMobileTerminalTests", dependencies: [
+            "CmuxMobileTerminal", "CmuxMobileDesign",
+            .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS])),
+        ]),
         .testTarget(name: "CmuxMobileBrowserStreamTests", dependencies: ["CmuxMobileBrowserStream", "CmuxMobileTransport"]),
         .testTarget(name: "CmuxMobileWorkspacesTests", dependencies: [
             "CmuxMobileWorkspaces", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileDesign", "CmuxMobileBrowserStream", "CmuxMobileTransport",
         ]),
         .testTarget(name: "CmuxMobileLiveTests", dependencies: [
             "CmuxMobileLive", "CmuxMobileChief", "CmuxMobileNotifications", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTerminal", "CmuxMobileDesign",
+            .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+            .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
         ]),
         // The instant-list perf bench (small vs god fixtures, budgets and the 1.2x rule):
         // cmux-next-ios/design/instant-perf.md. CI runs it on its own, after the other tests.
         .testTarget(name: "CmuxMobileInstantPerfTests", dependencies: [
             "CmuxMobileChief", "CmuxMobileLive", "CmuxMobileAgentChat", "CmuxMobileTransport",
+            "CmuxMobileModel", "CmuxMobileWorkspaces",
         ]),
-        .testTarget(name: "CmuxMobileShellTests", dependencies: ["CmuxMobileShell", "CmuxMobileNotifications", "CmuxMobileModel", "CmuxMobileLive", "CmuxMobileDesign", "CmuxMobileFeed"]),
+        .testTarget(name: "CmuxMobileShellTests", dependencies: ["CmuxMobileShell", "CmuxMobileNotifications", "CmuxMobileModel", "CmuxMobileLive", "CmuxMobileDesign", "CmuxMobileFeed", .product(name: "CmuxTheme", package: "CmuxTheme")]),
         .testTarget(name: "CmuxMobileOnboardingTests", dependencies: ["CmuxMobileOnboarding", "CmuxMobileDesign"]),
         .testTarget(name: "CmuxMobileChiefTests", dependencies: [
             "CmuxMobileChief", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat",

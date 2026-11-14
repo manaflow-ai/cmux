@@ -1,9 +1,9 @@
 // The example extensions (examples/extensions/*) in the fake host, and the moved github-prs
 // sample's budget: timers and upstream reads before (hand-rolled cmux.timer.every) and after
 // (cmux.watch), counted the same way.
-import { describe, expect, test } from "bun:test"
-import { readFileSync } from "node:fs"
-import { join } from "node:path"
+import { beforeAll, describe, expect, test } from "bun:test"
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import { FakeHost } from "./fake-host.ts"
 
 const root = join(import.meta.dir, "../../../../..")
@@ -117,62 +117,156 @@ describe("github-prs on cmux.watch: budget", () => {
   })
 })
 
-// The clock (examples/extensions/clock): a New Tab widget, so its recipe's cost promises are tested.
-const clockCtx = { contribution: "manaflow-ai/clock#cmux.newtab.widget/1", surface: "newTab" }
+// examples/extensions/activity is built only against the public SDK (cmux-extension-sdk): a sidebar
+// section and a pane that react to workspace, agent and chat events.
+describe("local/activity (cmux-extension-sdk only)", () => {
+  const dir = "examples/extensions/activity"
+  const chat = (id: string, workspace: string | null, state: string, unread = false) =>
+    ({ id, title: id, state, unread, harness: "claude", project: null, cwd: null, workspace, machine: null, updated_ms: 0 })
 
-function clock(settings: Record<string, unknown>) {
-  const host = new FakeHost(load("examples/extensions/clock"), { app: { id: "manaflow-ai/clock", version: "1.0.0" }, apiVersion: "1.0.0", settings })
-  // The VM has its own Date (node:vm realm); its clock reads `at`: 13:41:58 local, then a second a tick.
-  let at = new Date(2026, 10, 10, 13, 41, 58).getTime()
-  host.eval("Date").now = () => at
-  const step = (ms = 1000) => {
-    at += ms
+  // Rows in drawn order (the tree from its root), not creation order.
+  const drawn = (host: FakeHost, mount: string) => {
+    const tree = host.tree(mount)
+    const out: Array<Record<string, unknown>> = []
+    const walk = (id: string) => {
+      const n = tree.nodes.get(id)
+      if (!n) return
+      if (n.type === "Row") out.push(n.props)
+      n.children.forEach(walk)
+    }
+    walk(tree.root)
+    return out
   }
-  return { host, step }
-}
 
-describe("manaflow-ai/clock", () => {
-  test("one Text update per tick with seconds, none until the minute without", async () => {
-    const { host, step } = clock({ showSeconds: true, hourCycle: "24h" })
-    expect(host.mount("m", "renderClock", clockCtx)).toBe("")
-    await host.settle()
-    const texts = () => [...host.tree("m").nodes.values()].map((n) => n.props.text).filter(Boolean)
-    expect(texts()).toEqual(["13:41:58", "Tuesday, November 10"])
-    // One repeating timer, floored at 1 s by the runtime.
-    expect([...host.timers.values()]).toEqual([{ ms: 1000, repeat: true }])
-    const [timer] = [...host.timers.keys()]
-    const before = host.batches("m").length
-    step()
-    host.global.__cmuxAppTimer(timer)
-    await host.settle()
-    const batch = host.lastBatch("m")
-    expect(host.batches("m").length).toBe(before + 1)
-    expect(batch).toHaveLength(1)
-    expect(batch[0]).toMatchObject({ op: "update", props: { text: "13:41:59" } })
-
-    const quiet = clock({ showSeconds: false, hourCycle: "12h" })
-    quiet.host.mount("m", "renderClock", clockCtx)
-    await quiet.host.settle()
-    expect([...quiet.host.tree("m").nodes.values()].map((n) => n.props.text).filter(Boolean)[0]).toBe("1:41 PM")
-    const [quietTimer] = [...quiet.host.timers.keys()]
-    const quietBefore = quiet.host.batches("m").length
-    quiet.step()
-    quiet.host.global.__cmuxAppTimer(quietTimer)
-    await quiet.host.settle()
-    expect(quiet.host.batches("m").length).toBe(quietBefore)
-    quiet.step()
-    quiet.host.global.__cmuxAppTimer(quietTimer)
-    await quiet.host.settle()
-    expect(quiet.host.lastBatch("m")).toEqual([expect.objectContaining({ op: "update", props: { text: "1:42 PM" } })])
+  // Built the way `cmux ext dev` builds it (dist/ is build output, never committed).
+  let built: string | undefined
+  beforeAll(async () => {
+    const { pack } = await import("../../tools/pack.ts")
+    built = await pack(join(root, dir))
   })
 
-  test("unmounting stops the tick", async () => {
-    const { host } = clock({})
-    host.mount("m", "renderClock", clockCtx)
+  function activity() {
+    const host = new FakeHost(built!, { app: { id: "local/activity", version: "1.0.0" }, settings: {} })
+    const state = {
+      workspaces: [{ id: "ws_1", session_id: "s", name: "api", index: 0, focused: true }, { id: "ws_2", session_id: "s", name: "web", index: 1, focused: false }],
+      agents: [{ id: "a1", state: "working" }, { id: "a2", state: "idle" }],
+      chats: [chat("c1", "ws_2", "input"), chat("c2", "ws_2", "idle", true), chat("c3", "ws_1", "working")]
+    }
+    host.handlers["workspace.list"] = () => ok(state.workspaces)
+    host.handlers["agent.list"] = () => ok(state.agents)
+    host.handlers["agent_chat.list"] = () => ok({ chats: state.chats })
+    host.handlers["workspace.focus"] = () => ok({})
+    return { host, state }
+  }
+
+  test("imports nothing but cmux-extension-sdk, and builds to one script that sets its exports", () => {
+    const src = readFileSync(join(root, dir, "src/main.ts"), "utf8")
+    expect([...src.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1])).toEqual(["cmux-extension-sdk"])
+    expect(src).not.toContain("<reference")
+    expect(built).toContain("__cmuxAppExports")
+  })
+
+  test("the section lists each workspace with the chats waiting in it, and redraws on agent_chat.changed", async () => {
+    const { host, state } = activity()
+    expect(host.mount("s", "renderSection")).toBe("")
     await host.settle()
-    expect(host.timers.size).toBe(1)
-    host.global.__cmuxAppUnmount("m")
-    await host.settle()
+    expect(drawn(host, "s").map((r) => [r.title, r.subtitle ?? null, r.badge ?? null])).toEqual([
+      ["1 agent working", null, null],
+      ["api", null, null],
+      ["web", "2 chats waiting for you", 2]
+    ])
+    // Pushed, not polled: it subscribes to the three streams and arms no timer.
+    expect(new Set([...host.subscriptions.values()].map((s) => s.stream))).toEqual(new Set(["workspace.changed", "agent.changed", "agent_chat.changed"]))
     expect(host.timers.size).toBe(0)
+    state.chats = [chat("c1", "ws_2", "working")]
+    host.emit("agent_chat.changed")
+    await host.settle()
+    expect(rows(host, "s").find((r) => r.props.title === "web")!.props.subtitle ?? null).toBe(null)
+    state.workspaces = [...state.workspaces, { id: "ws_3", session_id: "s", name: "docs", index: 2, focused: false }]
+    host.emit("workspace.changed")
+    await host.settle()
+    expect(rows(host, "s").map((r) => r.props.title)).toContain("docs")
+  })
+
+  test("a click on a workspace row shows that workspace", async () => {
+    const { host } = activity()
+    host.mount("s", "renderSection")
+    await host.settle()
+    host.dispatch("s", host.findNode("s", (n) => n.type === "Row" && n.props.title === "web")!, "tap")
+    await host.settle()
+    expect(host.calls.filter((c) => c.name === "workspace.focus").map((c) => c.params.workspace)).toEqual(["ws_2"])
+  })
+
+  test("the pane is a live feed of events, newest first, and unsubscribes when closed", async () => {
+    const { host } = activity()
+    expect(host.mount("p", "renderPane")).toBe("")
+    await host.settle()
+    expect(rows(host, "p")).toEqual([])
+    host.emit("workspace.changed")
+    await host.settle()
+    host.emit("agent_chat.changed")
+    await host.settle()
+    expect(drawn(host, "p").map((r) => r.title)).toEqual(["A chat changed", "Workspaces changed"])
+    host.global.__cmuxAppUnmount("p")
+    expect(host.subscriptions.size).toBe(0)
+  })
+})
+
+describe("cmux-extension-sdk", () => {
+  // The package bundled the way `cmux ext dev` bundles an extension, exposed as globalThis.__sdk.
+  async function sdkHost(body: string) {
+    const entry = join(root, "cmux-tui/crates/cmux-extension-sdk/typescript/src/.sdk-test-entry.ts")
+    writeFileSync(entry, `import * as sdk from "./index.ts"\n;(globalThis as any).__sdk = sdk\n`)
+    try {
+      const out = await Bun.build({ entrypoints: [entry], format: "iife", target: "browser" })
+      if (!out.success) throw new Error(out.logs.map(String).join("\n"))
+      return new FakeHost(`${await out.outputs[0]!.text()}\n${body}`)
+    } finally {
+      rmSync(entry, { force: true })
+    }
+  }
+
+  test("on() refuses a stream cmux does not send, naming the ones it does", async () => {
+    const host = await sdkHost(`globalThis.__cmuxAppExports = { render: () => { __sdk.on("workspace.chagned", () => {}); return __sdk.Text("x") } }`)
+    const error = host.mount("m", "render")
+    expect(error).toContain("unknown event stream")
+    expect(error).toContain("workspace.changed")
+  })
+
+  test("versions and the event table are the runtime's own (no copies)", async () => {
+    const host = await sdkHost("")
+    const json = (path: string) => JSON.parse(readFileSync(join(import.meta.dir, "..", "..", path), "utf8"))
+    expect(host.eval("__sdk.API_VERSION")).toBe(json("generated/scopes.json").apiVersion)
+    expect(host.eval("__sdk.RUNTIME_VERSION")).toBe(host.eval("__cmuxAppRuntimeVersion"))
+    expect(host.eval("__sdk.RUNTIME_VERSION")).not.toBe("")
+    expect(host.eval("__sdk.EVENT_STREAMS")).toEqual(Object.keys(json("schema/v2/events.json").events))
+    expect(host.eval(`__sdk.scopeFor("agent_chat.changed")`)).toBe("agent_chat:read")
+  })
+})
+
+describe("cmux-extension-sdk/testing", () => {
+  const sdk = join(root, "cmux-tui/crates/cmux-extension-sdk/typescript")
+
+  test("an extension's tests get the fake host, the packer and the validator from the package", async () => {
+    const testing = await import(join(sdk, "src/testing.ts"))
+    expect(testing.FakeHost).toBe(FakeHost)
+    const host = new testing.FakeHost(await testing.pack(join(root, "examples/extensions/activity")))
+    expect(typeof host.global.__cmuxAppExports.renderSection).toBe("function")
+    expect(testing.validatePackage(join(root, "first-party-apps/caffeinate")).errors).toEqual([])
+    expect(new testing.SchemaValidator(testing.manifestSchema()).validate({})).not.toEqual([])
+    expect(testing.interfaceContract("cmux.section/1")).toBeDefined()
+    for (const bad of ["cmux.section", "cmux.section/x", "../x/1", "cmux.nothing/1"]) expect(testing.interfaceContract(bad)).toBeUndefined()
+  })
+
+  test("runtime-files.json lists every cmux-app-host file the package reads", () => {
+    const list = JSON.parse(readFileSync(join(sdk, "runtime-files.json"), "utf8")) as { root: string; files: string[] }
+    const shipped = list.files.map((file) => join(sdk, list.root, file))
+    for (const path of shipped) expect([path, existsSync(path)]).toEqual([path, true])
+    const sources = ["src/index.ts", "src/testing.ts"].map((f) => join(sdk, f))
+    const read = new Set<string>()
+    for (const file of sources) {
+      for (const m of readFileSync(file, "utf8").matchAll(/["'](\.\.\/\.\.\/\.\.\/cmux-app-host\/[^"']+)["']/g)) read.add(join(dirname(file), m[1]!))
+    }
+    for (const path of read) expect([path, shipped.some((s) => path === s || path.startsWith(s + "/"))]).toEqual([path, true])
   })
 })

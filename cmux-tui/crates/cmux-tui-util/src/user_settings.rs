@@ -57,12 +57,13 @@ pub fn path_from(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
 /// and default as the app's `NewWorkspacePlacement`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NewWorkspacePlacement {
-    /// First, below the home workspace's row, above every group.
+    /// First, below the home workspace's row, above every group. The default
+    /// (Lawrence 2026-11-12: "by default all new workspaces should go to the
+    /// top"), for every client and creator.
+    #[default]
     Top,
     /// Right after the session's active workspace, in its group (`Top`
-    /// when there is none, or it is the home workspace). The default: a new
-    /// workspace goes right next to the one it was made from (Leo 2026-11-06).
-    #[default]
+    /// when there is none, or it is the home workspace).
     AfterCurrent,
     /// After every row.
     Bottom,
@@ -200,29 +201,53 @@ pub fn resume_agents() -> bool {
     }
 }
 
-/// Settings-file `remote.ultraMode` ("Ultra Connection Mode"): whether the
-/// WireGuard tunnels this Mac starts (Cloud, `wg hub`, the terminal client)
-/// send repair data so a lossy network costs no time, at about 2-3x the
-/// bytes (cmux-wg `UltraMode::SETTING`). Off by default; anything but
-/// `true`, and a file that does not parse, is off.
-pub fn ultra_mode_from_config_text(text: &str) -> bool {
-    let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else { return false };
-    document.pointer("/remote/ultraMode").and_then(Value::as_bool).unwrap_or(false)
+/// Settings' Ultra Connection Mode (`remote.ultra`) for the WireGuard
+/// tunnels this Mac starts (Cloud, `wg hub`, the terminal client).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UltraConnection {
+    /// No repair data.
+    Off,
+    /// The default: no extra data on a clean link; repair data within
+    /// about one round trip once packets are lost (cmux-wg `UltraChoice::Auto`).
+    #[default]
+    Auto,
+    /// Repair data on every connection, about 2-3x the bytes
+    /// (cmux-wg `UltraMode::SETTING`).
+    Always,
 }
 
-/// [`ultra_mode_from_config_text`] of the settings file, read when a tunnel
-/// starts (a change applies to the next connection with no reload); off
-/// without a file, and always off in unit tests.
-pub fn ultra_mode() -> bool {
+/// [`UltraConnection`] of a settings file: `remote.ultra` (`"off"`,
+/// `"auto"`, `"always"`); without it, the retired toggle `remote.ultraMode`
+/// set to `true` is Always. Anything else, and a file that does not parse,
+/// is the default, Auto.
+pub fn ultra_from_config_text(text: &str) -> UltraConnection {
+    let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else {
+        return UltraConnection::default();
+    };
+    match document.pointer("/remote/ultra").and_then(Value::as_str) {
+        Some("off") => UltraConnection::Off,
+        Some("always") => UltraConnection::Always,
+        Some("auto") => UltraConnection::Auto,
+        _ if document.pointer("/remote/ultraMode").and_then(Value::as_bool) == Some(true) => {
+            UltraConnection::Always
+        }
+        _ => UltraConnection::default(),
+    }
+}
+
+/// [`ultra_from_config_text`] of the settings file, read when a tunnel
+/// starts (a change applies to the next connection with no reload); Auto
+/// without a file, and always Auto in unit tests.
+pub fn ultra() -> UltraConnection {
     if cfg!(test) {
-        return false;
+        return UltraConnection::default();
     }
     let path = config_path();
     match std::fs::metadata(&path) {
         Ok(metadata) if metadata.is_file() => std::fs::read_to_string(&path)
-            .map(|text| ultra_mode_from_config_text(&text))
-            .unwrap_or(false),
-        _ => false,
+            .map(|text| ultra_from_config_text(&text))
+            .unwrap_or_default(),
+        _ => UltraConnection::default(),
     }
 }
 
@@ -331,23 +356,30 @@ mod tests {
     }
 
     #[test]
-    fn ultra_mode_is_on_only_when_the_file_says_true() {
-        use super::ultra_mode_from_config_text as ultra;
-        assert!(!ultra(""));
-        assert!(!ultra("{}"));
-        assert!(!ultra(r#"{"remote": {"endSharingOnQuit": true}}"#));
-        assert!(ultra(r#"{"remote": {"ultraMode": true}}"#));
-        assert!(ultra("{\n  // lossy hotel Wi-Fi\n  \"remote\": {\"ultraMode\": true,},\n}"));
-        assert!(!ultra(r#"{"remote": {"ultraMode": false}}"#));
-        assert!(!ultra(r#"{"remote": {"ultraMode": "on"}}"#), "not a boolean");
-        assert!(!ultra("{not json"));
-        assert!(!super::ultra_mode(), "unit tests never read the developer's file");
+    fn ultra_is_auto_unless_the_file_says_otherwise() {
+        use super::UltraConnection::{Always, Auto, Off};
+        use super::ultra_from_config_text as ultra;
+        assert_eq!(ultra(""), Auto);
+        assert_eq!(ultra("{}"), Auto);
+        assert_eq!(ultra(r#"{"remote": {"endSharingOnQuit": true}}"#), Auto);
+        assert_eq!(ultra(r#"{"remote": {"ultra": "off"}}"#), Off);
+        assert_eq!(ultra(r#"{"remote": {"ultra": "always"}}"#), Always);
+        assert_eq!(
+            ultra("{\n  // lossy hotel Wi-Fi\n  \"remote\": {\"ultra\": \"always\",},\n}"),
+            Always
+        );
+        assert_eq!(ultra(r#"{"remote": {"ultra": "auto", "ultraMode": true}}"#), Auto);
+        assert_eq!(ultra(r#"{"remote": {"ultraMode": true}}"#), Always, "the retired toggle on");
+        assert_eq!(ultra(r#"{"remote": {"ultraMode": false}}"#), Auto, "and off: Auto");
+        assert_eq!(ultra(r#"{"remote": {"ultra": true}}"#), Auto, "not a choice");
+        assert_eq!(ultra("{not json"), Auto);
+        assert_eq!(super::ultra(), Auto, "unit tests never read the developer's file");
     }
 
     #[test]
     fn new_placement_reads_cmux_json_with_the_app_default() {
-        assert_eq!(Placement::from_config_text(""), Placement::AfterCurrent);
-        assert_eq!(Placement::from_config_text("{}"), Placement::AfterCurrent);
+        assert_eq!(Placement::from_config_text(""), Placement::Top);
+        assert_eq!(Placement::from_config_text("{}"), Placement::Top);
         assert_eq!(
             Placement::from_config_text(r#"{"workspaces": {"newPlacement": "top"}}"#),
             Placement::Top
@@ -364,20 +396,20 @@ mod tests {
         );
         assert_eq!(
             Placement::from_config_text(r#"{"workspaces": {"newPlacement": "sideways"}}"#),
-            Placement::AfterCurrent
+            Placement::Top
         );
-        assert_eq!(Placement::from_config_text("{not json"), Placement::AfterCurrent);
+        assert_eq!(Placement::from_config_text("{not json"), Placement::Top);
     }
 
     #[test]
     fn a_scoped_placement_wins_and_nests() {
-        assert_eq!(Placement::current(), Placement::AfterCurrent);
+        assert_eq!(Placement::current(), Placement::Top);
         let outer = Placement::Bottom.set_for_test();
         Placement::AfterCurrent
             .scoped(|| assert_eq!(Placement::current(), Placement::AfterCurrent));
         assert_eq!(Placement::current(), Placement::Bottom);
         drop(outer);
-        assert_eq!(Placement::current(), Placement::AfterCurrent);
+        assert_eq!(Placement::current(), Placement::Top);
     }
 
     #[test]
@@ -390,10 +422,10 @@ mod tests {
             .unwrap();
         assert_eq!(Placement::from_config_file(&path), Placement::AfterCurrent);
         std::fs::remove_file(&path).unwrap();
-        assert_eq!(Placement::from_config_file(&path), Placement::AfterCurrent);
+        assert_eq!(Placement::from_config_file(&path), Placement::Top);
         assert_eq!(
             Placement::from_config_file(&std::env::temp_dir()),
-            Placement::AfterCurrent,
+            Placement::Top,
             "a directory is not read"
         );
     }

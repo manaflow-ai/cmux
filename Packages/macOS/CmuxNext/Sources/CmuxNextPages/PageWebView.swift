@@ -43,8 +43,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     let scriptTarget: PageScriptTarget
     /// The engine the page shows in and, for WebKit, why (``PageEnginePolicy``).
     public internal(set) var engineDecision: PageEngineDecision
-    /// The Chromium page while one shows the document (PageWebView+Chromium.swift).
-    var chromiumSession: PageChromiumSession?
+    /// The Chromium page while one shows the document (PageWebView+Chromium.swift). Its host places the page by its engine: it lays out again.
+    var chromiumSession: PageChromiumSession? { didSet { if (oldValue == nil) != (chromiumSession == nil) { superview?.needsLayout = true } } }
     /// App health's feed for this page, from the page host it was made with (``PageChromiumHosting/healthFeed``).
     public internal(set) var healthFeed: (any PageHealthFeed)?
     /// Rects in this view's coordinates where native UI of the window shows over the page
@@ -77,7 +77,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var chromiumDeadline: Duration = .seconds(8)
     /// The deadline's clock (tests pass one that returns at once or never).
     var chromiumClock: any Clock<Duration> = ContinuousClock()
-    /// How long ``callPageScript(_:arguments:)`` waits for a Chromium start still in flight before it
+    /// How long ``callPageScript(_:arguments:timeout:)`` waits for a Chromium start still in flight before it
     /// gives up and returns nil (on ``chromiumClock``): about a page script's own 5 s hook wait.
     var chromiumScriptWait: Duration = .seconds(5)
     /// Makes Chromium pages; the app sets it once at startup (its composition root). Nil keeps every
@@ -94,7 +94,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var loaded = false
     /// The tab closed (``close()``): its web view is retired and never loads again.
     var isClosed = false
-    var loadWaiters: [CheckedContinuation<Void, Never>] = []
+    var loadWaiters: [(id: UUID, continuation: CheckedContinuation<Bool, Never>)] = []
     var shouldFocusOnAttach = false
     /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.
     var popupHost: WebPopupHost?
@@ -176,7 +176,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// pid); nil before any crash.
     public internal(set) var lastTermination: PageTermination?
     /// The last WebContent pid seen at a finished load: WebKit may report 0 for a process that ended.
-    var knownWebContentPid: Int32 = 0
+    public internal(set) var knownWebContentPid: Int32 = 0
     /// Whether a crashed page reloads by itself (up to ``PageCrashReloads/limit``). A host whose page
     /// holds the person's state (the agent chat: an open menu, the caret, an IME composition) sets it
     /// false: every crash shows its notice, and only its Reload button reloads.
@@ -455,10 +455,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         router.contextMenu = { [weak self] params in await self?.contextMenu(params) ?? .object(["picked": .null]) }
         router.userGestureEvent = { [weak self] in self?.recentUserGestureEvent() }
         healthFeed = chromium?.healthFeed
-        router.heartbeat = { [weak self] handled, edits in
-            guard let self else { return }
+        router.heartbeat = { [weak self] handled, edits, rest in
+            guard let self else { return true }
             reportsUnsavedEdits = edits
-            healthFeed?.pageBeat(self, handled: handled)
+            healthFeed?.pageBeat(self, handled: handled, resting: rest)
+            return healthFeed?.takesRestBeats ?? true
         }
         #if DEBUG || CMUX_BENCH_HOOKS
         // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
@@ -543,7 +544,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         uiScaleObservation?.cancel()
         let chatZoom = followsChatZoom
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, chatZoom ? DesignSettings.shared.agentPaneZoom : 1) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale, chatZoom ? DesignSettings.shared.agentPaneZoom : 1) }) {
                 guard let self else { return }
                 self.applyUIScale()
             }
@@ -554,7 +555,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``followsChatZoom``); the chrome multiplier remains
     /// a separate `--cmux-interface-scale` token.
     func applyUIScale() {
-        evaluateInPage(DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
+        let rendererScale = chromiumSession == nil ? "" : chromiumZoomScript
+        evaluateInPage(rendererScale + DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
         webView.pageZoom = pageZoom
         chromiumSession?.page.setZoom(pageZoom)
         if loaded { glassFeed.refresh() } // the zoom moves the art's rect in CSS px
@@ -587,6 +589,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func layout() {
         super.layout()
         webView.frame = bounds
+        // Window entry can precede the offscreen page's first nonempty frame under an alpha-zero workspace.
+        setChromiumVisibility(true)
         if !nativeRects.isEmpty { applyNativeRects() } // the unflipped Chromium view's rects move with the height
         // Not while the claim is pending: a refused document reloads, and its paint would end the
         // pane's hold before the reloaded one drew (finishClaim runs the probe on acknowledgement).
@@ -703,6 +707,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if chromiumSession != nil { evaluateInPage(chromiumZoomScript) }
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
         setChromiumVisibility(true)
@@ -716,6 +721,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             shouldFocusOnAttach = false
             focusPage()
         }
+    }
+
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if chromiumSession != nil { evaluateInPage(chromiumZoomScript) }
     }
 
     /// Another tab took the pane: the page's popup ends.

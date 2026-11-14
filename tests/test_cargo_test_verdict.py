@@ -2,6 +2,7 @@
 flake (it passed run again alone) or fails on the merge base too; a crash, a cut-short binary, a compile error or a
 test the base passes is the change's own red."""
 import importlib.util
+import posixpath
 import re
 import subprocess
 import sys
@@ -125,6 +126,69 @@ class Judge(unittest.TestCase):
         self.assertFalse(self.judge(stamped, retry=retry)[0])
 
 
+def coloured(text):
+    """TEXT as cargo prints it to a colour terminal: each outcome and the summary's state in its own colour codes,
+    each line stamped as the job log serves it."""
+    for word, code in (("FAILED", 31), ("ok", 32)):
+        text = re.sub(rf"(\.\.\. |test result: ){word}\b",
+                      lambda m, word=word, code=code: f"{m.group(1)}\x1b[{code}m{word}\x1b[0m", text)
+    return "\n".join(f"2026-10-31T01:02:03.4567890Z {line}" for line in text.splitlines())
+
+
+class ColouredSummary(unittest.TestCase):
+    """#41329's review F2: "scripts/ci/cargo_test_verdict.py:160: the summary rewrite searches the raw line, so ANSI
+    codes around FAILED stop it matching. The flaky result drops out while its failure count stays, and judge() calls
+    a passing retry an own red. Rewrite the normalized summary, and add a fixture with inline colour codes." And
+    "strip ANSI once, at the log reader, so no parser sees raw colour"."""
+
+    # One binary, a flake and a base red in it: taking the flake out leaves `1 failed`, its one named failure.
+    HEAD = log(binary(("hub::turn_cap_tests::caps", "FAILED"), ("agent_inbox::delivers", "FAILED"),
+                      ("carried_turns::carries", "ok")))
+    RETRY = log(binary(("hub::turn_cap_tests::caps", "ok"), ("agent_inbox::delivers", "FAILED")))
+    BASE = log(binary(("hub::turn_cap_tests::caps", "ok"), ("agent_inbox::delivers", "FAILED")))
+
+    def test_a_flake_in_a_coloured_binary_leaves_its_count_matching_its_names(self):
+        head = coloured(self.HEAD)
+        self.assertIn("test result: \x1b[31mFAILED\x1b[0m. 1 passed; 2 failed;", head)
+        out = verdict.without_failures(head, {"hub::turn_cap_tests::caps"})
+        self.assertEqual([line for line in verdict.test_reds.lines_of(out) if line.startswith("test result: ")],
+                         ["test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; "
+                          "finished in 1.00s"])
+        own, notes = verdict.judge(head, coloured(self.RETRY), coloured(self.BASE), JOB)
+        self.assertFalse(own, notes)
+        self.assertEqual(sum("(flaky)" in n for n in notes), 1, notes)
+        self.assertEqual(sum("(base red)" in n for n in notes), 1, notes)
+
+    def test_the_log_reader_strips_colour_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "head.log")
+            path.write_text(coloured(self.HEAD) + "\n\x1b]8;;https://example.invalid\x07link\x1b]8;;\x07\n")
+            text = verdict.read_text(path)
+        self.assertNotIn("\x1b", text)
+        self.assertIn("test result: FAILED. 1 passed; 2 failed;", text)
+
+
+class TitleSequencesKeepTheLinesBetweenThem(unittest.TestCase):
+    """#41382's review F1 (test_reds.py:64): "The OSC pattern is greedy and runs to the last ESC \\ in the log, so
+    plain() deletes every line between two title sequences. Reproduced through cargo_test_verdict.read_text: a head
+    with one new and one existing failure loses the new one, and judge() excuses it."""
+
+    TITLE = "\x1b]0;cargo test\x1b\\"
+
+    def test_a_new_failure_between_two_titles_is_the_changes_own(self):
+        head = log(binary(("hub::turn_cap_tests::caps", "FAILED")),
+                   self.TITLE + binary(("agent_inbox::delivers", "FAILED")), self.TITLE + "done")
+        base = log(binary(("hub::turn_cap_tests::caps", "FAILED")), binary(("agent_inbox::delivers", "ok")))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "head.log")
+            path.write_text(head)
+            text = verdict.read_text(path)
+        self.assertEqual(verdict.failed_names(text), ["agent_inbox::delivers", "hub::turn_cap_tests::caps"])
+        own, notes = verdict.judge(text, None, base, JOB)
+        self.assertTrue(own, notes)
+        self.assertTrue(any(n.startswith("::error") and "agent_inbox::delivers" in n for n in notes), notes)
+
+
 def workflow_paths(workflow: str) -> dict[str, list[str]]:
     """Each trigger's `paths:` globs in WORKFLOW, read without a YAML parser."""
     found, event, inside = {}, None, False
@@ -175,6 +239,34 @@ class Scope(unittest.TestCase):
                 with self.subTest(event=event, path=path):
                     self.assertTrue(any(glob_matches(glob, path) for glob in globs),
                                     f"cmux-tui-spec.yml's {event} paths miss {path}, an input of acpmux's tests")
+
+    def test_the_job_runs_the_tests_of_every_acpmux_crate_acpmux_is_built_from(self):
+        # The job ran `-p acpmux` alone and no hosted job ran the other acpmux-* crates' tests: cmux#42834 changed
+        # what acpmux-book answers and left acpmux-core's test of the old answer red on the base, and cmux#42906
+        # left two more (repaired by cmux#42943). A new acpmux-* path dependency, direct or through another crate,
+        # or a new tests/*.rs of one, joins the job's `suites`. acpmux's own tests/ are not asked for: most of them
+        # run in other jobs.
+        dirs, _ = verdict.crate_inputs(ROOT, self.CRATE)
+        crates = [d for d in dirs if posixpath.basename(d).startswith("acpmux")]
+        self.assertIn("cmux-tui/crates/acpmux-core", crates)
+        workflow = (ROOT / ".github/workflows/cmux-tui-spec.yml").read_text()
+        suites = re.search(r"^ +suites=\(([^)]*)\)$", workflow, re.M).group(1).split()
+        named = {flag: {suites[n + 1] for n, word in enumerate(suites[:-1]) if word == flag}
+                 for flag in ("-p", "--test")}
+        self.assertIn("--lib", suites)
+        with verdict.git_tree.GitTree(ROOT) as tree:
+            for crate in crates:
+                name = posixpath.basename(crate)
+                with self.subTest(crate=name):
+                    self.assertIn(name, named["-p"], f"cmux-tui-spec.yml's acpmux tests job runs no test of {name}: "
+                                                     f"add `-p {name}` to its suites")
+                    if crate == self.CRATE:
+                        continue
+                    targets = {posixpath.basename(path)[:-3] for path in tree.files(f"{crate}/tests", ".rs")
+                               if posixpath.dirname(path) == f"{crate}/tests"}
+                    self.assertEqual(targets - named["--test"], set(),
+                                     f"cmux-tui-spec.yml's acpmux tests job misses {name}'s tests/ files: add "
+                                     "`--test NAME` to its suites for each")
 
 
 class Cli(unittest.TestCase):

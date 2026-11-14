@@ -1,6 +1,13 @@
 {
-  "$comment": "HAND-EDITED source of the cmux.json keys cmux used to read and no longer does (cx-d5b5d). The daemon (cmux-config) embeds this file; scripts/cmux-next/gen-settings-sources.py writes the Swift copy (SettingsSchema+RetiredKeys.generated.swift). Loading drops a retired key without a diagnostic, the schema export and Settings never list it, a write is refused as removed (reason shown), and a reset prunes it from an old file. Add an entry when a key is removed; never reuse a retired key for a new meaning.",
+  "$comment": "HAND-EDITED source of the cmux.json keys cmux used to read and no longer does (cx-d5b5d). The daemon (cmux-config) embeds this file; scripts/cmux-next/gen-settings-sources.py writes the Swift copy (SettingsSchema+RetiredKeys.generated.swift). Loading drops a retired key without a diagnostic, the schema export and Settings never list it, a write is refused as removed (reason shown), and a reset prunes it from an old file. Add an entry when a key is removed; never reuse a retired key for a new meaning. replaced_by names the row that took a key's place, and values what the old key's values read as in it (any other reads as the row's default): while the row is unset Settings and the daemon read the old key through it, and every write or reset of the row, and Reset All, removes the old key, so it never applies behind the row.",
   "retired": [
+    {
+      "key": "remote.ultraMode",
+      "reason": "Ultra Connection Mode is now remote.ultra: Off, Auto or Always (true reads as Always)",
+      "replaced_by": "remote.ultra",
+      "values": [{"from": true, "to": "always"}],
+      "why": "Auto became the default on Mac and iPhone (Leo, 2026-11-09: it is a different kind of default, it is auto)."
+    },
     {
       "key": "appearance.tabBarBackground",
       "reason": "every surface draws the one window background",
@@ -67,9 +74,84 @@
       "why": "One close path for pinned and unpinned tabs (Lawrence 2026-11-08, cmux-ad i8: \"make it consistent, match chrome's behavior\"): no kept pinned tab."
     },
     {
+      "key": "tabs.newTabWidgets.greeting",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.projects",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.actions",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.chats",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.styleDots",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.weather",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.weatherCity",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.machines",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.clock",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.timer",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.warmGreeting",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.quote",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.order",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
       "key": "ui.animations.bounce",
       "reason": "no animation passes its place; every spring stops exactly on it",
       "why": "No bounce in any motion (Lawrence 2026-11-10, plans/cmux-next/motion-first-principles-DESIGN.md principle 5): the Subtle choice is gone and None is the only behaviour."
+    },
+    {
+      "key": "phone.allowConnections",
+      "reason": "the Phone Access listener is gone; cmux on iPhone connects through Settings > Mobile (mobile.allowIPhoneConnections)",
+      "why": "The cmux-next Mac app no longer runs the iroh phone listener (2026-11-13): no cmux-next phone used it; cmux on iPhone connects through the iPhone host (mobile.allowIPhoneConnections)."
+    },
+    {
+      "key": "phone.startSessions",
+      "reason": "the Phone Access listener is gone; cmux on iPhone connects through Settings > Mobile (mobile.allowIPhoneConnections)",
+      "why": "The cmux-next Mac app no longer runs the iroh phone listener (2026-11-13): no cmux-next phone used it; cmux on iPhone connects through the iPhone host (mobile.allowIPhoneConnections)."
     }
   ]
 }

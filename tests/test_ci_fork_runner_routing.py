@@ -5,8 +5,25 @@ from __future__ import annotations
 
 import json
 import re
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+import yaml
+import workflow_jobs
+from job_lists_routing import (
+    NIGHTLY,
+    merge_gating_jobs,
+    unresolved_name_jobs,
+    release_environment_jobs,
+    required_checks,
+    unresolved_environment_jobs,
+    workflow_texts,
+)
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -68,7 +85,7 @@ FORK_BRANCHES = (
     FORK_LINUX_ARM64_BRANCH,
 )
 OWNER_ONLY_JOB_IF = "if: github.repository_owner == 'manaflow-ai'"
-EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}")
+EXPRESSION = gh_expressions.EXPRESSION
 JOB_HEADER = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
 INPUT_HEADER = re.compile(r"^      ([A-Za-z0-9_-]+):\s*$")
 # (workflow, stripped line) -> why a Blacksmith label there may stay ungated.
@@ -94,6 +111,31 @@ UNGATED_BLACKSMITH_ALLOWED = {
 RELEASE_PUBLICATION_JOBS = {
     "publish-nightly", "publish-nightly-next-github",
 }
+# Which release job may keep that fallback is a choice, so the set stays hand-kept, but
+# every nightly.yml job that can run under a release environment must be classified:
+# exempt above, or here with why it keeps the owner fork branch like any other job.
+# test_every_release_environment_job_is_classified fails on a new one.
+RELEASE_JOBS_FORK_GATED = {
+    "build-sign-notarize-nightly": "signs and notarizes on the nightly mini; its runs-on starts with the owner fork branch",
+    "recover-nightly-next-notarization": "finishes a pending notarization on the nightly mini; starts with the owner fork branch",
+    "keep-published-dsyms": "uploads dSYMs after publication; starts with the owner fork branch",
+    "generate-nightly-deltas": "builds Sparkle deltas on the nightly mini; starts with the owner fork branch",
+    "republish-nightly-deltas": "re-uploads deltas to the release; starts with the owner fork branch",
+    "publish-release-notes": "publishes release notes; runs on GitHub-hosted ubuntu-24.04 behind the owner fork branch",
+    "nightly-next-one": "builds, signs, notarizes and publishes nightly-next on the signing Mac; starts with the owner fork branch",
+}
+
+
+def unclassified_release_jobs(jobs: dict) -> set[str]:
+    """Release-environment jobs neither exempt nor named as fork-gated. A job whose environment
+    cannot be resolved counts too: it may be a release job."""
+    candidates = release_environment_jobs(jobs) | unresolved_environment_jobs(jobs)
+    return candidates - RELEASE_PUBLICATION_JOBS - set(RELEASE_JOBS_FORK_GATED)
+
+
+def stale_release_classifications(jobs: dict) -> set[str]:
+    """Classified names that are not release-environment jobs (renamed, removed or moved)."""
+    return (RELEASE_PUBLICATION_JOBS | set(RELEASE_JOBS_FORK_GATED)) - release_environment_jobs(jobs)
 # (workflow, dispatch input) -> why its Blacksmith default and choices may be
 # read before the fork branch.
 UNTRANSLATED_DISPATCH_INPUTS: dict[tuple[str, str], str] = {}
@@ -134,13 +176,71 @@ TRUSTED_RUNNER_EXPRESSION = (
 )
 TRUSTED_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
 # Merge-gating checks: a ruleset requires them, so they must not depend on one runner provider.
-TRUSTED_RUNNER_JOBS = (
-    ("backend-migrations.yml", "plan"),
-    ("backend-migrations.yml", "apply-staging"),
-    ("backend-migrations.yml", "apply-production"),
-    ("backend-migrations.yml", "gate"),
-    ("web-complexity-trusted.yml", "complexity"),
-)
+# Derived, not hand-kept: every job that reports a context in REQUIRED_CHECKS
+# (scripts/ci/required_status_checks.py, kept honest by required-checks-drift.yml), plus the
+# jobs it needs. The hand list missed cla.yml's CLAAssistant and cla-policy-guard.yml's validate.
+# (workflow, job) -> why a merge-gating job takes another route.
+TRUSTED_RUNNER_EXEMPT = {
+    ("merge-group-policy-checks.yml", "cla-assistant"): (
+        "merge_group-only restatement of a check every queued pull request already passed: one echo "
+        "step, permissions {}, no checkout; it routes on LINUX_RUNNER / RUNNER_POOLS.linux_4, which "
+        "the Linux failover variables can move between providers"
+    ),
+    ("merge-group-policy-checks.yml", "cla-policy-guard"): (
+        "merge_group-only restatement of a check every queued pull request already passed: one echo "
+        "step, permissions {}, no checkout; it routes on LINUX_RUNNER / RUNNER_POOLS.linux_4, which "
+        "the Linux failover variables can move between providers"
+    ),
+}
+# (workflow, job) -> why a job whose name could report a required context only through a part nothing resolves
+# (job_lists_routing.unresolved_name_jobs) is not one. Any other such job counts as merge-gating, so it must take
+# the trusted route; an entry whose name now resolves, or that could no longer match, is stale.
+UNRESOLVED_NAME_EXEMPT = {
+    ("ci-compile-attribution.yml", "report"): (
+        "workflow_run/workflow_dispatch report job named by the analysis headline of a finished run; it reports "
+        "on that run's commit after the fact, never a pull request's required context"
+    ),
+    ("ci-guard-attribution.yml", "report"): (
+        "workflow_run report job named by the analysis headline of a finished run; it reports on that run's "
+        "commit after the fact, never a pull request's required context"
+    ),
+    ("rust-workspaces.yml", "workspace"): (
+        "named by matrix.root, a Cargo workspace directory from the plan job (its working-directory and cache "
+        "key), never one of the required context names"
+    ),
+}
+# (workflow, job) -> why a job outside the required contexts still takes the trusted route.
+TRUSTED_RUNNER_EXTRA_JOBS = {
+    ("web-complexity-trusted.yml", "complexity"): (
+        "no longer required on main, but it reads untrusted pull request source as data under "
+        "pull_request_target, so only an ephemeral runner may take it"
+    ),
+}
+# Parser-regression anchors: a derivation that loses these has stopped reading the workflows.
+TRUSTED_RUNNER_ANCHORS = {("backend-migrations.yml", "gate"), ("cla.yml", "CLAAssistant")}
+
+
+def trusted_runner_jobs(texts: dict[str, str]) -> set[tuple[str, str]]:
+    return ((merge_gating_jobs(texts, required_checks(), UNRESOLVED_NAME_EXEMPT) - set(TRUSTED_RUNNER_EXEMPT))
+            | set(TRUSTED_RUNNER_EXTRA_JOBS))
+
+
+def trusted_runner_route_errors(texts: dict[str, str]) -> dict[tuple[str, str], str]:
+    """Each merge-gating job whose runs-on is not exactly the trusted selector, with the reason."""
+    errors: dict[tuple[str, str], str] = {}
+    for workflow, job in sorted(trusted_runner_jobs(texts)):
+        text = texts.get(workflow)
+        body = workflow_jobs.jobs(text).get(job) if text else None
+        if body is None:
+            errors[(workflow, job)] = f"{workflow} has no job {job}"
+            continue
+        runs_on = workflow_jobs.runs_on(body)
+        if not TRUSTED_RUNNER_LINE.match(f"runs-on: {runs_on}"):
+            errors[(workflow, job)] = f"runs-on is not the trusted selector: {runs_on}"
+    return errors
+
+
+TRUSTED_RUNNER_JOBS = tuple(sorted(trusted_runner_jobs(workflow_texts())))
 
 # A fork pull request into manaflow-ai runs with repository_owner ==
 # 'manaflow-ai', so the owner branches above do not catch it. Before any
@@ -594,7 +694,11 @@ def fork_pull_request_gate_error(
     if not selector.search(line):
         return None
     line = FORK_WRAPPED_POOL_READ.sub(r"\1", line)
-    if selector.search(EXPRESSION.sub("", line)):
+    try:
+        outside = EXPRESSION.sub("", line)
+    except gh_expressions.Unterminated:
+        return "has a ${{ that does not end on its line, which the guard cannot read"
+    if selector.search(outside):
         return "reads a runner selector outside a ${{ }} expression"
     for expression in EXPRESSION.findall(line):
         try:
@@ -605,6 +709,79 @@ def fork_pull_request_gate_error(
         if error:
             return error
     return None
+
+
+def excludes_fork_pull_request(condition: object) -> bool:
+    """Prove a job cannot start on a fork PR; unknown conditions stay checked.
+
+    Only evaluate facts guaranteed by a fork pull_request event. In particular,
+    a same-repository comparison somewhere in an OR is not itself a gate.
+    """
+    if isinstance(condition, bool):
+        return not condition
+    if not isinstance(condition, str) or not condition.strip():
+        return False
+    source = condition.strip()
+    if source.startswith("${{") and source.endswith("}}"):
+        source = source[3:-2].strip()
+
+    def known(node: tuple) -> bool | None:
+        kind = node[0]
+        if kind in ("and", "or"):
+            values = [known(child) for child in node[1]]
+            decisive = kind == "or"
+            if decisive in values:
+                return decisive
+            if all(value is not None for value in values):
+                return not decisive
+        elif kind == "not":
+            value = known(node[1])
+            return None if value is None else not value
+        elif kind == "literal" and node[1] in ("true", "false"):
+            return node[1] == "true"
+        elif kind == "cmp" and node[1] in ("==", "!="):
+            left, right = node[2:]
+            if left == ("ref", "github.repository"):
+                left, right = right, left
+            if (left == ("ref", "github.event.pull_request.head.repo.full_name")
+                    and right == ("ref", "github.repository")):
+                return node[1] == "!="
+            if right == ("ref", "github.event_name"):
+                left, right = right, left
+            if (left == ("ref", "github.event_name") and right[0] == "literal"
+                    and right[1].startswith("'")):
+                event = right[1][1:-1].replace("''", "'").lower()
+                return (event == "pull_request") == (node[1] == "==")
+        return None
+
+    try:
+        return known(parse_expression(source)) is False
+    except ExpressionSyntaxError:
+        return False
+
+
+def fork_excluded_job_lines(text: str) -> set[int]:
+    """Whole source lines belonging only to jobs proven unreachable by forks.
+
+    Use YAML marks, not indentation/header regexes: quoted keys and alternate
+    indentation must not leak an exemption into a sibling. Aliases can share
+    source with an unguarded consumer, so leave those workflows fully checked.
+    Inline/flow mappings likewise remain checked rather than exempting a line
+    that could contain another job or workflow-level value.
+    """
+    jobs = workflow_jobs.jobs(text)
+    if any(isinstance(token, yaml.tokens.AliasToken) for token in yaml.scan(text)):
+        return set()
+    document = yaml.compose(text)
+    excluded = set()
+    for key, value in document.value:
+        if key.value != "jobs" or not isinstance(value, yaml.MappingNode) or value.flow_style:
+            continue
+        for job_key, job_value in value.value:
+            if (isinstance(job_value, yaml.MappingNode) and not job_value.flow_style
+                    and excludes_fork_pull_request(jobs[job_key.value].get("if"))):
+                excluded.update(range(job_key.start_mark.line + 2, job_value.end_mark.line + 1))
+    return excluded
 
 
 def pull_request_workflows() -> list[Path]:
@@ -789,7 +966,11 @@ def ungated_blacksmith_labels(name: str, text: str) -> list[str]:
         for raw in lines:
             if not re.match(r"^\s*runs-on:", raw):
                 continue
-            for expression in EXPRESSION.findall(raw):
+            try:
+                found = EXPRESSION.findall(raw)
+            except gh_expressions.Unterminated:
+                return False  # a runs-on whose `${{` ends on a later line: not shown translated
+            for expression in found:
                 if read.search(expression) and not _gated_expression(expression):
                     return False
         return True
@@ -827,11 +1008,16 @@ def ungated_blacksmith_labels(name: str, text: str) -> list[str]:
             or (name, current_input) in UNTRANSLATED_DISPATCH_INPUTS
         ):
             continue
-        expressions = [e for e in EXPRESSION.findall(raw) if BLACKSMITH_LABEL.search(e)]
+        try:
+            # A `${{` that does not end on this line is read as not gated: the error below names it.
+            expressions = [e for e in EXPRESSION.findall(raw) if BLACKSMITH_LABEL.search(e)]
+            outside = EXPRESSION.sub("", raw)
+        except gh_expressions.Unterminated:
+            expressions, outside = [], raw
         if expressions and all(_gated_expression(e, explicit_input_first=True) for e in expressions):
             # A label outside every expression (e.g. `group: blacksmith-...-${{ }}`)
             # is still selectable.
-            if not BLACKSMITH_LABEL.search(EXPRESSION.sub("", raw)):
+            if not BLACKSMITH_LABEL.search(outside):
                 continue
         errors.append(
             f"{name}:{number}: {label} is selectable outside manaflow-ai, where no "
@@ -1018,9 +1204,12 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         failures = []
         for path in fork_exercised_workflows():
             text = path.read_text(encoding="utf-8")
+            excluded_lines = fork_excluded_job_lines(text)
             dispatch_inputs_are_empty = not has_workflow_call_trigger(text)
             for number, line in enumerate(text.splitlines(), start=1):
                 if line.lstrip().startswith("#"):
+                    continue
+                if number in excluded_lines:
                     continue
                 if not (
                     OWNED_RUNNER_VARIABLE.search(line)
@@ -1042,6 +1231,74 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                     failures.append(f"{path.name}:{number} {error}: {line.strip()}")
         self.assertEqual(failures, [])
         self.assertGreater(checked, 0)
+
+    def test_job_condition_proves_fork_exclusion_without_trusting_unknowns(self) -> None:
+        same = "github.event.pull_request.head.repo.full_name == github.repository"
+        pr = "github.event_name == 'pull_request'"
+        manual = "github.event_name == 'workflow_dispatch'"
+        for condition in (same, f"{manual} || ({pr} && {same})",
+                          f"success() && ({same})", f"${{{{ {same} }}}}",
+                          f"!({pr})", False):
+            with self.subTest(excluded=condition):
+                self.assertTrue(excludes_fork_pull_request(condition))
+        for condition in (None, "", True, pr, f"{same} || always()",
+                          f"({manual} || {pr}) && (vars.ALLOW || {same})",
+                          f"!({same})", "github.repository_owner == 'manaflow-ai'",
+                          "inputs.trusted", "'false'", f"{same} ||", f"{same} || true"):
+            with self.subTest(still_checked=condition):
+                self.assertFalse(excludes_fork_pull_request(condition))
+
+    def test_job_gate_does_not_exempt_sibling_or_workflow_env(self) -> None:
+        safe = ("${{ github.event_name == 'pull_request' && "
+                "github.event.pull_request.head.repo.full_name != github.repository && "
+                "'macos-26' || vars.MACOS_RUNNER_PR }}")
+        unsafe = "${{ vars.MACOS_RUNNER_PR }}"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "proof.yml"
+            cases = (
+                (safe, "", True), (unsafe, "", False),
+                (safe, f"env:\n  guarded:\n    LABEL: {unsafe}\n", False),
+            )
+            for sibling, env, passes in cases:
+                for sibling_key, indent in (("sibling", "  "), ('"sibling"', "  "),
+                                            ("'sibling'", "    ")):
+                    with self.subTest(sibling=sibling, env=env, key=sibling_key, indent=indent):
+                        path.write_text(
+                            env + "on:\n  pull_request:\njobs:\n"
+                            f"{indent}guarded:\n{indent}  if: >-\n"
+                            f"{indent}    github.event_name == 'workflow_dispatch' ||\n"
+                            f"{indent}    (github.event_name == 'pull_request' &&\n"
+                            f"{indent}     github.event.pull_request.head.repo.full_name == github.repository)\n"
+                            f"{indent}  runs-on: {unsafe}\n{indent}{sibling_key}:\n"
+                            f"{indent}  runs-on: {sibling}\n"
+                            f"{indent}checked:\n{indent}  runs-on: {safe}\n"
+                        )
+                        with patch(__name__ + ".fork_exercised_workflows", return_value=[path]):
+                            if passes:
+                                self.test_fork_pull_requests_into_manaflow_ai_never_reach_an_owned_runner_label()
+                            else:
+                                with self.assertRaises(AssertionError):
+                                    self.test_fork_pull_requests_into_manaflow_ai_never_reach_an_owned_runner_label()
+
+    def test_job_gate_keeps_shared_source_and_inline_jobs_checked(self) -> None:
+        unsafe = "${{ vars.MACOS_RUNNER_PR }}"
+        same = "github.event.pull_request.head.repo.full_name == github.repository"
+        fixtures = (
+            f"jobs:\n  guarded: &job\n    if: {same}\n    runs-on: {unsafe}\n"
+            "  sibling:\n    <<: *job\n    if: true\n",
+            "jobs: {guarded: {if: false, runs-on: macos-26}, "
+            "sibling: {runs-on: '${{ vars.MACOS_RUNNER_PR }}'}}\n",
+            f"jobs:\n  guarded:\n    if: {same}\n    runs-on: {unsafe}\n"
+            f"env:\n  LABEL: {unsafe}\n",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "proof.yml"
+            for fixture in fixtures:
+                with self.subTest(fixture=fixture):
+                    path.write_text("on:\n  pull_request:\n" + fixture)
+                    with patch(__name__ + ".fork_exercised_workflows", return_value=[path]):
+                        with self.assertRaisesRegex(AssertionError, "MACOS_RUNNER_PR"):
+                            self.test_fork_pull_requests_into_manaflow_ai_never_reach_an_owned_runner_label()
 
     def test_pull_request_xcode_pin_follows_the_same_repository_lane(self) -> None:
         """A fork PR leaves MACOS_RUNNER_PR, so it must leave its Xcode pin too.
@@ -1250,14 +1507,142 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertEqual(errors, [], "\n" + "\n".join(errors))
     def test_merge_gating_checks_route_through_the_trusted_runner(self) -> None:
         """A GitHub Actions outage must not stop every merge; Blacksmith carries them."""
-        for workflow, job in TRUSTED_RUNNER_JOBS:
-            with self.subTest(workflow=workflow, job=job):
-                text = (WORKFLOWS / workflow).read_text(encoding="utf-8")
-                block = re.search(rf"(?ms)^  {re.escape(job)}:\n(.*?)(?=^  \S|\Z)", text)
-                self.assertIsNotNone(block, f"{workflow} has no job {job}")
-                runs_on = [line for line in block.group(1).splitlines() if re.match(r"^    runs-on:", line)]
-                self.assertEqual(len(runs_on), 1, runs_on)
-                self.assertRegex(runs_on[0], TRUSTED_RUNNER_LINE)
+        texts = workflow_texts()
+        derived = trusted_runner_jobs(texts)
+        self.assertLessEqual(TRUSTED_RUNNER_ANCHORS, derived)
+        gating = merge_gating_jobs(texts, required_checks(), UNRESOLVED_NAME_EXEMPT)
+        for context in required_checks():
+            with self.subTest(context=context):
+                self.assertTrue(merge_gating_jobs(texts, [context], set(unresolved_name_jobs(texts, [context]))),
+                                f"no job reports {context!r}")
+        # Each unresolved-name exemption still names a job that could match only through an unresolved part.
+        self.assertLessEqual(set(UNRESOLVED_NAME_EXEMPT), unresolved_name_jobs(texts, required_checks()))
+        self.assertTrue(all(reason.strip() for reason in UNRESOLVED_NAME_EXEMPT.values()))
+        # An exemption or extra that names no merge-gating job, or a job that is gone, is stale.
+        self.assertLessEqual(set(TRUSTED_RUNNER_EXEMPT), gating)
+        self.assertEqual(set(TRUSTED_RUNNER_EXTRA_JOBS) & gating, set())
+        self.assertEqual(trusted_runner_route_errors(texts), {})
+
+    def test_a_new_merge_gating_job_off_the_trusted_runner_fails(self) -> None:
+        """The #36559 class: a required check split into a new job that nobody lists."""
+        texts = workflow_texts()
+        fixture = (
+            "on:\n  pull_request:\njobs:\n"
+            "  build-fixture:\n    runs-on: ${{ vars.LINUX_RUNNER }}\n    steps:\n      - run: true\n"
+            "  gate-fixture:\n    name: backend migrations applied\n    needs: build-fixture\n"
+            f"    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n    steps:\n      - run: true\n"
+        )
+        errors = trusted_runner_route_errors({**texts, "fixture.yml": fixture})
+        self.assertEqual(set(errors), {("fixture.yml", "build-fixture")})
+        self.assertIn(("fixture.yml", "gate-fixture"), trusted_runner_jobs({**texts, "fixture.yml": fixture}))
+
+    def test_a_merge_gating_job_whose_name_is_an_expression_is_checked(self) -> None:
+        """Codex: `name: ${{ 'CLA policy guard' }}` was compared as written, so a required check moved to
+        ubuntu-24.04 passed. workflow_jobs.name_values reads literal expressions, and a name nothing resolves
+        counts as gating, so the guard checks it."""
+        texts = workflow_texts()
+        for name, expression in (("literal-gate-fixture", "${{ 'backend migrations applied' }}"),
+                                 ("branch-gate-fixture", "${{ inputs.x && 'backend migrations applied' || 'other' }}"),
+                                 ("input-gate-fixture", "${{ inputs.check }}")):
+            with self.subTest(job=name):
+                fixture = (f"on:\n  pull_request:\njobs:\n  {name}:\n    name: \"{expression}\"\n"
+                           "    runs-on: ubuntu-24.04\n    steps:\n      - run: true\n")
+                errors = trusted_runner_route_errors({**texts, "fixture.yml": fixture})
+                self.assertEqual(set(errors), {("fixture.yml", name)})
+
+    def test_a_merge_gating_job_named_by_an_expression_on_the_trusted_route_stays_green(self) -> None:
+        texts = workflow_texts()
+        fixture = ("on:\n  pull_request:\njobs:\n  literal-gate-fixture:\n"
+                   "    name: \"${{ 'backend migrations applied' }}\"\n"
+                   f"    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n    steps:\n      - run: true\n")
+        self.assertIn(("fixture.yml", "literal-gate-fixture"), trusted_runner_jobs({**texts, "fixture.yml": fixture}))
+        self.assertEqual(trusted_runner_route_errors({**texts, "fixture.yml": fixture}), {})
+
+    def test_a_release_environment_in_another_case_is_unclassified(self) -> None:
+        """Codex: GitHub matches environment names without case; `environment: Release` is a release job."""
+        jobs = workflow_jobs.jobs(NIGHTLY)
+        for name, environment in (("case-fixture", "Release"), ("upper-fixture", {"name": "RELEASE-NEXT"}),
+                                  ("matrix-case-fixture", "${{ matrix.environment }}")):
+            with self.subTest(job=name):
+                job = {"environment": environment, "runs-on": "blacksmith-4vcpu-ubuntu-2404",
+                       "strategy": {"matrix": {"environment": ["Release"]}}}
+                self.assertEqual(unclassified_release_jobs({**jobs, name: job}), {name})
+
+    def test_a_listed_release_job_in_another_case_stays_green(self) -> None:
+        jobs = workflow_jobs.jobs(NIGHTLY)
+        listed = workflow_jobs.copy_job(jobs["publish-release-notes"], {"environment": "Release-Next"})
+        fixture = {**jobs, "publish-release-notes": listed}
+        self.assertEqual(unclassified_release_jobs(fixture), set())
+        self.assertEqual(stale_release_classifications(fixture), set())
+
+    def test_a_merge_gating_job_whose_header_carries_a_comment_is_checked(self) -> None:
+        """`  gate-x: # note` is a job to GitHub; it must be route-checked, not reported missing or
+        folded into the job above it."""
+        texts = workflow_texts()
+        fixture = (
+            "on:\n  pull_request:\njobs:\n"
+            "  build-fixture: # split out of gate-fixture\n    runs-on: ${{ vars.LINUX_RUNNER }}\n"
+            "    steps:\n      - run: echo \"${{ secrets['SENTRY_AUTH_TOKEN'] }}\"\n"
+            "  gate-fixture: # the required context\n    name: backend migrations applied\n"
+            f"    needs: build-fixture\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n    steps:\n      - run: true\n"
+        )
+        errors = trusted_runner_route_errors({**texts, "fixture.yml": fixture})
+        self.assertEqual(set(errors), {("fixture.yml", "build-fixture")})
+        self.assertIn("runs-on is not the trusted selector", errors[("fixture.yml", "build-fixture")])
+
+    def test_a_listed_merge_gating_job_on_the_trusted_route_stays_green(self) -> None:
+        texts = workflow_texts()
+        fixture = (
+            "on:\n  pull_request:\njobs:\n"
+            "  gate-fixture: # the required context\n    name: backend migrations applied\n"
+            f"    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n    steps:\n      - run: true\n"
+        )
+        self.assertIn(("fixture.yml", "gate-fixture"), trusted_runner_jobs({**texts, "fixture.yml": fixture}))
+        self.assertEqual(trusted_runner_route_errors({**texts, "fixture.yml": fixture}), {})
+
+    def test_every_release_environment_job_is_classified(self) -> None:
+        jobs = workflow_jobs.jobs(NIGHTLY)
+        self.assertIn("publish-nightly", release_environment_jobs(jobs))
+        self.assertEqual(RELEASE_PUBLICATION_JOBS & set(RELEASE_JOBS_FORK_GATED), set())
+        self.assertEqual(unclassified_release_jobs(jobs), set())
+        self.assertEqual(stale_release_classifications(jobs), set())
+
+    def test_a_new_release_environment_job_must_be_classified(self) -> None:
+        jobs = workflow_jobs.jobs(NIGHTLY)
+        for env in ("release-next", "${{ needs.decide.outputs.environment }}",
+                    "${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}"):
+            with self.subTest(env=env):
+                fixture = {**jobs, "publish-fixture": {"environment": env, "runs-on": "blacksmith-4vcpu-ubuntu-2404"}}
+                self.assertEqual(unclassified_release_jobs(fixture), {"publish-fixture"})
+        other = {**jobs, "reel-fixture": {"environment": "pr-media"}}
+        self.assertEqual(unclassified_release_jobs(other), set())
+
+    def test_a_release_environment_from_a_matrix_or_an_unknown_expression_is_unclassified(self) -> None:
+        """`environment: ${{ matrix.environment }}` with release in the matrix is a release job, and an
+        environment nothing can resolve might be one: neither may pass as non-release."""
+        jobs = workflow_jobs.jobs(NIGHTLY)
+        bracket = {"run": "gh release upload", "env": {"TOKEN": "${{ secrets['CMUX_RELEASE_APP_KEY'] }}"}}
+        for name, job in (
+            ("matrix-fixture", {"environment": "${{ matrix.environment }}",
+                                "strategy": {"matrix": {"environment": ["staging", "release"]}}, "steps": [bracket]}),
+            ("matrix-include-fixture", {"environment": {"name": "${{ matrix.env }}"},
+                                        "strategy": {"matrix": {"include": [{"env": "release-next"}]}}, "steps": [bracket]}),
+            ("matrix-json-fixture", {"environment": "${{ matrix.environment }}",
+                                     "strategy": {"matrix": "${{ fromJSON(needs.plan.outputs.matrix) }}"}, "steps": [bracket]}),
+            ("input-fixture", {"environment": "${{ inputs.environment }}", "steps": [bracket]}),
+        ):
+            with self.subTest(job=name):
+                self.assertEqual(unclassified_release_jobs({**jobs, name: job}), {name})
+        staging = {"environment": "${{ matrix.environment }}", "strategy": {"matrix": {"environment": ["staging"]}}}
+        self.assertEqual(unclassified_release_jobs({**jobs, "staging-fixture": staging}), set())
+
+    def test_a_listed_release_job_with_a_matrix_environment_stays_green(self) -> None:
+        jobs = workflow_jobs.jobs(NIGHTLY)
+        listed = workflow_jobs.copy_job(jobs["publish-release-notes"], {
+            "environment": "${{ matrix.environment }}", "strategy": {"matrix": {"environment": ["release", "release-next"]}}})
+        fixture = {**jobs, "publish-release-notes": listed}
+        self.assertEqual(unclassified_release_jobs(fixture), set())
+        self.assertEqual(stale_release_classifications(fixture), set())
 
     def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
         self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])

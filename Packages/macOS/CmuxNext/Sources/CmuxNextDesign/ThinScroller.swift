@@ -48,8 +48,8 @@ public final class ThinScroller: NSScroller {
         set { update { $0.autoHides = newValue } }
     }
 
-    /// True: the pointer near the edge reveals a hidden knob. False (the terminal, whose last
-    /// column belongs to the terminal): the pointer only holds and widens a knob already shown.
+    /// True (the default, the terminal's too): the pointer near the edge reveals a hidden knob.
+    /// False: the pointer only holds and widens a knob already shown.
     public var revealsNearPointerAtRest: Bool {
         get { presence.revealsNearPointerAtRest }
         set { update { $0.revealsNearPointerAtRest = newValue } }
@@ -173,7 +173,11 @@ public final class ThinScroller: NSScroller {
     /// The pointer moved over the scroll view to `point` (the scroll view's coordinates, the
     /// scroller's frame's space), or left it (nil). Near the trailing edge (a sideways scroller's
     /// bottom edge) reveals and widens the knob.
-    func pointerMoved(to point: CGPoint?) {
+    ///
+    /// - Parameter point: The pointer in the scroll view's coordinates, or nil when it left the view.
+    ///   The scroller's own tracking area calls it; a host that builds the scroller under the
+    ///   pointer calls it once so the knob shows before the next move.
+    public func pointerMoved(to point: CGPoint?) {
         let near: Bool = {
             guard let point else { return false }
             guard isHorizontal else {

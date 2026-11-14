@@ -35,8 +35,28 @@ use super::*;
 use crate::store::{ColdPreview, PreviewMessage};
 
 /// The `dir` and `kind` of the unlogged hub event that says a chat's archive came or went
-/// (`cold_changed`); `server::deliver` sends it as a `session_changed`.
+/// (`cold_changed`); `server::deliver` sends it as a `session_changed`. Its `dir` also routes
+/// any other unlogged row change (`row_notice`), whose `kind` names it.
 pub(crate) const COLD_CHANGED: &str = "cold_archive";
+
+/// An unlogged event of `session`'s row: `dir` routes it (`server::deliver`), `kind` names it.
+fn unlogged_row_event(session: &Session, kind: &str) -> HubEvent {
+    HubEvent {
+        session_id: session.id.clone(),
+        record: Arc::new(EventRecord {
+            seq: 0,
+            at: now_ms(),
+            dir: COLD_CHANGED.into(),
+            kind: kind.into(),
+            msg: json!({}),
+            host_seq: None,
+        }),
+        remote: None,
+        update_line: Default::default(),
+        row: Default::default(),
+        list_seq: 0,
+    }
+}
 
 /// The messages a preview keeps.
 const PREVIEW_MESSAGES: usize = 3;
@@ -226,20 +246,13 @@ impl Hub {
     /// Tells the watchers `session`'s row changed: its `coldArchive` came or went. Not a logged
     /// record (an append would bring the archive back), so it has no seq.
     pub(super) fn cold_changed(&self, session: &Session) {
-        let _ = self.events.send(HubEvent {
-            session_id: session.id.clone(),
-            record: Arc::new(EventRecord {
-                seq: 0,
-                at: now_ms(),
-                dir: COLD_CHANGED.into(),
-                kind: COLD_CHANGED.into(),
-                msg: json!({}),
-                host_seq: None,
-            }),
-            remote: None,
-            update_line: Default::default(),
-            row: Default::default(),
-        });
+        let _ = self.events.send(unlogged_row_event(session, COLD_CHANGED));
+    }
+
+    /// Tells the watchers `session`'s own row changed with no logged record (`kind` says what,
+    /// e.g. its time breakdown was seeded): only its cached row goes stale.
+    pub(super) fn row_notice(&self, session: &Session, kind: &str) {
+        let _ = self.events.send_row(session, unlogged_row_event(session, kind));
     }
 
     /// Installs the store's rehydrate hook: the chat's id goes in `cold_rehydrated` and the
@@ -283,7 +296,7 @@ impl Hub {
     pub(super) fn rehydrate_worker(self: &Arc<Self>) {
         let hub = Arc::downgrade(self);
         let wake = self.cold_wake.clone();
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("rehydrate-worker", async move {
             loop {
                 wake.notified().await;
                 let Some(hub) = hub.upgrade() else { return };

@@ -19,6 +19,9 @@ import Testing
 /// there are 2 of them, and they are different sizes"), not at its top gap from the edge.
 @MainActor @Suite(.serialized, .closesItsWindows) struct PaneChromeEvenInsetTests {
     private func load(_ style: ChromeStyle?, density: Density) {
+        // These sweeps check the tab pill's geometry in every style; the flush corner, the default over
+        // flat and default chrome, has its own (`CornerFlushTests`).
+        MainPaneGutterSuites.pinsCornerFlushOff(style != nil)
         let appearance: JSONValue = style.map { .object(["chromeStyle": .string($0.rawValue)]) } ?? .object([:])
         let snapshot = CmuxConfigSnapshot.parse(.object(["appearance": appearance]), validDensities: SettingsApplier.validDensities,
                                                 validMetrics: SettingsApplier.validMetrics)
@@ -77,17 +80,17 @@ import Testing
     }
 
     @Test(arguments: Density.allCases)
-    func theMoreButtonSitsOnThePanesTrailingControlColumn(density: Density) {
+    func theTrailingButtonSitsOnThePanesTrailingControlColumn(density: Density) {
         defer { reset() }
         load(.floating, density: density)
         let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 120, height: PaneChromeMetrics.current.resolvedStripHeight(scale: 2)))
-        toolbar.show(more: true, lit: false)
+        toolbar.show(zoomed: true)
         toolbar.layoutSubtreeIfNeeded()
-        // The fixed trailing slot, at rest and throughout the hover fade.
-        let more = toolbar.moreFrame()
-        let center = toolbar.bounds.maxX - more.midX
-        #expect(more.minY > 0)
+        // The fixed trailing slot (Exit Zoom, or the last pin), at rest and throughout the hover fade.
+        let slot = toolbar.zoomButton.frame
+        let center = toolbar.bounds.maxX - slot.midX
+        #expect(slot.minY > 0)
         #expect(abs(center - Metrics.paneTrailingControlCenter) <= 0.01,
-                "\(density): \"…\" centered \(center) pt from the trailing edge, the column is \(Metrics.paneTrailingControlCenter) pt")
+                "\(density): the trailing button centered \(center) pt from the trailing edge, the column is \(Metrics.paneTrailingControlCenter) pt")
     }
 }

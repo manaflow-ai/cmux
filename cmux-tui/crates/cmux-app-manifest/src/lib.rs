@@ -24,9 +24,11 @@
     )
 )]
 
+pub mod capabilities;
 mod catalog;
 mod cli;
 mod deploy;
+pub mod hidden;
 mod interfaces;
 mod issue;
 pub mod module_store;
@@ -35,7 +37,9 @@ mod presentation;
 mod rules;
 mod scopes;
 mod toolbar;
+mod web_pane;
 
+pub use capabilities::{Capabilities, OpCapability, OpClass, OpScope, scope_info};
 pub use catalog::{CATALOG_SCHEMA, validate_catalog};
 pub use cli::{
     CLI_RESERVED, Conflict, ConflictKind, MCP_TOOL_NAME_MAX, conflicts, first_party_cli_names,
@@ -44,8 +48,12 @@ pub use cli::{
 pub use interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES};
 pub use issue::{Issue, Severity};
 pub use package::{PackageReport, validate_package, validate_package_file};
-pub use scopes::{SCOPE_CLASSES, ScopeClass, ScopeInfo, scope_info};
+pub use scopes::{SCOPE_CLASSES, ScopeClass, ScopeInfo};
 pub use toolbar::{OVERRIDABLE_TOOLBAR_ITEMS, SIDEBAR_TOGGLE_ITEM, TOOLBAR_VISIBLE_APP_ITEMS};
+pub use web_pane::{
+    APP_PAGE_SCHEME, PageFileRefusal, STRICT_PAGE_CSP, WebPage, app_page_host, effective_csp,
+    resolve_request, web_pages,
+};
 
 use serde_json::Value;
 use std::sync::OnceLock;
@@ -91,6 +99,7 @@ pub fn validate_manifest(manifest: &Value) -> Vec<Issue> {
     if issues.is_empty() {
         issues.extend(rules::check(manifest));
     }
+    issues.extend(hidden::manifest_issues(manifest));
     issues
 }
 

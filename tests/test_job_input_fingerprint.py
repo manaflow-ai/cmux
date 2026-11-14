@@ -19,6 +19,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/job_input_fingerprint.py"
@@ -72,6 +79,7 @@ FILES = {
 # What each job's workflow step passes (the real values come from the runner).
 TOOLCHAIN = {
     "fast-tier": {
+        "suite_scope": "all",
         "xcode": "Xcode 26.0 Build version 17A324",
         "macos": "26.0.1",
         "macos_build": "25A362",
@@ -200,6 +208,10 @@ class JobInputFingerprint(unittest.TestCase):
         self.assertNotEqual(base, self.key("fast-tier", macos="26.0.2"))
         self.assertNotEqual(base, self.key("fast-tier", macos_build="25A363"))
         self.assertNotEqual(base, self.key("fast-tier", arch="x86_64"))
+
+    def test_a_handler_only_pass_cannot_stand_in_for_every_swift_suite(self):
+        self.assertNotEqual(self.key("fast-tier", suite_scope="handlers"),
+                            self.key("fast-tier", suite_scope="all"))
 
     def test_the_runner_pool_counts(self):
         # Owned minis, Blacksmith and hosted Macs differ in settings such as Reduce Motion/Transparency.

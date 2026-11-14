@@ -23,6 +23,7 @@ import repoRecoveryGallery from "../conversation/RepoRecoveryCard.gallery";
 import { RepoRecoveryCard } from "../conversation/RepoRecoveryCard";
 import { TurnFooter } from "../conversation/TurnRows";
 import { TurnActionsContext, type TurnActions } from "../conversation/turnActions";
+import { FailedSendsContext, type FailedSends } from "../conversation/promptDeliveryModel";
 import type { Effect } from "./classify";
 
 export type Recorder = (effect: Effect) => void;
@@ -62,6 +63,12 @@ function cloudStartHandlers(record: Recorder) {
     onDismiss: () => record({ kind: "dismiss", what: "not now" }),
     // The plan card's Switch to <team>: the team picker's switch, then the same start goes again.
     onSwitchTeam: inPlace(record, "switch to the person's own team, then the start goes again"),
+    // cloudTooBigActions: a repository or a folder picked (project.browse), or none, then the same prompt goes there.
+    onPickRepo: inPlace(record, "start the prompt in a repository inside the folder"),
+    onPickFolder: inPlace(record, "pick a folder, then the start goes again there"),
+    onStartWithoutFolder: inPlace(record, "start the prompt with no folder"),
+    // openNewCloudChatForStart: a new Cloud chat (palette.newCloudChat) with the same prompt and folder.
+    onOpenNewCloudChat: inPlace(record, "open a new Cloud chat with the same prompt"),
   };
 }
 
@@ -211,6 +218,7 @@ function cloudSignIn(record: Recorder): CloudSignIn {
     openOnMachine: () => NEVER,
     finish: () => NEVER,
     apiKey: inPlace(record, "save an API key on the machine"),
+    gateway: inPlace(record, "run the agent on cmux's gateway"),
     cancel: () => {},
     reserve: () => Promise.resolve(undefined),
     resend: () => NEVER,
@@ -231,6 +239,11 @@ function cloudChatActions(record: Recorder, route: FailureRoute): TurnActions {
     access: { addCredits: () => record({ kind: "out-of-app", what: "add credits" }) },
     route,
   };
+}
+
+/// What App.tsx's `failedSends` holds for a chat whose folder is not trusted yet and whose pane answers for it.
+function cloudChatSends(record: Recorder): FailedSends {
+  return { runs: new Map(), trustFolder: () => record({ kind: "in-place", what: "trust the folder" }) };
 }
 
 type TurnFailureFixture = { id: string; kind: FailureKind; error: string; code?: string; teamMachine?: true };
@@ -314,6 +327,13 @@ const TURN_FAILURES: readonly TurnFailureFixture[] = [
   { id: "cloud-login-missing", kind: "auth", error: "Claude failed to authenticate: credential is missing" },
   { id: "cloud-login-expired", kind: "subscription-login", error: "OAuth token expired (HTTP 401)" },
   { id: "cloud-login-rejected", kind: "auth", error: "HTTP 403 Forbidden" },
+  // The card's three ways in: the machine's team has cmux's gateway (acpmux names it).
+  {
+    id: "cloud-login-gateway",
+    kind: "subscription-login",
+    error:
+      "Claude is not signed in here. Click Set up Claude Code credentials on this message to sign it in from your Mac; the message is sent again. Or click Use cmux's gateway: this machine's team has an account there. (Claude said: Not logged in · Please run /login)",
+  },
 ];
 
 /// Every failure kind, so a kind added to failureCopy.ts is a typecheck error here until it has a fixture.
@@ -367,7 +387,9 @@ const TURN_FAILURE_STATES: ErgoState[] = TURN_FAILURES.map((fixture) => {
     region: ".cv-turn-error, .cv-turn-actions .cv-turn-auth-action",
     render: (record) => (
       <TurnActionsContext.Provider value={cloudChatActions(record, route)}>
-        <TurnFooter row={row} />
+        <FailedSendsContext.Provider value={cloudChatSends(record)}>
+          <TurnFooter row={row} />
+        </FailedSendsContext.Provider>
       </TurnActionsContext.Provider>
     ),
   };

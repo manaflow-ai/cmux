@@ -483,3 +483,36 @@ async fn a_far_or_malformed_expiry_is_an_invalid_reply() {
         assert!(machine.read(ACCESS_PATH).is_none());
     }
 }
+
+/// #41072 review: a holder that signed in with a device code while the Mac had no usable Codex
+/// login keeps renewing that account once the Mac signs in to another one and the yes stands (a
+/// DEV build's needs no ask): the Mac's grant never replaces it, and renewal never fails as
+/// `AccountChanged`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_code_grant_keeps_renewing_when_the_mac_signs_in_to_another_account() {
+    let root = tempfile::tempdir().unwrap();
+    let script = counting_holder("expiry=2147483647");
+    let broker = broker(root.path(), &script, fixed_scope(scope()), LONG);
+    let mac = Arc::new(Mutex::new(None::<Grant>));
+    let m = mac.clone();
+    broker.set_local_sign_in(Some(Arc::new(move || {
+        let grant = m.lock().unwrap().clone();
+        async move { grant }.boxed()
+    })));
+    let first = broker.refresh_access(false).await.unwrap();
+    assert_eq!((first.access_token.as_str(), first.account.as_str()), ("access-1", "acct-1"));
+    *mac.lock().unwrap() = Some(Grant {
+        access_token: "mac-other".into(),
+        account: "acct-other".into(),
+        expires_at: now() + 3600.0,
+    });
+    let renewed = broker.refresh_access(false).await.unwrap();
+    assert_eq!((renewed.access_token.as_str(), renewed.account.as_str()), ("access-2", "acct-1"));
+    // The Mac signed in to the same account: its grant takes over, as before.
+    *mac.lock().unwrap() = Some(Grant {
+        access_token: "mac-same".into(),
+        account: "acct-1".into(),
+        expires_at: now() + 3600.0,
+    });
+    assert_eq!(broker.refresh_access(false).await.unwrap().access_token, "mac-same");
+}

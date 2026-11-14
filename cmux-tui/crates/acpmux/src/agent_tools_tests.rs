@@ -1,3 +1,41 @@
+/// `super::resolve` with this machine's answers left out: no installed helper is looked up and
+/// control is granted, so a test never depends on (or writes) the account's machine consent. A
+/// cloud-joined fleet Mac has `~/.acpmux/machine-consent/enrolled.json` and no control grant,
+/// which took `cmux-cua` out of every list there.
+fn resolve(inputs: &super::Inputs) -> super::AgentTools {
+    super::resolve_gated(inputs, super::cua_helper::installed, || true)
+}
+
+/// A machine whose control consent is not granted (a cloud-joined machine before the person
+/// allows control) gets no `cmux-cua` server; every other server stays.
+#[test]
+fn a_machine_without_control_consent_gets_no_computer_use_server() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-no-control-{}", uuid::Uuid::now_v7()));
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    for name in ["cmux-cua", "optchat-chief"] {
+        std::fs::write(bin.join(name), "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(bin.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let inputs = memory_inputs(&bin, Some(r#"{"agents":{"memory":{"enabled":true}}}"#));
+    let names = |granted: bool| -> Vec<String> {
+        super::resolve_gated(&inputs, |_| None, || granted)
+            .servers
+            .into_iter()
+            .map(|s| s.name)
+            .collect()
+    };
+    let granted = names(true);
+    assert!(granted.iter().any(|n| n == "cmux-cua"), "{granted:?}");
+    let refused = names(false);
+    assert!(!refused.iter().any(|n| n == "cmux-cua"), "{refused:?}");
+    let others: Vec<String> = granted.into_iter().filter(|n| n != "cmux-cua").collect();
+    assert!(!others.is_empty(), "the test needs another server to see it kept");
+    assert_eq!(refused, others);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn chief_turn_tools_contain_no_mac_app_actions() {
     let tools: Vec<_> = super::CHIEF_TURN_TOOLS.split(',').map(str::trim).collect();
@@ -38,6 +76,8 @@ fn memory_inputs(bin: &std::path::Path, cmux_json: Option<&str>) -> super::Input
         subsessions: false,
         displays: None,
         hosted: false,
+        github: false,
+        desktop_lease: None,
     }
 }
 
@@ -50,7 +90,7 @@ fn agent_memory_is_off_until_the_setting_turns_it_on() {
     std::fs::write(&chief, "#!/bin/sh\nexit 0\n").unwrap();
     std::fs::set_permissions(&chief, std::fs::Permissions::from_mode(0o755)).unwrap();
     let names = |json: Option<&str>| -> Vec<String> {
-        super::resolve(&memory_inputs(&root, json)).servers.into_iter().map(|s| s.name).collect()
+        resolve(&memory_inputs(&root, json)).servers.into_iter().map(|s| s.name).collect()
     };
     // Off by default: no file, no key, another value, a file that does not parse.
     for json in [None, Some("{}"), Some(r#"{"agents":{"memory":{"enabled":"yes"}}}"#), Some("{")] {
@@ -61,7 +101,7 @@ fn agent_memory_is_off_until_the_setting_turns_it_on() {
         "{\"agents\": {\"memory\": {\"enabled\": true}}}",
         "{\n// mine\n\"agents.memory.enabled\": true,\n}",
     ] {
-        let tools = super::resolve(&memory_inputs(&root, Some(json)));
+        let tools = resolve(&memory_inputs(&root, Some(json)));
         let memory = tools
             .servers
             .iter()
@@ -98,17 +138,17 @@ fn cmux_cua_falls_back_to_the_nested_helper_app() {
     let cua = |tools: &super::AgentTools| {
         tools.servers.iter().find(|s| s.name == "cmux-cua").map(|s| s.command.clone())
     };
-    let tools = super::resolve(&memory_inputs(&bin, None));
+    let tools = resolve(&memory_inputs(&bin, None));
     assert_eq!(cua(&tools), Some(helper.clone()), "the nested helper stands in");
     // A bin copy (a DEV build) wins over the helper.
     let bin_cua = bin.join("cmux-cua");
     std::fs::write(&bin_cua, "#!/bin/sh\nexit 0\n").unwrap();
     std::fs::set_permissions(&bin_cua, std::fs::Permissions::from_mode(0o755)).unwrap();
-    assert_eq!(cua(&super::resolve(&memory_inputs(&bin, None))), Some(bin_cua.clone()));
+    assert_eq!(cua(&resolve(&memory_inputs(&bin, None))), Some(bin_cua.clone()));
     // Neither: no server.
     std::fs::remove_file(&bin_cua).unwrap();
     std::fs::remove_file(&helper).unwrap();
-    assert_eq!(cua(&super::resolve(&memory_inputs(&bin, None))), None);
+    assert_eq!(cua(&resolve(&memory_inputs(&bin, None))), None);
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -134,7 +174,7 @@ fn own_servers_run_under_the_daemon_prefix() {
         ..memory_inputs(&root, None)
     };
     let servers = |prefix: &[&str]| -> Vec<(String, Vec<String>)> {
-        let tools = super::resolve(&inputs(prefix));
+        let tools = resolve(&inputs(prefix));
         assert!(tools.servers.iter().all(|s| s.command == exe), "{:?}", tools.servers);
         tools.servers.into_iter().map(|s| (s.name, s.args)).collect()
     };
@@ -160,7 +200,7 @@ fn own_servers_run_under_the_daemon_prefix() {
     assert_eq!(servers(&["acp"]), expect(&["acp"]));
     // Per-workspace displays (a Linux cloud machine) still drop the helper v2
     // bridge, which cannot be pinned to a display, under the prefix too.
-    let mut tools = super::resolve(&inputs(&["acp"]));
+    let mut tools = resolve(&inputs(&["acp"]));
     tools.displays = Some(root.join("displays"));
     let env = std::collections::BTreeMap::from([(
         crate::agent_displays::WORKSPACE_KEY.to_owned(),
@@ -427,7 +467,7 @@ fn the_github_status_server_reaches_every_harness_kind() {
         )),
         ..memory_inputs(&root, None)
     };
-    let tools = super::resolve(&inputs).for_session("s1");
+    let tools = resolve(&inputs).for_session("s1");
     let acpmux = crate::acpmux_mcp::SERVER_NAME;
     let acp = tools.acp_servers();
     let entry = acp.as_array().unwrap().iter().find(|s| s["name"] == acpmux).unwrap();
@@ -438,7 +478,7 @@ fn the_github_status_server_reaches_every_harness_kind() {
     let cmux = root.join("cmux");
     std::fs::write(&cmux, "#!/bin/sh\n").unwrap();
     std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let folded = super::resolve(&inputs).for_session("s1").folded();
+    let folded = resolve(&inputs).for_session("s1").folded();
     let upstreams =
         &folded.servers[0].env.iter().find(|(k, _)| k == super::UPSTREAMS_ENV).unwrap().1;
     let upstreams: serde_json::Value = serde_json::from_str(upstreams).unwrap();
@@ -519,16 +559,16 @@ fn the_hosted_mcp_server_is_off_by_default_and_its_config_holds_no_token() {
         ..memory_inputs(&root, None)
     };
     let name = crate::hosted_mcp::SERVER_NAME;
-    let off = super::resolve(&inputs(false));
+    let off = resolve(&inputs(false));
     assert!(off.servers.iter().all(|s| s.name != name), "{:?}", off.servers);
-    let on = super::resolve(&inputs(true)).for_session("s1");
+    let on = resolve(&inputs(true)).for_session("s1");
     let server = on.servers.iter().find(|s| s.name == name).expect("the hosted server");
     assert_eq!(server.args, ["hosted-mcp"]);
     assert_eq!(
         server.env,
         [(crate::hosted_mcp::CMUX_BIN_ENV.to_owned(), cmux.to_string_lossy().into_owned())]
     );
-    let folded = super::resolve(&inputs(true)).for_session("s1").folded();
+    let folded = resolve(&inputs(true)).for_session("s1").folded();
     let upstreams: serde_json::Value = serde_json::from_str(
         &folded.servers[0].env.iter().find(|(k, _)| k == super::UPSTREAMS_ENV).unwrap().1,
     )
@@ -538,6 +578,123 @@ fn the_hosted_mcp_server_is_off_by_default_and_its_config_holds_no_token() {
     assert_eq!(spec["env"], serde_json::json!({"CMUX_BIN": cmux.to_string_lossy()}));
     // No `cmux` CLI to ask the app for a token: no server.
     std::fs::remove_file(&cmux).unwrap();
-    assert!(super::resolve(&inputs(true)).servers.iter().all(|s| s.name != name));
+    assert!(resolve(&inputs(true)).servers.iter().all(|s| s.name != name));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// acpmux audit finding 10: a chat ran five `acpmux *-mcp` processes (secrets, offers,
+/// sub-sessions, forum, acpmux), about 4 MB and 5 threads each, 330 MB and 400 threads at 18
+/// live chats (Leo's Mac, 2026-11-11). Every one of acpmux's own servers in a chat's list now
+/// names one process to run in, `acpmux tools-mcp`, with each server's own env in its env; each
+/// keeps its name and own command, so the tool names the agent sees stay as they were.
+#[test]
+fn a_chat_runs_acpmux_s_own_tool_servers_in_one_process() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-one-helper-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let cmux = root.join("cmux");
+    std::fs::write(&cmux, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let exe = std::path::PathBuf::from("/usr/local/lib/cmux/cmux-tui");
+    let inputs = super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(exe.clone(), vec!["acp".into()])),
+        cua_v2: Some(root.join("cua-v2")),
+        secrets: true,
+        offers: true,
+        subsessions: true,
+        ..memory_inputs(&root, None)
+    };
+    let folded = resolve(&inputs).for_session("s-one").folded();
+    let upstreams =
+        &folded.servers[0].env.iter().find(|(k, _)| k == super::UPSTREAMS_ENV).unwrap().1;
+    let upstreams: serde_json::Value = serde_json::from_str(upstreams).unwrap();
+    let upstreams = upstreams.as_array().unwrap();
+    let own = ["cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux-forum", "acpmux"];
+    let names: Vec<&str> = upstreams.iter().filter_map(|s| s["name"].as_str()).collect();
+    assert_eq!(
+        names,
+        ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux-forum", "acpmux"]
+    );
+    // The process each server runs in: its shared launch, else its own command.
+    let launch = |s: &serde_json::Value| -> serde_json::Value {
+        match s.get("shared") {
+            Some(shared) => serde_json::json!([shared["command"], shared["args"]]),
+            None => serde_json::json!([s["command"], s["args"]]),
+        }
+    };
+    let launches: std::collections::BTreeSet<String> = upstreams
+        .iter()
+        .filter(|s| own.contains(&s["name"].as_str().unwrap()))
+        .map(|s| launch(s).to_string())
+        .collect();
+    assert_eq!(launches.len(), 1, "one helper process per chat, not one per server: {launches:?}");
+    let shared = &upstreams[1]["shared"];
+    assert_eq!(shared["command"], serde_json::json!(exe), "{shared}");
+    assert_eq!(shared["args"], serde_json::json!(["acp", "tools-mcp"]), "{shared}");
+    // Its env has every server's own env: each server's session and caller token, the same values.
+    for server in upstreams.iter().filter(|s| own.contains(&s["name"].as_str().unwrap())) {
+        for (key, value) in server["env"].as_object().unwrap() {
+            assert_eq!(&shared["env"][key], value, "{key} of {}", server["name"]);
+        }
+        // Each keeps its own command, for a `cmux` that starts it alone.
+        assert_eq!(server["args"][0], "acp", "{server}");
+        assert!(server["args"][1].as_str().unwrap().ends_with("-mcp"), "{server}");
+    }
+    assert_eq!(shared["env"]["ACPMUX_SECRET_SESSION"], "s-one", "{shared}");
+    assert_eq!(shared["env"]["ACPMUX_OFFER_SESSION"], "s-one", "{shared}");
+    assert_eq!(shared["env"]["ACPMUX_SESSION_ID"], "s-one", "{shared}");
+    // Computer use is not acpmux's own: it keeps its process.
+    assert!(upstreams[0].get("shared").is_none(), "{}", upstreams[0]);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Leo, 2026-11-10: a session on a Cloud machine gets GitHub's MCP server through the team's
+/// GitHub connection, with no setup there; its config holds no token.
+#[test]
+fn a_cloud_machine_session_gets_the_github_mcp_server_with_no_token_in_its_config() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-github-mcp-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    // The `cmux` CLI, so the `cmux` server exists to fold the github server under.
+    let cmux = root.join("cmux");
+    std::fs::write(&cmux, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let inputs = |github: bool| super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(
+            std::path::PathBuf::from("/usr/local/bin/acpmux"),
+            vec![],
+        )),
+        github,
+        ..memory_inputs(&root, None)
+    };
+    let name = crate::github_mcp::SERVER_NAME;
+    assert!(resolve(&inputs(false)).servers.iter().all(|s| s.name != name));
+    let on = resolve(&inputs(true)).for_session("s1");
+    let server = on.servers.iter().find(|s| s.name == name).expect("the github server");
+    assert_eq!(server.args, ["github-mcp"]);
+    assert!(server.env.iter().all(|(k, v)| !k.contains("TOKEN") && !v.starts_with("ghs_")));
+    let folded = resolve(&inputs(true)).for_session("s1").folded();
+    let upstreams: serde_json::Value = serde_json::from_str(
+        &folded.servers[0].env.iter().find(|(k, _)| k == super::UPSTREAMS_ENV).unwrap().1,
+    )
+    .unwrap();
+    assert!(upstreams.as_array().unwrap().iter().any(|s| s["name"] == name));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn leased_desktops_are_off_until_the_env_names_a_binary_and_owned_by_the_session() {
+    let root = std::env::temp_dir().join(format!("acpmux-desktop-lease-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let name = super::DESKTOP_LEASE_SERVER;
+    assert!(resolve(&memory_inputs(&root, None)).servers.iter().all(|s| s.name != name));
+    let lease = root.join("desktop-lease");
+    let inputs = super::Inputs { desktop_lease: Some(lease.clone()), ..memory_inputs(&root, None) };
+    let tools = resolve(&inputs).for_session("s1").for_session("s2");
+    let server = tools.servers.iter().find(|s| s.name == name).expect("the leased-desktop server");
+    assert_eq!(server.command, lease);
+    assert_eq!(server.args, ["mcp"]);
+    let owners: Vec<_> = server.env.iter().filter(|(k, _)| k == "DESKTOP_LEASE_OWNER").collect();
+    assert_eq!(owners, [&("DESKTOP_LEASE_OWNER".to_owned(), "s2".to_owned())]);
     let _ = std::fs::remove_dir_all(&root);
 }

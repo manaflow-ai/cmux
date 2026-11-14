@@ -9,8 +9,11 @@ mod host_fixture;
 mod input_records;
 mod kitty_file_media;
 mod launch_codec;
+mod output_path;
 mod parser_failure;
 mod parser_order;
+mod parser_queue_memory;
+mod pty_reader_stack;
 mod smart_viewer_exit;
 mod terminal_queries;
 use super::super::shared::control_responses::ControlResponseWaiter;
@@ -212,7 +215,7 @@ fn exited_host_fixture_with_parser() -> (Arc<HostShared>, Receiver<ParserCommand
     exited_host_fixture_with_parser_at(root)
 }
 
-fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease) {
+pub(crate) fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease) {
     let root = std::env::temp_dir().join(format!(
         "cmux-host-record-{name}-{}-{}",
         std::process::id(),

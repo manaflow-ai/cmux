@@ -41,7 +41,13 @@ struct TeamSidebar: View {
                     ForEach(store.teams) { team in
                         row(team)
                     }
-                    if store.teams.isEmpty {
+                    if store.teams.isEmpty, store.awaitsAccountData {
+                        // Teams still loading: never "No teams".
+                        CmuxSpinner(label: Text("Loading teams…"))
+                            .padding(.horizontal, theme.metrics.sideMargin)
+                            .padding(.vertical, 8)
+                            .accessibilityIdentifier("sidebar.teams.loading")
+                    } else if store.teams.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("No teams. Create one to share Macs and workspaces.")
                                 .font(theme.type.rowSubtitle)
@@ -160,7 +166,7 @@ struct TeamSidebar: View {
             }
             .foregroundStyle(theme.colors.label)
             .padding(.horizontal, theme.metrics.sideMargin - theme.metrics.selectedRowInset)
-            .frame(height: theme.metrics.sidebarRowPitch)
+            .frame(minHeight: theme.metrics.sidebarRowPitch)
             .contentShape(.rect)
         }
         .buttonStyle(SidebarRowStyle())

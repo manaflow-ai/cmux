@@ -117,7 +117,14 @@ def run_bench(name, argv, log_dir, timeout):
     except subprocess.TimeoutExpired:
         code = "timeout"
     took = round(time.time() - start, 1)
-    tail = open(log, errors="replace").read().splitlines()[-6:]
+    # A bench that failed shows its launch's reason lines first: the app's own log tail, which follows them, is all
+    # Chromium crash keys when the app died, and pushed the reason out of both a six and a forty line tail.
+    lines = open(log, errors="replace").read().splitlines()
+    tail = lines[-6:]
+    if code != 0:
+        said = [t for t in lines[:-6] if t.startswith("bench-launch: ")][-2:]
+        said += [t[:3500] for t in lines[:-6] if t.startswith("BENCH-LAUNCH ")][-1:]  # the report: exit, crash summary
+        tail = said + tail
     print(f"--- {name}: exit {code} in {took}s", *("    " + t for t in tail), sep="\n", flush=True)
     return {"exit": code, "seconds": took, "log": log}
 
@@ -163,7 +170,12 @@ def stop_load(procs, scratch):
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
+            pass
+        # Whether or not the leader exited: a child that ignores SIGTERM would outlive it (cmux#41767 review F1).
+        try:
             os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
     for name in os.listdir(scratch):
         if name.startswith("w"):
             try:
@@ -476,7 +488,7 @@ def main():
                      *(["--target-hz", str(opts.scroll_target_hz)] if opts.scroll_target_hz is not None else []),
                      *([] if opts.profile else ["--no-trace"]), "--out", o("sidebar")], os.path.join("sidebar", "results.json"),
                     lambda r: rows_sidebar(r, opts.sidebar_size)),
-        "home": ([py, S("home-perf.py"), "--tag", opts.tag, "--out", o("home.json")], "home.json", rows_home),
+        "home": ([py, S("home-perf.py"), *common, "--out", o("home.json")], "home.json", rows_home),
         "acp": ([py, S("agent-engine-bench.py"), *common, "--modes", "own,chromium", "--chats", "2", "--flings", "1",
                  "--rows", str(opts.acp_rows), "--fling-seconds", str(opts.acp_fling_seconds),
                  *(["--target-hz", str(opts.scroll_target_hz)] if opts.scroll_target_hz is not None else []),
@@ -504,6 +516,22 @@ def main():
     finish(opts, budgets, only, runs, values)
 
 
+def prepare_outputs(argv, report_path):
+    """Make the folders a bench writes into: its `--out` folder, or the parent of its `--out` when that is the bench's
+    report file (home-perf.py writes one JSON file at --out). Making the report path itself a folder had home-perf.py
+    end in IsADirectoryError after measuring, so the home rows were never read (cmux#24569). An empty folder an older
+    run left at the report path goes, so the bench can write its file there."""
+    for flag, value in zip(argv, argv[1:]):
+        if flag != "--out":
+            continue
+        if report_path and os.path.abspath(value) == os.path.abspath(report_path):
+            if os.path.isdir(value) and not os.listdir(value):
+                os.rmdir(value)
+            os.makedirs(os.path.dirname(os.path.abspath(value)), exist_ok=True)
+        else:
+            os.makedirs(value, exist_ok=True)
+
+
 def run_phase(phase, only, plan, opts, runs, values):
     """Run each bench of `only` once in `phase` (idle, or under that tier's load), its rows suffixed `@phase`."""
     out = os.path.join(opts.out, phase) if phase else opts.out
@@ -514,9 +542,7 @@ def run_phase(phase, only, plan, opts, runs, values):
     for name in only:
         argv, report, mapper = plan[name]
         # Some benches open files in their --out without making it.
-        for flag, value in zip(argv, argv[1:]):
-            if flag == "--out":
-                os.makedirs(value, exist_ok=True)
+        prepare_outputs(argv, o(report) if report else None)
         if not os.path.exists(argv[1]):  # a bench another lane adds (anim-perf) on a checkout without it
             print(f"\n=== {name}: {os.path.basename(argv[1])} is not in this checkout; its rows stay n/a", flush=True)
             continue

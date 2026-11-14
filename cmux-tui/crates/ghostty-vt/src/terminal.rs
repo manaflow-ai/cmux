@@ -30,6 +30,8 @@ mod replay_rows;
 
 mod settled_replay;
 
+mod alternate_replay;
+
 mod color_override;
 use color_override::*;
 
@@ -82,6 +84,8 @@ const _: () = assert!(
 );
 const MAX_COLOR_OSC_BYTES: usize = 16 * 1024;
 const MOUSE_DEC_MODES: [u16; 8] = [9, 1000, 1002, 1003, 1005, 1006, 1015, 1016];
+/// DEC private mode 2026, synchronized output.
+const SYNCHRONIZED_OUTPUT_MODE: u16 = 2026;
 
 /// Per-terminal Kitty resource limits that every byte-stream emulator must
 /// share to make admission and eviction deterministic.
@@ -731,6 +735,15 @@ impl Terminal {
         self.active_mouse_format
     }
 
+    /// How many synchronized updates (DEC private mode 2026) the program may
+    /// have started so far, counted as the parser meets each `CSI ? 2026 h`.
+    /// A reader that looks at the mode only now and then compares it with
+    /// the count it last saw: a change means a new update began since, even
+    /// when the last one ended and this one started between two looks.
+    pub fn synchronized_update_starts(&self) -> u64 {
+        self.mouse_mode_change_detector.synchronized_update_starts
+    }
+
     fn current_mouse_mode_bits(&self) -> u8 {
         MOUSE_DEC_MODES
             .into_iter()
@@ -988,19 +1001,6 @@ impl Terminal {
 
     fn cursor_pending_wrap(&self) -> bool {
         self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_PENDING_WRAP).unwrap_or(true)
-    }
-
-    fn active_prompt_start_row(&self, cursor_y: u16) -> Option<u16> {
-        let mut prompt_y = (0..=cursor_y).rev().find(|&y| {
-            self.active_row_prompt_semantic(y) == Some(sys::GHOSTTY_ROW_SEMANTIC_PROMPT)
-        })?;
-        while prompt_y > 0
-            && self.active_row_prompt_semantic(prompt_y - 1)
-                == Some(sys::GHOSTTY_ROW_SEMANTIC_PROMPT)
-        {
-            prompt_y -= 1;
-        }
-        Some(prompt_y)
     }
 
     fn active_logical_line_start_row(&self, mut y: u16) -> Option<u16> {
@@ -1611,6 +1611,26 @@ impl Terminal {
         }
         let bytes = unsafe { std::slice::from_raw_parts(s.ptr, s.len) };
         Some(String::from_utf8_lossy(bytes).into_owned())
+    }
+
+    /// Whether [`Terminal::pwd`] would return `expected`, without building a
+    /// `String`. A pwd that is not valid UTF-8 never matches here (`pwd`
+    /// returns it lossily), so a caller then falls back to `pwd`.
+    pub fn pwd_is(&self, expected: Option<&str>) -> bool {
+        let current: Option<sys::GhosttyString> = self
+            .get(sys::GHOSTTY_TERMINAL_DATA_PWD)
+            .ok()
+            .filter(|s: &sys::GhosttyString| s.len != 0 && !s.ptr.is_null());
+        match (current, expected) {
+            (None, None) => true,
+            (Some(s), Some(expected)) => {
+                // SAFETY: the terminal owns `len` bytes at `ptr` until its
+                // next write, and `&self` rules a write out for this borrow.
+                let bytes = unsafe { std::slice::from_raw_parts(s.ptr, s.len) };
+                bytes == expected.as_bytes()
+            }
+            _ => false,
+        }
     }
 
     /// Query a terminal mode (DEC private when `ansi` is false).
@@ -2243,7 +2263,21 @@ impl Terminal {
         if total > max_bytes || graphics.total_len > graphics_budget {
             return Err(Error::OutOfSpace);
         }
-        let mut bytes = Vec::with_capacity(total);
+        // Under an alternate screen, the primary screen and its history go
+        // first, in what the alternate replay left (`alternate_replay`). Not
+        // before a reset, which would clear them.
+        let primary = if reset_before_images {
+            None
+        } else {
+            self.primary_under_alternate_replay(
+                max_bytes - total,
+                include_palette,
+                max_history_rows,
+            )
+        }
+        .unwrap_or_default();
+        let mut bytes = Vec::with_capacity(total + primary.len());
+        bytes.extend_from_slice(&primary);
         if reset_before_images {
             bytes.extend_from_slice(&interleaved);
             bytes.extend_from_slice(&graphics.image_bytes);
@@ -3247,6 +3281,10 @@ mod replay_layout_tests;
 #[cfg(test)]
 #[path = "prompt_clear_tests.rs"]
 mod prompt_clear_tests;
+
+#[cfg(test)]
+#[path = "alternate_replay_tests.rs"]
+mod alternate_replay_tests;
 
 #[path = "terminal_history.rs"]
 mod history;

@@ -11,7 +11,7 @@ The policy, and the regression audit behind every rule, is docs/ci/risk-tiers.md
           trust), stored-data migrations, release, signing, notarization and the updater, the
           pre-push hook's trust boundary, the risk gate itself, code that adds a delete of user data, and a workflow that adds a
           pull_request_target or workflow_run trigger. Read for
-          a review verdict on the head: an independent review's `Review (<reviewer>): SHIP at <full
+          a review verdict on the head: a review's `Review (<reviewer>): SHIP at <full
           head sha>` line in the description or leading a comment, an approving review on the head
           commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head, or no verdict yet,
           is a warning: the lander refuses a BLOCK, and risk-tier.yml turns red only on a takeback.
@@ -50,25 +50,28 @@ OLD_LABELS = ("risk:medium",)
 HUMAN_OK_LABEL = "risk:human-ok"
 # The earlier name for the same maintainer sign-off; still honored.
 WAIVED_LABEL = "risk:waived"
-# An independent review's verdict on the exact head, on a comment's first line: "Review (subagent, correctness
-# first): SHIP at <full head sha>", the form next_autoland.py and merge_audit.py read. This is the one copy of the
-# grammar and of when a receipt counts; defaults_guard.py imports it from here. It stays in this file because
-# risk-tier.yml runs from main and checks out only scripts/ci/risk_tier.py from the base (#36941 split it into a
-# module and every `risk evidence` run failed on the import). A self-review doesn't count. Every agent posts as the
-# pull request author's account, so a SHIP from that account counts only as
-#     Review (<reviewer agent id>, started by <agent id>): SHIP at <full head sha>
-# with an `Author-agent: <agent id>` line in the description and neither id that author agent (cmux-ad m25 item 7;
-# on #36311 the author agent's own subagent posted `Review (claude-review-subagent): SHIP at ...` from the author's
-# account). A receipt from another account keeps the older rule. A BLOCK always counts: an unverified receipt can
-# make a gate red, never green. The newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP.
-# The same line also counts anywhere in the description (outside <!-- comments -->), where it ranks below every
-# comment.
+# A review's verdict on the exact head, on a comment's first line: "Review (subagent, correctness first): SHIP at
+# <full head sha>", the form next_autoland.py and merge_audit.py read. This is the one copy of the grammar and of
+# when a receipt counts; defaults_guard.py imports it from here. It stays in this file because risk-tier.yml runs
+# from main and checks out only scripts/ci/risk_tier.py from the base (#36941 split it into a module and every
+# `risk evidence` run failed on the import). A SHIP from any reviewer counts, whatever its model family and
+# whoever started it, the pull request's own agent included (Leo, 2026-11-14, on "need a review from a model
+# family other than": "this is no longer a requirement"). The `started by` and `Author-agent:` forms below are
+# still parsed, for the summary and older callers, but no longer refuse a SHIP. A BLOCK always counts. The newest
+# verdict naming the head decides, so a later BLOCK beats an earlier SHIP. The same line also counts anywhere in
+# the description (outside <!-- comments -->), where it ranks below every comment.
 RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])",
                      re.I)
 # "<reviewer agent id>, started by <agent id>": the last comma-separated part of the label names the starter.
 STARTED_BY = re.compile(r"^(?P<reviewer>.*\S)\s*,\s*started\s+by\s+(?P<starter>\S.*?)\s*$", re.I)
 # "Author-agent: <agent id>" on a line of its own, optionally as a list item, quote or bold label.
 AUTHOR_AGENT = re.compile(r"^[\s>*_`-]*author-agent[*_`]*\s*:[\s*_`]*(?P<id>[^\s*`]+)", re.I | re.M)
+# The aid in the `Agent session:` footer `agent-identity footer` writes at the end of every lane PR body
+# (`[...](https://cmux.com/deeplink/agent?id=aid-<20 hex>)`) names the author agent too. leo-workspace
+# tools/review_model.py reads both forms; reading only Author-agent here refused #42066's review-service SHIP
+# (the body carried the footer alone) after merge_hold and router-review had both read it as independent.
+FOOTER_AGENT = re.compile(r"^[\s>*_`-]*agent session[*_`]*\s*:[^\n]*?[?&]id=(?P<id>aid-[0-9a-f]{20})(?![0-9a-f])",
+                          re.I | re.M)
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 
 
@@ -85,9 +88,9 @@ class Receipt:
 
 
 def parse(line: str, head: str) -> Receipt | None:
-    """The receipt on `line` when it names the full `head` sha and its label does not say self, else None."""
+    """The receipt on `line` when it names the full `head` sha, else None. A self-review counts like any other."""
     match = RECEIPT.match(line or "")
-    if not head or not match or head not in line or "self" in match.group(1).lower():
+    if not head or not match or head not in line:
         return None
     label = match.group(1).strip()
     started = STARTED_BY.match(label)
@@ -101,8 +104,12 @@ def norm(agent: str | None) -> str:
 
 
 def author_agents(body: str | None) -> set[str]:
-    """Every `Author-agent: <id>` the description names outside <!-- comments -->, normalized."""
-    return {norm(m.group("id")) for m in AUTHOR_AGENT.finditer(HTML_COMMENT.sub("", body or ""))} - {""}
+    """Every agent the description names as its author outside <!-- comments -->, normalized: each
+    `Author-agent: <id>` and each `Agent session:` footer's aid."""
+    body = HTML_COMMENT.sub("", body or "")
+    named = {norm(m.group("id")) for m in AUTHOR_AGENT.finditer(body)}
+    named |= {m.group("id").lower() for m in FOOTER_AGENT.finditer(body)}
+    return named - {""}
 
 
 def same_account(login: str | None, author: str | None) -> bool:
@@ -112,17 +119,9 @@ def same_account(login: str | None, author: str | None) -> bool:
 
 
 def refusal(receipt: Receipt, same: bool, agents: set[str]) -> str | None:
-    """Why `receipt` does not count, or None when it does. Only a SHIP from the author's own account is refused."""
-    if receipt.verdict != "ship" or not same:
-        return None
-    if not agents:
-        return "a SHIP from the author's account, and the description has no `Author-agent: <agent id>` line"
-    if not receipt.reviewer or not receipt.starter:
-        return "a SHIP from the author's account must say `Review (<reviewer agent id>, started by <agent id>)`"
-    if norm(receipt.reviewer) in agents:
-        return f"the reviewer {receipt.reviewer} is the pull request's author agent"
-    if norm(receipt.starter) in agents:
-        return f"the reviewer was started by {receipt.starter}, the pull request's author agent"
+    """Why `receipt` does not count, or None when it does. Always None now: a SHIP counts from any family and from
+    the pull request's own agent (Leo, 2026-11-14: "this is no longer a requirement"), and a BLOCK always counted.
+    Kept with this signature because main's defaults guard calls it on the base's copy of this file."""
     return None
 
 
@@ -667,11 +666,9 @@ def classify(files: list[str], patches: dict[str, str] | None = None, sources: d
     return Grade(TIERS[rank], reasons)
 
 
-SIGN_OFF_HOW = (f"a line `Review (<reviewer>): SHIP at <full head sha>` from an independent review, in the "
-                f"description or leading a comment (from the author's own account it must be `Review (<reviewer "
-                f"agent id>, started by <agent id>)`, neither of them the description's `Author-agent: <agent id>`; "
-                f"an author lane gets one with `router-review OWNER/REPO N --request`, which cmux-bot posts), "
-                f"an approving review from someone other than the author, or "
+SIGN_OFF_HOW = (f"a line `Review (<reviewer>): SHIP at <full head sha>` from a review by any model family or agent, "
+                f"the pull request's own included, in the description or leading a comment (`router-review OWNER/REPO N "
+                f"--request` gets one, which cmux-bot posts), an approving review from someone other than the author, or "
                 f"`{HUMAN_OK_LABEL}` added by a maintainer (agents never add it)")
 
 
@@ -691,10 +688,19 @@ def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
         missing.append(f"the newest review verdict on the head commit is a BLOCK, FIX or change request. "
                        f"Address it and push; a review of the new head clears it: {SIGN_OFF_HOW}")
     for number in unowned_takebacks(body, taken_back):
-        missing.append(
-            f"this takes back #{number}'s change from the last {RECENT_DAYS} days. If the base is stale, "
-            f"merge it and push; if it's on purpose, add a line `Takes back #{number}: <why>`")
+        missing.append(f"this takes back #{number}'s change from the last {RECENT_DAYS} days. "
+                       f"{takeback_fix([number])}")
     return missing
+
+
+def takeback_fix(numbers: list[int]) -> str:
+    """What clears an unowned takeback of NUMBERS, the lines to paste with their numbers filled in. The summary and
+    the check's error annotation (risk-tier.yml, through `takes_back_fix`) both say it: merge_hold and the lander
+    quote the annotation, so a refused revert names the line without anyone opening the job summary (a revert is
+    the fast route; on cmux#41154 the refusal said only "the job summary says how")."""
+    lines = " and ".join(f"`Takes back #{n}: <why>`" for n in numbers)
+    return (f"If the base is stale, merge it and push; if it's on purpose, add "
+            f"{'a line' if len(numbers) == 1 else 'the lines'} {lines}")
 
 
 def unowned_takebacks(body: str = "", taken_back: list[int] | None = None) -> list[int]:
@@ -707,7 +713,7 @@ def pending_review(tier: str, human_ok: bool = False, blocked: bool = False) -> 
     """The warning for a high pull request with no verdict on its head yet ("" when it needs none)."""
     if tier != "high" or human_ok or blocked:
         return ""
-    return f"no review verdict on the head commit yet. Land after an independent review passes: {SIGN_OFF_HOW}"
+    return f"no review verdict on the head commit yet. Land after a review passes: {SIGN_OFF_HOW}"
 
 
 def strip_comments(body: str) -> str:
@@ -1037,8 +1043,9 @@ def pr_mode(args: argparse.Namespace) -> int:
             out.write(f"ready={'false' if missing else 'true'}\n")
             # Only an unowned takeback keeps the check red (risk-tier.yml): it is a stale-base squash
             # quietly reverting a merged change. A BLOCK on the head is the lander's to refuse.
-            takes_back = bool(unowned_takebacks(pr.get("body") or "", list(undone)))
-            out.write(f"takes_back={'true' if takes_back else 'false'}\n")
+            unowned = unowned_takebacks(pr.get("body") or "", list(undone))
+            out.write(f"takes_back={'true' if unowned else 'false'}\n")
+            out.write(f"takes_back_fix={takeback_fix(unowned) if unowned else ''}\n")
     return 0
 
 

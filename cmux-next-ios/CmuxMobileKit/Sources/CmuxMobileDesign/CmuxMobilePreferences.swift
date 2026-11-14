@@ -10,8 +10,11 @@ public enum CmuxMobilePreferences {
         public static let wrapCode = "cmuxMobile.settings.wrapCode"
         public static let keyClicks = "cmuxMobile.settings.keyClicks"
         public static let predictiveEcho = "cmuxMobile.settings.predictiveEcho"
-        /// Settings → Transport → Ultra Mode on Cellular; read at each dial (`FFIMacLinkDialer`).
-        public static let ultraOnCellular = "cmuxMobile.settings.ultraOnCellular"
+        /// Settings → Terminal → Jump to Bottom Button (CMUX-10): off removes the
+        /// terminal's Jump to bottom row above the composer.
+        public static let terminalJumpToBottom = "cmuxMobile.settings.terminalJumpToBottom"
+        /// Settings → Transport → Ultra mode (off, auto, always); read at each dial (`FFIMacLinkDialer`).
+        public static let ultra = "cmuxMobile.settings.ultra"
         public static let dismissKeyboardAfterSend = "cmuxMobile.settings.dismissKeyboardAfterSend"
         public static let followUp = "cmuxMobile.settings.followUp"
         /// Workspaces → one line per workspace (the Mac's Compact Workspace List).
@@ -27,6 +30,7 @@ public enum CmuxMobilePreferences {
     public static let defaultWrapCode = false
     public static let defaultKeyClicks = true
     public static let defaultPredictiveEcho = true
+    public static let defaultTerminalJumpToBottom = true
     public static let defaultDismissKeyboardAfterSend = true
     /// `FollowUpBehavior.steer.rawValue`: a message sent while the agent works
     /// interrupts it instead of waiting for the turn to end.
@@ -43,6 +47,12 @@ public enum CmuxMobilePreferences {
 
     public static func keyClicks(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: Key.keyClicks) as? Bool ?? defaultKeyClicks
+    }
+
+    public static func terminalJumpToBottom(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.terminalJumpToBottom) == nil
+            ? defaultTerminalJumpToBottom : defaults.bool(forKey: Key.terminalJumpToBottom)
     }
 
     /// Typed characters show at once over a slow link, underlined until the

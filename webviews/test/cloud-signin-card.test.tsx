@@ -11,10 +11,12 @@ import {
   localApiKeyLogin,
   loginAgent,
   loginFailure,
+  offersGateway,
   signInURL,
   signsInByPage,
   takesApiKey,
 } from "../src/agent-session/acpmux/cloudAgentLogin";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -62,13 +64,9 @@ type TurnActions = import("../src/agent-session/acpmux/conversation/turnActions"
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const PROMPT = "Run the sidebar tests and fix what fails";
@@ -284,6 +282,59 @@ test("a Cloud sign-in failure leads with Sign in to Claude, then Use an API key"
   expect(button("Set up Claude Code credentials")).toBeUndefined();
 });
 
+/// acpmux's explanation when the machine's team has cmux's gateway (`claude_auth::compose_cloud`).
+const GATEWAY_ERROR =
+  "Claude is not signed in here. Click Set up Claude Code credentials on this message to sign it in from your Mac; the message is sent again. Or click Use cmux's gateway: this machine's team has an account there. (Claude said: Not logged in · Please run /login)";
+
+test("cmux's gateway is offered only where acpmux names it", () => {
+  expect(offersGateway(GATEWAY_ERROR)).toBe(true);
+  expect(offersGateway("Not logged in · Please run /login")).toBe(false);
+  expect(offersGateway(undefined)).toBe(false);
+  const refusal = Object.assign(new Error("refused"), { reason: "no_gateway" });
+  expect(loginFailure(refusal)).toBe("no_gateway");
+});
+
+test("one card, three ways in: Sign in to Claude, Use an API key, Use cmux's gateway", async () => {
+  const { client, calls, sent } = mockClient({ start: () => ({ gateway: true, restarted: true }) });
+  const { signIn } = signInFor(client);
+  await render({ route: cloudRoute, cloudSignIn: signIn, switchModel: () => undefined }, GATEWAY_ERROR);
+  expect(labels().slice(0, 4)).toEqual(["Sign in to Claude", "Use an API key", "Use cmux's gateway", "Switch model"]);
+  // The sign-in stays the one filled button; the others are links beside it.
+  expect(button("Sign in to Claude")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(button("Use cmux's gateway")!.classList.contains("cv-turn-error__offer-link")).toBe(true);
+  await act(async () => button("Use cmux's gateway")!.click());
+  await flush();
+  // acpmux's own start, for the gateway: no sign-in page, no key.
+  expect(calls).toEqual([["start", "claude@gateway", "chat-1"]]);
+  expect(button("Send again")).toBeDefined();
+  expect(sent).toEqual([]);
+});
+
+test("a team without the gateway says so, and Retry asks again", async () => {
+  const refused = () => {
+    throw Object.assign(new Error("no gateway"), { reason: "no_gateway" });
+  };
+  const { client, calls } = mockClient({ start: refused });
+  const { signIn } = signInFor(client);
+  await render({ route: cloudRoute, cloudSignIn: signIn }, GATEWAY_ERROR);
+  await act(async () => button("Use cmux's gateway")!.click());
+  await flush();
+  expect(host.textContent).toContain("cmux's gateway is not set up for this machine's team.");
+  await act(async () => button("Retry")!.click());
+  await flush();
+  expect(calls).toEqual([
+    ["start", "claude@gateway", "chat-1"],
+    ["start", "claude@gateway", "chat-1"],
+  ]);
+});
+
+test("no gateway link where acpmux does not name it", async () => {
+  const { client } = mockClient();
+  const { signIn } = signInFor(client);
+  await render({ route: cloudRoute, cloudSignIn: signIn });
+  expect(button("Use cmux's gateway")).toBeUndefined();
+});
+
 test("no sign-in where acpmux lacks agent_login, or on another failure", async () => {
   await render({ route: cloudRoute, switchModel: () => undefined });
   expect(button("Sign in to Claude")).toBeUndefined();
@@ -456,6 +507,27 @@ test("a team Cloud machine's sign-in failure names it and offers Switch model an
   // An owner machine's card is as it was.
   await render({ route: cloudRoute, cloudSignIn: signIn, switchModel: () => undefined }, rejected);
   expect(labels().slice(0, 3)).toEqual(["Sign in to Claude", "Use an API key", "Switch model"]);
+});
+
+test("a team Cloud machine with no team account for the agent offers Use an API key there, saved on the machine", async () => {
+  const { client, calls } = mockClient();
+  const { signIn } = signInFor(client);
+  const team = { ...cloudRoute, teamMachine: true };
+  const missing = "Codex needs a team account on this machine: run cr add codex to add one";
+  await render({ route: team, cloudSignIn: signIn, switchModel: () => undefined }, missing);
+  await flush();
+  expect(host.querySelector(".cv-turn-error")?.getAttribute("data-failure-kind")).toBe("no-team-account");
+  // The team's own way stays the card's words; the API key is the click that goes on now, never a personal sign-in.
+  expect(host.querySelector(".cv-turn-error__cause")!.textContent).toContain("cr add codex");
+  expect(labels()).toContain("Use an API key");
+  expect(button("Sign in to Claude")).toBeUndefined();
+  await act(async () => button("Use an API key")!.click());
+  const field = host.querySelector<HTMLInputElement>('input[type="password"]');
+  expect(field).not.toBeNull();
+  expect(calls).toEqual([]);
+  // A chat with no sign-in on its machine keeps the card's words alone.
+  await render({ route: team, switchModel: () => undefined }, missing);
+  expect(button("Use an API key")).toBeUndefined();
 });
 
 test("API key: a password field, saved on the machine, then Send again", async () => {

@@ -176,6 +176,57 @@ fn an_update_that_never_ends_is_shown_after_the_hold() {
     );
 }
 
+/// A program whose update ran out its hold (shown live, as a stuck program
+/// is) may end it and start the next one inside one output chunk, between
+/// two of the producer's looks at the mode. The new update holds again: a
+/// render viewer gets no frame of its first half.
+#[test]
+fn an_update_started_after_an_expired_hold_is_held_again() {
+    let mux = Mux::new_for_test("frame-sync-output-restart", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(9_955, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    spawn_frame_producer(&surface).unwrap();
+    let pty = surface.as_pty().unwrap();
+    let _viewer = surface.attach_render_stream().unwrap();
+
+    let stuck = feed_sync_output(pty, b"\x1b[?2026h\x1b[1;1Hstuck");
+    assert!(
+        wait_for_built(pty, stuck, SYNCHRONIZED_OUTPUT_HOLD * 3).is_some(),
+        "an update that never ended was never drawn"
+    );
+
+    let half = feed_sync_output(pty, b"\x1b[?2026l\x1b[?2026h\x1b[2J\x1b[1;1Hhalf");
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(
+        built_generation(pty) < half,
+        "a frame of an update that started after an expired hold was built half-drawn"
+    );
+
+    let done = feed_sync_output(pty, b" done\x1b[?2026l");
+    let waited = wait_for_built(pty, done, Duration::from_millis(500))
+        .expect("the update's end built no frame");
+    assert!(waited < SYNCHRONIZED_OUTPUT_HOLD / 2, "the end of the update waited {waited:?}");
+}
+
+/// A program that never leaves the mode when the producer looks but begins a
+/// new update between every two looks is still shown: a hold a new update
+/// began ends with a frame before another new update can hold again. The
+/// producer's looks are driven directly, every cadence, so the result does
+/// not hang on where the last look before a hold's end happens to land.
+#[test]
+fn a_program_that_keeps_starting_updates_is_still_shown() {
+    let slot = Slot::default();
+    // Looks are stamped against the producer clock, which starts at its epoch.
+    let start = epoch() + Duration::from_millis(1);
+    let bound = SYNCHRONIZED_OUTPUT_HOLD * 2 + RENDER_FRAME_CADENCE * 2;
+    let looks = (bound.as_millis() / RENDER_FRAME_CADENCE.as_millis()) as u32;
+    let shown = (0..=looks).any(|look| {
+        let now = start + RENDER_FRAME_CADENCE * look;
+        sync_hold(&slot, Some(u64::from(look) + 1), now).is_none()
+    });
+    assert!(shown, "a program always starting a new update was never shown");
+}
+
 /// With no render viewer nothing is held: the output event still goes out.
 #[test]
 fn a_synchronized_update_without_a_viewer_holds_nothing() {
@@ -212,4 +263,76 @@ fn an_action_frame_is_not_held_by_a_synchronized_update() {
         wait_for_built(pty, generation, SYNCHRONIZED_OUTPUT_HOLD / 2).is_some(),
         "an action's frame waited for the synchronized update"
     );
+}
+
+/// A panic while one terminal's frame is built (a bug, a poisoned lock) must
+/// not stop the producer thread that all terminals share: that terminal and
+/// every other one keep getting frames, and a render lock a panic poisoned
+/// still serves frames.
+#[test]
+fn a_panic_building_one_frame_does_not_stop_the_shared_producer() {
+    let mux = Mux::new_for_test("frame-producer-panic", SurfaceOptions::default());
+    let broken =
+        Surface::spawn_for_test(9_952, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let healthy =
+        Surface::spawn_for_test(9_953, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    spawn_frame_producer(&broken).unwrap();
+    spawn_frame_producer(&healthy).unwrap();
+    let _broken_view = broken.attach_render_stream().unwrap();
+    let _healthy_view = healthy.attach_render_stream().unwrap();
+    let broken_pty = broken.as_pty().unwrap();
+    let healthy_pty = healthy.as_pty().unwrap();
+
+    let panicked = Arc::new(AtomicBool::new(false));
+    {
+        let panicked = panicked.clone();
+        *broken_pty.frame_producer_before_upgrade.lock().unwrap() = Some(Arc::new(move || {
+            if !panicked.swap(true, Ordering::SeqCst) {
+                panic!("test: one terminal's frame build panics");
+            }
+        }));
+    }
+    feed_sync_output(broken_pty, b"panics");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !panicked.load(Ordering::SeqCst) {
+        assert!(Instant::now() < deadline, "the producer never built the panicking frame");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+
+    let generation = feed_sync_output(healthy_pty, b"another terminal");
+    assert!(
+        wait_for_built(healthy_pty, generation, Duration::from_secs(5)).is_some(),
+        "a panic in one terminal's frame stopped every other terminal's frames"
+    );
+    let generation = feed_sync_output(broken_pty, b"the same terminal");
+    assert!(
+        wait_for_built(broken_pty, generation, Duration::from_secs(5)).is_some(),
+        "the terminal whose frame panicked gets no frame again"
+    );
+
+    // A panic that held the render lock poisoned it; frames still come.
+    let poisoned = std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                let _render = broken_pty.render.lock().unwrap();
+                panic!("test: a panic while the render lock is held");
+            })
+            .join()
+    });
+    assert!(poisoned.is_err() && broken_pty.render.lock().is_err());
+    let generation = feed_sync_output(broken_pty, b"after the poison");
+    let started = Instant::now();
+    while broken_pty.render.lock().recover_poison().built_generation < generation {
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "a poisoned render lock stopped the terminal's frames"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let generation = feed_sync_output(healthy_pty, b"still alive");
+    assert!(
+        wait_for_built(healthy_pty, generation, Duration::from_secs(5)).is_some(),
+        "the producer stopped after the poisoned lock"
+    );
+    *broken_pty.frame_producer_before_upgrade.lock().unwrap() = None;
 }
