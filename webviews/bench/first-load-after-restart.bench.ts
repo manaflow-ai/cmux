@@ -10,7 +10,8 @@
 // `drawTailWhileConnecting`). Then the first handshake fails quietly (hostRetry.ts `hostIsReconnecting`)
 // and the page retries about every 2 s until acpmux answers. This bench replays that with the production
 // pane (a vite build of the pane's dev entry, as chat-open.bench.ts builds it) served as the app serves
-// it: one `<style id="cmux-pane-styles">` with every sheet, and the copy's two scripts before the module.
+// it: one linked `pane.css` (id cmux-pane-styles) with every sheet and the copy's `pane-copy.css` beside it,
+// and the copy's two scripts before the module.
 //
 // Each round, per mode:
 //   warm      a fresh context opens the TURNS-turn chat with acpmux up, waits until the newest answer
@@ -47,6 +48,7 @@ import {
   SNAPSHOT_THEME_GLOBAL,
   type ChatSnapshot,
 } from "../src/agent-session/acpmux/chatSnapshot/shared";
+import { snapshotCss } from "../scripts/agent-pane/snapshotCss.mjs";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { classifyFrames, type FrameMetrics, type FrameRecord } from "./firstLoadFrames";
@@ -436,8 +438,9 @@ try {
   );
   const captureScript = await bundle(captureEntry);
 
-  // The page as the app serves it (build-agent-pane-web.sh): every sheet in one `<style id="cmux-pane-styles">`,
-  // which the copy draws under and the writer leaves out of the copy, and after `<main id="root">` the
+  // The page as the app serves it (build-agent-pane-web.sh): every sheet in one linked `pane.css`
+  // (id cmux-pane-styles), which the writer leaves out of the copy and whose rules the copy draws under
+  // (`pane-copy.css`, rewritten for its shadow tree), and after `<main id="root">` the
   // host's snapshot (async) and the script that draws it, before the module. Vite's own build links its
   // sheets instead; a lazy chunk's sheet comes later, so every sheet of the build goes in, linked ones first.
   let index = fs.readFileSync(path.join(out, "index.html"), "utf8");
@@ -459,7 +462,7 @@ try {
   if (sheets.length === 0) throw new Error("the pane build has no stylesheet");
   const css = sheets
     .map((sheet) =>
-      // A sheet's relative url() names a file beside it; inline, it resolves from the page.
+      // A sheet's relative url() names a file beside it; joined at the root, it resolves from there.
       fs
         .readFileSync(path.join(out, sheet), "utf8")
         .replace(
@@ -469,12 +472,17 @@ try {
         ),
     )
     .join("\n");
-  if (/<\/style/i.test(css)) throw new Error("a pane sheet closes the page's <style>");
-  // Each inlined sheet keeps an inert link of its href, so vite's preload helper finds it there and
+  fs.writeFileSync(path.join(out, "pane.css"), css);
+  fs.writeFileSync(path.join(out, "pane-copy.css"), snapshotCss(css));
+  // Each joined sheet keeps an inert link of its href, so vite's preload helper finds it there and
   // links none of them again after the page's own sheet (the app's bundle links none): a sheet linked
   // late wins rules the page sheet's order lost them (a 48 px quiet composer row instead of 28).
   const placeholders = sheets.map((sheet) => `<link rel="stylesheet" media="not all" href="/${sheet}">`).join("\n");
-  index = index.replace("</head>", () => `<style id="${PAGE_STYLE_ID}">\n${css}\n</style>\n${placeholders}\n</head>`);
+  index = index.replace(
+    "</head>",
+    () =>
+      `<link rel="stylesheet" id="${PAGE_STYLE_ID}" href="/pane.css" data-copy="pane-copy.css">\n${placeholders}\n</head>`,
+  );
   const ROOT = /<main id="root"><\/main>/;
   if (!ROOT.test(index)) throw new Error('the pane build has no <main id="root"></main>');
   index = index.replace(
