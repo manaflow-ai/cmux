@@ -4,7 +4,6 @@ import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileOnboarding
 import CmuxSpinner
-import StoreKit
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -130,7 +129,7 @@ struct AccountPage: View {
             presenting: renewingSubscription
         ) { manageURL in
             Button(String(localized: "mobile.account.deleteAppStore.manage", defaultValue: "Manage Subscription", bundle: .module)) {
-                Task { await manageSubscription(fallback: manageURL) }
+                Task { await openAppStoreSubscriptionManagement(fallback: manageURL) }
             }
             Button("Delete Account", role: .destructive) { Task { await delete() } }
             Button("Cancel", role: .cancel) {}
@@ -155,21 +154,6 @@ struct AccountPage: View {
         case .appStoreSubscriptionWarning(let manageURL): renewingSubscription = manageURL
         case .confirmation: confirmsDeletion = true
         }
-    }
-
-    /// Apple's own subscription sheet; Apple's subscriptions page when
-    /// StoreKit cannot show it (no window scene, no App Store account).
-    private func manageSubscription(fallback: URL) async {
-        let scene = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive }
-        if let scene {
-            do {
-                try await StoreKit.AppStore.showManageSubscriptions(in: scene)
-                return
-            } catch {}
-        }
-        await UIApplication.shared.open(fallback)
     }
 
     private func delete() async {

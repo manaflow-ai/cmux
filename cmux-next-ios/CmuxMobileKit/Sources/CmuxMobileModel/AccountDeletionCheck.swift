@@ -27,9 +27,11 @@ public enum AccountDeletionCheck: Equatable, Sendable {
     public static func decode(_ data: Data) throws -> AccountDeletionCheck {
         let response = try JSONDecoder().decode(Response.self, from: data)
         guard response.appStoreSubscriptionRenews else { return .nothingToWarn }
-        let url = response.manageSubscriptionsUrl.flatMap(URL.init(string:))
-        let isApple = url?.scheme == "https" && url?.host() == "apps.apple.com"
-        return .appStoreSubscriptionRenews(manageURL: isApple ? url! : appleManageSubscriptionsURL)
+        if let url = response.manageSubscriptionsUrl.flatMap(URL.init(string:)),
+           url.scheme == "https", url.host() == "apps.apple.com" {
+            return .appStoreSubscriptionRenews(manageURL: url)
+        }
+        return .appStoreSubscriptionRenews(manageURL: appleManageSubscriptionsURL)
     }
 }
 
@@ -79,10 +81,9 @@ public struct AccountDeletionCheckClient: Sendable {
     }
 
     public func check(accessToken: String, refreshToken: String) async throws -> AccountDeletionCheck {
-        guard let url = URL(string: "api/account/deletion-check", relativeTo: origin.absoluteString.hasSuffix("/") ? origin : origin.appendingPathComponent("")) else {
-            throw AccountDeletionCheckError.invalidBaseURL
-        }
-        var request = URLRequest(url: url.absoluteURL, timeoutInterval: timeout)
+        let url = origin.appending(path: "api/account/deletion-check")
+        guard url.scheme == "https" || url.scheme == "http" else { throw AccountDeletionCheckError.invalidBaseURL }
+        var request = URLRequest(url: url, timeoutInterval: timeout)
         request.httpMethod = "GET"
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
