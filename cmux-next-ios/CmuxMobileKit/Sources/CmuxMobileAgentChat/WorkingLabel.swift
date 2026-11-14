@@ -41,9 +41,10 @@ public struct WorkingLabel: View {
         return "· \(elapsed < 60 ? "\(elapsed)s" : "\(elapsed / 60)m \(elapsed % 60)s")"
     }
 
-    /// When the elapsed time redraws.
-    static func elapsedSchedule(since: Date) -> PeriodicTimelineSchedule {
-        .periodic(from: since, by: 1)
+    /// When the elapsed time redraws: when the row appears, then each second from 5 s on
+    /// (before that the text is nothing, and a redraw would draw nothing again).
+    static func elapsedSchedule(since: Date) -> ElapsedTextSchedule {
+        ElapsedTextSchedule(since: since, quietSeconds: 5)
     }
 }
 

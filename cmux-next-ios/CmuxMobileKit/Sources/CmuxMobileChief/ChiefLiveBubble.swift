@@ -140,10 +140,9 @@ struct ChiefLiveStatusLine: View {
         Button(action: toggle) {
             HStack(spacing: 8) {
                 ChiefTypingDots()
-                if let schedule = Self.redrawSchedule(since: live.since, now: .now) {
-                    TimelineView(schedule) { context in
-                        ChiefShimmerText(text: ChiefLiveBubble.activityLine(ChiefLiveBubble.statusText(live), since: live.since, now: context.date))
-                    }
+                // One TimelineView either way: the shimmer keeps its sweep when a time starts.
+                TimelineView(ChiefStatusSchedule(ticks: Self.redrawSchedule(since: live.since, now: .now))) { context in
+                    ChiefShimmerText(text: ChiefLiveBubble.activityLine(ChiefLiveBubble.statusText(live), since: live.since, now: context.date))
                 }
                 if canExpand {
                     Image(systemName: expanded ? "chevron.up" : "chevron.down")
@@ -161,9 +160,21 @@ struct ChiefLiveStatusLine: View {
         .accessibilityIdentifier("chief.live.status")
     }
 
-    /// When the line redraws for its elapsed time: once a second from `now`.
+    /// When the line redraws for its elapsed time: once a second from `now` while it has
+    /// one, never without (`since` nil: "Thinking…" or the step alone, which never change).
     static func redrawSchedule(since: Date?, now: Date) -> PeriodicTimelineSchedule? {
-        .periodic(from: now, by: 1)
+        since == nil ? nil : .periodic(from: now, by: 1)
+    }
+}
+
+/// The status line's schedule: `ticks`' entries, or with none only the moment it
+/// appears (a line without a time draws once, then again only when it changes).
+struct ChiefStatusSchedule: TimelineSchedule {
+    let ticks: PeriodicTimelineSchedule?
+
+    func entries(from startDate: Date, mode: TimelineScheduleMode) -> AnySequence<Date> {
+        guard let ticks else { return AnySequence(CollectionOfOne(startDate)) }
+        return AnySequence(ticks.entries(from: startDate, mode: mode))
     }
 }
 
