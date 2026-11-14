@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43606820670",
+  "recorded_at": "2026-11-14T14:58:02Z",
+  "reason": "cmux-tui 540274e11764 changes the image's cmux-tui (pinned 79aec7983902)",
+  "dry_run": false,
+  "cmux_tui": "540274e11764d3353355a1325c81608879a32ef9",
+  "fixes": [
+    {
+      "sha": "540274e11764d3353355a1325c81608879a32ef9",
+      "mergedAt": "2026-11-14T06:27:06-08:00",
+      "subject": "Screen sharing: codec seam plus VP9 and AV1 adapters (test-only), codec-bench table (#43051)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T14:58:02Z",
+    "snapshot_id": "sh-d7a3b3cb9a364258ae4de1fb1eeab931",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43606820670): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6e9cac139ef9a18d468749836c54eeaa3fd49349",
+    "image": "cloud-native-auto-540274e1-43606820670-1",
+    "revision": "ci-43606820670-1",
+    "at": "2026-11-14T14:58:02Z"
+  },
+  "rolled_back": false
+}
