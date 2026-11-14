@@ -54,6 +54,22 @@ struct BrowserCookieBuilderTests {
         #expect(cookie.isHTTPOnly)
     }
 
+    @Test("keeps an HttpOnly cookie for an IPv6 host", arguments: ["::1", "[::1]"])
+    func preservesHTTPOnlyIPv6Host(domain: String) throws {
+        let cookie = try #require(builder.makeCookie(
+            name: "session",
+            value: "secret",
+            originURL: nil,
+            domain: domain,
+            path: "/",
+            secure: false,
+            expires: nil,
+            httpOnly: true
+        ))
+
+        #expect(cookie.isHTTPOnly)
+    }
+
     @Test("leaves ordinary cookies script-readable")
     func leavesOrdinaryCookiesScriptReadable() throws {
         let originURL = try #require(URL(string: "https://example.test/"))
