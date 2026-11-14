@@ -15,6 +15,8 @@ pub(super) struct TurnMeasure {
     pub maintenance_keys: usize,
     pub apply_snapshot_pieces: usize,
     pub completed_log_bytes: Option<u64>,
+    /// A mirror unit's turn: building records, the append, the index apply, publishing.
+    pub unit_ns: [u128; 4],
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]

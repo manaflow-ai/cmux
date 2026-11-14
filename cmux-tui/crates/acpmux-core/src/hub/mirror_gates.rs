@@ -30,6 +30,9 @@ struct Fixture {
     hub: Hub,
     writer: HubWriter,
     next: u64,
+    parts: [u128; 4],
+    samples: u128,
+    compacting: u64,
 }
 
 /// `local` chats of this machine, and `origins` mirrored origins holding
@@ -54,7 +57,15 @@ fn fixture(local: usize, origins: usize, held: usize) -> Fixture {
         }
     }
     assert_eq!(hub.snapshot().len(), local + per_origin * origins);
-    Fixture { _directory: directory, hub, writer, next: 2 }
+    Fixture {
+        _directory: directory,
+        hub,
+        writer,
+        next: 2,
+        parts: [0; 4],
+        samples: 0,
+        compacting: 0,
+    }
 }
 
 /// One sample: a unit changing 10 of the first origin's first 20 rows, queued, then
@@ -78,6 +89,12 @@ fn sample(fixture: &mut Fixture, sync: &mut Vec<u128>) -> u128 {
     fixture.writer.process_batch();
     let elapsed = started.elapsed().as_nanos().max(1);
     sync.push(fixture.writer.turn_measure.sync_ns);
+    let parts = fixture.writer.turn_measure.unit_ns;
+    for (sum, part) in fixture.parts.iter_mut().zip(parts) {
+        *sum += part;
+    }
+    fixture.samples += 1;
+    fixture.compacting += u64::from(fixture.writer.compaction.is_some());
     assert_eq!(fixture.hub.mirror_mark("peer-00").map(|mark| mark.cursor), Some(cursor));
     elapsed
 }
@@ -118,6 +135,14 @@ fn pr08_mirror_apply() {
     };
     let mut small_rest = rest(&small_all, &small_sync);
     let mut god_rest = rest(&god_all_samples, &god_sync);
+    for (side, fixture) in [("small", &small), ("god", &god)] {
+        let mean: Vec<u128> =
+            fixture.parts.iter().map(|part| part / fixture.samples.max(1)).collect();
+        eprintln!(
+            "mirror_apply parts mean ns {side}: build {} append {} apply {} publish {}; turns compacting {}",
+            mean[0], mean[1], mean[2], mean[3], fixture.compacting
+        );
+    }
     eprintln!(
         "mirror_apply split p50 ns: sync small {} god {}; rest small {} god {}",
         p50(&mut small_sync),

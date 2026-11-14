@@ -206,6 +206,8 @@ impl HubWriter {
             return Err(error);
         }
         // The last change for a chat in the unit wins; each chat is written once.
+        #[cfg(test)]
+        let began = std::time::Instant::now();
         let mut seen = HashSet::with_capacity(unit.changes.len());
         let mut keep = vec![false; unit.changes.len()];
         for (slot, change) in keep.iter_mut().zip(unit.changes.iter()).rev() {
@@ -260,6 +262,12 @@ impl HubWriter {
         }
         let mark = MarkRecord { seq, origin: origin.to_owned(), mark: unit.mark };
         #[cfg(test)]
+        let built = std::time::Instant::now();
+        #[cfg(test)]
+        {
+            self.turn_measure.unit_ns[0] += built.duration_since(began).as_nanos();
+        }
+        #[cfg(test)]
         let injected = self.mirror.fail_appends.checked_sub(1).map(|left| {
             self.mirror.fail_appends = left;
         });
@@ -301,6 +309,10 @@ impl HubWriter {
                 }
             }
         }
+        #[cfg(test)]
+        {
+            self.turn_measure.unit_ns[1] += built.elapsed().as_nanos();
+        }
         self.mirror.off.remove(origin);
         self.release_unit_slot(origin);
         if let Some(job) = self.compaction.as_mut() {
@@ -322,6 +334,8 @@ impl HubWriter {
     fn publish_written(&mut self, record: IndexRecord) {
         let current = self.published.load_full();
         let key = RowKey::new(record.origin.as_str(), record.chat_id.as_str());
+        #[cfg(test)]
+        let began = std::time::Instant::now();
         if record.gone {
             let Some(next) = current.remove_row(record.seq, &key) else {
                 self.published.store(Arc::new(current.advance_seq(record.seq)));
@@ -343,9 +357,19 @@ impl HubWriter {
                 next.get_row(&key).as_deref(),
             );
             let event = SummaryEvent { seq: record.seq, summary: Arc::new(record.summary) };
+            #[cfg(test)]
+            let applied = std::time::Instant::now();
+            #[cfg(test)]
+            {
+                self.turn_measure.unit_ns[2] += applied.duration_since(began).as_nanos();
+            }
             self.publish_folder_index(next, &folder_ops);
             self.record_history(ListItem::Summary(event.clone()));
             self.publish(event);
+            #[cfg(test)]
+            {
+                self.turn_measure.unit_ns[3] += applied.elapsed().as_nanos();
+            }
         }
     }
 
