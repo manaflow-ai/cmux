@@ -3,7 +3,7 @@ import CmuxNextDaemon
 public import CmuxNextWakeups
 public import Foundation
 
-/// Thin process adapter: Rust resolves and validates the selected environment before app services start.
+/// Rust resolves and validates the selected environment before app services start.
 public struct CloudEnvironmentBootstrap: Sendable {
     let work: BackgroundWork
     private let bundleID: String?
@@ -27,9 +27,8 @@ public struct CloudEnvironmentBootstrap: Sendable {
     /// The launch's read and the refresh that follows it once the window is up (``resolveAtLaunch()``).
     public typealias LaunchRead = (selection: CloudRuntimeSelection, refresh: @Sendable () async -> Void)
 
-    /// ``resolveAtLaunch()`` started at once off the main thread, from `main`: the CLI's spawn and run overlap
-    /// AppKit's start instead of running after applicationDidFinishLaunching, where the main thread waited for it.
-    /// Cancelling the task (Quit before the answer) kills the CLI, as before.
+    /// Starts the Rust cache read off the main thread, overlapping AppKit's start.
+    /// A cache miss uses the CLI fetch; cancelling the task kills that child.
     public static func startAtLaunch(work: BackgroundWork) -> Task<LaunchRead, any Error> {
         // task-owner: AppDelegate.cloudEnvironment; awaited by its cloudBootstrap, which cancels it at Quit.
         Task.detached(priority: .userInitiated) { try await CloudEnvironmentBootstrap(work: work).resolveAtLaunch() }
@@ -56,6 +55,24 @@ public struct CloudEnvironmentBootstrap: Sendable {
     public func resolve(persisted: Bool = false, cacheFirst: Bool = false,
                         mark: @Sendable (String) -> Void = { _ in }) async throws -> CloudRuntimeSelection {
         mark("cloud_env.start")
+        try Task.checkCancellation()
+        // A source CLI override must keep using that binary's resolver. Local I/O uses the
+        // files lane, like Chromium's MayBlock startup work, never Swift's cooperative pool.
+        if cacheFirst, !persisted, environment[DaemonLauncher.binaryOverrideKey]?.isEmpty != false,
+           let bundleID, let home = environment["HOME"] {
+            let arguments = arguments, environment = environment
+            let local = try await work.run(.userVisible, mayBlock: .files) {
+                try CloudLaunchCache().read(bundleID: bundleID, home: home, arguments: arguments, environment: environment)
+            }
+            try Task.checkCancellation()
+            mark("cloud_env.local_read")
+            if let local {
+                guard local.bundleId == bundleID else {
+                    throw DaemonError.launchFailed("The Cloud environment belongs to another app bundle.")
+                }
+                return local
+            }
+        }
         guard let cli = await BundledExecutable.cli(resources: resources, work: work, environment: environment).resolve() else {
             throw DaemonError.launchFailed("The bundled cmux CLI is unavailable.")
         }
