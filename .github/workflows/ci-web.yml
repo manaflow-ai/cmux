@@ -852,7 +852,9 @@ jobs:
   # A pull request's base comparison is deliberately separate from the head
   # shards. Replaying the base's failed files requires its own install and bundle
   # build; doing that after the head suite in one 40-minute job made shard 3 hit
-  # the timeout before it could publish a verdict.
+  # the timeout before it could publish a verdict. The early base shards above
+  # run the recorded base reds in parallel with the head suite; this one job
+  # replays only the head reds that remain after those results are joined.
   react-apps-base-check:
     needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-early]
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
@@ -863,9 +865,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    # One job for every head shard: it was one a head shard (12), and in run 43409592440, with the early base
-    # results, 11 of those 12 took 0.3-0.9 min (nothing left to replay) and one 3.0 (one file). Each head shard's
-    # results are joined first (webviews_test_history.py heads), then judged once.
+    # One job joins every head shard after the parallel head and early-base work.
     name: react-apps-base-check
     steps:
       # The base is the merge commit's first parent, the commit the head shards
@@ -959,6 +959,14 @@ jobs:
           python3 "$runner/webviews_test_history.py" early-known "$RUNNER_TEMP/base-early" --sha "$(git rev-parse HEAD)" \
             --replay "$RUNNER_TEMP/base-replay-files" --known "$RUNNER_TEMP/base-known.json" ||
             echo "the early base results are unread: their files replay"
+          # A file whose head reds are all flaky on the base only warns, whatever its replay says (guards_new_reds.py
+          # --flaky), so it is not replayed; the compare step below adds to this list, never drops from it.
+          flaky="$RUNNER_TEMP/flaky-on-base"
+          python3 "$runner/webviews_test_history.py" flaky "$history" --names "$HEAD_RESULTS" > "$flaky" || : > "$flaky"
+          python3 "$runner/test_reds.py" tap-flaky --workflow 'cmux-next web' --job react-apps-check \
+            --log-dir "$RUNNER_TEMP/head-results/raw-logs" >> "$flaky" || :
+          python3 "$runner/webviews_test_history.py" flaky-only "$flaky" --replay "$RUNNER_TEMP/base-replay-files" \
+            --names "$HEAD_RESULTS" || echo "the flaky list is unread: its files replay"
           count="$(grep -c . "$RUNNER_TEMP/base-replay-files" || true)"
           echo "the base's push history and early run answer for $(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$RUNNER_TEMP/base-known.json") red tests at inputs $key; $count files still replay"
           echo "replay=$count" >> "${GITHUB_OUTPUT:-/dev/null}"
@@ -1061,8 +1069,9 @@ jobs:
           fi
           runner="$RUNNER_TEMP/head-results/runner"
           flaky="$RUNNER_TEMP/flaky-on-base"
+          # Adds to the history step's list: a file it left unreplayed keeps the names that excused it.
           python3 "$runner/webviews_test_history.py" flaky "$RUNNER_TEMP/webviews-test-history/history.json" \
-            --names "$HEAD_RESULTS" > "$flaky" || : > "$flaky"
+            --names "$HEAD_RESULTS" >> "$flaky" || :
           # TAP adds only active quarantines whose exact diagnostic matches a whole final head attempt.
           # Raw artifacts retain green and red output; unavailable history contributes no waiver.
           python3 "$runner/test_reds.py" tap-flaky --workflow 'cmux-next web' --job react-apps-check \

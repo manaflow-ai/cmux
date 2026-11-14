@@ -50,17 +50,17 @@ import type {
   AcpmuxRecap,
 } from "./model";
 import {
+  PROMPT_PENDING_AFTER_MS,
   QUEUED_MESSAGE,
   SINCE_DIVIDER,
   TURN_RETRY,
   type AcpmuxSince,
   type AcpmuxTurnRetry,
-  PROMPT_PENDING_AFTER_MS,
   rowFrameKey,
 } from "./model";
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";
-import { HOST_ERROR_DEADLINE_MS, hostIsReconnecting, lostRetryDelay } from "./hostRetry";
+import { hostIsReconnecting, lostRetryDelay } from "./hostRetry";
 import { sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -104,13 +104,13 @@ import {
   forgetTail,
   keptEvents,
   keptTail,
+  olderThanShown,
   KEPT_EVENTS,
   type KeptTail,
   readHostTail,
   rememberReadAhead,
   rememberTail,
   shareReadAhead,
-  olderThanShown,
 } from "./tailCache";
 import { HOVER_RECENT, HoverPrefetch, type HoverOptions } from "./hoverPrefetch";
 import { type PeerCopy, PEER_COPY_READ_MS, peerBack, peerCopyTail, peerDown, sameGeneration } from "./peerCopy";
@@ -153,8 +153,8 @@ import { PLAN_BUILD_KIND } from "./planBuild/planBuild";
 import { PlanBuildRows } from "./planBuild/planBuildRows";
 import { OfferChildren } from "./offer/offerChildren";
 import type { OfferPicks } from "./offer/offerChoice";
-import { errorMessage, knownRefusalText, startCancelled, switchFailedText } from "./transportErrors";
-import { failedSendText, retryHelps, sendCause, heldSendNotice } from "./sendFailure";
+import { errorMessage, startCancelled, knownRefusalText, switchFailedText } from "./transportErrors";
+import { failedSendText, heldSendNotice, retryHelps, sendCause } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
 import { SessionPageError, SessionPager, type SessionPage, withUsage, LIST_FOLLOW_CAPABILITY } from "./sessionPages";
@@ -1131,13 +1131,15 @@ function withKnownBytes(images: QueuedPromptImage[], known: readonly QueuedPromp
 /// (plans/cmux-next/composer-delivery-DESIGN.md): `failMs` on a connection with no native relay
 /// journal, `localFailMs` on one to this Mac's acpmux (a busy session's acknowledgement may be slow,
 /// and the page cannot see whether the journal kept the prompt). Tests shorten them.
-/// `hostWaitMs`: how long a prompt waits for an acpmux that is starting or reconnecting before it
-/// fails with Retry (sendWhenReady.ts), the pane's one deadline for a recovery.
+/// `hostWaitMs`: how long a prompt waits for an acpmux that is starting or reconnecting
+/// (sendWhenReady.ts): with no end, as long as its chat is shown and its client open. A machine
+/// that rebooted comes back in minutes, and the prompt goes then by itself, never "Not sent" and
+/// Retry (Leo, 2026-11-12: "try what? no, it should just automatically do stuff"). Tests shorten it.
 export const deliveryTiming = {
   slowMs: 10_000,
   failMs: 60_000,
   localFailMs: 300_000,
-  hostWaitMs: HOST_ERROR_DEADLINE_MS,
+  hostWaitMs: Number.POSITIVE_INFINITY,
 };
 
 const DELIVERY_RANK: Record<PromptDelivery["state"], number> = {
@@ -9801,6 +9803,16 @@ export class AcpmuxDirectClient {
             ? stillRunning(running.compaction, compaction)
             : compaction,
       });
+      // A compaction that went on into the turn that opened since is that turn's: it draws there, as
+      // its live line under what the turn holds, never back in the turn before it (Leo, 2026-11-09:
+      // "im still seeing compacting not be at the bottom").
+      if (
+        compaction.state === "running" &&
+        running &&
+        this.runningTurnId !== undefined &&
+        running.turnId !== this.runningTurnId
+      )
+        this.rows.placeAfterCurrent(id);
     } else if (event.kind === "plan") {
       const plan = planEntries(update.entries);
       const existing = this.planRow ? this.rows.get(this.planRow) : undefined;
@@ -10581,6 +10593,10 @@ export class AcpmuxDirectClient {
   get startedSession(): string | undefined {
     return this.creating ? undefined : this.selectedSessionId;
   }
+  /// The chat this pane's latest new chat took, and the visit (`selectionToken`) it was started
+  /// from: the prompts sent in that visit before the chat took its session are its own
+  /// (startingSends.ts `startingIn`).
+  startedChat: { sessionId: string; visit: number } | undefined;
   /** Changes on every selection, including leaving and returning to the same session. */
   get selectionToken(): number {
     return this.selectionGeneration;
@@ -11035,6 +11051,12 @@ export class AcpmuxDirectClient {
     /// Ends this prompt's count in the composer's "Sending when ready" (sendWhenReady.ts): set while
     /// the prompt waits for acpmux, released once acpmux took it or the send ended.
     let unhold: (() => void) | undefined;
+    /// The prompt is between tries, waiting for acpmux to answer (sendWhenReady.ts): no request of it
+    /// is out, so its no-answer deadline below does not run down meanwhile.
+    let heldForHost = false;
+    /// When the last hold ended (`Date.now()`): the no-answer deadline counts from there, so a prompt
+    /// that waited out an outage gets its whole wait once acpmux is back.
+    let heldUntil: number | undefined;
     // The chat's first prompt carries its workspace context, once: a prompt acpmux took used it,
     // and a prompt sent while one carrying it is in flight goes without it.
     const workspace = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
@@ -11094,46 +11116,53 @@ export class AcpmuxDirectClient {
           else if (state === "delivered" && this.optimisticPromptRows.has(promptId)) this.checkStall(sessionId);
         }, deliveryTiming.slowMs),
       );
-      timers.push(
-        setTimeout(
-          () => {
-            if (this.deliveries.get(promptId)?.delivery.state !== "sending") return;
-            // A sender that still holds the prompt (a new chat's composer) keeps it there: no second
-            // copy as a failed row.
-            if (accepted !== undefined && !released) return;
-            this.queue = this.queue.filter((entry) => entry.id !== promptId);
-            const shownRow = this.rows.get(rowId) ?? {
-              id: rowId,
-              version: 1,
-              at,
-              kind: "user",
-              text,
-              images: attachedImages(attachments),
-              retryAttachments: attachments,
-              ...(inline ? { inlineParts: inline.parts } : {}),
-            };
-            this.rows.set(rowId, {
-              ...shownRow,
-              pending: false,
-              failed: true,
-              error: translate("prompt.delivery.noAnswer"),
-              version: shownRow.version + 1,
-            });
-            this.deliveries.get(promptId)!.rowId = rowId;
-            this.failedPrompts.set(rowId, { input, attachments, promptId });
-            this.setDelivery(promptId, {
-              state: "failed",
-              failedAt: Date.now(),
-              hop: "acpmux",
-              code: "timeout",
-              error: translate("prompt.delivery.noAnswer"),
-            });
-            this.noteUnsentFailure(promptId);
-            this.emit();
-          },
-          this.localOrigin ? deliveryTiming.localFailMs : deliveryTiming.failMs,
-        ),
-      );
+      const failUnanswered = () => {
+        if (this.deliveries.get(promptId)?.delivery.state !== "sending") return;
+        // A prompt held for an acpmux that is away (a restart, its machine rebooting) has no
+        // request out to go unanswered: it waits on, and goes once acpmux answers (Leo,
+        // 2026-11-12: "it should just automatically do stuff"). Its deadline starts again then.
+        const failAfter = this.localOrigin ? deliveryTiming.localFailMs : deliveryTiming.failMs;
+        const sinceHold = heldUntil === undefined ? failAfter : Date.now() - heldUntil;
+        if (heldForHost || sinceHold < failAfter) {
+          this.deliveries
+            .get(promptId)
+            ?.timers.push(setTimeout(failUnanswered, heldForHost ? failAfter : failAfter - sinceHold));
+          return;
+        }
+        // A sender that still holds the prompt (a new chat's composer) keeps it there: no second
+        // copy as a failed row.
+        if (accepted !== undefined && !released) return;
+        this.queue = this.queue.filter((entry) => entry.id !== promptId);
+        const shownRow = this.rows.get(rowId) ?? {
+          id: rowId,
+          version: 1,
+          at,
+          kind: "user",
+          text,
+          images: attachedImages(attachments),
+          retryAttachments: attachments,
+          ...(inline ? { inlineParts: inline.parts } : {}),
+        };
+        this.rows.set(rowId, {
+          ...shownRow,
+          pending: false,
+          failed: true,
+          error: translate("prompt.delivery.noAnswer"),
+          version: shownRow.version + 1,
+        });
+        this.deliveries.get(promptId)!.rowId = rowId;
+        this.failedPrompts.set(rowId, { input, attachments, promptId });
+        this.setDelivery(promptId, {
+          state: "failed",
+          failedAt: Date.now(),
+          hop: "acpmux",
+          code: "timeout",
+          error: translate("prompt.delivery.noAnswer"),
+        });
+        this.noteUnsentFailure(promptId);
+        this.emit();
+      };
+      timers.push(setTimeout(failUnanswered, this.localOrigin ? deliveryTiming.localFailMs : deliveryTiming.failMs));
     }
     this.emit();
     // A send with nothing to upload goes to its own chat however late its ticket comes: its row is
@@ -11147,8 +11176,10 @@ export class AcpmuxDirectClient {
     try {
       if (emptyContinuation && !emptyContinuation()) throw staleContinuation();
       const answer = await untilHostAnswers(
-        () =>
-          this.request(
+        () => {
+          if (heldForHost) heldUntil = Date.now();
+          heldForHost = false;
+          return this.request(
             "session/prompt",
             {
               sessionId,
@@ -11169,11 +11200,13 @@ export class AcpmuxDirectClient {
             },
             undefined,
             emptyContinuation,
-          ),
+          );
+        },
         {
           deadlineMs: deliveryTiming.hostWaitMs,
           stop: () => taken || this.closed || this.deliveries.get(promptId)?.delivery.state !== "sending",
           waiting: () => {
+            heldForHost = true;
             unhold ??= sendsHeldForHost.hold();
             if (this.setDelivery(promptId, { waitingForHost: true })) this.emit();
           },
@@ -12828,6 +12861,7 @@ export class AcpmuxDirectClient {
         if (sessionId && !this.closed) this.discard(sessionId);
         return undefined;
       }
+      if (sessionId) this.startedChat = { sessionId, visit: generation };
       return sessionId ? this.select(sessionId) : undefined;
     })();
     const tracked = started.finally(() => {

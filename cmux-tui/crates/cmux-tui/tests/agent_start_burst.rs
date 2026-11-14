@@ -69,6 +69,13 @@ struct Daemon {
 
 impl Daemon {
     fn start(name: &str) -> Self {
+        Self::start_with_host_gate(name, false)
+    }
+
+    /// A daemon whose terminal hosts wait at `host_ready_gate` before they
+    /// say that their terminal is ready, from the moment the test makes that
+    /// gate (`HostReadyGate`). A Debug daemon only.
+    fn start_with_host_gate(name: &str, gated: bool) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-asb-{name}-{}-{stamp}", std::process::id()));
@@ -77,7 +84,11 @@ impl Daemon {
         let state = dir.join("state");
         let settings = dir.join("cmux-next.json");
         fs::write(&settings, "{}\n").unwrap();
-        let child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+        if gated {
+            command.env("CMUX_TUI_TEST_HOST_READY_GATE", dir.join(HOST_READY_GATE));
+        }
+        let child = command
             .args(["--headless", "--socket"])
             .arg(&socket)
             .arg("--state")
@@ -206,11 +217,23 @@ impl Control {
     }
 
     /// One legacy request; its `data`.
-    fn request(&mut self, mut value: Value) -> Value {
+    fn request(&mut self, value: Value) -> Value {
+        let value = self.start_request(value);
+        self.reply(&value)
+    }
+
+    /// Sends one legacy request and does not wait for its reply (`reply`).
+    fn start_request(&mut self, mut value: Value) -> Value {
         self.sent += 1;
-        let id = json!(self.sent);
-        value["id"] = id.clone();
+        value["id"] = json!(self.sent);
         writeln!(self.writer, "{value}").unwrap();
+        value
+    }
+
+    /// The `data` of the reply to `value`, the last request that
+    /// `start_request` sent.
+    fn reply(&mut self, value: &Value) -> Value {
+        let id = json!(self.sent);
         loop {
             let mut line = String::new();
             let read = self
@@ -257,6 +280,19 @@ impl Control {
     fn kinds(&mut self) -> String {
         let stats = self.request(json!({"cmd": "server-stats", "include": ["commands"]}));
         stats["commands"]["connections"].to_string()
+    }
+
+    /// The connections that the daemon admitted and counts as `kind` now
+    /// (`server-stats` section `commands`).
+    fn admitted_as(&mut self, kind: &str) -> u64 {
+        let stats = self.request(json!({"cmd": "server-stats", "include": ["commands"]}));
+        let rows = stats["commands"]["connections"]
+            .as_array()
+            .unwrap_or_else(|| panic!("setup: server-stats has no commands.connections: {stats}"));
+        rows.iter()
+            .filter(|row| row["kind"] == kind)
+            .filter_map(|row| row["accepted"].as_u64())
+            .sum()
     }
 
     /// A terminal in a new workspace that runs `script`.
@@ -431,9 +467,8 @@ impl Gate {
 
 /// The program of a terminal that holds one long connection: the session's
 /// event stream, as `cmux terminal wait`, an MCP watch and a nested cmux do.
-/// It waits behind its own gate first (`holder_gate`), so the daemon knows
-/// the terminal before the terminal's first connection (the accept loop then
-/// counts the connection in the terminals' lane; see `Holders`).
+/// It waits behind its own gate first (`holder_gate`), so the test chooses
+/// the moment of the terminal's first connection (see `Holders`).
 fn long_holder_script(dir: &Path, index: usize) -> String {
     format!(
         "exec 3<'{dir}/held/{gate}'; : >'{dir}/held/{index}.ready'; /bin/cat <&3 >/dev/null; \
@@ -451,15 +486,11 @@ fn holder_gate(index: usize) -> String {
 
 /// Terminals that each hold one long connection.
 ///
-/// The daemon's accept loop counts a connection in the terminals' lane when
-/// it knows the peer's terminal, and it never waits for the state lock to
-/// learn a new terminal. A holder that connects while the daemon still makes
-/// the other terminals can thus be counted as an outside connection, and the
-/// test would then not fill the lane. So each holder of a group first waits
-/// behind its own gate until each terminal of the group runs and the daemon
-/// is idle; then one connection of the test makes the accept loop read the
-/// terminals (a peer that it does not know makes it read them again), and
-/// the gates open.
+/// Each holder of a group first waits behind its own gate until each
+/// terminal of the group runs; then the gates open. So the holders of one
+/// group make their connections at one moment, and the test knows how many
+/// of them can be short at one time: a group is never larger than the short
+/// lane.
 struct Holders;
 
 impl Holders {
@@ -479,9 +510,6 @@ impl Holders {
             (first..last).all(|index| held.join(format!("{index}.ready")).exists())
         });
         assert!(ready, "setup: the terminals of the holders {first}..{last} did not all start");
-        let read = Control::admitted(&daemon.socket);
-        assert!(read.is_some(), "setup: the daemon refused the test's connection");
-        drop(read);
         gates.into_iter().for_each(Gate::open);
         let wanted = u64::try_from(last).unwrap();
         wait_until(test_timeout(Duration::from_secs(60)), || {
@@ -793,9 +821,6 @@ fn agent_start_long_holders_stop_at_their_bound_with_an_error_that_names_it() {
     control.run_in_terminal("over", &over_the_bound_script(&daemon.dir, "gate-over"));
     let ready = wait_until(test_timeout(Duration::from_secs(60)), || over.join("ready").exists());
     assert!(ready, "setup: the terminal above the bound did not start");
-    let read = Control::admitted(&daemon.socket);
-    assert!(read.is_some(), "setup: the daemon refused the test's connection");
-    drop(read);
     gate.open();
     let ended =
         wait_until(test_timeout(Duration::from_secs(60)), || over.join("typed.rc").exists());
@@ -824,5 +849,184 @@ fn agent_start_long_holders_stop_at_their_bound_with_an_error_that_names_it() {
         "0",
         "a typed command of the same terminal must be served: {:?}",
         file("typed.err")
+    );
+}
+
+/// The terminals of a burst that a person or a script starts at one moment.
+const BURST: usize = 96;
+
+/// The program of a terminal that holds one long connection from its first
+/// moment, behind no gate: an agent of a burst makes its first connection
+/// while the daemon still makes the other terminals of the burst.
+fn burst_holder_script(dir: &Path, index: usize) -> String {
+    format!(
+        "exec '{tui}' --jsonl session current events >/dev/null 2>'{dir}/held/{index}.err'",
+        tui = env!("CARGO_BIN_EXE_cmux-tui"),
+        dir = dir.display(),
+    )
+}
+
+/// A burst of new terminals: each one connects while the daemon still makes
+/// the others. The daemon must count each of these connections as a
+/// terminal's connection. A connection that it counts as an outside one keeps
+/// one of the 64 slots for as long as its stream lives, with no bound for the
+/// terminals in all: 63 of them leave no slot for the app, for a hook or for
+/// a typed command.
+#[test]
+fn agent_start_long_holders_of_a_burst_of_new_terminals_leave_the_short_lane() {
+    let daemon = Daemon::start("burst-lane");
+    let mut control = Control::open(&daemon.socket);
+    fs::create_dir_all(daemon.dir.join("held")).unwrap();
+    for index in 0..BURST {
+        control.run_in_terminal(&format!("b{index}"), &burst_holder_script(&daemon.dir, index));
+    }
+    let wanted = u64::try_from(BURST).unwrap();
+    wait_until(test_timeout(Duration::from_secs(60)), || {
+        control.handled("session.events") >= wanted
+            || Holders::first_error(&daemon, 0, BURST).is_some()
+    });
+    // A connection that became long left the count at once. One that the
+    // daemon counted as an outside connection never leaves it, so this wait
+    // only gives the last stream the time to start.
+    wait_until(test_timeout(Duration::from_secs(5)), || control.connections().active == 1);
+    let streams = control.handled("session.events");
+    let counts = control.connections();
+    let first_error = Holders::first_error(&daemon, 0, BURST).unwrap_or_default();
+    eprintln!(
+        "agent start long holders: a burst of {BURST} new terminals, each with one event stream: \
+         {streams} streams are open; the daemon counts {} of {} short connections (1 is the \
+         test's own) and refused {}; by kind {}; a holder said {first_error:?}",
+        counts.active,
+        counts.limit,
+        counts.refused,
+        control.kinds()
+    );
+    assert_eq!(
+        counts.refused, 0,
+        "the daemon refused a connection of a new terminal of the burst: {first_error:?}"
+    );
+    assert_eq!(
+        streams, wanted,
+        "the daemon opened {streams} of the {wanted} event streams of the burst: {first_error:?}"
+    );
+    assert_eq!(
+        counts.active,
+        1,
+        "{} long connections of new terminals stay in the {} slots of the daemon: it counted \
+         them as outside connections, because they came while it made the other terminals",
+        counts.active.saturating_sub(1),
+        counts.limit
+    );
+}
+
+/// The name of the gate of the terminal hosts, in the daemon's folder.
+const HOST_READY_GATE: &str = "host-ready-gate";
+
+/// The gate of the terminal hosts of a daemon that `start_with_host_gate`
+/// started. A host that the daemon starts while this gate is there has made
+/// its terminal's process, and waits here before it tells the daemon that
+/// the terminal is ready. The hosts wait in their open of this FIFO, and
+/// each open ends when the test opens the FIFO too.
+struct HostReadyGate {
+    path: PathBuf,
+}
+
+impl HostReadyGate {
+    fn close(daemon: &Daemon) -> Self {
+        let path = daemon.dir.join(HOST_READY_GATE);
+        let c_path = CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `c_path` is a valid C string that lives across the call.
+        let made = unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) };
+        assert_eq!(made, 0, "setup: mkfifo {}: {}", path.display(), io::Error::last_os_error());
+        Self { path }
+    }
+
+    /// Lets each host that waits go on. The gate stays open while the value
+    /// that this returns lives.
+    fn open(self) -> Option<fs::File> {
+        // An open for reading and writing does not wait for a host. The gate
+        // is removed while it is open: a host that saw it gets through.
+        let open = fs::OpenOptions::new().read(true).write(true).open(&self.path).ok();
+        let _ = fs::remove_file(&self.path);
+        open
+    }
+}
+
+/// The new terminals of the test. The daemon starts them one after the
+/// other: each one's host waits at the gate when its terminal connects.
+const AT_THE_GATE: usize = 6;
+
+/// The first connection of a new terminal comes while the daemon still
+/// waits for the terminal's host: the host made the terminal's process and
+/// has not said yet that the terminal is ready. The daemon must know that
+/// this connection is the terminal's. A connection that it takes for a
+/// process outside the terminals has the rights of the person for its whole
+/// life (the class is fixed when the connection comes).
+///
+/// The hosts wait at a gate, so each terminal's process connects before the
+/// daemon has the terminal's process id. The test counts the connections by
+/// the class that the daemon gave them.
+#[test]
+fn agent_start_first_connection_of_a_new_terminal_is_its_terminal_while_its_host_starts() {
+    let daemon = Daemon::start_with_host_gate("first-connection", true);
+    let mut control = Control::open(&daemon.socket);
+    fs::create_dir_all(daemon.dir.join("held")).unwrap();
+    // The connection of the test that asks for the terminals. It is admitted
+    // (and counted) before the count starts.
+    let mut asker = Control::admitted(&daemon.socket).expect("setup: the daemon refused the test");
+    let wanted = u64::try_from(AT_THE_GATE).unwrap();
+    let outside_before = control.admitted_as("local");
+    let terminal_before = control.admitted_as("terminal");
+    let streams_before = control.handled("session.events");
+    let run_before = control.handled("run");
+
+    let mut at_the_gate = 0;
+    for index in 0..AT_THE_GATE {
+        let gate = HostReadyGate::close(&daemon);
+        let asked = asker.start_request(json!({
+            "cmd": "run",
+            "argv": ["/bin/sh", "-c", burst_holder_script(&daemon.dir, index)],
+            "new_workspace": true,
+            "name": format!("g{index}"),
+        }));
+        let streams = streams_before + u64::try_from(index).unwrap() + 1;
+        wait_until(test_timeout(Duration::from_secs(25)), || {
+            control.handled("session.events") >= streams
+                || Holders::first_error(&daemon, 0, AT_THE_GATE).is_some()
+        });
+        // The start has no reply yet: its host waits at the gate, so the
+        // daemon does not have the terminal's process id.
+        let run_ended = control.handled("run") - run_before;
+        if control.handled("session.events") >= streams
+            && run_ended == u64::try_from(index).unwrap()
+        {
+            at_the_gate += 1;
+        }
+        let open = gate.open();
+        asker.reply(&asked);
+        drop(open);
+    }
+    let outside = control.admitted_as("local") - outside_before;
+    let as_terminal = control.admitted_as("terminal") - terminal_before;
+    let first_error = Holders::first_error(&daemon, 0, AT_THE_GATE).unwrap_or_default();
+    eprintln!(
+        "agent start first connection: {AT_THE_GATE} new terminals, each one's host at the gate \
+         when the terminal connects: {at_the_gate} terminals opened their event stream while \
+         their host waited; the daemon counts {as_terminal} of these connections as a \
+         terminal's and {outside} as an outside process's; by kind {}; a terminal said \
+         {first_error:?}",
+        control.kinds()
+    );
+    assert_eq!(
+        at_the_gate, AT_THE_GATE,
+        "setup: {at_the_gate} of the {AT_THE_GATE} terminals opened their event stream while \
+         their host waited at the gate: {first_error:?}"
+    );
+    assert_eq!(
+        (as_terminal, outside),
+        (wanted, 0),
+        "the daemon counted {outside} of the {wanted} first connections of new terminals as \
+         connections of a process outside the terminals, and {as_terminal} as a terminal's: \
+         each one came from the terminal's own process while the terminal's host started"
     );
 }

@@ -489,6 +489,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peer_remove", Request),
         keyed::<params::PeerSnapshotParams>("_acpmux/peer_snapshot", Request),
         untyped("_acpmux/peer_snapshots_clear", Request),
+        untyped("_acpmux/journal_restore", Request),
+        untyped("_acpmux/attachments_held", Request),
         untyped(method::MUX_PAIR_TICKET_NEW, Request),
         untyped(method::MUX_PAIR_LIST, Request),
         untyped(method::MUX_PAIR_REVOKE, Request),
@@ -517,6 +519,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_START_MODE_CHANGED, Notification),
         untyped(method::MUX_PROMPT_ACCEPTED, Notification),
         untyped(method::MUX_CANCEL_REFUSED, Notification),
+        untyped(method::MUX_UNSENT, Notification),
         untyped("_acpmux/lagged", Notification),
         untyped(method::MUX_DISCONNECTED, ClientLocal),
     ]

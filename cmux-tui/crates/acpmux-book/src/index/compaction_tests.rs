@@ -58,6 +58,33 @@ fn an_uninstalled_rotation_is_recovered_from_both_generations() {
 }
 
 #[test]
+fn compaction_skips_a_corrupt_middle_snapshot_row() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("index.snap");
+    let mut index = SummaryIndex::new();
+    for (id, activity) in [("first", 3), ("corrupt", 2), ("last", 1)] {
+        let mut row = Summary::new(id);
+        row.last_activity = activity;
+        index = index.apply(index.seq() + 1, row);
+    }
+    SortedSnapshot::write(&path, &index).unwrap();
+    let mut bytes = fs::read(&path).unwrap();
+    let first_len =
+        u32::from_le_bytes(bytes.get(4096..4100).unwrap().try_into().unwrap()) as usize + 12;
+    let middle = 4096 + first_len;
+    *bytes.get_mut(middle + 8).unwrap() ^= 0x01;
+    fs::write(&path, bytes).unwrap();
+
+    let disk = DiskSnapshot::open(&path).unwrap().unwrap();
+    let captured = SummaryIndex::from_disk(Some(disk), 1);
+    let result =
+        Compaction::new(dir.path().to_owned(), 0, captured.seq()).run(Arc::new(captured)).unwrap();
+    let names: Vec<_> = result.snapshot.rows().map(|row| row.unwrap().chat_id.clone()).collect();
+    assert_eq!(names, ["first", "last"]);
+    assert_eq!(result.skipped_snapshot_rows, 1);
+}
+
+#[test]
 fn an_empty_rotated_active_log_keeps_the_closed_generations_sequence() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("index.log");
@@ -100,6 +127,7 @@ fn a_partial_snapshot_stage_is_ignored_until_the_atomic_rename() {
         0,
         None,
         job.covered_generation(),
+        Vec::new(),
         captured.merged_rows(),
     )
     .unwrap();
@@ -325,6 +353,33 @@ fn compaction_retains_hot_snapshot_rows_before_hydration_finishes() {
         assert!(hot.iter().any(|row| row.chat_id == id), "{id}");
     }
     assert_eq!(result.snapshot.len(), 4);
+}
+
+#[test]
+fn compaction_drops_remote_closed_rows_left_in_an_older_snapshot() {
+    let dir = tempdir().unwrap();
+    let mut legacy = row("legacy", 1);
+    legacy.origin = "peer".to_owned();
+    legacy.state = "closed".to_owned();
+
+    let mut log = IndexLog::open(dir.path().join("index.log")).unwrap();
+    let record = log.append(legacy.clone()).unwrap();
+    log.sync().unwrap();
+    SortedSnapshot::write_stream_generation(
+        dir.path().join("index.snap"),
+        record.seq,
+        0,
+        None,
+        0,
+        Vec::new(),
+        std::iter::once(Ok(Arc::new(legacy))),
+    )
+    .unwrap();
+
+    let disk = DiskSnapshot::open(dir.path().join("index.snap")).unwrap().unwrap();
+    let captured = Arc::new(SummaryIndex::from_disk(Some(disk), 1));
+    let result = log.rotate(captured.seq()).unwrap().run(captured).unwrap();
+    assert_eq!(result.snapshot.rows().count(), 0);
 }
 
 #[test]

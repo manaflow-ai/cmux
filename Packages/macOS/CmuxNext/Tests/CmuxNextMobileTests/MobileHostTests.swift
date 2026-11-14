@@ -371,6 +371,12 @@ import Testing
         plain.wallpaper = nil
         let bare = try #require(try JSONSerialization.jsonObject(with: MobileHostLaunch.appearanceLine(plain)) as? [String: Any])
         #expect(bare["wallpaper"] == nil)
+        // No terminal theme lines: no terminal key (hostd keeps the phone on the chrome's colors).
+        #expect(bare["terminal"] == nil)
+        var withTerminal = shown
+        withTerminal.terminal = ["background = #2b0b3f", "foreground = #f9e79f", "palette = 0=#3d1458"]
+        let themed = try #require(try JSONSerialization.jsonObject(with: MobileHostLaunch.appearanceLine(withTerminal)) as? [String: Any])
+        #expect(themed["terminal"] as? [String] == withTerminal.terminal)
     }
 
     @Test func directoryListsAndRemovesWithTheBearerToken() async throws {
