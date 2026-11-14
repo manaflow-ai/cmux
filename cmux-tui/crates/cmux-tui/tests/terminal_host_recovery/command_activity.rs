@@ -588,7 +588,11 @@ fn a_finished_turn_notification_carries_the_whole_prompt_and_answer_for_the_feed
         rows.iter().any(|row| row["id"] == event["id"] && row["title"] == "Claude finished"),
         "the event's id is the ledger row's: {event} {ledger}"
     );
-    assert!(rows.iter().all(|row| row.get("message").is_none()), "{ledger}");
+    // A Feed that reads after the event (the phone connecting later, the app's handoff) still
+    // gets them from this daemon's memory.
+    let row = rows.iter().find(|row| row["id"] == event["id"]).cloned().unwrap_or_default();
+    assert_eq!(row["message"].as_str(), Some(reply.as_str()), "the row's answer: {row}");
+    assert_eq!(row["prompt"].as_str(), Some(prompt.as_str()), "the row's prompt: {row}");
     resource_request(
         &harness.socket,
         "feed-answer-checkpoint",
@@ -629,6 +633,99 @@ fn an_error_notification_carries_the_error_text_for_the_feed() {
     assert_eq!(event["title"], "Claude reported an error", "{event}");
     assert_eq!(event["body"], "Bash", "{event}");
     assert_eq!(event["message"].as_str(), Some(error), "the error text: {event}");
+}
+
+/// The local feed item a terminal agent's notification makes, which the app hands to the Feed,
+/// says what the agent said (`detail`, memory only): its whole answer, as a GUI chat's card.
+/// Before, only the live event carried it, so the Mac's and the cloud Feed's card for a Claude
+/// Code terminal read "Claude finished" and nothing more.
+#[test]
+fn a_terminal_agents_feed_item_carries_its_answer_for_the_handoff() {
+    let _exclusive = exclusive_process_test();
+    let reply = "feed-item-marker: the build is green\n\n- 3 tests fixed";
+    let (harness, event, payload_dir) = agent_notification(
+        "command-activity-feed-item",
+        &[
+            (
+                "UserPromptSubmit",
+                serde_json::json!({"session_id":"feed-3","hook_event_name":"UserPromptSubmit","cwd":"/tmp","prompt":"fix ci"}),
+            ),
+            (
+                "Stop",
+                serde_json::json!({"session_id":"feed-3","hook_event_name":"Stop","cwd":"/tmp","last_assistant_message":reply}),
+            ),
+        ],
+    );
+    let _ = fs::remove_dir_all(&payload_dir);
+    assert_eq!(event["title"], "Claude finished", "{event}");
+    let listed = request(&harness.socket, serde_json::json!({"id": 4, "cmd": "feed-local-list"}));
+    let items = listed["items"].as_array().cloned().unwrap_or_default();
+    let item = items
+        .iter()
+        .find(|item| item["title"] == "Claude finished")
+        .cloned()
+        .unwrap_or_else(|| panic!("no feed item for the finished turn: {listed}"));
+    assert_eq!(item["detail"].as_str(), Some(reply), "the item carries the answer: {item}");
+    assert_eq!(item["body"], "", "the durable row keeps no copy: {item}");
+}
+
+/// An approval's card says what it waits on: the tool and the command it would run, as a GUI
+/// chat's permission card does (Claude's PermissionRequest `tool_input`).
+#[test]
+fn an_approval_notification_carries_the_command_it_waits_on() {
+    let _exclusive = exclusive_process_test();
+    let command = "feed-approval-marker && rm -rf build";
+    let (harness, event, payload_dir) = agent_notification(
+        "command-activity-feed-approval",
+        &[(
+            "PermissionRequest",
+            serde_json::json!({"session_id":"feed-4","hook_event_name":"PermissionRequest","cwd":"/tmp",
+                "tool_name":"Bash","tool_input":{"command":command,"description":"Clean the build folder"}}),
+        )],
+    );
+    let _ = fs::remove_dir_all(&payload_dir);
+    assert_eq!(event["title"], "Claude needs approval", "{event}");
+    let message = event["message"].as_str().unwrap_or_default();
+    assert!(message.starts_with("Bash\n\n```\n"), "the tool first: {event}");
+    assert!(message.contains(command), "the command: {event}");
+    assert!(message.contains("Clean the build folder"), "its description: {event}");
+    let listed = request(&harness.socket, serde_json::json!({"id": 5, "cmd": "feed-local-list"}));
+    let items = listed["items"].as_array().cloned().unwrap_or_default();
+    assert!(
+        items.iter().any(|item| item["detail"].as_str() == Some(message)),
+        "the feed item carries it: {listed}"
+    );
+}
+
+/// A question's feed item lists the question and its options, so the Feed shows what the agent
+/// asks (Claude's AskUserQuestion), not only "asked a question".
+#[test]
+fn a_question_feed_item_carries_the_question_and_its_options() {
+    let _exclusive = exclusive_process_test();
+    let question = serde_json::json!({"questions":[{"question":"feed-question-marker: which branch?",
+        "header":"Branch","multiSelect":false,
+        "options":[{"label":"main","description":"the default"},{"label":"next"}]}]});
+    let (harness, event, payload_dir) = agent_notification(
+        "command-activity-feed-question",
+        &[(
+            "PreToolUse",
+            serde_json::json!({"session_id":"feed-5","hook_event_name":"PreToolUse","cwd":"/tmp",
+                "tool_name":"AskUserQuestion","tool_use_id":"toolu_feed","tool_input":question}),
+        )],
+    );
+    let _ = fs::remove_dir_all(&payload_dir);
+    assert_eq!(event["title"], "Claude asked a question", "{event}");
+    let listed = request(&harness.socket, serde_json::json!({"id": 6, "cmd": "feed-local-list"}));
+    let items = listed["items"].as_array().cloned().unwrap_or_default();
+    let detail = items
+        .iter()
+        .find_map(|item| item["detail"].as_str().map(str::to_owned))
+        .unwrap_or_else(|| panic!("no detail on the question's item: {listed}"));
+    assert_eq!(
+        detail,
+        "**Branch:** feed-question-marker: which branch?\n- main \u{2014} the default\n- next",
+        "{listed}"
+    );
 }
 
 /// A reply typed on the phone's Feed (where the screen is not in view) reaches only the agent
