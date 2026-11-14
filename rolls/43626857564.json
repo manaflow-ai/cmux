@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43626857564",
+  "recorded_at": "2026-11-14T18:37:24Z",
+  "reason": "cmux-tui 034eaa8f1ee3 changes the image's cmux-tui (pinned 95e5f04cc275)",
+  "dry_run": false,
+  "cmux_tui": "034eaa8f1ee3701223b8d819e710bb4dd81cf90b",
+  "fixes": [
+    {
+      "sha": "034eaa8f1ee3701223b8d819e710bb4dd81cf90b",
+      "mergedAt": "2026-11-14T10:08:19-08:00",
+      "subject": "cmux-codecs build.rs: libvpx builds from a path with spaces, and checks its tarball on macOS (#43173)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-14T18:37:24Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
