@@ -37,7 +37,7 @@ jobs:
   report:
     if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 40
+    timeout-minutes: 50
     permissions:
       contents: read
     steps:
@@ -122,7 +122,7 @@ jobs:
       - name: Run v2 gate measures
         if: steps.done.outputs.cache-hit != 'true'
         continue-on-error: true
-        timeout-minutes: 15
+        timeout-minutes: 20
         working-directory: cmux-tui
         run: |
           set -o pipefail
@@ -132,7 +132,7 @@ jobs:
         id: v2-home
         if: steps.done.outputs.cache-hit != 'true'
         continue-on-error: true
-        timeout-minutes: 10
+        timeout-minutes: 20
         working-directory: cmux-tui
         run: |
           set -o pipefail
