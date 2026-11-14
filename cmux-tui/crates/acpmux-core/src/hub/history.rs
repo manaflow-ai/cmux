@@ -159,8 +159,6 @@ impl HistorySnapshot {
         out.reserve(max_bytes.min(self.used.saturating_add(count)));
         #[cfg(test)]
         let _copy_permit = RawCopyPermit::new(&self.raw_copy_permit, &self.raw_copy_waiting);
-        #[cfg(test)]
-        self.raw_copies.fetch_add(1, Ordering::Release);
         let mut last_seq = cursor;
         for index in 0..count {
             let entry = *self.entries.get((self.head + offset + index) % self.entries.len())?;
@@ -173,6 +171,11 @@ impl HistorySnapshot {
             }
             if !copy_entry_into(&self.bytes, entry, &mut out) {
                 return None;
+            }
+            #[cfg(test)]
+            if index == 0 {
+                // A positive observation proves bytes have already copied.
+                self.raw_copies.fetch_add(1, Ordering::Release);
             }
             last_seq = first.saturating_add(index as u64);
         }

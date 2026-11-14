@@ -165,18 +165,21 @@ async fn replay_once(verbose: bool) -> (usize, usize) {
 }
 
 fn timed_append(
+    hub: &Hub,
     mut writer: HubWriter,
     target: u64,
     offset: usize,
     permit: &AtomicBool,
-) -> Result<(HubWriter, u128), crate::hub::HubError> {
+) -> Result<(HubWriter, u128, usize), crate::hub::HubError> {
     // Both sides append on the test's calling thread, as the original
     // baseline did. Moving only the replay writer through a blocking worker
     // measured a different execution path and cache handoff.
     let start = Instant::now();
     permit.store(true, Ordering::Release);
     writer.apply(summary(format!("append-{offset}"), target + 1, true))?;
-    Ok((writer, start.elapsed().as_nanos().max(1)))
+    // Observe completed copy work before stopping either side's clock.
+    let copies_during = hub.history_raw_copies();
+    Ok((writer, start.elapsed().as_nanos().max(1), copies_during))
 }
 
 fn append_round() -> Vec<u128> {
@@ -187,8 +190,8 @@ fn append_round() -> Vec<u128> {
     let mut samples = Vec::with_capacity(SAMPLES);
     for offset in 0..SAMPLES {
         let permit = AtomicBool::new(false);
-        let (next, elapsed) =
-            timed_append(writer, target + offset as u64, offset, &permit).unwrap();
+        let (next, elapsed, _) =
+            timed_append(&hub, writer, target + offset as u64, offset, &permit).unwrap();
         writer = next;
         samples.push(elapsed);
     }
@@ -213,6 +216,7 @@ async fn append_replay_sample(
         // Reserve and touch once before arming. Reuse storage while the
         // measured append runs; free it after the writer stops its clock.
         let mut buffer = vec![0; MAX_REPLAY_FRAME_BYTES];
+        std::hint::black_box(buffer.as_mut_slice()).fill(1);
         let mut replay_cursor = cursor;
         while !copy_stop.load(Ordering::Acquire) || replay_cursor != cursor {
             receiver.reposition(replay_cursor);
@@ -241,12 +245,11 @@ async fn append_replay_sample(
         copy_task.await.unwrap();
         panic!("raw replay copier did not start");
     }
-    let result = timed_append(writer, target, offset, &permit);
-    let copies_during = hub.history_raw_copies();
+    let result = timed_append(&hub, writer, target, offset, &permit);
     permit.store(true, Ordering::Release);
     stop.store(true, Ordering::Release);
     copy_task.await.unwrap();
-    let (writer, elapsed) = result.unwrap();
+    let (writer, elapsed, copies_during) = result.unwrap();
     (writer, elapsed, copies_during)
 }
 
