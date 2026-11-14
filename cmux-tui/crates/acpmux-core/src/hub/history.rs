@@ -44,6 +44,10 @@ pub(crate) struct RawSpan {
 }
 
 impl RawSpan {
+    pub(super) fn folder(bytes: Vec<u8>, last_seq: u64) -> Self {
+        Self { bytes, last_seq, entries: Vec::new() }
+    }
+
     /// Check the copied bytes after releasing the ring lock. Entry offsets
     /// address this span, so later ring writes cannot affect validation. The
     /// checksum catches a damaged read before decode; its append-time hashing
@@ -175,7 +179,7 @@ impl History {
                 since: origin.since,
                 extra: origin.extra.clone(),
             },
-            ListItem::Lagged { .. } => return Ok(()),
+            ListItem::Folders { .. } | ListItem::Lagged { .. } => return Ok(()),
         };
         let seq = match &op {
             Op::Summary { seq, .. } | Op::Gone { seq, .. } | Op::Origin { seq, .. } => *seq,

@@ -52,10 +52,15 @@ public struct CmuxMobileMacAppearance: Codable, Equatable, Sendable {
 
     public var theme: Theme
     public var wallpaper: Wallpaper?
+    /// The Mac's terminal theme as Ghostty config lines (`appearance.terminal`): what its
+    /// terminals show, apart from the chrome's colors above (which its app theme can replace).
+    /// Nil from a Mac that predates it (``CmuxMobileTerminalTheme/init(appearance:)``).
+    public var terminal: [String]?
 
-    public init(theme: Theme, wallpaper: Wallpaper? = nil) {
+    public init(theme: Theme, wallpaper: Wallpaper? = nil, terminal: [String]? = nil) {
         self.theme = theme
         self.wallpaper = wallpaper
+        self.terminal = terminal
     }
 
     /// One `appearance` frame; nil for anything the phone cannot derive a palette from.

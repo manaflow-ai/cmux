@@ -38,7 +38,7 @@
         "current",
         "write",
         "--text",
-        "clear; S=5a7e5a7e-0000-4000-8000-000000002000; D=\"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/swap-bench\"; mkdir -p \"$D\" && python3 -c 'import json,sys;p,c,s=sys.argv[1:4];u=lambda i:\"5a7e0000-0000-4000-9000-%012d\"%i;open(p,\"w\").write(\"\".join(json.dumps({\"type\":(\"user\",\"assistant\")[i%2],\"uuid\":u(i),\"parentUuid\":u(i-1) if i else None,\"sessionId\":s,\"timestamp\":\"2026-11-01T%02d:%02d:%02d.000Z\"%(i//3600,i//60%60,i%60),\"cwd\":c,\"message\":{\"role\":\"user\",\"content\":\"Turn %d: how does pane %d keep its place when the view swaps?\"%(i//2,i%7)} if i%2==0 else {\"id\":\"msg_%d\"%i,\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5-5\",\"content\":[{\"type\":\"text\",\"text\":\"Answer %d: both views stay mounted.\\n\\n- the terminal keeps its scrollback\\n- the chat keeps its offset\\n\\n`swap %d`\"%(i//2,i)}],\"stop_reason\":\"end_turn\"}})+\"\\n\" for i in range(4000)))' \"$D/$S.jsonl\" \"$PWD\" \"$S\" && seq -f \"scrollback %g of 3000: terminal and chat swap bench\" 1 3000 && echo TRANSCRIPT-READY && cmux agent hook emit --source claude --event SessionStart --payload-json \"{\\\"session_id\\\":\\\"$S\\\"}\" && echo HOOK-SENT\r"
+        "clear; mkdir -p \"$HOME/swap-bench\" && cd \"$HOME/swap-bench\" && C=$(pwd -P); cmux setup trust | tr , \"\\n\" | grep -m1 state; S=5a7e5a7e-0000-4000-8000-000000002000; D=\"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf %s \"$C\" | tr -c \"A-Za-z0-9\" -)\"; mkdir -p \"$D\" && python3 -c 'import json,sys;p,c,s=sys.argv[1:4];u=lambda i:\"5a7e0000-0000-4000-9000-%012d\"%i;open(p,\"w\").write(\"\".join(json.dumps({\"type\":(\"user\",\"assistant\")[i%2],\"uuid\":u(i),\"parentUuid\":u(i-1) if i else None,\"sessionId\":s,\"timestamp\":\"2026-11-01T%02d:%02d:%02d.000Z\"%(i//3600,i//60%60,i%60),\"cwd\":c,\"message\":{\"role\":\"user\",\"content\":\"Turn %d: how does pane %d keep its place when the view swaps?\"%(i//2,i%7)} if i%2==0 else {\"id\":\"msg_%d\"%i,\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5-5\",\"content\":[{\"type\":\"text\",\"text\":\"Answer %d: both views stay mounted.\\n\\n- the terminal keeps its scrollback\\n- the chat keeps its offset\\n\\n`swap %d`\"%(i//2,i)}],\"stop_reason\":\"end_turn\"}})+\"\\n\" for i in range(4000)))' \"$D/$S.jsonl\" \"$C\" \"$S\" && seq -f \"scrollback %g of 3000: terminal and chat swap bench\" 1 3000 && echo TRANSCRIPT-READY && cmux agent hook emit --source claude --event SessionStart --payload-json \"{\\\"session_id\\\":\\\"$S\\\"}\" && echo HOOK-SENT\r"
       ],
       "wait": 8
     },
@@ -292,43 +292,26 @@
       "shot": false
     },
     {
-      "title": "Arm the chat-open trace for the last swap (terminal to chat)",
+      "title": "Swap 20 (terminal to chat): Opt-Cmd-`, the window's frames around it",
       "rpc": {
-        "method": "debug.chat_open_trace",
+        "method": "debug.new_tab",
         "params": {
-          "action": "arm"
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 700
         }
       },
-      "wait": 0,
+      "record": "file",
+      "wait": 0.5,
       "shot": false
     },
     {
-      "title": "Swap 20: Toggle Terminal and Chat",
-      "cmux": [
-        "action",
-        "run",
-        "palette.toggleTerminalChat",
-        "--focus"
-      ],
-      "wait": 0.4,
-      "shot": false
-    },
-    {
-      "title": "First frame with the chat's content after the last swap",
-      "rpc": {
-        "method": "debug.chat_open_trace",
-        "params": {
-          "action": "wait",
-          "timeout_ms": 5000,
-          "settle_ms": 300
-        }
-      },
-      "record": true,
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Stop timing: 20 switches, each with its kind (terminal: chat to terminal; agent: terminal to chat)",
+      "title": "Stop timing: 20 switches (19 actions, 1 key), each with its kind (terminal: chat to terminal; agent: terminal to chat)",
       "rpc": {
         "method": "debug.tab_switch",
         "params": {

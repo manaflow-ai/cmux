@@ -4,10 +4,32 @@
 //! returned buffer with [`acpmux_client_bytes_free`]. No Rust panic crosses
 //! the ABI boundary.
 
-use crate::wire::{ListKey, Page, Sub};
+use crate::wire::{FolderPageResult, FolderWindow, ListKey, Page, Sub};
 use crate::{Change, Client};
 use serde_json::{Value, json};
 use std::ffi::c_void;
+
+/// JSON shapes emitted by the C ABI for folder list changes.
+///
+/// Folder windows retain their existing top-level fields and add a
+/// discriminator so an empty folder window cannot be mistaken for an empty
+/// summary window. The other shapes retain the established `folderPage`,
+/// `folder`, and `folderGone` payloads.
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum FolderChangeJson {
+    #[serde(rename = "folderWindow")]
+    FolderWindow {
+        #[serde(flatten)]
+        window: FolderWindow,
+    },
+    #[serde(rename = "folderPage")]
+    FolderPage { page: FolderPageResult },
+    #[serde(rename = "folder")]
+    Folder { sid: String, seq: u64, row: crate::wire::FolderRow, replay: bool },
+    #[serde(rename = "folderGone")]
+    FolderGone { sid: String, seq: u64, origin: String, folder: String, replay: bool },
+}
 
 /// ABI version. Bump this when a type or function changes.
 pub const ACPMUX_CLIENT_ABI_VERSION: u32 = 2;
@@ -96,6 +118,16 @@ fn change_json(change: Change<Value>) -> Result<Value, serde_json::Error> {
     match change {
         Change::Window(window) => serde_json::to_value(window),
         Change::Page(page) => serde_json::to_value(json!({ "kind": "page", "page": page })),
+        Change::FolderWindow(window) => {
+            serde_json::to_value(FolderChangeJson::FolderWindow { window })
+        }
+        Change::FolderPage(page) => serde_json::to_value(FolderChangeJson::FolderPage { page }),
+        Change::Folder { sid, seq, row, replay } => {
+            serde_json::to_value(FolderChangeJson::Folder { sid, seq, row, replay })
+        }
+        Change::FolderGone { sid, seq, origin, folder, replay } => {
+            serde_json::to_value(FolderChangeJson::FolderGone { sid, seq, origin, folder, replay })
+        }
         Change::Summary { sid, seq, summary, replay } => {
             Ok(json!({"kind":"summary","sid":sid,"seq":seq,"summary":summary,"replay":replay}))
         }
