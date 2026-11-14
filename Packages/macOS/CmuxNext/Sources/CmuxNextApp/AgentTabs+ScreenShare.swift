@@ -25,7 +25,7 @@ extension AgentTabStore {
         }
         let lanes = AgentLaneStore.shared
         let links = lanes.links(session)
-        let chat = WindowRules.ScreenShareChat(expectedSessionId: session, sessionId: record.session ?? "", host: record.host, hostKind: hostName,
+        let chat = WindowRules.ScreenShareChat(expectedSessionId: session, sessionId: sessions[key] ?? record.session ?? "", host: record.host, hostKind: hostName,
                                                peer: links?.peer, registryHost: Self.registryHost(of: daemon),
                                                localSummaryCurrent: lanes.live && links != nil)
         guard let route = WindowRules().screenShare(machineID: daemon.machineID, kind: kind, chat: chat) else {
