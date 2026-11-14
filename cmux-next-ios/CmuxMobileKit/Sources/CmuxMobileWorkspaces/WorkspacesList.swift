@@ -186,12 +186,13 @@ public struct WorkspacesList: View {
                 if let id { linking?.link(id) }
             }
             .task(id: isRefreshing) {
-                // Say "Updating…" only when a refresh is slow, not on every one.
+                // Say "Updating…" only when a refresh is slower than the quiet bound (10 s, the
+                // bound every iOS connection line uses), not on every launch or foreground read.
                 guard isRefreshing else {
                     showsUpdating = false
                     return
                 }
-                try? await Task.sleep(for: .seconds(1.5))
+                try? await Task.sleep(for: QuietStatusGate.threshold)
                 if !Task.isCancelled { showsUpdating = true }
             }
             .alert(unavailableTitle, isPresented: isPresented($unavailable), presenting: unavailable) { _ in

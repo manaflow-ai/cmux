@@ -104,6 +104,20 @@ import Testing
         #expect(await MacHomeRowsCache(directory: directory).load(key) == nil)
     }
 
+    /// Kept rows say "Updating…" only once the Mac's list has been on its way for the quiet
+    /// bound, and never during a search or over a failure note.
+    @Test func keptRowsSayUpdatingOnlyAfterTheQuietBound() {
+        let rows: [MacHomeRow] = []
+        #expect(HomeListNote.make(rows: rows, showingKept: true, homeMacID: "m", macsMayExist: true,
+                                  searching: false, failing: false) == .none)
+        #expect(HomeListNote.make(rows: rows, showingKept: true, homeMacID: "m", macsMayExist: true,
+                                  searching: false, failing: false, keptForLong: true) == .updating)
+        #expect(HomeListNote.make(rows: rows, showingKept: false, homeMacID: "m", macsMayExist: true,
+                                  searching: false, failing: false, keptForLong: true) == .none)
+        #expect(HomeListNote.make(rows: rows, showingKept: true, homeMacID: "m", macsMayExist: true,
+                                  searching: true, failing: false, keptForLong: true) == .none)
+    }
+
     /// No Mac yet and nothing kept: Home says it is loading instead of an empty list; with no
     /// Mac on the account it says nothing.
     @Test func homeSaysItIsLoadingRatherThanShowingNothing() {

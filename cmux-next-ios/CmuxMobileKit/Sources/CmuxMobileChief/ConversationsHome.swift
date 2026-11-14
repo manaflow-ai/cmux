@@ -41,6 +41,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     @State private var query = ""
     @State private var unreadOnly = false
     @State private var homeRetries = 0
+    /// Kept rows have shown for `QuietStatusGate.threshold` without the Mac's list: only then
+    /// "Updating…" draws over them (a launch or foreground read lands well inside it).
+    @State private var keptGate = QuietStatusGate()
     /// The New Chief name prompt is up.
     @State private var namingChief = false
     @State private var newChiefName = ""
@@ -392,7 +395,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .scrollContentBackground(.hidden)
         .background(theme.colors.bg.color.ignoresSafeArea())
         // Kept rows show while the Mac's list loads: say they are being updated, over the
-        // list (no row moves when it goes).
+        // list (no row moves when it goes), once the read has taken longer than the quiet bound.
+        .onChange(of: feed.isShowingKeptRows, initial: true) { _, kept in
+            keptGate.update(down: kept)
+        }
         .overlay(alignment: .bottom) {
             if listNote(searching: searching) == .updating {
                 HStack(spacing: 6) {
@@ -611,7 +617,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     private func listNote(searching: Bool) -> HomeListNote {
         HomeListNote.make(rows: feed.rows, showingKept: feed.isShowingKeptRows, homeMacID: homeMacID,
                           macsMayExist: store.activeTeam == nil || !macs.isEmpty,
-                          searching: searching, failing: feed.problem != nil || homeIsOffline)
+                          searching: searching, failing: feed.problem != nil || homeIsOffline,
+                          keptForLong: keptGate.isShown)
     }
 
     /// A note with progress: the list is loading.

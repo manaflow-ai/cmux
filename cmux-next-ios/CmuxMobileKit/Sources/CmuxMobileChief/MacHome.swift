@@ -283,7 +283,8 @@ public struct MacHomeList: Equatable, Sendable {
 public enum HomeListNote: Equatable, Sendable {
     /// Nothing to say: the Mac's list shows, or a search or a failure note speaks instead.
     case none
-    /// The rows kept from an earlier read show; the Mac's list is on its way.
+    /// The rows kept from an earlier read show and the Mac's list has been on its way for
+    /// `QuietStatusGate.threshold` (10 s): a normal launch or foreground read says nothing.
     case updating
     /// A Mac is chosen and nothing is kept for it: its list is on its way.
     case connecting
@@ -292,10 +293,13 @@ public enum HomeListNote: Equatable, Sendable {
 
     /// The note for Home's state. `macsMayExist`: the account lists a Mac, or its Macs are
     /// not known yet. `failing`: the retry note shows (the list failed or the Mac is offline).
+    /// `keptForLong`: the kept rows have shown for the quiet bound without the Mac's list, the
+    /// only time "Updating…" draws over them (Leo, 2026-11-14: "i also want all our
+    /// connectivity stuff to shut the fuck up and load faster").
     public static func make(rows: [MacHomeRow]?, showingKept: Bool, homeMacID: String?, macsMayExist: Bool,
-                            searching: Bool, failing: Bool) -> HomeListNote {
+                            searching: Bool, failing: Bool, keptForLong: Bool = false) -> HomeListNote {
         guard !searching, !failing else { return .none }
-        if rows != nil { return showingKept ? .updating : .none }
+        if rows != nil { return showingKept && keptForLong ? .updating : .none }
         if homeMacID != nil { return .connecting }
         return macsMayExist ? .loading : .none
     }
