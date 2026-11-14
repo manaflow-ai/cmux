@@ -289,7 +289,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
     /// Three responsive arrangements keep the primary controls directly reachable.
     /// The pane uses the same height for video, input and state-card geometry.
     func height(for width: CGFloat) -> CGFloat {
-        let row = max(Metrics.space8, access.fittingSize.height + Metrics.space2)
+        let row = max((Metrics.space6 * 2), access.fittingSize.height + Metrics.space2)
         guard controlsShown && width < expandedWidth else { return row }
         let controls = arrangedControls(for: width)
         let available = max(0, width - Metrics.space3 * 2)
@@ -306,14 +306,14 @@ final class MacScreenToolbarView: MacScreenThemedView {
     var expandedWidth: CGFloat {
         let controls = [access, displayButton, quality, sendKeys, refresh, fullScreen, connect, disconnect] as [NSView]
         return controls.filter { $0 !== displayButton || model.displays.count > 1 }
-            .reduce(Metrics.space8 * 8) { total, control in
+            .reduce((Metrics.space6 * 2) * 8) { total, control in
                 let width = control === quality ? quality.attributedTitle.size().width + Metrics.space6 : control.fittingSize.width
                 return total + width + Metrics.space2
             }
     }
 
     private func arrangedControls(for width: CGFloat) -> [NSView] {
-        let compact = controlsShown && width < expandedWidth - Metrics.space8 * 4
+        let compact = controlsShown && width < expandedWidth - (Metrics.space6 * 2) * 4
         displayButton.isHidden = !controlsShown || model.displays.count <= 1 || compact
         sendKeys.isHidden = !controlsShown || compact
         refresh.isHidden = !controlsShown || compact
@@ -325,9 +325,9 @@ final class MacScreenToolbarView: MacScreenThemedView {
         super.layout()
         let gap = Metrics.space2
         let padding = Metrics.space3
-        let rowHeight = max(Metrics.space8, access.fittingSize.height + gap)
+        let rowHeight = max((Metrics.space6 * 2), access.fittingSize.height + gap)
         let stacked = controlsShown && bounds.width < expandedWidth
-        let compact = stacked && bounds.width < expandedWidth - Metrics.space8 * 4
+        let compact = stacked && bounds.width < expandedWidth - (Metrics.space6 * 2) * 4
         line.frame = CGRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1)
         quality.themedToolTip = model.session.map { Self.qualityTitle($0.preferences.quality) }
         let controls = arrangedControls(for: bounds.width)

@@ -82,6 +82,7 @@ struct MacScreenViewerControlsTests {
         _ = NSApplication.shared
         let out = AANestedGroupsGalleryTests.packageRoot.appending(path: "mac-screen-viewer-controls-gallery-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        var captures: [String: Data] = [:]
         for (mode, dark) in [("light", false), ("dark", true)] {
             for variant in ["inline", "stacked", "compact"] {
                 let pane = pane()
@@ -104,9 +105,12 @@ struct MacScreenViewerControlsTests {
                 let dest = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
                 CGImageDestinationAddImage(dest, image, nil)
                 #expect(CGImageDestinationFinalize(dest))
+                captures["\(variant)-\(mode).png"] = try Data(contentsOf: url)
                 pane.close()
             }
         }
-        print("Screen sharing controls gallery: \(out.path)")
+        let artifact = AANestedGroupsGalleryTests.packageRoot.appending(path: "mac-screen-viewer-controls-gallery.json")
+        try JSONEncoder().encode(captures).write(to: artifact, options: .atomic)
+        print("Screen sharing controls gallery: \(out.path); artifact: \(artifact.path)")
     }
 }
