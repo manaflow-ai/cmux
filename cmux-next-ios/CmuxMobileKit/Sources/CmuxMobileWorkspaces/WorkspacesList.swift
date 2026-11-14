@@ -57,6 +57,9 @@ public struct WorkspacesList: View {
     @State private var iconPicking: Workspace?
     /// New Task…: the task composer is open.
     @State private var composingTask = false
+    #if DEBUG
+    @State private var prototyping = false
+    #endif
     /// New Workspace Group…: the Mac it goes on (one name field with the other group names).
     @State private var newGroupOnMac: String?
     /// Group by None / Group by Folder (this iPhone's view of the list).
@@ -210,6 +213,9 @@ public struct WorkspacesList: View {
                 DebugLaunch.openedNewTask = true
                 composingTask = true
             }
+            // PROTOTYPE `-cmux-mobile-prototype-task-launch`: New Task's Chat/Terminal choice, three ways.
+            .task { if CommandLine.arguments.contains("-cmux-mobile-prototype-task-launch") { prototyping = true } }
+            .fullScreenCover(isPresented: $prototyping) { TaskLaunchPrototype { prototyping = false } }
             #endif
             // Full screen, as classic's task composer: a prompt canvas with its controls above the keyboard.
             .fullScreenCover(isPresented: $composingTask) {
