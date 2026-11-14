@@ -43,13 +43,13 @@ extension HomeService {
                 guard let self, !Task.isCancelled else { return }
                 homeWorkspaceID = home
                 settleHomeEnsure(generation); DebugTimings.markLaunch("home.ensure_home")
+                async let chiefTab: Void = ensureChiefTab(connection, home: home) // beside the dock steps: Home's first page waits for both
                 homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: services.machines.local.store, home: home) {
                     TabMoves.toNewDockColumn($0, anchor: $1, edge: .left, role: .agentChat, respawn: $2, pinned: $3, services: services,
                                              completion: $4) })
-                // Each window's own Home is docked on every connect too (cmux#27880); before the
-                // Chief's tab, which can wait long for the Chief's owner.
+                // Each window's own Home is docked on every connect too (cmux#27880), never behind the Chief's owner.
                 DebugTimings.markLaunch("home.dock_ensured"); if !HomeDock.classic { await services.windowHomes.ensureDocks(connection) }
-                DebugTimings.markLaunch("home.window_docks"); try await ensureChiefTab(connection, home: home)
+                DebugTimings.markLaunch("home.window_docks"); try await chiefTab
             } catch is CancellationError {
             } catch {
                 self?.settleHomeEnsure(generation)
