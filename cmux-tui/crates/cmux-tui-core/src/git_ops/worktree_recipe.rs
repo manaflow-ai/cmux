@@ -22,8 +22,9 @@
 //!
 //! The two files are the repository's own: each is read through the real
 //! folders of the main checkout ([`super::work_tree_entry`]). A file that is
-//! a link, or that is below a link, is not read, and the reply says so with
-//! [`LINK_PROBLEM`].
+//! a link, or that is below a link in the main checkout, is not read, and the
+//! reply says so with [`LINK_PROBLEM`]. A main checkout whose top folder the
+//! walk does not take gives no file and no problem text.
 
 use std::io::Read as _;
 use std::path::Path;
@@ -219,7 +220,7 @@ mod tests {
         let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
         let root = std::env::temp_dir().join(format!("cmux-recipe-{hex}"));
         std::fs::create_dir_all(&root).unwrap();
-        // The path of a main checkout, as git gives it, has real folders only.
+        // The path of a main checkout, as the caller gives it, has real folders only.
         let root = std::fs::canonicalize(root).unwrap();
         std::fs::create_dir_all(root.join(PROJECT_FILE).parent().unwrap()).unwrap();
         std::fs::write(root.join(".worktreeinclude"), ".env\n").unwrap();
