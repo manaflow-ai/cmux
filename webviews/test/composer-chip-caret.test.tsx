@@ -16,6 +16,7 @@ import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { setLinkPlaces } from "../src/agent-session/acpmux/chips/cmuxLinkPlaces";
 import { deeplinks } from "../src/agent-session/acpmux/composer/deeplinks";
+import { teardownDom } from "./support/domTeardown";
 
 const HEX = "16c92e4354fcaf05540386720d78e251";
 const WORKSPACE = `cmux-nightly://workspace/ws_${HEX}`;
@@ -86,13 +87,7 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
-});
+afterAll(() => teardownDom(saved, { window: dom.window }));
 
 beforeEach(() => setLinkPlaces([{ id: `ws_${HEX}`, kind: "workspace", title: "workspace-413" }]));
 
