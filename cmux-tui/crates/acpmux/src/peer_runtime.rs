@@ -103,6 +103,7 @@ impl Peer {
             retry_immediately: AtomicBool::new(false),
             stop_signal: Notify::new(),
             stop_changed: tokio::sync::watch::channel(false).0,
+            network: StdMutex::new(network::changes()),
             wanted: Default::default(),
             settled: tokio::sync::watch::channel(0).0,
             link: StdMutex::new(Link::default()),
