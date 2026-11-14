@@ -113,8 +113,8 @@ import Testing
         backend.result = { _ in .failure(WorkspaceCreationError("Trust web on the Mac first.", isForPerson: true)) }
         var failures: [String] = []
         creator.onFailure = { _, message in failures.append(message) }
-        let draft = TaskDraft(prompt: "Try this", picks: [TaskAgentPick(harness: "claude"), TaskAgentPick(harness: "claude-cr")])
-        let made = creator.startTask(Self.chat(draft))
+        let draft = Self.chat(TaskDraft(prompt: "Try this", picks: [TaskAgentPick(harness: "claude"), TaskAgentPick(harness: "claude-cr")]))
+        let made = creator.startTask(draft)
         await creator.settle()
         #expect(made.allSatisfy { store.workspace(id: $0.id) == nil })
         #expect(failures == ["Trust web on the Mac first.", "Trust web on the Mac first."])

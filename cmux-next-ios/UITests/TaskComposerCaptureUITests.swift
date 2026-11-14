@@ -424,6 +424,8 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         XCTAssertFalse(start.isEnabled, "Start is off with no prompt")
         XCTAssertNil(Self.type(app, "Fix the flaky upload test"))
         XCTAssertTrue(start.isEnabled, "Start is on with a prompt")
+        // A chat (Open in starts on Terminal): its page is titled for the task.
+        XCTAssertNil(Self.openIn(app, "Chat"))
         start.tap()
         XCTAssertTrue(C.any(app, "taskComposer.prompt").waitForNonExistence(timeout: 5), "the sheet closes at once")
         XCTAssertTrue(C.label(app, contains: "Fix the flaky upload test").waitForExistence(timeout: 5),
