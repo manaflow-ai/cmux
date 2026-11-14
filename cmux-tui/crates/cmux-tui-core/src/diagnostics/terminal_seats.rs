@@ -40,7 +40,9 @@
 //! when it starts, and a client is in the host's terminal only when the
 //! parent of its session's leader has that id and, at the accept, that
 //! start. The seat is held from the daemon's start to the end of the host's
-//! adoption, which is after the terminal has the seat of its session.
+//! adoption. An adoption that gives the terminal the seat of its session
+//! ends the host's seat after that. Each other end of an adoption leaves the
+//! terminal with no seat.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};

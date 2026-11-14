@@ -870,7 +870,7 @@ fn a_process_that_did_not_start_before_the_daemon_is_no_kept_host() {
 /// them is wrong, so the process names no terminal while one of the two
 /// seats is there.
 #[test]
-fn two_kept_seats_for_one_process_name_no_terminal() {
+fn two_seats_for_one_kept_host_name_no_terminal() {
     fn started_at_7(_process: u32) -> Option<ProcessStart> {
         Some(ProcessStart(7))
     }
