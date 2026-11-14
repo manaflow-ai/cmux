@@ -53,6 +53,13 @@ public struct ConnectionBannerState: Sendable, Hashable {
         Self(symbol: "lock.shield", showsSpinner: true, text: String(localized: "Approve this iPhone again on \(mac)"),
              detail: String(localized: "Its keys were reset. Look for cmux on your Mac."), identity: identity ?? mac)
     }
+    /// Pairing finished, and the person can choose Full access for this iPhone now.
+    public static func fullAccessNeeded(on mac: String, identity: String? = nil) -> Self {
+        Self(symbol: "checkmark.shield", showsSpinner: false,
+             text: "Full access is off for this iPhone",
+             detail: "Choose once now so messages can send from this iPhone.",
+             offersRetry: true, actionTitle: "Turn on Full access for this iPhone", identity: identity ?? mac)
+    }
 }
 
 /// Glass banner, `footnote` semibold: a 36 pt capsule when it fits on one

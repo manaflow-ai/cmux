@@ -273,7 +273,11 @@ public final class AgentChatStore {
     public static let fullAccessOffNotice = "Full access is off for this iPhone, so from it a chat runs only in a mode that asks before changes. Turn it on in Settings > Devices on the Mac."
     /// ``fullAccessOffNotice`` for a message to a chat whose mode does not ask (the Mac's
     /// fleet lanes run in Bypass permissions): what to change to send it.
-    public static let fullAccessOffPromptNotice = "Not sent: this chat runs in a mode that doesn't ask before changes, and Full access is off for this iPhone. Turn it on in Settings > Devices on the Mac, or switch the chat to a mode that asks."
+    public static let fullAccessOffPromptNotice = "Not sent: Full access is off for this iPhone."
+    /// The in-place approval action is available only on a new enough paired Mac.
+    public var canEnableFullAccess: Bool { source.supportsFullAccessApproval }
+    /// A phone approval is being signed or sent; the action remains one tap.
+    public private(set) var enablingFullAccess = false
     /// The allow option on its way (nil otherwise).
     public private(set) var approvingOptionID: String?
     /// A prompt that was not sent, for the composer to put back (then cleared).
@@ -531,6 +535,29 @@ public final class AgentChatStore {
         let steers = steer && !Self.commandWaitsForTurn(text, harness: summary.harness, commands: availableCommands)
         source.send(.prompt(text: text, attachments: attachments, steer: steers,
                             promptID: promptID, resend: resend != nil))
+    }
+
+    /// Approves this iPhone's Full-access setting in place, then retries the
+    /// prompt that was held by the gate with its original prompt id.
+    public func enableFullAccess() {
+        guard canEnableFullAccess, !enablingFullAccess else { return }
+        enablingFullAccess = true
+        clientError = nil
+        let source = source
+        Task { @MainActor [weak self] in
+            do {
+                try await source.enableFullAccess()
+                guard let self else { return }
+                self.enablingFullAccess = false
+                if let draft = self.returnedDraft {
+                    self.send(prompt: draft.text, attachments: draft.attachments)
+                }
+            } catch {
+                guard let self else { return }
+                self.enablingFullAccess = false
+                self.clientError = "Full access could not be turned on. Try again."
+            }
+        }
     }
 
     /// Whether `text` is one of a Claude agent's own slash commands (`commands`, its

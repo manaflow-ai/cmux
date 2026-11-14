@@ -704,20 +704,43 @@ public struct AgentChatBottomStack: View {
         VStack(spacing: 12) {
             VStack(spacing: 12) {
                 if let error = store.clientError {
-                    // One symbol, no Retry: the draft is back in the composer, so Send retries it.
-                    Button {
-                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
-                    } label: {
-                        Label(error, systemImage: "exclamationmark.circle")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
+                    if error == AgentChatStore.fullAccessOffPromptNotice, store.canEnableFullAccess {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label(error, systemImage: "exclamationmark.circle")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Button {
+                                store.enableFullAccess()
+                            } label: {
+                                Label(store.enablingFullAccess ? "Turning on…" : "Turn on Full access for this iPhone",
+                                      systemImage: "checkmark.shield")
+                                    .font(.footnote.weight(.semibold))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(store.enablingFullAccess)
+                            .accessibilityIdentifier("agentChat.fullAccess.enable")
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 14, style: .continuous))
+                    } else {
+                        // One symbol, no Retry: the draft is back in the composer, so Send retries it.
+                        Button {
+                            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
+                        } label: {
+                            Label(error, systemImage: "exclamationmark.circle")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 9)
+                        }
+                        .buttonStyle(.plain)
+                        .glassEffect(.regular, in: .capsule)
                     }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular, in: .capsule)
                     .transition(.opacity.combined(with: .offset(y: 8)))
-                    .accessibilityHint("Dismiss")
+                    .accessibilityHint(store.canEnableFullAccess && error == AgentChatStore.fullAccessOffPromptNotice
+                                       ? "Approve on this iPhone, then send the held prompt"
+                                       : "Dismiss")
                 }
                 AgentChatConnectionLine(store: store)
                 // Pinned plan progress while a turn runs (ACP web UI parity).

@@ -571,6 +571,11 @@ final class ShellModel {
         case .waitingAfterNewKeys(let mac)?: return .waitingForPairingAfterNewKeys(on: mac, identity: live?.focusedMacID)
         case .denied(let mac)?: return .failed("\(mac) did not allow this iPhone", identity: live?.focusedMacID)
         case .failed(let reason)?: return .failed("Pairing failed: \(reason)", identity: live?.focusedMacID)
+        case .paired?:
+            if let live, live.supportsFullAccessApproval, !live.acpmux.fullAccess {
+                return .fullAccessNeeded(on: live.link.target?.name ?? "your Mac", identity: live.focusedMacID)
+            }
+            return live?.banner
         default: return live?.banner
         }
     }
@@ -594,6 +599,17 @@ final class ShellModel {
     func bannerAction() {
         if banner == .signedOut {
             Task { await auth.signOut() }
+            return
+        }
+        if live?.pairingState == .paired, live?.supportsFullAccessApproval == true, live?.acpmux.fullAccess == false {
+            Task { [weak self] in
+                guard let self, let live = self.live else { return }
+                do {
+                    try await live.enableFullAccess()
+                } catch {
+                    self.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Full access could not be turned on. Try again.")
+                }
+            }
             return
         }
         live?.retryConnection()

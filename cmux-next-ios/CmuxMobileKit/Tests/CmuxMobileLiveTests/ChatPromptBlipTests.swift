@@ -18,12 +18,15 @@ import Testing
         private let lock = NSLock()
         private var _prompts: [(text: String, promptID: String, resend: Bool)] = []
         private var _fullAccess: Bool
+        private var _approvals = 0
         init(fullAccess: Bool = true) { _fullAccess = fullAccess }
         var fullAccess: Bool {
             get { lock.withLock { _fullAccess } }
             set { lock.withLock { _fullAccess = newValue } }
         }
         var prompts: [(text: String, promptID: String, resend: Bool)] { lock.withLock { _prompts } }
+        var approvals: Int { lock.withLock { _approvals } }
+        func approved() { lock.withLock { _approvals += 1; _fullAccess = true } }
         func prompted(_ text: String, _ id: String, _ resend: Bool) { lock.withLock { _prompts.append((text, id, resend)) } }
     }
 
@@ -35,7 +38,7 @@ import Testing
             func reply(_ result: String) -> Data { Data(#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#.utf8) }
             switch method {
             case "initialize":
-                return [reply(#"{"protocolVersion":1,"_meta":{"acpmux":{"fullAccess":\#(mac.fullAccess)}}}"#)]
+                return [reply(#"{"protocolVersion":1,"_meta":{"acpmux":{"fullAccess":\#(mac.fullAccess),"personInstance":"instance-1","deviceId":"device-1","capabilities":["fullAccessApproval"]}}}"#)]
             case "_acpmux/watch":
                 return [reply(#"{"sessions":[{"sessionId":"s1","name":"lane","harness":"claude","cwd":"/tmp/w","status":"running"}]}"#)]
             case "_acpmux/attach":
@@ -51,6 +54,9 @@ import Testing
                 }
                 mac.prompted(text, meta?["promptId"] as? String ?? "", meta?["resend"] as? Bool ?? false)
                 return [reply(#"{"stopReason":"end_turn"}"#)]
+            case "_acpmux/pair_full_access_approve":
+                mac.approved()
+                return [reply("{}")]
             default:
                 return [reply("{}")]
             }
@@ -65,6 +71,9 @@ import Testing
         let hub = AcpmuxHub()
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
         #expect(hub.isReady)
+        hub.approver = AcpmuxHub.Approver(phoneID: "phone-1", macDevice: "mac-1") { _ in
+            { _ in Data(repeating: 1, count: 64) }
+        }
         let source = hub.source(sessionID: "s1", summary: Self.summary)
         let store = AgentChatStore(source: source)
         for _ in 0..<200 { await Task.yield() }
@@ -140,6 +149,22 @@ import Testing
         await hub.bind(nil)
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
         await settle { store.clientError == nil }
+        #expect(store.clientError == nil)
+    }
+
+    @Test func phoneApprovalRetriesTheHeldPromptInPlace() async throws {
+        let mac = Mac(fullAccess: false)
+        let (hub, _, _, store) = try await openChat(mac)
+        defer { withExtendedLifetime(hub) {} }
+        store.send(prompt: "continue the owner session")
+        await settle { store.clientError == AgentChatStore.fullAccessOffPromptNotice }
+        #expect(store.returnedDraft?.text == "continue the owner session")
+        #expect(store.canEnableFullAccess)
+
+        store.enableFullAccess()
+        await settle { mac.approvals == 1 && mac.prompts.count == 1 }
+        #expect(mac.approvals == 1)
+        #expect(mac.prompts.map(\.text) == ["continue the owner session"])
         #expect(store.clientError == nil)
     }
 }

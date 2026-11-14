@@ -82,6 +82,10 @@ public final class LiveCoordinator {
     public var workspaces: WorkspaceSync { focused.workspaces }
     /// The focused Mac's acpmux client.
     public var acpmux: AcpmuxHub { focused.acpmux }
+    /// Whether the focused paired Mac supports the phone-owned Full-access action.
+    public var supportsFullAccessApproval: Bool { acpmux.isReady && acpmux.approver != nil && acpmux.capabilities.contains("fullAccessApproval") }
+    /// Enables Full access for the focused Mac's pairing record.
+    public func enableFullAccess() async throws { try await acpmux.enableFullAccess() }
     /// This phone's APNs registration (the token goes on the link device id).
     public let push = PushRegistration.shared
     /// Whether the service could include a TURN relay in `GET /v1/ice` (nil

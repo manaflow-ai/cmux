@@ -612,6 +612,17 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// until an attach catches up, the chat shows what this phone kept, or a loading state.
     public var loadsHistory: Bool { !attached }
 
+    /// This chat rides a live acpmux connection that advertises the phone-owned
+    /// Full-access approval route.
+    public var supportsFullAccessApproval: Bool {
+        hub?.capabilities.contains("fullAccessApproval") == true
+    }
+
+    public func enableFullAccess() async throws {
+        guard let hub else { throw AgentFeatureUnavailable("This Mac cannot enable Full access from the iPhone.") }
+        try await hub.enableFullAccess()
+    }
+
     // MARK: Kept transcript (AgentTranscriptCache)
 
     /// The chat's key in the phone's transcript cache; nil when it keeps none (no account).

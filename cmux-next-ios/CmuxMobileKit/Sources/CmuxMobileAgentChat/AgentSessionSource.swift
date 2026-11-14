@@ -285,6 +285,10 @@ public protocol AgentSessionSource: AnyObject {
     /// says it caught up, instead of the empty new-chat screen. Sources that hold the whole
     /// history at once (mocks, an unbound tab) return false.
     var loadsHistory: Bool { get }
+    /// Whether this paired source can ask the Mac to enable Full access for this iPhone.
+    var supportsFullAccessApproval: Bool { get }
+    /// Enables Full access for this iPhone using the source's authenticated pairing.
+    func enableFullAccess() async throws
     /// The chat reached the oldest turn it shows: read the page before it, delivered as
     /// ``AgentSessionEvent/earlierPage(_:hasEarlier:)``. Sources that hold the whole history do nothing.
     func loadEarlierHistory()
@@ -318,6 +322,10 @@ extension AgentSessionSource {
     public func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate? { nil }
     public func loadEarlierHistory() {}
     public var loadsHistory: Bool { false }
+    public var supportsFullAccessApproval: Bool { false }
+    public func enableFullAccess() async throws {
+        throw AgentFeatureUnavailable("This Mac cannot enable Full access from the iPhone.")
+    }
 }
 
 extension AgentSessionSource {
