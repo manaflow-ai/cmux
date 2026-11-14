@@ -133,7 +133,8 @@ final class SinkBox: @unchecked Sendable {
         model.setVisible(true)
         model.layout(points: CGSize(width: 300, height: 600), screenScale: 2)
         for _ in 0..<200 where model.phase == .connecting { try? await Task.sleep(for: .milliseconds(5)) }
-        #expect(model.phase == .waiting("browser host: exited"))
+        // The Mac's internal reason is for the log; the page says what to do.
+        #expect(model.phase == .waiting("Something went wrong talking to your Mac. Try again."))
     }
 
     /// The Mac's reason for an address it does not open is shown as it is; an older

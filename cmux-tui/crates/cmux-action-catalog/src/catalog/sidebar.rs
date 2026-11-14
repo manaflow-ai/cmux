@@ -24,6 +24,18 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "sidebar.customize",
+        group: GROUP,
+        title: t("ActionCatalog", "action.sidebar.customize", "Customize sidebar…"),
+        keywords: &["sidebar", "customize", "rows", "layout", "density", "sections"],
+        category: "sidebar",
+        symbol: "slider.horizontal.3",
+        surfaces: PALETTE | KEYBOARD | MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 299)], ..SurfacePlan::DEFAULT },
+        cli_name: "sidebar customize",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "focusSidebar",
         group: GROUP,
         title: t("ActionCatalog", "action.focusSidebar", "Focus Sidebar"),

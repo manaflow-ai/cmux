@@ -7,7 +7,7 @@ use std::hash::{DefaultHasher, Hasher};
 use std::io::{self, Write};
 use std::sync::Arc;
 #[cfg(test)]
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 const CREDIT_WINDOW_BYTES: usize = 1024 * 1024;
 // Every encoded op is longer than 32 bytes, including an empty gone at seq 0.
@@ -32,7 +32,15 @@ pub(super) struct History {
     #[cfg(test)]
     encoded_ops: AtomicUsize,
     #[cfg(test)]
-    raw_copies: AtomicUsize,
+    raw_copies: Arc<AtomicUsize>,
+    #[cfg(test)]
+    raw_copy_permit: Arc<AtomicBool>,
+    #[cfg(test)]
+    raw_copy_waiting: Arc<AtomicBool>,
+    #[cfg(test)]
+    snapshot_open_permit: Arc<AtomicBool>,
+    #[cfg(test)]
+    snapshot_open_waiting: Arc<AtomicBool>,
 }
 
 /// A sparse fixed-size ring for the local rows sent to peer links. Sequence
@@ -83,6 +91,98 @@ impl RawSpan {
     }
 }
 
+/// Immutable bytes and entry metadata captured when a replay subscription
+/// opens. Replay copies use this snapshot without holding the writer's history
+/// mutex, so a raw frame cannot stall an append.
+pub(super) struct HistorySnapshot {
+    bytes: Box<[u8]>,
+    entries: Box<[Entry]>,
+    head: usize,
+    len: usize,
+    first: u64,
+    used: usize,
+    #[cfg(test)]
+    reserved_bytes: usize,
+    #[cfg(test)]
+    raw_copies: Arc<AtomicUsize>,
+    #[cfg(test)]
+    raw_copy_permit: Arc<AtomicBool>,
+    #[cfg(test)]
+    raw_copy_waiting: Arc<AtomicBool>,
+}
+
+impl HistorySnapshot {
+    fn empty(first: u64, _history: &History) -> Self {
+        Self {
+            bytes: Box::new([]),
+            entries: Box::new([]),
+            head: 0,
+            len: 0,
+            first,
+            used: 0,
+            #[cfg(test)]
+            reserved_bytes: 0,
+            #[cfg(test)]
+            raw_copies: _history.raw_copies.clone(),
+            #[cfg(test)]
+            raw_copy_permit: _history.raw_copy_permit.clone(),
+            #[cfg(test)]
+            raw_copy_waiting: _history.raw_copy_waiting.clone(),
+        }
+    }
+
+    pub(super) fn first_seq(&self) -> Option<u64> {
+        (self.len != 0).then_some(self.first)
+    }
+
+    pub(super) fn last_seq(&self) -> Option<u64> {
+        self.first_seq().and_then(|first| first.checked_add(self.len as u64 - 1))
+    }
+
+    pub(super) fn after_frame(
+        &self,
+        cursor: u64,
+        through: u64,
+        max_bytes: usize,
+    ) -> Option<RawSpan> {
+        if cursor >= through {
+            return Some(RawSpan { bytes: Vec::new(), last_seq: cursor, entries: Vec::new() });
+        }
+        let first = cursor.checked_add(1)?;
+        let offset = usize::try_from(first.checked_sub(self.first)?).ok()?;
+        let available = usize::try_from(through.checked_sub(cursor)?).ok()?;
+        let count = available.min(self.len.checked_sub(offset)?);
+        if count == 0 {
+            return None;
+        }
+        let max_bytes = max_bytes.min(256 * 1024);
+        #[cfg(test)]
+        let _copy_permit = RawCopyPermit::new(&self.raw_copy_permit, &self.raw_copy_waiting);
+        let mut out = Vec::with_capacity(max_bytes.min(self.used.saturating_add(count)));
+        let mut last_seq = cursor;
+        for index in 0..count {
+            let entry = *self.entries.get((self.head + offset + index) % self.entries.len())?;
+            let separator = usize::from(!out.is_empty());
+            if out.len().saturating_add(separator).saturating_add(entry.len) > max_bytes {
+                break;
+            }
+            if separator != 0 {
+                out.push(b',');
+            }
+            if !copy_entry_into(&self.bytes, entry, &mut out) {
+                return None;
+            }
+            #[cfg(test)]
+            if index == 0 {
+                // A positive observation proves bytes have already copied.
+                self.raw_copies.fetch_add(1, Ordering::Release);
+            }
+            last_seq = first.saturating_add(index as u64);
+        }
+        (!out.is_empty()).then_some(RawSpan { bytes: out, last_seq, entries: Vec::new() })
+    }
+}
+
 #[derive(Serialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
 enum Op<T, S> {
@@ -122,7 +222,15 @@ impl History {
             #[cfg(test)]
             encoded_ops: AtomicUsize::new(0),
             #[cfg(test)]
-            raw_copies: AtomicUsize::new(0),
+            raw_copies: Arc::new(AtomicUsize::new(0)),
+            #[cfg(test)]
+            raw_copy_permit: Arc::new(AtomicBool::new(true)),
+            #[cfg(test)]
+            raw_copy_waiting: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
+            snapshot_open_permit: Arc::new(AtomicBool::new(true)),
+            #[cfg(test)]
+            snapshot_open_waiting: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -144,6 +252,76 @@ impl History {
     #[cfg(test)]
     pub(super) fn raw_copies(&self) -> usize {
         self.raw_copies.load(Ordering::Acquire)
+    }
+
+    #[cfg(test)]
+    pub(super) fn raw_copy_control(&self) -> (Arc<AtomicBool>, Arc<AtomicBool>) {
+        (self.raw_copy_permit.clone(), self.raw_copy_waiting.clone())
+    }
+
+    #[cfg(test)]
+    pub(super) fn snapshot_open_control(&self) -> (Arc<AtomicBool>, Arc<AtomicBool>) {
+        (self.snapshot_open_permit.clone(), self.snapshot_open_waiting.clone())
+    }
+
+    /// Copy only the retained operations after `cursor`. The copy is made once
+    /// while the history lock is held, then replay frames read the compact
+    /// immutable suffix without sharing that lock with the writer.
+    pub(super) fn snapshot_after(&self, cursor: u64) -> HistorySnapshot {
+        #[cfg(test)]
+        let _snapshot_permit =
+            SnapshotOpenPermit::new(&self.snapshot_open_permit, &self.snapshot_open_waiting);
+        let Some(last) = self.last_seq() else {
+            return HistorySnapshot::empty(cursor.saturating_add(1), self);
+        };
+        let first = cursor.saturating_add(1).max(self.first);
+        if first > last {
+            return HistorySnapshot::empty(first, self);
+        }
+        let offset = usize::try_from(first.saturating_sub(self.first)).unwrap_or(self.len);
+        let count = self.len.saturating_sub(offset);
+        let Some(begin) = self.entries.get((self.head + offset) % self.entries.len()) else {
+            return HistorySnapshot::empty(first, self);
+        };
+        // Retained operations are contiguous in the byte ring. A nonempty
+        // suffix with equal endpoints occupies the full capacity.
+        let suffix_bytes = if self.tail > begin.start {
+            self.tail - begin.start
+        } else {
+            self.bytes.len() - begin.start + self.tail
+        };
+        let mut bytes = Vec::with_capacity(suffix_bytes);
+        let mut entries = Vec::with_capacity(count);
+        for index in 0..count {
+            let Some(entry) = self.entries.get((self.head + offset + index) % self.entries.len())
+            else {
+                return HistorySnapshot::empty(first, self);
+            };
+            let start = bytes.len();
+            if !copy_entry_into(&self.bytes, *entry, &mut bytes) {
+                return HistorySnapshot::empty(first, self);
+            }
+            entries.push(Entry { start, ..*entry });
+        }
+        let used = bytes.len();
+        #[cfg(test)]
+        let reserved_bytes = bytes.capacity();
+        HistorySnapshot {
+            bytes: bytes.into_boxed_slice(),
+            entries: entries.into_boxed_slice(),
+            head: 0,
+            len: count,
+            first,
+            used,
+            #[cfg(test)]
+            reserved_bytes,
+            #[cfg(test)]
+            raw_copies: self.raw_copies.clone(),
+            #[cfg(test)]
+            raw_copy_permit: self.raw_copy_permit.clone(),
+            #[cfg(test)]
+            raw_copy_waiting: self.raw_copy_waiting.clone(),
+        }
     }
 
     #[cfg(test)]
@@ -265,6 +443,10 @@ impl History {
         through: u64,
         max_bytes: usize,
     ) -> Option<RawSpan> {
+        #[cfg(test)]
+        let _copy_permit = RawCopyPermit::new(&self.raw_copy_permit, &self.raw_copy_waiting);
+        #[cfg(test)]
+        self.raw_copies.fetch_add(1, Ordering::Release);
         if cursor >= through {
             return Some(RawSpan { bytes: Vec::new(), last_seq: cursor, entries: Vec::new() });
         }
@@ -292,28 +474,72 @@ impl History {
                 out.push(b',');
             }
             entries.push(Entry { start: out.len(), ..entry });
-            if !self.copy_entry_into(entry, &mut out) {
+            if !copy_entry_into(&self.bytes, entry, &mut out) {
                 return None;
             }
             last_seq = first.saturating_add(index as u64);
         }
         (!out.is_empty()).then_some(RawSpan { bytes: out, last_seq, entries })
     }
+}
 
-    fn copy_entry_into(&self, entry: Entry, out: &mut Vec<u8>) -> bool {
-        #[cfg(test)]
-        self.raw_copies.fetch_add(1, Ordering::Release);
-        let capacity = self.bytes.len();
-        let first_len = entry.len.min(capacity.saturating_sub(entry.start));
-        let Some(first) = self.bytes.get(entry.start..entry.start + first_len) else {
-            return false;
-        };
-        out.extend_from_slice(first);
-        let Some(second) = self.bytes.get(..entry.len.saturating_sub(first_len)) else {
-            return false;
-        };
-        out.extend_from_slice(second);
-        true
+fn copy_entry_into(bytes: &[u8], entry: Entry, out: &mut Vec<u8>) -> bool {
+    let capacity = bytes.len();
+    let first_len = entry.len.min(capacity.saturating_sub(entry.start));
+    let Some(first) = bytes.get(entry.start..entry.start + first_len) else {
+        return false;
+    };
+    out.extend_from_slice(first);
+    let Some(second) = bytes.get(..entry.len.saturating_sub(first_len)) else {
+        return false;
+    };
+    out.extend_from_slice(second);
+    true
+}
+
+#[cfg(test)]
+struct RawCopyPermit<'a> {
+    waiting: &'a AtomicBool,
+}
+
+#[cfg(test)]
+struct SnapshotOpenPermit<'a> {
+    waiting: &'a AtomicBool,
+}
+
+#[cfg(test)]
+impl<'a> SnapshotOpenPermit<'a> {
+    fn new(permit: &'a AtomicBool, waiting: &'a AtomicBool) -> Self {
+        waiting.store(true, Ordering::Release);
+        while !permit.load(Ordering::Acquire) {
+            std::thread::yield_now();
+        }
+        Self { waiting }
+    }
+}
+
+#[cfg(test)]
+impl Drop for SnapshotOpenPermit<'_> {
+    fn drop(&mut self) {
+        self.waiting.store(false, Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+impl<'a> RawCopyPermit<'a> {
+    fn new(permit: &'a AtomicBool, waiting: &'a AtomicBool) -> Self {
+        waiting.store(true, Ordering::Release);
+        while !permit.load(Ordering::Acquire) {
+            std::thread::yield_now();
+        }
+        Self { waiting }
+    }
+}
+
+#[cfg(test)]
+impl Drop for RawCopyPermit<'_> {
+    fn drop(&mut self) {
+        self.waiting.store(false, Ordering::Release);
     }
 }
 
@@ -583,6 +809,40 @@ pub(super) fn decode(bytes: Vec<u8>) -> serde_json::Result<Vec<ListItem>> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn snapshot_reserves_only_the_requested_suffix_across_wraps() {
+        let mut history = History::with_capacity(4096);
+        for seq in 1..300 {
+            history.append(&gone(seq)).unwrap();
+        }
+        let last = history.last_seq().unwrap();
+        for cursor in history.first - 1..=last {
+            let snapshot = history.snapshot_after(cursor);
+            let expected = history.after(cursor, last).unwrap();
+            assert_eq!(snapshot.bytes.as_ref(), expected);
+            assert_eq!(snapshot.reserved_bytes, expected.len(), "cursor {cursor}");
+        }
+    }
+
+    #[test]
+    fn replay_frames_match_live_ring_operations() {
+        let mut history = History::with_capacity(4096);
+        for seq in 1..300 {
+            history.append(&gone(seq)).unwrap();
+        }
+        let first = history.first - 1;
+        let last = history.last_seq().unwrap();
+        let snapshot = history.snapshot_after(first);
+        let mut cursor = first;
+        while cursor < last {
+            let span = snapshot.after_frame(cursor, last, 512).unwrap();
+            let expected = history.after_frame(cursor, last, 512).unwrap();
+            assert_eq!(span.bytes, expected.bytes);
+            assert_eq!(span.last_seq, expected.last_seq);
+            cursor = span.last_seq;
+        }
+    }
+
     fn gone(seq: u64) -> ListItem {
         ListItem::Gone { seq, origin: "remote".into(), chat_id: format!("id-{seq}") }
     }
@@ -620,11 +880,17 @@ mod tests {
         history.append(&gone(1)).unwrap();
         history.append(&gone(2)).unwrap();
         assert_eq!(history.used, history.bytes.len());
+        let snapshot = history.snapshot_after(0);
+        assert_eq!(snapshot.reserved_bytes, history.used);
+        assert_eq!(snapshot.bytes.as_ref(), history.after(0, 2).unwrap());
         assert_eq!(decode(history.after(0, 2).unwrap()).unwrap().len(), 2);
         assert_eq!(decode(history.after(1, 2).unwrap()).unwrap().len(), 1);
         history.append(&gone(3)).unwrap();
         assert!(history.after(0, 3).is_none());
         assert_eq!(decode(history.after(1, 3).unwrap()).unwrap().len(), 2);
+        let snapshot = history.snapshot_after(1);
+        assert_eq!(snapshot.reserved_bytes, history.used);
+        assert_eq!(snapshot.bytes.as_ref(), history.after(1, 3).unwrap());
     }
 
     #[test]

@@ -1086,6 +1086,10 @@ impl Hub {
             "build": build(),
             // The protocol surfaces this build serves (`capabilities.rs`).
             "capabilities": crate::capabilities::ids(),
+            // The closed rows `_acpmux/sessions` lists with no filter, counted with no row built
+            // (`Hub::closed_listed`): `acpmux ls` counts them on its hidden line while it reads
+            // only the live view (agent service v2, row 7b). Not one snapshot with that read.
+            "closedListed": self.closed_listed(&sessions),
             "pid": std::process::id(),
             // Its own executable, and whether it runs as `cmux-tui acp …`, so a
             // client (host enroll) tells which program runs it without scanning
