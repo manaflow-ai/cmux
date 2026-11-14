@@ -127,7 +127,8 @@ echo '{}' > "$CLAUDE_CONFIG_DIR/.claude.json"
 # 2. Codex: the shim's keys win over a person's own cmux entry, wherever it is.
 ours=(-c "mcp_servers.cmux.command=\"$NODE\"" -c "mcp_servers.cmux.args=[\"$F\",\"shim\",\"$L\"]"
       -c "mcp_servers.cmux.cwd=\"$D/work\"" -c 'mcp_servers.cmux.enabled=true' -c 'mcp_servers.cmux.env.CMUX_X="1"')
-P=$D/proj; mkdir -p "$P/sub/.git" "$P/.codex"
+# $P is the project root (its .git); sessions start in $P/sub.
+P=$D/proj; mkdir -p "$P/sub" "$P/.git" "$P/.codex"
 for layer in user project profile; do
   : > "$CODEX_HOME/config.toml"; : > "$P/.codex/config.toml"; rm -f "$CODEX_HOME/work.config.toml"
   extra=()
