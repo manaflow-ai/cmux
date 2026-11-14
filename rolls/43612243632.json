@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43612243632",
+  "recorded_at": "2026-11-14T16:00:38Z",
+  "reason": "cmux-tui b758ed2a119f changes the image's cmux-tui (pinned 0923a52fdf65)",
+  "dry_run": false,
+  "cmux_tui": "b758ed2a119fa4d16892bdaec10fbee35481772e",
+  "fixes": [
+    {
+      "sha": "b758ed2a119fa4d16892bdaec10fbee35481772e",
+      "mergedAt": "2026-11-14T07:28:40-08:00",
+      "subject": "acpmux: a watched transcript's write wakes its chat at once (terminal to chat toggle under 100 ms) (#43059)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T16:00:38Z",
+    "snapshot_id": "sh-22d2aacfc46e4aeb847611e9cb8103b2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43612243632): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8e9bba5b224ed3b8900bfab6a70127ac8863e7b9",
+    "image": "cloud-native-auto-b758ed2a-43612243632-1",
+    "revision": "ci-43612243632-1",
+    "at": "2026-11-14T16:00:38Z"
+  },
+  "rolled_back": false
+}
