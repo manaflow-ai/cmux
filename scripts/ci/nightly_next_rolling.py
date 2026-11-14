@@ -29,12 +29,15 @@ through its tail, and a run that has sat 10 minutes with nothing running and eve
 queued job without a runner holds nothing. A promotion run on
 main that is still moving nightly-next counts as building for --promotion-minutes.
 One exception: a retry of nightly-next's own head while a newer commit waits neither
-holds nor counts as a start (retry_of). Nor does a run waiting in its leave-slot step (leaving_slot): a stale
-run waits there for this promotion before any build job starts, and leaves once nightly-next moves. It leaves the slot only when a newer push
+holds nor counts as a start (retry_of). It leaves the slot only when a newer push
 arrives, which waiting for it never let happen (19-41 min per retry, runs
 43395284047 and 43440656795), so the rule promotes: a retry not yet past that step
 yields, and one past it finishes with the newer push queued behind it, which then
 starts at once. Its head is no longer nightly-next's then, so it holds again.
+
+A run waiting in its leave-slot step holds nothing either (leaving_slot): a stale run (a loop retry, or a push
+that waited in the group behind another build) waits there for this promotion before any build job starts, and
+leaves once nightly-next moves.
 
 A dispatch for one commit (a person, or the feed watch's starvation guard) never
 reaches this rule: the tick runs it only when its `sha` input is empty.
@@ -101,7 +104,8 @@ def leaving_slot(jobs: list[dict]) -> bool:
                   and any(step.get("name") == LEAVE_SLOT_STEP and step.get("status") == "in_progress"
                           for step in job.get("steps") or [])
                   for job in jobs)
-    others = [job for job in jobs if job.get("name") != RESOLVE_JOB and job.get("status") in ("in_progress", "waiting")]
+    others = [job for job in jobs if job.get("name") != RESOLVE_JOB and (job.get("status") in ("in_progress", "waiting")
+              or job.get("status") in ("queued", "pending", "requested") and job.get("runner_name"))]
     return in_step and not others
 
 

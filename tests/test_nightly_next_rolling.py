@@ -212,6 +212,10 @@ class RollingRuleTests(unittest.TestCase):
                     job("nightly-next-one", "in_progress", 0.1, "mac")]
             go, reason = decide(head_runs=[stale], jobs={43558081148: past}, waited_minutes=24)
             self.assertFalse(go, reason)
+        with self.subTest("a job beside it that has a runner holds"):
+            beside = [*waiting, job("refresh-compilation-cache", "queued", 0.1, "mac")]
+            go, reason = decide(head_runs=[stale], jobs={43558081148: beside}, waited_minutes=24)
+            self.assertFalse(go, reason)
         with self.subTest("another build running beside it still holds"):
             go, reason = decide(head_runs=[stale, run(9, 30, head_sha="e" * 40)],
                                 jobs={43558081148: waiting}, waited_minutes=24)
