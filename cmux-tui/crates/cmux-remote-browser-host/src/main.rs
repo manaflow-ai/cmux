@@ -6,6 +6,9 @@
 //!   stdout gets one `{"listening":"ADDR"}` line. `--lifeline` is required: the per-launch secret is
 //!   the first stdin line (a viewer's hello token must equal it; no secret, no start) and the host
 //!   quits at stdin end of file. Loopback only.
+//! - `--supervise [--listen 127.0.0.1:0] [--host PATH] [-- HOST_ARGS]`: one shared host for many
+//!   tabs, each with its own request context, restarted with its tabs when it crashes
+//!   (src/supervise.rs; its wire is there). Starts `--serve --shared --listen-fd 3 --lifeline`.
 //! - `--probe ADDR OUT_DIR [--keys N] [--idle-ms N] [--ui] [--pickers] [--stuck-key]`: the loopback viewer
 //!   that measures a serving host (any platform). Its first stdin line is the host's secret.
 //! - `--smoke OUT_DIR`: the shim's own capture proof. macOS.
@@ -49,6 +52,42 @@ fn probe(args: &[String]) -> Option<std::process::ExitCode> {
     Some(std::process::ExitCode::from(u8::from(report.error.is_some())))
 }
 
+/// `--supervise [--listen ADDR] [--host PATH] [-- HOST_ARGS...]`: one shared host
+/// for many tabs (src/supervise.rs). Runs no CEF itself.
+fn supervise(args: &[String]) -> Option<std::process::ExitCode> {
+    use cmux_remote_browser_host::supervise::{Policy, run};
+    if !args.iter().any(|a| a == "--supervise") {
+        return None;
+    }
+    let flag = |f: &str| args.iter().position(|a| a == f).and_then(|i| args.get(i + 1)).cloned();
+    let Some(listen) = flag("--listen")
+        .unwrap_or_else(|| "127.0.0.1:0".into())
+        .parse()
+        .ok()
+        .and_then(|a| cmux_remote_browser_host::launch::loopback_only(a).ok())
+    else {
+        eprintln!("--listen: expected a loopback ADDR:PORT (127.0.0.1 or ::1)");
+        return Some(std::process::ExitCode::from(2));
+    };
+    let Some(host) =
+        flag("--host").map(std::path::PathBuf::from).or_else(|| std::env::current_exe().ok())
+    else {
+        return Some(std::process::ExitCode::from(2));
+    };
+    let host_args = args
+        .iter()
+        .position(|a| a == "--")
+        .map(|i| args[i + 1..].to_vec())
+        .unwrap_or_else(|| vec!["--use-mock-keychain".into()]);
+    let root =
+        std::env::var_os("CMUX_RB_CACHE_DIR").map(std::path::PathBuf::from).unwrap_or_else(|| {
+            std::env::temp_dir().join(format!("cmux-rb-shared-{}", std::process::id()))
+        });
+    let code =
+        run::supervise(run::Options { listen, host, host_args, root, policy: Policy::default() });
+    Some(std::process::ExitCode::from(u8::try_from(code).unwrap_or(1)))
+}
+
 #[cfg(target_os = "macos")]
 fn main() -> std::process::ExitCode {
     use std::ffi::{CString, c_char, c_int};
@@ -58,6 +97,9 @@ fn main() -> std::process::ExitCode {
     let all: Vec<String> = std::env::args().collect();
     let helper = all.iter().any(|a| a.starts_with("--type="));
     if !helper && let Some(code) = probe(&all) {
+        return code;
+    }
+    if !helper && let Some(code) = supervise(&all) {
         return code;
     }
     let args: Vec<CString> =
@@ -75,6 +117,29 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::from(2);
         };
         let lifeline = all.iter().any(|a| a == "--lifeline");
+        // A shared host (`--supervise` starts it): the supervisor's lines on
+        // stdin open each tab with its own token; there is no host secret.
+        let shared = all.iter().any(|a| a == "--shared");
+        let listen_fd = flag("--listen-fd").and_then(|f| f.parse::<i32>().ok());
+        if shared {
+            if !lifeline || listen_fd.is_none() {
+                eprintln!(
+                    "--serve --shared needs --lifeline and --listen-fd (started by --supervise)"
+                );
+                return std::process::ExitCode::from(2);
+            }
+            let opts = cmux_remote_browser_host::serve::Options {
+                listen,
+                listen_fd,
+                url: String::new(),
+                once: false,
+                lifeline,
+                secret: None,
+                shared,
+            };
+            let code = cmux_remote_browser_host::serve::run(&mut argv, opts);
+            return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
+        }
         // The app writes the per-launch secret as the lifeline's first line.
         // There is no open mode: without a secret the host does not start.
         let secret = if lifeline {
@@ -103,6 +168,8 @@ fn main() -> std::process::ExitCode {
             once: all.iter().any(|a| a == "--once"),
             lifeline,
             secret,
+            listen_fd,
+            shared: false,
         };
         let code = cmux_remote_browser_host::serve::run(&mut argv, opts);
         return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
@@ -164,6 +231,9 @@ fn main() -> std::process::ExitCode {
 fn main() -> std::process::ExitCode {
     let all: Vec<String> = std::env::args().collect();
     if let Some(code) = probe(&all) {
+        return code;
+    }
+    if let Some(code) = supervise(&all) {
         return code;
     }
     eprintln!("cmux-remote-browser-host: the macOS host is the only host in r2 (Linux follows)");

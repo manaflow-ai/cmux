@@ -108,7 +108,7 @@ import { composerPlusRegistry, composerPlusSearchExtensions } from "../composerP
 import { ComposerPlusMenu } from "../ComposerPlusMenu";
 import { ChromeArea } from "../../../ui/HideableChrome";
 import { Popover } from "../../../ui/Popover";
-import { PromptFocus } from "../promptFocus";
+import { PromptFocusProvider } from "../promptFocus";
 import { tabsToComposer } from "../composerFocus";
 import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
@@ -127,6 +127,7 @@ import { SlashMenu } from "../SlashMenu";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
 import {
   applyCommand,
+  insertsText,
   returnPicks,
   shownName,
   slashMatches,
@@ -956,7 +957,7 @@ export function NewTabScreen(props: Props) {
     // A picked Codex skill goes as `/$name` even where a command shares its name (withSkillDollars).
     if (command.name.length > 1 && command.name.startsWith("$")) pickedSkills.current.add(shownName(command));
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
-    if (field.current?.insertCommand(shownName(command))) {
+    if (field.current?.insertCommand(shownName(command), insertsText(command) ? command.insert : undefined)) {
       requestAnimationFrame(() => field.current?.focus());
       return;
     }
@@ -2192,7 +2193,7 @@ export function NewTabScreen(props: Props) {
   const focusField = () => field.current?.focus();
   const placed = new Set(field.current?.inlineIds() ?? inlineTokenIds(text));
   const composerCard = (
-    <PromptFocus value={focusField}>
+    <PromptFocusProvider focus={focusField}>
       {/* One card, the agent composer's (Composer.tsx; Leo 2026-10-13): the field on top, then the
           bar with the agent's model chip, the mic and Send. The location strip with the project the
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
@@ -2452,7 +2453,7 @@ export function NewTabScreen(props: Props) {
           </div>
         )}
       </div>
-    </PromptFocus>
+    </PromptFocusProvider>
   );
   // First run (no chats on this Mac or its peers yet): three things to ask, under the composer. A
   // pick fills the composer and sends nothing; the first chat takes them away for good.

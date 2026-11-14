@@ -234,7 +234,9 @@ pub(crate) async fn output(
     };
     let walks_all = view == ListView::All;
     let mut status_read = None;
-    if (compact || walks_all) && let Some(read) = peers.take() {
+    if (compact || walks_all)
+        && let Some(read) = peers.take()
+    {
         status_read = Some(read.await.ok().and_then(Result::ok));
     }
     if walks_all && status_read.is_none() {
@@ -247,9 +249,8 @@ pub(crate) async fn output(
     // `--cursor` is a v1 read kept; it moves before the v1 list is deleted. The compact view
     // needs the closed count: a status without it means the v1 path. A walk of the whole view
     // reads v1 while another machine's closed row is listed (decision 213).
-    let known_peers = status_read
-        .as_ref()
-        .and_then(|status| status.as_ref()?.get("peers")?.as_array().cloned());
+    let known_peers =
+        status_read.as_ref().and_then(|status| status.as_ref()?.get("peers")?.as_array().cloned());
     let remote_closed =
         walks_all && list_read::closed_remote_listed(status_read.as_ref().and_then(Option::as_ref));
     let source = if !one_page && !remote_closed && (!compact || closed_listed.is_some()) {
@@ -264,8 +265,7 @@ pub(crate) async fn output(
                 (!live || !list_read::closed(s))
                     && (status.as_deref() != Some("closed") || list_read::closed(s))
                     && (!live_status || !list_read::closed(s))
-                    && (!(pending || status.as_deref() == Some("waiting"))
-                        || list_read::pending(s))
+                    && (!(pending || status.as_deref() == Some("waiting")) || list_read::pending(s))
                     && rows.keeps(&json!({"peer": peer}))
                     && (!named
                         || list_read::name_probe(s)
@@ -292,7 +292,11 @@ pub(crate) async fn output(
                 may_keep: &may_keep,
                 keeps: &keeps,
                 cutoff,
-                want: want.map(|n| list_read::Want { rows: n, lists: &lists, lists_row: &lists_row }),
+                want: want.map(|n| list_read::Want {
+                    rows: n,
+                    lists: &lists,
+                    lists_row: &lists_row,
+                }),
                 with_tools,
                 usage,
             };
