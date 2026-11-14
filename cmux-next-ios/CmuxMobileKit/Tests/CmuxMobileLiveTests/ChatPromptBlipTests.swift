@@ -19,14 +19,28 @@ import Testing
         private var _prompts: [(text: String, promptID: String, resend: Bool)] = []
         private var _fullAccess: Bool
         private var _approvals = 0
-        init(fullAccess: Bool = true) { _fullAccess = fullAccess }
+        private var approvalFailures: Int
+        init(fullAccess: Bool = true, approvalFailures: Int = 0) {
+            _fullAccess = fullAccess
+            self.approvalFailures = approvalFailures
+        }
         var fullAccess: Bool {
             get { lock.withLock { _fullAccess } }
             set { lock.withLock { _fullAccess = newValue } }
         }
         var prompts: [(text: String, promptID: String, resend: Bool)] { lock.withLock { _prompts } }
         var approvals: Int { lock.withLock { _approvals } }
-        func approved() { lock.withLock { _approvals += 1; _fullAccess = true } }
+        func approve() -> Bool {
+            lock.withLock {
+                _approvals += 1
+                if approvalFailures > 0 {
+                    approvalFailures -= 1
+                    return false
+                }
+                _fullAccess = true
+                return true
+            }
+        }
         func prompted(_ text: String, _ id: String, _ resend: Bool) { lock.withLock { _prompts.append((text, id, resend)) } }
     }
 
@@ -55,7 +69,9 @@ import Testing
                 mac.prompted(text, meta?["promptId"] as? String ?? "", meta?["resend"] as? Bool ?? false)
                 return [reply(#"{"stopReason":"end_turn"}"#)]
             case "_acpmux/pair_full_access_approve":
-                mac.approved()
+                guard mac.approve() else {
+                    return [Data(#"{"jsonrpc":"2.0","id":\#(id),"error":{"code":-32003,"message":"Approval was not accepted"}}"#.utf8)]
+                }
                 return [reply("{}")]
             default:
                 return [reply("{}")]
@@ -160,11 +176,44 @@ import Testing
         await settle { store.clientError == AgentChatStore.fullAccessOffPromptNotice }
         #expect(store.returnedDraft?.text == "continue the owner session")
         #expect(store.canEnableFullAccess)
+        let promptID = try #require(store.returnedDraft?.promptID)
+        // ChatComposer has put the refused draft back in its field before the tap.
+        store.returnedDraft = nil
 
         store.enableFullAccess()
+        store.enableFullAccess() // a repeated tap cannot approve or resend twice
         await settle { mac.approvals == 1 && mac.prompts.count == 1 }
         #expect(mac.approvals == 1)
         #expect(mac.prompts.map(\.text) == ["continue the owner session"])
+        #expect(mac.prompts.first?.promptID == promptID)
+        #expect(mac.prompts.first?.resend == true)
+        #expect(store.withdrawnDraft?.promptID == promptID)
+        #expect(store.withdrawnDraft?.text == "continue the owner session")
+        #expect(store.clientError == nil)
+    }
+
+    @Test func failedPhoneApprovalKeepsTheInPlaceRecoveryAction() async throws {
+        let mac = Mac(fullAccess: false, approvalFailures: 1)
+        let (hub, _, _, store) = try await openChat(mac)
+        defer { withExtendedLifetime(hub) {} }
+        store.send(prompt: "retry after approval")
+        await settle { store.returnedDraft != nil }
+        let promptID = try #require(store.returnedDraft?.promptID)
+        store.returnedDraft = nil
+
+        store.enableFullAccess()
+        await settle { !store.enablingFullAccess }
+        #expect(mac.prompts.isEmpty)
+        #expect(!mac.fullAccess)
+        // These are the existing refusal banner's recovery conditions.
+        #expect(store.clientError == AgentChatStore.fullAccessOffPromptNotice)
+        #expect(store.canEnableFullAccess)
+
+        store.enableFullAccess()
+        await settle { mac.prompts.count == 1 }
+        #expect(mac.approvals == 2)
+        #expect(mac.prompts.map(\.text) == ["retry after approval"])
+        #expect(mac.prompts.first?.promptID == promptID)
         #expect(store.clientError == nil)
     }
 }

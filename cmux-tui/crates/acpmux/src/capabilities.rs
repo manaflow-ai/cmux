@@ -410,6 +410,10 @@ mod tests {
         let init = client.request(method::INITIALIZE, hello).await.unwrap();
         assert_eq!(init.pointer("/_meta/acpmux/capabilities"), Some(&expected), "{init}");
         assert!(
+            client.daemon_lists("fullAccessApproval"),
+            "the paired phone must discover its in-place Full-access action"
+        );
+        assert!(
             client.daemon_lists(TRIGGER_CHAT),
             "trigger chat capability must gate its CLI helper"
         );
