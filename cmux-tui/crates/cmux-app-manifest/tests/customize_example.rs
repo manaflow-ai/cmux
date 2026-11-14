@@ -15,9 +15,7 @@ mod apps {
     fn block<'a>(doc: &'a str, heading: &str, lang: &str) -> &'a str {
         let after = &doc[doc.find(heading).unwrap_or_else(|| panic!("no {heading}"))..];
         let open = format!("```{lang}\n");
-        let start = after
-            .find(&open)
-            .unwrap_or_else(|| panic!("no {lang} block after {heading}"))
+        let start = after.find(&open).unwrap_or_else(|| panic!("no {lang} block after {heading}"))
             + open.len();
         let len = after[start..].find("```").expect("closed block");
         &after[start..start + len]
@@ -30,9 +28,7 @@ mod apps {
     fn exported_names(script: &str) -> Vec<&str> {
         let open = "globalThis.__cmuxAppExports = {";
         let start = script.find(open).expect("exports") + open.len();
-        let len = script[start..]
-            .find('}')
-            .expect("the exports object is closed");
+        let len = script[start..].find('}').expect("the exports object is closed");
         script[start..start + len]
             .split(',')
             .map(|entry| entry.split(':').next().unwrap_or("").trim())
@@ -72,14 +68,8 @@ mod apps {
             let export = manifest["implements"][interface]["export"]
                 .as_str()
                 .unwrap_or_else(|| panic!("{interface} has no export"));
-            assert!(
-                script.contains(&format!("function {export}(")),
-                "{export} is not defined"
-            );
-            assert!(
-                exported.contains(&export),
-                "{export} is not exported, {exported:?} is"
-            );
+            assert!(script.contains(&format!("function {export}(")), "{export} is not defined");
+            assert!(exported.contains(&export), "{export} is not exported, {exported:?} is");
         }
         assert!(!script.contains("\nexport "), "main.js is a classic script");
         let _ = std::fs::remove_dir_all(dir.parent().unwrap());
@@ -106,27 +96,10 @@ mod apps {
         assert!(report.is_valid(), "{:?}", report.issues);
         let manifest = report.manifest.expect("manifest");
         assert_eq!(manifest["id"], "local/customize");
-        let export = manifest["implements"]["cmux.section/1"]["export"]
-            .as_str()
-            .expect("export");
-        assert!(
-            script.contains(&format!("function {export}(")),
-            "{export} is not defined"
-        );
-        assert_eq!(
-            exported_names(script),
-            [export],
-            "the template exports just its one view"
-        );
-        for piece in [
-            "Panel(",
-            "Toggle(",
-            "Slider(",
-            "Row(",
-            "Button(",
-            "Menu(",
-            "cmux.toast(",
-        ] {
+        let export = manifest["implements"]["cmux.section/1"]["export"].as_str().expect("export");
+        assert!(script.contains(&format!("function {export}(")), "{export} is not defined");
+        assert_eq!(exported_names(script), [export], "the template exports just its one view");
+        for piece in ["Panel(", "Toggle(", "Slider(", "Row(", "Button(", "Menu(", "cmux.toast("] {
             assert!(script.contains(piece), "the template uses {piece}");
         }
         assert!(!script.contains('#'), "no literal colors");
@@ -177,14 +150,10 @@ mod apps {
             );
             let exported = exported_names(&script);
             let implements = manifest["implements"].as_object().expect("implements");
-            assert!(
-                implements.contains_key("cmux.section/1"),
-                "{name} has a sidebar section"
-            );
+            assert!(implements.contains_key("cmux.section/1"), "{name} has a sidebar section");
             for (interface, entry) in implements {
-                let export = entry["export"]
-                    .as_str()
-                    .unwrap_or_else(|| panic!("{name}: {interface}"));
+                let export =
+                    entry["export"].as_str().unwrap_or_else(|| panic!("{name}: {interface}"));
                 assert!(
                     script.contains(&format!("function {export}(")),
                     "{name}: {export} is not defined"
@@ -194,10 +163,8 @@ mod apps {
                     "{name}: {export} is not exported, {exported:?} is"
                 );
             }
-            let named: Vec<&str> = implements
-                .values()
-                .filter_map(|entry| entry["export"].as_str())
-                .collect();
+            let named: Vec<&str> =
+                implements.values().filter_map(|entry| entry["export"].as_str()).collect();
             for export in &exported {
                 assert!(
                     named.contains(export),

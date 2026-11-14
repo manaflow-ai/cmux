@@ -204,6 +204,9 @@ public final class TerminalModel {
     public func setAppActive(_ active: Bool) {
         controller?.appActiveChanged(active)
         sizeClaimer.set(appActive: active)
+        // A claim kept through the background grace: the Mac's lease starts
+        // over now, when leaving and when coming back.
+        if sizeClaimer.claims { session.renewSizeClaim() }
     }
 
     /// A sheet of the page's own covers it (Files and Links, the photo

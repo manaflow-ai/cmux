@@ -148,6 +148,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-json",
+ "cmux-theme-tokens",
  "core-foundation",
  "core-foundation-sys",
  "notify",
@@ -214,6 +215,10 @@ dependencies = [
  "sha2",
  "time",
 ]
+
+[[package]]
+name = "cmux-theme-tokens"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-unix-socket"
