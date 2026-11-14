@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
 import { personalTeamIdFor, userIdFor } from "../src/domains/user.ts"
 import type { Env } from "../src/env.ts"
+import { TOKEN_MINT_DEADLINE_MS, tokenMintDeadline } from "../src/http.ts"
 import { selectTeam } from "../src/team-select.ts"
 import { listUserTeams } from "../src/user-teams.ts"
 import { call, PROJECT, stackWorld, teamIdOf, teamStub, useStack } from "./team-stack-support.ts"
@@ -151,5 +152,112 @@ describe("a team-scoped check syncs a Stack team the webhook never mirrored", { 
     const ids = (r as { value: { teams: Array<{ id: string }> } }).value.teams.map((t) => t.id)
     expect(ids).toContain(s.team)
     expect(ids).toContain(teamIdOf(other))
+  })
+})
+
+/**
+ * NEXT Nightly on production, 2026-11-14 (cmuxterm-hq run 43577358598): the app's install-token mint for
+ * its active Stack team ran past the app's 25 s limit, for two accounts, while a mint without a team and a
+ * personal-team token answered. The mint's heal waited on Stack's team read (10 s a request, plus 429
+ * retries) and the team sync (up to 10 s) with no total budget, and /v1/auth/token had no deadline of its own.
+ */
+describe("a team-scoped mint answers within its budget whatever Stack does", { timeout: 60_000 }, () => {
+  const setup = async (name: string) => {
+    const w = stackWorld()
+    const stackTeam = crypto.randomUUID()
+    const me = crypto.randomUUID()
+    await useStack(stackTeam, w)
+    w.teams.set(stackTeam, name)
+    w.members.set(`${stackTeam}:${me}`, "Leo")
+    const token = await sessionToken(me, "Leo")
+    const ensured = (await call(token, "/v1/ops", { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })).body
+    expect(ensured.ok).toBe(true)
+    return { w, me, token, user: ensured.value.id as string, team: teamIdOf(stackTeam) }
+  }
+  type Setup = Awaited<ReturnType<typeof setup>>
+  const post = async (path: string, token: string, body: unknown) => {
+    const res = await worker.fetch(`https://api.test${path}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) })
+    return { status: res.status, json: (await res.json()) as any }
+  }
+  /** One registered mac install; `mint` runs a fresh challenge and token for `team` (the app's `cmux auth token`). */
+  const macInstall = async (s: Setup) => {
+    const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
+    const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
+    const registered = await call(s.token, "/v1/ops", { op: "install.register", params: { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "mac", name: "cmux", device_name: "mac", platform: "macos" }, idempotency_key: crypto.randomUUID(), origin: "user" })
+    expect(registered.body.ok, JSON.stringify(registered.body)).toBe(true)
+    const install = registered.body.value.id as string
+    return async (team: string) => {
+      const ch = await post("/v1/auth/challenge", s.token, { user: s.user, install, team })
+      expect(ch.status, JSON.stringify(ch.json)).toBe(200)
+      const sig = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${ch.json.message_prefix}${ch.json.nonce}`)))
+      const signature = btoa(String.fromCharCode(...sig)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+      const started = Date.now()
+      const r = await post("/v1/auth/token", s.token, { user: s.user, install, nonce: ch.json.nonce, signature })
+      return { ...r, ms: Date.now() - started }
+    }
+  }
+  const userDO = (s: Setup) => workerEnv.USER_DO.get(workerEnv.USER_DO.idFromName(s.user))
+  /** A Stack whose team read waits until `release()`, then answers as the fake world does. */
+  const heldStack = (s: Setup) => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    let calls = 0
+    const stack = { listUserTeams: async (u: string) => (calls++, await gate, s.w.fake.listUserTeams(u)) }
+    return { stack, release, calls: () => calls }
+  }
+  const errorOf = (r: { json: any }) => r.json.error ?? r.json
+
+  it("a Stack read that hangs answers a retryable owner.unreachable naming the step, and the next mint succeeds", async () => {
+    const s = await setup("Hung Stack")
+    const held = heldStack(s)
+    await runIn(userDO(s), async (instance) => void (instance.stackHeal = { stack: held.stack, pace: async () => true, now: () => Date.now() }))
+    const mint = await macInstall(s)
+    const first = await mint(s.team)
+    expect(first.status, JSON.stringify(first.json)).toBe(503)
+    expect(errorOf(first)).toMatchObject({ code: "owner.unreachable", retryable: true })
+    expect(errorOf(first).message).toContain("Stack")
+    expect(first.ms).toBeLessThan(10_000)
+    // The heal keeps running after the answer: once Stack answers, the team is synced and the next mint succeeds.
+    held.release()
+    let next = await mint(s.team)
+    for (let i = 0; i < 10 && next.status !== 200; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      next = await mint(s.team)
+    }
+    expect(next.status, JSON.stringify(next.json)).toBe(200)
+    expect(next.json.team).toBe(s.team)
+    // One Stack read served both mints (the retry waited on the running heal instead of finding no teams).
+    expect(held.calls()).toBe(1)
+  })
+
+  it("a member TeamDO already knows mints without asking Stack", async () => {
+    const s = await setup("Mirrored")
+    await runIn(userDO(s), async (instance) => void (instance.stackHeal = { stack: s.w.fake, pace: async () => true, now: () => Date.now() }))
+    const mint = await macInstall(s)
+    expect((await mint(s.team)).status).toBe(200)
+    const held = heldStack(s)
+    await runIn(userDO(s), async (instance) => void (instance.stackHeal = { stack: held.stack, pace: async () => true, now: () => Date.now() }))
+    const again = await mint(s.team)
+    expect(again.status, JSON.stringify(again.json)).toBe(200)
+    expect(held.calls()).toBe(0)
+    held.release()
+  })
+
+  it("/v1/auth/token answers by its deadline when the membership check never does", async () => {
+    const s = await setup("Stuck")
+    const mint = await macInstall(s)
+    let wake!: () => void
+    await runIn(userDO(s), async (instance) => void (instance.tokenTeamMember = () => new Promise((resolve) => (wake = () => resolve({ role: "member" })))))
+    tokenMintDeadline.ms = 1_000
+    try {
+      const r = await mint(s.team)
+      expect(r.status, JSON.stringify(r.json)).toBe(503)
+      expect(errorOf(r)).toMatchObject({ code: "owner.unreachable", retryable: true })
+      expect(errorOf(r).message).toContain("token mint")
+      expect(r.ms).toBeLessThan(5_000)
+    } finally {
+      tokenMintDeadline.ms = TOKEN_MINT_DEADLINE_MS
+      await runIn(userDO(s), async () => wake?.())
+    }
   })
 })
