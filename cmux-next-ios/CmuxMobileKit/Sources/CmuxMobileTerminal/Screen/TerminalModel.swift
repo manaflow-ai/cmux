@@ -469,7 +469,7 @@ public final class TerminalModel {
     #endif
 
     /// Grid sizes this page sent the Mac (`TerminalViewController.sendResize`),
-    /// for demos and UI tests: the soft keyboard must not add any.
+    /// for demos and UI tests.
     public internal(set) var ptyResizesSent = 0
     #if DEBUG
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
