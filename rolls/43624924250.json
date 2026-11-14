@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43624924250",
+  "recorded_at": "2026-11-14T18:21:13Z",
+  "reason": "cmux-tui dadecb026fe5 changes the image's cmux-tui (pinned 56d89c1194bd)",
+  "dry_run": false,
+  "cmux_tui": "dadecb026fe5f39ac6ab63f43d50d53a44752d2d",
+  "fixes": [
+    {
+      "sha": "dadecb026fe5f39ac6ab63f43d50d53a44752d2d",
+      "mergedAt": "2026-11-14T09:46:44-08:00",
+      "subject": "NEXT keeps its Cloud and SSH state under cmux-next/<bundle id>, moved once from classic's folder (#42880)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T18:21:13Z",
+    "snapshot_id": "sh-5054f490784943faa32ac98e670e6bfd",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43624924250): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "041117de15b9c29cc4f6734b28bd4b6eff9e71d5",
+    "image": "cloud-native-auto-dadecb02-43624924250-1",
+    "revision": "ci-43624924250-1",
+    "at": "2026-11-14T18:21:13Z"
+  },
+  "rolled_back": false
+}
