@@ -74,6 +74,20 @@ class DecideTests(unittest.TestCase):
         d = cron.decide(state, at(1), None, None, lambda sha: ALL, busy)
         self.assertEqual((d["action"], d["part"], d["linux_part"]), ("part", "", "diff-viewer"))
 
+    def test_a_measurement_held_by_a_busy_fleet_gives_its_runner_host_up_for_the_bench_host(self):
+        # Nightly runs start about every 25 minutes, so a job of one is queued at most ticks: a pinned measurement
+        # that only waited would never run a Mac part again.
+        busy = "nightly.yml waits for a runner"
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, "a" * 40, None, lambda sha: FLEET, None)
+        state["current"]["host"] = "aws-m4pro-9"
+        d = cron.decide(state, at(1), None, None, lambda sha: FLEET, busy)
+        self.assertEqual(d["action"], "none")
+        d = cron.decide(state, at(1 + cron.HOST_WAIT_HOURS + 0.1), None, None, lambda sha: FLEET, busy)
+        self.assertEqual((d["action"], d.get("worker")), ("part", cron.BENCH_WORKER))
+        self.assertNotIn("host", state["current"])
+        self.assertEqual(state["current"]["gave_up"][0]["host"], "aws-m4pro-9")
+
     def test_a_busy_github_fleet_sends_the_mac_parts_to_the_bench_host(self):
         # 2026-11-13 16:43Z to 11-14 02:29Z: no Mac part ran. Every tick found a nightly job queued for a signing
         # runner and measured nothing, while cmux20-bench, which runs no CI job, could have taken the part.
@@ -1235,6 +1249,7 @@ class Review2Tests(OneRunRule):
     def test_yielding_does_not_count_against_abandon_hours(self):
         state = cron.empty_state(T0)
         cron.decide(state, T0, "a" * 40, None, lambda sha: ["motion"], None)
+        state["current"]["host"] = "aws-m4pro-9"  # a host that also runs CI jobs: its parts wait for the build
         cron.decide(state, at(1), None, None, lambda sha: ["motion"], "nightly.yml waits")
         self.assertEqual(state["current"]["yield_since"], cron.iso(at(1)))
         d = cron.decide(state, at(cron.ABANDON_HOURS + 6), "b" * 40, None, lambda sha: ["motion"], "nightly.yml waits")
