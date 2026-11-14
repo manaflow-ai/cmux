@@ -17,10 +17,10 @@
 //! HOST/NAME` (chat_send.rs).
 
 use std::io::Write as _;
-use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use cmux_json::JsonGet as _;
+use cmux_process::{Command, Stdio};
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode, Start, UsageError};
@@ -410,9 +410,8 @@ fn acp_json(words: &[&str], stdin: Option<&str>) -> Result<Value, Value> {
     let exe = std::env::current_exe()
         .map_err(|e| error("acpmux.unreachable", &format!("cannot find cmux: {e}"), true))?;
     let mut command = Command::new(exe);
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::arg0(&mut command, "cmux");
     command
+        .arg0("cmux")
         .arg("acp")
         .args(words)
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
