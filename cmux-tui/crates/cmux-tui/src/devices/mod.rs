@@ -7,6 +7,8 @@
 
 use cmux_json::JsonSet as _;
 
+#[cfg(test)]
+mod credential_env_tests;
 mod model;
 mod network;
 mod removal;
