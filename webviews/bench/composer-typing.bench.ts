@@ -1,0 +1,223 @@
+// l10n-allow-file: benchmark output, not shipped UI.
+// What one keystroke in the agent chat's composer costs, at transcript lengths of 60, 1,500 and 6,000 rows (CMUX-571,
+// Leo: "improve performance (chat, everything related)"; Leo, 2026-11-12: long chats must have "no perceivable
+// difference"). A key should render the composer and nothing that does not read its text: not the pane root, not the
+// transcript, not a row, and its cost should not grow with the transcript.
+//
+// The real pane (`?mock`: the real direct client against the in-page mock daemon), built as it ships (the server
+// setup below). Each length is a light chat
+// (`cmuxAcpmuxDebug.loadSeed(turns, { light: true })`), then `--keys` letters typed into the prompt with real key
+// events (Playwright's keyboard, `--gap` ms apart, about a fast typist's pace). Per key:
+//   renders   `acpmuxPerf.renders`: the pane root (AcpmuxPane), the transcript, the composer, every row and row frame
+//   layout    the page's layouts and style recalcs (CDP Performance.getMetrics LayoutCount, RecalcStyleCount)
+//   script    main-thread script, layout and style time (ScriptDuration, LayoutDuration, RecalcStyleDuration), ms
+//   to_frame  the page's own typingStats (keydown to the next frame, p50 / p95), as the Mac bench reads it
+//   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--dev] [--profile]
+/// <reference types="bun" />
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { chromium } from "./browsers";
+import type { Page } from "playwright";
+import { warmViteServer } from "../test/support/warmDevServer";
+
+const argv = process.argv.slice(2);
+const flag = (name: string) => {
+  const at = argv.indexOf(name);
+  return at >= 0 ? argv[at + 1] : undefined;
+};
+const LENGTHS = (flag("--lengths") ?? "60,1500,6000").split(",").map(Number);
+const KEYS = Number(flag("--keys") ?? 60);
+const GAP_MS = Number(flag("--gap") ?? 80);
+/// With --profile: a CPU profile over the typed keys, and the functions with the most time per key (inclusive and self).
+const PROFILE = argv.includes("--profile");
+const DEV = argv.includes("--dev");
+const webviews = path.resolve(import.meta.dir, "..");
+const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
+const METRICS = [
+  "LayoutCount",
+  "RecalcStyleCount",
+  "ScriptDuration",
+  "LayoutDuration",
+  "RecalcStyleDuration",
+  "TaskDuration",
+] as const;
+
+async function openChat(page: Page, port: number, turns: number) {
+  await page.goto(`http://127.0.0.1:${port}/?mock`);
+  await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
+  const seeded = (await page.evaluate(
+    (count) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light: true }),
+    turns,
+  )) as Record<string, any>;
+  if (seeded.error) throw new Error(`loadSeed: ${seeded.error}`);
+  await page.locator(PROMPT).first().waitFor({ timeout: 20_000 });
+  return seeded.rows as number;
+}
+
+type CpuProfile = {
+  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number }; children?: number[] }[];
+  samples: number[];
+  timeDeltas: number[];
+};
+
+/// Per key, ms: each function's inclusive time (once per sample however deep it recurses) and self time.
+function printProfile(length: number, profile: CpuProfile) {
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const parent = new Map<number, number>();
+  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
+  const name = (id: number) => {
+    const frame = byId.get(id)!.callFrame;
+    const file = frame.url.split("/").pop()?.split("?")[0] ?? "";
+    return `${frame.functionName || "(anon)"} ${file}:${frame.lineNumber + 1}`;
+  };
+  const inclusive = new Map<string, number>();
+  const self = new Map<string, number>();
+  profile.samples.forEach((id, index) => {
+    const ms = (profile.timeDeltas[index + 1] ?? 0) / 1000;
+    const fn = byId.get(id)?.callFrame.functionName;
+    if (fn === "(idle)" || fn === "(program)") return;
+    self.set(name(id), (self.get(name(id)) ?? 0) + ms);
+    const seen = new Set<string>();
+    for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
+      const key = name(at);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      inclusive.set(key, (inclusive.get(key) ?? 0) + ms);
+    }
+  });
+  const top = (map: Map<string, number>, count: number) =>
+    [...map.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, count)
+      .map(([key, ms]) => `  ${(ms / KEYS).toFixed(3)} ms/key  ${key}`)
+      .join("\n");
+  console.log(`PROFILE ${length} rows, inclusive:\n${top(inclusive, 90)}`);
+  console.log(`PROFILE ${length} rows, self:\n${top(self, 40)}`);
+}
+
+// The pane as it ships (a vite build: production React, the React Compiler pass), served as files; --dev serves the
+// dev server's pane instead (development React, several times the script time per render). With --profile the build
+// is unminified, so the profile names functions.
+const releases: (() => unknown)[] = [];
+let port: number;
+if (DEV) {
+  const { createServer } = await import("vite");
+  const vite = await createServer({
+    configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+    server: { port: 0, host: "127.0.0.1", strictPort: false },
+    logLevel: "error",
+  });
+  releases.push(() => vite.close());
+  await vite.listen();
+  await warmViteServer(vite, "/?mock");
+  port = (vite.httpServer!.address() as { port: number }).port;
+} else {
+  const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "composer-typing-bench-"));
+  releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
+  const { build } = await import("vite");
+  await build({
+    configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
+    logLevel: "error",
+  });
+  const statics = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch(request) {
+      const pathname = new URL(request.url).pathname;
+      const file = Bun.file(path.join(out, pathname === "/" ? "index.html" : pathname));
+      return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
+    },
+  });
+  releases.push(() => statics.stop(true));
+  port = statics.port;
+}
+const browser = await chromium.launch({ headless: true });
+releases.push(() => browser.close());
+try {
+  const table: Record<string, unknown>[] = [];
+  for (const length of LENGTHS) {
+    const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
+    const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Performance.enable");
+    const metrics = async () => {
+      const { metrics: list } = (await cdp.send("Performance.getMetrics")) as {
+        metrics: { name: string; value: number }[];
+      };
+      return Object.fromEntries(
+        list.filter((m) => (METRICS as readonly string[]).includes(m.name)).map((m) => [m.name, m.value]),
+      );
+    };
+    await page.locator(PROMPT).first().click();
+    // Warm-up: the first keys load the composer's lazy parts (emoji data, the mention index).
+    for (const key of "warm") await page.keyboard.press(key);
+    await page.waitForTimeout(500);
+    for (let i = 0; i < 4; i += 1) await page.keyboard.press("Backspace");
+    await page.waitForTimeout(500);
+    await page.evaluate(() => {
+      const debug = (window as any).cmuxAcpmuxDebug;
+      debug.resetTyping();
+      debug.renders();
+    });
+    if (PROFILE) {
+      await cdp.send("Profiler.enable");
+      await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
+      await cdp.send("Profiler.start");
+    }
+    const before = await metrics();
+    const letters = "abcdefghijklmnopqrstuvwxyz";
+    for (let i = 0; i < KEYS; i += 1) {
+      await page.keyboard.press(letters[i % letters.length]!);
+      await page.waitForTimeout(GAP_MS);
+    }
+    await page.waitForTimeout(500);
+    const after = await metrics();
+    if (PROFILE) {
+      const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
+      printProfile(length, profile);
+    }
+    const { renders, typing } = (await page.evaluate(() => {
+      const debug = (window as any).cmuxAcpmuxDebug;
+      return { renders: debug.renders(), typing: debug.typingStats() };
+    })) as { renders: Record<string, number>; typing: Record<string, any> };
+    await page.close();
+    const per = (value: number) => Math.round((value / KEYS) * 100) / 100;
+    const sum = (prefix: string) =>
+      Object.entries(renders)
+        .filter(([name]) => name.startsWith(prefix))
+        .reduce((total, [, value]) => total + value, 0);
+    const delta = (name: string) => (after[name] ?? 0) - (before[name] ?? 0);
+    table.push({
+      rows,
+      keys: typing.keys,
+      pane: per(renders.pane ?? 0),
+      transcript: per(renders.transcript ?? 0),
+      composer: per(renders.composer ?? 0),
+      rowRenders: per(sum("row:") + sum("content:")),
+      rowFrames: per(sum("frame:")),
+      layouts: per(delta("LayoutCount")),
+      styles: per(delta("RecalcStyleCount")),
+      script_ms: per(delta("ScriptDuration") * 1000),
+      layout_ms: per(delta("LayoutDuration") * 1000),
+      style_ms: per(delta("RecalcStyleDuration") * 1000),
+      task_ms: per(delta("TaskDuration") * 1000),
+      to_listener_p95: typing.to_listener?.p95_ms,
+      to_work_p95: typing.to_work?.p95_ms,
+      to_frame_p50: typing.to_frame?.p50_ms,
+      to_frame_p95: typing.to_frame?.p95_ms,
+      nativePosts: JSON.stringify(typing.native_posts ?? {}),
+      busiest: Object.entries(renders)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8)
+        .map(([name, value]) => `${name}=${value}`)
+        .join(" "),
+    });
+  }
+  console.table(table.map(({ busiest: _, nativePosts: __, ...row }) => row));
+  for (const row of table) console.log(`${row.rows} rows: ${row.busiest}; native posts ${row.nativePosts}`);
+  console.log(`COMPOSER-TYPING ${JSON.stringify(table)}`);
+} finally {
+  for (const release of releases.reverse()) await release();
+}

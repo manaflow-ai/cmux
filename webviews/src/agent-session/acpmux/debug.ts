@@ -5,6 +5,7 @@ import type { AcpmuxRow } from "./model";
 import type { PermissionDecision } from "./permissions/protocol";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
 import { openPicker, pickerLabels } from "./pickerOpeners";
+import { takeNativePosts } from "./native";
 import type { StreamOptions } from "./streamDebug";
 import type { LoadRunOptions, LoadTickOptions } from "./loadDebug";
 import { shownPresence } from "./multiplayer/livePresenceModel";
@@ -89,6 +90,8 @@ export type AcpmuxDebug = {
   /** Committed renders per component since the last call (perf.ts `renders`: `row:<id>`, `content:<id>`,
    * `mount:<id>`), then counts from zero; the first call turns measurement on (transcript bench PROBE=1). */
   renders(): Record<string, number>;
+  /** Requests the page posted to the native host by method since the last call (native.ts), then counts from zero. */
+  nativePosts(): Record<string, number>;
   /** Pastes a Retina screenshot into the composer and times each step until its chip shows (pasteProbe.ts). */
   pasteProbe(options?: PasteProbeOptions): Promise<Record<string, unknown>>;
 };
@@ -323,12 +326,14 @@ export function createAcpmuxDebug(
 
     typingStats() {
       acpmuxPerf.enable();
-      return typingSummary(acpmuxPerf.typing);
+      // With what the keys asked of the app since the reset (native.ts).
+      return { ...typingSummary(acpmuxPerf.typing), native_posts: takeNativePosts() };
     },
 
     resetTyping() {
       acpmuxPerf.enable();
       acpmuxPerf.typing.length = 0;
+      takeNativePosts();
       return { keys: 0 };
     },
 
@@ -473,6 +478,9 @@ export function createAcpmuxDebug(
       const out = Object.fromEntries(acpmuxPerf.renders);
       acpmuxPerf.resetRenders();
       return out;
+    },
+    nativePosts() {
+      return takeNativePosts();
     },
   };
 }

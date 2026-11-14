@@ -14,6 +14,9 @@ import { useT } from "./i18n";
 import { experimentArm } from "../../experiments/experiment";
 import { composerPlusCommands } from "./composerPlusCommands.experiment";
 import { composerPlusMenuSections } from "./composerPlusMenuModel";
+import { acpmuxPerf } from "./perf";
+import { useStableHandlers } from "./stableHandlers";
+import { memo } from "react";
 
 export type ComposerPlusMenuProps = {
   /** The rows, from composerPlusRegistry, already narrowed to what this composer can run. */
@@ -32,7 +35,15 @@ export type ComposerPlusMenuProps = {
   onOpen?(): void;
 };
 
-export function ComposerPlusMenu({
+/// The menu, drawn again only when its rows or its plan state change: the composer passes its
+/// handlers inline, new on each of its renders (every keystroke among them), so each is held as one
+/// stable function that calls the latest (stableHandlers.ts), and a key leaves the + menu alone
+/// (CMUX-571).
+export function ComposerPlusMenu(props: ComposerPlusMenuProps) {
+  return <PlusMenu {...useStableHandlers(props)} />;
+}
+
+const PlusMenu = memo(function PlusMenu({
   entries,
   className,
   planning = false,
@@ -41,6 +52,7 @@ export function ComposerPlusMenu({
   onSlash,
   onOpen,
 }: ComposerPlusMenuProps) {
+  acpmuxPerf.render("composer:plus");
   const t = useT();
   // Untitled groups: a hairline splits them (styles.css), with no header band between.
   const sections: Section[] = composerPlusMenuSections(entries, planning, experimentArm(composerPlusCommands)).map(
@@ -70,4 +82,4 @@ export function ComposerPlusMenu({
       {...(onOpen ? { onOpen } : {})}
     />
   );
-}
+});
