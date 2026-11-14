@@ -184,10 +184,7 @@ fn resume_size_counts_from_the_record_after_the_cursor_and_at_most_one_segment_l
             assert_eq!(all, ResumeSize::Within(600 * (RECORD_OVERHEAD + 2) as u64));
         }
         assert_eq!(log.stats().reads, before.reads, "a cursor at a seq.idx entry reads nothing");
-        assert_eq!(
-            log.row(1).unwrap().off as u64,
-            SEGMENT_HEADER_LEN + crate::log::HEADER_LEN as u64
-        );
+        assert_eq!(log.row(1).unwrap().off as u64, SEGMENT_HEADER_LEN + HEADER_LEN as u64);
     }
 }
 
