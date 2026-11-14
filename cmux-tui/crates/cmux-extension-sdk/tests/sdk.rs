@@ -113,3 +113,62 @@ fn the_builder_makes_the_example_extensions_manifest() {
         report.issues
     );
 }
+
+/// A chat widget (`cmux.chat.widget/1`): the builder writes the place, the tools it answers and
+/// its activation, and cmux's validator takes it; a pattern that would answer every call is refused.
+#[test]
+fn the_builder_makes_a_chat_widget_cmux_loads() {
+    let manifest =
+        Manifest::new("local/pr-card", "PR card", "0.1.0", "A pull request, in the chat.")
+            .chat_widget(
+                "renderCard",
+                "Pull request",
+                "arrow.triangle.pull",
+                &["mcp__github__*pull_request*"],
+            )
+            .scope("actions:run", "Open the pull request when you click it.");
+    let issues = manifest.validate();
+    assert!(is_valid(&issues), "{issues:?}");
+    let json = manifest.to_json();
+    assert_eq!(json["implements"]["cmux.chat.widget/1"]["export"], "renderCard");
+    assert_eq!(
+        json["implements"]["cmux.chat.widget/1"]["options"]["tools"],
+        serde_json::json!(["mcp__github__*pull_request*"])
+    );
+    assert_eq!(json["activation"], serde_json::json!(["onInterface:cmux.chat.widget/1"]));
+
+    let every = Manifest::new("local/greedy", "Greedy", "0.1.0", "d").chat_widget(
+        "renderCard",
+        "All",
+        "star",
+        &["*"],
+    );
+    assert!(!is_valid(&every.validate()), "a widget may not answer every tool call");
+
+    // The example widget (examples/extensions/pr-card) is the one cmux's validator takes; its
+    // dist/main.js is build output, the only error an unbuilt checkout has.
+    let dir = repo().join("examples/extensions/pr-card");
+    let example = json(dir.join("cmux-app.json"));
+    assert_eq!(example["implements"]["cmux.chat.widget/1"]["export"], "renderCard");
+    let report = check_package(&dir);
+    let errors: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|i| i.severity == Severity::Error)
+        .map(|i| (i.path.as_str(), i.code))
+        .collect();
+    assert!(
+        errors.is_empty() || errors == [("/runtime/main", "path.missing")],
+        "{:?}",
+        report.issues
+    );
+
+    let index = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("typescript/src/index.ts"),
+    )
+    .expect("index.ts");
+    assert!(
+        index.contains("export function chatWidget("),
+        "the TypeScript package names the place too"
+    );
+}

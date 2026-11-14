@@ -1011,6 +1011,8 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
     assert_eq!(granted["grants"], json!(["terminal:backend", "workspace:read"]));
 }
 
+#[path = "supervisor_chat_widget_tests.rs"]
+mod chat_widgets;
 #[path = "supervisor_inventory_demand_tests.rs"]
 mod inventory_demand;
 #[path = "supervisor_local_reload_tests.rs"]

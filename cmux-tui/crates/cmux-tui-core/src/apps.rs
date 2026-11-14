@@ -26,6 +26,8 @@ mod cancel;
 #[cfg(unix)]
 mod catalog;
 #[cfg(unix)]
+mod chat_widgets;
+#[cfg(unix)]
 mod deploy;
 #[cfg(unix)]
 mod egress;

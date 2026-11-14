@@ -9,7 +9,7 @@ One SDK, two languages, one version (1.0.0), made from the runtime's own tables 
 | | TypeScript (`typescript/`, package `cmux-extension-sdk`) | Rust (this crate, `cmux-extension-sdk`) |
 | --- | --- | --- |
 | For | the extension's own code, which cmux runs in its sandbox | tools, tests and servers around an extension |
-| Gives | places (`section`, `pane`, `command`), live lists (`workspaces`, `agents`, `chats`), events (`on`, `onChange`), the scene DSL (`VStack`, `Row`, ...), `cmux` (every op, typed) | versions, the event and signal tables with their scopes, `Manifest` (a typed `cmux-app.json` builder), `validate` and `check_package` (cmux's own validator) |
+| Gives | places (`section`, `pane`, `chatWidget`, `command`), live lists (`workspaces`, `agents`, `chats`), events (`on`, `onChange`), the scene DSL (`VStack`, `Row`, ...), `cmux` (every op, typed) | versions, the event and signal tables with their scopes, `Manifest` (a typed `cmux-app.json` builder), `validate` and `check_package` (cmux's own validator) |
 
 The working example is [`examples/extensions/activity`](../../../examples/extensions/activity):
 a sidebar section and a pane, built only against this SDK.
@@ -68,6 +68,7 @@ cmux ext dev --once --json   # one round, for an agent's loop
 | Name | What it is |
 | --- | --- |
 | `section(render)`, `pane(render)` | A sidebar section (`cmux.section/1`) and a pane (`cmux.pane/1`). Export the result under the manifest's `export` name. |
+| `chatWidget(render)` | A chat widget (`cmux.chat.widget/1`): a card under each agent tool call whose name matches the manifest's `options.tools` (`*` matches any run of characters), and for widget parts an agent sends naming the extension. Render gets `{ surface: "chatWidget", widget: { key }, tool?: { name, title?, status?, input?, output? }, props? }`. cmux ships no widgets of its own; a missing, hidden or failing extension leaves the call as it was. Export the same render with `section(...)` to show it in the sidebar too. |
 | `command(run)` | A command an extension declares in `catalog.json`; runs from the palette, the CLI or another extension. |
 | `workspaces()`, `agents()`, `chats()` | Live lists: call one for the latest value; `.loading()`, `.error()`, `.refresh()`. One read however many views use it; re-read on the matching event. |
 | `on(stream, fn)` | Runs `fn` each time `stream` fires; returns the unsubscribe, and unsubscribes with the render that called it. An unknown stream throws at load. |
@@ -96,6 +97,7 @@ use cmux_extension_sdk::{Manifest, Region, check_package, is_valid};
 
 let manifest = Manifest::new("local/my-ext", "My extension", "0.1.0", "My workspaces, live.")
     .section("renderSection", "Mine", "sparkles", Region::Top)
+    .chat_widget("renderCard", "PR", "arrow.triangle.pull", &["mcp__github__*pull_request*"]) // a card under matching tool calls
     .listen("workspace.changed")?          // asks for workspace:read
     .listen("agent_chat.changed")?;        // asks for agent_chat:read
 assert!(is_valid(&manifest.validate()));
