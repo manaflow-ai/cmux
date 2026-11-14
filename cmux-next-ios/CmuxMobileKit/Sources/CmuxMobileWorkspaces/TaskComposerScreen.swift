@@ -254,6 +254,8 @@ struct TaskComposerScreen: View {
                 .frame(width: 44, height: 44)
                 .contentShape(.rect)
         }
+        // Source order (Paste first, as classic), not the reversed order of a menu near the bottom.
+        .menuOrder(.fixed)
         .disabled(sent != nil)
         .accessibilityLabel(full ? "Add Photos, \(TaskDraft.imageLimit) of \(TaskDraft.imageLimit) added" : "Add Photos")
         .accessibilityIdentifier("taskComposer.attach")
@@ -404,7 +406,7 @@ struct TaskComposerScreen: View {
         return Button(action: start) {
             Image(systemName: "arrow.up")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(enabled ? Color.white : theme.colors.label3.color)
+                .foregroundStyle(enabled ? theme.colors.onAccent.color : theme.colors.label3.color)
                 .frame(width: 38, height: 38)
                 .background(enabled ? theme.colors.accent.color : Color.cmuxMobileFill, in: .circle)
                 .overlay(alignment: .topTrailing) {
