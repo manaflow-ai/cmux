@@ -91,7 +91,7 @@ pub(super) struct HistorySnapshot {
 }
 
 impl HistorySnapshot {
-    fn empty(first: u64, history: &History) -> Self {
+    fn empty(first: u64, _history: &History) -> Self {
         Self {
             bytes: Box::new([]),
             entries: Box::new([]),
@@ -100,11 +100,11 @@ impl HistorySnapshot {
             first,
             used: 0,
             #[cfg(test)]
-            raw_copies: history.raw_copies.clone(),
+            raw_copies: _history.raw_copies.clone(),
             #[cfg(test)]
-            raw_copy_permit: history.raw_copy_permit.clone(),
+            raw_copy_permit: _history.raw_copy_permit.clone(),
             #[cfg(test)]
-            raw_copy_waiting: history.raw_copy_waiting.clone(),
+            raw_copy_waiting: _history.raw_copy_waiting.clone(),
         }
     }
 
