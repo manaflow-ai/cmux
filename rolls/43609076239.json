@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43609076239",
+  "recorded_at": "2026-11-14T15:28:42Z",
+  "reason": "cmux-tui dd953bf4f98c changes the image's cmux-tui (pinned aba5ead2f610)",
+  "dry_run": false,
+  "cmux_tui": "dd953bf4f98c89e7a5eae85a10d2b02117da9cfb",
+  "fixes": [
+    {
+      "sha": "0c11a28cb14bed34de1753e57079d5b4a3dd9a56",
+      "mergedAt": "2026-11-14T08:53:48-06:00",
+      "subject": "test(cmux-tui-core): each SQLite connection of the daemon keeps its own page cache (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T15:28:42Z",
+    "snapshot_id": "sh-1545caa6d1744e00ab3a00da6fd892d7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43609076239): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c6aca27dd1e60c0f261b4d76c1156952b9994a91",
+    "image": "cloud-native-auto-dd953bf4-43609076239-1",
+    "revision": "ci-43609076239-1",
+    "at": "2026-11-14T15:28:42Z"
+  },
+  "rolled_back": false
+}
