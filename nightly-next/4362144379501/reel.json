@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "build": "4362144379501",
+  "notes": "notes/4362144379501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43004,
+      "title": "cmux NEXT iOS: the appearance line carries the Mac's window style, glass, fonts and chat colors",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43156,
+      "title": "refactor(acpmux): separate host journal reconstruction",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43118,
+      "title": "ci(ios picker): simulator jobs take glaeda's sim-first runner when the pool's simulator runners are full",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43155,
+      "title": "ci(app-ffi-release): FFI build on owned Macs while Blacksmith macOS is off; re-pin hold inside the pin grace",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43064,
+      "title": "cmux-next-ios energy bench: kernel wakeups and energy, ready on the rig's log line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43160,
+      "title": "Cloud chaos: require a real counting turn at the fault boundary",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43069,
+      "title": "cmux-next iOS: once-a-second labels redraw only when their text changes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43071,
+      "title": "cmux-next iOS: a streamed token makes and weighs only the chat rows it changed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43085,
+      "title": "cmux-next-ios: \"Keys typed ... were not sent\" only when the person typed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43056,
+      "title": "cmux-next iOS: a terminal's public links open on the iPhone in Safari; dev-server links stay on the Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42978,
+      "title": "Agent chats: a hidden idle chat and an archived chat give back their memory; a working chat keeps it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43136,
+      "title": "nightly-next: a cold warm-builder slot borrows the mini's git mirror before it fetches",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43157,
+      "title": "refactor(cmux-tui): separate journal readers and subject indexing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43122,
+      "title": "Actions: Customize Sidebar… is title case and leads the sidebar menu's Options folder",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43113,
+      "title": "Toggle Terminal and Chat mid-turn: acpmux release_to_watch, acpmux resume-here, route (step A, Rust only)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43062,
+      "title": "acpmux: the sidebar mirror's gate rows and recorded streams (v2 row 7 step B, 1 of 3)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41545,
+      "title": "base_red_excuse: runner download lines time with the step they open; a refusal cites the job's red, never a warn-only step's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43158,
+      "title": "codec-bench: VideoToolbox H.264 next to OpenH264, page scene",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43148,
+      "title": "bench(web-ui): thread-rail-jump and state-growth pass again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43093,
+      "title": "ios-review-gate: the agent pass signs in the mock account the way the reviewer walk does",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
