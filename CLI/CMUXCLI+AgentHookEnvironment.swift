@@ -31,19 +31,67 @@ extension CMUXCLI {
         }
         let pidEnvironmentKey = Self.agentHookPIDEnvironmentVariable(agentName: agent)
         // A spool record names the process that ran its hook; a CLI hook is
-        // that process's descendant.
-        let recordedInvokerPID = environment.removeValue(
+        // that process's descendant. The PID alone can be reused after its
+        // process exits, so the producer records the invoker's kernel start
+        // generation. A missing or mismatched generation fails closed: the
+        // recorded PID is never used for routing.
+        var recordedInvokerPID = environment.removeValue(
             forKey: AgentHookDeliveryPolicy.invokerPIDEnvironmentKey
         ).flatMap(Int.init)
+        let recordedInvokerStart = environment.removeValue(
+            forKey: AgentHookDeliveryPolicy.invokerStartEnvironmentKey
+        )
+        if let invokerPID = recordedInvokerPID {
+            let identity = ClaudeViewerProcessIdentity(pid: invokerPID)
+            let parts = recordedInvokerStart?
+                .split(separator: " ", omittingEmptySubsequences: true)
+                .compactMap { Int64($0) }
+            let trusted = parts?.count == 2
+                && AgentHookDeliveryPolicy().recordedInvokerGenerationMatches(
+                    recordedStartSeconds: parts?[0],
+                    recordedStartMicroseconds: parts?[1],
+                    liveStartSeconds: identity?.seconds,
+                    liveStartMicroseconds: identity?.microseconds
+                )
+            if !trusted {
+                recordedInvokerPID = nil
+                if !client.isRelayBacked {
+                    // The recorded identity is untrusted (missing or reused).
+                    // Never forward the stale exported PID either.
+                    environment.removeValue(forKey: pidEnvironmentKey)
+                }
+                let invocationPID = runsInHookProcess ? inferredAgentPID() : nil
+                if let agentPID = AgentHookDeliveryPolicy().hookAgentPID(
+                    environmentPID: nil,
+                    invocationAgentPID: invocationPID,
+                    controllingTerminal: controllingTerminalDevice(of:),
+                    processIsAlive: { ClaudeViewerProcessIdentity(pid: $0) != nil }
+                ) {
+                    environment[pidEnvironmentKey] = String(agentPID)
+                }
+                return environment
+            }
+        }
         if !client.isRelayBacked, runsInHookProcess || recordedInvokerPID != nil {
             // The exported PID can be inherited from an agent in another pane
             // (#20186); the agent that ran this hook names the hook's pane.
             if let agentPID = AgentHookDeliveryPolicy().hookAgentPID(
                 environmentPID: environment[pidEnvironmentKey].flatMap(Int.init),
                 invocationAgentPID: runsInHookProcess ? inferredAgentPID() : recordedInvokerPID,
-                controllingTerminal: controllingTerminalDevice(of:)
+                controllingTerminal: controllingTerminalDevice(of:),
+                // A background worker inherits the exported PID from the
+                // process that started its session; that process exits once
+                // the worker owns the conversation. Keep the exported identity
+                // only while it still names a live same-user process.
+                processIsAlive: { ClaudeViewerProcessIdentity(pid: $0) != nil }
             ) {
                 environment[pidEnvironmentKey] = String(agentPID)
+            } else {
+                // No trustworthy identity remains (for example a dead exported
+                // PID and no live invocation agent). A dead PID must not reach
+                // admission as if it named the hook's pane, so fail closed by
+                // clearing it rather than forwarding the stale value.
+                environment.removeValue(forKey: pidEnvironmentKey)
             }
         } else if environment[pidEnvironmentKey].flatMap(Int.init).map({ $0 > 0 }) != true,
            let inferredPID = inferredAgentPID() {

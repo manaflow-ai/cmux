@@ -307,6 +307,10 @@ path = "tests/test_claude_teams_test_utils.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_claude_attached_viewer_policy.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_fake_socket_env.py"
 lane = "linux-guard"
 
@@ -494,6 +498,11 @@ requirements = ["cmux-cli"]
 
 [[test]]
 path = "tests/test_claude_hook_push_notification.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_claude_viewer_active_session.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
 

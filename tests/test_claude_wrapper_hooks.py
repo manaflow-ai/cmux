@@ -3607,6 +3607,70 @@ def install_native_fake_claude_with(extra_env: dict[str, str]):
     return setup
 
 
+def test_native_attach_observer_is_opt_in_and_keeps_attach_arguments(failures: list[str]) -> None:
+    def setup(enabled: bool):
+        def configure(tmp: Path, env: dict[str, str]) -> None:
+            install_native_fake_claude(tmp, env)
+            source = tmp / "native-claude.c"
+            source.write_text(NATIVE_FAKE_CLAUDE_C.replace('getenv("NODE_OPTIONS")', 'getenv("BUN_OPTIONS")'), encoding="utf-8")
+            compiled = subprocess.run(["cc", "-o", str(tmp / "real-bin" / "claude"), str(source)], capture_output=True, text=True)
+            if compiled.returncode:
+                raise RuntimeError(compiled.stderr)
+            resource = tmp / "cmux.app" / "Contents" / "Resources" / "claude-attach-observer.cjs"
+            shutil.copy2(ROOT / "Resources" / "claude-attach-observer.cjs", resource)
+            env.pop("BUN_OPTIONS", None)
+            env["CMUX_CLAUDE_ATTACH_OBSERVER"] = "1" if enabled else "0"
+        return configure
+
+    for enabled in (False, True):
+        result = run_wrapper(socket_state="live", argv=["attach", "aabbccdd"], setup_sandbox=setup(enabled))
+        expect(result[0] == 0, f"attach observer: {result[3]}", failures)
+        expect(result[1] == ["attach", "aabbccdd"], f"attach argv changed: {result[1]}", failures)
+        if enabled:
+            expect(result[5].startswith("--preload ") and "/claude-attach-observer/" in result[5],
+                   f"opt-in observer missing from native launch: {result[5]!r}", failures)
+        else:
+            expect(result[5] == "__UNSET__", f"observer enabled by default: {result[5]!r}", failures)
+
+
+def test_native_attach_context_preserves_unicode_paths(failures: list[str]) -> None:
+    expected: dict[str, str] = {}
+
+    def configure(tmp: Path, env: dict[str, str]) -> None:
+        install_native_fake_claude(tmp, env)
+        source = tmp / "native-claude.c"
+        capture = NATIVE_FAKE_CLAUDE_C.replace(
+            'getenv("NODE_OPTIONS")', 'getenv("CMUX_CLAUDE_ATTACH_CONTEXT")')
+        # Capture bytes as hex: the fixture's NODE_OPTIONS reader uses
+        # splitlines(), which must not split a corrupted U+0085 path here.
+        capture = capture.replace(r'fprintf(file, "%s\n", value);',
+            r'''for (const unsigned char *p = (const unsigned char *)value; *p; p++) fprintf(file, "%02x", *p); fputc('\n', file);''')
+        source.write_text(capture, encoding="utf-8")
+        built = subprocess.run(["cc", "-o", str(tmp / "real-bin" / "claude"), str(source)], capture_output=True, text=True)
+        if built.returncode:
+            raise RuntimeError(built.stderr)
+        shutil.copy2(ROOT / "Resources" / "claude-attach-observer.cjs",
+                     tmp / "cmux.app" / "Contents" / "Resources" / "claude-attach-observer.cjs")
+        home = tmp / "home-测试"
+        home.mkdir(mode=0o700)
+        expected.update(HOME=str(home), CLAUDE_CONFIG_DIR=str(home / ".配置"),
+                        CMUX_CLAUDE_HOOK_STATE_PATH=str(home / "状态.json"))
+        env.update(expected, CMUX_CLAUDE_ATTACH_OBSERVER="1")
+
+    result = run_wrapper(socket_state="live", argv=["attach", "aabbccdd"], setup_sandbox=configure)
+    expect(result[0] == 0, f"unicode attach context: {result[3]}", failures)
+    context = json.loads(bytes.fromhex(result[5]).decode("utf-8"))
+    for key, value in expected.items():
+        expect(context["environment"].get(key) == value,
+               f"attach context corrupted UTF-8 {key}", failures)
+
+
+def test_native_attach_observer_transport(failures: list[str]) -> None:
+    result = subprocess.run(["node", "--test", str(ROOT / "tests" / "test_claude_attach_observer.cjs")],
+                            text=True, capture_output=True, timeout=20)
+    expect(result.returncode == 0, f"attach observer transport: {result.stdout}\n{result.stderr}", failures)
+
+
 def install_native_fake_claude_at_volta_path(*, as_shim: bool):
     """Put the native fake at ~/.volta/bin/claude: either as Volta installs it
     (a symlink to its `volta-shim` launcher) or as a plain native binary."""
@@ -3955,6 +4019,9 @@ def main() -> int:
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
     test_live_socket_tmpdir_failure_keeps_node_options_injection(failures)
     test_live_socket_native_claude_skips_node_options_injection(failures)
+    test_native_attach_observer_is_opt_in_and_keeps_attach_arguments(failures)
+    test_native_attach_context_preserves_unicode_paths(failures)
+    test_native_attach_observer_transport(failures)
     test_live_socket_preserves_explicit_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
     test_missing_socket_skips_hook_injection(failures)
