@@ -709,6 +709,12 @@ impl Prefetched {
         (answer.grant.is_some() && TicketCache::usable(answer.expires_at, now)).then_some(answer)
     }
 
+    /// Drops the held answer: its grant is no longer the person's current
+    /// one (serve's `{"regrant":true}`).
+    pub(super) fn clear(&self) {
+        *self.held.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    }
+
     /// [`Self::take`] at the current time.
     pub(super) fn take_now(&self) -> Option<CarrierAnswer> {
         self.take(now_unix())

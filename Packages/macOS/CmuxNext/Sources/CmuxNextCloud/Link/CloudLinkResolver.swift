@@ -21,6 +21,10 @@ public protocol CloudLinkResolver: Sendable {
     var redials: Bool { get }
     /// Hands the link newer answers about the caller (a carrier connection's `vmk`) as they come.
     func observeOwnership(_ key: CloudLinkKey, _ update: @escaping @Sendable (CloudCallerOwnership) async -> Void) async
+    /// Asks the link for a fresh grant of the signed-in caller (its answer can change under the same
+    /// credential: an owner shares the machine), unless its answer came within `fresh`; the new answer reaches
+    /// ``observeOwnership(_:_:)``'s handler before this returns it. Nil when the link has no such ask.
+    func regrant(_ key: CloudLinkKey, unlessAnsweredWithin fresh: Duration) async -> CloudCallerOwnership?
     /// The machine's carrier socket for another local client (the Cloud app server's streams and file ops),
     /// started when it does not run, without touching this link's state. Throws ``CloudLinkError``.
     func carrierSocket(_ key: CloudLinkKey) async throws -> String
@@ -30,6 +34,7 @@ extension CloudLinkResolver {
     public func refusal(_ key: CloudLinkKey) async -> CloudLinkError? { nil }
     public var redials: Bool { false }
     public func observeOwnership(_ key: CloudLinkKey, _ update: @escaping @Sendable (CloudCallerOwnership) async -> Void) async {}
+    public func regrant(_ key: CloudLinkKey, unlessAnsweredWithin fresh: Duration) async -> CloudCallerOwnership? { nil }
     public func carrierSocket(_ key: CloudLinkKey) async throws -> String { throw CloudLinkError.unsupported }
 }
 
