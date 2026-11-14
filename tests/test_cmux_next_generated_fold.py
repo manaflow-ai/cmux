@@ -339,7 +339,11 @@ class GeneratedFoldTest(unittest.TestCase):
                 self.assertTrue(ours["continue-on-error"])
                 self.assertEqual(ours["run"], theirs["run"])
                 self.assertEqual(ours.get("id"), theirs.get("id"))
-            self.assertEqual(self.step(host, CHECKS[0])["env"], {"CMUX_ACTION_SURFACES_SKIP_BUILD": "1"})
+            # CMUX_NEXT_JOB_BUILT=plain: the judge keeps this job's build aside and puts it back after the
+            # base export, instead of rebuilding HEAD (judge-action-exports.sh).
+            for job in (host, self.generated):
+                self.assertEqual(self.step(job, CHECKS[0])["env"],
+                                 {"CMUX_ACTION_SURFACES_SKIP_BUILD": "1", "CMUX_NEXT_JOB_BUILT": "plain"})
 
     def test_the_hosts_give_a_verdict_after_their_suites_and_never_fail_on_it(self):
         for host, suites in ((self.daemon, "Run the live-daemon suites"),

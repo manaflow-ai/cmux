@@ -137,6 +137,20 @@ describe("generator", () => {
     writeFileSync(join(dir, "bad/catalog/c.json"), JSON.stringify({ family: "bad", operations: [{ name: "bad.x" }] }))
     expect(() => loadAppCatalogs(dir)).toThrow(/bad\/catalog\/c.json/)
   })
+  // The runtime answers `cmux.<name>` from its own members first (cmux.ts createCmux), so a catalog
+  // family with a member's name (the `theme.scheme.*` ops, `integrations.*`) is unreachable as
+  // `cmux.theme.scheme`. The d.ts once declared both, and TypeScript took the family: an extension
+  // could not write `cmux.theme.success` (the SDK's own example did not type-check).
+  test("CmuxGlobal declares each member once, as the runtime answers it", async () => {
+    const dts = generate()["cmux-app.d.ts"]!
+    const body = dts.slice(dts.indexOf("interface CmuxGlobal {"), dts.indexOf("\n}\ndeclare const cmux"))
+    const members = [...body.matchAll(/^  (?:readonly )?([A-Za-z_$][\w$]*)[:(<]/gm)].map((m) => m[1]!)
+    expect(members.filter((m, i) => members.indexOf(m) !== i)).toEqual([])
+    expect(body).toContain("readonly theme: CmuxTheme")
+    const { createCmux } = await import("../src/cmux.ts")
+    const runtime = Reflect.ownKeys(createCmux(() => undefined)).filter((k): k is string => typeof k === "string")
+    for (const name of runtime) if (name !== "callRaw" && name !== "CmuxError") expect({ name, declared: members.includes(name) }).toEqual({ name, declared: true })
+  })
   test("JSON Schema to TypeScript", () => {
     expect(schemaType({ type: "object", properties: { a: { type: "integer" }, b: { type: "array", items: { enum: ["x", "y"] } } }, required: ["a"] }))
       .toBe('{ a: number; b?: Array<"x" | "y"> }')
