@@ -119,17 +119,18 @@ def timed_creates(path, label, phase, count):
     return out
 
 
-def after_ready_laps(timings):
-    """The last start line of startup-timings.jsonl, and whether it has its after_ready list."""
+def after_ready_laps(timings, pid):
+    """The last start line of startup-timings.jsonl, and whether it is the line of the owner
+    `pid` with its after_ready list."""
     try:
         lines = [line for line in timings.read_text().splitlines() if line.strip()]
         laps = json.loads(lines[-1]) if lines else None
     except (OSError, ValueError):
         laps = None
-    return laps, isinstance(laps, dict) and "after_ready" in laps
+    return laps, isinstance(laps, dict) and laps.get("pid") == pid and "after_ready" in laps
 
 
-def measure_after_ready(args, sdir, label):
+def measure_after_ready(args, sdir, label, pid):
     """After ready: the first create between two reads of the daemon's counters, the other
     early creates, a bounded wait for the daemon's after_ready laps, then the late creates."""
     timings = sdir / "startup-timings.jsonl"
@@ -138,11 +139,11 @@ def measure_after_ready(args, sdir, label):
     result["stats_first_create"] = server_stats(args.socket)
     early += timed_creates(args.socket, label, "early-more", max(args.creates_early - 1, 0))
     result["creates_early"] = early
-    result["laps_seen_at_early_end"] = after_ready_laps(timings)[1]
+    result["laps_seen_at_early_end"] = after_ready_laps(timings, pid)[1]
     waited = time.monotonic()
     seen = False
     while time.monotonic() - waited < 120:
-        seen = after_ready_laps(timings)[1]
+        seen = after_ready_laps(timings, pid)[1]
         if seen:
             break
         time.sleep(0.05)
@@ -234,7 +235,7 @@ def start(args, label, bumped):
         time.sleep(0.01)
     after = None
     if ready is not None and (args.creates_early > 0 or args.creates_late > 0):
-        after = measure_after_ready(args, sdir, label)
+        after = measure_after_ready(args, sdir, label, child.pid)
         after["sampled_start"] = sampler is not None
     if sampler is not None:
         try:
@@ -294,7 +295,8 @@ def start(args, label, bumped):
     # The printed line keeps the laps and a short form of the counters; the report has all.
     safe_print("DRS " + json.dumps({**result, "after_ready": None}), flush=True)
     if after is not None:
-        safe_print("DRS-AFTER " + json.dumps(after_summary(label, laps, after)), flush=True)
+        own = laps if isinstance(laps, dict) and laps.get("pid") == child.pid else None
+        safe_print("DRS-AFTER " + json.dumps(after_summary(label, own, after)), flush=True)
     return result
 
 
