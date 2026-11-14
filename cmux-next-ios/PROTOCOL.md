@@ -1063,14 +1063,17 @@ Mechanisms, phone first, then the Mac:
   file importer). Losing that sends `release-surface-size {surface}` on the
   attach channel after a 1 s debounce (`TerminalSizeClaimDebounce`), so a
   quick switch away and back sends nothing and never resizes the Mac twice.
-  The app entering the background (or the lock screen) releases at once,
-  with no debounce, before iOS suspends it (2026-11-12, Leo: "if I do
-  completely switch away, I want to be gone. I want to leave it. And if I
-  come back, I don't want to see the stretched out version"), so the Mac's
-  pane gets its own size back. Coming back (`willEnterForeground`) claims
-  at once, and the page as it was when the app left stays on screen until
-  the reclaim's mirror reset is replayed, so the Mac's wider grid is never
-  painted. The claim:
+  The app entering the background (or the lock screen) keeps the claim for
+  45 s, the size lease (2026-11-14, Leo: "we want to bring back the 45 ...
+  seconds"): it renews the lease once on the way out, so the Mac's 45 s start
+  then, and sends no release. Back within 45 s, nothing was sent and nothing
+  resizes or reflows. Gone longer, the Mac's lease ends and its pane gets its
+  own size back (2026-11-12, Leo: "if I do completely switch away, I want to
+  be gone"); a phone still running releases on its own at 45 s, and a
+  suspended one releases on its return, then claims at once. After a release,
+  the page as it was when the app left stays on screen until the reclaim's
+  mirror reset is replayed, so the Mac's wider grid is never painted. The
+  claim:
   `resize-surface` with the last measured grid. While released, layout passes
   are remembered and not sent, and a reattach attaches without a size.
 - **Reclaim hold (phone, `TerminalReclaimHold`).** Any release (a page left
@@ -1125,9 +1128,9 @@ release and the daemon's size lease.
 | Page menu open longer than 1 s | page not interactive → release; claimed again on close | 1 s + RTT |
 | Files and Links, photo picker or file importer over the page | covered → release | 1 s + RTT |
 | A sheet the page does not own (Connected Devices) | still claims (the terminal shows behind it) | n/a |
-| App to the background, screen locked | `didEnterBackground` → release at once, inside a short background task; coming back holds the page from before until the reclaim's replay | one round trip |
+| App to the background, screen locked | `didEnterBackground` → lease renewed, claim kept 45 s; back inside it: no change; later: release, then the claim, holding the page from before until the reclaim's replay | 45 s |
 | Force quit, killed by iOS while foreground | no release; lease ends (or keepalive + hold, capped by the lease) | 45 s |
-| Killed by iOS in the background | already released on entering it | one round trip |
+| Killed by iOS in the background | no release; lease ends | 45 s |
 | Link drop: network loss, roaming | keepalive closes the socket; hold capped by the lease | 45 s (a reattach inside it keeps the phone's grid) |
 | Transport switch | link redialled; hold; reattach finds the grid | no change if it reattaches within 30 s; else 45 s |
 | Mac host (hostd) restarts: SIGTERM | hostd releases before exit | 0.7 s |

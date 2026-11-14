@@ -1,0 +1,10 @@
+{
+  "//": "In this repository the SDK resolves from source, so the tests run with no install. A fork outside it runs `bun install` and drops `paths`.",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "cmux-extension-sdk": ["../../cmux-tui/crates/cmux-extension-sdk/typescript/src/index.ts"],
+      "cmux-extension-sdk/testing": ["../../cmux-tui/crates/cmux-extension-sdk/typescript/src/testing.ts"]
+    }
+  }
+}

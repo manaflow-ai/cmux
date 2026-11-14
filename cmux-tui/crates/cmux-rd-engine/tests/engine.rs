@@ -308,3 +308,36 @@ fn repaired_shard_delay_does_not_collapse_the_media_bitrate() {
         );
     }
 }
+
+#[test]
+fn a_small_feedback_batch_does_not_turn_two_percent_loss_into_congestion() {
+    use cmux_rd_proto::Arrival;
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    let sent = send(&mut e, &first, true, 100_000, 0);
+    let start = e.stats().target_bps;
+    let arrivals: Vec<_> = sent
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != 2 && *i != 50)
+        .map(|(_, d)| Arrival {
+            transport_seq: DatagramHeader::decode(d).expect("header").0.transport_seq,
+            arrival_us: 25_000,
+        })
+        .collect();
+    // This first receipt has one missing shard out of four. Across the whole
+    // frame there are only two losses; feedback batching must not change capacity.
+    e.on_datagram(
+        &feedback(&Feedback { arrivals: arrivals[..3].to_vec(), ..Feedback::default() }),
+        false,
+        50_000,
+    );
+    assert_eq!(e.stats().target_bps, start, "three arrivals cannot establish sustained heavy loss");
+    e.on_datagram(
+        &feedback(&Feedback { arrivals: arrivals[3..].to_vec(), ..Feedback::default() }),
+        false,
+        60_000,
+    );
+    e.on_datagram(&feedback(&Feedback::default()), false, 550_000);
+    assert!(e.stats().target_bps >= start, "two percent loss stays below the congestion threshold");
+}
