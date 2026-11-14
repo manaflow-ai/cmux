@@ -43,14 +43,17 @@
 //!   turned off otherwise: a launch that is no new session in the launch
 //!   folder (`--worktree`, `resume`, `fork`, `--remote`,
 //!   `--ignore-user-config`, `--trust`, a subcommand: codex_mcp_entry.rs
-//!   `probe_matches_launch`), or a folder of an untrusted project that has a
-//!   `.codex/config.toml` (`untrusted_project_config`). `codex mcp get` runs
-//!   without Codex's trust prompt, so it never sees such a project's config;
-//!   after the person trusts the project, a `cmux` entry there would merge
-//!   field by field with the off switch (another cmux's command and args,
-//!   off) and replace a server of the person's own named `cmux` for that
-//!   session. Skipping keeps that server as it is. Those skips are quiet; a
-//!   line is said only when Codex was asked and gave no answer.
+//!   `probe_matches_launch`), or one where a project config could define
+//!   `cmux` (`project_config_names_cmux`: a `.codex/config.toml` in the
+//!   launch folder or above it, other than Codex's own user config folder,
+//!   with an `mcp_servers.cmux` table or that is not TOML). Such an entry
+//!   would merge field by field with the off switch (another cmux's command
+//!   and args, off), trusted or not, and replace a server of the person's own
+//!   named `cmux` for that session; `codex mcp get` cannot tell, since an
+//!   untrusted project's config loads only after Codex's trust prompt. No
+//!   trust is modelled: with no project file naming `cmux`, nothing can merge.
+//!   Those skips are quiet; a line is said only when Codex was asked and gave
+//!   no answer.
 //!   Where nothing is turned off, another cmux's `cmux` entry can start
 //!   beside this build's server: a second cmux server for that session.
 //!   Each reaches the app its own CLI and environment name (the person's

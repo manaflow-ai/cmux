@@ -219,61 +219,44 @@ fn could_be_subcommand(word: &str) -> bool {
         && word.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
-/// Whether `folder` is in a project whose config Codex would load only after
-/// its trust prompt, unseen by `codex mcp get`: a `.codex/config.toml` from
-/// the project root (the nearest folder with `.git` above `folder`, else
-/// `folder`) down to `folder`, while neither `folder` nor a folder above it
-/// is trusted in the user config (`[projects."<path>"] trust_level =
-/// "trusted"` in `$CODEX_HOME/config.toml`, `~/.codex` by default), nor, for
-/// a git worktree, its main repository.
+/// Whether a project config could define a `cmux` MCP server for a launch
+/// in `folder` (`-C` applied): any `.codex/config.toml` in `folder` or a
+/// folder above it, up to `/`, that has an `mcp_servers.cmux` table, or that
+/// is there but cannot be read as TOML (not UTF-8, unreadable, not TOML). `$CODEX_HOME` (`~/.codex` without it), Codex's own
+/// user config folder, is not a project and is left out (canonical paths).
 ///
-/// Used only to skip the turn-off, never to act on: a trust this misses
-/// (one kept in a profile file) only skips it.
-/// After the prompt, such a project's `cmux` entry would merge field by field
-/// with the shim's off switch (another cmux's command and args, off) and so
-/// replace a server of the person's own for that session.
-pub(crate) fn untrusted_project_config(
+/// No trust is modelled: if no project file defines `cmux`, nothing can merge
+/// with the shim's off switch, trusted or not; if one may, the shim turns
+/// nothing off (a project `cmux` would merge field by field with the switch
+/// and replace a server of the person's own), so at worst two cmux servers
+/// run, never a replaced one.
+pub(crate) fn project_config_names_cmux(
     folder: &Path,
     getenv: &dyn Fn(&str) -> Option<OsString>,
 ) -> bool {
-    let folder = folder.canonicalize().unwrap_or_else(|_| folder.to_path_buf());
-    let root = folder.ancestors().find(|dir| dir.join(".git").exists()).unwrap_or(&folder);
-    let chain: Vec<&Path> = folder.ancestors().take_while(|dir| dir.starts_with(root)).collect();
-    if !chain.iter().any(|dir| dir.join(".codex").join("config.toml").is_file()) {
-        return false;
-    }
+    let canonical = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let folder = canonical(folder);
     let dir = |key: &str| getenv(key).filter(|v| !v.is_empty()).map(PathBuf::from);
-    let user = dir("CODEX_HOME")
-        .or_else(|| dir("HOME").map(|home| home.join(".codex")))
-        .and_then(|home| std::fs::read_to_string(home.join("config.toml")).ok())
-        .and_then(|text| text.parse::<toml::Table>().ok());
-    let Some(projects) =
-        user.as_ref().and_then(|config| config.get("projects")).and_then(toml::Value::as_table)
-    else {
-        return true;
-    };
-    let trusted = |path: &Path| {
-        path.to_str()
-            .and_then(|key| projects.get(key))
-            .and_then(|project| project.get("trust_level"))
-            .and_then(toml::Value::as_str)
-            == Some("trusted")
-    };
-    !folder.ancestors().chain(main_repository(root).as_deref()).any(trusted)
-}
-
-/// The main repository of the git worktree at `root` (its `.git` is a file
-/// `gitdir: <main>/.git/worktrees/<name>`), or `None`.
-fn main_repository(root: &Path) -> Option<PathBuf> {
-    let text = std::fs::read_to_string(root.join(".git")).ok()?;
-    let gitdir = PathBuf::from(text.strip_prefix("gitdir:")?.trim());
-    let gitdir = if gitdir.is_absolute() { gitdir } else { root.join(gitdir) };
-    let gitdir = gitdir.canonicalize().unwrap_or(gitdir);
-    let worktrees = gitdir.parent()?;
-    (worktrees.file_name()? == "worktrees").then_some(())?;
-    let dot_git = worktrees.parent()?;
-    (dot_git.file_name()? == ".git").then_some(())?;
-    dot_git.parent().map(Path::to_path_buf)
+    let codex_home = dir("CODEX_HOME").or_else(|| dir("HOME").map(|home| home.join(".codex")));
+    let codex_home = codex_home.as_deref().map(canonical);
+    folder.ancestors().any(|ancestor| {
+        let config_dir = canonical(&ancestor.join(".codex"));
+        if codex_home.as_ref() == Some(&config_dir) {
+            return false;
+        }
+        let file = config_dir.join("config.toml");
+        let text = match std::fs::read_to_string(&file) {
+            Ok(text) => text,
+            Err(error) => return error.kind() != std::io::ErrorKind::NotFound,
+        };
+        match text.parse::<toml::Table>() {
+            Ok(config) => config
+                .get("mcp_servers")
+                .and_then(toml::Value::as_table)
+                .is_some_and(|servers| servers.contains_key(SERVER)),
+            Err(_) => true,
+        }
+    })
 }
 
 /// Asks the Codex at `codex` for its `cmux` entry: `codex <config args> mcp
@@ -461,61 +444,51 @@ mod tests {
         }
     }
 
-    /// The turn-off is skipped where a project config would load only after
-    /// Codex's trust prompt; a trusted folder (the root, the folder or one
-    /// above it) or a project with no config is probed.
+    /// The turn-off is skipped when a project config in the launch folder or
+    /// above it defines `cmux` (or cannot be read as TOML); Codex's own user
+    /// config folder never counts.
     #[test]
-    fn an_untrusted_projects_config_skips_the_probe() {
+    fn a_project_config_naming_cmux_skips_the_probe() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
-        let (home, project) = (root.join("codex"), root.join("w/proj"));
-        let sub = project.join("sub");
-        std::fs::create_dir_all(&home).unwrap();
+        let (home, codex_home) = (root.join("home"), root.join("codex-home"));
+        let sub = home.join("w/proj/sub");
         std::fs::create_dir_all(&sub).unwrap();
-        std::fs::create_dir_all(project.join(".git")).unwrap();
-        let getenv = |key: &str| (key == "CODEX_HOME").then(|| home.clone().into_os_string());
-        let trust = |path: &Path| {
-            std::fs::write(
-                home.join("config.toml"),
-                format!("[projects.\"{}\"]\ntrust_level = \"trusted\"\n", path.display()),
-            )
-            .unwrap();
+        std::fs::create_dir_all(&codex_home).unwrap();
+        let write = |path: PathBuf, text: &str| {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
         };
-        assert!(!untrusted_project_config(&sub, &getenv), "no project config: probed");
-        std::fs::create_dir_all(project.join(".codex")).unwrap();
-        std::fs::write(project.join(".codex/config.toml"), "").unwrap();
-        assert!(untrusted_project_config(&sub, &getenv), "untrusted, no user config");
-        trust(&root.join("elsewhere"));
-        assert!(untrusted_project_config(&sub, &getenv), "another folder trusted");
-        trust(&project);
-        assert!(!untrusted_project_config(&sub, &getenv), "the root trusted");
-        trust(&sub);
-        assert!(!untrusted_project_config(&sub, &getenv), "the folder trusted");
-        // A layer in the launch folder of an untrusted repo, none at its root.
-        std::fs::remove_file(project.join(".codex/config.toml")).unwrap();
-        std::fs::create_dir_all(sub.join(".codex")).unwrap();
-        std::fs::write(sub.join(".codex/config.toml"), "").unwrap();
-        trust(&root.join("elsewhere"));
-        assert!(untrusted_project_config(&sub, &getenv));
-        // A config above the project root is no layer.
-        std::fs::remove_dir_all(sub.join(".codex")).unwrap();
-        std::fs::create_dir_all(root.join("w/.codex")).unwrap();
-        std::fs::write(root.join("w/.codex/config.toml"), "").unwrap();
-        assert!(!untrusted_project_config(&sub, &getenv));
-        // A worktree of a trusted main repository.
-        let worktree = root.join("wt");
-        std::fs::create_dir_all(project.join(".git/worktrees/wt")).unwrap();
-        std::fs::create_dir_all(worktree.join(".codex")).unwrap();
-        std::fs::write(worktree.join(".codex/config.toml"), "").unwrap();
-        std::fs::write(
-            worktree.join(".git"),
-            format!("gitdir: {}\n", project.join(".git/worktrees/wt").display()),
-        )
-        .unwrap();
-        trust(&root.join("elsewhere"));
-        assert!(untrusted_project_config(&worktree, &getenv), "main repository untrusted");
-        trust(&project);
-        assert!(!untrusted_project_config(&worktree, &getenv), "main repository trusted");
+        let with_home = |key: &str| (key == "HOME").then(|| home.clone().into_os_string());
+        let with_codex_home = |key: &str| match key {
+            "HOME" => Some(home.clone().into_os_string()),
+            "CODEX_HOME" => Some(codex_home.clone().into_os_string()),
+            _ => None,
+        };
+        let cmux = "[mcp_servers.cmux]\ncommand = \"/x/cmux\"\n";
+        assert!(!project_config_names_cmux(&sub, &with_home), "no project config");
+        // A file without cmux, in the folder: still probed.
+        write(sub.join(".codex/config.toml"), "[mcp_servers.other]\ncommand = \"x\"\n");
+        assert!(!project_config_names_cmux(&sub, &with_home));
+        // An ancestor (any height, past a git root) defining cmux: skipped.
+        write(home.join("w/.codex/config.toml"), cmux);
+        assert!(project_config_names_cmux(&sub, &with_home));
+        std::fs::remove_file(home.join("w/.codex/config.toml")).unwrap();
+        // A file that is no TOML, or no UTF-8: skipped.
+        write(sub.join(".codex/config.toml"), "model = \n");
+        assert!(project_config_names_cmux(&sub, &with_home));
+        std::fs::write(sub.join(".codex/config.toml"), b"model = \"\xff\"\n").unwrap();
+        assert!(project_config_names_cmux(&sub, &with_home));
+        std::fs::remove_file(sub.join(".codex/config.toml")).unwrap();
+        // ~/.codex defining cmux, launched in ~ or below: Codex's own user
+        // config, not a project: still probed.
+        write(home.join(".codex/config.toml"), cmux);
+        assert!(!project_config_names_cmux(&home, &with_home));
+        assert!(!project_config_names_cmux(&sub, &with_home));
+        // With CODEX_HOME set elsewhere, ~/.codex is a project folder again.
+        assert!(project_config_names_cmux(&sub, &with_codex_home));
+        write(codex_home.join("config.toml"), cmux);
+        assert!(!project_config_names_cmux(&codex_home, &with_codex_home), "CODEX_HOME itself");
     }
 
     /// A fake `codex` at `dir/codex` running `body`; it records its arguments

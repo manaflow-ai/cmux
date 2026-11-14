@@ -147,16 +147,16 @@ fn mcp_settings(
         return Vec::new();
     }
     // Codex is asked only for a launch its answer describes: a new session
-    // (codex_mcp_entry.rs `probe_matches_launch`) in a folder whose project
-    // config Codex already loads (`untrusted_project_config`: an untrusted
-    // project's config loads only after the trust prompt, unseen by the
-    // probe). Any other launch turns nothing off, quietly. A line is said
-    // only when Codex was asked and could not answer.
+    // (codex_mcp_entry.rs `probe_matches_launch`) where no project config
+    // could define `cmux` (`project_config_names_cmux`: such an entry would
+    // merge with the off switch, trusted or not). Any other launch turns
+    // nothing off, quietly. A line is said only when Codex was asked and could
+    // not answer.
     let config = crate::codex_mcp_entry::config_args(launch.args);
     let folder =
         config.cd.as_ref().map_or_else(|| launch.cwd.to_path_buf(), |cd| launch.cwd.join(cd));
     let probed = crate::codex_mcp_entry::probe_matches_launch(launch.args)
-        && !crate::codex_mcp_entry::untrusted_project_config(&folder, getenv);
+        && !crate::codex_mcp_entry::project_config_names_cmux(&folder, getenv);
     let existing = if probed {
         let existing = resolve(launch.codex, launch.path, launch.cwd, &config);
         if existing == CodexEntry::Unknown {

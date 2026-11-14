@@ -289,27 +289,45 @@ PY
     check "codex shim [$name]: cmux_terminal added, nothing turned off, nothing said" $?
   }
   sub=$P/sub
-  # An untrusted project with its own config: Codex loads it only after the
-  # trust prompt, unseen by the probe; a cmux entry there would merge with the
-  # off switch and replace a server of the person's own. The shim skips.
+  # The shim reads no trust. A .codex/config.toml in the launch folder or an
+  # ancestor (CODEX_HOME's aside) that names cmux, or is not TOML, may be
+  # loaded where the probe does not see it (an untrusted folder trusted at the
+  # prompt, --trust), and a cmux entry there would merge with the off switch.
+  # The shim turns nothing off there and says nothing, trusted or not.
   mkdir -p "$P/.codex"; printf '[mcp_servers.cmux]\ncwd = "/project-cwd"\n' > "$P/.codex/config.toml"
   user_plain
-  no_turn_off "untrusted project with its own config" "$sub"
+  no_turn_off "untrusted project whose config names cmux" "$sub"
   no_turn_off "exec --trust" "$sub" exec --trust "fix the bug"
   printf '[projects."%s"]\ntrust_level = "trusted"\n' "$P" >> "$CODEX_HOME/config.toml"
-  shim_case "trusted project" "$sub" yes --
-  shim_case "-C into the trusted project" "$D/work" yes -- -C "$sub"
+  [ "$(codex_get "$sub" transport.cwd)" = /project-cwd ]
+  check "codex: the trusted project's cmux layer loads (the next cases' premise)" $?
+  no_turn_off "trusted project whose config names cmux" "$sub"
+  no_turn_off "-C into it" "$D/work" -C "$sub"
+  shim_case "-C out of it" "$sub" no -- -C "$D/work"
+  printf '[mcp_servers\n' > "$P/.codex/config.toml"
+  no_turn_off "a project config that is not TOML" "$sub"
+  # A project config without cmux: the probe answers, trusted or not.
+  printf 'model_reasoning_effort = "low"\n' > "$P/.codex/config.toml"
+  shim_case "trusted project, its config without cmux" "$sub" no --
+  user_plain
+  shim_case "untrusted project, its config without cmux" "$sub" no --
+  # Launched in ~ with CODEX_HOME unset: ~/.codex/config.toml is Codex's own
+  # config, not a project's; the probe answers and the entry is turned off.
+  mkdir -p "$HOME/.codex"; cp "$CODEX_HOME/config.toml" "$HOME/.codex/config.toml"
+  rm -f "$D/codex-args"
+  (cd "$HOME" && env -u CODEX_HOME "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper >/dev/null 2>&1)
+  grep -q '^mcp_servers.cmux_terminal.command=' "$D/codex-args" && grep -q '^mcp_servers.cmux.enabled=false$' "$D/codex-args"
+  check "codex shim [in ~, CODEX_HOME unset, ~/.codex names cmux]: probed, the entry turned off" $?
+  rm -rf "$HOME/.codex"
+  printf '[projects."%s"]\ntrust_level = "trusted"\n' "$P" >> "$CODEX_HOME/config.toml"
   # A worktree of the trusted repo, with its own .codex layer.
   git -C "$P" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
   git -C "$P" worktree add -q "$D/wt"; mkdir -p "$D/wt/.codex"
   printf '[mcp_servers.cmux]\ncwd = "/worktree-cwd"\n' > "$D/wt/.codex/config.toml"
-  shim_case "worktree of the trusted repo" "$D/wt" yes --
-  # Per-folder trust: only the launch folder is trusted, its layer there.
-  rm -rf "$P/.codex"; mkdir -p "$sub/.codex"
-  printf '[mcp_servers.cmux]\ncwd = "/sub-cwd"\n' > "$sub/.codex/config.toml"
-  user_plain; printf '[projects."%s"]\ntrust_level = "trusted"\n' "$sub" >> "$CODEX_HOME/config.toml"
-  shim_case "per-folder trust" "$sub" "$( [ "$(codex_get "$sub" transport.cwd)" = None ] && echo no || echo yes )" --
-  rm -rf "$sub/.codex"
+  no_turn_off "worktree whose config names cmux" "$D/wt"
+  printf 'model_reasoning_effort = "low"\n' > "$D/wt/.codex/config.toml"
+  shim_case "worktree, its config without cmux" "$D/wt" no --
+  rm -rf "$P/.codex"
   # Profiles: --profile forms and a top-level `profile =`.
   user_plain; printf '[mcp_servers.cmux]\ncwd = "/profile-cwd"\n' > "$CODEX_HOME/work.config.toml"
   shim_case "no profile" "$D/work" no --
@@ -344,9 +362,11 @@ PY
   ! grep -q 'mcp_servers' "$D/codex-args" && ! grep -qi 'codex' "$D/shim.err"
   check "codex shim [queue]: a command that starts no session gets no cmux server and no line" $?
   # The switch the shim sends where Codex reports the entry carries its
-  # transport: from a folder where that entry is not loaded it is still valid.
+  # transport: where that entry is not loaded (no profile) it is still valid.
+  rm -rf "$P/.codex"; printf 'model = "x"\n' > "$CODEX_HOME/config.toml"
+  printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = ["mcp", "serve"]\n' "$CMUX" > "$CODEX_HOME/work.config.toml"
   rm -f "$D/codex-args"
-  (cd "$sub" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper >/dev/null 2>&1)
+  (cd "$D/work" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper -p work >/dev/null 2>&1)
   overrides=(); while IFS= read -r a; do [ "$a" = -c ] && { read -r v; overrides+=(-c "$v"); }; done < "$D/codex-args"
   grep -q '^mcp_servers.cmux.command=' "$D/codex-args" && grep -q '^mcp_servers.cmux.args=' "$D/codex-args" \
     && grep -q '^mcp_servers.cmux.enabled=false$' "$D/codex-args" \
@@ -359,11 +379,10 @@ assert servers["cmux"]["enabled"] is False and servers["cmux_terminal"]["enabled
   # enabled=false for a cmux Codex has no transport for.
   (cd "$D/work" && "$CODEX" -c 'mcp_servers.cmux.enabled=false' mcp list --json 2>&1 >/dev/null) | grep -q "invalid transport"
   check "codex: enabled=false on a cmux entry the session does not load fails with invalid transport" $?
-  rm -rf "$P/.codex"; user_plain
+  rm -f "$CODEX_HOME/work.config.toml"
 
-  # The merged result: the agent's own server carries no layer's settings.
-  printf '[projects."%s"]\ntrust_level = "trusted"\n' "$P" >> "$CODEX_HOME/config.toml"
-  mkdir -p "$P/.codex"; printf '[mcp_servers.cmux]\ncwd = "/project-cwd"\n' > "$P/.codex/config.toml"
+  # The merged result: the agent's own server carries none of the entry's settings.
+  printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = ["mcp", "serve"]\ncwd = "/user-cwd"\n' "$CMUX" > "$CODEX_HOME/config.toml"
   (cd "$sub" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper >/dev/null 2>&1)
   overrides=(); while IFS= read -r a; do [ "$a" = -c ] && { read -r v; overrides+=(-c "$v"); }; done < "$D/codex-args"
   (cd "$sub" && "$CODEX" "${overrides[@]}" mcp list --json 2>/dev/null) | python3 -c '
@@ -374,7 +393,7 @@ assert own and own["enabled"] and own["transport"]["cwd"] is None, servers
 assert os.path.realpath(own["transport"]["command"]) == os.path.realpath(sys.argv[1]), own
 assert not servers["cmux"]["enabled"], servers["cmux"]
 ' "$CMUX"
-  check "codex shim: the agent's cmux server is this build's, with none of the project layer's settings" $?
+  check "codex shim: the agent's cmux server is this build's, with none of the entry's settings" $?
 fi
 echo "scratch: $D"
 exit $failed
