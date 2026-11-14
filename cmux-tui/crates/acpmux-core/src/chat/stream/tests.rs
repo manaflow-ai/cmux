@@ -1268,17 +1268,27 @@ fn a_page_and_a_resume_asked_past_their_bounds_hold_them() {
         chat.append(&more);
         client.booked("b 100 ").await;
         client.sub("r", json!({"cursor": window.cursor, "edition": window.edition})).await;
-        let mut largest = 0;
+        let (mut largest, mut consumed, mut credited) = (0, 0, 0);
         loop {
             let frame = client.recv().await;
-            let Ok(delta) = frame.decode_json::<ChatDelta>() else { continue };
-            if delta.sid != "r" {
+            let Ok(value) = frame.decode_json::<Value>() else { continue };
+            if value["sid"] != "r" {
                 continue;
             }
-            assert_ne!(frame.kind, FrameKind::Window, "900 KB missed got a window");
+            let text =
+                String::from_utf8_lossy(frame.payload().get(..300).unwrap_or(frame.payload()))
+                    .into_owned();
+            assert_eq!(frame.kind, FrameKind::Delta, "900 KB missed got {:?}: {text}", frame.kind);
+            let delta: ChatDelta = frame.decode_json().unwrap();
             largest = largest.max(frame.encoded_len());
             if delta.replay == Some(crate::wire::ReplayMark::End) {
                 break;
+            }
+            // Credit as a client does: frame bytes past the records' own pass the window.
+            consumed += frame.encoded_len() as u64;
+            if consumed - credited >= crate::wire::CREDIT_WINDOW_BYTES / 4 {
+                client.credit("r", consumed).await;
+                credited = consumed;
             }
         }
         assert!(largest <= MAX_REPLAY_FRAME_BYTES + 512, "a replay frame of {largest} bytes");
