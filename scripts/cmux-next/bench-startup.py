@@ -84,6 +84,7 @@ VISIBLE_GRACE_S = 1.5
 # agent tab is on the shared page host (AgentPageProvider) since AgentPaneTunables.chromium went on (69a51bf63bed), so
 # the seeded chat "never loaded" and --profile realistic measured terminals only.
 AGENT_MARK = "agent_pane.painted"
+SETTLED_AGENT_MARK = "agent_pane.settled_painted"
 # A seeding launch may build its state once the daemon's first tree is in: a fresh profile (after reset_state) shows
 # the first-run page, which draws no terminal and no agent page, so neither content mark ever comes there.
 SEED_READY = [FINAL_MARK, AGENT_MARK, "daemon.first_tree_applied"]
@@ -152,6 +153,7 @@ MARKS = [
     ("agent_pane.handshake_start", "agent page asked for its handshake"),
     ("agent_pane.handshake_end", "agent pane handshake answered (pane's own host only)"),
     (AGENT_MARK, "agent chat drew its first frame"),
+    (SETTLED_AGENT_MARK, "agent chat drew its settled live state"),
     # The last quit's pane images, read off the main thread from main() (slice c): a `missed` row means a pane
     # asked before its read ended and showed its placeholder.
     ("agent_pane.launch_images_read", "saved agent pages read and decoded"),
@@ -1205,6 +1207,9 @@ def one_run(tag, mode, timeout, profile=None):
         seed_realistic(tag, scratch, timeout)
     if profile == "realistic" and not seeded_agent(tag):
         final = [FINAL_MARK]
+    if CHAT_FIXTURE:
+        final = [FINAL_MARK, AGENT_MARK, SETTLED_AGENT_MARK]
+        any_of = False
     if mode == "cold":
         # Builds of one tag (a before and an after copy) share its daemon.
         for other in RUN_TAGS or [tag]:

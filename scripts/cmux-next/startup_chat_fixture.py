@@ -80,7 +80,7 @@ class ChatFixture:
             delay = min(delay * 1.5, 1)
 
     def verify(self, tag, client, marks):
-        missing = {"first_terminal_frame", "agent_pane.painted"} - marks.keys()
+        missing = {"first_terminal_frame", "agent_pane.painted", "agent_pane.settled_painted"} - marks.keys()
         if missing:
             raise RuntimeError(f"startup sample lacks required paint marks: {sorted(missing)}")
         state = unwrap(client.call("debug.agent_pane", {"action": "chat_state"}))
