@@ -183,6 +183,94 @@ def note(text):
     print(text, flush=True)
 
 
+def close_all_workspaces(read_ids, close_all, settle=30.0, step=0.5, clock=time.monotonic, sleep=time.sleep):
+    """Close every workspace a close path can close; return (the ids that stay, whether the close did its job).
+
+    The app always keeps its home workspace: no close path closes it (`home_not_closable`), and `snapshot.get`'s
+    topology lists it like any other workspace. A bench that waits for zero workspaces after `workspace
+    close-all-in-all-windows` therefore never gets there (cmux#24569: workspace-scaling's instant and typing probes
+    exited 1 and 2 at every size). The workspaces left once the count stops falling are the ones the bench cannot
+    close; it counts its topology without them. `read_ids()` lists the topology's workspace ids; `close_all()` runs
+    the close and returns its exit code.
+
+    With only the home workspace left the close is refused ("nothing to close", WorkspaceBulkClose): that is a done
+    close when it changed nothing and left at most the one home workspace; any other failure is not."""
+    before = sorted(read_ids())
+    code = close_all()
+    deadline = clock() + settle
+    last = sorted(read_ids())
+    stable = 0
+    while clock() < deadline:
+        sleep(step)  # bounded wait for the closes to land in the topology
+        now = sorted(read_ids())
+        stable = stable + 1 if now == last else 0
+        last = now
+        if stable >= 2:
+            break
+    done = code == 0 or (last == before and len(last) <= 1)
+    return frozenset(last), done
+
+
+def wait_for_count(read_count, target, settle=30.0, step=0.5, clock=time.monotonic, sleep=time.sleep):
+    """`read_count()` once it reaches `target`, else its last value after `settle` seconds.
+
+    `workspace create` returns on the daemon's reply, while `snapshot.get` serves the topology the app last
+    published (ControlRouter+Builtins.swift, `call.snapshot`): read right after the last create, it can lack the
+    newest workspaces. instant-new-surfaces read it once and stopped two short at 100 and at 1000 workspaces
+    (cmux#24569: "workspaces: 1 -> 98", "could not reach 100 workspaces (have 98)")."""
+    now = read_count()
+    deadline = clock() + settle
+    while now < target and clock() < deadline:
+        sleep(step)  # bounded wait for the creations to land in the published topology
+        now = read_count()
+    return now
+
+
+def named_terminal(topology, name):
+    """{workspace, pane, terminal} of the first terminal tab in the workspace named `name` in a `snapshot.get`
+    topology, else None (no such workspace yet, or its terminal is not published yet). `terminal` is the CLI's
+    terminal selector (the daemon's `term_...`), the ids are the public ones `action.run` targets take."""
+    for ws in (topology or {}).get("workspaces") or []:
+        if not isinstance(ws, dict) or (ws.get("name") or ws.get("title")) != name:
+            continue
+        for screen in ws.get("screens") or []:
+            for pane in screen.get("panes") or []:
+                for tab in pane.get("tabs") or []:
+                    if tab.get("kind") == "terminal":
+                        return {"workspace": ws.get("id"), "pane": pane.get("id"), "terminal": tab.get("terminal") or tab.get("id")}
+    return None
+
+
+def unlisted_workspaces(topology, rows, limit=10):
+    """The workspaces of a `snapshot.get` topology that no `debug.sidebar_rows` row lists: (their count, up to
+    `limit` of them as {name, id}). A row's key is its `SidebarRowKey` described (`workspace(<model key>)`), so a
+    workspace is listed when its model `key` appears in a row key or its name is a row's title. sidebar-stress-bench
+    listed 999 rows of 1000 with no failed create (cmux#24569); this names the one the list leaves out, or shows the
+    topology holds 999."""
+    rows = [row for row in rows or [] if isinstance(row, dict)]
+    listed = "\n".join(str(row.get("key", "")) for row in rows)
+    titles = {row.get("title") for row in rows if row.get("title")}
+    missing = [{"name": ws.get("name") or ws.get("title"), "id": ws.get("id")}
+               for ws in (topology or {}).get("workspaces") or []
+               if isinstance(ws, dict) and not (ws.get("key") and str(ws["key"]) in listed)
+               and (ws.get("name") or ws.get("title")) not in titles]
+    return len(missing), missing[:limit]
+
+
+def pinned_tiles(topology, rows, pinned_ids):
+    """How many of the workspaces a bench pinned (`pinned_ids`, public ids) no `debug.sidebar_rows` row lists. The app
+    draws a pinned workspace outside a group as a tile over the list (SidebarListView+SelectionOrder.swift
+    `selectionOrder`: tiles, then rows), not as a `workspace(...)` row, so a row count is short by these."""
+    pinned = set(pinned_ids or [])
+    workspaces = [ws for ws in (topology or {}).get("workspaces") or [] if isinstance(ws, dict) and ws.get("id") in pinned]
+    return unlisted_workspaces({"workspaces": workspaces}, rows, limit=0)[0]
+
+
+def shown_in_window(topology, workspace_id):
+    """Whether a window of a `snapshot.get` topology shows `workspace_id` (its `windows[].workspace`)."""
+    return any(isinstance(w, dict) and w.get("workspace") == workspace_id for w in (topology or {}).get("windows") or [])
+
+
 def account_home():
     """The home the app resolves (`FileManager.homeDirectoryForCurrentUser`): the password database's."""
     try:
@@ -963,9 +1051,14 @@ class BenchApp:
         if exit_code is None and self.process:
             report["main_thread"] = self.sample_main_thread()
         try:
-            report["log_tail"] = open(self.log_path, errors="replace").read()[-4000:]
+            text = open(self.log_path, errors="replace").read()
         except OSError:
-            report["log_tail"] = ""
+            text = ""
+        report["log_tail"] = text[-4000:]
+        # Chromium's abort writes its reason once, then more crash keys than the tail holds: keep the reason lines.
+        fatal = [line[:600] for line in text.splitlines() if "FATAL" in line or "Check failed" in line][-3:]
+        if fatal:
+            report["fatal"] = fatal
         return reason, report
 
     def wait_for_crash_report(self, exit_code, wait=10):

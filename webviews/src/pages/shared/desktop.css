@@ -101,7 +101,7 @@ body {
   --ds-radius-lg: 8px; /* popups and small cards */
   --ds-radius-xl: 12px; /* cards and the composer (grid.md's decided 12) */
   --ds-radius-2xl: 16px; /* code blocks (named exception) */
-  --ds-radius-control: 6px;
+  --ds-radius-control: var(--cmux-button-radius, 8px); /* every button: the tab's corner (Metrics.buttonCornerRadius; Lawrence 2026-11-12, buttons round as tabs) */
   --ds-radius-popup: 8px;
   --ds-radius-card: 14px; /* today's card radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-composer: 18px; /* today's composer radius; grid.md moves it to 12 after a gallery comparison */
@@ -130,6 +130,11 @@ body {
   --ds-glass-fisheye-tint: 50%;
   --ds-glass-fisheye-frost: blur(2.5px) saturate(1.15);
   --ds-glass-edge: var(--cmux-hairline);
+  /* glass material: the neutral glass every neutral overlay role is one of (FloatingGlassStyle.look; schemas/surface-roles): the gray its veil mixes at the role's opacity on each side, and the lit and shaded rims, so the sidebar's cards, group headers and sheets are one material with only their opacities apart */
+  --ds-material-neutral-light: rgb(252 252 252); /* the neutral veil's gray on the light side */
+  --ds-material-neutral-dark: rgb(28 28 28); /* the neutral veil's gray on the dark side */
+  --ds-material-rim-lit: rgb(255 255 255); /* the lit rim: a top edge, and a dark side's bottom edge */
+  --ds-material-rim-shade: rgb(0 0 0); /* the shaded rim: a light side's bottom edge */
   --elevation-1: 0 1px 2px color-mix(in srgb, black 7%, transparent); /* rows, cards and inline surfaces */
   --elevation-2: 0 2px 6px color-mix(in srgb, black 11%, transparent); /* popovers, menus, the palette, hover cards, the composer, sheets and find bars */
   --ds-color-surface: var(--cmux-surface-solid, var(--cmux-app-content, Canvas)); /* the page and pane surface, opaque */
@@ -140,7 +145,8 @@ body {
   --ds-color-hover: var(--cmux-hover, var(--cmux-app-hover, color-mix(in srgb, CanvasText 6%, transparent))); /* a control under the pointer */
   --ds-color-pressed: var(--cmux-pressed, light-dark(color-mix(in srgb, var(--cmux-text, CanvasText) 11%, transparent), color-mix(in srgb, var(--cmux-text, CanvasText) 14%, transparent))); /* a control while pressed: the text over clear (pressedFill 11% light, 14% dark), never the app theme's opaque pressed surface, so a press stays a wash on glass and over a picture */
   --ds-color-selection: var(--cmux-selection, var(--cmux-app-selection, color-mix(in srgb, CanvasText 10%, transparent))); /* a selected row or the checked segment */
-  --ds-color-separator: var(--cmux-separator, var(--cmux-app-separator, color-mix(in srgb, CanvasText 8%, transparent))); /* hairlines and dividers */
+  --ds-color-separator: var(--cmux-separator, var(--cmux-app-separator, color-mix(in srgb, CanvasText 8%, transparent))); /* hairlines inside a page: list rows, cards and fields */
+  --ds-color-divider: var(--cmux-chrome-divider, var(--cmux-sidebar-line, var(--ds-color-separator))); /* a page's chrome line against the window chrome (WebTheme: the separator x the divider strength, the window's sidebar line and split lines); an older app's sidebar line, else the separator */
   --ds-color-focus: var(--cmux-focus-ring-color, currentColor); /* the keyboard focus ring (desktop.css: the host's ring at 48%) */
   --ds-color-accent: var(--cmux-accent, var(--cmux-app-accent, CanvasText)); /* the theme accent: the text colour unless the theme names a hue */
   --ds-color-on-accent: var(--cmux-on-accent, var(--cmux-app-on-accent, Canvas)); /* text and glyphs on the accent */
@@ -185,9 +191,10 @@ body {
    bubble on every first-party page (ui/titleTooltips.ts) all sit on the one tooltip surface
    (--tooltip-*, below; Leo, 2026-10-14): frosted glass under a tint the primary ink reads on, a
    one-device-pixel separator rim and a small tight shadow, in the caption font. The title is an
-   emphasized first line and an optional detail sits below in dimmer ink. The first of a warm
-   group fades in and rises 2px; a warm neighbor's is there at once (data-instant); each fades out
-   quicker than it came. Truncated text wraps inside the same compact bubble. */
+   emphasized first line and an optional detail sits below in dimmer ink. It shows and goes in one
+   frame, with no fade and no rise, as do hover cards (.ui-card, the context window card) on the same
+   surface (Leo, 2026-11-11: "the fade-in, the fade-out, is just so stupid... It's just sluggish.").
+   Truncated text wraps inside the same compact bubble. */
 .ui-tooltip,
 .ui-title-tooltip {
   box-sizing: border-box;
@@ -209,25 +216,12 @@ body {
   /* Wraps between words; only a word wider than the whole tooltip (a long path) breaks. */
   overflow-wrap: break-word;
   pointer-events: none;
-  /* At rest (not "none"), so with no rise (Reduce Motion) the start and the end are the same. */
-  translate: 0 0;
-  transition:
-    opacity var(--tooltip-fade-in) ease-out,
-    translate var(--tooltip-fade-in) ease-out;
 }
 
-:is(.ui-tooltip, .ui-title-tooltip)[data-starting-style] {
-  opacity: 0;
-  translate: 0 var(--tooltip-rise);
-}
-
+/* Closing: nothing of it draws from the frame its close starts (its content, glass and backdrop),
+   so it leaves no trace while it unmounts (popover-close-trace.test.ts). */
 :is(.ui-tooltip, .ui-title-tooltip)[data-ending-style] {
   opacity: 0;
-  transition: opacity var(--tooltip-fade-out) ease-in;
-}
-
-:is(.ui-tooltip, .ui-title-tooltip)[data-instant]:not([data-ending-style]) {
-  transition: none;
 }
 
 /* A hover card (ui/Tooltip.tsx AnchoredCard, .ui-tooltip.ui-card) with no glass (a link card) keeps
@@ -603,28 +597,18 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
      two in step). Frosted glass: the host's tint (--cmux-tooltip-tint: the popup surface at the
      least alpha that keeps the text 4.5:1 over pure black and pure white, whatever the blur
      averages), else the popup surface at 60%; a 24px blur; the separator rim one device pixel
-     (--cmux-hairline); elevation 1. It fades in with the popup open and out with the popup close (the native
-     fadeIn and fadeOut tokens), rising 2px. Reduce Transparency: the opaque popup surface. */
+     (--cmux-hairline); elevation 1. It shows and goes in one frame. Reduce Transparency: the opaque
+     popup surface. */
   --tooltip-tint: var(--cmux-tooltip-tint, color-mix(in srgb, var(--surface-popup) var(--ds-glass-chip-tint), transparent));
   --tooltip-blur: var(--ds-glass-chip-blur);
   --tooltip-rim-width: var(--cmux-hairline);
   --tooltip-shadow: var(--elevation-1);
-  --tooltip-fade-in: var(--ui-popup-open, 120ms);
-  --tooltip-fade-out: var(--ui-popup-close, 80ms);
-  --tooltip-rise: 2px;
   --tooltip-max-width: calc(var(--grid-base) * 80);
   /* Compact overlay scale: all tooltip dimensions stay on the 4px grid and follow interface zoom. */
   --tooltip-edge: var(--grid-base);
   --tooltip-pad-block: calc(var(--grid-base) / 2);
   --tooltip-pad-inline: calc(var(--grid-base) * 2);
   --tooltip-detail-gap: calc(var(--grid-base) / 2);
-}
-
-/* Reduce Motion: the tooltip still fades, with no rise. */
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --tooltip-rise: 0px;
-  }
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -691,7 +675,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   /* A selection that travels settles on the one spring, run over --cmux-motion-large. */
   --cmux-ease-spring: linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1 54.57%, 1);
   /* A sent prompt's one motion: its room, its bubble and the thread's rise. */
-  --cmux-motion-send: 180ms;
+  --cmux-motion-send: 0ms;
   --cmux-ease-send: cubic-bezier(0.16, 1, 0.3, 1);
   /* A fold or Show more that grows or shrinks decelerates into its new height, never past it. */
   --cmux-motion-settle: 180ms;
@@ -864,6 +848,8 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
    (test/spinner-period.test.ts). */
 :root {
   --cmux-breath-period: 2.4s;
+  /* The breath's curve: in and out alike, so it never snaps at either end (the Apps skeleton's, now ui/Skeleton's). */
+  --cmux-breath-ease: ease-in-out;
   --cmux-shimmer-period: 2.8s;
 }
 @keyframes cmux-spin {

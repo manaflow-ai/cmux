@@ -165,6 +165,7 @@ impl Mux {
         );
         let RestoredResourceState { mut state, next_id, contents } =
             restore_resource_state(snapshot, topology)?;
+        let route_generations = state.surfaces.generations().clone();
         let RestoredPublicProjections {
             default_colors,
             has_terminal_defaults,
@@ -225,6 +226,7 @@ impl Mux {
             registry_identity,
             resource_projection_stats,
             started_at: Instant::now(),
+            route_generations,
             state: signaled_mutex::StateMutex::new(state, lane_on),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
@@ -368,6 +370,7 @@ impl Mux {
             agent_chat_notices: Default::default(),
             #[cfg(unix)]
             project_chats: Default::default(),
+            project_watch: Default::default(),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             terminal_command_history: AtomicBool::new(false),
@@ -425,7 +428,7 @@ impl Mux {
             terminal_adoptions_now: Mutex::new(HashSet::new()),
             restored_tab_names: Mutex::new(HashMap::new()),
             startup_adoptions_released: AtomicBool::new(false),
-            startup_timings: Mutex::new(None),
+            startup_timings: Default::default(),
             pending_terminals: Mutex::new(HashMap::new()),
             terminal_ends: Mutex::new(HashMap::new()),
             terminal_loss_causes: Mutex::new(loss_causes::LossCauses::default()),
@@ -573,13 +576,16 @@ impl Mux {
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
         timings.lap("agent.hooks");
+        // After each restore step. It does not wait: the parts run after ready
+        // (startup_restore/restate_parts.rs).
+        mux.start_session_restate();
         mux.start_journal_maintenance()?;
         if let Err(error) = mux.start_output_cleanup() {
             eprintln!("cmux-tui: output cleanup: not started: {error:#}");
         }
         crate::state::project_watch::start(&mux);
         timings.lap("journal.maintenance_start");
-        *mux.startup_timings.lock().unwrap_or_else(PoisonError::into_inner) = Some(timings);
+        *mux.startup_timings.open.lock().unwrap_or_else(PoisonError::into_inner) = Some(timings);
         Ok(mux)
     }
 

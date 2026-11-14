@@ -126,6 +126,8 @@ function labelOf(element: Element): string {
 function leadingIcon(row: Element): Element | null {
   const box = row.getBoundingClientRect();
   for (const icon of row.querySelectorAll("svg, .cv-spinner")) {
+    // The edited-files card's artwork centres beside its title and counts, not one text line.
+    if (icon.closest(".acpmux-edited-icon")) continue;
     const rect = icon.getBoundingClientRect();
     if (!visible(rect) || rect.width > 24 || rect.height > 24 || rect.width < 6) continue;
     return rect.left - box.left <= 40 ? icon : null;
@@ -236,7 +238,12 @@ function menuViolations(doc: Document): Violation[] {
   );
   const rowHeight = Number.parseFloat(getComputedStyle(doc.documentElement).getPropertyValue("--ds-control-row")) || 28;
   for (const menu of menus) {
-    const name = labelOf(menu).slice(0, 48);
+    // A scroll shell (`.ui-popup-scroll-shell`) carries the glass and no name of its own; the list it
+    // holds does, so the menu keeps the name its rows' list gives it.
+    const named = menu.matches(".ui-popup-scroll-shell:not([aria-label])")
+      ? (menu.querySelector(":scope > [aria-label]") ?? menu)
+      : menu;
+    const name = labelOf(named).slice(0, 48);
     const items = [...menu.querySelectorAll(ITEM)].filter((item) => visible(item.getBoundingClientRect()));
     if (items.length < 2) continue;
     violations.push(
