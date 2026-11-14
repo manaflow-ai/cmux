@@ -392,6 +392,20 @@ class Lint:
                 if isinstance(value, str) and bad.search(value):
                     self.add("copy.placeholder", "2.1", "blocker", f"user-facing string looks unfinished: {value[:80]!r}", f"{self.rel(loc)} [{key}]")
 
+        # 2.1 (completeness): a raw Swift error dump in user-facing text ("LinkError(code: ...)",
+        # "The operation couldn't be completed. (... error 1.)"). Display sites use
+        # UserFacingError.message(_:); logs and telemetry keep the raw error.
+        raw_error = re.compile(r"\?\?\s*String\(describing:\s*error\)")
+        log_line = re.compile(r"\blog\.|Log\.|Logger\(|privacy:|telemetry|detail:")
+        for path, text in texts.items():
+            for lineno, line in enumerate(text.splitlines(), 1):
+                stripped = line.lstrip()
+                if stripped.startswith("//") or not raw_error.search(line) or log_line.search(line):
+                    continue
+                self.add("ux.raw-error", "2.1", "warning",
+                         "an error shown as String(describing:) reads as a Swift dump; use UserFacingError.message(_:)",
+                         f"{self.rel(path)}:{lineno}")
+
         # URLs the app opens.
         url_literal = re.compile(r"\"(https://[^\"\\\s]+)\"")
         for path, text in texts.items():
@@ -1178,7 +1192,16 @@ def cmd_report(args: argparse.Namespace) -> int:
     if args.expect_lint and lint is None:
         findings.append({"rule": "lint.missing", "guideline": "2.1", "severity": "blocker", "source": "guideline lint",
                          "message": "the guideline lint left no result, so the build is unjudged", "where": ""})
-    for family in args.expect_device:
+    # A family the image has no simulator for leaves {family, skipped: true}
+    # instead of a result; it counts only for an --expect-device-or-skipped
+    # family, never for one that must be walked.
+    skipped: set[str] = set()
+    for item in args.skipped:
+        body, unreadable = read_input(Path(item), "reviewer-path suite")
+        findings += unreadable
+        if isinstance(body, dict) and body.get("skipped") is True:
+            skipped.add(str(body.get("family", "")))
+    for family in args.expect_device + [f for f in args.expect_device_or_skipped if f not in skipped]:
         if family not in tests:
             findings.append({"rule": "uitest.missing", "guideline": "2.1(a)", "severity": "blocker",
                              "source": "reviewer-path suite",
@@ -1252,6 +1275,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="a missing --lint result is a blocker: the gate fails closed")
     report.add_argument("--expect-device", action="append", default=[],
                         help="a device family (iphone, ipad) whose suite result must be present")
+    report.add_argument("--expect-device-or-skipped", action="append", default=[],
+                        help="a device family (duo) whose suite result or --skipped marker must be present")
+    report.add_argument("--skipped", action="append", default=[],
+                        help="{family, skipped: true}: the image had no simulator for that family")
     report.add_argument("--known-blockers",
                         help="known-blockers.json: fail only on a blocker not listed there (a push or pull request)")
     report.add_argument("--proposed-known-blockers",
