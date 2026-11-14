@@ -443,15 +443,19 @@ pub(in crate::cli) fn acp_command(mut command: Command, words: &[&str]) -> Comma
 }
 
 /// Runs `command` (`cmux acp WORDS`), with `stdin` on its stdin, for at most `limit`: its
-/// stdout's JSON answer, or the failure. A child still running at `limit` is ended (dropping
-/// its `Child` sends SIGTERM, then SIGKILL) and the answer is `acpmux.timeout`.
+/// stdout's JSON answer, or the failure. A child still running at `limit` is ended with its
+/// process group (dropping its `Child` sends SIGTERM, then SIGKILL) and the answer is
+/// `acpmux.timeout`.
 pub(in crate::cli) fn run_acp(
     mut command: Command,
     words: &[&str],
     stdin: Option<&str>,
     limit: Duration,
 ) -> Result<Value, Value> {
+    // Its own process group: at the limit the group is ended, with anything it started that
+    // still holds its pipes.
     command
+        .process_group(0)
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -461,23 +465,31 @@ pub(in crate::cli) fn run_acp(
     if let (Some(text), Some(mut pipe)) = (stdin, child.stdin.take()) {
         let _ = pipe.write_all(text.as_bytes());
     }
-    // Both pipes are read on their own threads, so the wait below is the only thing bounded:
-    // a reader left behind at the timeout ends when the child's end of its pipe closes.
-    let read = |pipe: Option<Box<dyn std::io::Read + Send>>| {
-        std::thread::spawn(move || {
-            let mut bytes = Vec::new();
-            if let Some(mut pipe) = pipe {
-                let _ = std::io::Read::read_to_end(&mut pipe, &mut bytes);
-            }
-            bytes
-        })
-    };
-    let stdout = read(child.stdout.take().map(|pipe| Box::new(pipe) as _));
-    let stderr = read(child.stderr.take().map(|pipe| Box::new(pipe) as _));
-    let status = match child.wait_timeout(limit) {
-        Ok(Some(status)) => status,
-        Ok(None) => {
+    // Both pipes are read on threads this scope owns, so the wait is the only thing bounded and a
+    // full pipe never stalls the child. At the limit the child's whole group is ended (it leads
+    // one), its pipes close and the readers end with it.
+    let finished = std::thread::scope(|scope| {
+        let read = |pipe: Option<Box<dyn std::io::Read + Send>>| {
+            scope.spawn(move || {
+                let mut bytes = Vec::new();
+                if let Some(mut pipe) = pipe {
+                    let _ = std::io::Read::read_to_end(&mut pipe, &mut bytes);
+                }
+                bytes
+            })
+        };
+        let stdout = read(child.stdout.take().map(|pipe| Box::new(pipe) as _));
+        let stderr = read(child.stderr.take().map(|pipe| Box::new(pipe) as _));
+        let status = child.wait_timeout(limit);
+        if !matches!(status, Ok(Some(_))) {
             drop(child);
+        }
+        (status, stdout.join().unwrap_or_default(), stderr.join().unwrap_or_default())
+    });
+    let (out_bytes, err_bytes) = match finished {
+        (Ok(Some(status)), out, err) if status.success() => (out, Ok(err)),
+        (Ok(Some(_)), out, err) => (out, Err(err)),
+        (Ok(None), _, _) => {
             return Err(error(
                 "acpmux.timeout",
                 &format!(
@@ -488,7 +500,7 @@ pub(in crate::cli) fn run_acp(
                 true,
             ));
         }
-        Err(e) => {
+        (Err(e), _, _) => {
             return Err(error(
                 "acpmux.unreachable",
                 &format!("cmux acp did not finish: {e}"),
@@ -496,12 +508,10 @@ pub(in crate::cli) fn run_acp(
             ));
         }
     };
-    let joined = |reader: std::thread::JoinHandle<Vec<u8>>| reader.join().unwrap_or_default();
-    let (out_bytes, err_bytes) = (joined(stdout), joined(stderr));
     let stdout = String::from_utf8_lossy(&out_bytes);
     let parsed =
         stdout.lines().rev().find_map(|line| serde_json::from_str::<Value>(line.trim()).ok());
-    if !status.success() {
+    if let Err(err_bytes) = err_bytes {
         let stderr = String::from_utf8_lossy(&err_bytes).trim().to_owned();
         let message = if stderr.is_empty() { stdout.trim().to_owned() } else { stderr };
         let mut failure =
