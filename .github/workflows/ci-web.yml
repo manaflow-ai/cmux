@@ -1102,11 +1102,22 @@ jobs:
             for n in $(seq 1 "$base_again"); do
               python3 "$runner/guards_new_reds.py" --new-files --flaky "$flaky" "${again[@]}" "$HEAD_RESULTS" "$BASE_RESULTS" \
                 > "$RUNNER_TEMP/base-again-files" || : > "$RUNNER_TEMP/base-again-files"
+              # A file the base does not have (a new test file red on the head) cannot replay there: its reds stay the
+              # change's. Unfiltered, the limit read below failed on it under -e -o pipefail and ended the step before
+              # the verdict (#41414 review); the first replay's own filter above keeps it out of that run the same way.
+              while IFS= read -r file; do
+                if [ -n "$file" ] && git cat-file -e "HEAD:webviews/$file" 2>/dev/null; then
+                  printf '%s\n' "$file"
+                elif [ -n "$file" ]; then
+                  echo "not on the base, the change's own, not replayed: $file" >&2
+                fi
+              done < "$RUNNER_TEMP/base-again-files" > "$RUNNER_TEMP/base-again-present"
+              mv "$RUNNER_TEMP/base-again-present" "$RUNNER_TEMP/base-again-files"
               [ -s "$RUNNER_TEMP/base-again-files" ] || break
               left=$(( JOB_TIMEOUT_MINUTES * 60 - REPLAY_RESERVE - ($(date +%s) - started) )) need=0
               while IFS= read -r file; do
                 limit="${CMUX_WEB_TEST_FILE_TIMEOUT:-120}"
-                declared="$(head -n 20 "$file" 2>/dev/null | sed -n 's|^// cmux-web-test-timeout: \([1-9][0-9]*\)$|\1|p' | head -n 1)"
+                declared="$(head -n 20 "$file" 2>/dev/null | sed -n 's|^// cmux-web-test-timeout: \([1-9][0-9]*\)$|\1|p' | head -n 1 || :)"
                 if [ -n "$declared" ] && [ "$declared" -gt "$limit" ]; then limit="$declared"; fi
                 if [ "$limit" -gt 900 ]; then limit=900; fi
                 need=$(( need + limit ))
