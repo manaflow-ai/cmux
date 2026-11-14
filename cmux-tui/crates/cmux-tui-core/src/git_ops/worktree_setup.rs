@@ -66,6 +66,9 @@ const PORT_BLOCK: u16 = 10;
 const PORT_BLOCKS: u16 = 1_000;
 /// The output a read returns at most.
 pub(super) const MAX_OUTPUT_BYTES: u64 = 64 * 1024;
+/// The most bytes that are read of a file that cmux keeps in a git folder
+/// (a setup's status, the repository's ports). A real one is far smaller.
+const MAX_OWN_BYTES: u64 = 1024 * 1024;
 /// Teardown output a removal reply carries.
 const MAX_TEARDOWN_OUTPUT_BYTES: u64 = 16 * 1024;
 
@@ -126,7 +129,8 @@ impl Place {
 /// Starts a new worktree's setup and answers what `git.worktree.create`
 /// reports of it. Nothing starts twice for one worktree.
 pub(super) fn start(place: Place, recipe: Recipe) -> Value {
-    let port = ports::allocate(&place.git_dir, &place.root);
+    let allocated = ports::allocate(&place.git_dir, &place.root);
+    let port = allocated.unwrap_or_default();
     if recipe.is_empty() {
         return json!({"state": "none", "port": port});
     }
@@ -149,6 +153,17 @@ pub(super) fn start(place: Place, recipe: Recipe) -> Value {
         started_ms: now_ms(),
         ..Status::default()
     };
+    if allocated.is_err() {
+        // The ports that other worktrees have are not known: nothing runs.
+        let mut options = OpenOptions::new();
+        if let Some(mut log) =
+            open_as_own(options.create(true).append(true), &place.git_dir.join(LOG_FILE))
+        {
+            let _ = writeln!(log, "Setup did not start: {PORTS_NOT_READ}");
+        }
+        finish(&mut status, &status_path, "failed", None);
+        return json!({"state": "failed", "port": port});
+    }
     if write_status(&status_path, &status).is_err() {
         return json!({"state": "none", "port": port});
     }
@@ -655,15 +670,29 @@ fn signal_group(pid: u32, signal: Signal) {
 #[cfg(not(unix))]
 fn signal_group(_pid: u32, _signal: Signal) {}
 
+/// The setup's status. A status file above the size limit is no status.
 fn read_status(git_dir: &Path) -> Option<Status> {
-    serde_json::from_slice(&read_own(&git_dir.join(STATUS_FILE))?).ok()
+    serde_json::from_slice(&read_own(&git_dir.join(STATUS_FILE)).ok()??).ok()
 }
 
-/// The bytes of a file that cmux keeps in a git folder ([`open_own`]).
-fn read_own(path: &Path) -> Option<Vec<u8>> {
+/// A file that cmux keeps in a git folder is larger than [`MAX_OWN_BYTES`].
+#[derive(Clone, Copy, Debug)]
+struct TooLarge;
+
+/// What a setup's log says when the repository's ports file is not read.
+const PORTS_NOT_READ: &str =
+    "the file cmux-worktree-ports.json in the repository's git folder is larger than 1 MiB";
+
+/// The bytes of a file that cmux keeps in a git folder ([`open_own`]);
+/// `None` when there is no such file to read.
+fn read_own(path: &Path) -> Result<Option<Vec<u8>>, TooLarge> {
+    let Some(file) = open_own(path) else { return Ok(None) };
     let mut bytes = Vec::new();
-    open_own(path)?.read_to_end(&mut bytes).ok()?;
-    Some(bytes)
+    if file.take(MAX_OWN_BYTES.saturating_add(1)).read_to_end(&mut bytes).is_err() {
+        return Ok(None);
+    }
+    let small = u64::try_from(bytes.len()).is_ok_and(|length| length <= MAX_OWN_BYTES);
+    if small { Ok(Some(bytes)) } else { Err(TooLarge) }
 }
 
 /// Opens a file that cmux keeps in a git folder (a setup's status, log and
@@ -757,8 +786,12 @@ mod ports {
         Some(common.join("cmux-worktree-ports.json"))
     }
 
-    fn load(path: &Path) -> BTreeMap<String, u16> {
-        read_own(path).and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+    /// The ports of each worktree. A ports file above the size limit is not
+    /// read, and it is not a list with no worktree: a port of a list that
+    /// starts empty can be the port of another worktree.
+    fn load(path: &Path) -> Result<BTreeMap<String, u16>, TooLarge> {
+        let bytes = read_own(path)?;
+        Ok(bytes.and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default())
     }
 
     fn save(path: &Path, ports: &BTreeMap<String, u16>) {
@@ -795,18 +828,27 @@ mod ports {
     pub(super) fn lookup(git_dir: &Path, root: &Path) -> Option<u16> {
         let path = path(git_dir)?;
         let _guard = lock(&path);
-        load(&path).get(&key(root)).copied()
+        load(&path).ok()?.get(&key(root)).copied()
     }
 
     /// The worktree's block, kept from before or the first free one: none
     /// of its ports listens, and no other worktree of the repository has
     /// it. A repository starts looking at a block its folder picks, so two
     /// repositories rarely start at the same one.
-    pub(super) fn allocate(git_dir: &Path, root: &Path) -> Option<u16> {
-        use std::hash::{Hash as _, Hasher as _};
-        let path = path(git_dir)?;
+    ///
+    /// No port is given, and the file stays, when the ports file is above
+    /// the size limit.
+    pub(super) fn allocate(git_dir: &Path, root: &Path) -> Result<Option<u16>, TooLarge> {
+        let Some(path) = path(git_dir) else { return Ok(None) };
         let _guard = lock(&path);
-        let mut ports = load(&path);
+        let mut ports = load(&path)?;
+        Ok(free_block(&path, &mut ports, root))
+    }
+
+    /// The block of `root` in `ports`, kept from before or the first free
+    /// one, which is then saved at `path`.
+    fn free_block(path: &Path, ports: &mut BTreeMap<String, u16>, root: &Path) -> Option<u16> {
+        use std::hash::{Hash as _, Hasher as _};
         if let Some(port) = ports.get(&key(root)) {
             return Some(*port);
         }
@@ -823,14 +865,14 @@ mod ports {
                         .all(|port| TcpListener::bind((Ipv4Addr::LOCALHOST, port)).is_ok())
             })?;
         ports.insert(key(root), port);
-        save(&path, &ports);
+        save(path, ports);
         Some(port)
     }
 
     pub(super) fn free(git_dir: &Path, root: &Path) {
         let Some(path) = path(git_dir) else { return };
         let _guard = lock(&path);
-        let mut ports = load(&path);
+        let Ok(mut ports) = load(&path) else { return };
         if ports.remove(&key(root)).is_some() {
             save(&path, &ports);
         }

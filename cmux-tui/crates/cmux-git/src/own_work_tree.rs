@@ -120,14 +120,36 @@ pub(crate) fn check(
             top.display()
         )));
     }
-    if !name_each_other(top, git_dir, core_worktree)? {
-        return Err(GitFailure::Exit(format!(
-            "{REFUSED}the work tree {} and the git folder that git gives for it do not name \
-             each other",
+    let why = match names(top, git_dir, core_worktree)? {
+        Names::EachOther => return Ok(()),
+        Names::Not => String::new(),
+        Names::NoWorkTree => format!(
+            ": the git folder names no work tree (to mend it, run `git config core.worktree \
+             \"$(pwd)\"` in {})",
             top.display()
-        )));
-    }
-    Ok(())
+        ),
+        Names::OtherPlace => ": the git folder has the record of a work tree at another place \
+                              (if this work tree was moved, run `git worktree repair` in it)"
+            .to_string(),
+    };
+    Err(GitFailure::Exit(format!(
+        "{REFUSED}the work tree {} and the git folder that git gives for it do not name each \
+         other{why}",
+        top.display()
+    )))
+}
+
+/// Whether a work tree and the git folder that git gives for it name each
+/// other.
+enum Names {
+    EachOther,
+    Not,
+    /// The `.git` file names the git folder, and the git folder names no
+    /// work tree: it has no record of one and no `core.worktree` setting.
+    NoWorkTree,
+    /// The `.git` file names the git folder, and the git folder has the
+    /// record of a work tree at another place.
+    OtherPlace,
 }
 
 /// Whether the real folder of `directory` is the folder `top` or below it.
@@ -143,28 +165,29 @@ fn is_below(directory: &Path, top: &Path) -> bool {
 
 /// Whether the `.git` entry of the work tree `top` leads to `git_dir`, and
 /// `git_dir` names the work tree back.
-fn name_each_other(
+fn names(
     top: &Path,
     git_dir: &Path,
     core_worktree: impl FnOnce() -> Result<Option<Vec<u8>>, GitFailure>,
-) -> Result<bool, GitFailure> {
+) -> Result<Names, GitFailure> {
+    let each_other = |named: bool| if named { Names::EachOther } else { Names::Not };
     let entry = top.join(".git");
     let Ok(kind) = fs::symlink_metadata(&entry).map(|metadata| metadata.file_type()) else {
-        return Ok(false);
+        return Ok(Names::Not);
     };
     if kind.is_symlink() {
         // A link is opened as before this check was there.
-        return Ok(true);
+        return Ok(Names::EachOther);
     }
     if kind.is_dir() {
         // The git folder is in the work tree.
-        return Ok(is_same(&entry, git_dir));
+        return Ok(each_other(is_same(&entry, git_dir)));
     }
     if !kind.is_file() {
-        return Ok(false);
+        return Ok(Names::Not);
     }
     if !git_file_target(&entry, top).is_some_and(|named| is_same(&named, git_dir)) {
-        return Ok(false);
+        return Ok(Names::Not);
     }
     match record(&git_dir.join("gitdir")) {
         // A linked work tree: its git folder records the place of the
@@ -172,15 +195,19 @@ fn name_each_other(
         Record::Text(place) => {
             let place = git_dir.join(path_from_bytes(without_line_end(&place)));
             let in_top = place.parent().is_some_and(|folder| is_same(folder, top));
-            Ok(in_top && place.file_name().is_some_and(|name| name == ".git"))
+            let named = in_top && place.file_name().is_some_and(|name| name == ".git");
+            Ok(if named { Names::EachOther } else { Names::OtherPlace })
         }
         // A git folder with no such record names its work tree by a
         // setting, as a submodule's does. git reads a relative value from
         // the git folder.
-        Record::Missing => Ok(core_worktree()?.is_some_and(|setting| {
-            !setting.is_empty() && is_same(&git_dir.join(path_from_bytes(&setting)), top)
-        })),
-        Record::Unreadable => Ok(false),
+        Record::Missing => Ok(match core_worktree()? {
+            Some(setting) if !setting.is_empty() => {
+                each_other(is_same(&git_dir.join(path_from_bytes(&setting)), top))
+            }
+            _ => Names::NoWorkTree,
+        }),
+        Record::Unreadable => Ok(Names::Not),
     }
 }
 
