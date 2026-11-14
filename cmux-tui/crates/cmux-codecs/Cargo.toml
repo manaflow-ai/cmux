@@ -1,0 +1,42 @@
+[package]
+name = "cmux-codecs"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+description = "Royalty-free screen-share codecs behind cmux-encode's VideoEncoder and VideoDecoder: VP9 (libvpx built from source by build.rs) and AV1 (rav1e encode, rav1d decode), an OpenH264 decoder, and `codec-bench`, which runs each codec through cmux-rd-engine and the viewer's reassembler over a simulated lossy link"
+
+# Own workspace, as cmux-rd-host and cmux-cellgrid-bench: it compiles libvpx and
+# OpenH264 from source, which the cmux-tui workspace build should never pull in.
+# Test and measurement only: no app or host links it until the codec table says so.
+[workspace]
+
+[[bin]]
+name = "codec-bench"
+path = "src/bin/codec-bench.rs"
+
+[features]
+default = ["vp9", "av1"]
+# libvpx from a pinned source tarball (build.rs), VP9 only, real-time screen mode.
+vp9 = ["dep:bindgen"]
+# rav1e (encoder) and rav1d (decoder), both pure Rust.
+av1 = ["dep:rav1e", "dep:rav1d"]
+# The codecs' x86 and Arm assembly (needs nasm on x86_64): what a shipped build
+# would use, so the bench's timing rows are built with it.
+asm = ["rav1e?/asm", "rav1d?/asm"]
+
+[dependencies]
+cmux-encode = { path = "../cmux-encode", features = ["openh264-source"] }
+cmux-rd-core = { path = "../cmux-rd-core" }
+cmux-rd-engine = { path = "../cmux-rd-engine" }
+cmux-rd-proto = { path = "../cmux-rd-proto" }
+openh264 = { version = "=0.9.8", default-features = false, features = ["source"] }
+rav1e = { version = "0.8.1", default-features = false, features = ["threading"], optional = true }
+rav1d = { version = "1.1.0", default-features = false, features = ["bitdepth_8"], optional = true }
+serde_json = "1"
+
+[build-dependencies]
+bindgen = { version = "0.72", optional = true }
+
+[profile.release]
+debug = 1
