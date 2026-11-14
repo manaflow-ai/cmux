@@ -10,11 +10,15 @@
 //! those kinds, or each printing terminal costs one commit per 5 s.
 //!
 //! These tests run the scenario of `at_rest_writers.rs` (30 printing
-//! terminals, 5 simulated minutes; 1, 60 and 826 workspaces) with the
-//! detector's stream open through `session.journal.subscribe` (the
-//! detector's own list, compiled in from its file) and with the detector's
-//! rows appended before the span through `session.journal.append`. The span
-//! must add no journal row, no revision, no WAL commit and no WAL byte.
+//! terminals, 5 simulated minutes; 1, 60 and 826 workspaces) with the 2
+//! streams that the detector opens on one connection (`scanner.rs`,
+//! `scan_connection`): its journal stream through `session.journal.subscribe`
+//! (the detector's own list, compiled in from its file) and its
+//! `session.events` stream, which a thread reads to its end as the detector's
+//! connection does. The detector's rows are appended before the span through
+//! `session.journal.append`. The span must add no journal row, no revision,
+//! no WAL commit and no WAL byte, and the events stream must get the live
+//! facts of the span as items that move no revision.
 //!
 //! Not in the count: no detector process runs here, so when a real detector
 //! appends (its screen reads and its state rule) is not measured.
@@ -32,6 +36,11 @@ use detector_wake_kinds::journal_wake_kinds;
 const PLUGIN: &str = "detector_at_rest_test";
 const DETECTOR_STREAM: &str = "stream_00000000000000000000000000000d01";
 const CONTROL_STREAM: &str = "stream_00000000000000000000000000000d02";
+const EVENTS_STREAM: &str = "stream_00000000000000000000000000000d03";
+const EVENTS_CANCEL: &str = "detector-events-cancel";
+/// The most that the test waits for a message of the daemon. A failure bound
+/// only: no result depends on it.
+const MESSAGE_BOUND: Duration = Duration::from_secs(30);
 
 /// A local client of the session.
 struct Client {
@@ -182,6 +191,105 @@ fn follow_request(stream: &str, kinds: &[String]) -> String {
     )
 }
 
+/// The detector's `session.events` stream (`scanner.rs`, `scan_connection`:
+/// `session.events(EventStreamOptions::default())`, so no cursor).
+fn events_request() -> String {
+    resource_request(
+        EVENTS_STREAM,
+        "session.events",
+        json!({"machine": "current", "session": "current", "stream_id": EVENTS_STREAM}),
+        None,
+    )
+}
+
+/// Reads each message that the daemon sends to `outbound`, as the thread of
+/// the detector's connection does, until the queue closes.
+fn read_connection(
+    outbound: Arc<BoundedOutbound>,
+) -> (std::sync::mpsc::Receiver<Value>, std::thread::JoinHandle<()>) {
+    let (messages, receiver) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        while let Some(item) = outbound.recv() {
+            match item {
+                OutboundItem::Text(text) => {
+                    let message: Value = serde_json::from_str(&text).expect("outbound JSON");
+                    if messages.send(message).is_err() {
+                        return;
+                    }
+                }
+                OutboundItem::Flush(flushed) => {
+                    let _ = flushed.send(());
+                }
+            }
+        }
+    });
+    (receiver, reader)
+}
+
+/// What the detector's connection got after its 2 streams opened.
+#[derive(Debug, Default)]
+struct Received {
+    /// Snapshot items of the events stream.
+    snapshots: usize,
+    /// Delta items of the events stream.
+    deltas: usize,
+    /// Of `deltas`: the items that move no revision (live facts).
+    live_deltas: usize,
+    /// Items of the events stream of another kind.
+    other_event_items: Vec<String>,
+    /// Items of the journal stream.
+    journal_items: usize,
+    /// Each stream end: the stream and its reason.
+    ends: Vec<(String, String)>,
+    /// The reply to the cancel of the events stream.
+    cancel_reply: Option<Value>,
+}
+
+impl Received {
+    fn note(&mut self, message: Value) {
+        let text = |value: &Value| value.as_str().unwrap_or_default().to_owned();
+        let kind = text(&message["type"]);
+        match kind.as_str() {
+            "stream_item" if message["stream_id"] == EVENTS_STREAM => {
+                let item = &message["item"];
+                match item["kind"].as_str() {
+                    Some("snapshot") => self.snapshots += 1,
+                    Some("delta") => {
+                        self.deltas += 1;
+                        if item["revision"].is_string()
+                            && item["previous_revision"] == item["revision"]
+                        {
+                            self.live_deltas += 1;
+                        }
+                    }
+                    _ => self.other_event_items.push(item["kind"].to_string()),
+                }
+            }
+            "stream_item" if message["stream_id"] == DETECTOR_STREAM => {
+                self.journal_items += 1;
+            }
+            "stream_end" => {
+                self.ends.push((text(&message["stream_id"]), text(&message["reason"])));
+            }
+            "response" if message["id"] == EVENTS_CANCEL => {
+                self.cancel_reply = Some(message);
+            }
+            _ => {}
+        }
+    }
+
+    /// Takes the next message; false when none comes in the bound.
+    fn take(&mut self, messages: &std::sync::mpsc::Receiver<Value>) -> bool {
+        match messages.recv_timeout(MESSAGE_BOUND) {
+            Ok(message) => {
+                self.note(message);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+}
+
 /// The kinds of the journal rows after `sequence`.
 fn kinds_after(mux: &Mux, mut sequence: u64) -> Vec<String> {
     let mut kinds = Vec::new();
@@ -203,10 +311,12 @@ fn live_fact(surface: &crate::Surface, progress: u8, at_ms: u64) {
 }
 
 /// The detector's client on the session, before the span at rest: its
-/// manifest, its journal stream with its own kind list, and one report for
-/// each printing terminal. After the span: the stream is still a live
-/// follower with that list, and a control shows that this session does make
-/// a live fact a row for a stream that follows `terminal.*`.
+/// manifest, its journal stream with its own kind list, its events stream,
+/// and one report for each printing terminal. After the span: the journal
+/// stream is still a live follower with that list, a control shows that this
+/// session does make a live fact a row for a stream that follows
+/// `terminal.*`, and the events stream got the live facts and ends only when
+/// the client cancels it.
 fn attach_detector(mux: &Arc<Mux>, terminals: &[Arc<crate::Surface>]) -> AfterSpan {
     let kinds = journal_wake_kinds();
     let head = mux.session_journal_head().unwrap();
@@ -229,6 +339,11 @@ fn attach_detector(mux: &Arc<Mux>, terminals: &[Arc<crate::Surface>]) -> AfterSp
         "the daemon refused the detector's journal filter of {} kinds: {opened}",
         kinds.len()
     );
+    let events = follower.request(mux, EVENTS_STREAM, &events_request());
+    assert_eq!(events["ok"], true, "the daemon refused the detector's events stream: {events}");
+    // From here a thread takes each message of the detector's connection, so
+    // no stream of it waits on a reader.
+    let (messages, reader) = read_connection(Arc::clone(&follower.outbound));
 
     let observed_at_ms = crate::workspace_registry::unix_epoch_ms().unwrap();
     for (index, surface) in terminals.iter().enumerate() {
@@ -296,7 +411,19 @@ fn attach_detector(mux: &Arc<Mux>, terminals: &[Arc<crate::Surface>]) -> AfterSp
             }
         }
 
-        // Control: with the detector's stream alone a live fact is no row;
+        // The events stream got the live facts of the span, so the count of
+        // the span is not 0 because that stream was idle. Read here: after
+        // this the control makes live facts of its own.
+        let mut received = Received::default();
+        while received.live_deltas == 0 && received.take(&messages) {}
+        if received.live_deltas == 0 {
+            failures.push(format!(
+                "the detector's events stream must get the live facts of the span as delta \
+                 items that move no revision: {received:?}"
+            ));
+        }
+
+        // Control: with the detector's 2 streams alone a live fact is no row;
         // with a stream that follows `terminal.*` the same fact is a row. So
         // the count of the span is not 0 because the session sees no stream.
         let at_ms = crate::workspace_registry::unix_epoch_ms().unwrap() + 3_600_000;
@@ -305,7 +432,7 @@ fn attach_detector(mux: &Arc<Mux>, terminals: &[Arc<crate::Surface>]) -> AfterSp
         let alone = kinds_after(mux, head);
         if !alone.is_empty() {
             failures.push(format!(
-                "a live fact was a journal row with the detector's stream alone: {alone:?}"
+                "a live fact was a journal row with the detector's 2 streams alone: {alone:?}"
             ));
         }
         let control = Client::connect(mux);
@@ -321,8 +448,49 @@ fn attach_detector(mux: &Arc<Mux>, terminals: &[Arc<crate::Surface>]) -> AfterSp
             ));
         }
 
+        // The 2 streams of the detector's connection are open until the
+        // client cancels the events stream.
+        let cancel = resource_request(
+            EVENTS_CANCEL,
+            "stream.cancel",
+            json!({"machine": "current", "session": "current", "stream": EVENTS_STREAM}),
+            None,
+        );
+        if !handle_connection_message(
+            mux,
+            follower.id,
+            &cancel,
+            &follower.writer,
+            &follower.scheduler,
+        ) {
+            failures.push("the detector's connection closed on the cancel".to_owned());
+        }
+        while received.cancel_reply.is_none() && received.take(&messages) {}
+        println!(
+            "detector_journal_filter_at_rest: the detector's events stream got {} snapshot \
+             items and {} delta items ({} of them move no revision); its journal stream got {} \
+             items",
+            received.snapshots, received.deltas, received.live_deltas, received.journal_items
+        );
+        let canceled = vec![(EVENTS_STREAM.to_owned(), "canceled".to_owned())];
+        if received.snapshots == 0
+            || !received.other_event_items.is_empty()
+            || received.ends != canceled
+            || received.cancel_reply.as_ref().is_none_or(|reply| reply["ok"] != true)
+        {
+            failures.push(format!(
+                "the detector's events stream must get its snapshot and then delta items only, \
+                 and no stream of the connection must end before the client's cancel: \
+                 {received:?}"
+            ));
+        }
+
         for client in [&requests, &follower, &control] {
             disconnect_client(mux, client.id, false);
+        }
+        follower.outbound.close();
+        if reader.join().is_err() {
+            failures.push("the reader of the detector's connection panicked".to_owned());
         }
         failures
     })
