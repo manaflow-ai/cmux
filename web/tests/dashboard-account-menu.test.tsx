@@ -87,7 +87,7 @@ type Plan = { planId: "free" | "go" | "pro" | "max"; isPro: boolean; billingMana
 /** The menu with the viewer's plan in the cache (or none, as while it loads). */
 function renderMenu(user: MenuUser, plan?: Plan) {
   const queryClient = new QueryClient();
-  if (plan) queryClient.setQueryData(planQuery.queryKey, plan);
+  if (plan) queryClient.setQueryData(planQuery.queryKey, { ...plan, teamPlanId: "free" });
   return renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
       <DashboardAccountMenu user={user} />
