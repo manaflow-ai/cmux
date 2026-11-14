@@ -114,7 +114,6 @@ impl Daemon {
             .arg(self.dir.join("state"))
             .args(&self.args)
             .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
-            .env("CMUX_TUI_TERMINAL_HOST_MODEL", "holder")
             .envs(self.env.iter().map(|(key, value)| (key.as_str(), value.as_str())))
             .env("SHELL", "/bin/sh")
             .env_remove("SSH_CONNECTION")
