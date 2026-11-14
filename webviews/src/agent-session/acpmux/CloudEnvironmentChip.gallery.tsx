@@ -22,6 +22,13 @@ type StageProps = {
   /// The pick: Auto or one of the recent environments.
   current?: string;
   recent?: number;
+  /// The project's default from the service (an id, or AUTO_ENVIRONMENT for none set); absent: a
+  /// service without per-project defaults, so the local recents stand in.
+  projectDefault?: string;
+  /// A started chat on this Mac: the chip sits beside the picker for Move to Cloud.
+  move?: boolean;
+  /// An iPhone-wide composer (375 px), whatever the stage's width.
+  phone?: boolean;
 };
 
 const environments = [
@@ -30,10 +37,23 @@ const environments = [
   { id: "env_docs", name: "docs preview" },
 ];
 
-function Stage({ place, where, dropUp, current = AUTO_ENVIRONMENT, recent = 2 }: StageProps) {
+function Stage({
+  place,
+  where,
+  dropUp,
+  current = AUTO_ENVIRONMENT,
+  recent = 2,
+  projectDefault,
+  move,
+  phone,
+}: StageProps) {
   const [mode, setMode] = useState<"persistent" | "cloud">(where === "cloud" ? "cloud" : "persistent");
   const [pick, setPick] = useState(current);
+  const [projectPick, setProjectPick] = useState(projectDefault);
   const control: CloudEnvironmentControl = {
+    ...(projectPick !== undefined
+      ? { projectDefault: projectPick, onMakeDefault: (id?: string) => setProjectPick(id ?? AUTO_ENVIRONMENT) }
+      : {}),
     recent: environments.slice(0, recent),
     current: pick,
     auto: { id: "env_default", name: "Default" },
@@ -47,7 +67,8 @@ function Stage({ place, where, dropUp, current = AUTO_ENVIRONMENT, recent = 2 }:
       <ComposerContext
         environments
         stripLayout="where-machine"
-        summary={{ sessionId: "", harness: "claude", host: "This Mac", hostKind: "local" } as never}
+        {...(move ? { started: true, offloads: ["move"] as const, onOffload: () => undefined } : {})}
+        summary={{ sessionId: move ? "chat-1" : "", harness: "claude", host: "This Mac", hostKind: "local" } as never}
         localName="studio-mac"
         projectChoices={[{ cwd: "/Users/you/src/atlas-web", label: "atlas-web" }]}
         onProject={() => undefined}
@@ -70,6 +91,7 @@ function Stage({ place, where, dropUp, current = AUTO_ENVIRONMENT, recent = 2 }:
         justifyContent: place === "bottom" ? "flex-end" : "flex-start",
         height: "100%",
         boxSizing: "border-box",
+        ...(phone ? { maxWidth: 375 } : {}),
         padding: place === "bottom" ? "0 12px 12px" : "0 12px",
       }}
     >
@@ -100,6 +122,13 @@ const pickCloud: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-row[data-mode="cloud"]'));
   await ctx.click({ selector: '.acpmux-env-row[data-mode="cloud"]' });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-cloud-env-slot[data-shown="true"]'));
+};
+
+/// A started chat's Move to Cloud: the chip beside the picker opens the same drop-up.
+const openMoveDropUp: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-cloud-env-slot[data-for="move"] button'));
+  await ctx.click({ selector: '.acpmux-cloud-env-slot[data-for="move"] button' });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cloud-env-menu [role='menuitemradio']"));
 };
 
 const base = { place: "bottom", where: "cloud", dropUp: "list" } as const;
@@ -154,6 +183,36 @@ export default componentEntry<StageProps>({
       note: "The New Tab page's composer, in the window's top half: the drop-up still opens up, away from the box.",
       props: { ...base, place: "top" },
       play: openDropUp,
+    },
+    "project-default": {
+      note: "The project has a default on the service: the chat starts on it, its row comes first and is marked Default; the local recents are not read.",
+      props: { ...base, current: "env_gpu", projectDefault: "env_gpu" },
+      play: openDropUp,
+    },
+    "make-default": {
+      note: "Another environment picked: Make default for this project, after Edit, moves the Default mark to it.",
+      props: { ...base, current: "env_web", projectDefault: "env_gpu" },
+      play: openDropUp,
+    },
+    "no-project-default": {
+      note: "The service keeps per-project defaults but this project has none: Make default for this project is offered on any pick but Auto.",
+      props: { ...base, current: "env_docs", recent: 3, projectDefault: AUTO_ENVIRONMENT },
+      play: openDropUp,
+    },
+    "move-to-cloud": {
+      note: "A started chat on this Mac: the Environment chip beside the picker names the environment Move to Cloud's new machine boots in.",
+      props: { ...base, where: "local", move: true, projectDefault: "env_web", current: "env_web" },
+      play: openMoveDropUp,
+    },
+    "phone-project-default": {
+      note: "iPhone width: the drop-up with the Default mark and Make default; rows keep one line, the mark stays at the end.",
+      props: { ...base, current: "env_web", projectDefault: "env_gpu", phone: true },
+      play: openDropUp,
+    },
+    "phone-move-to-cloud": {
+      note: "iPhone width: Move to Cloud's chip beside a started chat's picker drops its prefix and keeps the value.",
+      props: { ...base, where: "local", move: true, projectDefault: "env_web", current: "env_web", phone: true },
+      play: openMoveDropUp,
     },
     "first-chat": {
       note: "A first Cloud chat with no environments yet: Auto, New environment…, Edit Default…, New Cloud machine….",

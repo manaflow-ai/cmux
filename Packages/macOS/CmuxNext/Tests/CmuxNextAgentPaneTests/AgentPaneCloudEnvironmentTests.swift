@@ -47,6 +47,20 @@ struct AgentPaneCloudEnvironmentTests {
         #expect(actions == ["create"])
     }
 
+    /// Make default for this project writes the project's default only on the person's click; reading it does not.
+    @Test func setDefaultForwardsOnlyWithAGesture() async {
+        let model = AgentPaneModel(host: NoHost())
+        var actions: [String] = []
+        model.onCloudEnvironment = { request in actions.append(request.action); return AgentPaneReply.success([:]) }
+        let read = AgentPaneRequest(body: ["method": "cloud.environment.default", "params": ["repo": "octocat/hello-world"]])
+        #expect(await model.respond(to: read)["ok"] as? Bool == true)
+        let write = AgentPaneRequest(body: ["method": "cloud.environment.setDefault", "params": ["repo": "octocat/hello-world", "environment": "env_a"]])
+        #expect(await model.respond(to: write)["ok"] as? Bool == false)
+        model.transport.gestures.record(click: true)
+        #expect(await model.respond(to: write)["ok"] as? Bool == true)
+        #expect(actions == ["default", "setDefault"])
+    }
+
     @Test func readMethodsForwardWithoutSpendingAGesture() async {
         let model = AgentPaneModel(host: NoHost())
         var actions: [String] = []

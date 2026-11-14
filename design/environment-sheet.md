@@ -12,8 +12,9 @@ optional mode if you want ... it's interesting if you could, in fact, edit your 
 
 ## Pages
 
-An overview (the name, then one drill-in row per section with a one-line summary) and four drill-in
-pages: Network access, Network secrets, Setup script, Environment variables. The back chevron
+An overview (the name, then one drill-in row per section with a one-line summary) and its drill-in
+pages: Network access, Network secrets, Setup script, Environment variables, and, on a service that
+keeps them, Repository, Maintenance script, Files and Setup output (below). The back chevron
 returns to the overview with the same draft. Save sends only what changed; Cancel and Escape write
 nothing and drop every typed secret value.
 
@@ -24,6 +25,77 @@ move (gallery `secret-many-expanded`; `webviews/test/cloud-environment-sheet-geo
 box scrolls, `.env-scroll` (`min-height: 0`, `overflow-y: auto`) between the heading and the actions;
 the sheet and the form clip (`overflow: clip`, never `hidden`, which script can still scroll), so no
 field paints under the actions and the last Header line and Add stay reachable.
+
+## Configuration (Codex-style)
+
+Leo, 2026-11-10: "being able to like have somebody configure their own environment ... like, you know,
+whatever [Codex] has for like setting stuff up, like, you know, them putting their environment
+variables in, that's like selecting the project, the repository or whatever, and adding more files and
+all that stuff."
+
+The overview gains, in this order: an **Image** picker under the name, then drill-in rows for
+**Repository** (`owner/name · branch`), Network access, Network secrets, Setup script, **Maintenance
+script**, Environment variables, **Files** (their paths) and **Setup output** (the last run's state and
+the snapshot's). Each new piece shows only once the service's reply carries its field
+(`environmentConfig`), so a service from before them shows the sheet it had, and a save never sends a
+field it would refuse. Save sends a new field only when it changed, as for the others.
+
+| Field | Wire | Page |
+| --- | --- | --- |
+| Repository | `repo` (`owner/name` or null), `ref` (null: the default branch) | Two fields side by side, owner/name wider; on blur a bad pair marks both and folds the message open. Clearing the repository clears the branch. |
+| Maintenance script | `maintenance_script` (null: none) | The setup script's editor, without the repository suggestion and Reset; its note says it runs when a machine resumes from the snapshot. |
+| Files | `files: [{ path, content }]` | One block per file: the path and a remove button, then its contents (mono). The service's rules (cmux-platform#1144): a path relative to the checkout, with no leading `/` or `~`, no empty, `.` or `..` part, no backslash or control character, not under `.git`, each once; at most 20 files, 32 KB each, 64 KB together. Its `cloud_environment.invalid_file` shows the path sentence. The note sends secrets to Network secrets. |
+| Image | `image` (`default`: the deployment's Cloud image) | A select of the service's `available_images` when it lists them, else the stored image alone (today one option, Default image). A stored image a list no longer names stays listed and picked, never swapped. |
+| Network Off | `network.mode: "off"` | A third radio after Full and Limited, with its note and an honest second one: the service refuses a chat start on Off for now (`cloud_environment.network_unenforced`). Offered with the other new fields, or when the stored mode already is Off. |
+| Setup output | the derive reply (`script_output`: `kind` setup or maintenance, `exit_code`, `log_tail`, `finished_at`; `status`, `steps`, `snapshot`, `refreshing`, `error`), or the environment's own `last_run` and `snapshot_status` if a service answers them | Read only. The snapshot's state (cached, rebuilding, none) and why when known (a first build), then the run's heading and status, its steps (name, one-line detail, state), the service's message, and the log tail in its own capped scroller. The sheet reads it from the derive it already runs for a script-less environment with a repository; it never derives only to show this page, since a derive can start a setup. |
+
+Secrets rows are unchanged by all of this. The gallery shows each new page empty, filled, in error and
+with long content (`repository-*`, `maintenance-*`, `files-*`, `output-*`, `overview-configured`,
+`overview-older-service`, `overview-long`, `image-unlisted`, `network-off`).
+
+### Cache first
+
+The sheet, the chip's environment list and the project's default draw what this page read last at
+once and refresh in place: no loading line or empty list over data the page has. The sheet's cache
+(`EnvironmentCache`, at most 32 environments and derive replies, oldest first out) holds what GET
+answered after `storedEnvironment`, so never a secret value. A refresh replaces the draft only while the
+person has not edited; after an edit the draft and what Save compares it with stay as they saw them,
+and only the read-only run and snapshot state update. A failed refresh keeps the cached data.
+
+### Changed elsewhere
+
+Save sends whole lists (variables, files), so a save from another window or the CLI in between would
+be undone. On a service that counts revisions (`revision`, cmux-platform#1144) Save sends
+`expected_revision`, and a record changed since it was read answers 409
+`cloud_environment.revision_conflict`. The sheet then reads the newest record:
+
+- **Different fields:** the person's changes move onto it and Save runs once more, so both changes
+  stand; the sheet closes as usual.
+- **Same fields:** the sheet stays open with every edit kept, and an alert names the sections changed
+  elsewhere ("Someone changed Environment variables since you opened this..."), with **Keep my edits**
+  (their edits over the newest; Save sends them on its revision) and **Use the newest** (the newest
+  for those sections, the rest of their edits kept). Typed secret values stay with their rows.
+- **Older service** (no `revision`): no `expected_revision`, as before.
+
+Gallery: `conflict`.
+
+### Narrow
+
+At iPhone widths (480 px and under) the repository's fields stack, a step's detail goes under its
+name, and the sheet's padding tightens; the network modes wrap. Gallery: `phone-overview`,
+`phone-repository`, `phone-output`, and the chip's `phone-project-default` and `phone-move-to-cloud`.
+
+## Picker: the project's default
+
+The composer's Environment chip and Move to Cloud's (the same chip, beside a started local chat's picker
+while Move to Cloud is offered) read the project's default from the service
+(`cloud.environment.default`, `GET /v1/cloud-environments/project-defaults?repo=owner/name` → a list of
+`{ scope, repo, environment }`, the caller's own first; cmux-platform#1144). A new chat starts on it, once per chat and never over a pick made there; its row
+comes first, marked Default. "Make default for this project" (after Edit, for any pick that is not
+already the default) writes the personal one (`cloud.environment.setDefault`, `PUT /v1/cloud-environments/project-defaults`
+with `{ repo, environment }`, null for Auto). A service without the route: the localStorage recents, as before,
+and no Make default row. Move to Cloud sends its pick as `environment`; the move then makes a new
+machine booted in it instead of reusing a live one.
 
 ## Secret row
 
