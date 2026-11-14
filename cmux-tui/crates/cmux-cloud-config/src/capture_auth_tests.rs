@@ -53,7 +53,7 @@ fn capture_auth_preflight_never_mutates_or_proves_stores_absent() {
     assert_eq!(code(next(&r)), "ownership_mismatch");
     r.facts = vec![owned(&r)];
     let done = next(&r);
-    assert!(done.action.is_none() && done.result.is_none());
+    assert!(done.preflight_complete && done.action.is_none() && done.result.is_none());
     r.preflight = false;
     r.facts = vec![fact("absent")];
     assert_eq!(code(next(&r)), "ownership_missing");

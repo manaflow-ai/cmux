@@ -48,13 +48,16 @@ pub struct Proof {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Reply {
+    pub preflight_complete: bool,
     pub action: Option<Action>,
     pub result: Option<Proof>,
 }
 
 fn refusal(code: &str) -> Reply {
     Reply {
+        preflight_complete: false,
         action: None,
         result: Some(Proof {
             ok: false,
@@ -73,7 +76,7 @@ struct Replay<'a> {
 impl<'a> Replay<'a> {
     fn ask(&mut self, action: Action) -> Result<&'a Fact, Reply> {
         let Some(fact) = self.facts.get(self.index) else {
-            return Err(Reply { action: Some(action), result: None });
+            return Err(Reply { preflight_complete: false, action: Some(action), result: None });
         };
         self.index += 1;
         Ok(fact)
@@ -131,7 +134,7 @@ fn advance(r: &Request) -> Result<Reply, Reply> {
         }
     }
     if r.preflight {
-        return Ok(Reply { action: None, result: None });
+        return Ok(Reply { preflight_complete: true, action: None, result: None });
     }
     let mut files = vec![format!("{current}/credentials.json")];
     if let Some(legacy) = &r.legacy {
@@ -228,6 +231,7 @@ fn advance(r: &Request) -> Result<Reply, Reply> {
         return Err(refusal("invalid_lease"));
     }
     Ok(Reply {
+        preflight_complete: false,
         action: None,
         result: Some(Proof {
             ok: true,
