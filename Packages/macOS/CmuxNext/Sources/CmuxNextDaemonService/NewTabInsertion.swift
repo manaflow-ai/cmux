@@ -50,7 +50,7 @@ public final class NewTabInsertion {
     public init?(after anchor: TabModel, in pane: PaneModel, daemon: DaemonService, line: WorkLine<ActionWorkFailure?>) {
         guard ActionRunScope.viewChangeAllowed(), daemon.supports(DaemonCapability.tabInsertAfter.rawValue) else { return nil }
         self.anchor = anchor
-        earlier = pane.tabs.firstIndex { $0 === anchor }.map { Array(pane.tabs[..<$0].reversed()) } ?? []
+        earlier = pane.tabs.firstIndex { $0 === anchor || $0.id == anchor.id }.map { Array(pane.tabs[..<$0].reversed()) } ?? []
         self.pane = pane
         store = daemon.store
         turn = line.next(limit: Self.answerLimit, owner: "NewTabInsertion.answer", passing: nil)
@@ -77,8 +77,8 @@ public final class NewTabInsertion {
     /// `NewTabSlot` moves it.
     private func resolved() -> SurfaceID? {
         guard let pane else { return nil }
-        let creations = store.creations
-        let others = pane.tabs.filter { !(ProvisionalTab.isProvisional($0.id) && creations.isUnderway(standIn: $0.id)) }
+        let creations = store.creations, closing = store.closingTabIDs // a tab whose close is on its way is no anchor: the daemon may close it first
+        let others = pane.tabs.filter { !closing.contains($0.id) && !(ProvisionalTab.isProvisional($0.id) && creations.isUnderway(standIn: $0.id)) }
         func now(_ tab: TabModel) -> TabModel? { others.first { $0 === tab || $0.id == tab.id } ?? creations.replacement(ofStandIn: tab.id, in: pane) }
         guard let tab = now(anchor) ?? earlier.lazy.compactMap(now).first,
               let slot = TabGroupWrites.slot(after: tab, in: others), others.indices.contains(slot - 1) else { return nil }

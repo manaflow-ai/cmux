@@ -162,9 +162,13 @@ struct NewTabBurstOrderAndCloseTests {
                 if pane.stripModel.selectedID?.rawValue == b { wrong.append("closing: b was selected"); break }
                 try await Task.sleep(for: .milliseconds(15))
             }
-            let rest = ContinuousClock.now + .seconds(1)
-            while ContinuousClock.now < rest {
+            // A tab closed before the daemon made it is still made, then closed (its creation was sent after the one
+            // before it): the pane is `a b` and stays so for a second.
+            var rest = ContinuousClock.now + .seconds(1)
+            while ContinuousClock.now < rest, ContinuousClock.now < end {
                 frames.sample("end", pane, store: daemonTabs())
+                if daemonTabs() != [a, b] { rest = ContinuousClock.now + .seconds(1) }
+                if pane.orderedIDs.map(\.rawValue) != [a, b] { wrong.append("end: the strip showed a tab after the closes"); break }
                 try await Task.sleep(for: .milliseconds(25))
             }
             #expect(daemonTabs() == [a, b], "the daemon's pane is not a b after the closes (\(context)): \(frames.report)")
