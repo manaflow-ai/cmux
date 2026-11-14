@@ -242,7 +242,9 @@ and runs two trials at each physical desktop resolution, 1920×1080 and 3840×21
 
 Run `.github/scripts/cmux-rd-motion.ps1 -IntervalMs 16 -FullScreen` in a separate
 owned process to keep the desktop changing. The benchmark temporarily sets the
-desktop resolution and restores it on exit; unsupported modes fail explicitly.
+desktop resolution and restores it on exit. A driver rejecting optional 4K with
+`DISP_CHANGE_BADMODE` reports `4K: not measured, no display mode` and succeeds
+without metrics. Missing 1080p or any capture/transport/viewer failure still fails.
 It uses the production GDI capture, encoder, media engine, stream framing and
 feedback path over TCP loopback. The receiver reassembles and decodes the stream,
 presents it in a visible GDI window and checks its center pixel with `GetPixel`.
