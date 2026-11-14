@@ -367,6 +367,9 @@ impl Hub {
         if session.meta().watching.is_some() {
             return Err(super::super::watch::read_only());
         }
+        if session.releasing.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(super::super::release_to_watch::releasing_error());
+        }
         if super::super::inbox::review_box(session) {
             return Err(Self::inbox_digest_review_box());
         }

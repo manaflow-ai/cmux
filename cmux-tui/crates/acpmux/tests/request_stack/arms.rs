@@ -406,6 +406,13 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             method::MUX_WATCH_TAKE_OVER,
             Any(json!({"sessionId": "$S"}), "the chat watches no conversation (invalid params)"),
         ),
+        (
+            method::MUX_RELEASE_TO_WATCH,
+            Any(
+                json!({"sessionId": "$S"}),
+                "the stand-in agent's chat is no Claude Code or Codex one (invalid params)",
+            ),
+        ),
         (method::MUX_QUEUE_EDIT, Run(json!({"sessionId": "$S", "op": "resume"}))),
         (method::MUX_QUEUE_REMOVE, Run(json!({"sessionId": "$S", "promptId": "p1"}))),
         (

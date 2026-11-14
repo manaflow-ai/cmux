@@ -880,6 +880,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/release_to_watch",
+      "params": {
+        "$ref": "#/types/ReleaseToWatchParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/archive",
       "params": {
         "$ref": "#/types/ArchiveParams"
@@ -5284,6 +5292,16 @@
         "error",
         "name"
       ],
+      "type": "object"
+    },
+    "ReleaseToWatchParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
+      },
       "type": "object"
     },
     "RequestMeta": {

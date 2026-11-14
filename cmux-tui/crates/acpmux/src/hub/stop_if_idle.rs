@@ -183,7 +183,7 @@ impl Hub {
     }
 
     /// What keeps the session from being idle, if anything.
-    fn busy_with(&self, session: &Session) -> Option<&'static str> {
+    pub(super) fn busy_with(&self, session: &Session) -> Option<&'static str> {
         if session.turn().is_some()
             || session.harness_turn.load(Ordering::SeqCst)
             || self.continuation_pending(session)
