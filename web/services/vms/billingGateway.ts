@@ -51,6 +51,17 @@ export type VmBillingGatewayShape = {
     readonly idempotencyKey?: string;
   }) => Effect.Effect<VmCreateCreditReservation, VmBillingError | VmCreateCreditsInsufficientError>;
   readonly refundCreate: (reservation: VmCreateCreditReservation) => Effect.Effect<void, VmBillingError>;
+  /**
+   * The billing scope's Stripe labels for provider metadata (`cmuxPlanSource`
+   * and the `stripe*` keys, services/vms/README.md). Optional: a gateway
+   * without it tags machines with the create-time keys only.
+   */
+  readonly resolveProviderTags?: (input: {
+    readonly userId: string;
+    readonly billingCustomerType: BillingCustomerType;
+    readonly billingTeamId: string;
+    readonly billingPlanId: string;
+  }) => Effect.Effect<Record<string, string>, VmBillingError>;
 };
 
 export class VmBillingGateway extends Context.Tag("cmux/VmBillingGateway")<
@@ -138,6 +149,15 @@ export function makeStackVmBillingGateway(
         catch: (cause) => new VmBillingError({ operation: "refundCreate", cause }),
       });
     },
+
+    resolveProviderTags: (input) =>
+      Effect.tryPromise({
+        try: async () => {
+          const { vmStripeProviderTags } = await import("../billing/vmProviderTags");
+          return await vmStripeProviderTags(input);
+        },
+        catch: (cause) => new VmBillingError({ operation: "resolveProviderTags", cause }),
+      }),
   };
 }
 

@@ -116,6 +116,15 @@ export type CreateOptions = {
   promptIdentity?: GuestPromptIdentity;
   providerMetadata?: Record<string, unknown>;
   /**
+   * Owner and billing labels written into the provider's own machine metadata
+   * at create (Freestyle `metadata`), so the provider account can be read by
+   * owner, plan, and cloud_vms row without a database join. Keys are in
+   * services/vms/README.md. Values are ids and plan names only, never emails or
+   * names. Providers without machine labels ignore it. Not `providerMetadata`,
+   * which is the cloud_vms jsonb column.
+   */
+  providerTags?: Readonly<Record<string, string>>;
+  /**
    * Name of a persistent volume to mount as the machine's home directory. Providers that
    * support it create the volume if missing and record it in providerMetadata so attach can
    * resurrect a dead sandbox around the same home. Providers without volume support ignore it.
@@ -205,7 +214,7 @@ export type VmEdgeRule = {
 };
 
 /** Create-time inputs a restore-from-snapshot shares with a fresh create. */
-export type RestoreOptions = Pick<CreateOptions, "customer" | "edgeRules" | "providerMetadata" | "networkRules"> & {
+export type RestoreOptions = Pick<CreateOptions, "customer" | "edgeRules" | "providerMetadata" | "networkRules" | "providerTags"> & {
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
 };
@@ -653,6 +662,12 @@ export interface VMProvider {
    */
   detachCustomer?(vmId: string): Promise<void>;
   setRuntimeBudget?(vmId: string, remainingSeconds: number | null): Promise<void>;
+  /**
+   * Optional: merge labels into the machine's provider metadata. Only the
+   * keys given change; an empty-string value removes that key. Providers
+   * without machine labels leave it undefined and the gateway skips it.
+   */
+  updateTags?(vmId: string, tags: Readonly<Record<string, string>>): Promise<void>;
 
   exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;
 
