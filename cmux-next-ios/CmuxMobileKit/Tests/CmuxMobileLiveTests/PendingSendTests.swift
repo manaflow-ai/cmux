@@ -1,4 +1,6 @@
 import CmuxMobileAgentChat
+import CmuxMobileFeed
+import CmuxMobileModel
 import Foundation
 import Testing
 @testable import CmuxMobileLive
@@ -78,6 +80,44 @@ import Testing
         next.holdWindow = .seconds(3600)
         for (intent, at) in taken { next.hold(intent, since: at) }
         #expect(next.held.map(\.at) == taken.map(\.at))
+    }
+
+    private func coordinator() -> LiveCoordinator {
+        let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
+        ServiceStub.install(host: host) { _ in nil }
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-mobile-pending-\(UUID().uuidString)")
+        let secrets = MemorySecretStore()
+        return LiveCoordinator(
+            store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory()),
+            api: LiveAPI(baseURL: URL(string: "https://\(host)")!, session: ServiceStub.session()) { _ in "token" },
+            identity: DeviceIdentity(link: UUID().uuidString, presence: UUID().uuidString),
+            userID: "user-a", deviceName: "iPhone", transport: .webRTC, dialer: MockDialer(fail: true),
+            feedStore: FeedStore(items: []),
+            keys: PhoneKeys(userID: "user-a", service: "test.pending.\(UUID())", store: secrets, enclave: false),
+            snapshots: LiveSnapshotStore(directory: directory), secrets: secrets,
+            readMarks: FeedReadMarks(url: directory.appending(path: "read.json"))
+        )
+    }
+
+    /// The chat's store went while the person was elsewhere (the Mac's tree bound the tab, its
+    /// kept records opened it) and a prompt is still held: the chat gets its next store at once,
+    /// so the prompt is sent or comes back with why. Before, nothing built it until the chat was
+    /// opened again, and the held prompt expired into a store that no longer existed (lost).
+    @Test func aHeldPromptKeepsAChatWhenItsStoreIsRebuiltOffScreen() async throws {
+        let live = coordinator()
+        defer { live.stop() }
+        let source = pending()
+        source.holdWindow = .seconds(3600)
+        source.send(prompt("hello", id: "p1"))
+        live.pendingSources[AgentSessionDirectory.key(id: "s3", macID: "m1")] = source
+        AgentSessionDirectory.shared.invalidate(id: "s3", macID: "m1")
+        defer { AgentSessionDirectory.shared.invalidate(id: "s3", macID: "m1") }
+
+        live.chatSessionChanged(id: "s3", macID: "m1")
+
+        #expect(AgentSessionDirectory.shared.existingStore(id: "s3", macID: "m1") != nil,
+                "the held prompt has no chat to be sent from or come back to")
+        #expect(source.held.isEmpty, "the held prompt stayed on the dropped source")
     }
 }
 #endif

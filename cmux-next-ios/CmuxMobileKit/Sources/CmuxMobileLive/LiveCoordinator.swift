@@ -298,7 +298,7 @@ public final class LiveCoordinator {
                     guard self?.sourcedSessions[key]?.provisional == true, let owner, owner.tree == nil else { return }
                     self?.keptSessionIDs[key] = sessionID
                     self?.sourcedSessions[key] = nil
-                    AgentSessionDirectory.shared.invalidate(id: summary.id, macID: summary.macID)
+                    self?.chatSessionChanged(id: summary.id, macID: summary.macID)
                 }
             }
             let session = owner?.tree?.agentTabs[summary.id]?.session
@@ -333,6 +333,12 @@ public final class LiveCoordinator {
         Task { @MainActor in
             for (intent, _) in held { source.send(intent) }
         }
+    }
+
+    /// The tab's chat opens on another source (the Mac's tree bound it, its kept records were
+    /// read): its store is built again from `makeSource`.
+    func chatSessionChanged(id: String, macID: String) {
+        AgentSessionDirectory.shared.invalidate(id: id, macID: macID)
     }
 
     /// The Mac's acpmux source for `session`; one that drops a kept copy too old to catch up from
