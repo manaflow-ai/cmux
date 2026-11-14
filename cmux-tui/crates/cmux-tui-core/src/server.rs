@@ -3167,7 +3167,9 @@ fn list_workspaces_reply_since(
         terminal_revision: Some(mux.terminal_registry_revision()?),
         tree_revision: Some(tree_revision.clone()),
     };
-    if *known == current {
+    // The fields of `current` are read one after another; the revision read again after
+    // them says no change landed between those reads.
+    if *known == current && mux.tree_revision() == tree_revision {
         // `workspaces` stays (empty), so a typed SDK decodes this as the `Tree` it
         // declares; `unchanged` says to keep the tree the client holds.
         return Ok(json!({
@@ -3206,14 +3208,7 @@ fn list_workspaces_reply_first(
     limit: usize,
     hidden: Option<&incognito_remote::Hidden>,
 ) -> anyhow::Result<(Value, bool)> {
-    let order = crate::resource_api::read_committed_registry(mux, |connection, _| {
-        Ok(match crate::state::sidebar_doc_order::document_order(connection)? {
-            Some(order) => SidebarOrder::Document(order),
-            None => SidebarOrder::Personal(crate::state::sidebar_doc_legacy::workspace_order(
-                connection,
-            )?),
-        })
-    })?;
+    let order = SidebarOrder::read(mux)?;
     let notifications = mux.tree_decorations();
     let (mut reply, whole) = mux.with_state(|state| {
         let (first, total) = order.first(state, limit, hidden);
@@ -3233,6 +3228,18 @@ enum SidebarOrder {
 }
 
 impl SidebarOrder {
+    /// The committed sidebar order: the sidebar document's, else the personal order.
+    fn read(mux: &Mux) -> anyhow::Result<Self> {
+        crate::resource_api::read_committed_registry(mux, |connection, _| {
+            Ok(match crate::state::sidebar_doc_order::document_order(connection)? {
+                Some(order) => Self::Document(order),
+                None => {
+                    Self::Personal(crate::state::sidebar_doc_legacy::workspace_order(connection)?)
+                }
+            })
+        })
+    }
+
     /// The indices in `state.workspaces` of the first `limit` workspaces in this order that
     /// `hidden` keeps, and how many it keeps.
     fn first(
@@ -3286,11 +3293,15 @@ impl SidebarOrder {
 
 /// `list-workspaces` with `known` for a remote device that must not see
 /// some workspaces (incognito_remote.rs `list_view`): its tree revision is a
-/// digest of the rows it is answered, so an incognito workspace's changes,
-/// which the daemon's revision counts, never move it. It costs the whole
-/// tree's rows, as the reply without `known` does; only the line it sends is
-/// small. With `limit`, the page is read after the digest, so a change between
-/// the two makes the next request read again.
+/// digest of the rows it is answered and of their sidebar order (the order a
+/// `limit` page takes), so an incognito workspace's changes, which the
+/// daemon's revision counts, never move it. Its `unchanged` answer carries
+/// back the counters the device holds, never the daemon's, which an
+/// incognito edit alone moves. It costs the whole tree's rows, as the reply
+/// without `known` does; only the line it sends is small. A change that lands
+/// while the digest is read (the daemon's revision moved) answers the whole
+/// reply, never `unchanged`, and with `limit` the page read after the digest
+/// carries no revision to hold, so the next request reads again.
 fn list_workspaces_reply_seen(
     mux: &Mux,
     known: &cmd_workspaces::KnownTree,
@@ -3299,15 +3310,26 @@ fn list_workspaces_reply_seen(
 ) -> anyhow::Result<Value> {
     use std::hash::{Hash, Hasher};
     let daemon_revision = mux.tree_revision();
+    let order = SidebarOrder::read(mux)?;
     let mut reply = list_workspaces_reply(mux)?;
     hidden.prune_reply(&mut reply);
+    let sidebar_ids = mux.with_state(|state| {
+        let (seen, _) = order.first(state, usize::MAX, Some(hidden));
+        seen.iter()
+            .filter_map(|index| state.workspaces.get(*index))
+            .map(|workspace| workspace.public_id.to_string())
+            .collect::<Vec<_>>()
+    });
     let mut digest = std::collections::hash_map::DefaultHasher::new();
     let field = |key: &str| reply.get(key).unwrap_or(&Value::Null);
     field("workspaces").to_string().hash(&mut digest);
     field("groups").to_string().hash(&mut digest);
+    sidebar_ids.hash(&mut digest);
     let boot = daemon_revision.split_once('.').map_or(daemon_revision.as_str(), |(boot, _)| boot);
     let tree_revision = format!("{boot}.v{:016x}", digest.finish());
-    if known.registry_id.as_deref() == field("registry_id").as_str()
+    let settled = mux.tree_revision() == daemon_revision;
+    if settled
+        && known.registry_id.as_deref() == field("registry_id").as_str()
         && known.tree_revision.as_deref() == Some(tree_revision.as_str())
     {
         return Ok(json!({
@@ -3315,20 +3337,22 @@ fn list_workspaces_reply_seen(
             "workspaces": [],
             "registry_id": field("registry_id"),
             "generation": field("generation"),
-            "workspace_revision": field("workspace_revision"),
-            "pane_revision": field("pane_revision"),
-            "terminal_revision": field("terminal_revision"),
+            "workspace_revision": known.workspace_revision,
+            "pane_revision": known.pane_revision,
+            "terminal_revision": known.terminal_revision,
             "tree_revision": tree_revision,
         }));
     }
     if let Some(limit) = limit {
         let (mut page, whole) = list_workspaces_reply_first(mux, limit, Some(hidden))?;
-        if whole {
+        if whole && mux.tree_revision() == daemon_revision {
             page.set("tree_revision", json!(tree_revision));
         }
         return Ok(page);
     }
-    reply.set("tree_revision", json!(tree_revision));
+    if settled {
+        reply.set("tree_revision", json!(tree_revision));
+    }
     Ok(reply)
 }
 

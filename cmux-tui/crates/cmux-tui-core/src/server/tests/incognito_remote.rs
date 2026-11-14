@@ -596,6 +596,20 @@ fn a_remote_devices_known_never_moves_with_an_incognito_workspace() {
     let after = listed_since(&mux, &phone, known.clone());
     assert_eq!(after["unchanged"], true, "an incognito rename moved the phone's tree: {after}");
     assert_eq!(after["tree_revision"], known["tree_revision"]);
+    // The daemon's counters moved with the rename; the phone's answer carries
+    // none of them, only what it holds, so it never learns of the edit.
+    let counters = ["workspace_revision", "pane_revision", "terminal_revision"];
+    let daemon = line(&mux, &app, json!({"id": "d", "cmd": "list-workspaces"}))["data"].clone();
+    assert!(
+        counters.iter().any(|counter| daemon[*counter] != known[*counter]),
+        "the incognito rename moved no daemon counter, so this test proves nothing: {daemon}"
+    );
+    for counter in counters {
+        assert_eq!(
+            after[counter], known[counter],
+            "{counter} moved with an incognito edit: {after}"
+        );
+    }
 
     // A normal rename does.
     rename(normal_id, "visible-name");
@@ -675,4 +689,64 @@ fn a_remote_devices_first_screen_counts_and_fills_with_what_it_may_see() {
         json!({"id": "k", "cmd": "list-workspaces", "known": known, "limit": 1}),
     );
     assert_eq!(again["data"]["unchanged"], true, "{again}");
+}
+
+#[test]
+fn a_remote_devices_known_moves_with_the_sidebar_order_it_sees() {
+    // hq#8813: a `limit` page is taken in sidebar order, so the digest a
+    // phone holds moves when the sidebar order of what it may see moves,
+    // although no row of the tree changed.
+    let mux = test_mux();
+    let app = app(&mux);
+    let _private = create(&mux, &app, "private-order", true);
+    let names = ["first", "second", "third"].map(|name| create(&mux, &app, name, false));
+    let (registry_id, _) = mux.registry_identity();
+    let item_of = |doc: &Value, workspace: &str| -> Option<Value> {
+        doc["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|item| {
+                item["body"]["type"] == "workspace" && item["body"].to_string().contains(workspace)
+            })
+            .cloned()
+    };
+    let doc = v2(&mux, &app, "sidebar.get", json!({}), "get-1")["result"].clone();
+    let missing: Vec<Value> = names
+        .iter()
+        .filter(|name| item_of(&doc, name).is_none())
+        .map(|name| json!({"session_id": registry_id, "workspace_id": name}))
+        .collect();
+    if !missing.is_empty() {
+        let adopted = v2(&mux, &app, "sidebar.adopt", json!({"refs": missing}), "adopt");
+        assert_eq!(adopted["ok"], true, "{adopted}");
+    }
+
+    let phone = phone(&mux);
+    let held = listed_since(&mux, &phone, json!({}));
+    let known = known_of(&held);
+    let again = listed_since(&mux, &phone, known.clone());
+    assert_eq!(again["unchanged"], true, "{again}");
+
+    // The Mac drags its last visible workspace to the top of its section.
+    let doc = v2(&mux, &app, "sidebar.get", json!({}), "get-2")["result"].clone();
+    let last = item_of(&doc, &names[2]).unwrap_or_else(|| panic!("no item: {doc}"));
+    let moved = v2(
+        &mux,
+        &app,
+        "sidebar.move",
+        json!({"items": [last["id"]], "to": {"section": last["section"], "index": 0}}),
+        "move",
+    );
+    assert_eq!(moved["ok"], true, "{moved}");
+    let page = line(&mux, &phone, json!({"id": "p", "cmd": "list-workspaces", "limit": 1}));
+    assert_eq!(page["data"]["workspaces"][0]["resource_id"], json!(names[2]), "{page}");
+
+    let after = listed_since(&mux, &phone, known.clone());
+    assert!(
+        after.get("unchanged").is_none(),
+        "a sidebar reorder left the phone unchanged: {after}"
+    );
+    assert_ne!(after["tree_revision"], known["tree_revision"], "{after}");
+    mux.shutdown();
 }
