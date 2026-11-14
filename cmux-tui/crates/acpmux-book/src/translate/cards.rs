@@ -115,7 +115,10 @@ enum Facts {
         requests: u32,
         outcome: Option<u8>,
     },
-    Offers,
+    Offers {
+        /// Several offers under one `groupId`: decided only offer by offer, never as a whole.
+        group: bool,
+    },
     PlanBuild {
         kept: bool,
     },
@@ -324,7 +327,7 @@ impl State {
             Facts::Memory { .. } => &[(FILE, base)],
             Facts::Coach { .. } => &[(COACH_ID, card.listed.first().map(|listed| listed.line))],
             Facts::Preset { .. } => &[(PRESET, newest)],
-            Facts::Offers | Facts::PlanBuild { .. } => &[],
+            Facts::Offers { .. } | Facts::PlanBuild { .. } => &[],
         };
         for ((key, cap), line) in raw {
             if let Some(RawLine { place, span }) = line {
@@ -388,7 +391,7 @@ fn card_row(card: &Card) -> OwnedRow {
                 put("outcome", Value::String((*outcome).into()));
             }
         }
-        Facts::Offers => {
+        Facts::Offers { .. } => {
             // Each offer's place in `records`, its outcome, and the decision that names its child.
             let mut outcomes = Vec::new();
             for (index, listed) in card.listed.iter().enumerate() {
@@ -838,7 +841,8 @@ fn session_offer(
         return Ok(());
     };
     let item = prompt_hash(offer);
-    let key = match str_of(msg, "groupId") {
+    let group = str_of(msg, "groupId");
+    let key = match group {
         Some(group) => key(CardKind::Offers, &format!("group\0{group}")),
         None => key(CardKind::Offers, &format!("offer\0{offer}")),
     };
@@ -860,7 +864,8 @@ fn session_offer(
         state.patch_card(index, false, out);
         return Ok(());
     }
-    state.open_card(CardKind::Offers, key, Facts::Offers, vec![entry], false, out)
+    let facts = Facts::Offers { group: group.is_some() };
+    state.open_card(CardKind::Offers, key, facts, vec![entry], false, out)
 }
 /// `session_offer_decision`: the offer's outcome, and the decision itself listed when it names the
 /// chat it started.
@@ -898,7 +903,7 @@ fn offer_decision(
         card.listed.push(listed(item, at, DECISION));
     }
     // A single offer is decided with its outcome; a group's card stays for its later offers.
-    let single = card.listed.iter().filter(|listed| listed.mark != DECISION).count() == 1;
+    let single = matches!(card.facts, Facts::Offers { group: false });
     state.patch_card(index, single, out);
     Ok(())
 }
