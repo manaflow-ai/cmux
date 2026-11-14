@@ -774,6 +774,13 @@ fn read_watch(
     // the list is too old to name.
     let before = mux.upgrade().map(|mux| crate::server::open_chat_shares(&mux)).unwrap_or_default();
     writer.write_all(format!("{initialize}\n{watch}\n").as_bytes())?;
+    // The chat index (`chat_index.rs`) follows the same list, follows and pushes.
+    if let Some(mux) = mux.upgrade() {
+        mux.change_chats(|chats| {
+            chats.connect();
+            false
+        });
+    }
     let mut reader = BufReader::new(stream);
     // The reply that carries the next page; none once the list is whole.
     let mut page = Some(2_u64);
@@ -817,6 +824,14 @@ fn read_watch(
                 return Err(std::io::Error::other("acpmux did not list its sessions"));
             };
             let followed = page_is_watch && result["follow"] == true;
+            // The index: a whole list (not a follow) starts over, and drops at its end what it
+            // left out.
+            mux.change_chats(|chats| {
+                if page_is_watch && !followed {
+                    chats.begin();
+                }
+                chats.page(sessions)
+            });
             if page_is_watch {
                 let position = result["listSeq"].as_u64().zip(result["listEpoch"].as_str());
                 match position {
@@ -887,6 +902,9 @@ fn read_watch(
                 apply(&mux, known.as_ref(), next, chats);
             }
             if followed {
+                if let Some(gone) = result["gone"].as_array() {
+                    mux.change_chats(|chats| chats.gone(gone));
+                }
                 for gone in result["gone"].as_array().into_iter().flatten() {
                     if !gone["peer"].is_null() {
                         continue;
@@ -932,6 +950,7 @@ fn read_watch(
                             mux.remove_cache_ttl_timer(session);
                         }
                         unlisted.clear();
+                        mux.change_chats(super::chat_index::Chats::end);
                         whole.get_or_insert_with(Instant::now);
                         *cursor = pending.take();
                         None
@@ -986,6 +1005,7 @@ fn read_watch(
                 {
                     at.seq = at.seq.max(seq);
                 }
+                mux.change_chats(|chats| chats.push(params));
             }
             if params["peer"].is_null()
                 && let Some(session) = params["sessionId"].as_str()

@@ -308,3 +308,79 @@ fn timeouts_are_durations_and_a_bare_number_is_seconds() {
         Some(Duration::from_secs(300))
     );
 }
+
+/// The account's joined machines and the hub's list, for [`joined::resolve`].
+fn account() -> Vec<Value> {
+    vec![
+        json!({"kind": "joined", "id": "m_studio", "name": "studio", "hostname": "studio",
+               "state": "online"}),
+        json!({"kind": "joined", "id": "m_attic", "name": "attic", "hostname": "attic",
+               "state": "offline"}),
+        json!({"kind": "joined", "id": "m_old", "name": "old", "hostname": "old",
+               "state": "revoked"}),
+    ]
+}
+
+fn hub_lists() -> Vec<Value> {
+    ["studio", "old", "mini-2"]
+        .map(|name| json!({"name": name, "connected": true, "via": "hub"}))
+        .to_vec()
+}
+
+/// `locate_with` for `session` with the start's own account check (`joined::resolve`); `rows`
+/// None: the account's list could not be read.
+fn send_to(session: &str, on: Option<&str>, rows: Option<Vec<Value>>) -> Result<Place, Value> {
+    locate_with(
+        session,
+        on,
+        || panic!("topology"),
+        || panic!("listed"),
+        |host| {
+            joined::resolve(
+                host,
+                joined::Sources {
+                    hub: hub_lists,
+                    rows: || rows.ok_or_else(|| "not signed in".to_owned()),
+                },
+            )
+        },
+    )
+}
+
+/// #38355 review 2b: a `HOST/NAME` send (`cmux chat send HOST/NAME`, and a bare `cmux chat
+/// send` to the last chat, which is one) went to acpmux with no account check, so a revoked
+/// machine the hub still listed got the prompt. HOST gets the start's own check now.
+#[test]
+fn a_send_to_a_revoked_or_unverified_machine_is_refused() {
+    let revoked = send_to("old/lane-a", None, Some(account())).unwrap_err();
+    assert_eq!(revoked["code"], "chat_target.revoked", "{revoked}");
+    let unverified = send_to("mini-2/lane-a", None, None).unwrap_err();
+    assert_eq!(unverified["code"], "chat_target.unverified", "{unverified}");
+    // A live machine, an offline one (the hub keeps the prompt) and a host no joined machine
+    // names (a peer's) still get it.
+    assert_eq!(
+        send_to("studio/lane-a", None, Some(account())),
+        Ok(Place::Acp("studio/lane-a".into()))
+    );
+    assert_eq!(
+        send_to("attic/lane-a", None, Some(account())),
+        Ok(Place::Acp("attic/lane-a".into()))
+    );
+    assert_eq!(send_to("peer/lane-a", None, Some(account())), Ok(Place::Acp("peer/lane-a".into())));
+    assert_eq!(send_to("peer/lane-a", None, None), Ok(Place::Acp("peer/lane-a".into())));
+}
+
+/// #38355 review 2c: with `--on`, a session that already named its machine kept it, so
+/// `cmux chat send attic/x --on studio` checked studio and sent to attic. The two must agree.
+#[test]
+fn a_session_on_another_machine_than_on_names_is_refused() {
+    let mismatch = send_to("old/x", Some("studio"), Some(account())).unwrap_err();
+    assert_eq!(mismatch["code"], "chat_target.mismatch", "{mismatch}");
+    assert!(mismatch["message"].as_str().unwrap().contains("runs on old"), "{mismatch}");
+    // The same machine, in any case, and a bare session qualified with it.
+    assert_eq!(
+        send_to("STUDIO/x", Some("studio"), Some(account())),
+        Ok(Place::Acp("STUDIO/x".into()))
+    );
+    assert_eq!(send_to("x", Some("studio"), Some(account())), Ok(Place::Acp("studio/x".into())));
+}

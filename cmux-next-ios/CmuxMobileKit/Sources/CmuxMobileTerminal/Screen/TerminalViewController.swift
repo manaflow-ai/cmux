@@ -108,8 +108,30 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var tuiRowShift = 0
     /// The mirror width the last layout gave the surface, for `syncHostGrid`.
     private var mirrorWidth: CGFloat = 0
-    /// "120×40 · set by Aziz's Mac" in a full-screen app's letterbox.
+    /// The Mac's grid when it differs from the phone's (docs/shared-terminal-sizing.md
+    /// "Showing the bounds"): "30×12 · set by Rig Mac" in the letterbox below
+    /// a shorter grid, on the primary screen and in a full-screen app, or the
+    /// compact "120×40" in the terminal area's top-trailing corner when the
+    /// grid fills it. In the page's view, over the rows and under the dock.
     private let hostGridNote = UILabel()
+    /// Where `hostGridNote` goes (`applyHostGridNote`); `positionHostGridNote`
+    /// places it from this without building any text.
+    private var hostGridNoteSpot = HostGridNoteSpot.none
+    /// The Mac's rows the last layout used: a rows-only change lays out again (`syncHostGrid`).
+    private var laidOutHostRows: Int?
+    /// The primary screen shows a shorter Mac grid whole, pinned to the top
+    /// (`pinsHostGrid`), as of the last layout: the document ends at its last
+    /// row and starts no lower than its first.
+    private var documentPinsHostGrid = false
+    /// The chip's size for its text at its font size (measured once per
+    /// text and Dynamic Type size).
+    private var hostGridChipSize: (text: String, pointSize: CGFloat, size: CGSize)?
+    /// The phone's own grid as last sent to the Mac (`sendResize`), and the
+    /// one before it while that send may still be on its way. The Mac's grid
+    /// at either is the phone's own: no note and no pin, or the page would
+    /// jump and blame another device for the phone's own resize in flight.
+    private var sentGrid: TerminalResizeSettle.Size?
+    private var sentGridBefore: TerminalResizeSettle.Size?
     private lazy var tuiHorizontalPan: UIPanGestureRecognizer = {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(tuiPanned(_:)))
         pan.maximumNumberOfTouches = 1
@@ -125,8 +147,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The device that set the Mac's grid, when the size state names it
     /// (set by the size-state model; nil until then).
     var hostGridOwner: String? {
-        didSet { if hostGridOwner != oldValue { applyTUIPlacement() } }
+        didSet {
+            guard hostGridOwner != oldValue else { return }
+            // The Mac answered the phone's last resize (the owner changed).
+            sentGridBefore = nil
+            applyHostGridNote()
+        }
     }
+    /// The Mac's rows as of the bytes fed so far (`appliedHostRows`), else
+    /// the session's: the row shift and the screen's top use the grid the
+    /// bytes were sent for, not one parsed ahead of them.
+    var feedHostRows: Int? { appliedHostRows ?? model.session.remoteRows }
     /// Ghostty's scrollbar: total rows, viewport top row, visible rows.
     private var scrollbar = (total: 0, offset: 0, visible: 0)
     /// The session's document: absolute rows from the first row with text
@@ -291,8 +322,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var settingOffset = false
     private var resizeSettle = TerminalResizeSettle()
     private var settleTask: Task<Void, Never>?
-    /// The foreground program's read in flight (``readForegroundProgram()``).
-    private var programRead: Task<Void, Never>?
     /// Hide Toolbar: the key row's height is 0.
     private var keyRowCollapsed: NSLayoutConstraint!
     /// The composer is closed or hidden: its height is 0.
@@ -384,10 +413,23 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         view.addSubview(tuiClip)
         tuiClip.addGestureRecognizer(tuiHorizontalPan)
         hostGridNote.font = UIFont.preferredFont(forTextStyle: .caption2)
-        hostGridNote.textColor = .secondaryLabel
+        hostGridNote.adjustsFontForContentSizeCategory = true
+        // A Dynamic Type change resizes the note's font: measure the chip and place the note again.
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (screen: TerminalViewController, _: UITraitCollection) in
+            screen.applyHostGridNote()
+        }
+        // The terminal's theme is dark in both appearances: the note's gray
+        // is the dark one (the light one is near black on the grid's background).
+        hostGridNote.textColor = UIColor.secondaryLabel.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark))
+        hostGridNote.lineBreakMode = .byTruncatingTail
         hostGridNote.isHidden = true
         hostGridNote.isUserInteractionEnabled = false
-        tuiHost.addSubview(hostGridNote)
+        hostGridNote.isAccessibilityElement = true
+        hostGridNote.accessibilityTraits = .staticText
+        hostGridNote.accessibilityIdentifier = "terminal.hostGridNote"
+        hostGridNote.layer.cornerCurve = .continuous
+        // Over the primary screen's rows and the TUI; the dock (added below) covers it.
+        view.addSubview(hostGridNote)
 
         let keyBar = UIHostingController(rootView: TerminalKeyBar(model: model))
         let composer = UIHostingController(rootView: TerminalComposer(model: model))
@@ -835,6 +877,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         sizingLog.notice("resize \(size.columns, privacy: .public)x\(size.rows, privacy: .public) cause=\(why, privacy: .public)\(self.model.isTUI ? "-tui" : "", privacy: .public) attached=\(self.model.connectionState.isAttached, privacy: .public) (TUI \(self.model.isTUI, privacy: .public))")
         model.session.resize(columns: size.columns, rows: size.rows)
         model.ptyResizesSent += 1
+        if size != sentGrid {
+            sentGridBefore = sentGrid
+            sentGrid = size
+        }
     }
 
     /// The stack's top with the keyboard down and the composer at its one-line
@@ -1159,7 +1205,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             output.append(hostGrid: columns, rows: rows)
             scheduleOutput()
         case .hostGridOwner(let name):
-            hostGridOwner = name
+            // In order with the grid events: the owner and the grid it set
+            // change together, never the name first next to the old grid.
+            if output.isEmpty {
+                hostGridOwner = name
+            } else {
+                output.append(hostGridOwner: name)
+                scheduleOutput()
+            }
         case .inputNotSent:
             // Keys refused, or held through an outage and dropped: their
             // predicted glyphs would stand for keys that never arrive.
@@ -1236,11 +1289,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             case .alternateScreen(let on):
                 model.ingest(.alternateScreen(on))
                 applyMode(tui: on)
-                readForegroundProgram()
             case .hostGrid(let columns, let rows):
                 appliedHostColumns = columns
                 appliedHostRows = rows
+                // The Mac's grid changed: a resize the phone sent before is answered.
+                if TerminalResizeSettle.Size(columns: columns, rows: rows) != sentGridBefore { sentGridBefore = nil }
                 syncHostGrid()
+            case .hostGridOwner(let name):
+                hostGridOwner = name
             case .bytes(let data):
                 syncHostGrid()
                 pacer.started(frameEnd: outputLink?.targetTimestamp ?? CACurrentMediaTime() + frameInterval,
@@ -1250,7 +1306,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 devProbe?.fed(data)
                 #endif
                 let transform: (@Sendable (Data) -> Data)?
-                if let remote = model.session.remoteRows {
+                if let remote = feedHostRows {
                     let offset = max(0, surface.grid.rows - remote)
                     let box = rowShift
                     transform = { box.filter($0, offset: offset, remoteRows: remote) }
@@ -1425,8 +1481,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Ghostty parsed a batch (`raw` session bytes).
     private func outputProcessed(_ raw: Int) {
         pacer.finished()
-        // A full-screen app taller than the phone: keep its cursor row on screen.
-        if model.isTUI, tuiRowShift > 0 || (model.session.remoteRows ?? 0) > tuiRows {
+        // A full-screen app taller than the phone: keep its cursor row on screen
+        // (the Mac's rows as of the bytes fed, `feedHostRows`).
+        if model.isTUI, tuiRowShift > 0 || (feedHostRows ?? 0) > tuiRows {
             applyTUIPlacement()
         }
         #if DEBUG
@@ -1697,6 +1754,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         let layout = hostLayout
         mirrorWidth = layout.surfaceWidth
+        laidOutHostRows = layout.hostRows
         let surfaceSize = CGSize(width: layout.surfaceWidth, height: CGFloat(rows) * cellHeight)
         if surface.bounds.size != surfaceSize {
             UIView.performWithoutAnimation {
@@ -1722,7 +1780,19 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // Insets: content starts under the toolbar and ends above the composer.
         let top = chromeTop
         // The last row rests 8 pt above the composer card (SPEC M3).
-        let bottom = TerminalDocumentLayout.bottomInset(pageHeight: bounds.height, composerTop: bottomStack.frame.minY)
+        var bottom = TerminalDocumentLayout.bottomInset(pageHeight: bounds.height, composerTop: bottomStack.frame.minY)
+        // A grid shorter than the page pins to the top: its last row rests
+        // above the letterbox, not on the composer.
+        let pins = pinsHostGrid
+        if pins, let pinned = hostLayout.pinnedBottomInset(pageHeight: bounds.height, top: top) {
+            bottom = max(bottom, pinned)
+        }
+        if pins != documentPinsHostGrid {
+            // The pin came or went (the Mac's rows, the keyboard): measure the document again now.
+            documentPinsHostGrid = pins
+            outputSinceProbe = true
+            updateDocument()
+        }
         let insets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
         if scrollView.contentInset != insets {
             let previousOffset = scrollView.contentOffset.y
@@ -1739,6 +1809,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 }
             }
         }
+        applyHostGridNote()
     }
 
     private var maxOffsetY: CGFloat {
@@ -1801,22 +1872,32 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             let last = min(scrollbar.total - 1, cursor ?? (scrollbar.total - 1))
             blank = rowReader.leadingBlankRows(through: TerminalAbsoluteRow(max(0, last))) ?? blank
         }
+        // The Mac's screen is the bottom `remoteRows` rows of the mirror.
+        let screenTop = max(0, scrollbar.total - (feedHostRows ?? surface.grid.rows))
         // Rows an inline TUI draws below the cursor (Codex CLI's hints).
         var lastContent: Int?
-        if let cursor, cursor + 1 <= scrollbar.total - 1 {
+        if documentPinsHostGrid {
+            // A grid shorter than the page is shown whole, pinned to the top
+            // with the letterbox below it: the document holds all its rows,
+            // blank ones at its top too, and ends at its last row.
+            blank = min(blank ?? screenTop, screenTop)
+            lastContent = scrollbar.total - 1
+        } else if let cursor, cursor + 1 <= scrollbar.total - 1 {
             lastContent = rowReader.lastNonBlankRow(from: TerminalAbsoluteRow(cursor + 1), through: TerminalAbsoluteRow(scrollbar.total - 1))?.index
         }
         let measured = TerminalDocumentLayout.make(totalRows: scrollbar.total, cursorRow: cursor, leadingBlankRows: blank,
                                                    lastContentRow: lastContent)
         if document == nil { endHold.reset() }
-        // The Mac's screen is the bottom `remoteRows` rows of the mirror.
-        let screenTop = max(0, scrollbar.total - (model.session.remoteRows ?? surface.grid.rows))
         let next = endHold.hold(measured, totalRows: scrollbar.total, cursorRow: cursor, screenTopRow: screenTop)
-        guard next != document else { return }
+        guard next != document else {
+            positionHostGridNote()
+            return
+        }
         let shift = CGFloat(next.originRow - originRow) * cell.height
         let hadDocument = document != nil
         document = next
         setContentHeight(next.contentHeight(cellHeight: cell.height))
+        positionHostGridNote()
         if hadDocument, shift != 0 {
             // The top moved (cleared, or found): the frame on screen goes
             // where its rows now belong.
@@ -2211,7 +2292,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             surface.frame = CGRect(x: 0, y: 0, width: hostLayout.surfaceWidth, height: CGFloat(surfaceRows) * cell.height)
             tuiPanX = 0
             tuiRowShift = 0
-            tuiHost.bringSubviewToFront(hostGridNote)
             applyTUIPlacement()
             viewportTracker.request(0)
             surface.scroll(toRow: 0)
@@ -2226,7 +2306,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollView.topEdgeEffect.style = .soft
             tuiClip.isHidden = true
             statusScrim.isHidden = false
-            hostGridNote.isHidden = true
             scrollView.addSubview(surface)
             viewportTop = -1
             scroll.reset()
@@ -2240,6 +2319,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         surface.drawNow()
         finder.rowsReplaced()
+        // The note follows the screen it is over (letterbox or corner).
+        applyHostGridNote()
         // The TUI's rows follow the settled keyboard (R1-1); the shell's do not.
         view.setNeedsLayout()
     }
@@ -2260,6 +2341,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if shrinking { contentShrinking = false }
     }
 
+    // Runs on every scroll frame.
+    // perf-hot: 1ms
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         measured("did-scroll") { didScroll(scrollView) }
     }
@@ -2271,6 +2354,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #endif
         updateBottomFade()
         guard !model.isTUI else { return }
+        // The letterbox note moves with the rows above it (O(1), no text built).
+        positionHostGridNote()
         if scrollView.isTracking, !pinningDrag {
             dragPin.moved(fingerY: scrollView.panGestureRecognizer.location(in: view).y,
                           keyboardTop: keyboardDock.guide.layoutFrame.minY)
@@ -2921,28 +3006,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         // The rows move under a selection: it would point at other text.
         tuiScroll.dragBegan = { [weak self] in self?.tuiSelection.clear() }
-        tuiScroll.routeMayHaveChanged = { [weak self] in self?.readForegroundProgram() }
         tuiScroll.install(in: tuiClip, surface: surface, tap: tuiTap)
-    }
-
-    /// Reads the Mac terminal's foreground program for the drag's route
-    /// (``TerminalPanRoute``): when the alternate screen comes and when a drag
-    /// begins on it. Each read forgets the program first: until it answers a
-    /// drag there sends nothing, so a name from before (less, before Claude
-    /// Code took the screen in an output hold that never showed the primary
-    /// screen) never sends Claude Code a key.
-    private func readForegroundProgram() {
-        programRead?.cancel()
-        programRead = nil
-        surface.foregroundProgram = nil
-        guard model.isTUI else { return tuiScroll.programRead() }
-        let session = model.session
-        programRead = Task { [weak self] in
-            let program = await session.foregroundProgram()
-            guard !Task.isCancelled, let self else { return }
-            if self.model.isTUI { self.surface.foregroundProgram = program }
-            self.tuiScroll.programRead()
-        }
     }
 
     /// While a long press selects, the page does not scroll under the finger.
@@ -3160,6 +3224,15 @@ final class GradientView: UIView {
     var gradient: CAGradientLayer { layer as! CAGradientLayer }
 }
 
+/// Where the Mac's grid note goes (`TerminalViewController.applyHostGridNote`).
+enum HostGridNoteSpot: Equatable {
+    case none
+    /// Below a shorter grid: `gridHeight` points under its first row, then `offset`.
+    case letterbox(gridHeight: CGFloat, offset: CGFloat)
+    /// The compact chip of this size in the terminal area's top-trailing corner.
+    case corner(CGSize)
+}
+
 /// Who owns the chrome around the terminal (see `TerminalViewController`).
 public enum TerminalChrome: Sendable {
     /// `TerminalScreen` in a navigation stack: its own toolbar and the safe area.
@@ -3205,10 +3278,15 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
     /// Before a batch is fed: the Mac's columns changed (`vt-state`,
     /// `resized`), so the mirror takes them now, ahead of the bytes drawn
     /// for them (its replay follows a reset).
+    // Runs before every output batch.
+    // perf-hot: 0.05ms
     func syncHostGrid() {
         guard cell.width > 0, view.bounds.width > 0 else { return }
-        if hostLayout.surfaceWidth != mirrorWidth {
-            sizingLog.notice("mirror columns follow the Mac: \(self.hostLayout.columns, privacy: .public) (phone \(self.hostLayout.phoneColumns, privacy: .public), capped \(self.hostLayout.isCapped, privacy: .public))")
+        let layout = hostLayout
+        // The columns (the mirror's width) or only the rows (the letterbox,
+        // the primary screen's pin, the note) changed.
+        if layout.surfaceWidth != mirrorWidth || layout.hostRows != laidOutHostRows {
+            sizingLog.notice("mirror follows the Mac: \(layout.columns, privacy: .public) columns, \(layout.hostRows ?? -1, privacy: .public) rows (phone \(layout.phoneColumns, privacy: .public), capped \(layout.isCapped, privacy: .public))")
             view.setNeedsLayout()
             view.layoutIfNeeded()
         }
@@ -3231,10 +3309,7 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
     /// The full-screen app's surface in its host: panned, shifted to keep
     /// the cursor row, and the letterbox note under a shorter grid.
     func applyTUIPlacement() {
-        guard model.isTUI, surface.superview === tuiHost, cell.height > 0 else {
-            hostGridNote.isHidden = true
-            return
-        }
+        guard model.isTUI, surface.superview === tuiHost, cell.height > 0 else { return }
         let layout = hostLayout
         tuiPanX = layout.clampPan(tuiPanX)
         tuiRowShift = layout.rowShift(keeping: surface.cursorViewportRow, from: tuiRowShift)
@@ -3242,17 +3317,108 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         if surface.frame.origin != origin {
             UIView.performWithoutAnimation { surface.frame.origin = origin }
         }
-        if let box = layout.letterbox, let note = layout.note(owner: hostGridOwner) {
-            hostGridNote.text = note
-            hostGridNote.isHidden = false
-            let height = ceil(hostGridNote.font.lineHeight)
-            hostGridNote.frame = CGRect(x: 0, y: box.top + min(8, max(0, box.height - height) / 2),
-                                        width: tuiHost.bounds.width, height: height)
-            tuiHost.bringSubviewToFront(hostGridNote)
-        } else {
-            hostGridNote.isHidden = true
-        }
+        positionHostGridNote()
         if finder.isActive { finder.redraw() }
+    }
+
+    /// The Mac's grid is the phone's own, as sent or still on its way.
+    var hostGridIsPhonesOwn: Bool {
+        guard let columns = appliedHostColumns ?? model.session.remoteColumns, let rows = feedHostRows else { return true }
+        let grid = TerminalResizeSettle.Size(columns: columns, rows: rows)
+        // The grid before the last send is the phone's only while no other
+        // device is named as its owner: a named owner's grid that happens to
+        // equal the phone's old claim is that device's, not a resize in flight.
+        return grid == sentGrid || (hostGridOwner == nil && grid == sentGridBefore)
+    }
+
+    /// The primary screen shows the Mac's shorter grid whole at the top: it
+    /// has a letterbox, is not the phone's own, and fits above the dock now.
+    /// With the keyboard up and less room than the grid, the page follows
+    /// the cursor row instead, as without a letterbox
+    /// (docs/shared-terminal-sizing.md: it slides up only as far as the cursor needs).
+    var pinsHostGrid: Bool {
+        guard let box = hostLayout.letterbox, !hostGridIsPhonesOwn else { return false }
+        return box.top <= bottomStack.frame.minY - chromeTop + 0.5
+    }
+
+    /// The note's text and spot for the Mac's grid and owner now. Runs when
+    /// they or the page's layout change, never per frame (it builds text).
+    func applyHostGridNote() {
+        let layout = hostLayout
+        guard cell.height > 0, !hostGridIsPhonesOwn, let note = layout.note(owner: hostGridOwner) else {
+            hostGridNoteSpot = .none
+            positionHostGridNote()
+            return
+        }
+        let corner = layout.letterbox == nil
+        let text = corner ? layout.compactNote ?? note : note
+        if hostGridNote.text != text { hostGridNote.text = text }
+        if hostGridNote.accessibilityLabel != note { hostGridNote.accessibilityLabel = note }
+        // The corner chip sits over the grid's rows: an opaque pill of the
+        // terminal background, so the text under it never shows through.
+        hostGridNote.textAlignment = corner ? .center : .natural
+        // Opaque (visual review of #42422): the rows scroll under it, so it cannot keep to one row;
+        // nothing of the text under it may show through, and a hairline marks its edge.
+        hostGridNote.backgroundColor = corner ? CmuxMobileGhosttyApp.background : .clear
+        hostGridNote.layer.cornerRadius = corner ? 6 : 0
+        hostGridNote.layer.borderWidth = corner ? 1 / max(1, traitCollection.displayScale) : 0
+        hostGridNote.layer.borderColor = corner ? hostGridNote.textColor.withAlphaComponent(0.35).cgColor : nil
+        hostGridNote.clipsToBounds = corner
+        let line = ceil(hostGridNote.font.lineHeight)
+        if let box = layout.letterbox {
+            hostGridNoteSpot = .letterbox(gridHeight: box.top, offset: min(8, max(0, box.height - line) / 2))
+        } else {
+            let pointSize = hostGridNote.font.pointSize
+            if hostGridChipSize?.text != text || hostGridChipSize?.pointSize != pointSize {
+                let width = ceil(hostGridNote.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: line)).width)
+                hostGridChipSize = (text, pointSize, CGSize(width: width + 12, height: line + 4))
+            }
+            hostGridNoteSpot = .corner(hostGridChipSize?.size ?? .zero)
+        }
+        positionHostGridNote()
+    }
+
+    /// Places the note from `hostGridNoteSpot`: below the grid's last row,
+    /// over no text and above the dock (hidden where it does not fit, e.g.
+    /// under the keyboard), or in the terminal area's top-trailing corner.
+    /// O(1) and builds nothing: it runs on every scroll frame.
+    func positionHostGridNote() {
+        let line = ceil(hostGridNote.font.lineHeight)
+        let areaTop = model.isTUI ? tuiClip.frame.minY : chromeTop
+        let areaBottom = model.isTUI ? min(tuiClip.frame.maxY, bottomStack.frame.minY) : bottomStack.frame.minY
+        var frame = CGRect.zero
+        switch hostGridNoteSpot {
+        case .none:
+            break
+        case .corner(let size):
+            frame = CGRect(x: view.bounds.width - Self.sidePadding - size.width, y: areaTop + 4, width: size.width, height: size.height)
+        case .letterbox(let gridHeight, let offset):
+            let gridBottom: CGFloat?
+            if model.isTUI {
+                // The host's top from its constraints (bottom on the clip's
+                // bottom, `tuiHeight` tall), not its frame: in the page's
+                // layout pass (`layoutTerminal`) the clip is laid out but the
+                // host inside it is not yet, so its frame still has the old
+                // rows (the keyboard settling changes them) and the note was
+                // hidden above the terminal area, never placed again.
+                gridBottom = surface.superview === tuiHost
+                    ? tuiClip.convert(CGPoint(x: 0, y: tuiClip.bounds.maxY - tuiHeight.constant + gridHeight), to: view).y : nil
+            } else if let document, cell.height > 0, scrollbar.total > 0 {
+                // The Mac's screen is the mirror's last rows: its bottom is
+                // the scrollback's end, wherever the document was last measured.
+                gridBottom = scrollView.frame.minY + document.contentY(ofRow: scrollbar.total, cellHeight: cell.height) - scrollView.contentOffset.y
+            } else {
+                gridBottom = nil
+            }
+            if let gridBottom {
+                frame = CGRect(x: Self.sidePadding, y: gridBottom + offset, width: view.bounds.width - 2 * Self.sidePadding, height: line)
+            }
+        }
+        let shown = !frame.isEmpty && frame.minY >= areaTop - 0.5 && frame.maxY <= areaBottom + 0.5
+        if hostGridNote.isHidden == shown { hostGridNote.isHidden = !shown }
+        if shown, hostGridNote.frame != frame {
+            UIView.performWithoutAnimation { hostGridNote.frame = frame }
+        }
     }
 
     @objc func tuiPanned(_ pan: UIPanGestureRecognizer) {

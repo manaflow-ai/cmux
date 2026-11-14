@@ -308,6 +308,11 @@ pub struct Counters {
     pub queue_overflowed: u64,
 }
 impl State {
+    /// Whether raw is currently inside a turn, independent of its open body rows.
+    pub fn in_turn(&self) -> bool {
+        self.turn.is_some()
+    }
+
     pub fn counters(&self) -> Counters {
         Counters {
             forced_rows: self.forced_rows,
