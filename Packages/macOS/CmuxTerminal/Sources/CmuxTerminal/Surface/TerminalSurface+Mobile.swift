@@ -51,7 +51,18 @@ extension TerminalSurface {
         let posX = (Double(col) + 0.5) * cellWidthPt
         let posY = (Double(row) + 0.5) * cellHeightPt
         ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
-        ghostty_surface_mouse_scroll(surface, 0, deltaLines, 0)
+        // Send the lines as a precision scroll in backing pixels. libghostty
+        // multiplies a discrete wheel tick by `mouse-scroll-multiplier.discrete`,
+        // so each phone line moved an alt-screen program three rows (#24404).
+        // A precision delta is divided by the cell height instead, so one line
+        // is one row, and the Mac's own mouse wheel keeps its multiplier.
+        let precision: ghostty_input_scroll_mods_t = 0b0000_0001
+        ghostty_surface_mouse_scroll(
+            surface,
+            0,
+            deltaLines * Double(size.cell_height_px),
+            precision
+        )
         didAcceptExplicitInput()
     }
 
