@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43568200013",
+  "recorded_at": "2026-11-14T06:56:38Z",
+  "reason": "cmux-tui cea82430405f changes the image's cmux-tui (pinned 250942789b4b)",
+  "dry_run": false,
+  "cmux_tui": "cea82430405f02779952b8a88a36852aa7516ebb",
+  "fixes": [
+    {
+      "sha": "cea82430405f02779952b8a88a36852aa7516ebb",
+      "mergedAt": "2026-11-14T00:27:30-06:00",
+      "subject": "cmux-tui: the CLI request fixture has tab new-mac-screen --device"
+    },
+    {
+      "sha": "8383cbf34e86f50ccbe8051c167d4c4778ca97f8",
+      "mergedAt": "2026-11-14T00:27:30-06:00",
+      "subject": "acpmux-core tests: a cut snapshot releases the remote mark drain with a rebuild"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T06:56:38Z",
+    "snapshot_id": "sh-e02d6e8ee6d941079e4a5e7919ffa9b6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43568200013): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f92fd63485905799c018bb2de6c2d2ad14ade1c9",
+    "image": "cloud-native-auto-cea82430-43568200013-1",
+    "revision": "ci-43568200013-1",
+    "at": "2026-11-14T06:56:38Z"
+  },
+  "rolled_back": false
+}
