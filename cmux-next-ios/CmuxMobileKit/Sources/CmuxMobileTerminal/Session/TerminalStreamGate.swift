@@ -18,8 +18,12 @@ public final class TerminalStreamGate<C: Clock> where C.Duration == Duration {
     private let apply: @MainActor (Bool) -> Void
     private var pageShown = false
     private var appActive = true
-    /// When the page last left the screen (a page starts off screen: one
-    /// never shown stops after the grace, counted from its build).
+    /// A page tells the gate where it is (`TerminalTabPage`). Until then
+    /// nothing decides: a screen with no page around it (the full-screen
+    /// terminal, the flood bench) streams as before.
+    private var driven = false
+    /// When the page last left the screen (a page that appeared off screen:
+    /// when it appeared).
     private var offScreenSince: C.Instant?
     /// When the app last left the foreground.
     private var backgroundSince: C.Instant?
@@ -30,12 +34,11 @@ public final class TerminalStreamGate<C: Clock> where C.Duration == Duration {
     public init(clock: C, apply: @escaping @MainActor (Bool) -> Void) {
         self.clock = clock
         self.apply = apply
-        offScreenSince = clock.now
-        recheck()
     }
 
     public func set(pageShown: Bool) {
-        guard self.pageShown != pageShown else { return }
+        guard !driven || self.pageShown != pageShown else { return }
+        driven = true
         self.pageShown = pageShown
         offScreenSince = pageShown ? nil : clock.now
         recheck()
@@ -45,7 +48,7 @@ public final class TerminalStreamGate<C: Clock> where C.Duration == Duration {
         guard self.appActive != appActive else { return }
         self.appActive = appActive
         backgroundSince = appActive ? nil : clock.now
-        recheck()
+        if driven { recheck() }
     }
 
     /// Stops a pending look (the page went away for good).

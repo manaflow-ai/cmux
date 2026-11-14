@@ -54,13 +54,25 @@ import Testing
         #expect(told == [false, true])
     }
 
-    @Test func aPageNeverShownStopsAfterTheGrace() async {
+    @Test func aPageThatAppearsOffScreenStopsAfterTheGrace() async {
         let clock = SteppedClock()
         var told: [Bool] = []
         let gate = TerminalStreamGate(clock: clock) { told.append($0) }
+        gate.set(pageShown: false)
         await clock.advance(by: .seconds(3))
         #expect(told == [false])
-        _ = gate
+    }
+
+    /// No page drives the gate (the full-screen terminal, the flood bench,
+    /// a screen in a test window): it streams as before, background included.
+    @Test func aScreenWithNoPageKeepsStreaming() async {
+        let clock = SteppedClock()
+        var told: [Bool] = []
+        let gate = TerminalStreamGate(clock: clock) { told.append($0) }
+        gate.set(appActive: false)
+        await clock.advance(by: .seconds(600))
+        #expect(told.isEmpty)
+        #expect(gate.streaming)
     }
 }
 
