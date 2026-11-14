@@ -65,7 +65,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
     private var startupObservation: Task<Void, Never>?
-    private var previewFeaturesObservation: Task<Void, Never>?
     /// The room theme: every workspace without its own theme. The window's
     /// own chrome (sidebar, titlebar, backdrop) draws in the shown
     /// workspace's colors at any light/dark, so it matches the content beside
@@ -154,7 +153,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focus.send(.appActive(services.appActiveSource()))
         startShortcutHints()
         observeWorkspace()
-        observePreviewFeatures()
         observeRoom()
         observeSidebarHidden()
         followContentChanges()
@@ -172,7 +170,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         sidebarObservation?.cancel()
         titleObservation?.cancel()
         startupObservation?.cancel()
-        previewFeaturesObservation?.cancel()
         roomObservation?.cancel()
         displayBackdropObservation?.cancel()
         displayBackdrop?.stop()
@@ -189,22 +186,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // Last: a host the steps above made for the closing window (the overlay layer is made on
         // first use) closes its panel too, since it came after the close that tears hosts down.
         if let window { WindowOverlayHost.windowIsClosing(window) }
-    }
-
-    /// Preview pages are removed immediately when Labs is switched off,
-    /// including when another window currently shows one.
-    private func observePreviewFeatures() {
-        guard let settings = services.settings else { return }
-        previewFeaturesObservation = Task { [weak self, weak settings] in
-            guard let settings else { return }
-            await settings.waitForLoad(atLeast: 1)
-            for await enabled in ObservationStream({ settings.snapshot.previewFeatures }) {
-                guard !enabled, let self,
-                      let page = self.state.page,
-                      case .page(let id) = page, InternalPageTabStore.isPreviewPage(id) else { continue }
-                _ = self.leaveTopPage()
-            }
-        }
     }
 
     // MARK: Workspace
