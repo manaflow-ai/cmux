@@ -26,6 +26,12 @@ fn main() {
 }
 
 #[cfg(unix)]
+unsafe extern "C" {
+    /// POSIX `tzset` (glibc, musl and macOS libc; the `libc` crate does not bind it).
+    fn tzset();
+}
+
+#[cfg(unix)]
 fn serve(limits: Limits) -> i32 {
     use std::os::fd::FromRawFd;
     use std::os::unix::net::UnixStream;
@@ -37,6 +43,11 @@ fn serve(limits: Limits) -> i32 {
         eprintln!("cmux-app-host: fd 3 must be the supervisor's socket");
         return exit::IO;
     }
+    // Load the local time zone while files can still be opened: libc reads the zoneinfo
+    // file lazily, at the first local-time call, which the sandbox would refuse, leaving
+    // every extension's `new Date().getHours()` in UTC (tests/process.rs, local_time_*).
+    // SAFETY: tzset only reads the environment and the zone file; no thread runs yet.
+    unsafe { tzset() };
     // Sandbox first: nothing from the supervisor is read before it holds.
     if let Err(error) = sandbox::apply() {
         eprintln!("cmux-app-host: sandbox: {error}");
