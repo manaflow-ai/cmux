@@ -13,7 +13,7 @@ import Testing
 @MainActor @Suite(.serialized)
 struct SidebarDocRefusalNoticeTests {
     /// Every code the reducer refuses with (`Refusal::as_str`, cmux-layout-reducer sidebar_doc/model.rs).
-    static let codes = ["unknown_section", "unknown_item", "duplicate_id", "duplicate_ref", "cross_machine", "provider_owned",
+    nonisolated static let codes = ["unknown_section", "unknown_item", "duplicate_id", "duplicate_ref", "cross_machine", "provider_owned",
                         "nesting", "invalid_target", "machine_required", "no_machine", "invalid_title", "invalid_value", "too_many"]
 
     /// A daemon whose answers are scripted: each send takes the next one; past the script it answers a no-op.
@@ -45,9 +45,9 @@ struct SidebarDocRefusalNoticeTests {
         return store
     }
 
-    /// Moves w_scratch after w_web in its machine section: a move the mirror takes, so only the daemon refuses it.
+    /// Moves w_scratch after g_g-infra at its machine section's top level: a move the mirror takes, so only the daemon refuses it.
     static func move(_ store: SidebarDocStore) {
-        store.move(["w_scratch"], to: SidebarDocTarget(section: SidebarGroupDragRailTests.section, after: "w_web"), title: "Move")
+        store.move(["w_scratch"], to: SidebarDocTarget(section: SidebarGroupDragRailTests.section, after: "g_g-infra"), title: "Move")
     }
 
     @Test(arguments: [ActionOrigin.cli, .mcp, .script, .remote, .page])
@@ -123,9 +123,9 @@ struct SidebarDocRefusalNoticeTests {
     /// The refused move springs back to where the person saw it (a guard: the old code dropped it too).
     @Test func thePersonsRefusedMoveSpringsBack() async throws {
         let store = try await Self.store(Remote([SidebarMirror.Refusal(code: "nesting")]))
-        let before = store.projection(live: SidebarOptimisticSaveTests.live)
+        let before = store.projection(live: SidebarDocOptimisticGroupTests.live)
         Self.move(store)
         await store.settled()
-        #expect(store.projection(live: SidebarOptimisticSaveTests.live) == before, "the refused move did not go back")
+        #expect(store.projection(live: SidebarDocOptimisticGroupTests.live) == before, "the refused move did not go back")
     }
 }
