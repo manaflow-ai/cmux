@@ -40,7 +40,7 @@ import Testing
 
     /// The sidebar document's top: the top block (Home), the Pinned block (three text-only pinned workspaces), then one
     /// computer's list.
-    static func list() -> (SidebarListView, NSWindow) {
+    static func list(look: SectionsLookVariant = .quiet, drawsLines: Bool = false) -> (SidebarListView, NSWindow) {
         _ = NSApplication.shared
         let top = LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn, arrangement: .list, items: [home])
         let pinned = SidebarLayoutDocument.pinnedSection(items: pins)
@@ -61,7 +61,7 @@ import Testing
         var metrics = SidebarRegionMetrics.standard
         metrics.trailingTrim = SidebarStyle.rowTrailingTrim
         list.blocks = SidebarListBlocks(sections: [top.id.rawValue: top, pinned.id.rawValue: pinned], infos: infos, collapsed: [],
-                                        look: .quiet, metrics: metrics, drawsLines: false, appHeights: [:])
+                                        look: look, metrics: metrics, drawsLines: drawsLines, appHeights: [:])
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
