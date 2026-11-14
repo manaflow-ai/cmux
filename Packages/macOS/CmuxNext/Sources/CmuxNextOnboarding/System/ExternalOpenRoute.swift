@@ -14,9 +14,13 @@ public nonisolated enum ExternalOpenRoute: Equatable, Sendable {
     /// the App's confirmation (`ExternalLinkGate`): a page must not make
     /// cmux connect to a host it picks without the person's answer.
     case ssh(SSHLinkTarget)
+    /// Images opened with cmux or dropped on its Dock icon, or sent by the Send to cmux Chat
+    /// service: they go into an agent chat's composer as an unsent draft (the focused chat, else a
+    /// new one). `from`: the bundle id of the app they came from, when known.
+    case attachImages([URL], from: String?)
     /// Any other file: the shared file opener (`file.open`), which shows
     /// Markdown in the Markdown page, text and code in the code editor page,
-    /// and images, PDFs and media in a browser tab.
+    /// and PDFs and media in a browser tab (images go to a chat: ``attachImages(_:from:)``).
     case file(URL)
     /// A link in this build's scheme (`cmux://tab/…`): the caller runs the
     /// `link.open` action with it, which only navigates.
@@ -147,7 +151,14 @@ public nonisolated struct ExternalOpenRouter: Sendable {
             return .terminal(cwd: folder, command: isExecutable(path) ? quoted : "\(shell) \(quoted)")
         }
         if ext.isEmpty, isExecutable(path) { return .terminal(cwd: folder, command: ShellQuote.quote(path)) }
+        // A picture (a screenshot, a photo) goes to a chat; SVG stays a page (``pageExtensions``).
+        if Self.isImage(ext) { return .attachImages([URL(fileURLWithPath: path)], from: nil) }
         return .file(URL(fileURLWithPath: path))
+    }
+
+    /// Whether a file of extension `ext` is a picture (PNG, JPEG, HEIC, TIFF, GIF and the rest).
+    public static func isImage(_ ext: String) -> Bool {
+        !ext.isEmpty && UTType(filenameExtension: ext)?.conforms(to: .image) == true
     }
 
     /// `ssh://[user@]host[:port]`, as Terminal handles it. The host and

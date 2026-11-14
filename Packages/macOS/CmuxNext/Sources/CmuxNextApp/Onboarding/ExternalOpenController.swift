@@ -20,6 +20,8 @@ final class ExternalOpenController {
     /// The `ssh://` link question: acpmux peers and saved SSH machines are known hosts, and
     /// "Always allow this host" writes `ssh.linkAllowedHosts` (Settings > Privacy and Security).
     private(set) lazy var sshGate = makeSSHGate()
+    /// Files from another app into a chat's composer (``attachToChat(_:from:)``).
+    private(set) lazy var chatAttach = ExternalChatAttach(services: services)
 
     private func makeSSHGate() -> ExternalLinkGate {
         let services = services
@@ -72,6 +74,17 @@ final class ExternalOpenController {
         guard route != .unsupported else { return false }
         perform(route)
         return true
+    }
+
+    /// The route every door from another app takes to put files into an agent chat as an unsent
+    /// draft (an image opened with cmux, the Send to cmux Chat service; a capture shortcut and the
+    /// Share menu later): the focused agent chat of the current window, else the one focused most
+    /// recently there, else a new agent chat, brought forward with its composer focused
+    /// (``ExternalChatAttach``). `source`: the bundle id of the app they came from, when known; a
+    /// file's own metadata (a screenshot's) still names its source first.
+    func attachToChat(_ urls: [URL], from source: String?) {
+        guard !urls.isEmpty else { return }
+        perform(.attachImages(urls, from: source))
     }
 
     /// Finder service "New cmux Tab Here" with the selected paths.
@@ -183,6 +196,7 @@ final class ExternalOpenController {
         // The one file path every opener takes (Open File..., `file.open`); a refusal shows its reason.
         case .file(let url): services.viewers.openFile(url, in: pane, markdown: false)
         case .shareLink(let url): AgentShareLinks(host: services).open(url) { [weak pane] in pane?.newBrowserTab(url: $0) }
+        case .attachImages(let urls, let source): chatAttach.attach(urls, claimed: source, in: pane)
         case .deepLink, .unsupported: return
         }
     }
@@ -190,7 +204,8 @@ final class ExternalOpenController {
 
 /// The Finder services (`NSServices` in Info.plist): New cmux Tab Here,
 /// New cmux Workspace Here, New cmux Window Here. AppKit calls these with
-/// the selected folders or files (a file opens in its folder).
+/// the selected folders or files (a file opens in its folder). Send to cmux
+/// Chat takes images: files, or a picture another app selected.
 @MainActor
 final class CmuxServicesProvider: NSObject {
     private let open: ExternalOpenController
@@ -209,6 +224,45 @@ final class CmuxServicesProvider: NSObject {
 
     @objc(openWindow:userData:error:) func openWindow(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
         for path in Self.paths(pasteboard) { open.newWorkspace(at: path, newWindow: true) }
+    }
+
+    /// Send to cmux Chat: the image files selected (in Finder), else the picture the app selected
+    /// (PNG or TIFF data, kept as a file under Chat Uploads), go into an agent chat's composer
+    /// (``ExternalOpenController/attachToChat(_:from:)``), named as coming from the app that sent them.
+    @objc(sendToChat:userData:error:) func sendToChat(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
+        // The service's caller is still the frontmost app: cmux is not activated until the route runs.
+        let source = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let files = Self.imageFiles(pasteboard)
+        if !files.isEmpty { return open.attachToChat(files, from: source) }
+        guard let (data, ext) = Self.imageData(pasteboard), let folders = ChatUploadFolders.standard else { return }
+        let folder = folders.freshUpload(session: nil)
+        // task-owner: one write of the service's picture, then the route on the main actor
+        Task { [open] in
+            let saved = await Task.detached(priority: .userInitiated) { () -> URL? in
+                let file = folder.appending(path: "Image.\(ext)")
+                do {
+                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                    try data.write(to: file, options: .atomic)
+                    return file
+                } catch {
+                    return nil
+                }
+            }.value
+            if let saved { open.attachToChat([saved], from: source) }
+        }
+    }
+
+    /// The image files on `pasteboard` (``paths(_:)``, pictures only).
+    static func imageFiles(_ pasteboard: NSPasteboard) -> [URL] {
+        paths(pasteboard).map { URL(fileURLWithPath: $0) }.filter { ExternalOpenRouter.isImage($0.pathExtension.lowercased()) }
+    }
+
+    /// A picture's bytes on `pasteboard` and the extension its file takes: PNG first, else TIFF
+    /// (the page converts TIFF as it does a pasted one).
+    static func imageData(_ pasteboard: NSPasteboard) -> (Data, String)? {
+        if let png = pasteboard.data(forType: .png), !png.isEmpty { return (png, "png") }
+        if let tiff = pasteboard.data(forType: .tiff), !tiff.isEmpty { return (tiff, "tiff") }
+        return nil
     }
 
     /// File URLs, legacy filename lists, or absolute paths as plain text.

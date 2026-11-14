@@ -601,6 +601,7 @@ public final class AgentPaneModel {
         case .attachDropped(let kind, let names): return await attachDropped(kind, names: names)
         // A chat on another machine gets the gesture's source only (`attachSource`).
         case .attachSource(let kind, let names, let gestureAt): return await attachSource(kind, names: names, gestureAt: gestureAt)
+        case .attachExternal: return await takeExternalAttachments()
         case .attachmentSourceIcon(let bundleId):
             return AgentPaneReply.success(sourceIcons.dataURL(bundleId).map { ["src": $0] } ?? [:])
         case .useFolder(let cwd, let confirm) where remoteChat:
