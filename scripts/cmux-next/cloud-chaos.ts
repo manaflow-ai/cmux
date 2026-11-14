@@ -468,9 +468,11 @@ export class ChatClient {
   private onLine(m: any): void {
     if (m?.surface !== this.surface) return;
     if (m.event === "agent-session-record" && m.record && typeof m.record.seq === "number") {
-      if (!this.attached) return;
       if (this.paging) this.stash.push({ record: m.record, at: Date.now() });
-      else this.live(m.record);
+      else {
+        if (!this.attached) return;
+        this.live(m.record);
+      }
     } else if (m.event === "agent-session-closed") {
       this.attached = false;
       this.lastError = `closed: ${String(m.reason ?? "")}`;
