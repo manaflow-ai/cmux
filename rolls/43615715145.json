@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43615715145",
+  "recorded_at": "2026-11-14T16:39:03Z",
+  "reason": "cmux-tui 8735946013b3 changes the image's cmux-tui (pinned 9f8d03ead79f)",
+  "dry_run": false,
+  "cmux_tui": "8735946013b3c9fab8da3faca1f05703b1cb619c",
+  "fixes": [
+    {
+      "sha": "8735946013b3c9fab8da3faca1f05703b1cb619c",
+      "mergedAt": "2026-11-14T16:07:30Z",
+      "subject": "chore(next): base autofix at 47576658d252"
+    },
+    {
+      "sha": "47576658d25235729150db1ff52684ca5ab5ddaf",
+      "mergedAt": "2026-11-14T08:05:49-08:00",
+      "subject": "perf(daemon): git.fingerprint, step A of 2: the daemon read alone (the app keeps its old check until step B) (#42568)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T16:39:03Z",
+    "snapshot_id": "sh-cec7c0cd382b4d8bbcf5aed804c53977",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43615715145): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f8d8e8c2c8c3a0f39c2e85a94d514b7538fadb36",
+    "image": "cloud-native-auto-87359460-43615715145-1",
+    "revision": "ci-43615715145-1",
+    "at": "2026-11-14T16:39:03Z"
+  },
+  "rolled_back": false
+}
