@@ -785,19 +785,16 @@ impl RelayIncoming for Incoming {
         };
         let started = match named_service(&first) {
             None => local.write_all(&first).await.map_err(|e| e.to_string()),
-            Some(Ok(CircuitService::Acpmux)) => {
-                link.send(service_answer(&Ok(()))).await.map_err(|e| e.to_string())
-            }
             Some(named) => {
                 let reached = match named {
+                    Ok(CircuitService::Acpmux) => Ok(local),
                     Ok(CircuitService::CmuxTui { port }) => self.cmux_tui(port).await,
-                    Ok(CircuitService::Acpmux) => unreachable!("answered above"),
                     Err(refusal) => Err(refusal),
                 };
                 match reached {
-                    // The acpmux listener's connection closes unused.
-                    Ok(daemon) => {
-                        local = daemon;
+                    // For cmux-tui, the acpmux listener's connection closes unused.
+                    Ok(reached) => {
+                        local = reached;
                         link.send(service_answer(&Ok(()))).await.map_err(|e| e.to_string())
                     }
                     Err(refusal) => {
