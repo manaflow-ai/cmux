@@ -130,3 +130,15 @@ describe("cmux Tools in a DEV build", () => {
     expect(agentToolsDetail(de, row, tools)).toBe("Erhält die Werkzeuge von cmux in cmux-Terminals");
   });
 });
+
+describe("cmux Tools done in a DEV build", () => {
+  test("the Done line says the agents get cmux's tools in this build's terminals", () => {
+    const tools = agentToolsState("added").agentTools!;
+    const terminals = { ...tools, rows: tools.rows.map((row) => ({ ...row, state: "terminals" as const })) };
+    expect(agentToolsStatus(en, terminals)).toBe("Done. Agents you start in this build’s terminals get cmux’s tools.");
+    expect(agentToolsStatus(de, terminals)).toBe(
+      "Fertig. Agenten, die du in den Terminals dieser Version startest, bekommen die Werkzeuge von cmux.",
+    );
+    expect(agentToolsStatus(en, tools)).toBe("Done. Your agents get cmux’s tools when they next start.");
+  });
+});

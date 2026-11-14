@@ -40,6 +40,11 @@ struct World {
     /// The app's control socket every command reaches (`CMUX_SOCKET_PATH`),
     /// a `FakeApp`; none when unset.
     app: Option<PathBuf>,
+    /// The `cmux` every command runs: the test binary, or a copy at a path
+    /// of a shipped install (`with_cli_at`), since `cmux setup mcp` writes the
+    /// person's global agent configs only from a shipped build, never from a
+    /// cargo target folder.
+    cli: PathBuf,
 }
 
 impl World {
@@ -61,11 +66,56 @@ impl World {
             socket: dir.join("d.sock"),
             fake_ssh: false,
             app: None,
+            cli: PathBuf::from(env!("CARGO_BIN_EXE_cmux-tui")),
         };
         for path in [&world.home, &world.acpmux, &world.repo, &world.bin] {
             std::fs::create_dir_all(path).unwrap();
         }
         world
+    }
+
+    /// Runs every command from a copy of the test binary at `relative` under
+    /// the world (a hard link when the file system allows one), inside an app
+    /// bundle with `bundle_id` when given: `<relative>` is then the bundle's
+    /// path and the CLI is its `Contents/Resources/bin/cmux`.
+    fn with_cli_at(mut self, relative: &str, bundle_id: Option<&str>) -> Self {
+        self.use_cli_at(relative, bundle_id);
+        self
+    }
+
+    /// [`Self::with_cli_at`] on a world in use.
+    fn use_cli_at(&mut self, relative: &str, bundle_id: Option<&str>) {
+        let root = self.home.parent().unwrap().join(relative);
+        let cli = match bundle_id {
+            Some(id) => {
+                std::fs::create_dir_all(root.join("Contents")).unwrap();
+                std::fs::write(
+                    root.join("Contents/Info.plist"),
+                    format!(
+                        r#"<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>{id}</string></dict></plist>"#
+                    ),
+                )
+                .unwrap();
+                root.join("Contents/Resources/bin/cmux")
+            }
+            None => root,
+        };
+        std::fs::create_dir_all(cli.parent().unwrap()).unwrap();
+        let built = Path::new(env!("CARGO_BIN_EXE_cmux-tui"));
+        if std::fs::hard_link(built, &cli).is_err() {
+            std::fs::copy(built, &cli).unwrap();
+        }
+        self.cli = cli;
+    }
+
+    /// [`Self::with_cli_at`] a shipped install's path outside any bundle.
+    fn with_shipped_cli(self) -> Self {
+        self.with_cli_at("opt/cmux/bin/cmux", None)
+    }
+
+    /// The `cmux` every command runs, as a string.
+    fn cli(&self) -> String {
+        self.cli.to_str().unwrap().to_owned()
     }
 
     /// Puts a fake `ssh` and `scp` on PATH for every command. The fake
@@ -149,7 +199,7 @@ exit 0
     }
 
     fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+        let mut command = Command::new(&self.cli);
         command
             .args(args)
             .current_dir(&self.repo)
@@ -1156,8 +1206,8 @@ env_key = "CXS_UNSET_ROUTER_KEY"
 /// (nothing to do), and runs the `undo` it named.
 #[test]
 fn cmux_setup_mcp_an_agent_gives_claude_code_and_codex_the_cmux_server_and_undoes_it() {
-    let world = World::new("mcp").with_fake_mcp_clients();
-    let cmux = env!("CARGO_BIN_EXE_cmux-tui");
+    let world = World::new("mcp").with_fake_mcp_clients().with_shipped_cli();
+    let cmux: &str = &world.cli();
     let claude_json = world.home.join(".claude.json");
     let codex_toml = world.home.join(".codex").join("config.toml");
 
@@ -1253,7 +1303,7 @@ fn cmux_setup_mcp_an_agent_gives_claude_code_and_codex_the_cmux_server_and_undoe
 /// and the run agree on `ok` and the switch is not asked for.
 #[test]
 fn cmux_setup_mcp_with_neither_harness_installed_is_ok() {
-    let world = World::new("mcpnone");
+    let world = World::new("mcpnone").with_shipped_cli();
     let status = world.json(&["setup", "status"]);
     let check = &status["checks"][3];
     assert_eq!((&check["task"], &check["state"]), (&json!("mcp"), &json!("ok")), "{check}");
@@ -1276,8 +1326,8 @@ fn cmux_setup_mcp_with_neither_harness_installed_is_ok() {
 /// else is the person's, left as it is.
 #[test]
 fn cmux_setup_mcp_replaces_a_moved_cmux_and_leaves_another_server_named_cmux() {
-    let world = World::new("mcpold").with_fake_mcp_clients();
-    let cmux = env!("CARGO_BIN_EXE_cmux-tui");
+    let world = World::new("mcpold").with_fake_mcp_clients().with_shipped_cli();
+    let cmux: &str = &world.cli();
     world.settings(&json!({"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": true}}));
     let gone = "/Applications/gone.app/Contents/Resources/bin/cmux";
     let claude_json = world.home.join(".claude.json");
@@ -1327,8 +1377,8 @@ fn cmux_setup_mcp_replaces_a_moved_cmux_and_leaves_another_server_named_cmux() {
 /// server of the person's.
 #[test]
 fn cmux_setup_mcp_follows_the_persons_answer_and_removes_cmux_on_request() {
-    let world = World::new("mcpchoice").with_fake_mcp_clients();
-    let cmux = env!("CARGO_BIN_EXE_cmux-tui");
+    let world = World::new("mcpchoice").with_fake_mcp_clients().with_shipped_cli();
+    let cmux: &str = &world.cli();
     let claude_json = world.home.join(".claude.json");
     let codex_toml = world.home.join(".codex").join("config.toml");
 
@@ -1664,7 +1714,7 @@ fn cmux_setup_trust_forgets_a_decision_recorded_under_another_spelling() {
 /// CLI; `setup status` reports it as waiting on the person.
 #[test]
 fn cmux_setup_mcp_writes_nothing_until_the_person_answers() {
-    let world = World::new("mcp-ask").with_fake_mcp_clients();
+    let world = World::new("mcp-ask").with_fake_mcp_clients().with_shipped_cli();
     let claude_json = world.home.join(".claude.json");
     let codex_toml = world.home.join(".codex").join("config.toml");
     for settings in [
@@ -1705,7 +1755,7 @@ fn cmux_setup_mcp_writes_nothing_until_the_person_answers() {
 /// took over every other build's agents (tag cu-fresh, 2026-11-13).
 #[test]
 fn cmux_setup_mcp_on_its_own_settings_file_writes_no_global_agent_config() {
-    let world = World::new("mcpdev").with_fake_mcp_clients();
+    let world = World::new("mcpdev").with_fake_mcp_clients().with_shipped_cli();
     let claude_json = world.home.join(".claude.json");
     let codex_toml = world.home.join(".codex").join("config.toml");
     // The shared file says no; this build's own file says yes.
@@ -1762,14 +1812,192 @@ fn cmux_setup_mcp_on_its_own_settings_file_writes_no_global_agent_config() {
     assert_eq!(shared["scope"], Value::Null, "{shared}");
 }
 
+/// A fake app bundle at `<root>/<name>.app` with `bundle_id`, and the path of
+/// its bundled CLI (not created).
+fn fake_bundle(root: &Path, name: &str, bundle_id: &str) -> PathBuf {
+    let app = root.join(format!("{name}.app"));
+    std::fs::create_dir_all(app.join("Contents")).unwrap();
+    std::fs::write(
+        app.join("Contents/Info.plist"),
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>{bundle_id}</string></dict></plist>"#
+        ),
+    )
+    .unwrap();
+    app.join("Contents/Resources/bin/cmux")
+}
+
+/// cmux NEXT Stable (`com.cmuxterm.app.nightly.cmux-next-stable`) is a
+/// shipped channel: its setup writes the global entry, and a NEXT nightly
+/// keeps that entry instead of replacing it. Its id ends in what read as a
+/// tag, so Stable users got no entry and NEXT replaced theirs.
+#[test]
+fn cmux_setup_mcp_from_next_stable_writes_and_keeps_the_global_entry() {
+    let mut world = World::new("mcpstable").with_fake_mcp_clients().with_cli_at(
+        "apps/cmux NEXT Stable.app",
+        Some("com.cmuxterm.app.nightly.cmux-next-stable"),
+    );
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
+    let stable = world.cli();
+    let result = world.json(&["setup", "mcp", "claude"]);
+    assert_eq!(result["state"], "changed", "{result}");
+    assert_eq!(result["scope"], Value::Null, "{result}");
+    assert_eq!(
+        world.take_mcp_calls(),
+        [format!("claude mcp add --scope user cmux -- {stable} mcp serve")]
+    );
+    world.use_cli_at("apps/cmux NEXT.app", Some("com.cmuxterm.app.nightly.cmux-next"));
+    let next = world.json(&["setup", "mcp", "claude"]);
+    assert_eq!(next["state"], "ok", "{next}");
+    assert_eq!(next["clients"][0]["entry"]["command"], stable.as_str(), "{next}");
+    assert!(world.take_mcp_calls().is_empty(), "NEXT replaced Stable's entry");
+}
+
+/// A cmux run from a cargo target folder (`cargo run`) is a development
+/// build: it writes no global entry.
+#[test]
+fn cmux_setup_mcp_from_a_cargo_target_writes_no_global_entry() {
+    let world = World::new("mcpcargo")
+        .with_fake_mcp_clients()
+        .with_cli_at("src/cmux/cmux-tui/target/debug/cmux-tui", None);
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
+    let result = world.json(&["setup", "mcp"]);
+    assert_eq!(result["scope"], "terminals", "{result}");
+    assert!(result["terminals"]["why"].as_str().unwrap().contains("cargo target"), "{result}");
+    assert!(world.take_mcp_calls().is_empty(), "a cargo build wrote a global entry");
+    assert!(!world.home.join(".claude.json").exists());
+}
+
+/// A DEV build on its own settings file whose answer is yes but whose switch
+/// is off (`"mcp": {"enabled": false}`): the shim's server would refuse, so
+/// setup names that switch instead of reporting the agents as served.
+#[test]
+fn cmux_setup_mcp_in_a_dev_build_names_the_switch_when_the_server_is_off() {
+    let world = World::new("mcpdevoff").with_fake_mcp_clients();
+    let own = world.home.join(".config/cmux/cmux-next-tagged.json");
+    std::fs::create_dir_all(own.parent().unwrap()).unwrap();
+    std::fs::write(
+        &own,
+        json!({"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}).to_string(),
+    )
+    .unwrap();
+    let output =
+        world.command(&["setup", "mcp"]).env("CMUX_NEXT_CONFIG_FILE", &own).output().unwrap();
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["scope"], "terminals", "{result}");
+    assert_eq!(result["state"], "needs_user", "{result}");
+    assert_eq!(result["user_action"]["kind"], "setting", "{result}");
+    assert!(result["user_action"]["text"].as_str().unwrap().contains("enabled"), "{result}");
+    let states: Vec<_> =
+        result["clients"].as_array().unwrap().iter().map(|c| &c["state"]).collect();
+    assert_eq!(states, [&json!("planned"), &json!("planned")], "{result}");
+}
+
+/// An entry whose `env` names the shared settings file (by path or by a link
+/// to it) is a shipped build's: setup keeps it.
+#[test]
+fn cmux_setup_mcp_keeps_an_entry_naming_the_shared_settings_file() {
+    let world = World::new("mcpshared").with_fake_mcp_clients().with_shipped_cli();
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
+    let cmux = world.cli();
+    let shared = world.home.join(".config/cmux/cmux-next.json");
+    let link = world.home.join("shared-link.json");
+    std::os::unix::fs::symlink(&shared, &link).unwrap();
+    let claude_json = world.home.join(".claude.json");
+    for file in [&shared, &link] {
+        let entry = json!({"mcpServers": {"cmux": {"command": cmux, "args": ["mcp", "serve"],
+                           "env": {"CMUX_NEXT_CONFIG_FILE": file.to_str().unwrap()}}}});
+        std::fs::write(&claude_json, entry.to_string()).unwrap();
+        let result = world.json(&["setup", "mcp", "claude"]);
+        assert_eq!(result["state"], "ok", "{file:?}: {result}");
+        assert!(world.take_mcp_calls().is_empty(), "{file:?}");
+    }
+}
+
+/// The undo line keeps every `env` key of the entry it replaced, shows only
+/// cmux's own values, and says which values it leaves out.
+#[test]
+fn cmux_setup_mcp_undo_keeps_every_env_key_and_hides_other_values() {
+    let world = World::new("mcpundo").with_fake_mcp_clients().with_shipped_cli();
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
+    let root = world.home.parent().unwrap().to_path_buf();
+    let dev = fake_bundle(&root.join("apps"), "cmux DEV old", "com.cmuxterm.app.debug.old");
+    let old = json!({"mcpServers": {"cmux": {"command": dev.to_str().unwrap(), "args": ["mcp", "serve"],
+                     "env": {"CMUX_TAG": "old", "API_TOKEN": "s3cret"}}}});
+    std::fs::write(world.home.join(".claude.json"), old.to_string()).unwrap();
+    let result = world.json(&["setup", "mcp", "claude"]);
+    assert_eq!(result["state"], "changed", "{result}");
+    let undo = result["undo"].as_str().unwrap();
+    assert!(undo.contains("--env CMUX_TAG=old"), "{undo}");
+    assert!(undo.contains("API_TOKEN=<value of API_TOKEN>"), "{undo}");
+    assert!(!result.to_string().contains("s3cret"), "{result}");
+    assert_eq!(result["undo_exact"], false, "{result}");
+    assert_eq!(result["clients"][0]["undo_exact"], false, "{result}");
+    assert!(result["clients"][0]["undo_note"].as_str().unwrap().contains("API_TOKEN"), "{result}");
+}
+
+/// A DEV build names the entry an older DEV build left in an agent's config,
+/// with the line that removes it, and its `--remove` takes out only such
+/// entries: never a shipped build's.
+#[test]
+fn cmux_setup_mcp_from_a_dev_build_removes_only_dev_entries() {
+    let world = World::new("mcpdevrm").with_fake_mcp_clients();
+    let root = world.home.parent().unwrap().to_path_buf();
+    world.settings(&json!({"agents": {"cmuxMcp": "off"}}));
+    let own = world.home.join(".config/cmux/cmux-next-tagged.json");
+    std::fs::write(&own, json!({"agents": {"cmuxMcp": "on"}}).to_string()).unwrap();
+    let dev = fake_bundle(&root.join("apps"), "cmux DEV older", "com.cmuxterm.app.debug.older");
+    let claude_json = world.home.join(".claude.json");
+    std::fs::write(
+        &claude_json,
+        json!({"mcpServers": {"cmux": {"command": dev.to_str().unwrap(), "args": ["mcp", "serve"]}}})
+            .to_string(),
+    )
+    .unwrap();
+    let codex_toml = world.codex_home(
+        ".codex",
+        "[mcp_servers.cmux]\ncommand = \"/usr/local/bin/cmux\"\nargs = [\"mcp\", \"serve\"]\n",
+    );
+    let codex_toml = codex_toml.join("config.toml");
+    let codex_before = std::fs::read_to_string(&codex_toml).unwrap();
+    let run = |args: &[&str]| -> Value {
+        let output = world.command(args).env("CMUX_NEXT_CONFIG_FILE", &own).output().unwrap();
+        serde_json::from_slice(&output.stdout).unwrap()
+    };
+
+    let report = run(&["setup", "mcp"]);
+    assert_eq!(report["scope"], "terminals", "{report}");
+    assert_eq!(report["clients"][0]["remove"], "claude mcp remove --scope user cmux", "{report}");
+    assert_eq!(report["clients"][0]["stale_entry"]["command"], dev.to_str().unwrap(), "{report}");
+    assert_eq!(
+        report["clients"][1]["stale_entry"],
+        Value::Null,
+        "a shipped entry is not stale: {report}"
+    );
+    assert!(report["terminals"]["text"].as_str().unwrap().contains("--remove"), "{report}");
+    assert!(world.take_mcp_calls().is_empty());
+
+    let removed = run(&["setup", "mcp", "--remove"]);
+    assert_eq!(removed["scope"], "terminals", "{removed}");
+    assert_eq!(removed["clients"][0]["state"], "changed", "{removed}");
+    assert_eq!(removed["clients"][1]["state"], "ok", "{removed}");
+    assert!(removed["clients"][1]["kept"].is_string(), "{removed}");
+    assert_eq!(world.take_mcp_calls(), ["claude mcp remove --scope user cmux".to_owned()]);
+    assert_eq!(
+        std::fs::read_to_string(&codex_toml).unwrap(),
+        codex_before,
+        "a DEV build removed a shipped entry"
+    );
+}
+
 /// A shipped build cleans up after DEV builds: a global `cmux` entry that
 /// names a settings file, or whose command runs from a DEV build (a tagged
 /// bundle, Xcode's DerivedData), is replaced by its own, and the undo line
 /// puts the old one back.
 #[test]
 fn cmux_setup_mcp_from_a_shipped_build_replaces_a_dev_builds_entry() {
-    let world = World::new("mcpclean").with_fake_mcp_clients();
-    let cmux = env!("CARGO_BIN_EXE_cmux-tui");
+    let world = World::new("mcpclean").with_fake_mcp_clients().with_shipped_cli();
+    let cmux: &str = &world.cli();
     world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
     let claude_json = world.home.join(".claude.json");
     let root = world.home.parent().unwrap().to_path_buf();
@@ -1785,10 +2013,13 @@ fn cmux_setup_mcp_from_a_shipped_build_replaces_a_dev_builds_entry() {
     World::executable(&dev_cli, "#!/bin/sh\nexit 0\n");
     let derived = root.join("Library/Developer/Xcode/DerivedData/cmux-a/Build/Products/Debug/cmux");
     World::executable(&derived, "#!/bin/sh\nexit 0\n");
+    let cargo = root.join("src/cmux/cmux-tui/target/debug/cmux");
+    World::executable(&cargo, "#!/bin/sh\nexit 0\n");
     let file = world.home.join(".config/cmux/cmux-next-tagged.json");
     std::fs::write(&file, "{}").unwrap();
     let file = file.to_str().unwrap().to_owned();
-    let cases: [(&str, Value); 3] = [
+    let cases: [(&str, Value); 4] = [
+        ("cargo", json!({"command": cargo.to_str().unwrap(), "args": ["mcp", "serve"]})),
         ("tagged", json!({"command": dev_cli.to_str().unwrap(), "args": ["mcp", "serve"]})),
         ("derived", json!({"command": derived.to_str().unwrap(), "args": ["mcp", "serve"]})),
         (

@@ -26,4 +26,12 @@ struct AgentToolsTerminalsTests {
         let agents = try #require(AgentToolsAgent.agents(setupReport: Data(report.utf8)))
         #expect(agents.map(\.state.givesTools) == [true, true, false])
     }
+
+    /// A DEV build names an entry an older DEV build left (`stale_entry`): Settings says so and
+    /// its Remove takes it out. No stale entry, no flag.
+    @Test func aStaleDevEntryIsFlagged() throws {
+        let report = #"{"scope": "terminals", "clients": [{"id": "claude", "name": "Claude Code", "installed": true, "state": "terminals", "stale_entry": {"name": "cmux", "command": "/x/cmux DEV a.app/Contents/Resources/bin/cmux"}, "remove": "claude mcp remove --scope user cmux"}, {"id": "codex", "name": "Codex", "installed": true, "state": "terminals", "stale_entry": null}]}"#
+        let agents = try #require(AgentToolsAgent.agents(setupReport: Data(report.utf8)))
+        #expect(agents.map(\.stale) == [true, false])
+    }
 }

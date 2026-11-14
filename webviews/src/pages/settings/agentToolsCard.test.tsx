@@ -73,3 +73,27 @@ test("a DEV build's agents show as available in cmux terminals, with nothing to 
   expect(button(element, "remove").disabled).toBe(true);
   page.unmount();
 });
+
+test("a DEV build names an old development entry, and Remove is there to take it out", async () => {
+  const page = await renderPage({
+    path: "/settings/agents",
+    setup: (provider) => {
+      provider.agentTools = {
+        loaded: true,
+        applying: false,
+        failed: false,
+        rows: [
+          { id: "claude", name: "Claude Code", state: "terminals", stale: true },
+          { id: "codex", name: "Codex", state: "terminals" },
+        ],
+      };
+    },
+  });
+  await settle();
+  const element = card(page.container);
+  expect(element.querySelectorAll("[data-agent-tools-stale]").length).toBe(1);
+  expect(element.textContent).toContain("Has an old entry from a cmux development build");
+  expect(button(element, "remove").disabled).toBe(false);
+  expect(button(element, "add").disabled).toBe(true);
+  page.unmount();
+});
