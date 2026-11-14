@@ -512,7 +512,8 @@ public final class WorkspaceSync {
                     // answer instead of the whole tree (1.7 MB at 1,000 workspaces).
                     let held = listsKnown ? await projection.known : nil
                     let sendsKnown = listsKnown
-                    let reply = try await client.requestOrdered("list-workspaces", params: sendsKnown ? ["known": held?.params ?? [:]] : [:])
+                    let params = Self.listParams(known: held, sendsKnown: sendsKnown)
+                    let reply = try await client.requestOrdered("list-workspaces", params: params)
                     guard self.client === client, !Task.isCancelled else { return }
                     if sendsKnown, Self.isUnchanged(reply.data) {
                         let next = await projection.rearrange(arrangement)
@@ -601,6 +602,16 @@ public final class WorkspaceSync {
 
     /// The daemon's capability for `known` on `list-workspaces`.
     nonisolated static let knownCapability = "list-workspaces-known-v1"
+
+    /// `list-workspaces`' params: the held tree as `known` (`{}` before a revision) when the
+    /// daemon takes it, else none. Built off the main actor so the dictionary starts in its own
+    /// region and can be sent to the client.
+    nonisolated static func listParams(known held: WorkspaceProjection.KnownTree?, sendsKnown: Bool) -> [String: Any] {
+        guard sendsKnown else { return [:] }
+        var known: [String: Any] = [:]
+        if let held { known = held.params }
+        return ["known": known]
+    }
 
     /// Whether `reply` is the daemon's `{"unchanged": true}` answer to a `known` (the held
     /// tree is current). Only a short line can be one, so a whole tree is not parsed twice.
