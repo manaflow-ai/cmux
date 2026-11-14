@@ -1241,22 +1241,30 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         unsafe = "${{ vars.MACOS_RUNNER_PR }}"
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "proof.yml"
-            for sibling, env, passes in ((safe, "", True), (unsafe, "", False),
-                                         (safe, f"env:\n  guarded:\n    LABEL: {unsafe}\n", False)):
-                with self.subTest(sibling=sibling, env=env):
-                    path.write_text(
-                        env + "on:\n  pull_request:\njobs:\n  guarded:\n"
-                        "    if: >-\n      github.event_name == 'workflow_dispatch' ||\n"
-                        "      (github.event_name == 'pull_request' &&\n"
-                        "       github.event.pull_request.head.repo.full_name == github.repository)\n"
-                        f"    runs-on: {unsafe}\n  sibling:\n    runs-on: {sibling}\n"
-                    )
-                    with patch(__name__ + ".fork_exercised_workflows", return_value=[path]):
-                        if passes:
-                            self.test_fork_pull_requests_into_manaflow_ai_never_reach_an_owned_runner_label()
-                        else:
-                            with self.assertRaises(AssertionError):
+            cases = (
+                (safe, "", True), (unsafe, "", False),
+                (safe, f"env:\n  guarded:\n    LABEL: {unsafe}\n", False),
+            )
+            for sibling, env, passes in cases:
+                for sibling_key, indent in (("sibling", "  "), ('"sibling"', "  "),
+                                            ("'sibling'", "    ")):
+                    with self.subTest(sibling=sibling, env=env, key=sibling_key, indent=indent):
+                        path.write_text(
+                            env + "on:\n  pull_request:\njobs:\n"
+                            f"{indent}guarded:\n{indent}  if: >-\n"
+                            f"{indent}    github.event_name == 'workflow_dispatch' ||\n"
+                            f"{indent}    (github.event_name == 'pull_request' &&\n"
+                            f"{indent}     github.event.pull_request.head.repo.full_name == github.repository)\n"
+                            f"{indent}  runs-on: {unsafe}\n{indent}{sibling_key}:\n"
+                            f"{indent}  runs-on: {sibling}\n"
+                            f"{indent}checked:\n{indent}  runs-on: {safe}\n"
+                        )
+                        with patch(__name__ + ".fork_exercised_workflows", return_value=[path]):
+                            if passes:
                                 self.test_fork_pull_requests_into_manaflow_ai_never_reach_an_owned_runner_label()
+                            else:
+                                with self.assertRaises(AssertionError):
+                                    self.test_fork_pull_requests_into_manaflow_ai_never_reach_an_owned_runner_label()
 
     def test_pull_request_xcode_pin_follows_the_same_repository_lane(self) -> None:
         """A fork PR leaves MACOS_RUNNER_PR, so it must leave its Xcode pin too.
