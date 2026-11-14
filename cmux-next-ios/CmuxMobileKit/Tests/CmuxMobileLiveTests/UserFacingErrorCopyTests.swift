@@ -32,6 +32,18 @@ import Testing
         #expect(LinkController.reason(Opaque()) == "the connection to the Mac failed")
     }
 
+    /// Review of the merge at e4aa15cf: the base's copy took only capitalized prose, so every
+    /// Cloud carrier error read as "the connection to the Mac failed" (a locked iPhone included).
+    @Test func cloudErrorsSayItIsTheCloudMachineAndWhatToDo() {
+        #expect(LinkError(code: "keychain.locked", message: "x").errorDescription
+            == "Unlock this iPhone to open the Cloud machine, then try again.")
+        #expect(LinkController.reason(LinkError(code: "keychain.locked", message: "")) == "this iPhone is locked")
+        #expect(LinkController.reason(LinkError(code: "carrier.handshake", message: "")) == "the Cloud machine didn't prove it's yours")
+        let dropped = LinkError(code: "closed", message: "The connection to the Cloud machine dropped")
+        #expect(LinkController.reason(dropped) == "The connection to the Cloud machine dropped")
+        #expect(!(dropped.errorDescription ?? "").contains("Mac"))
+    }
+
     @Test func pairingRefusalsNeverShowARawMessage() {
         #expect(LinkPairing.refusalText(LinkError(code: "pairing", message: "bad_key")) == "the connection to the Mac failed")
         #expect(LinkPairing.refusalText(LinkError(code: "busy", message: "")) == "the Mac is already pairing this iPhone")

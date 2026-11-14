@@ -139,7 +139,7 @@ final class EchoLineStream: CloudCarrierByteStream, @unchecked Sendable {
         #expect(await states.next() == .connected(.cloudCarrier, .carrier, rttMillis: nil))
         session.drop()
         // The carrier's own end, before any heartbeat.
-        #expect(await states.next() == .disconnected(reason: "the Cloud link dropped"))
+        #expect(await states.next() == .disconnected(reason: "The connection to the Cloud machine dropped"))
         await #expect(throws: LinkError.self) { _ = try await link.ping() }
         do {
             _ = try await link.openChannel(service: "daemon", args: [:])

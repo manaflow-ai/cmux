@@ -164,6 +164,22 @@ extension LinkError: LocalizedError {
             return (reason: "the Mac is offline", sentence: "Your Mac isn't connected. Open cmux on your Mac, then try again.")
         case LinkError.unauthorized:
             return (reason: "the cmux service refused the request", sentence: "Your session expired. Sign in again.")
+        // A Cloud machine's carrier (CloudCarrierDialer, CloudCarrierKey): its own words, never the Mac's.
+        case "keychain.locked":
+            return (reason: "this iPhone is locked",
+                    sentence: "Unlock this iPhone to open the Cloud machine, then try again.")
+        case "keychain.unavailable":
+            return (reason: "this iPhone can't keep the Cloud key",
+                    sentence: "This iPhone can't keep the key for Cloud machines. Restart cmux, then try again.")
+        case "carrier.handshake":
+            return (reason: "the Cloud machine didn't prove it's yours",
+                    sentence: "The Cloud machine didn't prove it's yours, so cmux stopped. Retry, or restart the machine.")
+        case "carrier.no_daemon_key":
+            return (reason: "the Cloud machine is still starting",
+                    sentence: "The Cloud machine is still starting. Try again in a moment.")
+        case "carrier.answer", "carrier.failed":
+            return (reason: "the Cloud machine didn't answer",
+                    sentence: "The Cloud machine didn't answer. Try again.")
         default:
             return nil
         }

@@ -734,7 +734,7 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(Set(keys.compactMap(\.self)).count == 1)
 
         let locked = FailingSecretStore(status: errSecInteractionNotAllowed)
-        #expect(throws: LinkError(code: CloudCarrierDialer.keychainLocked, message: "the Keychain is locked until this iPhone is unlocked")) {
+        #expect(throws: LinkError(code: CloudCarrierDialer.keychainLocked, message: "Unlock this iPhone to open the Cloud machine")) {
             _ = try CloudCarrierKey.load(userID: user, epoch: CloudCarrierKey.epoch(userID: user), store: locked, newKey: { Data(count: 32) })
         }
         #expect(CloudCarrierDialer.isRetryable(CloudCarrierKey.failure(KeychainSecretStore.Failure(status: errSecInteractionNotAllowed))))

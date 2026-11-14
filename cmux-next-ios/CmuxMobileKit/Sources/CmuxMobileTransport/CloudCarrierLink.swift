@@ -45,7 +45,8 @@ public final class CloudCarrierLink: MacLink, @unchecked Sendable { // crash-all
 
     /// The one service a Cloud machine's carrier serves.
     public static let service = "daemon"
-    static let droppedReason = "the Cloud link dropped"
+    /// Capitalized: a phrase a person reads as is (`LinkError.proseMessage`), as the Mac's own are.
+    static let droppedReason = "The connection to the Cloud machine dropped"
 
     public init(machineID: String, session: any CloudCarrierSession) {
         self.machineID = machineID
@@ -68,7 +69,7 @@ public final class CloudCarrierLink: MacLink, @unchecked Sendable { // crash-all
         guard service == Self.service else {
             throw LinkError(code: "unknown_service", message: "Cloud machines don't serve \(service) to this iPhone")
         }
-        guard !lock.withLock({ closed }) else { throw LinkError(code: "closed", message: "the Cloud link closed") }
+        guard !lock.withLock({ closed }) else { throw LinkError(code: "closed", message: "The connection to the Cloud machine closed") }
         let stream = try await openStream()
         let id = lock.withLock { () -> UInt32 in
             defer { nextChannel += 2 }
@@ -161,7 +162,7 @@ public struct CloudCarrierDialer: MacLinkDialer {
     public func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken token: String) async throws -> any MacLink {
         let machineID = endpoint.macDeviceID
         guard machineID.hasPrefix("vm_") else {
-            throw LinkError(code: "invalid_argument", message: "not a Cloud machine")
+            throw LinkError(code: "invalid_argument", message: "Not a Cloud machine")
         }
         let session = try makeSession(machineID, token)
         let deadline = deadlineMillis
