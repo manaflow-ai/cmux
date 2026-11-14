@@ -534,17 +534,33 @@ impl MessageWriter {
         {
             return Ok(text);
         }
-        if !text.contains("\"conversation") {
+        let lap = crate::measure_probe::now();
+        let may_hold = text.contains("\"conversation") && may_hold_a_conversation_kind(&text);
+        crate::measure_probe::since("tabs.scan", lap);
+        if !may_hold {
             return Ok(text);
         }
-        if !may_hold_a_conversation_kind(&text) {
+        let lap = crate::measure_probe::now();
+        let parsed = serde_json::from_str::<Value>(&text);
+        crate::measure_probe::since("tabs.parse", lap);
+        let Ok(mut value) = parsed else { return Ok(text) };
+        let lap = crate::measure_probe::now();
+        let changed = self.project_tab_kinds(&mut value);
+        crate::measure_probe::since("tabs.rewrite", lap);
+        if !changed {
+            let lap = crate::measure_probe::now();
+            drop(value);
+            crate::measure_probe::since("tabs.drop_parsed", lap);
             return Ok(text);
         }
-        let Ok(mut value) = serde_json::from_str::<Value>(&text) else { return Ok(text) };
-        if !self.project_tab_kinds(&mut value) {
-            return Ok(text);
-        }
-        self.render_service.serialize_control(&value)
+        let lap = crate::measure_probe::now();
+        let second = self.render_service.serialize_control(&value);
+        crate::measure_probe::since("tabs.second_text", lap);
+        let lap = crate::measure_probe::now();
+        drop(value);
+        drop(text);
+        crate::measure_probe::since("tabs.drop_parsed", lap);
+        second
     }
 
     /// The same projection on a stream item before it is serialized

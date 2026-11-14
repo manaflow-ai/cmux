@@ -64,6 +64,7 @@ mod journal_plugin;
 mod journal_reducers;
 pub mod launch_credential;
 use cmux_tui_util::machine_name;
+mod measure_probe;
 mod model;
 mod mux;
 pub mod net_keepalive;

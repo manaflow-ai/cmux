@@ -287,6 +287,9 @@ use provider_authority::{constant_time_eq, validate_mux_generation};
 mod public_projections;
 mod registry_viewport;
 mod resource_content;
+// MEASURE BRANCH ONLY: the measure test of the list requests makes its session with the cross-check off.
+#[cfg(all(test, unix))]
+pub(crate) use resource_content::without_crosscheck;
 mod resource_effects;
 mod resource_tab_deltas;
 #[cfg(test)]
