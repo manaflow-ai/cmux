@@ -14,11 +14,13 @@ The run log is PUBLIC (the repo is public), so nothing is printed unless it is k
 - Per request: time, kind, outcome, method, status, and the path; a segment prints as is only when it is a fixed
   route word (ROUTE_SEGMENTS), every other segment prints hashed.
 - Never a header, body, query string, free-text error, email, IP, token, or the event's own key names.
-- Needles are read from the dispatch event file, never from the environment (step env is echoed in the log),
+- Account scope is required and matches parsed team/account fields exactly before any counting or projection.
+  Missing, malformed or conflicting identities are dropped. A URL or search term never proves ownership.
+- Account and needles are read from the dispatch event file, never from the environment (step env is echoed in the log),
   and print hashed. They filter the public rows only (never raw event text), and the header says only whether
   any row was kept (`kept_any`), so a dispatcher can't use the run to probe for text.
 
-  python3 -I cmux-api-prod-logs.py --from 2026-11-11T13:20:00Z --minutes 30 [--needles "team_x,/auth/"] < token
+  python3 -I cmux-api-prod-logs.py --from 2026-11-11T13:20:00Z --account team_x --minutes 30 [--needles "/auth/"] < token
 
 stdin: one line, a Cloudflare API token that may read Workers observability. Never printed.
 """
@@ -393,9 +395,31 @@ def matches(row, needles):
     return any(n in text or tag(n) in text for n in needles)
 
 
-def publish(events, needles):
+def belongs_to_account(event, account):
+    """Only parsed identity fields establish scope; all supplied identities must agree.
+
+    Check each console source, including conflicting copies, before public_log can drop
+    fields. A request path, free text, or a user id on a team log is not a team identity.
+    """
+    if not isinstance(account, str) or not ID_OK.fullmatch(account):
+        return False
+    identities = []
+    for candidate in (event, dig(event, "$metadata", "message"),
+                      dig(event, "message"), dig(event, "source")):
+        if isinstance(candidate, str):
+            try:
+                candidate = json.loads(candidate)
+            except ValueError:
+                continue
+        if isinstance(candidate, dict):
+            identities.extend(candidate[key] for key in ("team", "account") if key in candidate)
+    return bool(identities) and all(isinstance(value, str) and value == account for value in identities)
+
+
+def publish(events, needles, account=None):
     """(header, rows) for the public log. Needles filter the public rows, never raw event text, so a dispatcher can't
     probe for tenant text; and the header says only whether any row was kept, not how many."""
+    events = [event for event in events if belongs_to_account(event, account)]
     counts = {}
     rows = [line(e, counts) for e in events]
     rows.sort(key=lambda r: r.pop("_ts", 0))
@@ -422,13 +446,17 @@ def query(token, frm, to, offset=None):
         sys.exit(f"telemetry query refused: HTTP {e.code}")
 
 
-def event_needles(path):
+def event_input(path, key):
     try:
         with open(path) as f:
-            v = dig(json.load(f), "inputs", "needles")
+            v = dig(json.load(f), "inputs", key)
     except (OSError, ValueError):
         return ""
     return v if isinstance(v, str) else ""
+
+
+def event_needles(path):
+    return event_input(path, "needles")
 
 
 def main():
@@ -437,7 +465,11 @@ def main():
     ap.add_argument("--minutes", type=int, default=30)
     ap.add_argument("--needles", default="")
     ap.add_argument("--needles-from-event", default="", help="read inputs.needles from this workflow event file")
+    ap.add_argument("--account", default="", help="exact parsed team/account id; required")
     args = ap.parse_args()
+    account = args.account or (event_input(args.needles_from_event, "account") if args.needles_from_event else "")
+    if not ID_OK.fullmatch(account):
+        sys.exit("account: an exact team/account id is required")
     raw = args.needles or (event_needles(args.needles_from_event) if args.needles_from_event else "")
     needles = [n.strip() for n in raw.split(",") if n.strip()]
     if any(not NEEDLE_OK.match(n) for n in needles):
@@ -459,8 +491,8 @@ def main():
         if not offset:
             complete = True
             break
-    head, rows = publish(events, needles)
-    print(json.dumps({"service": SERVICE, "window_utc": [args.frm, minutes], "pages": pages, "truncated": not complete, **head},
+    head, rows = publish(events, needles, account=account)
+    print(json.dumps({"service": SERVICE, "account": tag(account), "window_utc": [args.frm, minutes], "truncated": not complete, **head},
                      indent=1))
     for r in rows:
         print(json.dumps(r, separators=(",", ":")))
