@@ -478,6 +478,10 @@ fn reply(prompt_id: &str, turn_id: Option<&str>, app: Option<&Value>) -> Value {
     })
 }
 
+/// Tests: forget what this process knows of `session_id`'s deliveries, as a restart does.
+#[cfg(test)]
+fn forget_delivered_ids(_session_id: &str) {}
+
 #[cfg(test)]
 #[path = "bridge_tests.rs"]
 mod tests;
