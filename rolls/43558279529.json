@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43558279529",
+  "recorded_at": "2026-11-14T04:53:45Z",
+  "reason": "cmux-tui 0263d77af6b9 changes the image's cmux-tui (pinned d05233533178)",
+  "dry_run": false,
+  "cmux_tui": "0263d77af6b9e595990228c4f48ee4dc9c334e78",
+  "fixes": [
+    {
+      "sha": "0263d77af6b9e595990228c4f48ee4dc9c334e78",
+      "mergedAt": "2026-11-13T20:22:29-08:00",
+      "subject": "v2 PR 0b: the gates run nightly (#42725)"
+    },
+    {
+      "sha": "9f34be964816d55d6bd925830284432f63a10ad6",
+      "mergedAt": "2026-11-13T20:16:46-08:00",
+      "subject": "[next-no-huge-files] acpmux: split peer lifecycle implementation (#42801)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T04:53:45Z",
+    "snapshot_id": "sh-5a7c563129db4ba6b3dd263b7648cc39",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43558279529): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "948103ea6d1d74eb57beb587b8e5f5eca5041a62",
+    "image": "cloud-native-auto-0263d77a-43558279529-1",
+    "revision": "ci-43558279529-1",
+    "at": "2026-11-14T04:53:45Z"
+  },
+  "rolled_back": false
+}
