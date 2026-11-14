@@ -264,12 +264,14 @@ pub(super) fn run(args: &[String]) -> i32 {
         return 64;
     };
     // A copy past the size limits goes only when asked ([`sync_cli::size_cap`]).
-    if allow_large
-        && let Command::Push { local, .. } = &command
-        && let Err(error) = sync_cli::size_cap::allow(local)
-    {
-        println!("{}", SeedError::new("sync_failed", format!("{error:#}")).line());
-        return 1;
+    if allow_large && let Command::Push { local, .. } = &command {
+        match sync_cli::size_cap::allow(local) {
+            Ok(grant) => eprintln!("cmux: --allow-large: {}", grant.summary()),
+            Err(error) => {
+                println!("{}", SeedError::new("sync_failed", format!("{error:#}")).line());
+                return 1;
+            }
+        }
     }
     let answer = match command {
         Command::Pull { socket, local, remote, base } => {

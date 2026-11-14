@@ -195,13 +195,18 @@ pub(super) fn folder_refused(error: &UsageError, output: OutputMode) -> Option<i
 /// Runs `request` with this binary's own app verbs and prints the answer: `cloud start-chat`
 /// and `cmux chat --on vm:…` (chat_start.rs) are the same run.
 pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
-    // `--allow-large`: the copy of this folder sends it whole, whichever surface runs it.
+    // `--allow-large`: counts the folder and grants what it found, plus the margin, to every
+    // copy of it for a day, whichever surface runs it.
     if request.allow_large
         && let Some(dir) = &request.from_folder
-        && let Err(error) = crate::link::sync_cli::size_cap::allow(std::path::Path::new(dir))
     {
-        let message = format!("cmux: {error:#}");
-        return super::app::failure(folder::REFUSED_CODE, &message, global.output, 2);
+        match crate::link::sync_cli::size_cap::allow(std::path::Path::new(dir)) {
+            Ok(grant) => eprintln!("cmux: --allow-large: {}", grant.summary()),
+            Err(error) => {
+                let message = format!("cmux: {error:#}");
+                return super::app::failure(folder::REFUSED_CODE, &message, global.output, 2);
+            }
+        }
     }
     // A folder too big to copy is refused before any machine is made for it.
     if let Some(dir) = &request.from_folder

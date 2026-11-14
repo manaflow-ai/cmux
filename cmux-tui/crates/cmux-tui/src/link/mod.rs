@@ -150,6 +150,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
         }
         return machine_update::run(&args[1..]);
     }
+    // `copy-grant` (the app's "Copy anyway") answers one JSON line on stdout too.
+    if args.first().map(String::as_str) == Some("copy-grant") {
+        return sync_cli::copy_grant_cli::run(args.get(1..).unwrap_or_default());
+    }
     if args.first().map(String::as_str) == Some("start-chat") {
         return start_chat_cli::run(args.get(1..).unwrap_or_default());
     }
