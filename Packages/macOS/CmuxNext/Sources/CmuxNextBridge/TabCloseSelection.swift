@@ -48,7 +48,10 @@ public final class TabCloseSelection {
     /// end or the start), so the relation ends on any selection change. `link`: a link in `opener` asked, not a
     /// new-tab key (a page that shows before its store tab exists, so ``made(_:from:in:quick:foreground:)`` has no
     /// tab to name yet): a foreground task tab, which first ends the pane's older relations, as a link's web tab does.
-    public func expect(in pane: String, opener: String, listed: [String], quick: Bool, link: Bool = false) {
+    /// `standIn`: the stand-in the pane's strip still shows for `opener` (the store replaced it, the strip shows that one
+    /// update later): `opener` is that item, so the selection that leaves the stand-in still gives the new tab its opener.
+    public func expect(in pane: String, opener: String, listed: [String], quick: Bool, link: Bool = false, standIn: String? = nil) {
+        if let standIn { adopt(opener, inPlaceOf: standIn) }
         expected[pane] = (opener, Set(listed), quick, link)
     }
 

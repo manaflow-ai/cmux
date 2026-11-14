@@ -55,10 +55,10 @@ struct NewTabSuccession {
     private static func begin(page: StripTabID?, after anchor: String?, joining: Bool = false, in pane: PaneModel, services: AppServices) -> DemandTimer? {
         // A CLI or script open selects nothing and shows nothing: its tab lands as reported (opens being placed keep their slots).
         guard ActionRunScope.viewChangeAllowed() else { return nil }
-        let succession = NewTabSuccession(page: page, before: anchor.map { StripTabID($0) }, joins: joining, known: pane.tabs.map(\.id),
-                                          deadline: ContinuousClock.now.advanced(by: answerLimit), services: services, pane: pane)
+        let limit = answerLimit * (1 + (active[ObjectIdentifier(pane)]?.count { $0.surface == nil } ?? 0)) // sent after the pane's opens before it are answered (NewTabInsertion)
+        let succession = NewTabSuccession(page: page, before: anchor.map { StripTabID($0) }, joins: joining, known: pane.tabs.map(\.id), deadline: ContinuousClock.now.advanced(by: limit), services: services, pane: pane)
         active[ObjectIdentifier(pane), default: []].append(succession)
-        succession.expire(after: answerLimit)
+        succession.expire(after: limit)
         return succession.expiry
     }
 
