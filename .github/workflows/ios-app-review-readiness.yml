@@ -74,7 +74,22 @@ jobs:
           echo "App Review gate for feat-cmux-next $sha: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run_id" \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
+      # The verdict is the gate run's own conclusion, and nothing else. A read
+      # GitHub refuses (the installation's rate limit answered HTTP 403 in run
+      # 43618862433 while the gate ran on) is retried, never taken as the
+      # verdict; the job's timeout bounds the wait.
       - name: Wait for the gate's verdict
         env:
           RUN_ID: ${{ steps.dispatch.outputs.run_id }}
-        run: gh run watch "$RUN_ID" -R "$GITHUB_REPOSITORY" --exit-status --interval 60
+        run: |
+          set -uo pipefail
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID"
+          while :; do
+            state="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.status + " " + (.conclusion // "")')" \
+              || { echo "::warning::could not read $url; retrying in 2 min"; sleep 120; continue; }
+            case "$state" in
+              "completed success") echo "The App Review gate passed: $url"; exit 0 ;;
+              completed*) echo "::error::the App Review gate concluded ${state#completed }: $url"; exit 1 ;;
+            esac
+            sleep 120
+          done
