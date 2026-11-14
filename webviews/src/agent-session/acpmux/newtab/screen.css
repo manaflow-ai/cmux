@@ -501,6 +501,10 @@
 .nt-above .acpmux-location-button {
   --acpmux-location-mark-drop: 0.08;
 }
+/* Codex's tray centers its chips by flex alone (Lucas 2026-11-14: "the codex minimal looks good with the tray"). */
+.nt-composer[data-composer-look="codex"] .nt-above .acpmux-location-button {
+  --acpmux-location-mark-drop: 0;
+}
 .nt-above .acpmux-location-button > :is(.ui-ghost-icon, .acpmux-project-badge):first-child {
   translate: 0 calc(var(--text-control, 13px) * var(--acpmux-location-mark-drop));
 }
