@@ -26,6 +26,11 @@ the 4 shards without an accent-glass-invariants file: shards of 8 to 40 min, thr
 at the 40 min timeout (the 8 base runs to 41581500665). Each shard job must get the same FILES, SERIAL, DURATIONS and
 WIDTHS: the workflow reads the manifest once (web-subarea-scope) and hands every shard that copy.
 
+CMUX_WEB_TEST_SHARD_HEAD_START (`SHARD:SECONDS,...`) is work a shard's job does before its tests that
+the others do not: shard 1 runs the shard-independent checks (lint, type check, budgets, about 110-130 s
+in runs 43338660731 to 43342364793), and the split counted it as no load, so shard 1 ended about 2 min
+after a balanced sibling every run. The split starts that shard's plan at those seconds.
+
 DURATIONS is a JSON object {file: seconds}; a missing or unreadable file is no durations. The
 runner writes each file's first-run seconds (CMUX_WEB_TEST_DURATIONS_OUT); `merge` averages them
 with the prior manifest, so one noisy run moves a file's weight by half.
@@ -34,6 +39,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 import sys
@@ -109,8 +115,9 @@ class ShardPlan:
     DEV_AT_ONCE lanes; then the alone files in series. Lanes, not seconds divided by width: a 549 s
     file in an 8-wide pool still takes 549 s (accent-glass-invariants)."""
 
-    def __init__(self, widths: tuple[int, int, int] | None = None) -> None:
+    def __init__(self, widths: tuple[int, int, int] | None = None, head_start: int = 0) -> None:
         plain, browser, dev = widths or (PLAIN_AT_ONCE, BROWSER_AT_ONCE, DEV_AT_ONCE)
+        self.head_start = head_start
         self.plain = [0] * plain
         self.browser = [0] * browser
         self.warm: dict[str, int] = {}
@@ -141,7 +148,7 @@ class ShardPlan:
 
     def wall(self, kind: str = "", cost: int = 0, config: str = "") -> int:
         plain, browser, warm, dev, alone = self._after(kind, cost, config)
-        return max(max(plain), max(browser)) + sum(warm.values()) + max(dev) + alone
+        return self.head_start + max(max(plain), max(browser)) + sum(warm.values()) + max(dev) + alone
 
     def add(self, kind: str, cost: int, config: str = "") -> None:
         self.plain, self.browser, self.warm, self.dev, self.alone = self._after(kind, cost, config)
@@ -157,13 +164,26 @@ def parse_widths(text: str) -> tuple[int, int, int] | None:
     return plain, browser, dev
 
 
+def parse_head_start(text: str, count: int) -> dict[int, int] | None:
+    """`SHARD:SECONDS[,SHARD:SECONDS...]`, one-based shards: the seconds a shard's job spends on work
+    of its own before its tests (shard 1's checks), in milliseconds by zero-based shard. Empty is
+    none; a malformed entry or a shard outside 1..COUNT is None."""
+    found: dict[int, int] = {}
+    for entry in filter(None, (part.strip() for part in text.split(","))):
+        shard, _, seconds = entry.partition(":")
+        if not (shard.isdigit() and seconds.isdigit() and 1 <= int(shard) <= count):
+            return None
+        found[int(shard) - 1] = int(seconds) * 1000
+    return found
+
+
 def assign(files: list[str], serial: set[str], durations: dict[str, float], count: int,
-           widths: tuple[int, int, int] | None = None) -> list[int]:
+           widths: tuple[int, int, int] | None = None, head_start: dict[int, int] | None = None) -> list[int]:
     """Each file's zero-based shard, the same for the same inputs on every runner. Known files go
     longest first to the shard whose estimated wall time grows least (ties: less work, then the
     lower shard); unknown files by path hash, after, so they never move a known one."""
     shards = [0] * len(files)
-    plans = [ShardPlan(widths) for _ in range(count)]
+    plans = [ShardPlan(widths, (head_start or {}).get(shard, 0)) for shard in range(count)]
     known = []
     for index, name in enumerate(files):
         if name not in durations:
@@ -223,7 +243,13 @@ def main(argv: list[str]) -> int:
         if len(argv) == 7 and widths is None:
             print(f"error: widths {argv[6]!r} are not PLAIN,BROWSER,DEV", file=sys.stderr)
             return 2
-        shards = assign(files, serial, load_durations(argv[3]), count, widths)
+        head_start = parse_head_start(os.environ.get("CMUX_WEB_TEST_SHARD_HEAD_START", ""), count)
+        if head_start is None:
+            print("error: CMUX_WEB_TEST_SHARD_HEAD_START "
+                  f"{os.environ.get('CMUX_WEB_TEST_SHARD_HEAD_START')!r} is not SHARD:SECONDS,... in 1..{count}",
+                  file=sys.stderr)
+            return 2
+        shards = assign(files, serial, load_durations(argv[3]), count, widths, head_start)
         write_nul([name for name, target in zip(files, shards) if target == shard - 1])
         return 0
     if len(argv) == 4 and argv[0] == "order" and argv[3] in ("asc", "desc"):

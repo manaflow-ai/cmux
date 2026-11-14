@@ -163,6 +163,12 @@ await requireBrowserLane("agent-pane-focus-content.test.ts", async () => {
     test(`a click outside the composer blurs it, with the click's ${signal} after the press`, async () => {
       const page = await chat();
       await focusPrompt(page);
+      // The press and its signal reach the page together, as in WebKit: the page's clock holds still
+      // between them, so the signal lands inside the press's window (PRESS_WINDOW_MS) however long
+      // a loaded runner takes between the two calls. On the running clock a runner that took more
+      // than 400 ms there read the signal as a later activation, and its claim took the keyboard
+      // back (run 43395228044, seven browser files at once).
+      await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1_000);
       await pressBackground(page);
       if (signal === "focusContent") expect(await focusContent(page)).toBe(true);
       else await page.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));

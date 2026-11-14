@@ -46,6 +46,22 @@ fn removals_past_the_bound_raise_the_floor_and_older_cursors_reset() {
 }
 
 #[test]
+fn a_removal_dropped_after_a_barrier_never_lowers_the_floor() {
+    let mut log = RowLog::default();
+    log.stamp(own("a"), true);
+    log.barrier();
+    let floor = log.head();
+    // One removal past the bound: only `a`'s (position 1, below the barrier) is dropped.
+    for n in 0..GONE_MOST {
+        log.stamp(own(&format!("c{n}")), true);
+    }
+    assert_eq!(log.len(), (0, GONE_MOST));
+    // The removal of `a` was dropped below the barrier: the floor stays at the barrier.
+    assert!(log.since(floor - 1).is_none(), "a cursor before the barrier still resets");
+    assert!(log.since(floor).is_some());
+}
+
+#[test]
 fn a_list_reply_says_the_position_it_is_current_to() {
     let text = with_cursor(r#"{"sessions":[]}"#, 7, "e1", false);
     assert_eq!(text, r#"{"listEpoch":"e1","listSeq":7,"sessions":[]}"#);
@@ -291,34 +307,127 @@ async fn a_reconnect_storm_of_30_links_never_pages_or_refuses_a_list() {
     assert!(bytes / 600 < list / 5, "a follow reads the changes, not the list");
 }
 
+/// A hub with the closed chats `parent`, `child` (spawned by `parent`: its row folds under it)
+/// and `other`.
+async fn family() -> Arc<Hub> {
+    let hub = hub_with(0, 0, 0).await;
+    let mut child = chat("child", 2);
+    child.tags.insert(
+        super::super::views::SPAWNED_BY_TAG.into(),
+        crate::store::Tag { value: "parent".into(), expires_at: None },
+    );
+    for meta in [chat("parent", 1), child, chat("other", 3)] {
+        hub.insert_test_session(meta);
+    }
+    hub
+}
+
+fn session(hub: &Hub, id: &str) -> Arc<Session> {
+    hub.resolve(id).unwrap()
+}
+
+/// The ids of a follow from `after`, sorted.
+async fn follow_ids(app: &mut Client, after: u64, epoch: &str) -> Vec<String> {
+    let params = json!({"enabled": true, "afterSeq": after, "listEpoch": epoch});
+    let follow = app.call(method::MUX_WATCH, params).await;
+    assert_eq!(follow["follow"], true, "{follow}");
+    ids(&follow["sessions"])
+}
+
+/// #42091 F1: a parent's `tags` (or its purge) changes its children's rows, which its record does
+/// not name. Each is stamped and told after it, so a client whose cursor is the
+/// record's own notice's `listSeq` follows them. Before, the record set a floor at its own
+/// position and the log followed that cursor past the children: the client never got them.
 #[tokio::test]
-async fn a_change_that_reaches_other_rows_resets_older_cursors() {
+async fn a_record_that_reaches_other_rows_tells_them_after_its_own_notice() {
     for kind in ["tags", "purged"] {
-        reaches_other_rows_resets(kind).await;
+        let hub = family().await;
+        let epoch = hub.list_cursor().1.to_owned();
+        let mut app = Client::new(&hub, Origin::Local).await;
+        app.call(method::MUX_WATCH, json!({"enabled": true, "limit": 10})).await;
+        hub.append(&session(&hub, "parent"), "mux", kind, json!({}));
+        let notice = app.changed().await;
+        let named = (notice["sessionId"].as_str(), notice["kind"].as_str());
+        assert_eq!(named, (Some("parent"), Some(kind)));
+        let at = notice["listSeq"].as_u64().unwrap();
+        // A reconnect from the parent's notice follows the child, and only the rows that read it.
+        let mut back = Client::new(&hub, Origin::Local).await;
+        assert_eq!(follow_ids(&mut back, at, &epoch).await, ["child"], "{kind}");
+        // The watcher hears the child's row too, after the parent's.
+        let told = app.changed().await;
+        assert_eq!(told["sessionId"], "child", "{kind}: {told}");
+        assert!(told["listSeq"].as_u64().unwrap() > at, "{kind}: {told}");
     }
 }
 
-async fn reaches_other_rows_resets(kind: &str) {
-    let hub = hub_with(3, 0, 0).await;
+/// #42091 F2: a child's `created` record changes its parent's row (the child folds under it).
+/// The parent is stamped and told, so a follow from before the record sends both. Before,
+/// `created` set no floor and stamped only the child: the parent's row stayed as it was.
+#[tokio::test]
+async fn a_created_child_tells_its_parents_row() {
+    let hub = family().await;
     let (head, epoch) = {
         let (h, e) = hub.list_cursor();
         (h, e.to_owned())
     };
-    // A parent's tags fold its children: rows no record names change with it.
-    record(&hub, "chat-0", kind);
     let mut app = Client::new(&hub, Origin::Local).await;
-    let reply = app
-        .call(method::MUX_WATCH, json!({"enabled": true, "afterSeq": head, "listEpoch": epoch}))
-        .await;
+    hub.append(&session(&hub, "child"), "mux", "created", json!({}));
+    assert_eq!(follow_ids(&mut app, head, &epoch).await, ["child", "parent"]);
+    // A session that comes with no record of its own (moved here, forked) tells it too.
+    let (head, _) = hub.list_cursor();
+    let mut late = chat("late", 4);
+    late.tags.insert(
+        super::super::views::SPAWNED_BY_TAG.into(),
+        crate::store::Tag { value: "other".into(), expires_at: None },
+    );
+    hub.insert_test_session(late);
+    assert_eq!(follow_ids(&mut app, head, &epoch).await, ["late", "other"]);
+}
+
+/// A change no record carries that may reach any row (new usage warning thresholds,
+/// `Events::changed`) is a barrier: a cursor before it, the head itself too, reads the first page
+/// again (`reset`), and the reset's own `listSeq` follows. Before, it moved no position, and a
+/// reconnect followed with an empty patch and kept every row as it was (review of #41865 at
+/// 316f5ca, F1).
+#[tokio::test]
+async fn a_change_that_may_reach_every_row_resets_every_older_cursor() {
+    let hub = family().await;
+    let (head, epoch) = {
+        let (h, e) = hub.list_cursor();
+        (h, e.to_owned())
+    };
+    hub.events.changed(None);
+    let mut app = Client::new(&hub, Origin::Local).await;
+    let params = json!({"enabled": true, "limit": 10, "afterSeq": head, "listEpoch": epoch});
+    let reply = app.call(method::MUX_WATCH, params).await;
     assert_eq!(reply["reset"], true, "{reply}");
-    // A cursor at or after it follows.
+    assert_eq!(ids(&reply["sessions"]), ["child", "other", "parent"]);
     let at = reply["listSeq"].as_u64().unwrap();
-    record(&hub, "chat-1", "renamed");
-    let follow = app
-        .call(method::MUX_WATCH, json!({"enabled": true, "afterSeq": at, "listEpoch": epoch}))
-        .await;
-    assert_eq!(ids(&follow["sessions"]), ["chat-1"], "{follow}");
+    hub.append(&session(&hub, "other"), "mux", "renamed", json!({}));
+    assert_eq!(follow_ids(&mut app, at, &epoch).await, ["other"]);
 }
 
 #[path = "row_log_bench_tests.rs"]
 mod bench;
+
+/// A follow whose one changed row is larger than a reply (#42131 review, F2): the row goes trimmed
+/// or as a stub with its keys, as a page's does, and the reply stays under the cap rather than
+/// ending in `message.too_large`.
+#[tokio::test]
+async fn a_follow_of_one_row_larger_than_a_reply_fits_under_the_cap() {
+    let hub = hub_with(3, 0, 0).await;
+    let mut app = Client::new(&hub, Origin::Local).await;
+    let first = app.call(method::MUX_WATCH, json!({"enabled": true})).await;
+    let (cursor, epoch) = (first["listSeq"].as_u64().unwrap(), first["listEpoch"].clone());
+    let big = hub.session_by_id("chat-1").unwrap();
+    hub.edit_test_meta(&big, |m| m.name = "n".repeat(3 << 20));
+    let params = json!({"enabled": true, "afterSeq": cursor, "listEpoch": epoch});
+    let follow = app.call(method::MUX_WATCH, params).await;
+    let bytes = follow.to_string().len();
+    let cap = crate::rpc::REPLY_PAGE_BYTES;
+    assert!(bytes < cap, "a follow of {bytes} bytes, past the {cap}-byte cap");
+    let rows = follow["sessions"].as_array().unwrap();
+    let row = rows.iter().find(|r| r["sessionId"] == "chat-1").expect("the row is in the follow");
+    assert!(row["name"].as_str().is_none_or(|n| n.len() < 3 << 20), "the row went whole");
+    assert_eq!(follow["more"], false, "{}", follow.to_string().get(..400).unwrap_or_default());
+}

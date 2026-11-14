@@ -2974,9 +2974,6 @@ impl Peer {
         }
     }
 
-    /// [`Self::watch_request_on`], asked again after the wait a peer's `list.paced` refusal
-    /// names (a pre-#28182 peer refuses a list it would make wait more than 30 s). The
-    /// handshake's deadline bounds the retries.
     /// The first `_acpmux/watch` a handshake asks for, and whether with tools, as the link knows
     /// the peer now: what changed after the cursor of the list the hub holds when the peer
     /// serves this daemon as a peer and follows its list (`hub/row_log.rs`), else the whole list
@@ -3043,6 +3040,10 @@ impl Peer {
         }
     }
 
+    /// [`Self::watch_request_on`], asked again after the wait a peer's `list.paced` refusal
+    /// names: a daemon from before its pacer was deleted (W4, 2026-11-12) refuses a list it would
+    /// make wait more than 30 s. This one never refuses. The handshake's deadline bounds the
+    /// retries.
     async fn watch_paced(&self, m: &str, params: Value, link: u64) -> Result<Value, RpcError> {
         loop {
             match self.watch_request_on(m, params.clone(), link).await {

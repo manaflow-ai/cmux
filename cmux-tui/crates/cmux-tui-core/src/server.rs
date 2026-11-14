@@ -2887,7 +2887,7 @@ pub use listen::{
     serve_paused, socket_start_lock_path, verify_session_socket_directory,
 };
 mod restoring;
-mod terminal_sessions;
+mod terminal_admission;
 #[cfg(all(test, unix))]
 use listen::still_at_path;
 #[cfg(test)]
@@ -3227,3 +3227,5 @@ mod tests;
 mod cloud_api;
 #[cfg(unix)]
 mod cloud_repos;
+#[cfg(unix)]
+mod cloud_runs;

@@ -157,6 +157,15 @@ pub(super) fn content(
     Ok(())
 }
 
+pub(super) fn decoded_len(raw: &RawValue) -> Result<u64, Error> {
+    let mut length = 0u64;
+    content(raw, 0, &mut |text| {
+        length = length.saturating_add(text.len() as u64);
+        Ok(())
+    })?;
+    Ok(length)
+}
+
 pub(super) struct Output<'a> {
     bytes: &'a [u8],
     pub ops: Vec<Op>,
@@ -192,5 +201,8 @@ impl<'a> Output<'a> {
         let range = RawRange { offset, length: raw.get().len() };
         debug_assert!(offset.saturating_add(range.length) <= self.bytes.len());
         self.emit(Change::Body { id, field, append, source: BodySource::Input(range) });
+    }
+    pub fn raw_body(&mut self, id: u64, field: BodyField, append: bool, place: u64, span: u64) {
+        self.emit(Change::Body { id, field, append, source: BodySource::Raw { place, span } });
     }
 }

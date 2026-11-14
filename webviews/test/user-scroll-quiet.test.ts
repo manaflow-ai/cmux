@@ -116,7 +116,14 @@ test("a press on text is held but not scrolled by hand until it drags; the scrol
     contains: () => true,
   };
   const page = { ...target, defaultView: target, body: {} };
-  const node = { ...target, ownerDocument: page } as unknown as HTMLElement;
+  const node = {
+    ...target,
+    ownerDocument: page,
+    offsetWidth: 760,
+    clientWidth: 744,
+    clientLeft: 0,
+    getBoundingClientRect: () => ({ left: 0, width: 760 }),
+  } as unknown as HTMLElement;
   const detach = attachUserScrollIntent(node);
   const intent = userScrollIntent(node);
   const text = { closest: () => null };

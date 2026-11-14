@@ -435,12 +435,16 @@ public struct RootView: View {
             Task { await auth.selectTeam(teamID) }
         }
         live = coordinator
+        // The incident watch follows the app in front from UIKit, starting with its state now.
+        coordinator.followApplicationState()
         PushReplies.shared.attach(live: coordinator)
         // Before the session ends: stop pushes to this phone. The Macs keep
         // their approval of it (verify/persistence.md).
-        auth.willSignOut = AccountSignOut().willSignOut {
+        auth.willSignOut = AccountSignOut().willSignOut { [weak coordinator] in
             // Disarm queued replies before the sign-out network work suspends.
             PushReplies.shared.signedOut()
+            // Open connectivity incidents end now, sent while the token still works.
+            await coordinator?.endIncidentsBeforeSignOut()
             // Withhold content before network sign-out can leave this device.
             // The marker lives independently of the pairing keys we retain.
             await PushActiveAccountMirror.shared.clearBeforeSignOut()
