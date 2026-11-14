@@ -31,3 +31,6 @@ acpmux-client = { path = "../acpmux-client", features = ["tokio"] }
 serde = { workspace = true, features = ["derive"] }
 tempfile = "3"
 tokio = { version = "1.52", features = ["macros", "rt-multi-thread", "sync", "net", "time", "test-util"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+libc.workspace = true

@@ -33,7 +33,7 @@ pub use fork_view::{
 };
 mod log_bytes;
 pub use log_bytes::{
-    LogChunk, LogFilter, LogMark, LogMarks, STAMP as LOG_STAMP, line_seq as log_line_seq,
+    LogChunk, LogFilter, LogMark, LogMarks, LogPart, STAMP as LOG_STAMP, line_seq as log_line_seq,
 };
 mod meta_parts;
 pub use meta_parts::PARTS_FILE;
@@ -1142,6 +1142,33 @@ pub trait Store: Send + Sync {
         chunk.read = out.len() as u64;
         Ok(chunk)
     }
+    /// v2's `RawSource::read_at`: at most `max` bytes of chat `id`'s line at seq `seq`, from
+    /// `offset` in it, into `out`, read under count `stamp` with `marks`; and whether the line
+    /// ends there. A store whose lines are files reads that part alone; this default reads the
+    /// line whole through `read_log`.
+    #[allow(clippy::too_many_arguments)]
+    fn read_log_part(
+        &self,
+        id: &str,
+        seq: u64,
+        offset: u64,
+        max: usize,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogPart> {
+        let chunk = self.read_log(id, seq, LogFilter::ALL, stamp, marks, out)?;
+        let line = out.iter().position(|b| *b == b'\n').unwrap_or(out.len());
+        out.truncate(line);
+        if log_line_seq(out) != Some(seq) {
+            anyhow::bail!("chat {id} holds no line at seq {seq}");
+        }
+        let start = usize::try_from(offset).unwrap_or(usize::MAX).min(line);
+        let end = start.saturating_add(max).min(line);
+        out.copy_within(start..end, 0);
+        out.truncate(end - start);
+        Ok(LogPart { ends: end == line, read: chunk.read })
+    }
     /// Chat `id`'s count of changes to lines already written (`store/log_bytes.rs`): 0 for a
     /// store whose lines never change.
     fn log_stamp(&self, _id: &str) -> Result<u64> {
@@ -2193,6 +2220,19 @@ impl Store for LocalStore {
         self.read_log_bytes(id, from, filter, stamp, marks, out)
     }
 
+    fn read_log_part(
+        &self,
+        id: &str,
+        seq: u64,
+        offset: u64,
+        max: usize,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogPart> {
+        self.read_log_part_bytes(id, seq, offset, max, stamp, marks, out)
+    }
+
     fn log_stamp(&self, id: &str) -> Result<u64> {
         self.read_stamp(id)
     }
@@ -2715,7 +2755,8 @@ type Crash = Box<dyn FnOnce() + Send>;
 #[cfg(test)]
 static BETWEEN_SEGMENTS: std::sync::Mutex<Vec<(String, Crash)>> = std::sync::Mutex::new(Vec::new());
 
-/// Tests only: arms [`BETWEEN_SEGMENTS`] for chat `id`, once.
+/// Tests only: arms [`BETWEEN_SEGMENTS`] for chat `id`, once. The hook is process-wide and tests
+/// run in parallel: `id` is a chat no other test uses, or another test's commit takes the crash.
 #[cfg(test)]
 pub(crate) fn between_segments_once(id: &str, crash: Crash) {
     BETWEEN_SEGMENTS.lock().unwrap_or_else(|e| e.into_inner()).push((id.to_owned(), crash));
