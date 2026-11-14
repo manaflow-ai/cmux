@@ -74,7 +74,9 @@ impl DirWatch {
         Self::start_native(paths, true, on_change)
     }
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    /// Watch each directory's entries and its own end. Only macOS's watches use it now (the
+    /// settings, harness and chat index watches); a host's record watch is [`RecordWatch`].
+    #[cfg(target_os = "macos")]
     pub(crate) fn start(
         dirs: &[PathBuf],
         on_change: impl FnMut() -> bool + Send + 'static,
