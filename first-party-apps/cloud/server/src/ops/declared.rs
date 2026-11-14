@@ -50,6 +50,7 @@ const PROVIDER: &[&str] = &["cloud.provider.unavailable", "mutation.indeterminat
 /// `(op, class base, the op's own codes)`.
 const OPS: &[(&str, &[&str], &[&str])] = &[
     ("cloud.machine.list", READ, &[]),
+    ("cloud.machine.board", READ, &[]),
     ("cloud.machine.get", READ, &["cloud.machine.not_found"]),
     (
         "cloud.machine.create",
