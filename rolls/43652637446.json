@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43652637446",
+  "recorded_at": "2026-11-14T23:29:06Z",
+  "reason": "cmux-tui 468f85fc50d7 changes the image's cmux-tui (pinned 18886b02ad47)",
+  "dry_run": false,
+  "cmux_tui": "468f85fc50d7c27e188ad8854a5cc57991f03b18",
+  "fixes": [
+    {
+      "sha": "468f85fc50d7c27e188ad8854a5cc57991f03b18",
+      "mergedAt": "2026-11-14T14:58:37-08:00",
+      "subject": "Computer Use calls recover from a stale or killed helper by themselves (#43278)"
+    },
+    {
+      "sha": "28a5a6744ed4c61431b3190233ccac4bdfd7244a",
+      "mergedAt": "2026-11-14T14:57:36-08:00",
+      "subject": "Action exports: sidebar.customize after the e0e97740 re-pin (#43210)"
+    },
+    {
+      "sha": "909d2726428b128898c2788794d70c45ddc24b90",
+      "mergedAt": "2026-11-14T14:55:35-08:00",
+      "subject": "cmux-tui-core: the update plan counts threads through the v2 list (row 7c, PR a) (#43217)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-14T23:29:06Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
