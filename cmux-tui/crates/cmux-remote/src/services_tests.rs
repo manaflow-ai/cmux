@@ -1213,6 +1213,92 @@ async fn reserved_process_stream_keeps_mixed_stdout_and_stderr_for_a_slow_reader
     assert_eq!(exit, Some(0));
 }
 
+/// P1-F1 (second review of #43048): with a small retention budget, room for
+/// one output event is all there is. A quiet stdout reader that took that
+/// room before its pipe had data left none for stderr, so a child writing
+/// more than a pipe's capacity to stderr alone blocked forever, though the
+/// client read every event at once. Room is taken only for output in hand.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reserved_process_stream_with_a_small_budget_drains_stderr_only_output() {
+    const STDERR: usize = 1024 * 1024;
+
+    let directory = tempdir().unwrap();
+    let workspace = WorkspaceService::new();
+    let scope = ClientScope::new("stderr-only", cmux_remote_protocol::SessionId([18; 16]));
+    let opened = workspace
+        .handle_rpc_for(
+            scope.clone(),
+            RpcRequest {
+                id: cmux_remote_protocol::RequestId::from_u128(0x4000_0000_0000_0021),
+                timeout_ms: None,
+                request: WorkspaceRequest::OpenWorkspace {
+                    root: directory.path().to_string_lossy().into_owned(),
+                },
+            },
+        )
+        .await
+        .result
+        .unwrap();
+    let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
+        panic!("open-workspace returned the wrong response")
+    };
+    let process = ProcessId::from_u128(0x8000_0000_0040_0021);
+    let mut subscription =
+        workspace.subscribe_or_reserve_process(&scope, process, 0, true).await.unwrap();
+    let spawn = WorkspaceRequest::SpawnProcessWithHandle {
+        process,
+        workspace: workspace_id,
+        // Stdout stays open and silent until the child exits.
+        argv: vec!["/bin/sh".into(), "-c".into(), format!("head -c {STDERR} /dev/zero >&2")],
+        cwd: None,
+        env: BTreeMap::new(),
+        io: ProcessIo::Pipes { stdin: false },
+        lifetime: ProcessLifetime::Workspace,
+        operation: None,
+        timeout_ms: None,
+        retained_output_bytes: Some(64 * 1024),
+        environment: ProcessEnvironment::Inherit,
+        output_drain_idle_timeout_ms: None,
+        output_drain_total_timeout_ms: None,
+    };
+    workspace
+        .handle_rpc_for(
+            scope.clone(),
+            RpcRequest {
+                id: cmux_remote_protocol::RequestId::from_u128(0x4000_0000_0000_0022),
+                timeout_ms: None,
+                request: spawn,
+            },
+        )
+        .await
+        .result
+        .unwrap();
+
+    let mut stderr = 0usize;
+    let exit = loop {
+        let event = tokio::time::timeout(std::time::Duration::from_secs(30), subscription.recv())
+            .await
+            .unwrap_or_else(|_| panic!("stderr-only process stream stalled after {stderr} bytes"))
+            .unwrap_or_else(|error| panic!("after {stderr} bytes: {error}"));
+        match event.event {
+            ProcessEvent::Stdout { data, .. } => {
+                panic!("unexpected stdout: {} bytes", data.decode().unwrap().len())
+            }
+            ProcessEvent::Stderr { data, .. } => stderr += data.decode().unwrap().len(),
+            ProcessEvent::OutputTruncated { reason, .. } => {
+                panic!("output truncated after {stderr} bytes: {reason:?}")
+            }
+            ProcessEvent::ReplayGap { requested_after, range, .. } => {
+                panic!("replay gap after {stderr} bytes ({requested_after}, {range:?})")
+            }
+            ProcessEvent::Exit { code, .. } => break code,
+        }
+    };
+    assert_eq!(stderr, STDERR);
+    assert_eq!(exit, Some(0));
+}
+
 #[cfg(unix)]
 #[tokio::test(flavor = "current_thread")]
 async fn reconnect_process_stream_reports_a_structured_replay_gap() {
