@@ -50,6 +50,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Build the Windows host
+        shell: pwsh
         working-directory: cmux-tui/crates/cmux-rd-host
         run: |
           cargo build --release --locked --no-default-features --features bench
@@ -57,6 +58,7 @@ jobs:
           cargo test --release --locked --no-default-features --features bench optional_4k_mode
 
       - name: Capture and encode a real desktop sample
+        shell: pwsh
         working-directory: cmux-tui/crates/cmux-rd-host
         run: |
           $ErrorActionPreference = 'Stop'
@@ -146,6 +148,7 @@ jobs:
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Build the Windows host
+        shell: pwsh
         working-directory: cmux-tui/crates/cmux-rd-host
         run: cargo build --locked --no-default-features --features bench
 
