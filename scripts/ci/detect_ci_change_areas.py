@@ -175,6 +175,10 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
 # that tree can execute cannot change what a pull request's lanes do.
 _LOCAL_WORKFLOW_CALL_RE = re.compile(r"""uses:\s*["']?\./(\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml)""")
 _DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt")
+# Files where `#` starts a comment. Outside scripts/, actions and tests/, one
+# that names a helper only in a comment does not run it (a Cargo.toml's note on
+# the release strip routed that strip script to every lane, #42338).
+_HASH_COMMENT_SUFFIXES = (".toml", ".yml", ".yaml", ".sh", ".bash", ".zsh")
 # Data files that name helpers without running them: git attributes, the
 # warm-source table, whose entries describe a source in prose (#28568), the
 # single-host fallback declaration, whose `fallback` lines name the rescue that
@@ -875,6 +879,13 @@ def ci_helper_areas(
                     if referrer.endswith(".py") else None
                 )
                 if named is False or (named is None and not _names(text, token)):
+                    continue
+            elif not referrer.startswith("tests/") and referrer.endswith(_HASH_COMMENT_SUFFIXES):
+                try:
+                    text = (root / referrer).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    return every_area(f"could not read {referrer}")
+                if not _names(text, token):
                     continue
             if role == "action":
                 # An action runs in whatever job uses it; its directory is

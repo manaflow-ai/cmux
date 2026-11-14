@@ -25,6 +25,7 @@ public final class MacAppearanceFeed {
     typealias Fetch = @MainActor (CmuxMobileMacAppearance.Wallpaper) async -> Data?
 
     private let theme: CmuxMobileMacTheme
+    private let terminalThemes: CmuxMobileTerminalThemes
     /// The newest appearance of each Mac, by Mac id.
     private(set) var latest: [String: CmuxMobileMacAppearance] = [:]
     /// How to fetch a wallpaper from each linked Mac (its last link's), by Mac id.
@@ -34,8 +35,9 @@ public final class MacAppearanceFeed {
     /// The wallpaper fetch the focus started, if any (tests await it).
     private(set) var focusFetch: Task<Void, Never>?
 
-    public init(theme: CmuxMobileMacTheme = .shared) {
+    public init(theme: CmuxMobileMacTheme = .shared, terminalThemes: CmuxMobileTerminalThemes = .shared) {
         self.theme = theme
+        self.terminalThemes = terminalThemes
     }
 
     /// The focused Mac changed: its newest theme shows at once, and a wallpaper not cached yet is
@@ -59,6 +61,8 @@ public final class MacAppearanceFeed {
         }
         latest[macID] = appearance
         fetchers[macID] = fetch
+        // Every Mac's terminals take its terminal theme, focused or not.
+        terminalThemes.apply(appearance, macID: macID)
         guard macID == focusedMacID else { return }
         // The theme shows at once; the picture follows when it arrives.
         theme.apply(appearance)

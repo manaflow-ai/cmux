@@ -77,6 +77,36 @@ import UIKit
         #expect(feed.latest.isEmpty)
     }
 
+    /// Each Mac's terminals take that Mac's terminal theme, whether or not the phone focuses it and
+    /// whatever Match Mac theme says (that switch is the phone's chrome).
+    @Test func everyMacsTerminalThemeIsKeptWhateverTheFocusAndTheSwitch() async {
+        let theme = Self.theme()
+        theme.matchesMac = false
+        let terminals = CmuxMobileTerminalThemes(cached: nil)
+        let feed = MacAppearanceFeed(theme: theme, terminalThemes: terminals)
+        feed.focus(macID: "mac-a")
+        let terminal = ##","terminal":["background = #2b0b3f","foreground = #f9e79f","palette = 1=#ff3864"]}"##
+        var frame = String(decoding: Self.frame(background: "#202020"), as: UTF8.self)
+        frame.removeLast()
+        let changed = MacRecorder()
+        // Posted on the main thread, delivered there at once (no queue).
+        let observer = NotificationCenter.default.addObserver(forName: CmuxMobileTerminalThemes.didChange, object: terminals, queue: nil) { note in
+            let mac = note.userInfo?[CmuxMobileTerminalThemes.macIDKey] as? String
+            MainActor.assumeIsolated { if let mac { changed.ids.append(mac) } }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        await feed.apply(Data((frame + terminal).utf8), macID: "mac-b") { _ in nil }
+        await feed.apply(Self.frame(background: "#101010"), macID: "mac-a") { _ in nil }
+        #expect(terminals.theme(for: "mac-b")?.background == "#2b0b3f")
+        #expect(terminals.theme(for: "mac-b")?.lines.contains("palette = 1=#ff3864") == true)
+        // An older Mac sends no terminal lines: its own colors, not the phone's.
+        #expect(terminals.theme(for: "mac-a")?.background == "#101010")
+        #expect(changed.ids == ["mac-b", "mac-a"])
+        // The same frame again changes nothing.
+        await feed.apply(Self.frame(background: "#101010"), macID: "mac-a") { _ in nil }
+        #expect(changed.ids == ["mac-b", "mac-a"])
+    }
+
     /// First pairing, or a switch to a Mac whose frame came while another was focused: the focus
     /// shows that Mac's theme at once, even with its wallpaper not cached, and fetches the picture.
     @Test func aFocusShowsTheThemeAtOnceAndFetchesAMissingWallpaper() async {
@@ -110,5 +140,8 @@ import UIKit
 @MainActor
 final class FetchCounter {
     var count = 0
+}
+@MainActor final class MacRecorder {
+    var ids: [String] = []
 }
 #endif
