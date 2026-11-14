@@ -224,7 +224,7 @@ fn plan(
     workspaces: &BTreeMap<String, Workspace>,
     problems: &mut Vec<Problem>,
 ) -> Plan {
-    let input = &input[..input.len().min(MAX_ENTRIES)];
+    let input_len = input.len().min(MAX_ENTRIES);
     let mut section_for_workspace = BTreeMap::new();
     // `None` marks an ambiguous display name. Exact group ids are kept in a
     // separate set, so an id still wins when it happens to equal another
@@ -243,7 +243,7 @@ fn plan(
             }
         }
     };
-    for section in input {
+    for section in input.iter().take(input_len) {
         for node in section.nodes.iter().take(MAX_ENTRIES) {
             if node.kind == "group" {
                 group_ids.entry(section.id.clone()).or_default().insert(node.id.clone());
@@ -259,6 +259,7 @@ fn plan(
     let selected_section = selected.and_then(|id| section_for_workspace.get(id)).cloned();
     let hidden_sections = input
         .iter()
+        .take(input_len)
         .filter(|section| {
             hidden.iter().any(|key| {
                 section.keys.iter().any(|candidate| candidate == key) || section.id == *key
@@ -273,7 +274,7 @@ fn plan(
     let mut workspace_groups = BTreeMap::new();
     let mut workspace_orders = BTreeMap::new();
     let mut workspace_group_for = BTreeMap::new();
-    for section in input {
+    for section in input.iter().take(input_len) {
         for node in section.nodes.iter().take(MAX_ENTRIES) {
             if node.kind == "group" {
                 for workspace in node.workspace_ids.iter().take(MAX_ENTRIES) {
@@ -317,15 +318,16 @@ fn plan(
 
     // Reorder only within each existing region. This keeps app and fixed-band
     // boundaries intact while allowing a user order to rank known sections.
-    let mut section_order = Vec::with_capacity(input.len());
+    let mut section_order = Vec::with_capacity(input_len);
     let mut start = 0;
-    while start < input.len() {
-        let region = input[start].region.as_str();
+    while start < input_len {
+        let Some(first) = input.iter().nth(start) else { break };
+        let region = first.region.as_str();
         let mut end = start + 1;
-        while end < input.len() && input[end].region == region {
+        while end < input_len && input.iter().nth(end).is_some_and(|section| section.region == region) {
             end += 1;
         }
-        let mut chunk = input[start..end].iter().collect::<Vec<_>>();
+        let mut chunk = input.iter().skip(start).take(end - start).collect::<Vec<_>>();
         chunk.sort_by_key(|section| {
             order
                 .iter()
