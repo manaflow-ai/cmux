@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43631063615",
+  "recorded_at": "2026-11-14T19:22:57Z",
+  "reason": "cmux-tui c4c6c11a215f changes the image's cmux-tui (pinned 8496df824bae)",
+  "dry_run": false,
+  "cmux_tui": "c4c6c11a215f2570cb94e2a25d1d06c6d767e924",
+  "fixes": [
+    {
+      "sha": "c4c6c11a215f2570cb94e2a25d1d06c6d767e924",
+      "mergedAt": "2026-11-14T10:52:21-08:00",
+      "subject": "cmux-cloud-config: a scoped token store lives under cmux-next/<bundle id> (#43083)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T19:22:57Z",
+    "snapshot_id": "sh-f871ee0bc1d2465cb16246577c8a7800",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43631063615): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "642d9392e9a5bcae1e1603ef59fee85d17a89264",
+    "image": "cloud-native-auto-c4c6c11a-43631063615-1",
+    "revision": "ci-43631063615-1",
+    "at": "2026-11-14T19:22:57Z"
+  },
+  "rolled_back": false
+}
