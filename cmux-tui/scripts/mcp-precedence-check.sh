@@ -290,6 +290,12 @@ PY
     check "codex shim [$name]: cmux_terminal added, nothing turned off, nothing said" $?
   }
   sub=$P/sub
+  # Interactive Codex can /cd, /resume into another folder or make a worktree
+  # mid-session, rebuilding its config with the shim's settings: only exec and
+  # review are probed; interactive launches turn nothing off, quietly.
+  user_plain
+  no_turn_off "interactive codex" "$D/work"
+  no_turn_off "codex PROMPT (interactive)" "$D/work" "fix the bug"
   # The shim reads no trust. A .codex/config.toml in the launch folder or an
   # ancestor (CODEX_HOME's aside) that names cmux, or is not TOML, may be
   # loaded where the probe does not see it (an untrusted folder trusted at the
@@ -304,7 +310,7 @@ PY
   check "codex: the trusted project's cmux layer loads (the next cases' premise)" $?
   no_turn_off "trusted project whose config names cmux" "$sub"
   no_turn_off "-C into it" "$D/work" -C "$sub"
-  shim_case "-C out of it" "$sub" no -- -C "$D/work"
+  shim_case "-C out of it" "$sub" no -- -C "$D/work" exec
   # Codex walks -C as written (`..` removed lexically, symlinks kept): a link
   # in the project to a folder outside it is still under the project's config.
   ln -s "$D/work" "$P/link"
@@ -315,14 +321,14 @@ PY
   no_turn_off "a project config that is not TOML" "$sub"
   # A project config without cmux: the probe answers, trusted or not.
   printf 'model_reasoning_effort = "low"\n' > "$P/.codex/config.toml"
-  shim_case "trusted project, its config without cmux" "$sub" no --
+  shim_case "trusted project, its config without cmux" "$sub" no -- exec
   user_plain
-  shim_case "untrusted project, its config without cmux" "$sub" no --
+  shim_case "untrusted project, its config without cmux" "$sub" no -- exec
   # Launched in ~ with CODEX_HOME unset: ~/.codex/config.toml is Codex's own
   # config, not a project's; the probe answers and the entry is turned off.
   mkdir -p "$HOME/.codex"; cp "$CODEX_HOME/config.toml" "$HOME/.codex/config.toml"
   rm -f "$D/codex-args"
-  (cd "$HOME" && env -u CODEX_HOME "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper >/dev/null 2>&1)
+  (cd "$HOME" && env -u CODEX_HOME "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper exec >/dev/null 2>&1)
   grep -q '^mcp_servers.cmux_terminal.command=' "$D/codex-args" && grep -q '^mcp_servers.cmux.enabled=false$' "$D/codex-args"
   check "codex shim [in ~, CODEX_HOME unset, ~/.codex names cmux]: probed, the entry turned off" $?
   rm -rf "$HOME/.codex"
@@ -333,16 +339,16 @@ PY
   printf '[mcp_servers.cmux]\ncwd = "/worktree-cwd"\n' > "$D/wt/.codex/config.toml"
   no_turn_off "worktree whose config names cmux" "$D/wt"
   printf 'model_reasoning_effort = "low"\n' > "$D/wt/.codex/config.toml"
-  shim_case "worktree, its config without cmux" "$D/wt" no --
+  shim_case "worktree, its config without cmux" "$D/wt" no -- exec
   rm -rf "$P/.codex"
   # Profiles: --profile forms and a top-level `profile =`.
   user_plain; printf '[mcp_servers.cmux]\ncwd = "/profile-cwd"\n' > "$CODEX_HOME/work.config.toml"
-  shim_case "no profile" "$D/work" no --
-  shim_case "-pwork" "$D/work" yes --profile work -- -pwork
-  shim_case "-p=work" "$D/work" yes --profile work -- -p=work
-  shim_case "--profile=work" "$D/work" yes --profile work -- --profile=work
+  shim_case "no profile" "$D/work" no -- exec
+  shim_case "-pwork" "$D/work" yes --profile work -- -pwork exec
+  shim_case "-p=work" "$D/work" yes --profile work -- -p=work exec
+  shim_case "--profile=work" "$D/work" yes --profile work -- --profile=work exec
   { printf 'profile = "work"\n'; cat "$CODEX_HOME/config.toml"; } > "$CODEX_HOME/c.tmp" && mv "$CODEX_HOME/c.tmp" "$CODEX_HOME/config.toml"
-  shim_case "top-level profile =" "$D/work" "$( [ "$(codex_get "$D/work" transport.cwd)" = None ] && echo no || echo yes )" --
+  shim_case "top-level profile =" "$D/work" "$( [ "$(codex_get "$D/work" transport.cwd)" = None ] && echo no || echo yes )" -- exec
   rm -f "$CODEX_HOME/work.config.toml"; user_plain
   # Launches Codex's answer does not describe: the shim turns nothing off.
   # Turning the entry off there could fail Codex: --worktree starts in a new
@@ -362,7 +368,7 @@ PY
   no_turn_off "fork --last" "$sub" fork --last
   no_turn_off "exec hi --worktree" "$sub" exec hi --worktree
   no_turn_off "exec hi --ignore-user-config" "$sub" exec hi --ignore-user-config
-  no_turn_off "one-word prompt" "$sub" hi
+  no_turn_off "exec with a one-word prompt" "$sub" exec hi
   # A command that starts no session (0.169's queue): nothing injected, nothing said.
   rm -f "$D/codex-args"
   (cd "$sub" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper queue >/dev/null 2>"$D/shim.err")
@@ -374,12 +380,21 @@ PY
   rm -rf "$P/.codex"; user_plain
   no_turn_off "agents" "$D/work" agents
   shim_case "review" "$D/work" no -- review --uncommitted
+  # A setting after `review` or `agents` moves to the root list.
+  for sc in review agents; do
+    rm -f "$D/codex-args"
+    (cd "$D/work" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper $sc -c 'model="o3"' >/dev/null 2>&1)
+    sed -n "/^$sc\$/,\$p" "$D/codex-args" | grep -qx -- -c
+    [ $? -ne 0 ] && grep -qx "$sc" "$D/codex-args" && grep -qx 'model="o3"' "$D/codex-args" \
+      && grep -q '^mcp_servers.cmux_terminal.command=' "$D/codex-args"
+    check "codex shim [$sc -c model=o3]: every -c moves before $sc, the shim's settings beside the person's" $?
+  done
   # The switch the shim sends where Codex reports the entry carries its
   # transport: where that entry is not loaded (no profile) it is still valid.
   rm -rf "$P/.codex"; printf 'model = "x"\n' > "$CODEX_HOME/config.toml"
   printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = ["mcp", "serve"]\n' "$CMUX" > "$CODEX_HOME/work.config.toml"
   rm -f "$D/codex-args"
-  (cd "$D/work" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper -p work >/dev/null 2>&1)
+  (cd "$D/work" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper -p work exec >/dev/null 2>&1)
   overrides=(); while IFS= read -r a; do [ "$a" = -c ] && { read -r v; overrides+=(-c "$v"); }; done < "$D/codex-args"
   grep -q '^mcp_servers.cmux.command=' "$D/codex-args" && grep -q '^mcp_servers.cmux.args=' "$D/codex-args" \
     && grep -q '^mcp_servers.cmux.enabled=false$' "$D/codex-args" \
@@ -396,7 +411,7 @@ assert servers["cmux"]["enabled"] is False and servers["cmux_terminal"]["enabled
 
   # The merged result: the agent's own server carries none of the entry's settings.
   printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = ["mcp", "serve"]\ncwd = "/user-cwd"\n' "$CMUX" > "$CODEX_HOME/config.toml"
-  (cd "$sub" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper >/dev/null 2>&1)
+  (cd "$sub" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper exec >/dev/null 2>&1)
   overrides=(); while IFS= read -r a; do [ "$a" = -c ] && { read -r v; overrides+=(-c "$v"); }; done < "$D/codex-args"
   (cd "$sub" && "$CODEX" "${overrides[@]}" mcp list --json 2>/dev/null) | python3 -c '
 import json, os, sys
@@ -407,6 +422,33 @@ assert os.path.realpath(own["transport"]["command"]) == os.path.realpath(sys.arg
 assert not servers["cmux"]["enabled"], servers["cmux"]
 ' "$CMUX"
   check "codex shim: the agent's cmux server is this build's, with none of the entry's settings" $?
+
+  # Codex keeps only the deepest -c list (0.160.1: a subcommand's own list
+  # replaces the root's), so a setting the person puts after `review` drops
+  # every root setting, the shim's among them, unless the shim hoists it.
+  : > "$CODEX_HOME/config.toml"
+  probe=(-c "mcp_servers.probe.command=\"$NODE\"" -c "mcp_servers.probe.args=[\"$F\",\"probe\",\"$L\"]")
+  run_review() { # ARGS...: `codex ARGS` in the git project against the dead model; print what started
+    : > "$L"
+    (cd "$sub" && DEAD_KEY=x CODEX_API_KEY=sk-test timeout 20 "$@" < /dev/null > "$D/review.out" 2>&1)
+    tr '\n' ' ' < "$L"
+  }
+  root=$(run_review "$CODEX" "${probe[@]}" "${dead[@]}" review "look at the readme")
+  deeper=$(run_review "$CODEX" "${probe[@]}" review "${dead[@]}" "look at the readme")
+  case "$("$CODEX" --version)" in
+    *" 0.160."*) [ "$root" = "started probe " ] && [ "$deeper" = "" ] ;;
+    *) [ "$root" = "started probe " ] ;;
+  esac
+  check "codex: root -c applies to review ('$root'); with a -c after review, the root list ('$deeper')" $?
+  # The shim with the person's settings after `review`: all of them, and the
+  # shim's, reach the real Codex as one root list.
+  rm -f "$D/codex-args"
+  (cd "$sub" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper review "${probe[@]}" "${dead[@]}" "look at the readme" >/dev/null 2>&1)
+  recorded=(); while IFS= read -r a; do recorded+=("$a"); done < "$D/codex-args"
+  hoisted=$(run_review "$CODEX" "${recorded[@]}")
+  ! sed -n '/^review$/,$p' "$D/codex-args" | grep -qx -- -c && [ "$hoisted" = "started probe " ] \
+    && grep -q '^mcp_servers.cmux_terminal.command=' "$D/codex-args"
+  check "codex shim [review -c ...]: the real Codex runs the person's server after the hoist ('$hoisted'), beside the shim's settings" $?
 fi
 echo "scratch: $D"
 exit $failed

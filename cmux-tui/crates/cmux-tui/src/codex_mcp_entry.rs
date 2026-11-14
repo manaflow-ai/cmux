@@ -168,15 +168,20 @@ const DIFFERENT_LAUNCH: [&str; 5] =
     ["--worktree", "--remote", "--remote-auth-token-env", "--ignore-user-config", "--trust"];
 
 /// Whether this launch's session runs where, and with the config, that
-/// `codex mcp get` in the launch folder sees: only an allowlist of new
-/// session forms (`codex`, `codex PROMPT`, `review`, `exec`/`e`, `exec
-/// review`, `exec PROMPT`), without [`DIFFERENT_LAUNCH`] options. Anything
-/// else is not probed: a resumed or forked session (`resume`, `fork`, `exec
-/// resume`) keeps the folder and config it was recorded with, as can one the
-/// agent command center (`agents`) switches to, and any other word that could
-/// name a subcommand (a single lowercase word, such as `execpolicy`,
-/// `cloud-tasks` or one a later Codex adds) may be no session at all. A one-word prompt (`codex hi`) reads as such a word too and is not
-/// probed either: that only costs the turn-off, never a launch.
+/// `codex mcp get` in the launch folder sees, for its whole life: only an
+/// allowlist of new non-interactive session forms (`exec`/`e` with a prompt
+/// or stdin, `exec review`, `review`), without [`DIFFERENT_LAUNCH`] options.
+/// Anything else is not probed. Interactive Codex (`codex`, `codex PROMPT`)
+/// can `/cd`, `/resume` into another session's folder or make a worktree
+/// mid-session, each rebuilding its config with the shim's settings, where a
+/// project's own `cmux` entry would merge with the off switch. A resumed or
+/// forked session (`resume`, `fork`, `exec resume`) keeps the folder and
+/// config it was recorded with, as can one the agent command center
+/// (`agents`) switches to, and any other word that could name a subcommand (a
+/// single lowercase word, such as `execpolicy`, `cloud-tasks` or one a later
+/// Codex adds) may be no session at all. A one-word prompt (`codex exec hi`)
+/// reads as such a word too and is not probed either: that only costs the
+/// turn-off, never a launch.
 pub(crate) fn probe_matches_launch(args: &[OsString]) -> bool {
     let mut args = args.iter();
     let mut positionals = Vec::new();
@@ -204,10 +209,10 @@ pub(crate) fn probe_matches_launch(args: &[OsString]) -> bool {
         }
     }
     match positionals.as_slice() {
-        [] | ["review", ..] => true,
-        ["exec" | "e"] | ["exec" | "e", "review", ..] => true,
+        ["review", ..] | ["exec" | "e"] | ["exec" | "e", "review", ..] => true,
         ["exec" | "e", next, ..] => !could_be_subcommand(next),
-        [first, ..] => !could_be_subcommand(first),
+        // Interactive Codex, with or without a prompt, and any other word.
+        _ => false,
     }
 }
 
@@ -217,6 +222,42 @@ pub(crate) fn probe_matches_launch(args: &[OsString]) -> bool {
 fn could_be_subcommand(word: &str) -> bool {
     word.chars().next().is_some_and(|c| c.is_ascii_lowercase())
         && word.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// The home folder as Codex finds it (dirs::home_dir): `HOME` when it is set
+/// and not empty, else the account's home from the user database.
+pub(crate) fn home_dir(getenv: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    getenv("HOME").filter(|home| !home.is_empty()).map(PathBuf::from).or_else(account_home)
+}
+
+/// This account's home folder from the user database (getpwuid_r).
+fn account_home() -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt as _;
+    let mut buffer = vec![0 as libc::c_char; 4096];
+    let mut entry = std::mem::MaybeUninit::<libc::passwd>::uninit();
+    let mut result = std::ptr::null_mut();
+    // SAFETY: getpwuid_r writes into `entry` and `buffer` only, and `result`
+    // points at `entry` (or is null) when it returns.
+    let status = unsafe {
+        libc::getpwuid_r(
+            libc::getuid(),
+            entry.as_mut_ptr(),
+            buffer.as_mut_ptr(),
+            buffer.len(),
+            &mut result,
+        )
+    };
+    if status != 0 || result.is_null() {
+        return None;
+    }
+    // SAFETY: getpwuid_r filled `entry`; its strings live in `buffer`.
+    let entry = unsafe { entry.assume_init() };
+    if entry.pw_dir.is_null() {
+        return None;
+    }
+    // SAFETY: a non-null passwd field is a NUL-terminated string in `buffer`.
+    let dir = unsafe { std::ffi::CStr::from_ptr(entry.pw_dir) }.to_bytes();
+    (!dir.is_empty()).then(|| PathBuf::from(OsStr::from_bytes(dir)))
 }
 
 /// The folder a launch's session runs in, as Codex computes it: the launch
@@ -256,7 +297,8 @@ fn lexical(path: &Path) -> PathBuf {
 /// symlinks kept: [`launch_folder`]) and the resolved one `codex mcp get`
 /// sees through its working directory. A `.codex` that is no folder holds no
 /// config, as for Codex. `$CODEX_HOME` (`~/.codex` without it), Codex's own
-/// user config folder, is not a project and is left out (canonical paths).
+/// user config folder (home as [`home_dir`] finds it), is not a project and is
+/// left out (canonical paths).
 ///
 /// No trust is modelled: if no project file defines `cmux`, nothing can merge
 /// with the shim's off switch, trusted or not; if one may, the shim turns
@@ -271,7 +313,7 @@ pub(crate) fn project_config_names_cmux(
     let written = lexical(folder);
     let resolved = canonical(&written);
     let dir = |key: &str| getenv(key).filter(|v| !v.is_empty()).map(PathBuf::from);
-    let codex_home = dir("CODEX_HOME").or_else(|| dir("HOME").map(|home| home.join(".codex")));
+    let codex_home = dir("CODEX_HOME").or_else(|| home_dir(getenv).map(|home| home.join(".codex")));
     let codex_home = codex_home.as_deref().map(canonical);
     written.ancestors().chain(resolved.ancestors()).any(|ancestor| {
         let config_dir = canonical(&ancestor.join(".codex"));
@@ -310,7 +352,7 @@ pub(crate) fn resolve(
     if config.unreadable {
         return CodexEntry::Unknown;
     }
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = home_dir(&|key| std::env::var_os(key));
     let folder = launch_folder(cwd, config.cd.as_deref(), home.as_deref());
     // Its own process group, so a timeout ends Codex and anything it started.
     let child = Command::new(codex)
@@ -546,6 +588,18 @@ mod tests {
         assert!(!project_config_names_cmux(&sub, &codex_home_above), "CODEX_HOME itself");
         assert!(project_config_names_cmux(&sub, &with_home));
         let _ = &codex_home;
+    }
+
+    /// The home folder as Codex finds it (dirs::home_dir): `HOME` when it is
+    /// set and not empty, else the account's home from the user database.
+    #[test]
+    fn an_empty_home_falls_back_to_the_accounts_home() {
+        let set = |key: &str| (key == "HOME").then(|| OsString::from("/h"));
+        assert_eq!(home_dir(&set), Some(PathBuf::from("/h")));
+        let empty = |key: &str| (key == "HOME").then(OsString::new);
+        let account = home_dir(&empty).expect("the account has a home");
+        assert!(account.is_absolute() && account != Path::new(""), "{account:?}");
+        assert_eq!(home_dir(&|_: &str| None), Some(account));
     }
 
     /// Codex walks the launch folder as written, `.`/`..` removed lexically,

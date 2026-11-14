@@ -146,14 +146,15 @@ fn mcp_settings(
     if !choice.injects() {
         return Vec::new();
     }
-    // Codex is asked only for a launch its answer describes: a new session
-    // (codex_mcp_entry.rs `probe_matches_launch`) where no project config
+    // Codex is asked only for a launch its answer describes: a new
+    // non-interactive session (`exec`, `review`; codex_mcp_entry.rs
+    // `probe_matches_launch`) where no project config
     // could define `cmux` (`project_config_names_cmux`: such an entry would
     // merge with the off switch, trusted or not). Any other launch turns
     // nothing off, quietly. A line is said only when Codex was asked and could
     // not answer.
     let config = crate::codex_mcp_entry::config_args(launch.args);
-    let home = getenv("HOME").map(PathBuf::from);
+    let home = crate::codex_mcp_entry::home_dir(getenv);
     let folder =
         crate::codex_mcp_entry::launch_folder(launch.cwd, config.cd.as_deref(), home.as_deref());
     let probed = crate::codex_mcp_entry::probe_matches_launch(launch.args)
@@ -260,8 +261,9 @@ fn shim_script(executable: &Path, dir: &Path) -> anyhow::Result<String> {
 }
 
 /// Codex's clap globals replace the root list when repeated after a
-/// subcommand. Move session -c/--config and feature flags into the root list
-/// so the wrapper's hooks survive `codex exec -c ...` and resume/fork.
+/// subcommand (Codex 0.160.1 keeps only the deepest list). Move session
+/// -c/--config and feature flags into the root list so the wrapper's hooks
+/// survive `codex exec -c ...`, `review`, `agents`, `resume` and `fork`.
 fn hoist_session_global_args(args: &[OsString]) -> Vec<OsString> {
     let mut index = 0;
     while index < args.len() {
@@ -271,7 +273,7 @@ fn hoist_session_global_args(args: &[OsString]) -> Vec<OsString> {
         }
         if arg.starts_with('-') {
             index += if launch_classification::consumes_value(&arg) { 2 } else { 1 };
-        } else if matches!(arg.as_ref(), "exec" | "e" | "resume" | "fork") {
+        } else if matches!(arg.as_ref(), "exec" | "e" | "review" | "agents" | "resume" | "fork") {
             break;
         } else {
             return args.to_vec();
@@ -330,11 +332,11 @@ mod launch_classification {
         "exec-server",
         "execpolicy",
         "features",
+        "git-credential",
         "help",
         "login",
         "logout",
         "mcp",
-        "mcp-server",
         "migrate-nfs-db",
         "migrate-rollouts",
         "plugin",

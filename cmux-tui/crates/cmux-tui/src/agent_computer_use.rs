@@ -39,10 +39,13 @@
 //!   launch (`enabled=false`) when it is another cmux's server and on, so the
 //!   agent never gets two cmux servers. A server of the person's own that is
 //!   only named `cmux` stays on, and so does an entry Codex could not report.
-//!   Codex is asked only for a launch its answer describes, and nothing is
-//!   turned off otherwise: a launch that is no new session in the launch
-//!   folder (`--worktree`, `resume`, `fork`, `agents`, `--remote`,
-//!   `--ignore-user-config`, `--trust`, a subcommand: codex_mcp_entry.rs
+//!   Codex is asked only for a launch its answer describes for the session's
+//!   whole life, and nothing is turned off otherwise: a launch that is no new
+//!   non-interactive session in the launch folder (`exec`, `review`), such as
+//!   interactive `codex` (which can `/cd`, `/resume` into another session's
+//!   folder or make a worktree mid-session, rebuilding its config with the
+//!   switch), `--worktree`, `resume`, `fork`, `agents`, `--remote`,
+//!   `--ignore-user-config`, `--trust` or a subcommand (codex_mcp_entry.rs
 //!   `probe_matches_launch`), or one where a project config could define
 //!   `cmux` (`project_config_names_cmux`: a `.codex/config.toml` in the
 //!   launch folder or above it, other than Codex's own user config folder,
@@ -55,7 +58,8 @@
 //!   Those skips are quiet; a line is said only when Codex was asked and gave
 //!   no answer.
 //!   Where nothing is turned off, another cmux's `cmux` entry can start
-//!   beside this build's server: a second cmux server for that session.
+//!   beside this build's server: a second cmux server for that session, the
+//!   documented worst case. A server of the person's own is never replaced.
 //!   Each reaches the app its own CLI and environment name (the person's
 //!   entry has no terminal socket, so its tools act for the app that entry's
 //!   CLI belongs to). Nothing here arbitrates Computer Use between the two.
