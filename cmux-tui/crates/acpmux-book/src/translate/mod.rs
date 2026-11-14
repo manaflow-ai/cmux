@@ -258,6 +258,8 @@ struct Claimable {
 }
 /// The most claims held for prompts not yet echoed (a queued prompt's claim comes when it is kept).
 const MAX_HELD_CLAIMS: usize = 16;
+/// The most bytes the held claims keep; past it the oldest goes, counted.
+const MAX_HELD_CLAIM_BYTES: usize = 4 * 1024;
 /// The most bytes of fields the waiting steers hold; past it the oldest settles, as past 32 rows.
 const MAX_HELD_STEER_BYTES: usize = 12 * 1024;
 /// A body field a claim's patch reads again, by its index in the record's line.
@@ -1300,7 +1302,12 @@ impl State {
             return;
         }
         self.claims.retain(|(held, _)| *held != hash);
-        if self.claims.len() >= MAX_HELD_CLAIMS {
+        let held = |claims: &[(u64, String)]| {
+            claims.iter().map(|(_, from)| from.len()).fold(from.len(), usize::saturating_add)
+        };
+        while !self.claims.is_empty()
+            && (self.claims.len() >= MAX_HELD_CLAIMS || held(&self.claims) > MAX_HELD_CLAIM_BYTES)
+        {
             self.claims.remove(0);
             self.unplaced_claims = self.unplaced_claims.saturating_add(1);
         }

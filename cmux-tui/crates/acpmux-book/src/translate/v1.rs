@@ -171,6 +171,8 @@ fn mux(
     let Line { place, span, .. } = line;
     match kind {
         "retracted" | "removed" | "steer_withdrawn" => {
+            // A prompt sent now that an older writer withdraws takes its turn's `continued` back.
+            state.withdrawn(&msg.prompt_id, out);
             state.queue_remove(&msg.prompt_id, out);
             state.settle_prompt(super::prompt_hash(&msg.prompt_id), true, out);
         }

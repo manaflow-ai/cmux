@@ -102,6 +102,9 @@ fn each_way_a_prompt_sent_now_never_runs_takes_the_mark_back() {
         ("queue_removed", mux(5, "queue_removed", r#"{"promptId":"q"}"#)),
         ("queue_declined", mux(5, "queue_declined", r#"{"promptId":"q"}"#)),
         ("prompt_refused", mux(5, "prompt_refused", r#"{"promptId":"q"}"#)),
+        // An older writer's withdrawals.
+        ("retracted", mux(5, "retracted", r#"{"promptId":"q"}"#)),
+        ("removed", mux(5, "removed", r#"{"promptId":"q"}"#)),
         ("another prompt first", prompt(5, "r")),
     ] {
         let mut state = State::default();
@@ -495,4 +498,77 @@ fn each_sender_cap_cuts_and_counts() {
     let ops = run(&mut state, &[mux(1, "user_message", said), mux(2, "sender_claim", CLAIM)]);
     assert!(!user_row(&ops, "p").contains_key("sentFrom"));
     assert!(ops.iter().all(|op| !matches!(op.change, Change::Patch(_))));
+}
+
+#[test]
+fn every_held_state_full_at_once_fits_the_translators_segment() {
+    // A turn ends `continued` under a prompt sent now, and that notice is held whole.
+    let mut state = State::default();
+    let mut lines = sent_now("cancelled");
+    lines[3] = mux(
+        4,
+        "turn_result",
+        &format!(r#"{{"turnId":"p","status":"cancelled","errorText":"{}"}}"#, "e".repeat(5000)),
+    );
+    let long = |c: &str, n: usize| c.repeat(n);
+    // The settled prompt a claim may still patch, at its caps.
+    lines[0] = mux(
+        1,
+        "user_message",
+        &format!(
+            r#"{{"promptId":"p","turnId":"p","text":"q","_meta":{{"provenance":{{"kind":"session_message","fromShortName":"{}","fromHarness":"{}"}}}}}}"#,
+            long("n", 300),
+            long("h", 80)
+        ),
+    );
+    let mut seq = 10;
+    let mut next = || {
+        seq += 1;
+        seq
+    };
+    // Steers waiting, each at its caps, past the 32 rows and 12 KB they may hold.
+    for n in 0..40 {
+        let said = format!(
+            r#"{{"promptId":"s{n}{}","turnId":"p","text":"also","steer":true,"_meta":{{"provenance":{{"kind":"session_message","fromShortName":"{}","fromHarness":"{}"}}}}}}"#,
+            long("i", 300),
+            long("n", 300),
+            long("h", 80)
+        );
+        lines.push(mux(next(), "user_message", &said));
+    }
+    // Asks open, each at its caps, past the 32 and 8 KB they may hold.
+    for n in 0..40 {
+        let ask = format!(
+            r#"{{"permissionId":"a{n}{}","groupId":"{}","turnId":"{}","request":{{"toolCall":{{"title":"{}"}},"options":[]}}}}"#,
+            long("i", 300),
+            long("g", 300),
+            long("t", 300),
+            long("x", 200)
+        );
+        lines.push(mux(next(), "permission_request", &ask));
+    }
+    // Claims held for prompts not yet echoed, each at its caps, past the 16 and 4 KB they may hold.
+    for n in 0..20 {
+        let claim = format!(
+            r#"{{"promptId":"c{n}","claimed":{{"harness":"claude-code","sessionId":"{}","hostSessionId":"{}"}},"checked":{{"harness":"claude-code"}}}}"#,
+            long("中", 128),
+            long("中", 128)
+        );
+        lines.push(mux(next(), "sender_claim", &claim));
+    }
+    run(&mut state, &lines);
+    assert!(state.continued.is_some(), "the held notice");
+    assert!(state.claimable.is_some(), "the row a claim may patch");
+    assert_eq!(state.asks.len(), 32);
+    assert!(!state.prompts.is_empty() && state.held_steer_bytes() <= MAX_HELD_STEER_BYTES);
+    let claimed: usize = state.claims.iter().map(|(_, from)| from.len()).sum();
+    assert!(!state.claims.is_empty() && claimed <= MAX_HELD_CLAIM_BYTES, "{claimed}");
+    let counters = state.counters();
+    assert!(counters.forced_asks > 0 && counters.forced_steers > 0 && counters.unplaced_claims > 0);
+    let saved = state.checkpoint().expect("every held state at its bound fits");
+    println!("full held state: {} of {MAX_TRANSLATOR_BYTES} bytes", saved.translator.len());
+    // And comes back whole.
+    let restored = saved.restore().unwrap();
+    assert_eq!(restored.asks.len(), 32);
+    assert!(restored.continued.is_some());
 }
