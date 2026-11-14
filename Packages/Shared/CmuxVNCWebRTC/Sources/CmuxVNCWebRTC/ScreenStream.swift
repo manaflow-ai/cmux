@@ -692,6 +692,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
             let answer = Self.takeImageChunk(input, backend: session.backend, viewOnly: viewOnly) { chunk in
                 session.lock.withLock { session.images.take(chunk) }
             }
+            // Logged after the chunk is kept, so a reader of the log knows its bytes are held.
+            if input.i == 0, answer == nil { log("paste image: \(input.id ?? "-") started, \(input.n ?? 0) chunks") }
             guard let answer else { return }
             log("paste image: \(answer.s ?? "-")")
             if let data = try? JSONEncoder().encode(answer) {
@@ -821,11 +823,13 @@ public final class ScreenStreamHost: @unchecked Sendable {
             return session
         }
         guard let ended else { return }
-        let tasks = ended.lock.withLock { () -> [Task<Void, Never>] in
+        let (tasks, dropped) = ended.lock.withLock { () -> ([Task<Void, Never>], Int) in
             ended.ended = true
             defer { ended.tasks.removeAll() }
-            return ended.tasks
+            // A paste that stopped halfway frees its bytes now, not when the last reference goes.
+            return (ended.tasks, ended.images.cancel())
         }
+        if dropped > 0 { log("paste image: dropped \(dropped) bytes of an unfinished image") }
         for task in tasks { task.cancel() }
         ended.backend.stop()
         ended.link.close()
@@ -1198,18 +1202,25 @@ public final class ScreenStreamViewer: @unchecked Sendable {
 
     /// Sends an image for the Mac to paste (only to a host whose `caps`
     /// listed ``ScreenHostMessage/pasteImageCapability``): its chunks in
-    /// order, waiting while the channel is full. False when nothing could
-    /// be sent (no channel, or the image is empty, too large or of another
-    /// type); the Mac's answer comes in ``onPasteImage``. Runs off the
-    /// caller's actor: up to 20 MB of base64 and JSON never lands on the main thread.
+    /// order, waiting while the channel is full. Any size. False when it
+    /// could not be sent (no channel, the image is empty or of another type,
+    /// or a send failed); the Mac's answer comes in ``onPasteImage``. Runs off the
+    /// caller's actor: an image's base64 and JSON never land on the main thread,
+    /// and only one chunk's exist at a time (``sendPasteImage(_:send:)``).
     @concurrent
     public func pasteImage(_ data: Data, type: String, id: String = UUID().uuidString) async -> Bool {
-        let messages = ScreenInput.pasteImage(data, type: type, id: id)
-        guard !messages.isEmpty, let link = lock.withLock({ link }) else { return false }
+        guard let chunks = ScreenInput.pasteImageChunks(data, type: type, id: id), let link = lock.withLock({ link }) else { return false }
+        return await Self.sendPasteImage(chunks) { try await link.sendTextPaced($0) }
+    }
+
+    /// Sends `chunks` in order through `send`, making each one's JSON only after the one before was
+    /// sent: one chunk's base64 is held at a time. False when a send failed.
+    static func sendPasteImage<Chunks: Sequence>(_ chunks: Chunks, send: (String) async throws -> Void) async -> Bool
+        where Chunks.Element == ScreenInput {
         let encoder = JSONEncoder()
         do {
-            for message in messages {
-                try await link.sendTextPaced(String(decoding: try encoder.encode(message), as: UTF8.self))
+            for message in chunks {
+                try await send(String(decoding: try encoder.encode(message), as: UTF8.self))
             }
         } catch {
             return false

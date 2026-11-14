@@ -138,10 +138,6 @@ public final class ScreenSession {
             imagePaste = .failed("This kind of image can't be pasted.")
             return
         }
-        guard data.count <= ScreenInput.pasteImageMaximumBytes else {
-            imagePaste = .failed("This image is too large to paste.")
-            return
-        }
         perf?.input("paste-image")
         let id = UUID().uuidString
         imagePasteID = id
