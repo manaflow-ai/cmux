@@ -36,6 +36,7 @@ import CmuxNextAppCore
 import CmuxNextPages
 import CmuxNextPopups
 import CmuxNextBrowserImport
+import CmuxNextImportCards
 import CmuxNextPhone
 import CmuxNextPhoneAccess
 import CmuxNextServer
@@ -91,6 +92,8 @@ final class AppServices {
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
+    /// The browser import's reader: `browser_import.read` on the local daemon.
+    var browserDataReader: BrowserDataReader { .daemon { @MainActor [machines] in await machines.local.connectionOnceStarted() } }
     /// The names sidebar rows keep while their front tab's is briefly unknown (`WorkspaceAutoNameWiring`).
     let autoNameHold = WorkspaceAutoNameHold()
     /// The machine of the action being run, while its handler runs (`ActionRouting`); `activeDaemon` prefers it.
