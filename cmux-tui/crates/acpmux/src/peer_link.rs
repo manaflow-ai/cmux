@@ -843,6 +843,28 @@ mod tests {
     }
 
     #[test]
+    fn a_peer_parked_when_the_daemon_starts_reports_its_next_retry_and_is_parked() {
+        // 2026-11-14: four lane VMs, stopped for a week; after a daemon restart
+        // `machine ls` showed nextRetryAt null with a countdown frozen in the error text.
+        let day = PARK_AFTER_MS;
+        let mut link = Link::default();
+        link.seed_outage(Some(0));
+        link.schedule_retry(&mut Backoff::default(), day + 1, 0.0);
+        let mut restarted = Link::default();
+        restarted.seed_outage(link.down_since);
+        restarted.next_retry_at = link.next_retry_at;
+        let now = day + 1 + 600_000;
+        assert_eq!(restarted.park_at_start(now), Some(Duration::from_secs(3_000)));
+        assert_eq!(restarted.retry_at, Some(now + 3_000_000), "nextRetryAt is reported");
+        assert!(restarted.parked(now));
+        assert!(!restarted.parked(day - 1), "under a day down is not parked");
+        restarted.opened(now + 1);
+        restarted.ready(now + 2);
+        assert!(!restarted.parked(now + 3), "a handshake ends the parking");
+        assert_eq!(Link::default().park_at_start(now), None, "never down: nothing parked");
+    }
+
+    #[test]
     fn backoff_doubles_within_jittered_bounds_up_to_the_cap() {
         let mut low = Backoff::default();
         let mut high = Backoff::default();
