@@ -4,7 +4,7 @@
 //! returned buffer with [`acpmux_client_bytes_free`]. No Rust panic crosses
 //! the ABI boundary.
 
-use crate::wire::{Page, Sub};
+use crate::wire::{ListKey, Page, Sub};
 use crate::{Change, Client};
 use serde_json::{Value, json};
 use std::ffi::c_void;
@@ -74,6 +74,22 @@ fn handle_mut<'a>(handle: *mut c_void) -> Result<&'a mut Client<Value>, i32> {
 fn request_bytes<'a>(ptr: *const u8, len: usize) -> Result<&'a [u8], i32> {
     // SAFETY: forwarded pointer/length contract.
     unsafe { input(ptr, len) }
+}
+
+#[derive(serde::Deserialize)]
+struct MirrorRequest {
+    sub: Sub,
+    #[serde(default)]
+    held: Vec<ListKey>,
+    #[serde(default)]
+    whole: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct KeysRequest {
+    sid: String,
+    #[serde(default)]
+    keys: Vec<ListKey>,
 }
 
 fn change_json(change: Change<Value>) -> Result<Value, serde_json::Error> {
@@ -265,6 +281,100 @@ pub unsafe extern "C" fn acpmux_client_subscribe(
             Ok(sid) => output(out, serde_json::to_vec(&json!({"sid":sid})).unwrap_or_default()),
             Err(_) => ACPMUX_CLIENT_ERR_INVALID,
         }
+    })
+}
+
+/// Subscribes a mirror from `{ "sub": ..., "held": [...], "whole": bool }`.
+/// The caller owns the returned sid buffer and frees it with
+/// [`acpmux_client_bytes_free`].
+///
+/// # Safety
+/// `handle`, `request`, and `out` must satisfy the pointer and length contract
+/// for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn acpmux_client_subscribe_mirror(
+    handle: *mut c_void,
+    request: *const u8,
+    request_len: usize,
+    out: *mut Bytes,
+) -> i32 {
+    guarded(|| {
+        let bytes = match request_bytes(request, request_len) {
+            Ok(bytes) => bytes,
+            Err(error) => return error,
+        };
+        let request = match serde_json::from_slice::<MirrorRequest>(bytes) {
+            Ok(request) => request,
+            Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
+        };
+        let client = match handle_mut(handle) {
+            Ok(client) => client,
+            Err(error) => return error,
+        };
+        match client.subscribe_mirror(request.sub, request.held, request.whole) {
+            Ok(sid) => output(out, serde_json::to_vec(&json!({"sid": sid})).unwrap_or_default()),
+            Err(_) => ACPMUX_CLIENT_ERR_INVALID,
+        }
+    })
+}
+
+/// Adds mirror wanted keys from `{ "sid": ..., "keys": [...] }`.
+///
+/// # Safety
+/// `handle` and `request` must satisfy the pointer and length contract for the
+/// duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn acpmux_client_want(
+    handle: *mut c_void,
+    request: *const u8,
+    request_len: usize,
+) -> i32 {
+    guarded(|| {
+        let bytes = match request_bytes(request, request_len) {
+            Ok(bytes) => bytes,
+            Err(error) => return error,
+        };
+        let request = match serde_json::from_slice::<KeysRequest>(bytes) {
+            Ok(request) => request,
+            Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
+        };
+        let client = match handle_mut(handle) {
+            Ok(client) => client,
+            Err(error) => return error,
+        };
+        client
+            .want(&request.sid, request.keys)
+            .map_or(ACPMUX_CLIENT_ERR_INVALID, |_| ACPMUX_CLIENT_OK)
+    })
+}
+
+/// Removes mirror wanted keys from `{ "sid": ..., "keys": [...] }`.
+///
+/// # Safety
+/// `handle` and `request` must satisfy the pointer and length contract for the
+/// duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn acpmux_client_unwant(
+    handle: *mut c_void,
+    request: *const u8,
+    request_len: usize,
+) -> i32 {
+    guarded(|| {
+        let bytes = match request_bytes(request, request_len) {
+            Ok(bytes) => bytes,
+            Err(error) => return error,
+        };
+        let request = match serde_json::from_slice::<KeysRequest>(bytes) {
+            Ok(request) => request,
+            Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
+        };
+        let client = match handle_mut(handle) {
+            Ok(client) => client,
+            Err(error) => return error,
+        };
+        client
+            .unwant(&request.sid, request.keys)
+            .map_or(ACPMUX_CLIENT_ERR_INVALID, |_| ACPMUX_CLIENT_OK)
     })
 }
 

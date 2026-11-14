@@ -535,7 +535,8 @@ async fn saved_peer_cache_waits_for_remote_reconciliation() {
         },
     );
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
-    let v1 = Hub::new(config, store);
+    let v1 =
+        Hub::build(config, store, crate::mailbox::Mailbox::memory(), false, false, None, false);
     let mut cached = Summary::new("cached");
     cached.origin = "saved".into();
     let mut missing = Summary::new("missing");

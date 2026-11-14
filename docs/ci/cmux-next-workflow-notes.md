@@ -465,6 +465,22 @@ for its own commands, prints their output and keeps its name, id and outcome. A 
 line names the step the commands under it belong to; the longest commands start first.
 Not here: "Pushed commits add no violations" deepens the clone and writes its step summary.
 
+## note-27c
+
+Above `checks: Start the slow checks in the background` in `.github/workflows/cmux-next.yml` (its deadline).
+
+cmux#42669's checks job 132210422131 (cmuxs-mac-mini-6-glaeda-3, 2026-11-13) was cancelled at its
+35 min cap inside "Tier routing": the step waited from 22:57:35 to 23:05:55 for its 7 background
+commands, which had run since 22:38:10, and the cancel named none of them. The pool now gets a
+deadline 5 min (POOL_TAIL_SECONDS) before the job's cap, counted from the event file the runner
+writes at Set up job (the runner hook's wait for a host lock counts against the cap too). A command
+still running at it stops (scripts/ci/timeout.sh), fails by name with "timed out at the pool
+deadline", and the job reaches "Fail on any red check". Each wait prints, once a minute, which of
+its commands are still running. The 5 min leave room for the steps after the waits (about 2.5 min
+on Linux). That run's mini lacked GNU `timeout`, so the compile-status step tests' bounded reads
+(`timeout "$left" curl`) failed at once and each read loop spun until its test's 60 s subprocess
+bound; note-27b's preflight now stops such a runner in its first minute.
+
 ## note-27b
 
 Above `checks: Prepare check Python (PyYAML) and timeout` in `.github/workflows/cmux-next.yml`.
