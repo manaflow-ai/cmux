@@ -49,6 +49,17 @@ pub(crate) struct Counters {
     pub held_max: AtomicU64,
     /// Chunks read again because the count moved while they were read.
     pub reread: AtomicU64,
+    /// Segment heads opened to learn a segment's first seq.
+    pub heads: AtomicU64,
+    /// Listings of the chat's events directory.
+    pub lists: AtomicU64,
+    /// `sync_through` calls, and the time they waited in all (the journal's wait at a
+    /// checkpoint and at each patch, on the actor's thread).
+    pub syncs: AtomicU64,
+    pub sync_ns: AtomicU64,
+    /// Each wait, in ns, for the p95 a test prints.
+    #[cfg(test)]
+    pub sync_waits: std::sync::Mutex<Vec<u64>>,
 }
 
 /// One chat's v1 log, for the book's actor: [`V1Log::factory`] makes its sources.
@@ -152,6 +163,7 @@ where
             .then(|| self.marks.take_end());
         let mut bytes = Vec::with_capacity(CHUNK_BYTES);
         let mut tries = 0;
+        let (heads, lists) = (self.marks.heads, self.marks.lists);
         let store = self.store.clone();
         let store = store.as_ref();
         let (chunk, stamp) = loop {
@@ -172,6 +184,8 @@ where
         if let Some(cursor) = cursor {
             self.marks.put_end(cursor);
         }
+        self.counters.heads.fetch_add(self.marks.heads - heads, Ordering::Relaxed);
+        self.counters.lists.fetch_add(self.marks.lists - lists, Ordering::Relaxed);
         self.stamp = stamp;
         self.counters.chunks.fetch_add(1, Ordering::Relaxed);
         Ok(Chunk::with_stamp(bytes, 0, seq_places, chunk.at_end, hint, stamp))
@@ -195,7 +209,14 @@ where
                 "v1's log has not reached this place",
             ));
         }
-        self.store().sync_log_through(&self.id, place.saturating_sub(1)).map_err(other)
+        let started = std::time::Instant::now();
+        let synced = self.store().sync_log_through(&self.id, place.saturating_sub(1));
+        let waited = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        self.counters.syncs.fetch_add(1, Ordering::Relaxed);
+        self.counters.sync_ns.fetch_add(waited, Ordering::Relaxed);
+        #[cfg(test)]
+        self.counters.sync_waits.lock().unwrap_or_else(|e| e.into_inner()).push(waited);
+        synced.map_err(other)
     }
 
     fn identity(&self) -> &[u8] {

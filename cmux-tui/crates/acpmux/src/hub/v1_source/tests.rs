@@ -21,9 +21,14 @@ pub(super) struct Home {
 
 impl Home {
     pub fn new() -> Self {
+        Self::with_segments(8 << 20)
+    }
+
+    /// A home whose store starts a new segment every `segment_bytes`.
+    pub fn with_segments(segment_bytes: u64) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let store: Arc<dyn Store> = Arc::new(ForkView::new(Box::new(
-            LocalStore::new(dir.path().join("sessions"), 8 << 20).unwrap(),
+            LocalStore::new(dir.path().join("sessions"), segment_bytes).unwrap(),
         )));
         Self { dir, store, last: Arc::default() }
     }
@@ -256,6 +261,56 @@ fn ready_comes_only_from_a_read_that_said_at_end_and_the_hint_finds_new_lines() 
 pub(super) fn saved_cursor(book: &Path) -> u64 {
     let saved = log::saved_checkpoint(book).unwrap().unwrap();
     Checkpoint::from_recovered(&saved).unwrap().cursors[0].place
+}
+
+#[test]
+fn a_read_with_no_mark_at_the_checkpoint_opens_at_most_8_segment_heads_at_both_sizes() {
+    // God's 1 GiB log is 128 segments of 8 MiB: 8 MiB of log in 64 KiB segments has as many.
+    // Small's 2 MiB is one segment.
+    for (name, segment_bytes) in [("god", 64 << 10), ("small", 8 << 20)] {
+        let home = Home::with_segments(segment_bytes);
+        let (_, last) =
+            crate::god_fixture::append_log(home.store.as_ref(), ID, 400, 8 << 20).unwrap();
+        home.last.store(last, Ordering::SeqCst);
+        let log = home.log();
+        let mut source = log.open().unwrap();
+        // The first read of a daemon's life at a checkpoint near the end, and one at its end.
+        for place in [last - 3, last + 1] {
+            let before = log.counters.heads.load(Ordering::SeqCst);
+            source.read_chunk(place).unwrap();
+            let heads = log.counters.heads.load(Ordering::SeqCst) - before;
+            assert!(heads <= 8, "{name}: a read at {place} opened {heads} segment heads");
+            source = log.open().unwrap();
+        }
+    }
+}
+
+#[test]
+fn a_thousand_reads_at_the_end_of_a_caught_up_log_list_the_directory_at_most_twice() {
+    let home = Home::with_segments(64 << 10);
+    let (_, last) = crate::god_fixture::append_log(home.store.as_ref(), ID, 200, 2 << 20).unwrap();
+    home.last.store(last, Ordering::SeqCst);
+    let log = home.log();
+    let mut source = log.open().unwrap();
+    let mut place = 1;
+    loop {
+        let chunk = source.read_chunk(place).unwrap();
+        place = chunk.lines().last().map_or(place, |line| line.unwrap().end);
+        if chunk.at_end {
+            break;
+        }
+    }
+    let lists = log.counters.lists.load(Ordering::SeqCst);
+    for _ in 0..1000 {
+        let chunk = source.read_chunk(place).unwrap();
+        assert!(chunk.at_end && chunk.lines().next().is_none());
+    }
+    let listed = log.counters.lists.load(Ordering::SeqCst) - lists;
+    assert!(listed <= 2, "1,000 reads at the end listed the directory {listed} times");
+    // A line appended now is found by the next read, in a new segment or not.
+    let seq = home.prompt("after the thousand");
+    let chunk = source.read_chunk(place).unwrap();
+    assert_eq!(chunk.lines().next().map(|line| line.unwrap().start), Some(seq));
 }
 
 #[test]

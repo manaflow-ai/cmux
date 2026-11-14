@@ -9,9 +9,13 @@
 //!   mark's segment goes on from it, lines skipped unparsed. The bytes of a line the last chunk
 //!   had no room for wait with its end mark, so the next read takes them from memory, not the
 //!   file. Any other read (the first after a
-//!   start, a body read back) reads the first bytes of each segment to find the one that holds
-//!   the seq, and scans that one from its start, its lines skipped unparsed: at most one segment,
-//!   8 MiB. So a catch-up reads each byte of the log about once, never a segment per chunk.
+//!   start, a body read back) finds the segment that holds the seq by halves, reading the first
+//!   bytes of a segment at each step, and scans that one from its start, its lines skipped
+//!   unparsed: at most one segment, 8 MiB. So a catch-up reads each byte of the log about once,
+//!   never a segment per chunk.
+//! - **The directory is listed once**, and the listing kept with the marks ([`LogMarks`]): a
+//!   read lists again only when the count moved, a file of the listing is gone, or the next
+//!   segment's name is there at the end of a full last one.
 //! - **The stamp is a count**, one `u64` per chat in [`STAMP`] beside its `events/` (absent reads
 //!   0). Every change that makes a line already written read differently, or gives its seq to
 //!   another line, bumps it, under the writers' lock, once before its first rename and once
@@ -61,6 +65,24 @@ pub struct LogMarks {
     pub found: Option<LogMark>,
     /// Bytes at `end`'s offset, read and not yet a whole line: less than one chunk.
     carry: Vec<u8>,
+    /// The events directory as a read last listed it ([`Listing`]).
+    listing: Option<Listing>,
+    /// Segment heads opened to learn a segment's first seq, over this reader's life.
+    pub heads: u64,
+    /// Listings of the events directory, over this reader's life.
+    pub lists: u64,
+}
+
+/// A chat's segments as one listing found them, under count `stamp`. The next read uses it
+/// again. It lists again when the count moved, when a file of it is gone (a cold archive
+/// moved `events/`), and when a read reaches the end of its last segment once that one is
+/// full: the store starts a new segment only after one is full (`LocalStore::append`), so a
+/// read at the end of a segment that is not full has no segment after it to find.
+#[derive(Clone, Debug)]
+struct Listing {
+    log: String,
+    stamp: u64,
+    segments: Vec<(u32, PathBuf)>,
 }
 
 impl LogMarks {
@@ -68,6 +90,7 @@ impl LogMarks {
         self.end = None;
         self.found = None;
         self.carry = Vec::new();
+        self.listing = None;
     }
 
     /// The end mark with its waiting bytes, taken out (a read away from it leaves them for the
@@ -247,23 +270,58 @@ impl LocalStore {
         marks: &mut LogMarks,
         out: &mut Vec<u8>,
     ) -> Result<LogChunk> {
+        let kept = marks.listing.as_ref().is_some_and(|l| l.log == id && l.stamp == stamp);
+        match self.read_listed(id, from, filter, stamp, marks, out) {
+            // A kept listing names a file a cold archive moved away: list again, read again.
+            Err(error) if kept && is_not_found(&error) => {
+                marks.clear();
+                self.read_listed(id, from, filter, stamp, marks, out)
+            }
+            result => result,
+        }
+    }
+
+    /// The listing a read at `stamp` uses: the one kept with `marks` when it is this log's under
+    /// this count, else a new one.
+    fn listing(&self, id: &str, stamp: u64, marks: &mut LogMarks) -> Result<Listing> {
+        match marks.listing.take() {
+            Some(listing) if listing.log == id && listing.stamp == stamp => Ok(listing),
+            _ => {
+                marks.lists += 1;
+                Ok(Listing { log: id.to_owned(), stamp, segments: self.segments(id)? })
+            }
+        }
+    }
+
+    fn read_listed(
+        &self,
+        id: &str,
+        from: u64,
+        filter: LogFilter<'_>,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogChunk> {
         out.clear();
         marks.keep_stamp(stamp);
         let carry = std::mem::take(&mut marks.carry);
-        let segments = self.segments(id)?;
+        let mut listing = self.listing(id, stamp, marks)?;
         let mut chunk = LogChunk { next: from, at_end: true, read: 0 };
-        let Some((mut segment, mut offset, at_end_mark)) =
-            self.start(id, from, stamp, &segments, marks, &mut chunk)?
-        else {
-            return Ok(chunk);
-        };
+        let mut heads = 0;
+        let started = self.start(id, from, stamp, &listing.segments, marks, &mut chunk, &mut heads);
+        marks.heads += heads;
+        // No log: the listing is not kept, so the read after the first append finds its segment.
+        let Some((mut segment, mut offset, at_end_mark)) = started? else { return Ok(chunk) };
         if at_end_mark {
             // The bytes the last chunk read at its end wait in the buffer, as if just read.
             out.reserve_exact(CHUNK_BYTES.max(carry.len()));
             out.extend_from_slice(&carry);
         }
         drop(carry);
-        let mut position = segments.iter().position(|(i, _)| *i == segment.index).unwrap_or(0);
+        let mut position =
+            listing.segments.iter().position(|(i, _)| *i == segment.index).unwrap_or(0);
+        // Listed again at most once a read, at the end of a full last segment.
+        let mut relisted = false;
         let mut last: Option<u64> = None;
         // The first kept line: its segment, offset and segment file.
         let mut first: Option<(u32, u64, u64)> = None;
@@ -278,7 +336,13 @@ impl LocalStore {
             // The chunk's room, or a chunk more while no line is kept (one line may be larger
             // than a chunk, and lines before `from` are passed over).
             let want = match (kept, waiting) {
-                (0, waiting) if waiting >= CHUNK_BYTES => CHUNK_BYTES,
+                // A line larger than a chunk: the buffer doubles, never past what is left of
+                // the segment, so a line of n chunks costs O(n) copying and not O(n²).
+                (0, waiting) if waiting >= CHUNK_BYTES => {
+                    let left =
+                        segment.file.metadata()?.len().saturating_sub(offset + waiting as u64);
+                    waiting.min(usize::try_from(left).unwrap_or(usize::MAX)).max(1)
+                }
                 (kept, waiting) => CHUNK_BYTES.saturating_sub(kept + waiting),
             };
             if want == 0 {
@@ -338,8 +402,33 @@ impl LocalStore {
             // The segment's end. A line with no newline there is being written (the last
             // segment) or was torn (a closed one, whose writer has moved on): no line either way.
             chunk.read += std::mem::take(&mut segment.read);
+            let length = offset + (out.len() - kept) as u64;
             out.truncate(kept);
-            let Some((index, path)) = segments.get(position + 1) else {
+            let last = position + 1 == listing.segments.len();
+            // A full last segment, or a fork's history (`000000`, never appended to): the store
+            // may have started the next one since the listing. The next one's name is its
+            // index + 1, so one look at that name says, and the directory is listed only when
+            // it is there.
+            let full = length >= self.segment_bytes || segment.index == 0;
+            if last
+                && !relisted
+                && full
+                && self
+                    .dir(id)
+                    .join("events")
+                    .join(format!("{:06}.ndjson", segment.index.saturating_add(1)))
+                    .exists()
+            {
+                relisted = true;
+                marks.lists += 1;
+                listing.segments = self.segments(id)?;
+                position = listing
+                    .segments
+                    .iter()
+                    .position(|(i, _)| *i == segment.index)
+                    .unwrap_or(listing.segments.len());
+            }
+            let Some((index, path)) = listing.segments.get(position + 1) else {
                 chunk.at_end = true;
                 break;
             };
@@ -347,10 +436,12 @@ impl LocalStore {
             segment = Segment::open(*index, path)?;
             offset = 0;
         }
+        marks.listing = Some(listing);
         marks.carry = out.get(tail).map(<[u8]>::to_vec).unwrap_or_default();
         out.truncate(kept);
-        if !marks.carry.is_empty() {
-            // The chunk and the bytes waiting are one chunk's read between them.
+        if !marks.carry.is_empty() || out.capacity() > CHUNK_BYTES.max(kept) {
+            // The chunk and the bytes waiting are one chunk's read between them, and a line
+            // larger than a chunk keeps no more than its own length.
             out.shrink_to(kept);
         }
         chunk.read += segment.read;
@@ -383,6 +474,7 @@ impl LocalStore {
         segments: &[(u32, PathBuf)],
         marks: &LogMarks,
         chunk: &mut LogChunk,
+        heads: &mut u64,
     ) -> Result<Option<(Segment, u64, bool)>> {
         if segments.is_empty() {
             return Ok(None);
@@ -407,6 +499,7 @@ impl LocalStore {
                             let mut next = Segment::open(*next, path)?;
                             let first = next.first_seq()?;
                             chunk.read += next.read;
+                            *heads += 1;
                             first.is_none_or(|first| first > from)
                         }
                     };
@@ -417,19 +510,32 @@ impl LocalStore {
             }
             chunk.read += segment.read;
         }
-        // The last segment whose first seq is at or before `from` holds it.
-        let mut position = 0;
-        for (n, (index, path)) in segments.iter().enumerate().skip(1) {
-            let mut segment = Segment::open(*index, path)?;
-            let first = segment.first_seq()?;
-            chunk.read += segment.read;
+        // The last segment whose first seq is at or before `from` holds it (the first one holds
+        // what comes before the second's), found by halves: a read at a checkpoint near the end
+        // of a long log opens as few segment heads as one at the end of a short one. A head that
+        // does not say its seq is passed over for the next that does, and holds nothing.
+        let (mut low, mut high) = (0, segments.len());
+        while high - low > 1 {
+            let middle = low + (high - low) / 2;
+            let mut probe = middle;
+            let mut first = None;
+            while probe < high {
+                let Some((index, path)) = segments.get(probe) else { break };
+                let mut segment = Segment::open(*index, path)?;
+                first = segment.first_seq()?;
+                chunk.read += segment.read;
+                *heads += 1;
+                if first.is_some() {
+                    break;
+                }
+                probe += 1;
+            }
             match first {
-                Some(first) if first <= from => position = n,
-                Some(_) => break,
-                None => {}
+                Some(first) if first <= from => low = probe,
+                _ => high = middle,
             }
         }
-        let Some((index, path)) = segments.get(position) else { return Ok(None) };
+        let Some((index, path)) = segments.get(low) else { return Ok(None) };
         let mut segment = Segment::open(*index, path)?;
         let offset = scan_to(&mut segment, from)?;
         Ok(Some((segment, offset, false)))

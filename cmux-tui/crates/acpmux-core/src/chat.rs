@@ -58,9 +58,10 @@ impl source::RawSource for EmptySource {
 /// bound protects the actor before that connection-level budget exists.
 pub const MAILBOX_BYTES: usize = 4 * 1024 * 1024;
 pub const IDLE_AFTER: Duration = Duration::from_secs(5 * 60);
-/// How often a caught-up actor with an empty mailbox looks at its source's hint. A notice that
-/// the source grew wakes it at once; the hint finds the lines a dropped notice told of.
-pub const HINT_POLL: Duration = Duration::from_millis(250);
+/// How often a caught-up actor with an empty mailbox looks at its source's hint: a backstop. A
+/// notice that the source grew wakes it at once (v1's tee sends one for each line it appends);
+/// the hint finds the lines a dropped notice told of.
+pub const HINT_POLL: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 pub struct ChatConfig {
