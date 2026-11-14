@@ -8,14 +8,14 @@ import AppKit
     /// Keeps a workspace drag's onto-drop while the card's centre stays in
     /// the band's sticky edges; otherwise `resolved` (nil keeps the last).
     static func gate(_ list: SidebarListView, _ drag: SidebarListDrag, card: CGRect, resolved: DropTarget??) -> DropTarget?? {
-        // Multi-view drags stay in the sidebar only long enough to reach the
-        // window handoff. Letting the generic group band arm here paints a
-        // workspace that is not on screen as a drop target during that short
-        // handoff path, which makes the visible rows flicker and changes the
-        // apparent destination. Reordering still comes from `resolved`; the
-        // group band remains available for the normal single-view drag.
         guard case let .workspaces(ids) = drag.payload else { return resolved }
-        guard !SidebarTunables.multiViewOn else { return resolved }
+        // A side-by-side view is the active handoff path only while more than
+        // one workspace is on screen. Clear both the resolver's onto target
+        // and the generic group band for that frame; otherwise an unrelated
+        // row can paint as a second destination before the pane preview wins.
+        // The feature toggle alone is not enough: single-view grouping remains
+        // available while the side-by-side feature is enabled.
+        if SidebarTunables.multiViewOn && list.model.onScreen.count > 1 { return .some(nil) }
         let hit = SidebarGroupBand.hit(y: card.midY, layout: list.displayed, hidden: drag.hiddenKeys, dragged: ids,
                                        sections: list.model.sections)
         if let anchor = drag.band.update(hit) { return .some(.ontoWorkspace(anchor)) }
