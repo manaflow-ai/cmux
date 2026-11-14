@@ -203,6 +203,8 @@ try {
       layout_ms: per(delta("LayoutDuration") * 1000),
       style_ms: per(delta("RecalcStyleDuration") * 1000),
       task_ms: per(delta("TaskDuration") * 1000),
+      to_listener_p95: typing.to_listener?.p95_ms,
+      to_work_p95: typing.to_work?.p95_ms,
       to_frame_p50: typing.to_frame?.p50_ms,
       to_frame_p95: typing.to_frame?.p95_ms,
       busiest: Object.entries(renders)
