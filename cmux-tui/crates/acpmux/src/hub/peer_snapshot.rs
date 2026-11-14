@@ -397,7 +397,7 @@ impl PeerSnapshots {
     /// several threads never pass it together. Answers whether it did.
     fn reserve(&self, cost: u64) -> bool {
         let fits = |q: u64| (q + cost <= QUEUED_BYTES).then_some(q + cost);
-        self.queued.fetch_update(Ordering::AcqRel, Ordering::Acquire, fits).is_ok()
+        self.queued.try_update(Ordering::AcqRel, Ordering::Acquire, fits).is_ok()
     }
 
     fn dropped(&self) -> std::sync::MutexGuard<'_, Dropped> {

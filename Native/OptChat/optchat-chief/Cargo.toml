@@ -96,3 +96,9 @@ inherits = "release"
 opt-level = "s"
 lto = true
 codegen-units = 16
+# Fleet dev builds keep source locations without retaining full dependency DWARF.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

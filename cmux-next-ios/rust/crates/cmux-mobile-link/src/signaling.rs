@@ -578,15 +578,16 @@ impl SignalingClient {
 impl Shared {
     /// Whether `text` answers one of our application pings: `pong` (0.15.0 and later), or the
     /// session-less `bad_request` an older Worker sends back for it. Each answer settles one ping.
+    // `try_update` is the Rust 1.100 spelling of the deprecated `fetch_update` API.
+    // This workspace keeps its published MSRV at 1.91 for the iOS SDK surface.
+    #[allow(clippy::incompatible_msrv)]
     fn answers_app_ping(&self, text: &str) -> bool {
         let unanswered = &self.pings_unanswered;
         let settle = || {
             unanswered
-                .fetch_update(
-                    std::sync::atomic::Ordering::Relaxed,
-                    std::sync::atomic::Ordering::Relaxed,
-                    |n| n.checked_sub(1),
-                )
+                .try_update(std::sync::atomic::Ordering::Relaxed, std::sync::atomic::Ordering::Relaxed, |n| {
+                    n.checked_sub(1)
+                })
                 .is_ok()
         };
         if text == APP_PONG {
@@ -697,7 +698,10 @@ mod tests {
         assert!(matches!(events.try_recv(), Ok(SignalingEvent::Error { session_id: None, .. })));
         // An error that names a session is never taken for a ping's answer.
         shared.pings_unanswered.store(1, std::sync::atomic::Ordering::Relaxed);
-        shared.dispatch_text(r#"{"type":"error","code":"bad_request","message":"x","sessionId":"s1"}"#, &incoming);
+        shared.dispatch_text(
+            r#"{"type":"error","code":"bad_request","message":"x","sessionId":"s1"}"#,
+            &incoming,
+        );
         assert!(matches!(events.try_recv(), Ok(SignalingEvent::Error { session_id: Some(_), .. })));
         // A 0.15.0 Worker's pong settles a ping and is dropped.
         shared.dispatch_text("pong", &incoming);

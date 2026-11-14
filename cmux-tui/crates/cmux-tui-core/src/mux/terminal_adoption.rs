@@ -873,14 +873,14 @@ impl Mux {
     #[cfg(any(unix, windows))]
     pub(super) fn consume_template_completion_failure(&self) -> bool {
         self.template_completion_failures
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| remaining.checked_sub(1))
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |remaining| remaining.checked_sub(1))
             .is_ok()
     }
 
     #[cfg(any(unix, windows))]
     pub(super) fn consume_terminal_adoption_insert_failure(&self) -> bool {
         self.terminal_adoption_insert_failures
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| remaining.checked_sub(1))
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |remaining| remaining.checked_sub(1))
             .is_ok()
     }
 

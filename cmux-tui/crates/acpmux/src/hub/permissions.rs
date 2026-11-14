@@ -1775,7 +1775,7 @@ pub(super) fn settle_full_access_report(session: &Session) {
         session
             .floor
             .unapplied_full_access
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
 }
 
 /// How long a stderr line the tail keeps is (the event log keeps the same cut).

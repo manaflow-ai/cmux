@@ -16,7 +16,6 @@ workspace = true
 testing = ["dep:rcgen"]
 
 [dependencies]
-anyhow.workspace = true
 async-trait = "0.1"
 base64.workspace = true
 bytes.workspace = true

@@ -291,7 +291,7 @@ impl HostedReader {
                 // A `failed` link being retried stays failed until it connects.
                 let was = pty
                     .host_connection_state
-                    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
+                    .try_update(Ordering::AcqRel, Ordering::Acquire, |state| {
                         (state != TerminalHostConnectionState::Failed as u8)
                             .then_some(TerminalHostConnectionState::Reconnecting as u8)
                     })

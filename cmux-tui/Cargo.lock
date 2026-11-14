@@ -1383,23 +1383,17 @@ dependencies = [
  "cmux-local-auth",
  "cmux-unix-socket",
  "fs4",
- "futures-util",
  "getrandom 0.3.4",
  "hex",
  "hmac",
  "http",
- "http-body-util",
- "hyper",
- "hyper-util",
  "libc",
  "reqwest",
  "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "tempfile",
  "tokio",
- "tokio-util",
  "tower-http",
  "tracing",
  "url",
@@ -1493,7 +1487,6 @@ dependencies = [
  "getrandom 0.3.4",
  "libc",
  "log",
- "serde",
  "serde_json",
  "windows-sys 0.61.2",
 ]
@@ -1588,7 +1581,6 @@ version = "0.1.0"
 dependencies = [
  "getrandom 0.3.4",
  "icu_normalizer",
- "proptest",
  "rusqlite",
  "serde",
  "serde_json",
@@ -1806,7 +1798,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "subtle",
  "tempfile",
  "tokio",
  "tokio-tungstenite",
@@ -2009,7 +2000,6 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-environment",
- "cmux-cloud-wire",
  "cmux-json",
  "cmux-link",
  "cmux-server-core",
@@ -2089,7 +2079,6 @@ dependencies = [
  "cmux-tasks-core",
  "fs4",
  "getrandom 0.3.4",
- "proptest",
  "serde",
  "serde_json",
  "tempfile",
@@ -2099,7 +2088,6 @@ dependencies = [
 name = "cmux-tasks-core"
 version = "0.1.0"
 dependencies = [
- "proptest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2109,7 +2097,6 @@ dependencies = [
 name = "cmux-terminal-client"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "base64",
  "bytes",
  "cmux-json",
@@ -2155,7 +2142,6 @@ name = "cmux-transport"
 version = "0.1.0"
 dependencies = [
  "libc",
- "proptest",
 ]
 
 [[package]]
@@ -2566,7 +2552,6 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.4",
  "hex",
- "ip_network",
  "proptest",
  "reqwest",
  "ring",

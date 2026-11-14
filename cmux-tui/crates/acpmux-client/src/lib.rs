@@ -448,7 +448,7 @@ where
                 ));
             }
         }
-        let need = self.frame_total.map_or(4, |total| total).saturating_sub(self.frame_buf.len());
+        let need = self.frame_total.unwrap_or(4).saturating_sub(self.frame_buf.len());
         let used = need.min(bytes.len());
         self.frame_buf.extend_from_slice(bytes.get(..used).unwrap_or_default());
         if self.frame_total.is_none() && self.frame_buf.len() >= 4 {

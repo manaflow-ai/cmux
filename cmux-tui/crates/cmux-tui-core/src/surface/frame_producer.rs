@@ -96,7 +96,7 @@ impl FrameRequests {
         // SeqCst with the producer's clear of `queued` and take of
         // `requested`: either the producer takes this generation, or this
         // request sees `queued` cleared and queues the slot again.
-        let _ = self.slot.requested.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
+        let _ = self.slot.requested.try_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
             Some(((old & !ANNOUNCE).max(generation)) | (old & ANNOUNCE) | flag)
         });
         if self.slot.queued.swap(true, Ordering::SeqCst) {
@@ -275,10 +275,9 @@ fn run() {
                 // meanwhile only raises its generation. A request that queued
                 // the slot since the clear already put it back.
                 Produced::Held(until) => {
-                    let _ =
-                        slot.requested.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
-                            Some((old & !ANNOUNCE).max(requested) | (old & ANNOUNCE))
-                        });
+                    let _ = slot.requested.try_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
+                        Some((old & !ANNOUNCE).max(requested) | (old & ANNOUNCE))
+                    });
                     if !slot.queued.swap(true, Ordering::SeqCst) {
                         let again = (Instant::now() + RENDER_FRAME_CADENCE).min(until);
                         order += 1;

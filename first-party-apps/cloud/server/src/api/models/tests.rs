@@ -200,7 +200,7 @@ fn only_the_exact_owner_value_owns_the_vm() {
 #[test]
 fn a_vm_kind_absent_or_not_a_string_reads_as_unknown() {
     for bad in [json!(true), json!(1), json!(["owner"]), json!({ "kind": "owner" }), json!(null)] {
-        let info = decode_connect_info(OP, with(connect_info(), json!({ "vm_kind": bad.clone() })))
+        let info = decode_connect_info(OP, with(connect_info(), json!({ "vm_kind": bad })))
             .expect("decodes");
         assert!(!info.caller_owns_vm(), "{bad}");
         assert_eq!(info.vm_kind.as_str(), VM_KIND_UNKNOWN);

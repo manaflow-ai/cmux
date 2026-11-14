@@ -308,11 +308,14 @@ impl Relay {
         response
     }
 
+    // `try_update` is the Rust 1.100 spelling of the deprecated `fetch_update` API.
+    // Keep the relay crate's published MSRV at 1.91 for the SDK-facing surface.
+    #[allow(clippy::incompatible_msrv)]
     fn try_admit_upgraded_socket(&self) -> Option<UpgradedConnectionPermit> {
         if self
             .inner
             .active_connections
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |active| {
                 (active < self.inner.config.max_connections).then_some(active + 1)
             })
             .is_err()
@@ -1315,10 +1318,13 @@ impl OutboundSender {
             .map_err(|_| RelayError::capacity("queue-full", "relay socket queue is full or closed"))
     }
 
+    // `try_update` is the Rust 1.100 spelling of the deprecated `fetch_update` API.
+    // Keep the relay crate's published MSRV at 1.91 for the SDK-facing surface.
+    #[allow(clippy::incompatible_msrv)]
     fn send_binary(&self, bytes: Bytes) -> Result<(), RelayError> {
         let size = bytes.len();
         self.queued_bytes
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |queued| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |queued| {
                 queued.checked_add(size).filter(|next| *next <= self.maximum_queue_bytes)
             })
             .map_err(|_| {

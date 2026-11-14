@@ -562,7 +562,7 @@ impl DigestTurn {
     /// queue in this same critical section. `_queue` is the queue's guard.
     pub(super) fn release(&self, session: &Session, _queue: &[QueuedPrompt]) {
         let bytes = self.charged.swap(0, Ordering::SeqCst);
-        let _ = session.digest_bytes.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |held| {
+        let _ = session.digest_bytes.try_update(Ordering::SeqCst, Ordering::SeqCst, |held| {
             Some(held.saturating_sub(bytes))
         });
     }

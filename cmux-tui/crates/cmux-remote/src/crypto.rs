@@ -468,7 +468,7 @@ impl FrameLink for SecureLink {
         let _order = self.send_order.lock().await;
         let nonce = self
             .send_nonce
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |nonce| nonce.checked_add(1))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |nonce| nonce.checked_add(1))
             .map_err(|_| LinkError::Protocol("Noise send nonce exhausted".into()))?;
         let mut ciphertext = vec![0_u8; NOISE_NONCE_BYTES + frame.len() + NOISE_TAG_BYTES];
         ciphertext[..NOISE_NONCE_BYTES].copy_from_slice(&nonce.to_be_bytes());

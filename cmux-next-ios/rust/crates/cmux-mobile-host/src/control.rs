@@ -540,7 +540,7 @@ pub fn spawn_stdin_reader() -> Supplied {
                         // Revocation takes effect immediately, even if persistence fails.
                         let mut effective = candidate.clone();
                         effective.available = previous.available;
-                        exposure_tx.send_replace(effective.clone());
+                        exposure_tx.send_replace(effective);
                     }
                     match persist_session_exposure(&candidate) {
                         Ok(()) => {

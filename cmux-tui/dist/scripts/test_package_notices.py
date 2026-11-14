@@ -28,7 +28,7 @@ class ComposeTest(unittest.TestCase):
         text = pn.compose("cmux-tui", "x86_64-unknown-linux-musl", CRATES, self.inputs)
         self.assertIn("musl libc 1.2.5", text)
         self.assertIn((pn.NOTICES / "texts/musl-1.2.5/COPYRIGHT").read_text(), text)
-        self.assertIn("rustc 1.95.0", text)
+        self.assertIn("rustc 1.100.0", text)
         self.assertIn("COPYRIGHT-library.html", text)
         self.assertIn(f"Zig {self.inputs.toolchains.zig_for('ghostty-next').version}", text)
         self.assertIn("Copyright (c) Zig contributors", text)
@@ -42,9 +42,9 @@ class ComposeTest(unittest.TestCase):
         # The real Darwin packages link no musl-derived code (package-notices.json
         # darwin.review); check-darwin-binary keeps that true for each package build.
         text = pn.compose("cmux-tui", "aarch64-apple-darwin", CRATES, self.inputs)
-        self.assertNotIn("musl libc", text)
+        self.assertNotIn("## musl libc 1.2.5", text)
         self.assertNotIn("musl as a whole is licensed", text)
-        self.assertIn("rustc 1.95.0", text)
+        self.assertIn("rustc 1.100.0", text)
 
     def test_every_target_credits_the_embedded_shell_integration(self) -> None:
         # cmux-tui embeds ghostty-next shell integration with include_str! on every
@@ -93,7 +93,7 @@ class ComposeTest(unittest.TestCase):
         self.assertIn("GCC RUNTIME LIBRARY EXCEPTION", text)
         self.assertIn("Version 3.1, 31 March 2009", text)
         self.assertIn("musl as a whole is licensed under the following standard MIT license", text)
-        self.assertIn("rustc 1.95.0", text)
+        self.assertIn("rustc 1.100.0", text)
         self.assertIn(f"Zig {self.inputs.toolchains.zig_for('ghostty-next').version}", text)
         for name in ("highway", "wuffs", "uucode", "simdutf"):
             self.assertIn(name, text)

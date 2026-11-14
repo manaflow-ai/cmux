@@ -311,9 +311,9 @@ fn a_persons_requests_answer_while_busy_sessions_saturate_the_registry() {
         })
         .collect();
     // `cmux agent open` callers, each into its own loose workspace.
-    for caller in 0..AGENT_OPEN_CALLERS {
+    for (caller, public_id) in sidebar.loose.iter().take(AGENT_OPEN_CALLERS).enumerate() {
         let (mux, stop) = (mux.clone(), stop.clone());
-        let workspace = workspace_slot(&mux, &sidebar.loose[caller]);
+        let workspace = workspace_slot(&mux, public_id);
         threads.push(std::thread::spawn(move || {
             let mut round = 0u64;
             while !stop.load(Ordering::Relaxed) {

@@ -111,7 +111,7 @@ impl OutboundByteBudget {
 
     pub(super) fn try_retain(&self, bytes: usize) -> bool {
         self.retained_bytes
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |retained| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |retained| {
                 retained.checked_add(bytes).filter(|next| *next <= self.max_bytes)
             })
             .is_ok()
