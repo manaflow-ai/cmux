@@ -177,7 +177,7 @@ fn read_entry(file: &mut File) -> Result<(u64, u64), Error> {
 
 fn read_entry_at(file: &File, offset: u64) -> Result<(u64, u64), Error> {
     let mut bytes = [0u8; ENTRY_BYTES as usize];
-    let read = crate::fsio::read_at(file, &mut bytes, offset)?;
+    let read = fsio::read_at(file, &mut bytes, offset)?;
     if read != bytes.len() {
         return Err(Error::Corrupt("short fold entry"));
     }
