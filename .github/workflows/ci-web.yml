@@ -852,7 +852,9 @@ jobs:
   # A pull request's base comparison is deliberately separate from the head
   # shards. Replaying the base's failed files requires its own install and bundle
   # build; doing that after the head suite in one 40-minute job made shard 3 hit
-  # the timeout before it could publish a verdict.
+  # the timeout before it could publish a verdict. The early base shards above
+  # run the recorded base reds in parallel with the head suite; this one job
+  # replays only the head reds that remain after those results are joined.
   react-apps-base-check:
     needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-early]
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
@@ -863,9 +865,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    # One job for every head shard: it was one a head shard (12), and in run 43409592440, with the early base
-    # results, 11 of those 12 took 0.3-0.9 min (nothing left to replay) and one 3.0 (one file). Each head shard's
-    # results are joined first (webviews_test_history.py heads), then judged once.
+    # One job joins every head shard after the parallel head and early-base work.
     name: react-apps-base-check
     steps:
       # The base is the merge commit's first parent, the commit the head shards
