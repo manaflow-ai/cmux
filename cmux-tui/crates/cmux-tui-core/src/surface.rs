@@ -5641,6 +5641,25 @@ impl Surface {
         &self,
         render: &mut RenderState,
     ) -> ghostty_vt::Result<Arc<SurfaceRenderFrame>> {
+        self.render_view_frame_as(render, false)
+    }
+
+    /// [`Self::render_view_frame`] for a pane being drawn: an open
+    /// synchronized update (DECSET 2026) keeps `render`'s last complete
+    /// snapshot; `render.synchronized_hold_deadline()` then says when to draw
+    /// again if no more output arrives.
+    pub fn render_view_display_frame(
+        &self,
+        render: &mut RenderState,
+    ) -> ghostty_vt::Result<Arc<SurfaceRenderFrame>> {
+        self.render_view_frame_as(render, true)
+    }
+
+    fn render_view_frame_as(
+        &self,
+        render: &mut RenderState,
+        hold_synchronized: bool,
+    ) -> ghostty_vt::Result<Arc<SurfaceRenderFrame>> {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
@@ -5651,7 +5670,11 @@ impl Surface {
             view_offset.is_none_or(|offset| set_terminal_scroll_offset(&mut term, offset));
         let result = if applied {
             (|| {
-                render.update(&mut term)?;
+                if hold_synchronized {
+                    render.update_for_display(&mut term, Instant::now())?;
+                } else {
+                    render.update(&mut term)?;
+                }
                 let palette_colors = std::array::from_fn(|index| render.palette_color(index as u8));
                 let palette_overridden =
                     std::array::from_fn(|index| render.palette_overridden(index as u8));
@@ -7260,10 +7283,19 @@ impl PtySurface {
     /// sent while the terminal lock is held.
     fn build_producer_frame(
         &self,
-        mut term: std::sync::MutexGuard<'_, Box<Terminal>>,
+        term: std::sync::MutexGuard<'_, Box<Terminal>>,
         generation: u64,
     ) -> ghostty_vt::Result<bool> {
-        let built = self.build_frame_locked(&mut term, generation, true);
+        self.build_producer_frame_as(term, generation, false)
+    }
+
+    fn build_producer_frame_as(
+        &self,
+        mut term: std::sync::MutexGuard<'_, Box<Terminal>>,
+        generation: u64,
+        hold_synchronized: bool,
+    ) -> ghostty_vt::Result<bool> {
+        let built = self.build_frame_locked_as(&mut term, generation, true, hold_synchronized);
         drop(term);
         self.mark_output_dirty();
         built
@@ -7278,13 +7310,35 @@ impl PtySurface {
         generation: u64,
         producer_driven: bool,
     ) -> ghostty_vt::Result<bool> {
+        self.build_frame_locked_as(term, generation, producer_driven, false)
+    }
+
+    /// [`Self::build_frame_locked`]; with `hold_synchronized`, an open
+    /// synchronized update keeps the last complete frame (the frame producer's
+    /// live cadence). Final, exit and attach frames always show the terminal
+    /// as it is.
+    fn build_frame_locked_as(
+        &self,
+        term: &mut Terminal,
+        generation: u64,
+        producer_driven: bool,
+        hold_synchronized: bool,
+    ) -> ghostty_vt::Result<bool> {
         let built = {
             let mut render = self.render.lock().unwrap();
             if (producer_driven && render.taps.is_empty()) || render.built_generation >= generation
             {
                 false
+            } else if hold_synchronized && !render.state.update_for_display(term, Instant::now())? {
+                // The application is inside a synchronized update (DECSET
+                // 2026). Publish nothing: `built_generation` stays behind, so
+                // the chunk that ends the update, or the producer's hold
+                // deadline, builds the complete frame.
+                false
             } else {
-                render.state.update(term)?;
+                if !hold_synchronized {
+                    render.state.update(term)?;
+                }
                 let palette_colors =
                     std::array::from_fn(|idx| render.state.palette_color(idx as u8));
                 let palette_overridden =
@@ -7693,7 +7747,23 @@ fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyh
         .clone();
     std::thread::Builder::new().name(format!("surface-{id}-frames")).spawn(move || {
         let mut last_frame = Instant::now() - RENDER_FRAME_CADENCE;
-        while let Ok(mut requested) = requests.recv() {
+        // Set while a synchronized update holds the last built frame back: if
+        // no more output arrives, the producer still presents it by then.
+        let mut held_until: Option<Instant> = None;
+        loop {
+            let mut requested = match held_until {
+                Some(until) => {
+                    match requests.recv_timeout(until.saturating_duration_since(Instant::now())) {
+                        Ok(next) => next,
+                        Err(RecvTimeoutError::Timeout) => 0,
+                        Err(RecvTimeoutError::Disconnected) => return,
+                    }
+                }
+                None => match requests.recv() {
+                    Ok(next) => next,
+                    Err(_) => return,
+                },
+            };
             let deadline = last_frame + RENDER_FRAME_CADENCE;
             loop {
                 let now = Instant::now();
@@ -7720,9 +7790,19 @@ fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyh
                     pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
                 let _ = pty.flush_attach_colors_locked(&term, defaults);
             }
-            if pty.build_producer_frame(term, generation).unwrap_or(false) || colors_pending {
+            if pty.build_producer_frame_as(term, generation, true).unwrap_or(false)
+                || colors_pending
+            {
                 last_frame = Instant::now();
             }
+            // A deadline already past still wakes at once and presents; with
+            // no taps nothing is built, so there is nothing to wake for.
+            let render = pty.render.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            held_until = if render.taps.is_empty() {
+                None
+            } else {
+                render.state.synchronized_hold_deadline()
+            };
         }
     })?;
     Ok(())

@@ -2394,11 +2394,36 @@ impl SurfaceHandle {
         &self,
         rs: &mut RenderState,
     ) -> ghostty_vt::Result<Arc<SurfaceRenderFrame>> {
+        self.render_frame_as(rs, false)
+    }
+
+    /// [`Self::render_frame`] for a pane being drawn: an open synchronized
+    /// update (DECSET 2026) keeps `rs`'s last complete snapshot instead of a
+    /// half-drawn frame.
+    pub fn render_display_frame(
+        &self,
+        rs: &mut RenderState,
+    ) -> ghostty_vt::Result<Arc<SurfaceRenderFrame>> {
+        self.render_frame_as(rs, true)
+    }
+
+    fn render_frame_as(
+        &self,
+        rs: &mut RenderState,
+        hold_synchronized: bool,
+    ) -> ghostty_vt::Result<Arc<SurfaceRenderFrame>> {
         match self {
+            SurfaceHandle::Local(surface, _) if hold_synchronized => {
+                surface.render_view_display_frame(rs)
+            }
             SurfaceHandle::Local(surface, _) => surface.render_view_frame(rs),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
                 let mut term = surface.term.lock().unwrap();
-                rs.update(&mut term)?;
+                if hold_synchronized {
+                    rs.update_for_display(&mut term, std::time::Instant::now())?;
+                } else {
+                    rs.update(&mut term)?;
+                }
                 let palette_colors = std::array::from_fn(|idx| rs.palette_color(idx as u8));
                 let palette_overridden =
                     std::array::from_fn(|idx| rs.palette_overridden(idx as u8));

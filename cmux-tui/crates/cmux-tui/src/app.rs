@@ -7453,6 +7453,9 @@ pub struct App {
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
+    /// Visible panes drawn from a held synchronized update (DECSET 2026),
+    /// with when each must be drawn again if no more output arrives.
+    pub(crate) rendered_synchronized_holds: HashMap<SurfaceId, Instant>,
     /// Kitty graphics captured from the exact immutable terminal frame drawn
     /// for each visible surface. Graphics emission must not render again,
     /// because doing so would consume remote damage independently of text.
@@ -9753,6 +9756,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         reported_focus: None,
         client_focus_id: client_focus_identity(),
         rendered_terminal_bounds: HashMap::new(),
+        rendered_synchronized_holds: HashMap::new(),
         rendered_kitty_graphics: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
         pending_size_releases: HashSet::new(),
@@ -11082,6 +11086,12 @@ impl App {
                 Duration::from_millis(250)
             };
             let timeout = terminal_paints.wait_timeout(timeout, Instant::now());
+            // A pane held on its last complete frame by a synchronized update
+            // is drawn at its deadline even when no more output arrives.
+            let synchronized_hold = self.synchronized_hold_deadline();
+            let timeout = synchronized_hold.map_or(timeout, |until| {
+                timeout.min(until.saturating_duration_since(Instant::now()))
+            });
             let mut toast_expired_on_timeout = false;
             let first = match rx.recv_timeout(timeout) {
                 Ok(event) => Some(event),
@@ -11097,6 +11107,9 @@ impl App {
                         action = action.merge(RenderAction::Draw);
                     }
                     if self.tick_sidebar_files() {
+                        action = action.merge(RenderAction::Draw);
+                    }
+                    if synchronized_hold.is_some_and(|until| Instant::now() >= until) {
                         action = action.merge(RenderAction::Draw);
                     }
                     None
@@ -12273,6 +12286,7 @@ impl App {
         self.rendered_terminal_pointer_semantics.clear();
         self.rendered_pane_content_generations.clear();
         self.rendered_terminal_bounds.clear();
+        self.rendered_synchronized_holds.clear();
         self.rendered_kitty_graphics.clear();
         self.graphics_scene_cache.invalidate();
         self.graphics_dirty_surfaces.clear();
@@ -13635,6 +13649,7 @@ impl App {
         self.rendered_terminal_pointer_semantics.remove(&surface);
         self.rendered_pane_content_generations.remove(&surface);
         self.rendered_terminal_bounds.remove(&surface);
+        self.rendered_synchronized_holds.remove(&surface);
         self.visible_size_surfaces.remove(&surface);
         self.pending_size_releases.remove(&surface);
         self.mux_titles.remove(surface);
@@ -14006,6 +14021,7 @@ impl App {
         self.viewport_offset = 0;
         self.rendered_terminal_sizes.clear();
         self.rendered_terminal_bounds.clear();
+        self.rendered_synchronized_holds.clear();
         self.rendered_kitty_graphics.clear();
         self.rendered_terminal_pointer_semantics.clear();
         self.rendered_pane_content_generations.clear();
@@ -14763,6 +14779,13 @@ impl App {
         stdout.write_all(&cmux_tui_core::server::window_title_osc(title))?;
         stdout.flush()?;
         Ok(())
+    }
+
+    /// The earliest moment a visible pane's held synchronized update must be
+    /// drawn. Only panes drawn in the last frame count: a hidden pane's render
+    /// state keeps its old hold, and waking for it would spin the loop.
+    fn synchronized_hold_deadline(&self) -> Option<Instant> {
+        self.rendered_synchronized_holds.values().min().copied()
     }
 
     fn viewport_animation_active(&self) -> bool {
@@ -47088,6 +47111,7 @@ mod tests {
             reported_focus: None,
             client_focus_id: None,
             rendered_terminal_bounds: HashMap::new(),
+            rendered_synchronized_holds: HashMap::new(),
             rendered_kitty_graphics: HashMap::new(),
             visible_size_surfaces: HashSet::new(),
             pending_size_releases: HashSet::new(),
