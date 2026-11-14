@@ -9,6 +9,8 @@ struct RemoteTmuxTransportLivenessState {
     var watch: Task<Void, Never>?
     /// The clock stdout is stamped with. Tests replace it to move time by hand.
     var now: () -> ContinuousClock.Instant = { .now }
+    /// How long a reconnect attempt may run without reaching control mode before it is replaced.
+    var reconnectAttemptDeadline: Duration = .seconds(120)
 
     var probeSentAt: ContinuousClock.Instant? { policy.probeSentAt }
 }

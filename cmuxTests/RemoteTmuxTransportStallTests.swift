@@ -42,6 +42,11 @@ import Testing
         var pidLog: URL { root.appendingPathComponent("pids") }
         var probeReplied: URL { root.appendingPathComponent("probe-replied") }
 
+        func allPIDs() -> [pid_t] {
+            ((try? String(contentsOf: pidLog, encoding: .utf8)) ?? "")
+                .split(separator: "\n").compactMap { pid_t($0) }
+        }
+
         func firstPID() throws -> pid_t {
             let text = try String(contentsOf: pidLog, encoding: .utf8)
             return try #require(text.split(separator: "\n").first.flatMap { pid_t($0) })
@@ -71,7 +76,7 @@ import Testing
 
     /// Starts a connection whose transport enters control mode, logs every command it is sent,
     /// and replies to each one only when `answering` is set.
-    private func connect(answering: Bool) async throws -> Harness {
+    private func connect(answering: Bool, laterSpawnsHang: Bool = false) async throws -> Harness {
         let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("remote-tmux-stall-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -86,6 +91,7 @@ import Testing
         try """
         #!/bin/sh
         echo "$$" >> '\(pidLog)'
+        \(laterSpawnsHang ? "[ $(( $(wc -l < '\(pidLog)') )) -gt 1 ] && exec sleep 600" : ":")
         printf '\\033P1000p%%begin 1 1 0\\n%%end 1 1 0\\n'
         n=1
         while IFS= read -r line; do
@@ -229,6 +235,29 @@ import Testing
         #expect(taken > 0)
         #expect(reader.hasUndeliveredOutput,
                 "output the consumer has not released is undelivered even after the pipe has ended")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aReconnectAttemptThatNeverReachesControlModeIsReplaced() async throws {
+        let harness = try await connect(answering: false, laterSpawnsHang: true)
+        defer { finish(harness) }
+        let connection = harness.connection
+        connection.transportLiveness.reconnectAttemptDeadline = .milliseconds(500)
+
+        harness.clock.advance(.seconds(31))
+        #expect(connection.checkTransportLiveness(now: harness.clock.now) == .probe)
+        harness.clock.advance(.seconds(31))
+        #expect(isStall(connection.checkTransportLiveness(now: harness.clock.now)))
+
+        // Every spawn after the first stays alive and silent, like a broker retrying a refused host.
+        let replaced = await AppKitTestEventPump().waitUntil(timeout: .seconds(20)) {
+            harness.allPIDs().count >= 3
+        }
+        #expect(replaced, "a reconnect attempt that never reaches control mode must be replaced")
+        let hung = try #require(harness.allPIDs().dropFirst().first)
+        let ended = await AppKitTestEventPump().waitUntil(timeout: .seconds(10)) { processIsGone(hung) }
+        #expect(ended, "the attempt that never reached control mode must be ended")
+        #expect(connection.connectionState == .reconnecting)
     }
 
     @Test(.timeLimit(.minutes(1)))
