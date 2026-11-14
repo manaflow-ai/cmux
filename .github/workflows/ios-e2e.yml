@@ -10,11 +10,12 @@ name: iOS E2E
 #
 # No workflow-level path filter on purpose: the route job decides skips so the
 # ios-e2e-status aggregate always reports a deterministic conclusion.
-# The pull_request trigger stays off until the owner approves promotion (see
-# docs/ci/ios-e2e.md). The workflow is dispatchable while infrastructure and
-# the product path are validated.
-# pull_request:
+# Pull requests into feat-cmux-next run it (Leo, 2026-11-14: "ios e2e yes on
+# feat next"); a docs-only diff skips the Mac job in `route`. It stays
+# dispatchable on any branch the `ios-e2e` environment allows.
 on:
+  pull_request:
+    branches: [feat-cmux-next]
   workflow_dispatch:
     inputs:
       backend_only:
@@ -25,8 +26,9 @@ on:
 permissions:
   contents: read
 
-# Trust boundary. Only workflow_dispatch runs this lane, which needs write
-# access. Every job that joins the tailnet or reads a secret runs in the
+# Trust boundary. A dispatch needs write access; a pull request runs the
+# secret-fenced jobs only when its head is in this repository (a fork PR is a
+# neutral skip). Every job that joins the tailnet or reads a secret runs in the
 # `ios-e2e` environment, whose deployment branch policy is the allow-list, and
 # joins with GitHub OIDC against the federated Tailscale identity "cmux iOS E2E
 # protected manual runs" (this workflow, workflow_dispatch, environment
@@ -92,15 +94,19 @@ jobs:
           if [ "${BACKEND_ONLY:-false}" = "true" ]; then
             run_clients=false
           fi
-          # TODO(ios-e2e): integrate scripts/ci/detect_ci_change_areas.py so
-          # docs-only and unrelated diffs skip the expensive Mac job. Until
-          # then the lane runs in shadow mode when dispatched.
           run_e2e=true
           web_changed=false
           if [ "$EVENT_NAME" = "pull_request" ]; then
             if git rev-parse -q --verify HEAD^2 >/dev/null; then
-              if git diff --name-only HEAD^1 HEAD | grep -Eq '^web/'; then
+              changed=$(git diff --name-only HEAD^1 HEAD)
+              if grep -Eq '^web/' <<<"$changed"; then
                 web_changed=true
+              fi
+              # A diff of only prose and images reaches neither app: skip the
+              # Mac job; ios-e2e-status still concludes green.
+              app_paths=$(grep -Ev '(\.md$|^docs/|^plans/|^release-notes/|^images/|^art/)' <<<"$changed" || true)
+              if [ -n "$changed" ] && [ -z "$app_paths" ]; then
+                run_e2e=false
               fi
             else
               # Isolate a rebase or detached edge rather than mutating the
