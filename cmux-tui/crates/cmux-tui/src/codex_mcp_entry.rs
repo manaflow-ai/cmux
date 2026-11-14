@@ -491,6 +491,37 @@ mod tests {
         assert!(!project_config_names_cmux(&codex_home, &with_codex_home), "CODEX_HOME itself");
     }
 
+    /// Codex walks the launch folder as written, `.`/`..` removed lexically,
+    /// while the probe's folder is the resolved one: a config naming cmux on
+    /// either chain skips. A `.codex` that is a file is no config folder.
+    #[test]
+    fn a_symlinked_launch_folder_is_scanned_on_both_chains() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let getenv = |key: &str| (key == "HOME").then(|| root.join("home").into_os_string());
+        let (a, b) = (root.join("a"), root.join("b"));
+        std::fs::create_dir_all(a.join(".codex")).unwrap();
+        std::fs::create_dir_all(b.join("target")).unwrap();
+        std::os::unix::fs::symlink(b.join("target"), a.join("link")).unwrap();
+        let cmux = "[mcp_servers.cmux]\ncommand = \"/x/cmux\"\n";
+        // Lexically under a (which names cmux), resolved under b (which does not).
+        std::fs::write(a.join(".codex/config.toml"), cmux).unwrap();
+        assert!(project_config_names_cmux(&a.join("link"), &getenv));
+        assert!(project_config_names_cmux(&a.join("link/.."), &getenv));
+        assert!(project_config_names_cmux(&a.join("link/./../link"), &getenv));
+        std::fs::remove_file(a.join(".codex/config.toml")).unwrap();
+        assert!(!project_config_names_cmux(&a.join("link"), &getenv));
+        assert!(!project_config_names_cmux(&a.join("link/.."), &getenv));
+        // Resolved under b, which names cmux: skipped too.
+        std::fs::create_dir_all(b.join(".codex")).unwrap();
+        std::fs::write(b.join(".codex/config.toml"), cmux).unwrap();
+        assert!(project_config_names_cmux(&a.join("link"), &getenv));
+        std::fs::remove_dir_all(b.join(".codex")).unwrap();
+        // A `.codex` that is a regular file: nothing there, still probed.
+        std::fs::write(b.join("target/.codex"), "not a folder").unwrap();
+        assert!(!project_config_names_cmux(&b.join("target"), &getenv));
+    }
+
     /// A fake `codex` at `dir/codex` running `body`; it records its arguments
     /// and folder in `dir/seen`.
     fn fake_codex(dir: &Path, body: &str) -> PathBuf {

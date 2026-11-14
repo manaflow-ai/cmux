@@ -519,6 +519,29 @@ mod tests {
         }
     }
 
+    /// `codex agents` opens the agent command center, which can switch to
+    /// sessions recorded elsewhere: this build's server goes in, nothing is
+    /// asked or turned off. `codex review` is a new session in the launch
+    /// folder (`exec review`): Codex is asked, another cmux's entry turned off.
+    #[test]
+    fn agents_and_review_get_the_server() {
+        let pane = |name: &str| (name == "CMUX_TUI_TERMINAL_ID").then(|| OsString::from("term_1"));
+        for args in [&["agents"][..], &["review", "--uncommitted"], &["-m", "o3", "agents"]] {
+            assert!(should_inject(&os(args), pane), "{args:?}");
+        }
+        for args in [&["a"][..], &["apply"], &["mcp", "list"]] {
+            assert!(!should_inject(&os(args), pane), "{args:?}");
+        }
+        let (settings, calls, said) = launch(AgentsCmuxMcp::On, &["agents"], found("/opt/cmux"));
+        assert!(calls.is_empty() && said.is_empty(), "{calls:?} {said:?}");
+        assert!(settings.iter().any(|s| s.starts_with("mcp_servers.cmux_terminal.command=")));
+        assert!(!settings.iter().any(|s| s.contains("enabled=false")), "{settings:?}");
+        let (settings, calls, _) =
+            launch(AgentsCmuxMcp::On, &["review", "--uncommitted"], found("/opt/cmux"));
+        assert_eq!(calls.len(), 1);
+        assert!(settings.iter().any(|s| s == "mcp_servers.cmux.enabled=false"), "{settings:?}");
+    }
+
     /// Where a project config (the launch folder, `-C` applied, or above)
     /// defines `cmux`, Codex is not asked and nothing is turned off or said;
     /// a project config without `cmux` changes nothing.
@@ -572,6 +595,13 @@ mod tests {
         // `-C` into it from a folder without one: the same.
         let to_project = project.to_str().unwrap();
         assert!(!launch(&other, &["-C", to_project, "fix the bug"], &mut said));
+        assert_eq!(*asked.borrow(), 1);
+        // `-C` through a symlink out of it: Codex walks the path as written,
+        // under the project; not asked either.
+        std::os::unix::fs::symlink(&other, project.join("link")).unwrap();
+        let link = project.join("link");
+        assert!(!launch(&other, &["-C", link.to_str().unwrap(), "fix the bug"], &mut said));
+        assert!(!launch(&project, &["-C", "link/../link", "fix the bug"], &mut said));
         assert_eq!(*asked.borrow(), 1);
         // And `-C` out of it: asked again.
         let to_other = other.to_str().unwrap();

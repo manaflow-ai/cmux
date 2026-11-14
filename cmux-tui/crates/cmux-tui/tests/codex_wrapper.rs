@@ -350,6 +350,22 @@ fn codex_wrapper_passes_through_management_opt_out_and_missing_routes() {
     );
 }
 
+/// `codex agents` (the agent command center, a full interactive session) and
+/// `codex review` (an agent session, `exec review`) start agent sessions in
+/// Codex 0.160 and 0.169: they get hooks like any session.
+#[test]
+fn codex_wrapper_injects_into_agents_and_review_sessions() {
+    let launch = Launch::new();
+    for args in [&["agents"][..], &["review", "--uncommitted"], &["-m", "o3", "agents"]] {
+        let argv = launch.argv(launch.command().args(args));
+        assert!(argv.len() > args.len(), "{args:?}: {argv:?}");
+        assert_eq!(&argv[argv.len() - args.len()..], args, "{argv:?}");
+        assert!(settings(&argv).get("hooks").is_some(), "{args:?}: {argv:?}");
+    }
+    // `a` is `apply`, which starts no session.
+    assert_eq!(launch.argv(launch.command().args(["a"])), ["a"]);
+}
+
 #[test]
 fn codex_wrapper_scopes_trust_and_suppresses_only_installed_cmux_hooks() {
     let launch = Launch::new();
