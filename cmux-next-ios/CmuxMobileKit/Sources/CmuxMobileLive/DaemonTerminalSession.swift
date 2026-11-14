@@ -218,7 +218,11 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The client the size was released on for a link closing on purpose (nil: none open then).
     /// An attach of that same client (it was in flight on the closing link) claims nothing; only
     /// a new client's attach clears the release (merge review of d76ab4a6, low 2).
-    private var releasedOnClient: ObjectIdentifier?
+    private var releasedOnClient: UInt64?
+    /// Numbers each client this terminal opens (never an address, which a freed client's
+    /// successor may reuse): `releasedOnClient` names one by it.
+    private var clientSerial: UInt64 = 0
+    private var currentClientSerial: UInt64?
     /// The grid last asked for, put back after a reattach.
     private var lastSize: (columns: Int, rows: Int)?
     private var attached = false
@@ -428,9 +432,11 @@ public final class DaemonTerminalSession: TerminalSession {
     public func releaseBeforeLinkCloses(onlyThrough attach: UInt64? = nil) async {
         // An attach in flight on the closing link claims no size when it lands (it would hold
         // the phone's grid on the machine for the dropped-link grace).
-        if attach == nil || attachSerial == attach {
+        // A forgotten session's release (`attach` set) marks only an attach still live on it: an
+        // attach in flight then is the new session's (its kept link), never the closing one's.
+        if attach == nil || (attached && attachSerial == attach) {
             releasedForLinkClose = true
-            releasedOnClient = client.map(ObjectIdentifier.init)
+            releasedOnClient = client == nil ? nil : currentClientSerial
         }
         guard let client, attached else { return }
         // A release from a session that has since given this terminal to another: only while the
@@ -637,6 +643,9 @@ public final class DaemonTerminalSession: TerminalSession {
             let client = try await open()
             guard handler != nil else { return }
             self.client = client
+            clientSerial &+= 1
+            let thisClient = clientSerial
+            currentClientSerial = thisClient
             await client.start()
             // A reattach (or a retry) first asks where the terminal is: a Mac
             // daemon that restarted numbers its surfaces again, and the old
@@ -708,7 +717,7 @@ public final class DaemonTerminalSession: TerminalSession {
             )
             let identify = try? setup.last?.get()
             // Hidden, or on a link closing on purpose: attach without a size, so it claims none.
-            let closingAttach = releasedForLinkClose && releasedOnClient == ObjectIdentifier(client)
+            let closingAttach = releasedForLinkClose && releasedOnClient == thisClient
             let initialSize = claimsSize && !closingAttach && (identify.map(Self.acceptsInitialSize) ?? false)
             leased = identify.map { Self.lists(Self.sizeLeaseCapability, $0) } ?? false
             sharedSizing = identify.map { Self.lists(Self.sharedSizingCapability, $0) } ?? false
@@ -807,7 +816,7 @@ public final class DaemonTerminalSession: TerminalSession {
             attachSerial &+= 1
             // A new client's attach ends a release for a link close; the closing link's own
             // attach (in flight when it was released) keeps it and claims nothing.
-            let stillClosing = releasedForLinkClose && releasedOnClient == ObjectIdentifier(client)
+            let stillClosing = releasedForLinkClose && releasedOnClient == thisClient
             if !stillClosing {
                 releasedForLinkClose = false
                 releasedOnClient = nil
