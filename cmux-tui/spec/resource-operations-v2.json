@@ -14723,7 +14723,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "With automatic: whether the launch's run starts ({decision: first_run | resume | merge | skip, reason}); null with manual."
+          "description": "With automatic: whether the launch's run starts ({decision: first_run | resume | merge | skip, reason}; skip reasons include classic_running and declined); null with manual."
         },
         "source": {
           "required": true,
@@ -14745,7 +14745,7 @@
               "name": "string"
             }
           },
-          "description": "The file read, then the other candidates: what begin backs up."
+          "description": "The file read, then its channel's other candidates (another channel's files are left): what begin backs up."
         },
         "error": {
           "required": true,
@@ -14758,6 +14758,14 @@
           },
           "description": "Why the only session file did not read, or why a manual run has no plan."
         },
+        "classic_running": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Whether the classic app that saved source is open now (its socket lock, or its launch sentinel and a recent save); false when nothing is read."
+        },
         "plan": {
           "required": true,
           "type": {
@@ -14767,7 +14775,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "What the run makes (the cmux-classic-import crate's Plan: windows with their workspaces, groups, cleanup, skipped); null when nothing is read or the run does not start."
+          "description": "What the run makes (the cmux-classic-import crate's Plan: windows with their workspaces, groups, cleanup, skipped); null when nothing is read or the run does not start. Each tab's scrollback is the read-only text its new shell prints, null when nothing printable is left or with outline."
         },
         "preview": {
           "required": true,
@@ -19816,11 +19824,20 @@
               ]
             },
             "description": "automatic for the launch's own run, manual for Import Workspaces from Classic cmux."
+          },
+          "outline": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "True leaves every tab's scrollback out of plan (null), for a caller that only counts workspaces or lists folders."
           }
         },
         "extra": false,
         "constraints": [
-          "Reads classic's session files under the daemon's HOME, never a path from the caller: the classic channel matching bundle_id, else the one saved last, trying its session file, -previous copy and newest archive in turn.",
+          "Reads classic's session files under the daemon's HOME, never a path from the caller: every classic channel, the one saved last first (the channel matching bundle_id on a tie), trying each one's session file, -previous copy and newest archive in turn.",
           "Plans against the ledger, the workspaces open now and the workspace groups that exist now: a workspace recorded done stays left out unless a manual run finds its cmux workspace closed.",
           "A ledger from a newer cmux stops both modes (decision ledger_not_usable, or error \"ledger from a newer cmux\"); it is left as it is. An unreadable ledger is moved aside."
         ]
@@ -19871,10 +19888,11 @@
                 "begin",
                 "workspace",
                 "group",
+                "decline",
                 "finish"
               ]
             },
-            "description": "seen and baseline record a launch's first contact (nothing made); begin starts a confirmed run; workspace and group record what was made; finish completes the run."
+            "description": "seen and baseline record a launch's first contact (nothing made); begin starts a confirmed run; workspace and group record what was made; decline keeps a launch's No (the ledger's declinedAt; later launches skip with declined until a run begins or finishes, which clears it); finish completes the run."
           },
           "source": {
             "required": false,
@@ -19882,7 +19900,7 @@
               "kind": "ref",
               "name": "JsonValue"
             },
-            "description": "The plan's source, as classic_import.plan returned it. Required with begin; with finish it records the save the run read."
+            "description": "The plan's source, as classic_import.plan returned it. Required with begin; with finish it records the save the run read; with decline it is recorded when the ledger names none yet."
           },
           "backups": {
             "required": false,

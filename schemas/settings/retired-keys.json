@@ -135,6 +135,16 @@
       "key": "ui.animations.bounce",
       "reason": "no animation passes its place; every spring stops exactly on it",
       "why": "No bounce in any motion (Lawrence 2026-11-10, plans/cmux-next/motion-first-principles-DESIGN.md principle 5): the Subtle choice is gone and None is the only behaviour."
+    },
+    {
+      "key": "phone.allowConnections",
+      "reason": "the Phone Access listener is gone; cmux on iPhone connects through Settings > Mobile (mobile.allowIPhoneConnections)",
+      "why": "The cmux-next Mac app no longer runs the iroh phone listener (2026-11-13): no cmux-next phone used it; cmux on iPhone connects through the iPhone host (mobile.allowIPhoneConnections)."
+    },
+    {
+      "key": "phone.startSessions",
+      "reason": "the Phone Access listener is gone; cmux on iPhone connects through Settings > Mobile (mobile.allowIPhoneConnections)",
+      "why": "The cmux-next Mac app no longer runs the iroh phone listener (2026-11-13): no cmux-next phone used it; cmux on iPhone connects through the iPhone host (mobile.allowIPhoneConnections)."
     }
   ]
 }

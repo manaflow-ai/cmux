@@ -7,7 +7,7 @@ The jobs in .github/runners.json `hosted_light_jobs` (resolvers, routers, report
 fallback only exists on a re-run, and nothing re-ran one: ci-hosted-queue-rescue.yml watches only CI, CLA and CI
 fast guards, and only once GitHub itself cancels a whole run after about 15 minutes; the queue janitor's lost-
 assignment pass waits 30 minutes and needs a newer job on the same labels taken. The rulebook's stall-aware
-failover is about 3 minutes.
+failover is bounded at about 2 minutes.
 
 Each pass of the scheduled overflow watch (main's ci-cloud-overflow-probe.yml, which checks this file out from
 feat-cmux-next at a pinned commit) runs this:
@@ -48,7 +48,7 @@ UTC = dt.timezone.utc
 HOSTED_LABEL = re.compile(r"^ubuntu-[0-9][\w.-]*$")
 # The stall-aware failover's bound: a hosted light job is 2-50 s of work, and on 2026-11-02 27 of them sampled
 # between 07:36Z and 08:25Z waited 1-94 s for a runner (median about 10 s).
-STALL_SECONDS = 180
+STALL_SECONDS = 120
 # Runs older than this are not listed: GitHub cancels a hosted job that never got a runner well before it.
 WINDOW = dt.timedelta(minutes=90)
 MAX_RUNS = 40
