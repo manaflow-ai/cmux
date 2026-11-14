@@ -674,6 +674,96 @@ pub struct ChatPageResult {
     pub refused: Vec<u64>,
 }
 
+/// One op of a chat's delta. A settled row and a patch carry a seq of their own; a row that
+/// begins, a `text` and a `queue` op carry the last record's seq and move no cursor. Separate
+/// from the list's `DeltaOp<T>`, in the same frame kind.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "op")]
+pub enum ChatOp {
+    /// A settled row, or an open one as it is now; it replaces what the client holds for its
+    /// rowId. An open row whose body was left out names its length, read by `blob`.
+    Row {
+        seq: u64,
+        row: RawJson,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        body_len: Option<u64>,
+    },
+    /// Text appended to an open row's `text`: an escaped JSON string, as stored.
+    Text { seq: u64, row_id: u64, text: RawJson },
+    /// A new rev of a settled row.
+    Patch { seq: u64, row: RawJson },
+    /// One entry as it is now, or its removal, with the count; or `head`, the entries next to
+    /// run, which replaces what the client holds.
+    Queue {
+        seq: u64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        entry: Option<QueueItem>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        removed: Option<String>,
+        count: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        head: Option<QueueHead>,
+    },
+}
+
+// Read from the JSON map directly, as `DeltaOp` is: an internally tagged enum buffers its
+// fields, which a `RawJson` cannot come through.
+impl<'de> Deserialize<'de> for ChatOp {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Fields {
+            op: String,
+            seq: u64,
+            row: Option<RawJson>,
+            body_len: Option<u64>,
+            row_id: Option<u64>,
+            text: Option<RawJson>,
+            entry: Option<QueueItem>,
+            removed: Option<String>,
+            count: Option<u32>,
+            head: Option<QueueHead>,
+        }
+        let fields = Fields::deserialize(deserializer)?;
+        let seq = fields.seq;
+        match fields.op.as_str() {
+            "row" => Ok(Self::Row {
+                seq,
+                row: fields.row.ok_or_else(|| D::Error::missing_field("row"))?,
+                body_len: fields.body_len,
+            }),
+            "text" => Ok(Self::Text {
+                seq,
+                row_id: fields.row_id.ok_or_else(|| D::Error::missing_field("rowId"))?,
+                text: fields.text.ok_or_else(|| D::Error::missing_field("text"))?,
+            }),
+            "patch" => Ok(Self::Patch {
+                seq,
+                row: fields.row.ok_or_else(|| D::Error::missing_field("row"))?,
+            }),
+            "queue" => Ok(Self::Queue {
+                seq,
+                entry: fields.entry,
+                removed: fields.removed,
+                count: fields.count.ok_or_else(|| D::Error::missing_field("count"))?,
+                head: fields.head,
+            }),
+            other => Err(D::Error::unknown_variant(other, &["row", "text", "patch", "queue"])),
+        }
+    }
+}
+
+/// A chat's delta frame: `{sid, replay?, ops}`. A resume's frames set `replay`; its last, the
+/// state frame, is `"end"`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatDelta {
+    pub sid: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay: Option<ReplayMark>,
+    pub ops: Vec<ChatOp>,
+}
+
 /// A bounded read of a row's body, or of a waiting prompt's text.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -778,40 +868,6 @@ pub enum DeltaOp<T> {
         origin: String,
         folder: String,
     },
-    /// A chat row: settled (with a seq of its own), or one that begins or was set again
-    /// (open, with the last record's seq). It replaces what the client holds for its rowId.
-    Row {
-        seq: u64,
-        row: RawJson,
-        /// An open row whose body did not fit a resume's state frame: the body is left out and
-        /// this is its length, read by `blob`.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        body_len: Option<u64>,
-    },
-    /// Text appended to an open row's `text`: an escaped JSON string, as stored.
-    Text {
-        seq: u64,
-        row_id: u64,
-        text: RawJson,
-    },
-    /// A new rev of a settled row.
-    Patch {
-        seq: u64,
-        row: RawJson,
-    },
-    /// A chat's queue: one entry as it is now, or its removal, with the count; or `head`,
-    /// the entries next to run, which replaces what the client holds.
-    #[serde(rename = "queue")]
-    ChatQueue {
-        seq: u64,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        entry: Option<QueueItem>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        removed: Option<String>,
-        count: u32,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        head: Option<QueueHead>,
-    },
 }
 
 // Deserialize fields directly from the JSON map. Serde's internally tagged
@@ -832,19 +888,10 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for DeltaOp<T> {
             state: Option<OriginState>,
             since: Option<u64>,
             extra: Option<serde_json::Value>,
-            // A folder row or a chat row; the op says which.
-            row: Option<RawJson>,
+            row: Option<FolderRow>,
             folder: Option<String>,
-            row_id: Option<u64>,
-            text: Option<RawJson>,
-            entry: Option<QueueItem>,
-            removed: Option<String>,
-            count: Option<u32>,
-            body_len: Option<u64>,
-            head: Option<QueueHead>,
         }
         let fields = Fields::<T>::deserialize(deserializer)?;
-        let row = || fields.row.clone().ok_or_else(|| D::Error::missing_field("row"));
         match fields.op.as_str() {
             "summary" => Ok(Self::Summary {
                 seq: fields.seq,
@@ -855,24 +902,9 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for DeltaOp<T> {
                 origin: fields.origin.ok_or_else(|| D::Error::missing_field("origin"))?,
                 chat_id: fields.chat_id.ok_or_else(|| D::Error::missing_field("chatId"))?,
             }),
-            // The list's queue op carries `bytes`; a chat's carries its count.
-            "queue" if fields.bytes.is_some() || fields.count.is_none() => Ok(Self::Queue {
+            "queue" => Ok(Self::Queue {
                 seq: fields.seq,
                 bytes: fields.bytes.ok_or_else(|| D::Error::missing_field("bytes"))?,
-            }),
-            "queue" => Ok(Self::ChatQueue {
-                seq: fields.seq,
-                entry: fields.entry,
-                removed: fields.removed,
-                count: fields.count.ok_or_else(|| D::Error::missing_field("count"))?,
-                head: fields.head,
-            }),
-            "row" => Ok(Self::Row { seq: fields.seq, row: row()?, body_len: fields.body_len }),
-            "patch" => Ok(Self::Patch { seq: fields.seq, row: row()? }),
-            "text" => Ok(Self::Text {
-                seq: fields.seq,
-                row_id: fields.row_id.ok_or_else(|| D::Error::missing_field("rowId"))?,
-                text: fields.text.ok_or_else(|| D::Error::missing_field("text"))?,
             }),
             "origin" => Ok(Self::Origin {
                 seq: fields.seq,
@@ -885,7 +917,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for DeltaOp<T> {
             }),
             "folder" => Ok(Self::Folder {
                 seq: fields.seq,
-                row: serde_json::from_str(row()?.get()).map_err(D::Error::custom)?,
+                row: fields.row.ok_or_else(|| D::Error::missing_field("row"))?,
             }),
             "folderGone" => Ok(Self::FolderGone {
                 seq: fields.seq,
@@ -894,17 +926,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for DeltaOp<T> {
             }),
             other => Err(D::Error::unknown_variant(
                 other,
-                &[
-                    "summary",
-                    "gone",
-                    "queue",
-                    "origin",
-                    "folder",
-                    "folderGone",
-                    "row",
-                    "text",
-                    "patch",
-                ],
+                &["summary", "gone", "queue", "origin", "folder", "folderGone"],
             )),
         }
     }
@@ -1253,39 +1275,39 @@ mod other_delta_tests {
     }
 
     #[test]
-    fn chat_ops_round_trip_beside_the_lists_queue_op() {
+    fn chat_ops_round_trip_in_their_own_delta() {
         let row = RawJson::from_bytes(br#"{"id":7,"rev":1,"body":{"text":"a\"b"}}"#).unwrap();
         let item = QueueItem { id: "p".into(), text: "hi".into(), len: 2, held: false, at: 9 };
         let ops = vec![
-            DeltaOp::<serde_json::Value>::Row { seq: 3, row: row.clone(), body_len: Some(9) },
-            DeltaOp::Text {
+            ChatOp::Row { seq: 3, row: row.clone(), body_len: Some(9) },
+            ChatOp::Text {
                 seq: 3,
                 row_id: 7,
                 text: RawJson::from_bytes(br#""\n\u0001""#).unwrap(),
             },
-            DeltaOp::Patch { seq: 4, row },
-            DeltaOp::ChatQueue {
+            ChatOp::Patch { seq: 4, row },
+            ChatOp::Queue {
                 seq: 4,
                 entry: Some(item.clone()),
                 removed: None,
                 count: 1,
                 head: None,
             },
-            DeltaOp::ChatQueue {
+            ChatOp::Queue { seq: 4, entry: None, removed: Some("q".into()), count: 0, head: None },
+            ChatOp::Queue {
                 seq: 4,
                 entry: None,
                 removed: None,
                 count: 1,
                 head: Some(QueueHead { entries: vec![item], count: 1 }),
             },
-            DeltaOp::Queue { seq: 5, bytes: 6 },
         ];
-        let frame =
-            delta_frame(&DeltaFrame { sid: "s".into(), replay: None, ops: ops.clone() }).unwrap();
+        let delta = ChatDelta { sid: "s".into(), replay: Some(ReplayMark::End), ops };
+        let frame = Frame::json(FrameKind::Delta, &delta).unwrap();
         // Stored bytes go out as they are: the escape is not decoded and escaped again.
         assert!(std::str::from_utf8(frame.payload()).unwrap().contains(r#""a\"b""#));
-        let decoded: DeltaFrame<serde_json::Value> = frame.decode_json().unwrap();
-        assert_eq!(decoded.ops, ops);
+        let decoded: ChatDelta = frame.decode_json().unwrap();
+        assert_eq!(decoded, delta);
     }
 
     #[test]

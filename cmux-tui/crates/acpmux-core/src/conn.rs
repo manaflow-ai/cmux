@@ -302,22 +302,28 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     let wake = state.lock().map_err(|_| poisoned())?.wake.clone();
     let mut decoder = crate::wire::FrameDecoder::default();
     let mut buffer = [0_u8; 16 * 1024];
-    let mut pending = VecDeque::<Frame>::new();
+    let mut pending = VecDeque::<(Frame, Class)>::new();
     let mut writing: Option<WritingFrame> = None;
     let mut hello_seen = false;
     loop {
-        let ended = state.lock().map_err(|_| poisoned())?.take_ended();
+        let ended = {
+            let mut state = state.lock().map_err(|_| poisoned())?;
+            if state.broken() {
+                return Err(ConnError::ReplyBudget);
+            }
+            state.take_ended()
+        };
         for sid in ended {
             source.end(&sid);
         }
         if writing.is_none() {
             writing = state.lock().map_err(|_| poisoned())?.take().map(WritingFrame::new);
         }
-        let can_process = if let Some(frame) = pending.front() {
+        let can_process = if let Some((frame, class)) = pending.front() {
             let state = state.lock().map_err(|_| poisoned())?;
-            // One `page` or `blob` waits for its answer at a time. A second waits here, and
-            // the socket is not read, until the first is answered; offers go on meanwhile.
-            let waits = state.has_unanswered() && answered_later(frame);
+            // One chat `page` or `blob` waits for its answer at a time. A second waits here,
+            // and the socket is not read, until the first is answered; offers go on meanwhile.
+            let waits = state.has_unanswered() && *class == Class::Later;
             !waits && (state.request_room() || (hello_seen && known_control(frame, &state)))
         } else {
             false
@@ -334,7 +340,7 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
             }
             _ = wake.notified() => {}
             _ = std::future::ready(()), if can_process => {
-                let Some(frame) = pending.pop_front() else { continue };
+                let Some((frame, class)) = pending.pop_front() else { continue };
                 let control = {
                     let mut state = state.lock().map_err(|_| poisoned())?;
                     if hello_seen && known_control(&frame, &state) {
@@ -353,7 +359,7 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                             _ => return Err(poisoned()),
                         }
                     } else if state.reserve_reply() { None }
-                    else { pending.push_front(frame); continue; }
+                    else { pending.push_front((frame, class)); continue; }
                 };
                 if let Some(control) = control {
                     match control {
@@ -367,6 +373,7 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                     &state,
                     source.clone(),
                     &frame,
+                    class,
                     &mut hello_seen,
                     surfaces,
                     &daemon_id,
@@ -383,7 +390,11 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                 if read == 0 { return Ok(()); }
                 // An invalid length loses framing: close, release the decoder,
                 // and run Cleanup. Unknown kinds are valid frames, handled below.
-                pending.extend(decoder.push(buffer.get(..read).ok_or_else(poisoned)?)?);
+                let frames = decoder.push(buffer.get(..read).ok_or_else(poisoned)?)?;
+                pending.extend(frames.into_iter().map(|frame| {
+                    let class = classify(&frame);
+                    (frame, class)
+                }));
             }
         }
     }
@@ -396,16 +407,29 @@ enum Control {
     End(String),
 }
 
-/// A `page` or a `blob`: a request a source may answer later.
-fn answered_later(frame: &Frame) -> bool {
+/// What a frame is, read once off the socket.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Class {
+    /// A chat stream's `page` or `blob`: its source may answer it later, and it holds its
+    /// reply's room until then.
+    Later,
+    Other,
+}
+
+fn classify(frame: &Frame) -> Class {
     #[derive(serde::Deserialize)]
-    struct Method<'a> {
+    struct Head<'a> {
         #[serde(borrow)]
         method: std::borrow::Cow<'a, str>,
+        #[serde(borrow, default)]
+        stream: Option<std::borrow::Cow<'a, str>>,
     }
-    frame.kind == FrameKind::Request
-        && serde_json::from_slice::<Method<'_>>(frame.payload())
-            .is_ok_and(|request| matches!(request.method.as_ref(), "page" | "blob"))
+    let later = frame.kind == FrameKind::Request
+        && serde_json::from_slice::<Head<'_>>(frame.payload()).is_ok_and(|head| {
+            matches!(head.method.as_ref(), "page" | "blob")
+                && head.stream.as_deref().is_some_and(|stream| stream.starts_with("chat:"))
+        });
+    if later { Class::Later } else { Class::Other }
 }
 
 fn known_control(frame: &Frame, state: &ConnectionState) -> bool {
@@ -428,6 +452,7 @@ fn process_frame(
     state: &Arc<std::sync::Mutex<ConnectionState>>,
     source: Arc<dyn Source>,
     frame: &Frame,
+    class: Class,
     hello_seen: &mut bool,
     surfaces: &[String],
     daemon_id: &str,
@@ -504,17 +529,27 @@ fn process_frame(
         }
         Request::Page(page) => {
             require_surface(&page.stream, surfaces)?;
-            let identity = hold_reply(state)?;
-            let reply = Reply::new(state.clone(), "page", Some(page.sid.clone()), None);
-            if let Some(reply) = source.later(Later::Page(&page), identity.as_deref(), reply) {
+            if class == Class::Later {
+                let identity = hold_reply(state)?;
+                let reply = Reply::new(state.clone(), "page", Some(page.sid.clone()), None);
+                let Some(reply) = source.later(Later::Page(&page), identity.as_deref(), reply)
+                else {
+                    return Ok(());
+                };
                 reply.disarm();
                 state.lock().map_err(|_| poisoned())?.unhold_reply();
-                let frame = source.page(&page, identity.as_deref())?;
-                state.lock().map_err(|_| poisoned())?.offer_reply(frame)?;
             }
+            let identity = state.lock().map_err(|_| poisoned())?.identity().map(ToOwned::to_owned);
+            let frame = source.page(&page, identity.as_deref())?;
+            state.lock().map_err(|_| poisoned())?.offer_reply(frame)?;
         }
         Request::Blob(blob) => {
             require_surface(&blob.stream, surfaces)?;
+            if class != Class::Later {
+                return Err(ConnError::InvalidRequest(
+                    "blob is not supported for this stream".into(),
+                ));
+            }
             let identity = hold_reply(state)?;
             let reply = Reply::new(state.clone(), "blob", None, Some(blob.id.clone()));
             if let Some(reply) = source.later(Later::Blob(&blob), identity.as_deref(), reply) {

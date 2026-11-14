@@ -1533,17 +1533,6 @@ where
                         charge,
                     );
                 }
-                // A chat's ops on a list subscription: skipped and counted, as any op this
-                // client does not apply.
-                Ok(
-                    DeltaOp::Row { seq, .. }
-                    | DeltaOp::Text { seq, .. }
-                    | DeltaOp::Patch { seq, .. }
-                    | DeltaOp::ChatQueue { seq, .. },
-                ) => {
-                    self.skips.unknown_op = self.skips.unknown_op.saturating_add(1);
-                    self.advance(&sid, seq);
-                }
                 Err(_) => {
                     self.skips.unknown_op = self.skips.unknown_op.saturating_add(1);
                     self.advance(&sid, seq);

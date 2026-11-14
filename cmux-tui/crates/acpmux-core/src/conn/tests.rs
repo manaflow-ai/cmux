@@ -1473,3 +1473,38 @@ async fn folders_credit_resume_uses_tail_and_expired_tail_uses_window() {
     assert_eq!(window.rows.first().unwrap().at, 1101);
     source.close().await;
 }
+
+#[test]
+fn a_held_reply_has_room_for_the_largest_answer_however_offers_fill_the_rest() {
+    let mut state = ConnectionState::default();
+    assert!(state.reserve_reply());
+    state.hold_reply();
+    state.release_reply();
+    // Offers from many subscriptions, small and large, fill all the room but the held reply's.
+    for i in 0..8 {
+        let sid = format!("fill-{i}");
+        state.subscribe(&sid, Cursor(0)).unwrap();
+        let size = if i % 2 == 0 { 60 * 1024 } else { MAX_FRAME_BYTES - 5 };
+        for seq in 1.. {
+            if state.offer(&sid, frame(size), Cursor(seq)) != Offer::Taken {
+                break;
+            }
+        }
+    }
+    assert!(state.queued_bytes() > crate::wire::CONNECTION_BUDGET_BYTES - 2 * MAX_FRAME_BYTES);
+    let largest = Frame::new(FrameKind::Blob, vec![0; MAX_FRAME_BYTES - 5]).unwrap();
+    state.answer_held(largest).unwrap();
+    assert!(!state.broken());
+    assert_eq!(state.metrics.failed_replies(), 0);
+    assert_eq!(state.metrics.unanswered(), 0);
+}
+
+#[test]
+fn a_later_reply_past_the_budget_is_counted_and_ends_the_connection() {
+    let mut state = ConnectionState::new(128);
+    state.hold_reply();
+    assert!(matches!(state.answer_held(frame(200)), Err(ConnError::ReplyBudget)));
+    assert!(state.broken());
+    assert_eq!(state.metrics.failed_replies(), 1);
+    assert_eq!(state.queued_bytes(), 0);
+}

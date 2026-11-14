@@ -20,6 +20,7 @@ pub struct ConnectionMetrics {
     peak_outside: AtomicUsize,
     unanswered: AtomicUsize,
     peak_unanswered: AtomicUsize,
+    failed_replies: AtomicUsize,
 }
 impl ConnectionMetrics {
     pub fn queued_bytes(&self) -> usize {
@@ -43,6 +44,10 @@ impl ConnectionMetrics {
     }
     pub fn peak_unanswered(&self) -> usize {
         self.peak_unanswered.load(Ordering::Relaxed)
+    }
+    /// Later replies that did not fit the budget; each ended its connection.
+    pub fn failed_replies(&self) -> usize {
+        self.failed_replies.load(Ordering::Relaxed)
     }
 }
 
@@ -113,6 +118,9 @@ pub struct ConnectionState {
     /// The room a request answered later holds for its reply until the reply is queued.
     held: usize,
     unanswered: usize,
+    /// A later reply did not fit: the connection ends with `ReplyBudget`, as a reply that
+    /// does not fit on the request's own turn ends it.
+    broken: bool,
     reply_control: Option<Arc<SubscriptionControl>>,
     identity: Option<Vec<u8>>,
     pub(super) wake: Arc<Notify>,
@@ -136,6 +144,7 @@ impl ConnectionState {
             reserved: 0,
             held: 0,
             unanswered: 0,
+            broken: false,
             reply_control: None,
             identity: None,
             wake: Arc::new(Notify::new()),
@@ -304,12 +313,19 @@ impl ConnectionState {
     pub(super) fn has_unanswered(&self) -> bool {
         self.unanswered != 0
     }
+    pub(super) fn broken(&self) -> bool {
+        self.broken
+    }
     /// The reply to a request held by [`Self::hold_reply`], by the budget-checked reply path:
-    /// it uses the room the request held, and the room is released with it.
+    /// it uses the room the request held, and the room is released with it. Offers leave the
+    /// held room free, so a reply up to [`MAX_FRAME_BYTES`] always fits; one that does not
+    /// is counted and ends the connection.
     pub(super) fn answer_held(&mut self, frame: Frame) -> Result<(), ConnError> {
         self.held = 0;
         self.unanswered = self.unanswered.saturating_sub(1);
         let result = if self.queued_bytes.saturating_add(frame.encoded_len()) > self.budget {
+            self.broken = true;
+            self.metrics.failed_replies.fetch_add(1, Ordering::Relaxed);
             Err(ConnError::ReplyBudget)
         } else {
             self.queued_bytes += frame.encoded_len();
