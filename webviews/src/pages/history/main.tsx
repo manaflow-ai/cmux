@@ -1,8 +1,8 @@
 // Boots the History page. In the app the host installs the `cmuxPage` bridge (pageClient.ts); in
 // the browser dev loop (`/history/?mock`) the in-memory mock provider stands in for the daemon.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
-import "../shared/transientMaterial";
 import "../shared/desktop";
+import "../shared/transientMaterial";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";

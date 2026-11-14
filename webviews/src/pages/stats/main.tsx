@@ -1,7 +1,7 @@
 // Boots the Stats page (`cmux-page://cmux.stats/`, hq#1920). In the app the host installs the
 // `cmuxPage` bridge; in the browser dev loop (`/stats/?mock`) the mock provider stands in.
-import "../shared/transientMaterial";
 import "../shared/desktop";
+import "../shared/transientMaterial";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";

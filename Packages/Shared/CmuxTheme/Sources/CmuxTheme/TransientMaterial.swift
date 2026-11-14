@@ -3,7 +3,7 @@
 
 /// The regular translucent material shared by non-chat transient surfaces.
 /// Shapes, interaction and accessibility fallbacks stay with their platform owners.
-public struct TransientMaterial: Sendable, Equatable {
+public nonisolated struct TransientMaterial: Sendable, Equatable {
     /// The shipped material; gallery alternatives never change this value.
     public static let standard = TransientMaterial()
 
