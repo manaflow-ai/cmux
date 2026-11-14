@@ -94,7 +94,18 @@ fn folder_move_is_one_counter_step_and_reconnect_is_always_a_window() {
     assert!(hub.subscribe_replay(&reconnect, 1).is_err());
     writer.apply(row("one", "/b", 4)).unwrap();
     writer.apply(row("one", "/b", 5)).unwrap();
-    assert!(matches!(fresh.receiver.try_next(), Some(ListItem::Lagged { .. })));
+    let RawRead::Span(span) = fresh.receiver.try_next_raw(None, 256 * 1024).unwrap() else {
+        panic!("fresh folder subscribers replay the retained tail")
+    };
+    let decoded: Vec<serde_json::Value> =
+        serde_json::from_slice(format!("[{}]", String::from_utf8(span.bytes).unwrap()).as_bytes())
+            .unwrap();
+    assert_eq!(decoded.len(), 2);
+    let seqs: Vec<u64> = decoded
+        .iter()
+        .map(|op| op.get("seq").and_then(serde_json::Value::as_u64).unwrap())
+        .collect();
+    assert_eq!(seqs, vec![span.last_seq - 1, span.last_seq]);
 }
 
 #[test]
@@ -182,10 +193,10 @@ fn folder_projection_restarts_without_writing_the_index_log() {
     writer.apply(row("one", "/a", 1)).unwrap();
     drop(writer);
     let path = dir.path().join("index.log");
-    let before = std::fs::read(&path).unwrap();
+    let before = fs::read(&path).unwrap();
     let (hub, _writer) = Hub::open(dir.path(), 2, || 8).unwrap();
     assert_eq!(hub.snapshot().folders().get(&FolderKey::new("local", "/a")).unwrap().count, 1);
-    assert_eq!(std::fs::read(path).unwrap(), before);
+    assert_eq!(fs::read(path).unwrap(), before);
 }
 
 #[test]
@@ -223,7 +234,6 @@ fn folder_pages_refuse_cross_view_and_mixed_keys() {
 
 #[tokio::test]
 async fn folders_wait_for_the_complete_startup_head_and_propagate_failure() {
-    use crate::conn::Source as _;
     use acpmux_book::index::SortedSnapshot;
     let dir = tempfile::tempdir().unwrap();
     let mut initial = SummaryIndex::new();
@@ -233,28 +243,19 @@ async fn folders_wait_for_the_complete_startup_head_and_propagate_failure() {
     SortedSnapshot::write(dir.path().join("index.snap"), &initial).unwrap();
     let (hub, mut writer) = Hub::open(dir.path(), 1, || 7).unwrap();
     let hub = Arc::new(hub);
-    let source = crate::conn::HubSource::new(hub.clone());
     let mut request = sub();
     request.window = Some(400);
-    let request = crate::wire::Request::Sub(request);
-    let mut ready = source.ready(&request);
-    std::future::poll_fn(|cx| {
-        assert!(ready.as_mut().poll(cx).is_pending());
-        std::task::Poll::Ready(())
-    })
-    .await;
     assert!(hub.list_window(&sub()).is_err());
     while writer.hydration.is_some() {
         writer.process_batch();
     }
-    ready.await.unwrap();
-    let crate::wire::Request::Sub(request) = request else { panic!("sub") };
+    hub.wait_hydrated().await.unwrap();
     let window: FolderWindow = hub.subscribe(&request).unwrap().window.decode_json().unwrap();
     assert_eq!(window.rows.len(), 300);
     assert_eq!(window.cursor, 1, "startup sends no folder ops");
-    let page_request = crate::wire::Request::Page(page(window.after_key.unwrap()));
+    let page_request = page(window.after_key.unwrap());
     writer.hydrated.send_replace(disk::HydrationState::Failed);
-    assert!(source.ready(&page_request).await.is_err());
+    assert!(hub.page_for_view(&page_request, Some(ListView::Folders)).is_err());
 }
 
 #[test]
@@ -318,6 +319,7 @@ fn folder_subscriber_copy_matches_hot_rows_after_10k_changes_and_eviction_batche
                 }
             }
         }
+        assert!(hub.folder_state.lock().unwrap().retained_bytes() <= 64 * 1024);
         let index = hub.snapshot();
         let mut model = BTreeMap::<FolderKey, (SortKey, RowKey, u32)>::new();
         for row in index.iter() {
@@ -343,6 +345,28 @@ fn folder_subscriber_copy_matches_hot_rows_after_10k_changes_and_eviction_batche
 }
 
 #[test]
+fn folder_tail_replays_unread_steps_in_one_frame() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    writer.apply(row("one", "/a", 1)).unwrap();
+    let subscription = hub.subscribe(&sub()).unwrap();
+    for at in 2..102 {
+        writer.apply(row("one", "/a", at)).unwrap();
+    }
+    let RawRead::Span(span) = subscription.receiver.try_next_raw(None, 256 * 1024).unwrap() else {
+        panic!("expected retained folder tail")
+    };
+    let decoded: Vec<serde_json::Value> =
+        serde_json::from_slice(format!("[{}]", String::from_utf8(span.bytes).unwrap()).as_bytes())
+            .unwrap();
+    assert_eq!(decoded.len(), 100);
+    assert!(decoded.windows(2).all(|ops| {
+        ops[1].get("seq").and_then(serde_json::Value::as_u64)
+            == ops[0].get("seq").and_then(serde_json::Value::as_u64).map(|seq| seq + 1)
+    }));
+    assert!(subscription.receiver.try_next_raw(None, 256 * 1024).is_none());
+}
+
+#[test]
 fn keyed_folder_pages_reserve_bytes_for_unanswered_identities() {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     let mut keys = Vec::new();
@@ -362,11 +386,56 @@ fn keyed_folder_pages_reserve_bytes_for_unanswered_identities() {
     let extra_row_bytes = first_row.encoded_len() - serde_json::to_vec(first).unwrap().len();
     let mut request = page(FolderPosition { at: 0, origin: "local".into(), folder: "/a".into() });
     request.after = None;
-    request.max_bytes = (8192 + request.sid.len() + key_bytes + extra_row_bytes) as u32;
+    let encoded_sid = serde_json::to_vec(&request.sid).unwrap();
+    request.max_bytes = (8192 + encoded_sid.len() + key_bytes + extra_row_bytes) as u32;
     request.keys = Some(keys.iter().cloned().map(PageKey::Folder).collect());
     let frame = hub.page(&request).unwrap();
     assert!(frame.encoded_len() <= request.max_bytes as usize);
     let reply: FolderPageResult = frame.decode_json().unwrap();
     assert_eq!(reply.rows.len(), 1);
     assert_eq!(reply.rest, keys.into_iter().skip(1).collect::<Vec<_>>());
+}
+
+#[test]
+fn oversized_folder_step_clears_the_tail_atomically() {
+    for count in [70, 300] {
+        let (hub, writer) = Hub::new(SummaryIndex::new());
+        let subscription = hub.subscribe(&sub()).unwrap();
+        let mut next = SummaryIndex::new();
+        for n in 0..count {
+            next = next
+                .apply(n + 1, row(&format!("chat-{n}"), &format!("{}-{n}", "x".repeat(1000)), n));
+        }
+        let ops = next.folders().iter().cloned().map(FolderOp::Folder).collect::<Vec<_>>();
+        writer.publish_folder_index(next, &ops);
+        assert_eq!(hub.folder_state.lock().unwrap().retained_bytes(), 0);
+        assert!(matches!(
+            subscription.receiver.try_next_raw(None, 256 * 1024),
+            Some(RawRead::Lagged)
+        ));
+        assert_eq!(hub.snapshot().folders().len(), count as usize);
+    }
+}
+
+#[test]
+fn folder_tail_byte_bound_never_splits_a_move() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    writer.apply(row("one", "/a", 1)).unwrap();
+    let subscription = hub.subscribe(&sub()).unwrap();
+    writer.apply(row("one", "/b", 2)).unwrap();
+    let RawRead::Span(span) = subscription.receiver.try_next_raw(None, 256 * 1024).unwrap() else {
+        panic!("move")
+    };
+    subscription.receiver.reposition(subscription.cursor);
+    assert!(matches!(
+        subscription.receiver.try_next_raw(None, span.bytes.len() - 1),
+        Some(RawRead::Lagged)
+    ));
+    subscription.receiver.reposition(subscription.cursor);
+    let RawRead::Span(exact) = subscription.receiver.try_next_raw(None, span.bytes.len()).unwrap()
+    else {
+        panic!("whole move")
+    };
+    assert_eq!(exact.bytes, span.bytes);
+    assert_eq!(exact.last_seq, span.last_seq);
 }
