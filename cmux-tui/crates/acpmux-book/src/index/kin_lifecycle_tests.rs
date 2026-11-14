@@ -62,7 +62,7 @@ fn assert_kin(
     parents: &BTreeSet<RowKey>,
     forks: &BTreeSet<RowKey>,
     folders: &BTreeSet<FolderKey>,
-) {
+) -> bool {
     let rebuilt = KinTables::from_rows(index.iter());
     let has_cycle = index.iter().any(|row| parent_cycle(index, &row.key()));
     if !has_cycle {
@@ -146,6 +146,7 @@ fn assert_kin(
         index.folders().iter().map(|row| (row.key(), row.as_ref().clone())).collect::<Vec<_>>();
     let expected = rebuilt.iter().map(|row| (row.key(), row.as_ref().clone())).collect::<Vec<_>>();
     assert_eq!(actual, expected, "folder projection mismatch at lifecycle step {step}");
+    !has_cycle
 }
 
 fn parent_cycle(index: &SummaryIndex, start: &RowKey) -> bool {
@@ -278,7 +279,7 @@ pub(super) fn randomized_hot_lifecycle() {
         index = index.apply_summary(n + 1, row);
     }
     let (mut index, mut snapshot_rows) = compact(&index, &directory, 0);
-    assert_kin(&index, 0, &parents, &forks, &folders);
+    let mut full_equality_steps = usize::from(assert_kin(&index, 0, &parents, &forks, &folders));
 
     let mut attempted = [0usize; 9];
     let mut successful = [0usize; 9];
@@ -391,7 +392,8 @@ pub(super) fn randomized_hot_lifecycle() {
             }
             _ => unreachable!(),
         }
-        assert_kin(&index, step + 1, &parents, &forks, &folders);
+        full_equality_steps +=
+            usize::from(assert_kin(&index, step + 1, &parents, &forks, &folders));
         if step % 1_000 == 999 {
             assert_independent_kin_oracle(&index);
         }
@@ -404,6 +406,7 @@ pub(super) fn randomized_hot_lifecycle() {
     assert!(successful[6] > 0, "no warm hydration succeeded");
     assert!(successful[7] > 0, "no delete succeeded");
     assert!(successful[8] > 0, "no origin cleanup succeeded");
+    eprintln!("kin lifecycle full table equality steps: {full_equality_steps}");
     assert_independent_kin_oracle(&index);
 }
 

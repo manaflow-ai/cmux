@@ -53,6 +53,7 @@ impl ChildSet {
         self.entries.get(key)
     }
 
+    #[cfg(test)]
     pub(super) fn keys(&self) -> impl Iterator<Item = &RowKey> {
         self.entries.keys()
     }
@@ -127,6 +128,7 @@ impl KinTables {
         self.children.len()
     }
 
+    #[cfg(test)]
     pub(super) fn parent_keys(&self) -> impl Iterator<Item = &RowKey> {
         self.children.keys()
     }
