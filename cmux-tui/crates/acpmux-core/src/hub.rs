@@ -33,6 +33,8 @@ mod folders;
 mod history;
 mod keyed_page;
 mod origins;
+#[cfg(test)]
+mod peer_tests;
 pub use compaction::CompactionStats;
 use history::{History, PeerHistory};
 pub use origins::{Source, refused_held_rows};
@@ -463,6 +465,10 @@ pub struct HubWriter {
     hydrated: tokio::sync::watch::Sender<disk::HydrationState>,
     #[cfg(test)]
     turn_measure: disk::TurnMeasure,
+    /// Runs in a turn after the index is published and before its op is in
+    /// the histories: where a wake can reach a reader first.
+    #[cfg(test)]
+    before_record: Mutex<Option<Box<dyn FnMut(u64) + Send>>>,
     compaction: Option<compaction::Job>,
     retirement: Option<tokio::task::JoinHandle<()>>,
     maintenance: Option<compaction::Maintenance>,
@@ -690,6 +696,8 @@ impl Hub {
             hydrated: hydrated_tx,
             #[cfg(test)]
             turn_measure: disk::TurnMeasure::default(),
+            #[cfg(test)]
+            before_record: Mutex::new(None),
             compaction: None,
             retirement: None,
             maintenance: None,
@@ -1545,6 +1553,18 @@ impl HubWriter {
     }
 
     fn record_history(&self, item: ListItem) {
+        #[cfg(test)]
+        if let Ok(mut hook) = self.before_record.lock()
+            && let Some(hook) = hook.as_mut()
+        {
+            hook(match &item {
+                ListItem::Summary(event) => event.seq,
+                ListItem::Gone { seq, .. }
+                | ListItem::Origin { seq, .. }
+                | ListItem::Folders { seq, .. }
+                | ListItem::Lagged { cursor: seq } => *seq,
+            });
+        }
         if let Ok(mut history) = self.history.lock()
             && history.append(&item).is_err()
         {
