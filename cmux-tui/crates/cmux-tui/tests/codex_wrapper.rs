@@ -376,6 +376,111 @@ fn codex_wrapper_injects_into_agents_and_review_sessions() {
     assert_eq!(launch.argv(launch.command().args(["a"])), ["a"]);
 }
 
+/// With the person's yes (`agents.cmuxMcp` on), every Codex session started in a cmux terminal
+/// gets one MCP server, named `cmux`, running this build: interactive or not, whatever `cmux`
+/// entry the person's own config has (another cmux's, user or project). Codex merges the `-c`
+/// values into that entry key by key, so this build's command, args, env and `enabled = true`
+/// win; nothing is said on stderr.
+#[test]
+fn codex_wrapper_gives_codex_one_server_named_cmux() {
+    let launch = Launch::new();
+    let root = launch.root.path();
+    let settings_file = root.join("settings.json");
+    fs::write(&settings_file, r#"{"agents": {"cmuxMcp": "on"}}"#).unwrap();
+    let codex_home = root.join("codex-home");
+    let project = root.join("project");
+    fs::create_dir_all(&codex_home).unwrap();
+    fs::create_dir_all(project.join(".codex")).unwrap();
+    let other = "[mcp_servers.cmux]\ncommand = \"/opt/other/cmux\"\nargs = [\"mcp\", \"serve\"]\nenabled = false\n";
+    let this = fs::canonicalize(env!("CARGO_BIN_EXE_cmux-tui")).unwrap();
+    for (user, in_project) in [("", ""), (other, ""), ("", other), (other, other)] {
+        fs::write(codex_home.join("config.toml"), user).unwrap();
+        fs::write(project.join(".codex/config.toml"), in_project).unwrap();
+        for args in
+            [&[][..], &["fix the bug"], &["exec", "fix the bug"], &["review", "--uncommitted"]]
+        {
+            let argv = launch.argv(
+                launch
+                    .command()
+                    .current_dir(&project)
+                    .env("CMUX_NEXT_CONFIG_FILE", &settings_file)
+                    .env("CODEX_HOME", &codex_home)
+                    .args(args),
+            );
+            let config = settings(&argv);
+            let servers = config["mcp_servers"].as_table().unwrap();
+            assert_eq!(servers.keys().collect::<Vec<_>>(), ["cmux"], "{args:?}: {argv:?}");
+            let cmux = &servers["cmux"];
+            assert_eq!(cmux["command"].as_str(), this.to_str(), "{argv:?}");
+            assert_eq!(cmux["args"], toml::Value::Array(vec!["mcp".into(), "serve".into()]));
+            assert_eq!(cmux["enabled"].as_bool(), Some(true), "{argv:?}");
+            assert_eq!(cmux["env"]["CMUX_NEXT_CONFIG_FILE"].as_str(), settings_file.to_str());
+            assert!(cmux["env"]["CMUX_TUI_SOCKET"].as_str().is_some(), "{argv:?}");
+        }
+    }
+}
+
+/// Codex refuses a server with both a command and a `url` (or another HTTP-only field): a
+/// person's own HTTP server named `cmux`, in the user config, a `--profile` file or a project's
+/// `.codex/config.toml`, would merge with this build's command and Codex would not start. There
+/// the shim passes no MCP server (the hooks still go), and says nothing: the person's own server
+/// keeps the name.
+#[test]
+fn codex_wrapper_leaves_an_http_cmux_entry_alone() {
+    let launch = Launch::new();
+    let root = launch.root.path();
+    let settings_file = root.join("settings.json");
+    fs::write(&settings_file, r#"{"agents": {"cmuxMcp": "on"}}"#).unwrap();
+    let codex_home = root.join("codex-home");
+    let project = root.join("project/sub");
+    fs::create_dir_all(&codex_home).unwrap();
+    fs::create_dir_all(&project).unwrap();
+    let run = |args: &[&str]| {
+        launch.argv(
+            launch
+                .command()
+                .current_dir(&project)
+                .env("CMUX_NEXT_CONFIG_FILE", &settings_file)
+                .env("CODEX_HOME", &codex_home)
+                .args(args),
+        )
+    };
+    let has_server = |argv: &[String]| argv.iter().any(|arg| arg.starts_with("mcp_servers."));
+    let http = [
+        "url = \"http://127.0.0.1:1/mcp\"",
+        "bearer_token_env_var = \"TOKEN\"",
+        "http_headers = { a = \"b\" }",
+        "env_http_headers = { a = \"B\" }",
+        "oauth_resource = \"r\"",
+    ];
+    for field in http {
+        let entry = format!("[mcp_servers.cmux]\n{field}\n");
+        // The user config.
+        fs::write(codex_home.join("config.toml"), &entry).unwrap();
+        let argv = run(&["exec", "fix the bug"]);
+        assert!(!has_server(&argv), "{field}: {argv:?}");
+        assert!(settings(&argv).get("hooks").is_some(), "{argv:?}");
+        fs::write(codex_home.join("config.toml"), "").unwrap();
+        // A project's config above the launch folder.
+        fs::create_dir_all(root.join("project/.codex")).unwrap();
+        fs::write(root.join("project/.codex/config.toml"), &entry).unwrap();
+        assert!(!has_server(&run(&["fix the bug"])), "{field}");
+        fs::remove_dir_all(root.join("project/.codex")).unwrap();
+        // A profile file, only when that profile is used.
+        fs::write(codex_home.join("work.config.toml"), &entry).unwrap();
+        assert!(!has_server(&run(&["-p", "work", "exec", "hi there"])), "{field}");
+        assert!(has_server(&run(&["exec", "hi there"])), "{field}");
+        fs::remove_file(codex_home.join("work.config.toml")).unwrap();
+    }
+    // A stdio entry with other fields is no conflict: this build's server goes in.
+    fs::write(
+        codex_home.join("config.toml"),
+        "[mcp_servers.cmux]\ncommand = \"/opt/x\"\ncwd = \"/x\"\nstartup_timeout_sec = 7\n",
+    )
+    .unwrap();
+    assert!(has_server(&run(&["exec", "fix the bug"])));
+}
+
 #[test]
 fn codex_wrapper_scopes_trust_and_suppresses_only_installed_cmux_hooks() {
     let launch = Launch::new();
