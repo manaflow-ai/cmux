@@ -351,7 +351,10 @@ fn a_chief_home_of_purged_leftovers_and_chats_stays_within_the_memory_budget() {
     }
     let daemon = Daemon::start(&dir, &home);
     let mut rpc = Rpc::connect(&daemon.socket);
-    assert_eq!(listed(&mut rpc).len() as u64, chats);
+    // Each chat once, across the pages of the list, and no leftover.
+    let kept: Vec<String> =
+        (0..chats).map(|i| format!("01a15902-0000-7000-8000-{i:012}")).collect();
+    assert_eq!(listed(&mut rpc), kept);
     let rss_mb = daemon.rss_bytes() / (1024 * 1024);
     println!(
         "acpmux-memory: {}",
@@ -625,7 +628,8 @@ fn waits_on_some_chats_cost_nothing_extra_while_other_chats_log_records() {
     }
     let daemon = Daemon::start(&dir, &home);
     let mut rpc = Rpc::connect(&daemon.socket);
-    assert_eq!(listed(&mut rpc).len() as u64, chats);
+    // Each chat once, across the pages of the list.
+    assert_eq!(listed(&mut rpc), (0..chats).map(id).collect::<Vec<_>>());
     let (n0, cpu0, grew0, _) = under_waiters(&daemon, &id(0), &[], secs);
     let waiting_on: Vec<String> = (1..=13).map(id).collect();
     let (n1, cpu1, grew1, waits) = under_waiters(&daemon, &id(0), &waiting_on, secs);
