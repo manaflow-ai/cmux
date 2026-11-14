@@ -27,6 +27,8 @@ const flag = (name: string) => {
 const LENGTHS = (flag("--lengths") ?? "60,1500,6000").split(",").map(Number);
 const KEYS = Number(flag("--keys") ?? 60);
 const GAP_MS = Number(flag("--gap") ?? 80);
+/// With --profile: a CPU profile over the typed keys, and the functions with the most time per key (inclusive and self).
+const PROFILE = argv.includes("--profile");
 const webviews = path.resolve(import.meta.dir, "..");
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
 const METRICS = [
@@ -48,6 +50,47 @@ async function openChat(page: Page, port: number, turns: number) {
   if (seeded.error) throw new Error(`loadSeed: ${seeded.error}`);
   await page.locator(PROMPT).first().waitFor({ timeout: 20_000 });
   return seeded.rows as number;
+}
+
+type CpuProfile = {
+  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number }; children?: number[] }[];
+  samples: number[];
+  timeDeltas: number[];
+};
+
+/// Per key, ms: each function's inclusive time (once per sample however deep it recurses) and self time.
+function printProfile(length: number, profile: CpuProfile) {
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const parent = new Map<number, number>();
+  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
+  const name = (id: number) => {
+    const frame = byId.get(id)!.callFrame;
+    const file = frame.url.split("/").pop()?.split("?")[0] ?? "";
+    return `${frame.functionName || "(anon)"} ${file}:${frame.lineNumber + 1}`;
+  };
+  const inclusive = new Map<string, number>();
+  const self = new Map<string, number>();
+  profile.samples.forEach((id, index) => {
+    const ms = (profile.timeDeltas[index + 1] ?? 0) / 1000;
+    const fn = byId.get(id)?.callFrame.functionName;
+    if (fn === "(idle)" || fn === "(program)") return;
+    self.set(name(id), (self.get(name(id)) ?? 0) + ms);
+    const seen = new Set<string>();
+    for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
+      const key = name(at);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      inclusive.set(key, (inclusive.get(key) ?? 0) + ms);
+    }
+  });
+  const top = (map: Map<string, number>, count: number) =>
+    [...map.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, count)
+      .map(([key, ms]) => `  ${(ms / KEYS).toFixed(3)} ms/key  ${key}`)
+      .join("\n");
+  console.log(`PROFILE ${length} rows, inclusive:\n${top(inclusive, 90)}`);
+  console.log(`PROFILE ${length} rows, self:\n${top(self, 40)}`);
 }
 
 const { createServer } = await import("vite");
@@ -86,6 +129,11 @@ try {
       debug.resetTyping();
       debug.renders();
     });
+    if (PROFILE) {
+      await cdp.send("Profiler.enable");
+      await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
+      await cdp.send("Profiler.start");
+    }
     const before = await metrics();
     const letters = "abcdefghijklmnopqrstuvwxyz";
     for (let i = 0; i < KEYS; i += 1) {
@@ -94,6 +142,10 @@ try {
     }
     await page.waitForTimeout(500);
     const after = await metrics();
+    if (PROFILE) {
+      const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
+      printProfile(length, profile);
+    }
     const { renders, typing } = (await page.evaluate(() => {
       const debug = (window as any).cmuxAcpmuxDebug;
       return { renders: debug.renders(), typing: debug.typingStats() };
