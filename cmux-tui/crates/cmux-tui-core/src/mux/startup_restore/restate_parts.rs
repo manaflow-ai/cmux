@@ -460,7 +460,7 @@ fn run_session_restate(mux: &Weak<Mux>, ticket: startup_adoption_gate::Ticket) {
         };
         drop(mux);
         if !pause.is_zero() {
-            std::thread::sleep(pause);
+            // REVIEW2 MUTANT C, NOT FOR MERGE: the pause is counted and not slept.
             parts.tally.pause = parts.tally.pause.saturating_add(pause);
         }
     }
