@@ -571,7 +571,10 @@ import re  # noqa: E402 - the Cargo and Xcode project readers below
 CMUX_TUI = "cmux-tui/"
 # The routing replay (cmux_next_route_replay.py) accepts dropped native and scheme tiers with this reason.
 NO_SWIFT_COMPILE_REASON = "(no Swift compile reads it)"
+APP_FFI_CRATE = "cmux-tui/crates/cmux-app-ffi"
 APP_PROJECT = "cmux.xcodeproj/project.pbxproj"
+CARGO_PATH = re.compile(r'path\s*=\s*"([^"]+)"')
+CARGO_WORKSPACE_DEP = re.compile(r'^\s*([A-Za-z0-9_-]+)\s*(?:\.workspace\s*=\s*true|=\s*\{[^}\n]*\bworkspace\s*=\s*true)', re.M)
 PHASE_INPUT = re.compile(r'"\$\(SRCROOT\)/(cmux-tui/[^"]+)"')
 
 
