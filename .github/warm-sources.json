@@ -64,6 +64,7 @@
     "cmux-browser-host-chromium.yml:chromium": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cmux-browser-host-release.yml:build": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo from an empty target directory; no warm source wired yet"},
     "cmux-rd-release.yml:build": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo from an empty target directory; a tag-only release, no warm source wired yet"},
+    "cmux-rd-windows.yml:host": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cmux-cloud-cli.yml:test": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo from an empty target directory; no warm source wired yet"},
     "cmux-mobile-ffi.yml:android": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cmux-mobile-ffi.yml:apple": {"class": "mac-test", "warm": ["actions-cache"]},
