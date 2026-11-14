@@ -222,7 +222,6 @@ await requireBrowserLane("composer-chip-caret.browser.test.ts", async () => {
         // WebKit's just after it: the caret starts no further in than that.
         else if (ahead.left > start + 1.5)
           failures.push(`${engine}: the caret before the chip is at ${ahead.left}, inside it (${start})`);
-
       } finally {
         await context.close();
       }
