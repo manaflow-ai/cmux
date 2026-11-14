@@ -59,6 +59,11 @@ struct Slot {
     /// Nanoseconds since [`epoch`] when the producer first saw the terminal
     /// in a synchronized update that still holds; 0: none.
     sync_since: AtomicU64,
+    /// The terminal's synchronized update start count when the producer
+    /// last saw it in an update (`Terminal::synchronized_update_starts`).
+    /// Another count means a new update began since, even when the last one
+    /// ended and the next began between two looks.
+    sync_starts: AtomicU64,
     surface: Mutex<Weak<Surface>>,
 }
 
@@ -323,13 +328,25 @@ enum Produced {
 }
 
 /// Whether a synchronized update holds `slot`'s frame now, and until when.
-/// `synchronized`: the terminal is in mode 2026. The hold starts when the
-/// producer first sees the mode and ends when the mode is off or after
-/// [`SYNCHRONIZED_OUTPUT_HOLD`].
-fn sync_hold(slot: &Slot, synchronized: bool, now: Instant) -> Option<Instant> {
-    if !synchronized {
+/// `update`: the update the terminal holds open (mode 2026), by its start
+/// count; `None` when it holds none. The hold starts when the producer
+/// first sees the mode and ends when the mode is off or after
+/// [`SYNCHRONIZED_OUTPUT_HOLD`]. An update that began after a hold ran out
+/// holds again, even when the program ended the old one and began this one
+/// between two looks; one that began while a hold runs keeps that hold's
+/// end, so a program always inside an update is still shown once a hold.
+fn sync_hold(slot: &Slot, update: Option<u64>, now: Instant) -> Option<Instant> {
+    let Some(starts) = update else {
         slot.sync_since.store(0, Ordering::Release);
         return None;
+    };
+    let seen = slot.sync_starts.swap(starts, Ordering::AcqRel);
+    let since_nanos = slot.sync_since.load(Ordering::Acquire);
+    if seen != starts
+        && since_nanos != 0
+        && epoch() + Duration::from_nanos(since_nanos) + SYNCHRONIZED_OUTPUT_HOLD <= now
+    {
+        slot.sync_since.store(0, Ordering::Release);
     }
     let since = match slot.sync_since.load(Ordering::Acquire) {
         0 => {
@@ -361,8 +378,9 @@ fn produce(slot: &Slot, surface: &Weak<Surface>, requested: u64, announce: bool)
     // Only a render viewer draws the half-drawn screen; with none, no frame is
     // built and the output event is not held.
     let viewed = pty.render.lock().is_ok_and(|render| !render.taps.is_empty());
-    let synchronized = viewed && term.mode(SYNCHRONIZED_OUTPUT, false);
-    if let Some(until) = sync_hold(slot, synchronized, Instant::now())
+    let update = (viewed && term.mode(SYNCHRONIZED_OUTPUT, false))
+        .then(|| term.synchronized_update_starts());
+    if let Some(until) = sync_hold(slot, update, Instant::now())
         && !announce
     {
         return Produced::Held(until);
