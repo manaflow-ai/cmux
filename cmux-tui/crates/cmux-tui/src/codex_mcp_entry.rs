@@ -425,30 +425,38 @@ mod tests {
         assert_eq!(config_args(&os(&["--model", "o3", "fix -p bug"])), ConfigArgs::default());
     }
 
-    /// Only a new session in the launch folder is probed; a new worktree, a
-    /// resumed or forked session, a remote app server, no user config or a
-    /// subcommand that is no session is not.
+    /// Only a new non-interactive session in the launch folder is probed
+    /// (`exec`, `review`); interactive Codex (which can `/cd`, `/resume` or
+    /// make a worktree mid-session), a new worktree, a resumed or forked
+    /// session, a remote app server, no user config or a subcommand that is no
+    /// session is not.
     #[test]
     fn only_a_launch_mcp_get_sees_is_probed() {
         for args in [
-            &[][..],
-            &["fix the bug"],
-            &["Fix it"],
+            &["exec"][..],
             &["exec", "fix the bug"],
-            &["-p", "work", "-C", "sub", "say hi"],
-            &["-pwork", "--model", "o3", "resume this"],
+            &["-p", "work", "-C", "sub", "exec", "say hi"],
+            &["-pwork", "--model", "o3", "exec", "resume this"],
             &["e", "--json", "say hi"],
             &["review"],
+            &["review", "--uncommitted"],
             &["exec", "review", "--base", "main"],
-            &["--", "resume"],
-            &["say hi", "--", "--worktree"],
-            &["-c", "--worktree", "say hi"],
-            &["--cyber-access-program", "--worktree", "say hi"],
+            &["exec", "--", "resume"],
+            &["exec", "say hi", "--", "--worktree"],
+            &["-c", "--worktree", "exec", "say hi"],
+            &["--cyber-access-program", "--worktree", "exec", "say hi"],
         ] {
             assert!(probe_matches_launch(&os(args)), "{args:?}");
         }
         for args in [
-            &["--worktree"][..],
+            // Interactive Codex, with or without a prompt.
+            &[][..],
+            &["fix the bug"],
+            &["Fix it"],
+            &["-p", "work", "-C", "sub", "say hi"],
+            &["--", "resume"],
+            &["agents"],
+            &["--worktree"],
             &["exec", "--worktree", "hi"],
             &["resume", "--last"],
             &["fork", "--last"],
@@ -525,8 +533,19 @@ mod tests {
         assert!(!project_config_names_cmux(&sub, &with_home));
         // With CODEX_HOME set elsewhere, ~/.codex is a project folder again.
         assert!(project_config_names_cmux(&sub, &with_codex_home));
-        write(codex_home.join("config.toml"), cmux);
-        assert!(!project_config_names_cmux(&codex_home, &with_codex_home), "CODEX_HOME itself");
+        std::fs::remove_file(home.join(".codex/config.toml")).unwrap();
+        // CODEX_HOME is a `.codex` above the launch folder: Codex's own user
+        // config there, not a project: still probed; without it, skipped.
+        let proj_codex = home.join("w/proj/.codex");
+        write(proj_codex.join("config.toml"), cmux);
+        let codex_home_above = |key: &str| match key {
+            "HOME" => Some(home.clone().into_os_string()),
+            "CODEX_HOME" => Some(proj_codex.clone().into_os_string()),
+            _ => None,
+        };
+        assert!(!project_config_names_cmux(&sub, &codex_home_above), "CODEX_HOME itself");
+        assert!(project_config_names_cmux(&sub, &with_home));
+        let _ = &codex_home;
     }
 
     /// Codex walks the launch folder as written, `.`/`..` removed lexically,

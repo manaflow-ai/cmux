@@ -362,6 +362,16 @@ fn codex_wrapper_injects_into_agents_and_review_sessions() {
         assert_eq!(&argv[argv.len() - args.len()..], args, "{argv:?}");
         assert!(settings(&argv).get("hooks").is_some(), "{args:?}: {argv:?}");
     }
+    // A setting after the subcommand moves to the root list, which Codex
+    // 0.160.1 would otherwise drop for the subcommand's own.
+    for args in [&["review", "-c", "model=\"o3\"", "--uncommitted"][..], &["agents", "-c", "x=1"]] {
+        let argv = launch.argv(launch.command().args(args));
+        let at = argv.iter().position(|arg| arg == args[0]).unwrap();
+        assert!(!argv[at..].iter().any(|arg| arg == "-c"), "{argv:?}");
+        let config = settings(&argv);
+        let theirs = args[2].split('=').next().unwrap();
+        assert!(config.get("hooks").is_some() && config.get(theirs).is_some(), "{argv:?}");
+    }
     // `a` is `apply`, which starts no session.
     assert_eq!(launch.argv(launch.command().args(["a"])), ["a"]);
 }

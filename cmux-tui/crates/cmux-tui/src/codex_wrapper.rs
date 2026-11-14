@@ -518,6 +518,64 @@ mod tests {
         }
     }
 
+    /// Interactive Codex, with or without a prompt, can `/cd`, `/resume`
+    /// into another session's folder or make a worktree mid-session, each
+    /// rebuilding config with the shim's settings: it gets this build's
+    /// server and nothing is asked or turned off (two servers at worst, never
+    /// a replaced one).
+    #[test]
+    fn interactive_codex_turns_nothing_off() {
+        for args in [&[][..], &["fix the bug"], &["-m", "o3", "fix the bug"], &["--", "hi"]] {
+            let (settings, calls, said) = launch(AgentsCmuxMcp::On, args, found("/opt/cmux"));
+            assert!(calls.is_empty() && said.is_empty(), "{args:?}: {calls:?} {said:?}");
+            assert!(settings.iter().any(|s| s.starts_with("mcp_servers.cmux_terminal.command=")));
+            assert!(!settings.iter().any(|s| s.contains("enabled=false")), "{settings:?}");
+        }
+    }
+
+    /// Codex 0.160.1 keeps only the deepest list of a clap global (`-c`,
+    /// `--enable`, `--disable`): a subcommand's own list replaces the root's.
+    /// The shim hoists them to the root after every session subcommand.
+    #[test]
+    fn global_settings_after_a_session_subcommand_are_hoisted() {
+        fn surviving(argv: &[OsString]) -> Vec<String> {
+            let argv: Vec<String> =
+                argv.iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
+            let mut lists = vec![Vec::new()];
+            let mut index = 0;
+            while index < argv.len() {
+                let arg = argv[index].as_str();
+                if arg == "--" {
+                    break;
+                }
+                if matches!(arg, "-c" | "--config" | "--enable" | "--disable") {
+                    lists.last_mut().unwrap().push(argv[index + 1].clone());
+                    index += 2;
+                    continue;
+                }
+                if !arg.starts_with('-') && SUBCOMMANDS.contains(&arg) {
+                    lists.push(Vec::new());
+                }
+                index += if launch_classification::consumes_value(arg) { 2 } else { 1 };
+            }
+            lists.into_iter().rev().find(|list| !list.is_empty()).unwrap_or_default()
+        }
+        const SUBCOMMANDS: &[&str] = &["exec", "e", "review", "agents", "resume", "fork"];
+        let ours = [OsString::from("-c"), OsString::from("hooks.x=1")];
+        for (args, theirs) in [
+            (&["review", "-c", "model=o3", "--uncommitted"][..], "model=o3"),
+            (&["agents", "-c", "x=1"], "x=1"),
+            (&["exec", "-c", "x=1", "hi"], "x=1"),
+            (&["resume", "--last", "--config", "x=1"], "x=1"),
+        ] {
+            let mut argv = ours.to_vec();
+            argv.extend(hoist_session_global_args(&os(args)));
+            let kept = surviving(&argv);
+            assert!(kept.contains(&"hooks.x=1".to_owned()), "{args:?}: {argv:?} keeps {kept:?}");
+            assert!(kept.contains(&theirs.to_owned()), "{args:?}: {argv:?} keeps {kept:?}");
+        }
+    }
+
     /// `codex agents` opens the agent command center, which can switch to
     /// sessions recorded elsewhere: this build's server goes in, nothing is
     /// asked or turned off. `codex review` is a new session in the launch
@@ -528,7 +586,7 @@ mod tests {
         for args in [&["agents"][..], &["review", "--uncommitted"], &["-m", "o3", "agents"]] {
             assert!(should_inject(&os(args), pane), "{args:?}");
         }
-        for args in [&["a"][..], &["apply"], &["mcp", "list"]] {
+        for args in [&["a"][..], &["apply"], &["mcp", "list"], &["git-credential", "get"]] {
             assert!(!should_inject(&os(args), pane), "{args:?}");
         }
         let (settings, calls, said) = launch(AgentsCmuxMcp::On, &["agents"], found("/opt/cmux"));
@@ -583,28 +641,28 @@ mod tests {
         let mut said = Vec::new();
         // A project config without cmux: asked, another cmux's entry turned off.
         fs::write(project.join(".codex/config.toml"), "model = \"o3\"\n").unwrap();
-        assert!(launch(&project, &["fix the bug"], &mut said));
+        assert!(launch(&project, &["exec", "fix the bug"], &mut said));
         assert_eq!(*asked.borrow(), 1);
         // One that defines cmux: not asked, nothing off, nothing said.
         fs::write(project.join(".codex/config.toml"), "[mcp_servers.cmux]\ncwd = \"/w\"\n")
             .unwrap();
-        assert!(!launch(&project, &["fix the bug"], &mut said));
+        assert!(!launch(&project, &["exec", "fix the bug"], &mut said));
         assert_eq!(*asked.borrow(), 1);
         assert!(said.is_empty(), "{said:?}");
         // `-C` into it from a folder without one: the same.
         let to_project = project.to_str().unwrap();
-        assert!(!launch(&other, &["-C", to_project, "fix the bug"], &mut said));
+        assert!(!launch(&other, &["exec", "-C", to_project, "fix the bug"], &mut said));
         assert_eq!(*asked.borrow(), 1);
         // `-C` through a symlink out of it: Codex walks the path as written,
         // under the project; not asked either.
         std::os::unix::fs::symlink(&other, project.join("link")).unwrap();
         let link = project.join("link");
-        assert!(!launch(&other, &["-C", link.to_str().unwrap(), "fix the bug"], &mut said));
-        assert!(!launch(&project, &["-C", "link/../link", "fix the bug"], &mut said));
+        assert!(!launch(&other, &["exec", "-C", link.to_str().unwrap(), "fix the bug"], &mut said));
+        assert!(!launch(&project, &["exec", "-C", "link/../link", "fix the bug"], &mut said));
         assert_eq!(*asked.borrow(), 1);
         // And `-C` out of it: asked again.
         let to_other = other.to_str().unwrap();
-        assert!(launch(&project, &["-C", to_other, "fix the bug"], &mut said));
+        assert!(launch(&project, &["exec", "-C", to_other, "fix the bug"], &mut said));
         assert_eq!(*asked.borrow(), 2);
         assert!(said.is_empty(), "{said:?}");
     }
@@ -617,7 +675,7 @@ mod tests {
             "name": "cmux", "enabled": true,
             "transport": {"type": "streamable_http", "url": "http://127.0.0.1:1/mcp"},
         }));
-        let (settings, _, said) = launch(AgentsCmuxMcp::On, &[], http);
+        let (settings, _, said) = launch(AgentsCmuxMcp::On, &["exec"], http);
         assert!(!settings.iter().any(|s| s.starts_with("mcp_servers.cmux.")), "{settings:?}");
         assert!(said.is_empty(), "{said:?}");
     }
@@ -627,11 +685,11 @@ mod tests {
     #[test]
     fn only_another_cmuxs_entry_is_turned_off() {
         let off = "mcp_servers.cmux.enabled=false".to_owned();
-        let (settings, _, said) = launch(AgentsCmuxMcp::On, &[], found("/opt/cmux"));
+        let (settings, _, said) = launch(AgentsCmuxMcp::On, &["exec"], found("/opt/cmux"));
         assert!(settings.contains(&off) && said.is_empty(), "{settings:?}");
-        let (settings, _, _) = launch(AgentsCmuxMcp::On, &[], found("/usr/bin/my-tool"));
+        let (settings, _, _) = launch(AgentsCmuxMcp::On, &["exec"], found("/usr/bin/my-tool"));
         assert!(!settings.contains(&off), "{settings:?}");
-        let (settings, _, said) = launch(AgentsCmuxMcp::On, &[], CodexEntry::Unknown);
+        let (settings, _, said) = launch(AgentsCmuxMcp::On, &["exec"], CodexEntry::Unknown);
         assert!(!settings.contains(&off), "{settings:?}");
         // The one line for a probe without an answer, the catalog's own.
         assert_eq!(said, [crate::localization::catalog().agent_wrapper.codex_mcp_unknown]);
