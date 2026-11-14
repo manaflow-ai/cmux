@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDiagnostics
+import CmuxMobileSupport
 import Foundation
 import UIKit
 import UniformTypeIdentifiers
@@ -312,9 +313,11 @@ struct MobilePasteboardReader: Sendable {
     /// Copy one provider-scoped file into `tmp/<unique wrapper>/<name>` so the
     /// durable copy keeps the user-visible file name for chips and previews.
     private func copyIntoTemporaryStorage(_ source: URL, name: String) -> URL? {
-        let fileName = name.isEmpty ? UUID().uuidString : name
         guard let wrapper = makeWrapperDirectory() else { return nil }
-        let destination = wrapper.appendingPathComponent(fileName)
+        guard let destination = destination(in: wrapper, name: name) else {
+            try? FileManager.default.removeItem(at: wrapper)
+            return nil
+        }
         do {
             try FileManager.default.copyItem(at: source, to: destination)
             return destination
@@ -326,7 +329,10 @@ struct MobilePasteboardReader: Sendable {
 
     private func writeIntoTemporaryStorage(_ data: Data, name: String) -> URL? {
         guard let wrapper = makeWrapperDirectory() else { return nil }
-        let destination = wrapper.appendingPathComponent(name)
+        guard let destination = destination(in: wrapper, name: name) else {
+            try? FileManager.default.removeItem(at: wrapper)
+            return nil
+        }
         do {
             try data.write(to: destination, options: .atomic)
             return destination
@@ -334,6 +340,20 @@ struct MobilePasteboardReader: Sendable {
             try? FileManager.default.removeItem(at: wrapper)
             return nil
         }
+    }
+
+    /// The file URL for `name` directly inside `wrapper`. The name comes from
+    /// the pasteboard provider, so it is reduced to one path component (or
+    /// replaced) and the result must still sit in the wrapper, which is also
+    /// what ``cleanUp(_:)`` assumes when it removes the parent directory.
+    private func destination(in wrapper: URL, name: String) -> URL? {
+        let fileName = MobileAttachmentFileName(name)?.value ?? UUID().uuidString
+        let destination = wrapper.appendingPathComponent(fileName).standardizedFileURL
+        guard destination.deletingLastPathComponent().path
+            == wrapper.standardizedFileURL.path else {
+            return nil
+        }
+        return destination
     }
 
     private func makeWrapperDirectory() -> URL? {
