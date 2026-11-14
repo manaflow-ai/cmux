@@ -1,0 +1,93 @@
+name: cmux-pty-keeper
+
+# The keeper must run unchanged for years on every OS cmux supports, so it
+# is tested on the oldest and newest hosted images of each platform.
+
+on:
+  pull_request:
+    paths:
+      - "cmux-tui/crates/cmux-pty-keeper/**"
+      - ".github/workflows/cmux-pty-keeper.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "cmux-tui/crates/cmux-pty-keeper/**"
+      - ".github/workflows/cmux-pty-keeper.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: cmux-pty-keeper-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-22.04
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+          - macos-14
+          - macos-15
+          - macos-26
+          - windows-2022
+          - windows-2025
+          - windows-11-arm
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: cmux-tui
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install toolchain
+        run: |
+          # Some newer images (Arm) ship without rustup.
+          if ! command -v rustup >/dev/null; then
+            if [[ "$RUNNER_OS" == Windows ]]; then
+              arch=$([[ "$RUNNER_ARCH" == ARM64 ]] && echo aarch64 || echo x86_64)
+              curl -sSfLo "$RUNNER_TEMP/rustup-init.exe" "https://static.rust-lang.org/rustup/dist/$arch-pc-windows-msvc/rustup-init.exe"
+              "$RUNNER_TEMP/rustup-init.exe" -y --default-toolchain none --profile minimal
+            else
+              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal
+            fi
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup show active-toolchain || rustup toolchain install
+      - name: clippy
+        run: cargo clippy -p cmux-pty-keeper --locked --all-targets -- -D warnings
+      - name: cargo test
+        run: cargo test -p cmux-pty-keeper --locked -- --test-threads=4
+
+  test-musl:
+    name: test (alpine musl)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container: alpine:3.20
+    defaults:
+      run:
+        shell: sh
+        working-directory: cmux-tui
+    steps:
+      - run: apk add --no-cache bash curl gcc musl-dev
+        working-directory: /
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install rustup
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal
+      - name: cargo test
+        run: |
+          . "$HOME/.cargo/env"
+          cargo test -p cmux-pty-keeper --locked -- --test-threads=4
