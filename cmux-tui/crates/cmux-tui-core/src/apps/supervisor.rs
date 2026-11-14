@@ -551,7 +551,7 @@ impl Supervisor {
         result
     }
 
-    fn commit_locked(
+    pub(super) fn commit_locked(
         &self,
         inner: &mut Inner,
         op: SetOp,

@@ -128,7 +128,7 @@ impl Supervisor {
         self.emit(outs);
     }
 
-    fn page_call_locked(
+    pub(super) fn page_call_locked(
         &self,
         inner: &mut Inner,
         client: u64,
