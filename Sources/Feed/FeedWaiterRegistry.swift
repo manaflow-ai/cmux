@@ -49,8 +49,9 @@ final class FeedWaiterRegistry: Sendable {
         return groups.withLock { groups in
             let existing = groups[requestID]
             if let existing, !Self.matches(existing.event, event) { return nil }
-            // A retry of a timed-out request owns it again.
-            handedOff.withLock { _ = $0.removeValue(forKey: requestID) }
+            // A retry that starts a new group owns the request again. One that
+            // joins the timed-out group before its cleanup gets that timeout.
+            if existing == nil { handedOff.withLock { _ = $0.removeValue(forKey: requestID) } }
             var group = existing ?? Group(id: UUID(), event: event)
             group.subscribers[token] = semaphore
             groups[requestID] = group

@@ -232,6 +232,14 @@ struct FeedWaiterRegistryTests {
         #expect(registry.register(requestID: "lingering", event: WorkstreamEvent(sessionId: "session",
             hookEventName: .permissionRequest, source: "claude", toolName: "Other", toolInputJSON: "{}",
             requestId: "lingering")) == nil)
+        // A same-payload retry in that window joins the timed-out group and
+        // keeps the handoff too.
+        let joined = try #require(registry.register(requestID: "lingering",
+            event: stamped(.permissionRequest, sentAt: 2_100, request: "lingering")))
+        guard case .timedOut = registry.finish(joined).outcome.result else {
+            Issue.record("a retry joining a timed-out group should time out")
+            return
+        }
         registry.cleanupStored(requestID: lingering.requestID, groupID: lingering.groupID)
 
         #expect(registry.retireHandedOff(supersededBy: stamped(.preToolUse, sentAt: 1_990)).isEmpty)
