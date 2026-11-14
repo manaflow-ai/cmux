@@ -403,14 +403,17 @@ class Run:
     def hibernations(self):
         """At --acpmux-log info: how fast acpmux hibernated idle agents (its `hibernated` lines: count, the span
         from the first to the last, and each one's exit_ms), the rate a pass of the idle reaper reaches."""
-        try:
-            with open(os.path.join(self.root, "acpmux.log"), errors="replace") as f:
-                lines = [line for line in f if "hibernated:" in line]
-        except OSError:
-            return
+        import re
+        # The daemon logs to its stdout (log_sink.rs), so read both of its outputs; colour codes are cut.
+        lines = []
+        for name in ("acpmux.out", "acpmux.log"):
+            try:
+                with open(os.path.join(self.root, name), errors="replace") as f:
+                    lines += [re.sub(r"\x1b\[[0-9;]*m", "", line) for line in f if "hibernated:" in line]
+            except OSError:
+                pass
         if not lines:
             return
-        import re
         exits = sorted(int(m.group(1)) for line in lines if (m := re.search(r"exit_ms=(\d+)", line)))
         stamps = [m.group(1) for line in lines if (m := re.match(r"\S*?(\d\d:\d\d:\d\d(?:\.\d+)?)", line))]
 
