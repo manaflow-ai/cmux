@@ -198,6 +198,20 @@ extension TerminalController {
             }
             return finish(.fullWidthTabMode(workspace.bonsplitController.isFullWidthTabMode(inPane: paneId)))
 
+        case "toggle_text_box":
+            // The Toggle TextBox Input command's toggle when focus is requested;
+            // otherwise the pane's TextBox changes without moving focus (#22308).
+            guard let terminal = workspace.terminalPanel(for: panelId) else { return .textBoxNotTerminal }
+            if focus {
+                // Select the pane first, so the TextBox that takes the keyboard is
+                // in the focused pane.
+                workspace.focusPanel(panelId)
+                terminal.toggleTextBoxInput()
+            } else {
+                terminal.toggleTextBoxInputPreservingFocus()
+            }
+            return finish(.textBoxVisible(terminal.isTextBoxActive))
+
         case "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace":
             // The move-to-new-workspace family stays app-side (it re-homes
             // surfaces across TabManagers); bridge its fully-shaped result.
