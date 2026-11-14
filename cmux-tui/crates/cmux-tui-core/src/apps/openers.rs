@@ -27,30 +27,25 @@ pub(super) const INTERFACE: &str = "cmux.opener/1";
 /// How specific a match of `pattern` on `text` is (its literal characters),
 /// or `None` when it does not match. `*` matches any run of characters.
 fn pattern_score(pattern: &str, text: &str) -> Option<usize> {
-    let pattern: Vec<char> = pattern.to_lowercase().chars().collect();
-    let text: Vec<char> = text.to_lowercase().chars().collect();
-    // Greedy glob with one backtrack point: linear in practice, never exponential.
-    let (mut p, mut t) = (0, 0);
-    let mut star: Option<(usize, usize)> = None;
-    while t < text.len() {
-        if p < pattern.len() && pattern[p] != '*' && pattern[p] == text[t] {
-            p += 1;
-            t += 1;
-        } else if p < pattern.len() && pattern[p] == '*' {
-            star = Some((p, t));
-            p += 1;
-        } else if let Some((sp, st)) = star {
-            p = sp + 1;
-            t = st + 1;
-            star = Some((sp, st + 1));
-        } else {
-            return None;
+    let (pattern, text) = (pattern.to_lowercase(), text.to_lowercase());
+    let mut parts = pattern.split('*');
+    let mut rest = text.strip_prefix(parts.next().unwrap_or_default())?;
+    let parts: Vec<&str> = parts.collect();
+    match parts.split_last() {
+        // No `*`: the whole text is the literal.
+        None if !rest.is_empty() => return None,
+        None => {}
+        // Each middle part at its first place after the last (leftmost leaves the most room), then the suffix.
+        Some((last, middle)) => {
+            for part in middle {
+                rest = rest.split_once(part)?.1;
+            }
+            if !rest.ends_with(last) {
+                return None;
+            }
         }
     }
-    while p < pattern.len() && pattern[p] == '*' {
-        p += 1;
-    }
-    (p == pattern.len()).then(|| pattern.iter().filter(|c| **c != '*').count())
+    Some(pattern.chars().filter(|c| *c != '*').count())
 }
 
 /// The score of an opener implementation for `url`: its best URL pattern,
@@ -103,8 +98,7 @@ impl Supervisor {
     /// `apps-open-link`: runs the matching opener's export with `{url}` on
     /// the `apps-run` path. Answers `{handled: false}` at once when no app
     /// takes the link, safe mode is on or there is no app host.
-    pub fn open_link(&self, url: String, origin: Origin, respond: Responder) {
-        let _ = origin; // every origin may ask; the opener's own calls carry the app's grants
+    pub fn open_link(&self, url: String, _origin: Origin, respond: Responder) {
         let outs = {
             let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             match opener_locked(&inner, &url) {
