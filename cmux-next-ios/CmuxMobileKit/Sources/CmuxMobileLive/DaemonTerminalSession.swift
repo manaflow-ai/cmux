@@ -215,6 +215,10 @@ public final class DaemonTerminalSession: TerminalSession {
     /// no size is sent on it until the link is kept (`reclaimSizeAfterKeptLink`) or a new attach,
     /// so a resize queued or made in the meantime cannot claim the grid again before the close.
     private var releasedForLinkClose = false
+    /// The client the size was released on for a link closing on purpose (nil: none open then).
+    /// An attach of that same client (it was in flight on the closing link) claims nothing; only
+    /// a new client's attach clears the release (merge review of d76ab4a6, low 2).
+    private var releasedOnClient: ObjectIdentifier?
     /// The grid last asked for, put back after a reattach.
     private var lastSize: (columns: Int, rows: Int)?
     private var attached = false
@@ -402,7 +406,9 @@ public final class DaemonTerminalSession: TerminalSession {
                 log.notice("surface \(self.surface, privacy: .public): shown again, claiming \(size.columns, privacy: .public)x\(size.rows, privacy: .public)")
                 enqueue(.size(columns: size.columns, rows: size.rows))
             }
-            settleReclaimHold()
+            // Released for a link closing on purpose: the deadline waits for the kept link's
+            // reclaim (`reclaimSizeAfterKeptLink`), so it never paints the Mac's grid meanwhile.
+            if !releasedForLinkClose { settleReclaimHold() }
         } else {
             reclaimDeadline?.cancel()
             reclaimDeadline = nil
@@ -420,6 +426,12 @@ public final class DaemonTerminalSession: TerminalSession {
     /// released first and answered, as `stop` does, so the machine does not hold this phone's grid
     /// for the dropped-link grace. Bounded by 2 s; the attach itself is left to the link's close.
     public func releaseBeforeLinkCloses(onlyThrough attach: UInt64? = nil) async {
+        // An attach in flight on the closing link claims no size when it lands (it would hold
+        // the phone's grid on the machine for the dropped-link grace).
+        if attach == nil || attachSerial == attach {
+            releasedForLinkClose = true
+            releasedOnClient = client.map(ObjectIdentifier.init)
+        }
         guard let client, attached else { return }
         // A release from a session that has since given this terminal to another: only while the
         // terminal is still on the attach it had then (never its new one's claim).
@@ -449,8 +461,10 @@ public final class DaemonTerminalSession: TerminalSession {
     /// meanwhile): a terminal still on screen claims its size again.
     public func reclaimSizeAfterKeptLink() {
         releasedForLinkClose = false
+        releasedOnClient = nil
         guard claimsSize, attached, !sizeClaimed, let size = lastSize else { return }
         enqueue(.size(columns: size.columns, rows: size.rows))
+        settleReclaimHold()
     }
 
     public func stop() {
@@ -718,8 +732,9 @@ public final class DaemonTerminalSession: TerminalSession {
                 [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
             )
             let identify = try? setup.last?.get()
-            // Hidden: attach without a size, so the attach claims none.
-            let initialSize = claimsSize && (identify.map(Self.acceptsInitialSize) ?? false)
+            // Hidden, or on a link closing on purpose: attach without a size, so it claims none.
+            let closingAttach = releasedForLinkClose && releasedOnClient == ObjectIdentifier(client)
+            let initialSize = claimsSize && !closingAttach && (identify.map(Self.acceptsInitialSize) ?? false)
             leased = identify.map { Self.lists(Self.sizeLeaseCapability, $0) } ?? false
             sharedSizing = identify.map { Self.lists(Self.sharedSizingCapability, $0) } ?? false
             tailReplay = identify.map { Self.lists(Self.replayHistoryRowsCapability, $0) } ?? false
@@ -815,8 +830,14 @@ public final class DaemonTerminalSession: TerminalSession {
             expireInput()
             attached = true
             attachSerial &+= 1
-            releasedForLinkClose = false
-            settleReclaimHold()
+            // A new client's attach ends a release for a link close; the closing link's own
+            // attach (in flight when it was released) keeps it and claims nothing.
+            let stillClosing = releasedForLinkClose && releasedOnClient == ObjectIdentifier(client)
+            if !stillClosing {
+                releasedForLinkClose = false
+                releasedOnClient = nil
+                settleReclaimHold()
+            }
             refusingInput = false
             everAttached = true
             handler?(.connection(.attached))
@@ -829,7 +850,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 outbox.insert(.release, at: 0)
                 sizeClaimed = false
             }
-            if claimsSize, let size = lastSize, attachedWithSize.map({ $0.columns != size.columns || $0.rows != size.rows }) ?? true {
+            if claimsSize, !stillClosing, let size = lastSize, attachedWithSize.map({ $0.columns != size.columns || $0.rows != size.rows }) ?? true {
                 outbox.removeAll { if case .size = $0 { true } else { false } }
                 outbox.insert(.size(columns: size.columns, rows: size.rows), at: 0)
             }
