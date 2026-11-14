@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43544436730",
+  "recorded_at": "2026-11-14T02:13:54Z",
+  "reason": "cmux-tui 5f79927a2b47 changes the image's cmux-tui (pinned efa5fe40ce2a)",
+  "dry_run": false,
+  "cmux_tui": "5f79927a2b47d7685d6b4427eee9f96b61648520",
+  "fixes": [
+    {
+      "sha": "5f79927a2b47d7685d6b4427eee9f96b61648520",
+      "mergedAt": "2026-11-13T17:42:25-08:00",
+      "subject": "cmux-tui: after a start the session is stated again in parts, not by the first create (#42694)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T02:13:54Z",
+    "snapshot_id": "sh-3f50113f9f7f49398ae9ce9e3e99ac01",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43544436730): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4764acc1d9efb6ae530d70da48afa606f5f7145e",
+    "image": "cloud-native-auto-5f79927a-43544436730-1",
+    "revision": "ci-43544436730-1",
+    "at": "2026-11-14T02:13:54Z"
+  },
+  "rolled_back": false
+}
