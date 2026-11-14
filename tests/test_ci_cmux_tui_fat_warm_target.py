@@ -36,6 +36,7 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parent
 ROOT = TESTS.parent
 sys.path.insert(0, str(TESTS))
+import git_fixture_env  # noqa: E402
 import workflow_jobs  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-build-package.yml"
@@ -191,9 +192,9 @@ class ToolchainStamp(unittest.TestCase):
         (self.repo / "cmux-tui").mkdir()
         (self.repo / "cmux-tui" / "lib.rs").write_text("fn main() {}\n")
         git = ["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@t"]
-        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
-        subprocess.run([*git, "add", "-A"], check=True)
-        subprocess.run([*git, "commit", "-qm", "fixture"], check=True)
+        git_fixture_env.init_repo(self.repo)
+        subprocess.run([*git, "add", "-A"], env=git_fixture_env.write_env(), check=True)
+        subprocess.run([*git, "commit", "-qm", "fixture"], env=git_fixture_env.write_env(), check=True)
         self.disk = self.tmp / "disk"
         self.disk.mkdir()
         bin_dir = self.tmp / "bin"
@@ -201,12 +202,12 @@ class ToolchainStamp(unittest.TestCase):
         fake = bin_dir / "mountpoint"
         fake.write_text("#!/bin/sh\nexit 0\n")
         fake.chmod(0o755)
-        self.env = {
+        self.env = git_fixture_env.fixture_env({
             **os.environ,
             "PATH": f"{bin_dir}:{os.environ['PATH']}",
             "CARGO_HOME": str(self.tmp / "cargo"),
             "RUNNER_TEMP": str(self.tmp),
-        }
+        })
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp, ignore_errors=True)
