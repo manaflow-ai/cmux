@@ -29,12 +29,12 @@ gv_build() {
   swiftc -O -o "$EVAL_BIN/screen-eval-marker-locate" "$here/marker-locate.swift"
 }
 
-# gv_pid NAME: the viewer's process id: the one the target started ($EVAL_STATE/viewer.pid), else the
-# newest process of that name (exit 1 when it is not running).
+# gv_pid NAME: the viewer's process id, the one the target started and recorded in $EVAL_STATE/viewer.pid
+# (exit 1 when there is none, or it has ended).
 gv_pid() {
   local pid
   pid=$(cat "$EVAL_STATE/viewer.pid" 2>/dev/null || true)
-  if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then echo "$pid"; else pgrep -nx "$1"; fi
+  [[ "$pid" =~ ^[0-9]+$ ]] && ps -p "$pid" -o pid= >/dev/null && echo "$pid"
 }
 
 # gv_wait_window NAME SECONDS: the viewer's largest on-screen window id, once it has one.
