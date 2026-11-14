@@ -99,6 +99,7 @@ pub fn draw_all(app: &mut App, frame: &mut Frame) -> DrawCursors {
     let panes_accept_focus = app.focus == FocusTarget::Pane;
     let visible_surfaces: HashSet<_> = app.pane_areas.iter().map(|area| area.surface).collect();
     app.rendered_terminal_bounds.retain(|surface, _| visible_surfaces.contains(surface));
+    app.rendered_synchronized_holds.retain(|surface, _| visible_surfaces.contains(surface));
     app.rendered_kitty_graphics.retain(|surface, _| visible_surfaces.contains(surface));
     app.rendered_terminal_pointer_semantics.retain(|surface, _| visible_surfaces.contains(surface));
     app.rendered_pane_content_generations.retain(|surface, _| visible_surfaces.contains(surface));
@@ -483,6 +484,9 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     app.rendered_terminal_bounds.remove(&area.surface);
     app.rendered_kitty_graphics.remove(&area.surface);
     app.rendered_terminal_pointer_semantics.remove(&area.surface);
+    // Recorded again below only when this draw is a held synchronized
+    // update; a pane drawn any other way (or not at all) schedules nothing.
+    app.rendered_synchronized_holds.remove(&area.surface);
     if matches!(
         app.rendered_pane_content_generations.get(&area.surface),
         Some(PaneContentGeneration::Terminal(_))
@@ -523,9 +527,16 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         .render_states
         .entry(area.surface)
         .or_insert_with(|| RenderState::new().expect("render state alloc"));
-    let Ok(render) = surface.render_frame(rs) else {
+    let Ok(render) = surface.render_display_frame(rs) else {
         return DrawCursors::default();
     };
+    // A held synchronized update shows the last complete snapshot. Its
+    // content generation is unknown, so the pane records none and a click
+    // on it waits for the next complete frame, as for changed content.
+    let synchronized_hold = rs.synchronized_hold_deadline();
+    if let Some(until) = synchronized_hold {
+        app.rendered_synchronized_holds.insert(area.surface, until);
+    }
     let source_x = area.content_source_x();
     let live =
         super::terminal_grid::rendered_viewport_rect_cropped(rect, frame.area(), &render, source_x);
@@ -533,8 +544,10 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     app.rendered_kitty_graphics.insert(area.surface, render.frame.kitty_graphics.clone());
     app.rendered_terminal_sizes.insert(area.surface, render.frame.size);
     app.rendered_terminal_pointer_semantics.insert(area.surface, render.pointer_semantics);
-    app.rendered_pane_content_generations
-        .insert(area.surface, PaneContentGeneration::Terminal(render.content_generation));
+    if synchronized_hold.is_none() {
+        app.rendered_pane_content_generations
+            .insert(area.surface, PaneContentGeneration::Terminal(render.content_generation));
+    }
     if focused
         && app.menu.is_none()
         && app.prompt.is_none()

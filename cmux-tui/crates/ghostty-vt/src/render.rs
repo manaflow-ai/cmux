@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ptr;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use ghostty_vt_sys as sys;
 
@@ -242,7 +243,26 @@ pub struct RenderState {
     kitty_pixel_cache: HashMap<u64, Arc<[u8]>>,
     kitty_terminal_instance_id: Option<u64>,
     next_frame_seq: u64,
+    /// The synchronized update (DECSET 2026) this render state is holding
+    /// back, or that timed out while the application stayed in the mode.
+    synchronized_hold: Option<SynchronizedHold>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SynchronizedHold {
+    /// Holding the last complete snapshot since this moment.
+    Since(Instant),
+    /// The hold timed out; present everything until the mode turns off.
+    Expired,
+}
+
+/// DEC private mode for synchronized output (BSU/ESU).
+const MODE_SYNCHRONIZED_OUTPUT: u16 = 2026;
+
+/// Longest an unfinished synchronized update may hold presentation. It matches
+/// Ghostty's own renderer, so an application that never ends its update cannot
+/// freeze a pane.
+pub const SYNCHRONIZED_OUTPUT_TIMEOUT: Duration = Duration::from_secs(1);
 
 unsafe impl Send for RenderState {}
 
@@ -280,11 +300,68 @@ impl RenderState {
             kitty_pixel_cache: HashMap::new(),
             kitty_terminal_instance_id: None,
             next_frame_seq: 0,
+            synchronized_hold: None,
         })
     }
 
-    /// Snapshot the terminal's viewport into this render state.
+    /// Snapshot the terminal's viewport into this render state, as it is now.
     pub fn update(&mut self, terminal: &mut Terminal) -> Result<()> {
+        self.synchronized_hold = None;
+        self.snapshot(terminal)
+    }
+
+    /// Snapshot the terminal for display. While the application holds a
+    /// synchronized update open (DECSET 2026), this keeps the last complete
+    /// snapshot instead of a half-drawn frame, for at most
+    /// [`SYNCHRONIZED_OUTPUT_TIMEOUT`]; the terminal keeps every row's damage
+    /// until the update that presents it. Returns `false` when it kept the last
+    /// snapshot; [`Self::synchronized_hold_deadline`] then says when to retry
+    /// if no more output arrives.
+    ///
+    /// After a hold times out, the mode counts as stuck (an application that
+    /// died inside its update) and nothing is held again until the
+    /// application leaves the mode, so a stuck pane is live, not throttled.
+    pub fn update_for_display(&mut self, terminal: &mut Terminal, now: Instant) -> Result<bool> {
+        if self.holds_synchronized_update(terminal, now) {
+            return Ok(false);
+        }
+        self.snapshot(terminal)?;
+        Ok(true)
+    }
+
+    /// When a held synchronized update must be presented even if no more
+    /// output arrives; `None` when nothing is held.
+    pub fn synchronized_hold_deadline(&self) -> Option<Instant> {
+        match self.synchronized_hold {
+            Some(SynchronizedHold::Since(since)) => Some(since + SYNCHRONIZED_OUTPUT_TIMEOUT),
+            Some(SynchronizedHold::Expired) | None => None,
+        }
+    }
+
+    fn holds_synchronized_update(&mut self, terminal: &Terminal, now: Instant) -> bool {
+        if !terminal.mode(MODE_SYNCHRONIZED_OUTPUT, false) {
+            self.synchronized_hold = None;
+            return false;
+        }
+        // Only a complete snapshot of this same terminal may stand in for it.
+        if self.kitty_terminal_instance_id != Some(terminal.instance_id()) {
+            self.synchronized_hold = None;
+            return false;
+        }
+        match *self.synchronized_hold.get_or_insert(SynchronizedHold::Since(now)) {
+            SynchronizedHold::Since(since)
+                if now.saturating_duration_since(since) < SYNCHRONIZED_OUTPUT_TIMEOUT =>
+            {
+                true
+            }
+            SynchronizedHold::Since(_) | SynchronizedHold::Expired => {
+                self.synchronized_hold = Some(SynchronizedHold::Expired);
+                false
+            }
+        }
+    }
+
+    fn snapshot(&mut self, terminal: &mut Terminal) -> Result<()> {
         check(unsafe { sys::ghostty_render_state_update(self.raw, terminal.raw()) })?;
         self.palette = terminal_palette(terminal.raw(), sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)?;
         self.default_palette =
