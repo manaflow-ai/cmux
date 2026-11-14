@@ -1018,8 +1018,7 @@ fn cmux_acp_starts_without_the_cmux_credentials() {
         .env("CMUX_CLOUD_ACCESS_TOKEN", "bearer_secret")
         .env("KEEP_ME", "kept");
     let command = joined::acp_command(shell, &["host", "ls"]);
-    let seen = joined::run_acp(command, &["host", "ls"], None, std::time::Duration::from_secs(60))
-        .unwrap();
+    let seen = joined::run_acp(command, &["host", "ls"], None, Duration::from_secs(60)).unwrap();
     assert_eq!(seen["join"], "unset", "{seen}");
     assert_eq!(seen["token"], "unset", "{seen}");
     assert_eq!(seen["keep"], "kept", "{seen}");
@@ -1033,14 +1032,10 @@ fn a_cmux_acp_that_hangs_ends_with_a_timeout_error() {
     let mut hang = cmux_process::Command::new("/bin/sh");
     hang.args(["-c", "exec sleep 600"]);
     let began = std::time::Instant::now();
-    let answer = joined::run_acp(
-        hang,
-        &["send", "h/n", "-"],
-        Some("hi"),
-        std::time::Duration::from_millis(300),
-    );
+    let answer =
+        joined::run_acp(hang, &["send", "h/n", "-"], Some("hi"), Duration::from_millis(300));
     let error = answer.unwrap_err();
     assert_eq!(error["code"], "acpmux.timeout", "{error}");
     assert_eq!(error["retryable"], true);
-    assert!(began.elapsed() < std::time::Duration::from_secs(20), "{:?}", began.elapsed());
+    assert!(began.elapsed() < Duration::from_secs(20), "{:?}", began.elapsed());
 }
