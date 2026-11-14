@@ -152,12 +152,24 @@ pub(super) fn temporary_cache(path: &Path) -> bool {
     temporary_cache_with(path, &|key| std::env::var_os(key))
 }
 
+/// Whether `path` is under the system's temporary folder (`TMPDIR`, `/tmp`,
+/// `/private/tmp`, `/var/folders`).
+fn in_temp_dir(path: &Path, getenv: &dyn Fn(&str) -> Option<OsString>) -> bool {
+    let tmpdir = getenv("TMPDIR").filter(|dir| !dir.is_empty()).map(PathBuf::from);
+    let roots = tmpdir
+        .iter()
+        .flat_map(|dir| [dir.clone(), resolved(dir)])
+        .chain(["/tmp", "/private/tmp", "/var/folders", "/private/var/folders"].map(PathBuf::from));
+    roots.into_iter().any(|root| path.starts_with(&root))
+}
+
 fn temporary_cache_with(path: &Path, getenv: &dyn Fn(&str) -> Option<OsString>) -> bool {
     let parts = parts(path);
-    if parts
-        .iter()
-        .any(|part| *part == "_npx" || *part == "archive-v0" || part.starts_with("bunx-"))
-    {
+    if parts.iter().any(|part| *part == "_npx" || *part == "archive-v0") {
+        return true;
+    }
+    // bunx unpacks into `bunx-<uid>-<package>` in the temporary folder only.
+    if parts.iter().any(|part| part.starts_with("bunx-")) && in_temp_dir(path, getenv) {
         return true;
     }
     if parts.windows(2).any(|pair| {
@@ -444,6 +456,12 @@ mod tests {
         let set =
             |key: &str| (key == "PIPX_VENV_CACHEDIR").then(|| OsString::from("/srv/pipx-runs"));
         assert!(temporary_cache_with(exe, &set));
+        // bunx's folder is temporary only in the temporary folder.
+        let bunx = "bunx-501-cmux@latest/node_modules/cmux-tui-darwin-arm64/bin/cmux-tui";
+        assert!(temporary_cache_with(&Path::new("/tmp").join(bunx), &none));
+        let tmpdir = |key: &str| (key == "TMPDIR").then(|| OsString::from("/scratch/t"));
+        assert!(temporary_cache_with(&Path::new("/scratch/t").join(bunx), &tmpdir));
+        assert!(!temporary_cache_with(&Path::new("/Users/u/src").join(bunx), &none));
     }
 
     /// The settings file an entry names is the shared one by its path or a

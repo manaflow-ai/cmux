@@ -289,15 +289,24 @@ impl Entry {
         })
     }
 
-    /// Whether its command is still there to run.
+    /// Whether its command is still there to run, and the launcher script a
+    /// JavaScript runtime runs (`node …/cmux.js mcp serve`) is still there.
     fn runs(&self, path: Option<&OsStr>) -> bool {
+        use crate::agent_computer_use::{CmuxServe, cmux_serve};
         use std::os::unix::fs::PermissionsExt;
-        match self.command.as_deref() {
+        let command_runs = match self.command.as_deref() {
             Some(command) if command.contains('/') => std::fs::metadata(command)
                 .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0),
             Some(command) => on_path(path, command).is_some(),
             None => false,
-        }
+        };
+        let script_there = match self.command.as_deref().and_then(|c| cmux_serve(c, &self.args)) {
+            Some(CmuxServe::Path(program)) if Some(program) != self.command.as_deref() => {
+                Path::new(program).is_file()
+            }
+            _ => true,
+        };
+        command_runs && script_there
     }
 
     /// The settings file its `env` names (`CMUX_NEXT_CONFIG_FILE`); `None`

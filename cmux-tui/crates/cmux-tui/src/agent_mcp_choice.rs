@@ -30,16 +30,16 @@ pub(crate) fn codex_settings(
     choice: AgentsCmuxMcp,
     executable: &Path,
     socket: &Path,
-    launch: crate::agent_computer_use::CodexLaunch<'_>,
+    existing: &crate::agent_computer_use::CodexEntry,
 ) -> Vec<OsString> {
     if !choice.injects() {
         return Vec::new();
     }
-    crate::agent_computer_use::codex_settings(executable, socket, launch).unwrap_or_default()
+    crate::agent_computer_use::codex_settings(executable, socket, existing).unwrap_or_default()
 }
 
-/// [`codex_settings`] with the environment `getenv` (tests: never the
-/// machine's own `~/.codex`).
+/// [`codex_settings`] with the environment `getenv` and no `cmux` entry in
+/// Codex (tests: never the machine's own Codex).
 #[cfg(test)]
 fn codex_settings_with(
     choice: AgentsCmuxMcp,
@@ -54,7 +54,7 @@ fn codex_settings_with(
         executable,
         socket,
         getenv,
-        crate::agent_computer_use::CodexLaunch::default(),
+        &crate::agent_computer_use::CodexEntry::Absent,
     )
     .unwrap_or_default()
 }

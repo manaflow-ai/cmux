@@ -51,7 +51,8 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
         .env(crate::claude_wrapper::AGENT_ARGS_ENV, crate::claude_wrapper::agent_args_json(args));
     let mut launch_args = args.to_vec();
     if should_inject(args, |name| std::env::var_os(name)) {
-        match prepare_hooks(args) {
+        let resolver_path = path_without_shims(&path, shim_dir.as_deref());
+        match prepare_hooks(args, &codex, &resolver_path) {
             Ok(Some(injected)) => {
                 launch_args = injected;
                 command.env("CMUX_TUI_CODEX_WRAPPER_ACTIVE", "1");
@@ -70,7 +71,11 @@ fn current_executable() -> anyhow::Result<PathBuf> {
     Ok(executable.canonicalize().unwrap_or(executable))
 }
 
-fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
+fn prepare_hooks(
+    args: &[OsString],
+    codex: &Path,
+    path: &OsStr,
+) -> anyhow::Result<Option<Vec<OsString>>> {
     // A tool command of a Codex session in the shared daemon has the
     // daemon's inherited environment, which names some other terminal.
     if cmux_tui_core::platform::descends_from_codex_app_server_daemon() {
@@ -91,19 +96,29 @@ fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
     }
     // cmux Computer Use, with no setup (agent_computer_use.rs), unless the
     // person said no to cmux's tools in their agents (agent_mcp_choice.rs).
-    // Which of Codex's config layers this launch loads: the folder it starts
-    // in (project layers) and the profile its arguments name.
-    let cwd = std::env::current_dir().ok();
-    let launch_layers = crate::agent_computer_use::CodexLaunch {
-        cwd: cwd.as_deref(),
-        profile: crate::agent_computer_use::codex_profile(args),
+    // The person's own `cmux` entry, as Codex itself resolves it for this
+    // launch's folder and config arguments (codex_mcp_entry.rs). Asked only
+    // when the server goes in at all.
+    let choice = cmux_tui_core::user_settings::AgentsCmuxMcp::current();
+    let existing = if choice.injects() {
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let config = crate::codex_mcp_entry::config_args(args);
+        let entry = crate::codex_mcp_entry::resolve(
+            codex,
+            path,
+            &cwd,
+            &config,
+            crate::codex_mcp_entry::TIMEOUT,
+        );
+        if entry == crate::agent_computer_use::CodexEntry::Unknown {
+            eprintln!("{}", crate::localization::catalog().agent_wrapper.codex_mcp_unknown);
+        }
+        entry
+    } else {
+        crate::agent_computer_use::CodexEntry::Absent
     };
-    for setting in crate::agent_mcp_choice::codex_settings(
-        cmux_tui_core::user_settings::AgentsCmuxMcp::current(),
-        &executable,
-        &socket,
-        launch_layers,
-    ) {
+    for setting in crate::agent_mcp_choice::codex_settings(choice, &executable, &socket, &existing)
+    {
         launch.push(OsString::from("-c"));
         launch.push(setting);
     }
