@@ -96,7 +96,10 @@ final class SidebarFooterBand {
         // health's line is not in this row (``placeHealthIndicator(above:)``): its coming and going never
         // moves the strip, the update button or Search.
         let leadMaxX = placeLiveBadge(before: searchMinX)
-        let trailing = placeUpdateAvailable(before: searchMinX, after: leadMaxX ?? bandFirstRow?.itemsMaxX ?? 0) ?? searchMinX
+        let leadingMaxX = leadMaxX ?? bandFirstRow?.itemsMaxX ?? 0
+        let updateMinX = placeUpdateAvailable(before: searchMinX, after: leadingMaxX)
+        // This Mac's Share button (one list) takes the next slot left, so the update button and Search keep theirs.
+        let trailing = placeShareScreen(before: updateMinX ?? searchMinX, after: leadingMaxX) ?? updateMinX ?? searchMinX
         if host.spacesPosition == .top {
             if bar.superview !== host { host.addSubview(bar) }
             bar.leadingInset = nil
@@ -275,8 +278,26 @@ final class SidebarFooterBand {
     @discardableResult
     func placeUpdateAvailable(before searchMinX: CGFloat?, after leadingMaxX: CGFloat) -> CGFloat? {
         guard let host else { return nil }
-        let button = host.updateAvailableButton
-        guard !button.isHidden else { return nil }
+        return placeTrailingButton(host.updateAvailableButton, before: searchMinX, after: leadingMaxX)
+    }
+
+    // MARK: Share button
+
+    /// Places This Mac's Share button (`SidebarView.shareScreenButton`, the one-list sidebar's only Share entry: it
+    /// draws no This Mac header) on the footer line, left of the update button and Search (`trailingMinX`, the
+    /// leftmost of them that shows), so neither moves for it. Returns its minX in the sidebar's coordinates, nil while
+    /// it does not show. With no room after the line's leading controls it steps out of the line (zero frame), as the
+    /// update button does; the strip then keeps the room.
+    @discardableResult
+    func placeShareScreen(before trailingMinX: CGFloat?, after leadingMaxX: CGFloat) -> CGFloat? {
+        guard let host else { return nil }
+        return placeTrailingButton(host.shareScreenButton, before: trailingMinX, after: leadingMaxX)
+    }
+
+    /// Places a footer-row button of Search's side ending `space1` before `trailingMinX` (on Search's own column when
+    /// that is nil), on the band's first row (or the footer's line), never over `leadingMaxX`.
+    private func placeTrailingButton(_ button: NSView, before searchMinX: CGFloat?, after leadingMaxX: CGFloat) -> CGFloat? {
+        guard let host, !button.isHidden else { return nil }
         let side = Self.searchButtonSide
         let midY: CGFloat, end: CGFloat
         if let row = bandFirstRow {

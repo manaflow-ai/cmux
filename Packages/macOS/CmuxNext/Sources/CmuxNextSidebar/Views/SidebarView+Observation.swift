@@ -177,6 +177,8 @@ extension SidebarViewComponents {
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)
         model.groupByStatus(state.groupsByStatus)
+        // The one-list footer's Share button follows the layout setting and whether This Mac is listed.
+        if listChanged || profilesChanged { refreshShareScreen() }
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
         // Controls on hover too (`sidebar.controlsOnHover`): its controls fade to the new rule.
         if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo

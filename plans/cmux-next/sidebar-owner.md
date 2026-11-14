@@ -7,7 +7,12 @@
   screen button, the chevron, each on the shared pitch and visible at rest. View screen runs `cloudOpenDesktop` on
   the machine; Share runs `macScreen.shareThisMac` where cmux Remote runs, else `macScreen.open`
   (`SidebarIntentActions`). The one-list sidebar (the default) draws no This Mac header: it shows View screen on
-  Cloud headers but has no Share entry yet. Regression: `SidebarScreenEntryTests`.
+  Cloud headers, and This Mac's Share is one footer-row button at rest (`SidebarView.shareScreenButton`, Search's
+  size), left of the update button and Search, which keep their frames; the spaces strip ends before it. It sends
+  the header's `.shareScreen` for This Mac's section, hides with a section per computer (the header has it), with no
+  This Mac listed and under `sidebar.noFade`, and fades with the footer under `sidebar.controlsOnHover`. Not on
+  rows: Share is the whole Mac's, not a workspace's, and one button never clutters a row. Regressions:
+  `SidebarScreenEntryTests`, `SidebarFooterShareScreenTests` (240/300/360 pt).
 - 2026-11-14 (New Tab rounder, #42717): a sidebar row's fill reads its corner on every layout, not once when the row
   is made, so it is the tab's corner at the density now. Lucas, verbatim: "the left sidebar tab becoems too circular.
   however the tabs at the top are fine. so match the sidebar item roundness to the tab roundness". A row made at a

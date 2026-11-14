@@ -98,6 +98,8 @@ public final class SidebarView: NSView {
     let priorityPanelView = SidebarPriorityPanelView(), priorityButton = SidebarIconButton(icon: .notification, label: Strings.priorityTitle)
     /// The quiet Update Available button (``showUpdateAvailable(_:)``).
     let updateAvailableButton = SidebarIconButton(symbol: "arrow.down.circle", label: "")
+    /// This Mac's Share button in the one-list sidebar's footer row (``buildShareScreen()``).
+    let shareScreenButton = SidebarIconButton(icon: .actionShare, pointSize: { Metrics.iconSize }, label: Strings.shareScreen)
     /// Swift live mode's mark (LiveModeBadgeView), right of the profile avatar on the footer line
     /// (Leo 2026-11-06: "at the bottom just to the right of the profile circle in the sidebar").
     /// Nil while this app is not the live code build.
@@ -354,6 +356,7 @@ public final class SidebarView: NSView {
         cardSlot.install(in: self)
         buildPriority()
         buildUpdateAvailable()
+        buildShareScreen()
     }
 
     /// The + and its chevron segment share one rounded outline: their hover and pressed fills
@@ -447,6 +450,7 @@ public final class SidebarView: NSView {
         SidebarHiddenState.apply(!showsProfiles, to: profileBar)
         SidebarHiddenState.apply(noFade, to: footerRegion)
         SidebarHiddenState.apply(noFade, to: searchButton)
+        refreshShareScreen()
         if let liveModeBadge { SidebarHiddenState.apply(noFade, to: liveModeBadge) }
         for fade in [edgeFade, aboveFade, belowFade] { fade.fades = !noFade }
         // R109: the dots under the titlebar row, or in the footer.
