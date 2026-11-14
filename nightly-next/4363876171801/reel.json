@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "4363876171801",
+  "notes": "notes/4363876171801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43235,
+      "title": "ci: the three largest same-run artifact hand-offs keep 1 day, not 3",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43211,
+      "title": "Browser host: a crashed shared headless Chromium comes back with its tabs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43214,
+      "title": "diff tab: the freshness check asks the session host's git.fingerprint (step B: the app and the page)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43133,
+      "title": "Launch: Home draws the last Chief from the cache at the first frame (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43088,
+      "title": "closing panes: the land rule's question in Rust (cmux_closing_panes_landing_moves, step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43225,
+      "title": "Agent chat: a failed subagent line has no \"Ask parent to retry\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43049,
+      "title": "cmux remote: an invitation bound to one device key enrolls it without a second approval step",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42960,
+      "title": "agent service v2: the list stream on a peer link (8 part one, wiring)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43168,
+      "title": "Agent chat: the translator writes the turn's end with its result, and counts every kind it does not draw (v2 row 2c, PR 1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43176,
+      "title": "acpmux: add read-free hold attach",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43221,
+      "title": "[cloud-resume-no-lost-output] Fix inventory scanning of test modules",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43177,
+      "title": "cmux-next-ios energy bench: a running chat, on screen, scrolled away and in the background",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
