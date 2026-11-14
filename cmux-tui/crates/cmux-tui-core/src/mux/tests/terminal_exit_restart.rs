@@ -750,6 +750,48 @@ fn output_read_serves_live_records_and_exit_snapshot_after_close_detach() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn output_read_projects_a_live_reconnect_snapshot_at_the_same_cursor() {
+    const TERMINAL: &str = "0000000000004000800000000000004f";
+    const INCARNATION: &str = "1000000000004000800000000000004f";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-mux-output-read-gap-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = Mux::open_persistent("output-read-gap", SurfaceOptions::default(), &root).unwrap();
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    let surface_id =
+        mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+    let surface = mux.surface(surface_id).unwrap();
+    let terminal =
+        mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+    let prefix = b"1\n2\n";
+    surface.apply_stream_output_for_test(prefix).unwrap();
+    mux.output_store.append(&terminal, &Arc::from(INCARNATION), prefix, None);
+    let prefix_end = u64::try_from(prefix.len()).unwrap();
+
+    // The host reconnect replaces the screen while the raw stream cursor is
+    // still at the prefix. These bytes are deliberately not appended: they
+    // are the host's no-tap interval, recovered only by the live snapshot.
+    mux.output_store.stream_gap(&terminal);
+    surface.apply_stream_output_for_test(b"3\n4\n").unwrap();
+    let recovered = mux.terminal_output_read(&terminal, Some(prefix_end), 1 << 20).unwrap();
+    assert_eq!(recovered["start_offset"], "0", "{recovered}");
+    assert_eq!(recovered["next_offset"], prefix_end.to_string(), "{recovered}");
+    assert_eq!(recovered["complete"], true, "{recovered}");
+    assert_eq!(recovered["text"], "1\n2\n3\n4\n", "{recovered}");
+
+    // Once the explicit snapshot cut has been delivered, a normal read at
+    // its cursor is empty and does not project the screen repeatedly.
+    let drained = mux.terminal_output_read(&terminal, Some(prefix_end), 1 << 20).unwrap();
+    assert_eq!(drained["start_offset"], prefix_end.to_string(), "{drained}");
+    assert_eq!(drained["next_offset"], prefix_end.to_string(), "{drained}");
+    assert_eq!(drained["text"], "", "{drained}");
+
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 /// A client that follows a terminal appends each window's text, as the
 /// cursor contract invites: the joined text must keep the stream's lines.
 /// A window that ended on a line feed lost it to the formatter's trim, so the

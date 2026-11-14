@@ -327,6 +327,10 @@ struct LogState {
     /// snapshot whose capture saw an older count does not hold the screen
     /// after the gap, so it does not clear the request for one.
     gaps: u64,
+    /// A host reconnect replaced the live screen. Until one reader receives
+    /// a coherent live snapshot, the numeric cursor alone cannot describe
+    /// the bytes the host wrote while no daemon tap existed.
+    gap_pending: bool,
     /// Snapshot mode: the size the last capture saw and since when; a
     /// resized terminal is snapshotted once its size has held for
     /// [`RESIZE_SETTLE`] (a divider drag does not write a snapshot per pass).
@@ -363,6 +367,7 @@ impl LogState {
             retry_at: None,
             retry_delay: Duration::ZERO,
             gaps: 0,
+            gap_pending: false,
             size_seen: None,
         }
     }
@@ -897,6 +902,40 @@ impl OutputStore {
         Some((state.generation.clone(), state.next_offset()))
     }
 
+    /// The current stream cursor, including a persisted snapshot/tail that has
+    /// not created an in-memory log yet (the first read after host adoption).
+    pub(crate) fn stream_cursor(&self, terminal_id: &TerminalPublicId) -> Option<(Arc<str>, u64)> {
+        if let Some(log) =
+            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
+        {
+            let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            return Some((state.generation.clone(), state.next_offset()));
+        }
+        self.resume
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(terminal_id)
+            .map(|(generation, end)| (Arc::from(generation.as_str()), *end))
+    }
+
+    /// Whether a reconnect snapshot must be projected before raw reads resume.
+    pub(crate) fn stream_gap_pending(&self, terminal_id: &TerminalPublicId) -> bool {
+        self.logs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(terminal_id)
+            .is_some_and(|log| log.state.lock().unwrap_or_else(PoisonError::into_inner).gap_pending)
+    }
+
+    /// Mark the reconnect snapshot as delivered after a coherent live capture.
+    pub(crate) fn clear_stream_gap_pending(&self, terminal_id: &TerminalPublicId) {
+        if let Some(log) =
+            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
+        {
+            log.state.lock().unwrap_or_else(PoisonError::into_inner).gap_pending = false;
+        }
+    }
+
     /// Retained output at or after `after`, at most `max_bytes` (never less
     /// than one byte when any exists). A cursor older than what is kept
     /// starts at the oldest kept byte. Full mode: bytes before the unflushed
@@ -984,6 +1023,7 @@ impl OutputStore {
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.fall_back_to_snapshot();
         state.gaps += 1;
+        state.gap_pending = true;
         let wait = state.retry_wait();
         drop(state);
         match wait {

@@ -3,6 +3,42 @@
 use super::*;
 
 impl Mux {
+    /// Capture the replacement screen and the output cursor under one parser
+    /// lock. A host reconnect can advance the screen while the raw stream
+    /// cursor stays put; projecting this cut from offset zero is the only
+    /// honest way to let a live reader catch up without inventing offsets.
+    fn terminal_live_snapshot_after_gap(
+        &self,
+        terminal_id: &TerminalPublicId,
+        requested: u64,
+    ) -> anyhow::Result<Option<Value>> {
+        let Some(surface) = self
+            .terminal_resource_surface(terminal_id)
+            .filter(|surface| surface.kind() == SurfaceKind::Pty)
+        else {
+            return Ok(None);
+        };
+        let captured = surface.try_with_terminal(|terminal| {
+            let settled =
+                surface.terminal_journal_capture_epoch().is_some_and(|epoch| epoch & 1 == 0);
+            if !settled {
+                return None;
+            }
+            let (_, end) = self.output_store.stream_cursor(terminal_id)?;
+            if end < requested {
+                return None;
+            }
+            let replay = terminal.vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES).ok()?;
+            Some((terminal.cols(), terminal.rows(), replay.into_self_contained_bytes(), end))
+        })?;
+        let Some((cols, rows, replay, end)) = captured else {
+            return Ok(None);
+        };
+        let text = render_terminal_output_plain(std::iter::once(replay.as_slice()), cols, rows)?;
+        self.output_store.clear_stream_gap_pending(terminal_id);
+        Ok(Some(terminal_output_read_result(text, 0, end, true)))
+    }
+
     /// Read only public terminal completion state. The host UUID and
     /// incarnation remain an internal fencing mechanism and never enter the
     /// resource API result.
@@ -81,7 +117,7 @@ impl Mux {
         let surface = self
             .terminal_resource_surface(terminal_id)
             .filter(|surface| surface.kind() == SurfaceKind::Pty);
-        let stream = self.output_store.stream_end(terminal_id);
+        let stream = self.output_store.stream_cursor(terminal_id);
         let (snapshot, spec_geometry) = {
             let registry = self.workspace_registry.lock().unwrap();
             let snapshot = registry.terminal_exit_snapshot(terminal_id.as_str())?;
@@ -117,6 +153,11 @@ impl Mux {
             )?;
             let complete = stream_end.is_none_or(|end| snapshot.covered_through >= end);
             return Ok(terminal_output_read_result(text, 0, snapshot.covered_through, complete));
+        }
+        if self.output_store.stream_gap_pending(terminal_id)
+            && let Some(snapshot) = self.terminal_live_snapshot_after_gap(terminal_id, requested)?
+        {
+            return Ok(snapshot);
         }
         let Some(window) = self.output_store.read_after(terminal_id, requested, max_bytes) else {
             // Nothing was ever printed in this daemon: an empty, complete stream.
