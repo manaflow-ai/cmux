@@ -42,16 +42,25 @@ for line in sys.stdin:
 struct Sup {
     child: Child,
     lines: mpsc::Receiver<Value>,
+    /// Lines no `next` took yet.
+    seen: std::cell::RefCell<Vec<Value>>,
 }
 
 impl Sup {
+    /// The first line, seen or still to come, that `pred` accepts. Lines it
+    /// skips stay for a later call: the supervisor's lines for different
+    /// tabs arrive in any order.
     fn next(&self, what: &str, pred: impl Fn(&Value) -> bool) -> Value {
+        let mut seen = self.seen.borrow_mut();
+        if let Some(i) = seen.iter().position(&pred) {
+            return seen.remove(i);
+        }
         let until = Instant::now() + Duration::from_secs(20);
         loop {
             let left = until.saturating_duration_since(Instant::now());
             match self.lines.recv_timeout(left) {
                 Ok(v) if pred(&v) => return v,
-                Ok(_) => {}
+                Ok(v) => seen.push(v),
                 Err(_) => panic!("the supervisor never said {what}"),
             }
         }
@@ -98,7 +107,7 @@ fn sigkilled_shared_host_comes_back_with_every_tab_on_the_same_port() {
             }
         }
     });
-    let sup = Sup { child, lines };
+    let sup = Sup { child, lines, seen: Default::default() };
     let listening = sup.next("listening", |v| v.get("listening").is_some());
     let port: u16 =
         listening["listening"].as_str().unwrap().rsplit(':').next().unwrap().parse().unwrap();

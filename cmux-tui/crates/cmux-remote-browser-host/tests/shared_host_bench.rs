@@ -14,7 +14,7 @@
 use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::{Duration, Instant};
@@ -26,26 +26,9 @@ use serde_json::{Value, json};
 const SECRET: &str = "7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a";
 const IDLE_WINDOW_S: u32 = 5;
 
-fn bundle(dir: &Path) -> PathBuf {
-    let cef = PathBuf::from(std::env::var("CEF_PATH").expect("CEF_PATH"));
-    let cef = if cef.join("Release").is_dir() { cef.join("Release") } else { cef };
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
-    let app = dir.join("cmux-remote-browser-host.app");
-    let out = Command::new("/bin/bash")
-        .arg(repo.join("scripts/cmux-next/bundle-remote-browser-host.sh"))
-        .arg(env!("CARGO_BIN_EXE_cmux-remote-browser-host"))
-        .arg(&cef)
-        .arg(&app)
-        .output()
-        .expect("bundle");
-    assert!(
-        out.status.success(),
-        "bundle-remote-browser-host.sh {cef:?} failed: {}\n{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr),
-    );
-    app.join("Contents/MacOS/cmux-remote-browser-host")
-}
+#[path = "common/bundle.rs"]
+mod common_bundle;
+use common_bundle::bundle;
 
 type Hits = Arc<(Mutex<Vec<(String, Instant)>>, Condvar)>;
 
