@@ -30,11 +30,55 @@ impl FolderKey {
     }
 }
 
+/// A parent's direct children, carrying each child's own child set.
+///
+/// The recursive handle lets a family walk move from a parent frame to a
+/// child frame without a second table lookup.  Each update path-copies only
+/// the changed child set and the parent entries that point at it.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ChildSet {
+    entries: OrdMap<RowKey, Arc<ChildSet>>,
+}
+
+impl ChildSet {
+    pub(super) fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub(super) fn get(&self, key: &RowKey) -> Option<&Arc<ChildSet>> {
+        self.entries.get(key)
+    }
+
+    pub(super) fn next_key(&self, root: &RowKey, after: Option<&RowKey>) -> Option<RowKey> {
+        use std::ops::Bound::{Excluded, Unbounded};
+        self.entries
+            .range::<_, RowKey>((after.map_or(Unbounded, Excluded), Unbounded))
+            .find(|(key, _)| *key != root)
+            .map(|(key, _)| key.clone())
+    }
+
+    fn insert(&self, key: RowKey, children: Arc<ChildSet>) -> Self {
+        let mut next = self.entries.clone();
+        next.insert(key, children);
+        Self { entries: next }
+    }
+
+    fn remove(&self, key: &RowKey) -> Self {
+        let mut next = self.entries.clone();
+        next.remove(key);
+        Self { entries: next }
+    }
+}
+
 /// The two edges a summary contributes to the kin view.
 #[derive(Clone, Debug, Default)]
 pub struct KinTables {
-    /// Parent -> direct children, ordered by stable row key.
-    children: OrdMap<RowKey, OrdSet<RowKey>>,
+    /// Parent -> direct children and each child's own child-set handle.
+    children: OrdMap<RowKey, Arc<ChildSet>>,
     /// Forked chat -> forks.  The value is the fork sequence from the source.
     forks: OrdMap<RowKey, OrdMap<RowKey, u64>>,
     /// (origin, folder) -> rows ordered by the same activity key as `all`.
@@ -68,7 +112,7 @@ impl KinTables {
     }
 
     pub fn child_count(&self) -> usize {
-        self.children.values().map(OrdSet::len).sum()
+        self.children.values().map(|set| set.len()).sum()
     }
 
     pub fn folder_entry_count(&self) -> usize {
@@ -87,13 +131,18 @@ impl KinTables {
     /// changed. A title or other non-indexed field update writes no table path.
     pub fn replace(&self, old: Option<&Summary>, new: Option<&Summary>) -> Self {
         let mut next = self.clone();
-        next.mutate(old, new, None, None);
+        next.mutate(old, new, None, None, None);
         next
     }
 
-    pub fn replace_arc(&self, old: Option<&Arc<Summary>>, new: Option<&Arc<Summary>>) -> Self {
+    pub fn replace_arc(
+        &self,
+        old: Option<&Arc<Summary>>,
+        new: Option<&Arc<Summary>>,
+        rows: &OrdMap<RowKey, Arc<Summary>>,
+    ) -> Self {
         let mut next = self.clone();
-        next.mutate(old.map(Arc::as_ref), new.map(Arc::as_ref), new, None);
+        next.mutate(old.map(Arc::as_ref), new.map(Arc::as_ref), new, Some(rows), None);
         next
     }
 
@@ -105,20 +154,36 @@ impl KinTables {
         writes: &AtomicUsize,
     ) -> Self {
         let mut next = self.clone();
-        next.mutate(old, new, None, Some(writes));
+        next.mutate(old, new, None, None, Some(writes));
+        next
+    }
+
+    pub fn replace_counted_with_rows(
+        &self,
+        old: Option<&Summary>,
+        new: Option<&Summary>,
+        rows: &OrdMap<RowKey, Arc<Summary>>,
+        writes: &AtomicUsize,
+    ) -> Self {
+        let mut next = self.clone();
+        next.mutate(old, new, None, Some(rows), Some(writes));
         next
     }
 
     pub fn insert(&mut self, summary: &Summary) {
-        self.mutate(None, Some(summary), None, None);
+        self.mutate(None, Some(summary), None, None, None);
     }
 
-    pub fn insert_arc(&mut self, summary: &Arc<Summary>) {
-        self.mutate(None, Some(summary), Some(summary), None);
+    pub fn insert_arc(&mut self, summary: &Arc<Summary>, rows: &OrdMap<RowKey, Arc<Summary>>) {
+        self.mutate(None, Some(summary), Some(summary), Some(rows), None);
     }
 
     pub fn remove(&mut self, summary: &Summary) {
-        self.mutate(Some(summary), None, None, None);
+        self.mutate(Some(summary), None, None, None, None);
+    }
+
+    pub fn remove_with_rows(&mut self, summary: &Summary, rows: &OrdMap<RowKey, Arc<Summary>>) {
+        self.mutate(Some(summary), None, None, Some(rows), None);
     }
 
     fn mutate(
@@ -126,16 +191,17 @@ impl KinTables {
         old: Option<&Summary>,
         new: Option<&Summary>,
         new_arc: Option<&Arc<Summary>>,
+        rows: Option<&OrdMap<RowKey, Arc<Summary>>>,
         writes: Option<&AtomicUsize>,
     ) {
         let old_parent = old.map(|row| (row.parent.clone(), row.key()));
         let new_parent = new.map(|row| (row.parent.clone(), row.key()));
         if old_parent != new_parent {
             if let Some((Some(parent), key)) = old_parent.as_ref() {
-                self.remove_child(parent, key, writes);
+                self.remove_child(parent, key, rows, writes);
             }
             if let Some((Some(parent), key)) = new_parent.as_ref() {
-                self.insert_child(parent, key, writes);
+                self.insert_child(parent, key, rows, writes);
             }
         }
 
@@ -194,23 +260,82 @@ impl KinTables {
         }
     }
 
-    fn insert_child(&mut self, parent: &RowKey, key: &RowKey, writes: Option<&AtomicUsize>) {
-        let mut children = self.children.get(parent).cloned().unwrap_or_default();
-        if children.insert(key.clone()).is_none() {
-            self.children.insert(parent.clone(), children);
-            Self::count(writes);
+    fn insert_child(
+        &mut self,
+        parent: &RowKey,
+        key: &RowKey,
+        rows: Option<&OrdMap<RowKey, Arc<Summary>>>,
+        writes: Option<&AtomicUsize>,
+    ) {
+        let child_set =
+            self.children.get(key).cloned().unwrap_or_else(|| Arc::new(ChildSet::default()));
+        let parent_set =
+            self.children.get(parent).cloned().unwrap_or_else(|| Arc::new(ChildSet::default()));
+        if parent_set.get(key).is_some_and(|old| old.as_ref() == child_set.as_ref()) {
+            return;
         }
+        let updated = Arc::new(parent_set.insert(key.clone(), child_set));
+        self.set_children(parent, Some(updated), rows, writes);
     }
 
-    fn remove_child(&mut self, parent: &RowKey, key: &RowKey, writes: Option<&AtomicUsize>) {
-        let Some(mut children) = self.children.get(parent).cloned() else { return };
-        if children.remove(key).is_some() {
-            if children.is_empty() {
-                self.children.remove(parent);
-            } else {
-                self.children.insert(parent.clone(), children);
+    fn remove_child(
+        &mut self,
+        parent: &RowKey,
+        key: &RowKey,
+        rows: Option<&OrdMap<RowKey, Arc<Summary>>>,
+        writes: Option<&AtomicUsize>,
+    ) {
+        let Some(parent_set) = self.children.get(parent).cloned() else { return };
+        if parent_set.get(key).is_none() {
+            return;
+        }
+        let updated = parent_set.remove(key);
+        self.set_children(parent, (!updated.is_empty()).then(|| Arc::new(updated)), rows, writes);
+    }
+
+    fn set_children(
+        &mut self,
+        parent: &RowKey,
+        children: Option<Arc<ChildSet>>,
+        rows: Option<&OrdMap<RowKey, Arc<Summary>>>,
+        writes: Option<&AtomicUsize>,
+    ) {
+        let mut current = parent.clone();
+        let mut value = children;
+        let mut visited = OrdSet::new();
+        for _ in 0..64 {
+            if !visited.insert(current.clone()) {
+                break;
+            }
+            match value.take() {
+                Some(next) => {
+                    self.children.insert(current.clone(), next.clone());
+                    value = Some(next);
+                }
+                None => {
+                    self.children.remove(&current);
+                }
             }
             Self::count(writes);
+            let Some(rows) = rows else { break };
+            let Some(row) = rows.get(&current) else { break };
+            let Some(grandparent) = row.parent.as_ref() else { break };
+            let Some(parent_set) = self.children.get(grandparent).cloned() else { break };
+            let Some(child_set) = value.as_ref() else {
+                if parent_set.get(&current).is_none() {
+                    break;
+                }
+                let updated = parent_set.remove(&current);
+                current = grandparent.clone();
+                value = (!updated.is_empty()).then(|| Arc::new(updated));
+                continue;
+            };
+            if parent_set.get(&current).is_some_and(|old| old.as_ref() == child_set.as_ref()) {
+                break;
+            }
+            let updated = parent_set.insert(current.clone(), child_set.clone());
+            current = grandparent.clone();
+            value = Some(Arc::new(updated));
         }
     }
 
@@ -268,8 +393,20 @@ impl KinTables {
         Self::count(writes);
     }
 
-    pub fn children(&self, parent: &RowKey) -> Option<&OrdSet<RowKey>> {
-        self.children.get(parent)
+    pub fn children(&self, parent: &RowKey) -> Option<&ChildSet> {
+        self.children.get(parent).map(Arc::as_ref)
+    }
+
+    pub fn child_set(&self, parent: &RowKey, child: &RowKey) -> Option<&ChildSet> {
+        self.children(parent)?.get(child).map(Arc::as_ref)
+    }
+
+    pub fn from_rows<'a>(rows: impl IntoIterator<Item = &'a Arc<Summary>>) -> Self {
+        let rows = rows.into_iter().cloned().fold(OrdMap::new(), |mut map, row| {
+            map.insert(row.key(), row);
+            map
+        });
+        rows.values().fold(Self::new(), |tables, row| tables.replace_arc(None, Some(row), &rows))
     }
 
     pub fn forks(&self, parent: &RowKey) -> Option<&OrdMap<RowKey, u64>> {
@@ -373,10 +510,12 @@ mod tests {
                 tables = tables.replace_counted(old.as_ref(), Some(&next), &writes);
                 rows.insert(id, next);
             }
-            let mut rebuilt = KinTables::new();
-            for row in rows.values() {
-                rebuilt.insert(row);
-            }
+            let row_map = rows.values().fold(OrdMap::new(), |mut map, row| {
+                let arc = Arc::new(row.clone());
+                map.insert(arc.key(), arc);
+                map
+            });
+            let rebuilt = KinTables::from_rows(row_map.values());
             assert_eq!(tables, rebuilt, "step {step}");
             assert!(tables.children.values().all(|set| !set.is_empty()));
             assert!(tables.forks.values().all(|map| !map.is_empty()));

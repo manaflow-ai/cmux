@@ -63,11 +63,18 @@ fn assert_kin(
     forks: &BTreeSet<RowKey>,
     folders: &BTreeSet<FolderKey>,
 ) {
-    let mut rebuilt = KinTables::new();
-    for row in index.iter() {
-        rebuilt.insert(row.as_ref());
-    }
+    let rebuilt = KinTables::from_rows(index.iter());
     assert_eq!(index.kin(), &rebuilt, "kin mismatch at lifecycle step {step}");
+    for row in index.iter() {
+        if let Some(parent) = row.parent.as_ref() {
+            assert_eq!(
+                index.kin().child_set(parent, &row.key()),
+                index.kin().children(&row.key()),
+                "child handle mismatch for {} at lifecycle step {step}",
+                row.chat_id,
+            );
+        }
+    }
     for parent in parents {
         assert!(index.kin().children(parent).is_none_or(|rows| !rows.is_empty()));
     }
@@ -275,4 +282,40 @@ pub(super) fn randomized_hot_lifecycle() {
 #[test]
 fn deterministic_lifecycle_keeps_kin_tables_equal_to_hot_rows() {
     randomized_hot_lifecycle();
+}
+
+#[test]
+fn child_before_parent_and_parent_cycle_keep_child_handles_bounded() {
+    let empty_parents = BTreeSet::new();
+    let empty_forks = BTreeSet::new();
+    let empty_folders = BTreeSet::new();
+    let root = row("late-root", 1);
+    let mut child = row("early-child", 2);
+    child.parent = Some(root.key());
+    let mut index = SummaryIndex::new().apply(1, child.clone());
+    assert_kin(&index, 0, &empty_parents, &empty_forks, &empty_folders);
+    index = index.apply(2, root.clone());
+    assert_kin(&index, 1, &empty_parents, &empty_forks, &empty_folders);
+    assert_eq!(
+        index.kin().child_set(&root.key(), &child.key()),
+        index.kin().children(&child.key()),
+    );
+
+    let mut first = row("cycle-a", 3);
+    let mut second = row("cycle-b", 4);
+    first.parent = Some(second.key());
+    second.parent = Some(first.key());
+    index = index.apply(3, first.clone()).apply(4, second.clone());
+    assert_kin(&index, 2, &empty_parents, &empty_forks, &empty_folders);
+    let page = index
+        .read_page(
+            None,
+            ReadSide::After,
+            false,
+            16,
+            64 * 1024,
+            Some(&ListFilter::family(first.key())),
+        )
+        .unwrap();
+    assert!(page.rows.len() <= 2);
 }

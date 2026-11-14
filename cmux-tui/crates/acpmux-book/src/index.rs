@@ -581,7 +581,7 @@ impl SummaryIndex {
         {
             self.ordered.remove(&SortKey::of(&row));
             self.live_ordered.remove(&SortKey::of(&row));
-            self.kin.remove(&row);
+            self.kin.remove_with_rows(&row, &self.by_id);
             self.folders =
                 Self::refresh_folders(&self.folders, &self.kin, &self.by_id, Some(&row), None);
             return true;
@@ -605,7 +605,7 @@ impl SummaryIndex {
                 self.live_ordered.insert(SortKey::of(&row), row);
             }
             if let Some(row) = self.by_id.get(&key) {
-                self.kin.insert_arc(row);
+                self.kin.insert_arc(row, &self.by_id);
                 self.folders =
                     Self::refresh_folders(&self.folders, &self.kin, &self.by_id, None, Some(row));
             }
@@ -733,7 +733,7 @@ impl SummaryIndex {
             if let Some(old) = next.by_id.remove(key) {
                 next.ordered.remove(&SortKey::of(&old));
                 next.live_ordered.remove(&SortKey::of(&old));
-                next.kin.remove(&old);
+                next.kin.remove_with_rows(&old, &next.by_id);
                 next.folders =
                     Self::refresh_folders(&next.folders, &next.kin, &next.by_id, Some(&old), None);
             }
@@ -757,7 +757,7 @@ impl SummaryIndex {
         if let Some(old) = next.by_id.remove(key) {
             next.ordered.remove(&SortKey::of(&old));
             next.live_ordered.remove(&SortKey::of(&old));
-            next.kin.remove(&old);
+            next.kin.remove_with_rows(&old, &next.by_id);
             next.folders =
                 Self::refresh_folders(&next.folders, &next.kin, &next.by_id, Some(&old), None);
         }
@@ -870,7 +870,7 @@ impl SummaryIndex {
         if row.is_live() {
             next.live_ordered.insert(SortKey::of(&row), row.clone());
         }
-        next.kin = next.kin.replace_arc(old.as_ref(), Some(&row));
+        next.kin = next.kin.replace_arc(old.as_ref(), Some(&row), &next.by_id);
         next.folders = Self::refresh_folders(
             &next.folders,
             &next.kin,
@@ -937,7 +937,7 @@ impl SummaryIndex {
         }
         let mut next =
             Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
-        next.kin = self.kin.replace_arc(old.as_ref(), Some(&summary));
+        next.kin = self.kin.replace_arc(old.as_ref(), Some(&summary), &by_id);
         next.folders = Self::refresh_folders(
             &self.folders,
             &next.kin,
@@ -1086,7 +1086,7 @@ impl SummaryIndex {
         }
         let mut next =
             Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
-        next.kin = self.kin.replace(old.map(Arc::as_ref), None);
+        next.kin = self.kin.replace_arc(old, None, &next.by_id);
         next.folders = Self::refresh_folders(
             &self.folders,
             &next.kin,

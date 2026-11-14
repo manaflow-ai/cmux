@@ -1,9 +1,7 @@
 //! A bounded preorder walk over hot parent edges (decisions 137 and 140).
 
-use super::{IndexPage, ListFilter, RowKey, SortKey, Summary, SummaryIndex};
-use imbl::OrdSet;
+use super::{ChildSet, IndexPage, ListFilter, RowKey, SortKey, Summary, SummaryIndex};
 use std::io;
-use std::ops::Bound::{Excluded, Unbounded};
 use std::sync::Arc;
 
 const MAX_DEPTH: usize = 64;
@@ -26,11 +24,7 @@ impl SummaryIndex {
         parent: &RowKey,
         after: Option<&RowKey>,
     ) -> Option<RowKey> {
-        self.kin()
-            .children(parent)?
-            .range::<_, RowKey>((after.map_or(Unbounded, Excluded), Unbounded))
-            .find(|key| *key != root)
-            .cloned()
+        self.kin().children(parent)?.next_key(root, after)
     }
 
     /// Build only the cursor's ancestor path, never the rest of its family.
@@ -176,7 +170,7 @@ struct FamilyWalk<'a> {
 
 struct FamilyFrame {
     key: RowKey,
-    children: OrdSet<RowKey>,
+    children: Arc<ChildSet>,
 }
 
 impl FamilyWalk<'_> {
@@ -196,21 +190,25 @@ impl FamilyWalk<'_> {
         lookups: &mut usize,
     ) -> io::Result<FamilyWalk<'a>> {
         let mut frames = Vec::with_capacity(path.len() + 1);
-        let root_children = index.kin().children(root).cloned().unwrap_or_default();
+        let root_children = index
+            .kin()
+            .children(root)
+            .map(Arc::new)
+            .unwrap_or_else(|| Arc::new(ChildSet::default()));
         *lookups += 1;
         frames.push(FamilyFrame { key: root.clone(), children: root_children });
         for row in path {
-            let children = index.kin().children(&row.key()).cloned().unwrap_or_default();
-            *lookups += 1;
+            let children = frames
+                .last()
+                .and_then(|frame| frame.children.get(&row.key()).cloned())
+                .unwrap_or_else(|| Arc::new(ChildSet::default()));
             frames.push(FamilyFrame { key: row.key(), children });
         }
         Ok(FamilyWalk { index, root, frames, started })
     }
 
-    fn next_child(set: &OrdSet<RowKey>, root: &RowKey, after: Option<&RowKey>) -> Option<RowKey> {
-        set.range::<_, RowKey>((after.map_or(Unbounded, Excluded), Unbounded))
-            .find(|key| *key != root)
-            .cloned()
+    fn next_child(set: &ChildSet, root: &RowKey, after: Option<&RowKey>) -> Option<RowKey> {
+        set.next_key(root, after)
     }
 
     fn load(
@@ -224,8 +222,11 @@ impl FamilyWalk<'_> {
         let row = self.index.get_row(&key).ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidData, "kin table names a missing hot row")
         })?;
-        let children = self.index.kin().children(&key).cloned().unwrap_or_default();
-        *lookups += 1;
+        let children = self
+            .frames
+            .last()
+            .and_then(|frame| frame.children.get(&key).cloned())
+            .unwrap_or_else(|| Arc::new(ChildSet::default()));
         self.frames.push(FamilyFrame { key, children });
         Ok(Some(row))
     }
