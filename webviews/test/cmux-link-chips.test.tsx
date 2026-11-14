@@ -716,7 +716,8 @@ async function composer(typed: string) {
 const titled = () =>
   [...host.querySelectorAll<HTMLElement>(".is-titled[data-title]")].map((node) => [
     node.dataset.title,
-    node.textContent,
+    // The chip's link: the draft's text, hidden beside it (composer/deeplinkTitles.ts).
+    node.dataset.link,
   ]);
 
 test("the draft draws a known link as its chip and sends the link as pasted", async () => {
@@ -790,8 +791,10 @@ test("the draft's chip carries its kind's icon as a mask image", async () => {
   await composer(`See ${WORKSPACE}`);
   const chip = host.querySelector<HTMLElement>(".is-titled[data-title]")!;
   expect(chip.hasAttribute("data-icon")).toBe(true);
-  expect(chip.getAttribute("style")).toContain('--cmux-link-icon: url("data:image/svg+xml,');
-  expect(decodeURIComponent(chip.getAttribute("style")!)).toContain("<path");
+  // The icon is drawn by the chip's front, before the link's hidden text (composer/deeplinkTitles.ts).
+  const front = host.querySelector<HTMLElement>(".is-titled-start[data-icon]")!;
+  expect(front.getAttribute("style")).toContain('--cmux-link-icon: url("data:image/svg+xml,');
+  expect(decodeURIComponent(front.getAttribute("style")!)).toContain("<path");
 });
 
 // ---------------------------------------------------------------------------------------------

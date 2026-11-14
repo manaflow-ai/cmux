@@ -10,6 +10,7 @@ import { afterEach, expect, jest, test } from "bun:test";
 import { act, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
 import { ANSWER_HOLD_MS, RETRY_HOLD_MS, useAnswerHold, useAnswerHoldSet } from "./answerHold";
 import { AcpmuxRestartGate, RESTART_DEADLINE_MS } from "./hostRetry";
 import { liveAutoResume, stuckNotice, turnPhase } from "./turnPhase";
@@ -39,6 +40,7 @@ afterEach(async () => {
   jest.useRealTimers();
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

@@ -1,18 +1,19 @@
 name: cmux-api production logs
 
 # Why did production refuse that? cmux-api (production) persists its Workers Logs; this reads one UTC window of
-# them (Workers observability telemetry query). The run log is public, so the script publishes default-deny
-# (scripts/cmux-next/cmux-api-prod-logs.py): counts, request time/outcome/method/status/path with id segments
-# hashed, and only Worker console lines whose msg is an exact allowlisted diagnostic id, with typed fields and ids
-# as sha prefixes. Tenant-written lines (automation logs and exceptions), free text and serialized objects are
-# dropped and only counted. Never a header, body, query string, token, email or IP.
+# them (Workers observability telemetry query). The public log and summary contain only row_count and a private
+# HQ issue pointer, never row bodies or a public Actions artifact. Before querying, the reader verifies that HQ
+# is private. Even the private payload keeps exact account scoping and typed default-deny projection.
 # Prod 2026-11-11: `cmux auth token` refused the app's own team as "not a member", and no agent could read the
 # Worker's log lines without a person's dashboard login.
-# Dispatch only, from feat-cmux-next. Reads only the Cloudflare token, in cmux-next-production as
-# pair-machine-join-check.yml does.
+# Dispatch only, from feat-cmux-next. Existing credentials only: Cloudflare read and the HQ-only issues-write
+# App token used by cmux-next-quality-report.yml. A mint, privacy-check or upload failure has no public fallback.
 on:
   workflow_dispatch:
     inputs:
+      account:
+        description: "Exact parsed team/account id. Missing or conflicting identities are never published."
+        required: true
       start:
         description: "UTC window start, e.g. 2026-11-11T13:20:00Z (empty: 30 minutes ago)"
         required: false
@@ -22,8 +23,8 @@ on:
         required: false
         default: "30"
       needles:
-        description: "comma-separated substrings; keep only events holding one (a team id, a log msg, /auth/); printed hashed"
-        required: false
+        description: "Required comma-separated search terms within the exact account scope; printed hashed"
+        required: true
         default: ""
 
 permissions:
@@ -35,7 +36,7 @@ concurrency:
 
 jobs:
   logs:
-    if: github.ref == 'refs/heads/feat-cmux-next'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     environment: cmux-next-production
     timeout-minutes: 10
@@ -45,10 +46,21 @@ jobs:
           sparse-checkout: scripts/cmux-next/cmux-api-prod-logs.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
+      - name: Mint the private HQ issue store token
+        id: hq-token
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: cmuxterm-hq
+          permission-issues: write
       - name: Query the window
-        # Needles come from the event file, not env: a step's env is echoed into the public log.
+        # Account and needles come from the event file, not env: step env is echoed into the public log.
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          HQ_GH_TOKEN: ${{ steps.hq-token.outputs.token }}
           FROM: ${{ inputs.start }}
           MINUTES: ${{ inputs.minutes }}
         run: |
@@ -56,5 +68,5 @@ jobs:
           from="${FROM:-}"
           [ -n "$from" ] || from="$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:00Z)"
           printf '%s\n' "$CLOUDFLARE_API_TOKEN" | python3 -I scripts/cmux-next/cmux-api-prod-logs.py \
-            --from "$from" --minutes "${MINUTES:-30}" --needles-from-event "$GITHUB_EVENT_PATH" | tee "$RUNNER_TEMP/logs.txt"
-          { echo '```'; head -c 60000 "$RUNNER_TEMP/logs.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            --from "$from" --minutes "${MINUTES:-30}" --needles-from-event "$GITHUB_EVENT_PATH" | tee "$RUNNER_TEMP/log-pointer.json"
+          cat "$RUNNER_TEMP/log-pointer.json" >> "$GITHUB_STEP_SUMMARY"

@@ -9,8 +9,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use std::fmt;
 use std::mem::size_of;
 
-pub use acpmux_book::index::folders::FolderRow;
-pub use acpmux_book::index::{ListFilter, OriginState};
+pub use acpmux_list_types::folders::FolderRow;
+pub use acpmux_list_types::{ListFilter, OriginState};
 
 /// The inclusive encoded-frame limit from the v2 protocol.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
@@ -923,7 +923,7 @@ mod tests {
 #[cfg(test)]
 mod raw_delta_tests {
     use super::*;
-    use acpmux_book::index::Summary;
+    use acpmux_list_types::Summary;
 
     #[test]
     fn summary_delta_preserves_opaque_json_bytes() {
@@ -947,8 +947,8 @@ mod raw_delta_tests {
 #[cfg(test)]
 mod other_delta_tests {
     use super::*;
-    use acpmux_book::index::RowKey;
-    use acpmux_book::index::folders::FolderRow;
+    use acpmux_list_types::RowKey;
+    use acpmux_list_types::folders::FolderRow;
 
     #[test]
     fn every_delta_op_has_one_round_tripping_shape() {

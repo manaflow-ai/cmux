@@ -31,6 +31,10 @@ pub use fork_view::{
     ForkView, HISTORY_KINDS, HistoryFence, HistoryRef, HistoryWriter, fence_history,
     folder_to_replace,
 };
+mod log_bytes;
+pub use log_bytes::{
+    LogChunk, LogFilter, LogMark, LogMarks, STAMP as LOG_STAMP, line_seq as log_line_seq,
+};
 mod meta_parts;
 pub use meta_parts::PARTS_FILE;
 mod shared_value;
@@ -1088,6 +1092,69 @@ pub trait Store: Send + Sync {
     fn flush_session(&self, _id: &str) -> Result<()> {
         self.flush()
     }
+    /// v2's raw source (`hub/v1_source.rs`, `store/log_bytes.rs`): chat `id`'s lines from seq
+    /// `from` that `filter` keeps, whole and as written, at most one chunk of them (or one line
+    /// when a line is larger), into `out`, read under count `stamp` with `marks`. A store that
+    /// holds parsed records writes each as its line.
+    fn read_log(
+        &self,
+        id: &str,
+        from: u64,
+        filter: LogFilter<'_>,
+        _stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogChunk> {
+        use acpmux_core::chat::source::CHUNK_BYTES;
+        out.clear();
+        marks.clear();
+        let mut chunk = LogChunk { next: from, at_end: true, read: 0 };
+        let mut failed = None;
+        self.scan(id, from.saturating_sub(1), &mut |record| {
+            if record.seq < from {
+                return true;
+            }
+            if record.seq > filter.through {
+                return false;
+            }
+            if filter.kinds.is_some_and(|kinds| !kinds.contains(&record.kind.as_str())) {
+                return true;
+            }
+            let line = match serde_json::to_vec(&record) {
+                Ok(line) => line,
+                Err(e) => {
+                    failed = Some(e);
+                    return false;
+                }
+            };
+            if !out.is_empty() && out.len() + line.len() + 1 > CHUNK_BYTES {
+                chunk.at_end = false;
+                return false;
+            }
+            out.extend_from_slice(&line);
+            out.push(b'\n');
+            chunk.next = record.seq.saturating_add(1);
+            true
+        })?;
+        if let Some(e) = failed {
+            return Err(e.into());
+        }
+        chunk.read = out.len() as u64;
+        Ok(chunk)
+    }
+    /// Chat `id`'s count of changes to lines already written (`store/log_bytes.rs`): 0 for a
+    /// store whose lines never change.
+    fn log_stamp(&self, _id: &str) -> Result<u64> {
+        Ok(0)
+    }
+    /// Adds `by` to chat `id`'s count: its lines read differently from now.
+    fn bump_log_stamp(&self, _id: &str, _by: u64) -> Result<()> {
+        Ok(())
+    }
+    /// Chat `id`'s log durable through `seq`: v2's book is never ahead of its raw.
+    fn sync_log_through(&self, id: &str, _seq: u64) -> Result<()> {
+        self.flush_session(id)
+    }
     /// Events with `seq > after`, at most `limit`.
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>>;
     /// Visit records with `seq > after` in order until `visit` returns false.
@@ -1469,6 +1536,9 @@ struct Writers {
     open: HashMap<String, SegmentWriter>,
     /// Counts appends; a writer's `used` is the count at its last one.
     clock: u64,
+    /// Each chat's count of changes to lines already written, once read (`store/log_bytes.rs`):
+    /// read and bumped only under this lock.
+    stamps: HashMap<String, u64>,
 }
 
 /// What a chat keeps while a journal restore holds it (`Store::keep_parked`), beside its log.
@@ -2065,6 +2135,26 @@ impl Store for LocalStore {
         line.push('\n');
         note_write_budget(record, line.len());
         self.append_line(id, line.as_bytes())
+    }
+
+    fn read_log(
+        &self,
+        id: &str,
+        from: u64,
+        filter: LogFilter<'_>,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogChunk> {
+        self.read_log_bytes(id, from, filter, stamp, marks, out)
+    }
+
+    fn log_stamp(&self, id: &str) -> Result<u64> {
+        self.read_stamp(id)
+    }
+
+    fn bump_log_stamp(&self, id: &str, by: u64) -> Result<()> {
+        self.bump_stamp(id, by)
     }
 
     fn writes_history(&self) -> bool {
