@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4361545703501",
+  "notes": "notes/4361545703501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 43141,
+      "title": "webviews: put the older-history speed test's frames on a fake clock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43107,
+      "title": "acpmux v2 gates: a marked row needs a line in the nightly's gate script",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43041,
+      "title": "Infinite items: a time-compressed run of N workspaces, tabs and chats, flat-or-not per item and per day (CMUX-571)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42568,
+      "title": "perf(daemon): git.fingerprint, step A of 2: the daemon read alone (the app keeps its old check until step B)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42991,
+      "title": "Extension samples on the public SDK: weather, recent PRs, agent pet, standup, workspace notes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42969,
+      "title": "v2 list callers in the CLI (7b part one)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43115,
+      "title": "codec-bench: VP9 at H.264's bitrate, bursty loss, Mac bench script",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
