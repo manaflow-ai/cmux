@@ -170,6 +170,9 @@
 				<string>org.webmproject.webp</string>
 				<string>public.avif</string>
 				<string>public.svg-image</string>
+				<string>public.heic</string>
+				<string>public.tiff</string>
+				<string>public.image</string>
 			</array>
 		</dict>
 		<dict>
@@ -465,6 +468,27 @@
 			<array>
 				<string>NSFilenamesPboardType</string>
 				<string>public.plain-text</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Send to $(PRODUCT_NAME) Chat</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>sendToChat</string>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSSendFileTypes</key>
+			<array>
+				<string>public.image</string>
+			</array>
+			<key>NSSendTypes</key>
+			<array>
+				<string>public.png</string>
+				<string>public.tiff</string>
+				<string>public.image</string>
 			</array>
 		</dict>
 	</array>

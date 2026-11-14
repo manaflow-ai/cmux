@@ -71,7 +71,12 @@ impl Vp9Encoder {
             c.rc_buf_initial_sz = 500;
             c.rc_buf_optimal_sz = 600;
             c.rc_buf_sz = 1000;
-            c.rc_dropframe_thresh = 30;
+            // WebRTC drops frames at 30% buffer; the bench can turn it off to spend
+            // quality instead of frames (`CMUX_VP9_DROPFRAME_THRESH=0`).
+            c.rc_dropframe_thresh = std::env::var("CMUX_VP9_DROPFRAME_THRESH")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(30);
             c.rc_resize_allowed = 0;
             c.kf_mode = sys::vpx_kf_mode_VPX_KF_DISABLED;
             c.kf_max_dist = u32::MAX >> 1;
