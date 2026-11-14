@@ -1,0 +1,79 @@
+name: iOS screen sharing proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Landed feat-cmux-next commit, also used by the completed Mac build
+        required: true
+        type: string
+      mac_job:
+        description: Completed tagged capture build job ID
+        required: true
+        type: string
+      artifact_sha256:
+        description: Mac artifact SHA256 from that job's terminal receipt
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-screen-sharing-proof-${{ inputs.mac_job }}
+  cancel-in-progress: false
+
+jobs:
+  proof:
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
+    environment: ios-e2e
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'glaeda-ios-sim' }}
+    timeout-minutes: 150
+    steps:
+      - name: Checkout the protected workflow revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require a landed source before running its code
+        env:
+          EXPECTED: ${{ inputs.ref }}
+          PROTECTED_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$EXPECTED" "$PROTECTED_HEAD"
+          git checkout --detach "$EXPECTED"
+          test "$(git rev-parse HEAD)" = "$EXPECTED"
+
+      - name: Take the managed runner GUI token
+        run: |
+          set -euo pipefail
+          helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+          test -x "$helper"
+          # Only zero admits the proof. A give-way/timeout ends this attempt;
+          # no lease, lock bypass, or competing foreground session is created.
+          "$helper" take-gui --wait 900
+
+      - name: Require physical host identity support
+        run: python3 -I scripts/ci/cmux_next_screen_sharing_proof.py --preflight
+
+      - name: Run the mounted simulator proof
+        env:
+          CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CMUX_SCREEN_PROOF_SOURCE: ${{ inputs.ref }}
+          CMUX_SCREEN_PROOF_MAC_JOB: ${{ inputs.mac_job }}
+          CMUX_SCREEN_PROOF_ARTIFACT: ${{ inputs.artifact_sha256 }}
+        run: bash scripts/ci/cmux-next-ios-sim.sh screen-proof
+
+      - name: Upload the sanitized proof receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-screen-sharing-proof-${{ github.run_id }}
+          path: artifacts/ios-sim/evidence.zip
+          if-no-files-found: error
+          retention-days: 7

@@ -39,6 +39,9 @@
 #             top     top refreshing once a second (htop when installed)
 #           Each recording is replayed at the rate the program wrote it (capped
 #           at 50 Mbit/s), with screenshots during and after the flood.
+#   screen-proof
+#           Protected manual ios-screen-sharing-proof.yml only: a completed
+#           tagged Mac bundle, mounted phone start/input/Stop, sanitized receipt.
 #   all     build, test and bench.
 #   shots   build, plus one screenshot per scene, in dark and in light, from
 #           the app's own DEBUG launch arguments and demo drivers (mock data,
@@ -126,9 +129,19 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
   "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg bench --artifact artifacts/ios-sim/evidence.zip"
 
 mode="${1:-build}"
-case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf or energy, got '$mode'" >&2; exit 2 ;; esac
+case "$mode" in build|release-build|test|bench|all|pair-e2e|screen-proof|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, screen-proof, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf or energy, got '$mode'" >&2; exit 2 ;; esac
 if [[ "$mode" == release-build && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: release-build takes no further arguments" >&2; exit 2
+fi
+if [[ "$mode" == screen-proof ]]; then
+  [[ $# -eq 1 && "${GITHUB_ACTIONS:-}" == true ]] || {
+    echo "screen-proof requires its protected Actions workflow" >&2; exit 2;
+  }
+  for key in CMUX_SCREEN_PROOF_SOURCE CMUX_SCREEN_PROOF_MAC_JOB CMUX_SCREEN_PROOF_ARTIFACT; do
+    [[ -n "${!key:-}" ]] || { echo "screen-proof missing artifact binding" >&2; exit 2; }
+  done
+  [[ "$(git rev-parse HEAD)" == "$CMUX_SCREEN_PROOF_SOURCE" ]] || exit 2
+  python3 -I scripts/ci/cmux_next_screen_sharing_proof.py --preflight
 fi
 scenes=("${@:2}")
 if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
@@ -304,9 +317,9 @@ cleanup() {
     xcrun simctl delete "$d" >/dev/null 2>&1 || true
   done
   if [[ -n "$sims" ]]; then
-    xcrun simctl --set "$sims" shutdown all >/dev/null 2>&1 || true
-    xcrun simctl --set "$sims" delete all >/dev/null 2>&1 || true
-    rm -rf "$sims" || true
+    xcrun simctl --set "$sims" shutdown all >/dev/null 2>&1 || { [[ "$mode" != screen-proof ]] || result=1; }
+    xcrun simctl --set "$sims" delete all >/dev/null 2>&1 || { [[ "$mode" != screen-proof ]] || result=1; }
+    rm -rf "$sims" || { [[ "$mode" != screen-proof ]] || result=1; }
   fi
   # Attempted even when the simulator set's removal failed.
   if [[ -n "$xcodegen_dir" ]]; then rm -rf "$xcodegen_dir" || true; fi
@@ -347,6 +360,10 @@ cleanup() {
   fi
   if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" || "${CMUX_IOS_OWNER_ACCESS_PROOF:-0}" == 1 ]]; then
     python3 -I scripts/ci/cmux_next_cloud_pair_proof.py --export-out "$out" --status "$result" || result=1
+  fi
+  if [[ "$mode" == screen-proof ]]; then
+    python3 -I scripts/ci/cmux_next_screen_sharing_proof.py --finalize-cleanup --status "$result" --out "$out" || result=1
+    exit "$result"
   fi
   return "$result"
 }
@@ -561,7 +578,11 @@ fi
 sims="$work/sims"
 mkdir -p "$sims"
 simctl() { xcrun simctl --set "$sims" "$@"; }
-udid="$(simctl create cmux-next-ios-sim "$device_type" "$runtime")"
+sim_name=cmux-next-ios-sim
+if [[ "$mode" == screen-proof ]]; then
+  sim_name="screen-proof-$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
+fi
+udid="$(simctl create "$sim_name" "$device_type" "$runtime")"
 simctl boot "$udid"
 simctl bootstatus "$udid" -b >/dev/null
 simctl ui "$udid" appearance dark >/dev/null 2>&1 || true
@@ -970,6 +991,17 @@ if [[ "$mode" == energy ]]; then
   simctl uninstall "$udid" "$bundle_id" >/dev/null 2>&1 || true
   note "- energy: $((SECONDS - t0)) s; sides: ${sides[*]}; reps: $energy_reps; samples: energy/"
   [[ "${energy_status:-0}" -eq 0 ]] || note "- energy: FAILED (a run had no PID or no samples; see energy/)"
+fi
+
+# --- Mounted iOS Screen Sharing --------------------------------------------
+if [[ "$mode" == screen-proof ]]; then
+  python3 -I scripts/ci/cmux_next_screen_sharing_proof.py \
+    --source-sha "$CMUX_SCREEN_PROOF_SOURCE" --mac-job "$CMUX_SCREEN_PROOF_MAC_JOB" \
+    --artifact-sha256 "$CMUX_SCREEN_PROOF_ARTIFACT" --sims "$sims" --udid "$udid" \
+    --viewer-name "$sim_name" --bundle-id "$bundle_id" --out "$out"
+  # This proof publishes only its allowlisted receipt. Logs and screenshots
+  # stay private; the ordinary simulator archive below must not package them.
+  exit 0
 fi
 
 # --- Pairing by QR code ----------------------------------------------------
