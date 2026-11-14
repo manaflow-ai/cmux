@@ -19,7 +19,8 @@ import { createAppleTestSigner } from "./helpers/apple-signing";
 
 const BUNDLE = "com.cmux.app";
 const ORIGINAL = "2000000000000100";
-const DAY = 24 * 60 * 60 * 1000;
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
 const NOW = new Date(Date.UTC(2026, 9, 15));
 const env = { APPLE_IAP_BUNDLE_IDS: `${BUNDLE},dev.cmux.app.beta`, APPLE_IAP_APP_APPLE_ID: "6783338052" };
 const signer = createAppleTestSigner();
@@ -32,6 +33,8 @@ let applyFailures: number;
 let serverApi: AppleServerApi | null;
 let token: string;
 let tokenB: string;
+let clock: Date;
+const noHistory: AppleServerApi["notificationHistory"] = async () => ({ signedPayloads: [], hasMore: false, paginationToken: null });
 
 function deps(): AppleIapDependencies {
   return {
@@ -48,7 +51,7 @@ function deps(): AppleIapDependencies {
     captureEvent: async (input) => {
       events.push(input);
     },
-    now: () => NOW,
+    now: () => clock,
   };
 }
 
@@ -134,6 +137,7 @@ beforeEach(async () => {
   events = [];
   applyFailures = 0;
   serverApi = null;
+  clock = NOW;
   token = await store.accountTokenForUser("user-a");
   tokenB = await store.accountTokenForUser("user-b");
 });
@@ -196,6 +200,7 @@ describe("client transactions", () => {
 
   test("prefers Apple's current signed state from the Server API", async () => {
     serverApi = {
+      notificationHistory: noHistory,
       subscriptionStatus: async () => ({
         status: 4,
         signedTransactionInfo: signer.sign(transaction({ signedDate: NOW.getTime() })),
@@ -208,7 +213,7 @@ describe("client transactions", () => {
   });
 
   test("falls back to the client transaction when the Server API fails", async () => {
-    serverApi = { subscriptionStatus: async () => { throw new Error("503"); } };
+    serverApi = { notificationHistory: noHistory, subscriptionStatus: async () => { throw new Error("503"); } };
     const result = await recordClientAppleTransaction({ userId: "user-a", signedTransactionInfo: signer.sign(transaction()) }, deps());
     expect(result.status).toBe("active");
   });
@@ -406,6 +411,8 @@ describe("App Store Server Notifications", () => {
     expect(row!.error).toContain("Stack unavailable");
     expect(events).toEqual([]);
 
+    // The failure scheduled the retry five minutes out.
+    clock = new Date(NOW.getTime() + 5 * 60_000);
     const result = await retryAppleNotifications({}, deps());
     expect(result.notifications.processed).toBe(1);
     expect(store.notifications.get(row!.notificationUuid)?.processedAt).not.toBeNull();
@@ -417,13 +424,13 @@ describe("App Store Server Notifications", () => {
     expect(await receiveAppleNotification(notification({ type: "SUBSCRIBED", subtype: "INITIAL_BUY", status: 1, tx: { appAccountToken: undefined } }), deps()))
       .toBe("skipped");
     expect([...store.notifications.values()][0]?.error).toBe("skipped: unlinked_account");
-    expect(await store.pendingNotifications(10)).toEqual([]);
+    expect(await store.pendingNotifications(10, NOW)).toEqual([]);
   });
 
   test("the retry job re-derives the plan for users whose subscription expired without a notification", async () => {
     await subscribe();
     store.subscriptions.set(ORIGINAL, {
-      ...subscription(), expiresAt: new Date(NOW.getTime() - 60_000), updatedAt: new Date(NOW.getTime() - 30 * DAY),
+      ...subscription(), expiresAt: new Date(NOW.getTime() - 2 * HOUR), updatedAt: new Date(NOW.getTime() - 30 * DAY),
     });
     applied = [];
     const result = await retryAppleNotifications({}, deps());
@@ -440,7 +447,7 @@ describe("App Store Server Notifications", () => {
 
     test("catches a grace period that ended weeks after the expiry", async () => {
       await subscribe();
-      setRow({ status: "grace_period", expiresAt: new Date(NOW.getTime() - 20 * DAY), gracePeriodExpiresAt: new Date(NOW.getTime() - 60_000) });
+      setRow({ status: "grace_period", expiresAt: new Date(NOW.getTime() - 20 * DAY), gracePeriodExpiresAt: new Date(NOW.getTime() - 2 * HOUR) });
       applied = [];
       const result = await retryAppleNotifications({}, deps());
       expect(result.lapsedUsers).toBe(1);
@@ -457,7 +464,7 @@ describe("App Store Server Notifications", () => {
 
     test("a swept row does not match again", async () => {
       await subscribe();
-      setRow({ expiresAt: new Date(NOW.getTime() - 60_000) });
+      setRow({ expiresAt: new Date(NOW.getTime() - 2 * HOUR) });
       expect((await retryAppleNotifications({}, deps())).lapsedUsers).toBe(1);
       expect(subscription().status).toBe("expired");
       expect((await retryAppleNotifications({}, deps())).lapsedUsers).toBe(0);
@@ -473,7 +480,7 @@ describe("App Store Server Notifications", () => {
 
     test("a failed re-derive is swept again on the next run", async () => {
       await subscribe();
-      setRow({ expiresAt: new Date(NOW.getTime() - 60_000) });
+      setRow({ expiresAt: new Date(NOW.getTime() - 2 * HOUR) });
       applied = [];
       applyFailures = 1;
       expect(await retryAppleNotifications({}, deps())).toMatchObject({ lapsedUsers: 1, lapsedFailures: 1 });
@@ -557,6 +564,7 @@ describe("notifications about an older transaction", () => {
     await subscribeAndRenew();
     const lookups: string[] = [];
     serverApi = {
+      notificationHistory: noHistory,
       subscriptionStatus: async ({ originalTransactionId }) => {
         lookups.push(originalTransactionId);
         return {

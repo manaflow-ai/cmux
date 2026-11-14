@@ -9,7 +9,12 @@ import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
 import { activeApplePlanForUser } from "../services/billing/apple/entitlement";
 import type { AppleSubscriptionState } from "../services/billing/apple/state";
-import { AppleOwnershipError, databaseAppleIapStore } from "../services/billing/apple/store";
+import {
+  APPLE_NOTIFICATION_MAX_ATTEMPTS,
+  AppleOwnershipError,
+  appleNotificationRetryDelayMs,
+  databaseAppleIapStore,
+} from "../services/billing/apple/store";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
@@ -28,7 +33,7 @@ beforeAll(() => {
 
 beforeEach(async () => {
   if (!sql) return;
-  await sql`truncate apple_account_tokens, apple_subscriptions, apple_transactions, apple_notifications`;
+  await sql`truncate apple_account_tokens, apple_subscriptions, apple_transactions, apple_notifications, apple_notification_history_cursors`;
 });
 
 afterAll(async () => {
@@ -166,12 +171,103 @@ describe("Apple IAP store", () => {
     expect((await store.insertNotification(ledger)).inserted).toBe(false);
     await store.insertNotification({ ...ledger, notificationUuid: "n-2" });
     await store.insertNotification({ ...ledger, notificationUuid: "n-3" });
-    await store.markNotificationFailed("n-1", "Stack unavailable");
+    await store.markNotificationFailed("n-1", "Stack unavailable", new Date(NOW));
     await store.markNotificationProcessed("n-2", new Date());
     await store.markNotificationSkipped("n-3", "unlinked_account", new Date());
-    expect((await store.pendingNotifications(10)).map((row) => row.notificationUuid)).toEqual(["n-1"]);
+    const due = new Date(NOW + appleNotificationRetryDelayMs(1));
+    expect((await store.pendingNotifications(10, due)).map((row) => row.notificationUuid)).toEqual(["n-1"]);
     await store.markNotificationProcessed("n-1", new Date());
-    expect(await store.pendingNotifications(10)).toEqual([]);
+    expect(await store.pendingNotifications(10, due)).toEqual([]);
+  });
+
+  dbTest("a failed notification backs off exponentially and is dead-lettered after the last attempt", async () => {
+    const ledger = {
+      notificationUuid: "n-1", notificationType: "DID_RENEW", subtype: null, environment: "Production",
+      originalTransactionId: "otx-1", signedDate: new Date(NOW), payload: { data: {} },
+    };
+    await store.insertNotification(ledger);
+    await store.insertNotification({ ...ledger, notificationUuid: "n-2" });
+    const first = await store.markNotificationFailed("n-1", "boom", new Date(NOW));
+    expect(first).toEqual({ attemptCount: 1, deadLettered: false });
+    const [row] = await sql!`select attempt_count, next_attempt_at, dead_lettered_at from apple_notifications where notification_uuid = 'n-1'`;
+    expect(new Date(row!.next_attempt_at).getTime()).toBe(NOW + appleNotificationRetryDelayMs(1));
+    // Not due yet: only the untouched row is listed.
+    expect((await store.pendingNotifications(10, new Date(NOW))).map((r) => r.notificationUuid)).toEqual(["n-2"]);
+    const second = await store.markNotificationFailed("n-1", "boom", new Date(NOW));
+    expect(second.attemptCount).toBe(2);
+    const [again] = await sql!`select next_attempt_at from apple_notifications where notification_uuid = 'n-1'`;
+    expect(new Date(again!.next_attempt_at).getTime()).toBe(NOW + appleNotificationRetryDelayMs(2));
+    let last = second;
+    for (let attempt = 3; attempt <= APPLE_NOTIFICATION_MAX_ATTEMPTS; attempt += 1) {
+      last = await store.markNotificationFailed("n-1", "boom", new Date(NOW));
+    }
+    expect(last).toEqual({ attemptCount: APPLE_NOTIFICATION_MAX_ATTEMPTS, deadLettered: true });
+    const far = new Date(NOW + 365 * DAY);
+    expect((await store.pendingNotifications(10, far)).map((r) => r.notificationUuid)).toEqual(["n-2"]);
+    expect((await store.notification("n-1"))?.deadLetteredAt).not.toBeNull();
+  });
+
+  dbTest("renewal re-check candidates: granting, auto-renewing, ending in the window, not checked recently", async () => {
+    const write = (overrides: Partial<AppleSubscriptionState>) =>
+      store.writeSubscriptionState(state(overrides), { tokenOwner: "user-a" });
+    const HOUR = 60 * 60_000;
+    await write({ originalTransactionId: "soon", expiresAt: new Date(NOW + 2 * HOUR) });
+    await write({ originalTransactionId: "sooner", expiresAt: new Date(NOW + HOUR) });
+    await write({ originalTransactionId: "far", expiresAt: new Date(NOW + 10 * DAY) });
+    await write({ originalTransactionId: "off", autoRenewEnabled: false, expiresAt: new Date(NOW + HOUR) });
+    await write({ originalTransactionId: "unknown-renew", autoRenewEnabled: null, expiresAt: new Date(NOW + 3 * HOUR) });
+    await write({ originalTransactionId: "expired", status: "expired", expiresAt: new Date(NOW + HOUR) });
+    await write({ originalTransactionId: "long-gone", expiresAt: new Date(NOW - 2 * HOUR) });
+    await write({
+      originalTransactionId: "grace", status: "grace_period",
+      expiresAt: new Date(NOW - DAY), gracePeriodExpiresAt: new Date(NOW + 4 * HOUR),
+    });
+    await write({ originalTransactionId: "checked", expiresAt: new Date(NOW + HOUR) });
+    const before = await store.subscription("checked");
+    await store.markAppleChecked("checked", new Date(NOW));
+    const after = await store.subscription("checked");
+    expect(after?.appleCheckedAt?.getTime()).toBe(NOW);
+    expect(after?.updatedAt.getTime()).toBe(before?.updatedAt.getTime());
+
+    const query = {
+      accessEndsAfter: new Date(NOW - HOUR),
+      accessEndsBy: new Date(NOW + 6 * HOUR),
+      checkedBefore: new Date(NOW - 25 * 60_000),
+      limit: 10,
+    };
+    expect((await store.renewalCheckCandidates(query)).map((row) => row.originalTransactionId))
+      .toEqual(["sooner", "soon", "unknown-renew", "grace"]);
+    expect((await store.renewalCheckCandidates({ ...query, checkedBefore: new Date(NOW + 1) })).map((row) => row.originalTransactionId))
+      .toEqual(["checked", "sooner", "soon", "unknown-renew", "grace"]);
+    expect(await store.renewalCheckCandidates({ ...query, limit: 1 })).toHaveLength(1);
+  });
+
+  dbTest("the history cursor upserts per bundle and environment", async () => {
+    expect(await store.notificationHistoryCursor("com.cmux.app", "Production")).toBeNull();
+    const cursor = {
+      bundleId: "com.cmux.app", environment: "Production", nextStartAt: new Date(NOW - DAY),
+      windowStartAt: new Date(NOW - DAY), windowEndAt: new Date(NOW), paginationToken: "page-2",
+    };
+    await store.saveNotificationHistoryCursor(cursor);
+    await store.saveNotificationHistoryCursor({ ...cursor, environment: "Sandbox", paginationToken: null });
+    expect(await store.notificationHistoryCursor("com.cmux.app", "Production")).toEqual(cursor);
+    const done = { ...cursor, nextStartAt: new Date(NOW), windowStartAt: null, windowEndAt: null, paginationToken: null };
+    await store.saveNotificationHistoryCursor(done);
+    expect(await store.notificationHistoryCursor("com.cmux.app", "Production")).toEqual(done);
+    expect((await store.notificationHistoryCursor("com.cmux.app", "Sandbox"))?.paginationToken).toBeNull();
+  });
+
+  dbTest("the newest ledger signed date is per environment", async () => {
+    expect(await store.latestNotificationSignedDate("Production")).toBeNull();
+    const ledger = {
+      notificationUuid: "n-1", notificationType: "DID_RENEW", subtype: null, environment: "Production",
+      originalTransactionId: "otx-1", signedDate: new Date(NOW - DAY), payload: { data: {} },
+    };
+    await store.insertNotification(ledger);
+    await store.insertNotification({ ...ledger, notificationUuid: "n-2", signedDate: new Date(NOW) });
+    await store.insertNotification({ ...ledger, notificationUuid: "n-3", environment: "Sandbox", signedDate: new Date(NOW + DAY) });
+    expect((await store.latestNotificationSignedDate("Production"))?.getTime()).toBe(NOW);
+    expect((await store.latestNotificationSignedDate("Sandbox"))?.getTime()).toBe(NOW + DAY);
   });
 
   dbTest("the lapse sweep lists rows past expiry and grace, oldest lapse first, until swept", async () => {
@@ -196,6 +292,12 @@ describe("Apple IAP store", () => {
 
     const lapsed = await store.lapsedSubscriptions(new Date(NOW), 10);
     expect(lapsed.map((row) => row.userId)).toEqual(["user-e", "user-b", "user-a"]);
+    expect(lapsed[2]).toMatchObject({
+      originalTransactionId: "otx-a", bundleId: "com.cmux.app", environment: "Production", appleCheckedAt: null,
+    });
+    // An earlier cutoff (the sweep's leeway) leaves out the row that lapsed a minute ago.
+    expect((await store.lapsedSubscriptions(new Date(NOW - 30 * 60_000), 10)).map((row) => row.userId))
+      .toEqual(["user-e", "user-b"]);
     await store.markLapseSwept(lapsed.map((row) => row.originalTransactionId), new Date(NOW));
     expect(await store.lapsedSubscriptions(new Date(NOW), 10)).toEqual([]);
     const statuses = await sql!`select original_transaction_id, status from apple_subscriptions order by original_transaction_id`;
