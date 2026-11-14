@@ -1,5 +1,6 @@
 #if os(iOS)
 import CMUXMobileCore
+import CmuxAuthRuntime
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -11,6 +12,7 @@ import SwiftUI
 /// This detail holds its store directly and addresses one Mac and build tag.
 struct MacComputerDetailView: View {
     @Environment(MobileMacListAuthState.self) private var listAuthState: MobileMacListAuthState?
+    @Environment(AuthCoordinator.self) private var authManager: AuthCoordinator?
     @Bindable var store: CMUXMobileShellStore
     let macDeviceID: String
     let instanceTag: String?
@@ -108,7 +110,9 @@ struct MacComputerDetailView: View {
                listAuthEntry.isOutdated {
                 MacComputerCompatibilitySection(entry: listAuthEntry)
             }
-            connectionMethodSection
+            if demonstrationPolicy.offersConnectionMethodChoice {
+                connectionMethodSection
+            }
             appearanceSection
             connectionSection
             macPowerSection
@@ -1033,21 +1037,23 @@ struct MacComputerDetailView: View {
                     routeRow(route)
                 }
             }
-            Button {
-                presentTailscalePairing(
-                    routes.contains(where: { $0.kind == .tailscale })
-                        ? .tailscaleReplacement : .tailscaleSetup
-                )
-            } label: {
-                Label(
-                    L10n.string(
-                        "mobile.computers.routes.scanTailscale",
-                        defaultValue: "Scan Mobile Pairing Code"
-                    ),
-                    systemImage: "qrcode.viewfinder"
-                )
+            if demonstrationPolicy.allowsPairing {
+                Button {
+                    presentTailscalePairing(
+                        routes.contains(where: { $0.kind == .tailscale })
+                            ? .tailscaleReplacement : .tailscaleSetup
+                    )
+                } label: {
+                    Label(
+                        L10n.string(
+                            "mobile.computers.routes.scanTailscale",
+                            defaultValue: "Scan Mobile Pairing Code"
+                        ),
+                        systemImage: "qrcode.viewfinder"
+                    )
+                }
+                .accessibilityIdentifier("MobileComputerReplaceTailscaleConnectionButton")
             }
-            .accessibilityIdentifier("MobileComputerReplaceTailscaleConnectionButton")
         } header: {
             Text(L10n.string("mobile.computers.section.savedRoutes", defaultValue: "Routes"))
         }
@@ -1098,7 +1104,16 @@ struct MacComputerDetailView: View {
         }
     }
 
+    /// The App Review demonstration account has no Mac and no Tailscale: no
+    /// connection-method choice and no pairing sheet on any Computer.
+    private var demonstrationPolicy: MobileDemonstrationAccountPolicy {
+        MobileDemonstrationAccountPolicy(
+            isDemonstrationAccount: authManager?.currentUser?.demonstrationContentEnabled == true
+        )
+    }
+
     private func presentTailscalePairing(_ presentation: PairingPresentation) {
+        guard demonstrationPolicy.allows(presentation) else { return }
         tailscalePairingPresentation = presentation
         showsAddTailscaleConnection = true
     }
