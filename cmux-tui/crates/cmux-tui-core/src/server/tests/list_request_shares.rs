@@ -425,12 +425,48 @@ fn list_request_shares_at_826_workspaces() {
             || {},
             || measured(&mux, connection, &scheduler, &list),
         );
+        let mut not_aged = 0;
+        scenario(
+            &format!("list-workspaces, {who}, each cached git HEAD older than 2 s"),
+            || not_aged += usize::from(!mux.age_git_heads_for_measure()),
+            || measured(&mux, connection, &scheduler, &list),
+        );
+        eprintln!(
+            "LIST-SHARES [list-workspaces, {who}, each cached git HEAD older than 2 s]   requests \
+             whose cached values could not be made older: {not_aged}"
+        );
         scenario(
             &format!("list-workspaces, {who}, no git HEAD cached"),
             || mux.forget_git_heads_for_measure(),
             || measured(&mux, connection, &scheduler, &list),
         );
     }
+
+    // One copy of the whole state with the state lock held, and its drop with no lock.
+    let mut copies = Vec::with_capacity(REQUESTS);
+    let mut drops = Vec::with_capacity(REQUESTS);
+    for round in 0..WARM_UP + REQUESTS {
+        let start = Instant::now();
+        let copy = mux.with_state(|state| state.clone());
+        let copied = start.elapsed();
+        let start = Instant::now();
+        drop(copy);
+        let dropped = start.elapsed();
+        if round >= WARM_UP {
+            copies.push(copied);
+            drops.push(dropped);
+        }
+    }
+    eprintln!(
+        "LIST-SHARES [one copy of the state] {} copies after {WARM_UP} of warm-up: the copy \
+         (state lock held) median {:.3} ms, longest {:.3} ms; its drop (no lock) median {:.3} \
+         ms, longest {:.3} ms",
+        copies.len(),
+        ms(median(copies.clone())),
+        ms(longest(&copies)),
+        ms(median(drops.clone())),
+        ms(longest(&drops)),
+    );
     for (who, connection) in [("no client info", &plain), ("4 tab capabilities", &app)] {
         scenario(
             &format!("session.snapshot, {who}, cached rows"),

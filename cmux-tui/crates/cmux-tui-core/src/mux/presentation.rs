@@ -275,6 +275,22 @@ impl Mux {
         self.git_heads.lock().unwrap_or_else(PoisonError::into_inner).clear();
     }
 
+    /// MEASURE BRANCH ONLY: makes each cached git HEAD older than [`GIT_HEAD_TTL`]. Whether it
+    /// could (a host that started less than that time ago has no older instant).
+    #[cfg(test)]
+    pub(crate) fn age_git_heads_for_measure(&self) -> bool {
+        let age = GIT_HEAD_TTL.saturating_add(Duration::from_secs(1));
+        let mut cache = self.git_heads.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut aged = true;
+        for (checked, _) in cache.values_mut() {
+            match checked.checked_sub(age) {
+                Some(older) => *checked = older,
+                None => aged = false,
+            }
+        }
+        aged
+    }
+
     /// [`Self::tree_decorations`] holding only what the tab entities of
     /// `surfaces` read: their notification markers and directories, and the
     /// pending state, end and loss cause of the terminals they show. A tab
