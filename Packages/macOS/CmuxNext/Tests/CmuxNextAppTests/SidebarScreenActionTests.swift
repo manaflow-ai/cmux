@@ -8,14 +8,14 @@ import CmuxNextWakeups
 import Testing
 
 @MainActor @Suite(.serialized) struct SidebarScreenActionTests {
-    static func section(_ id: String, name: String, kind: SidebarMachine.Kind, device: String? = nil, online: Bool = true) -> SidebarSection {
+    static func section(_ id: String, name: String, kind: SidebarMachine.Kind, device: String? = nil, online: Bool = true) -> CmuxNextSidebar.SidebarSection {
         var machine = SidebarMachine(id: MachineID(id), name: name, kind: kind)
         machine.screenDeviceID = device
         machine.screenAvailable = online
-        return SidebarSection(kind: .machine(machine), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("ws-" + id), title: "A project with a long descriptive title", directory: "~/Projects"))])
+        return CmuxNextSidebar.SidebarSection(kind: .machine(machine), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("ws-" + id), title: "A project with a long descriptive title", directory: "~/Projects"))])
     }
 
-    static var examples: [SidebarSection] {
+    static var examples: [CmuxNextSidebar.SidebarSection] {
         [section("local", name: "This Mac", kind: SidebarMachine.Kind.local),
          section("mac", name: "A very long Mac Studio device name", kind: SidebarMachine.Kind.server, device: "device-mac"),
          section("cloud", name: "Cloud development environment with a long name", kind: SidebarMachine.Kind.cloud),

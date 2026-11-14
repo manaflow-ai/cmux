@@ -28,7 +28,7 @@ struct AAMacScreenSharingBarGalleryTests {
                 bar.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
                 bar.update(title: variant.title) {}
                 bar.show()
-                let root = try #require(bar.contentView)
+                let root = try #require(bar.contentView as? MacScreenThemedView)
                 root.appearance = bar.appearance
                 let theme = dark ? "Soft Blue" : "Soft Blue Light"
                 let input = try AANestedGroupsGalleryTests.input(theme)
