@@ -2527,6 +2527,9 @@ impl Hub {
             self.end_unadopted_host(session).await;
         }
         *session.turn.lock().unwrap() = None;
+        // A turn its agent ran on its own ends with the chat, whatever its agent's exit said or
+        // did not say (a direct agent, a host whose link was lost): no line spins in a closed chat.
+        self.end_background_turn(session, "exit");
         // Before the close's event, which sends the cards it owes (`tasks.rs`).
         self.orphan_tasks_of(session, purge);
         self.set_status(session, SessionStatus::Closed);
