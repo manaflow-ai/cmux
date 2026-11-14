@@ -255,12 +255,6 @@ pub struct State {
     line_errors: u64,
     turn_start_ms: u64,
     at_ms: u64,
-    /// A prompt sent now into the running turn (`queue_order` with `next`): the turn's end goes
-    /// on under it, unless a Stop came first (`stopping`) or the prompt left the queue.
-    interrupting: Option<u64>,
-    /// The prompt a turn's end went on under: its user row `continues` that turn.
-    awaiting: Option<u64>,
-    stopping: bool,
     /// A Claude turn's tokens so far, its calls counted once by message id.
     claude: ClaudeTurn,
     /// Kinds in none of the tables (`kinds.rs`), by name: 32 names, then `other`.
@@ -734,33 +728,8 @@ impl State {
         }
         Ok(row)
     }
-    /// A prompt sent now into the running turn, which its end goes on under; not after a Stop.
-    fn interrupt(&mut self, prompt: &str) {
-        let hash = prompt_hash(prompt);
-        if self.in_turn() && !self.stopping && self.queued(hash).is_some() {
-            self.interrupting = Some(hash);
-        }
-    }
-    /// A prompt that left the queue without running: a turn it stopped ends as it did.
-    fn withdrawn(&mut self, prompt: &str) {
-        let hash = prompt_hash(prompt);
-        if self.interrupting == Some(hash) {
-            self.interrupting = None;
-        }
-        if self.awaiting == Some(hash) {
-            self.awaiting = None;
-        }
-    }
     /// The turn-end notice settles, the group row takes its status, and the turn finishes.
     fn end_turn(&mut self, mut end: OwnedRow, status: &str, out: &mut input::Output<'_>) {
-        // A prompt sent now ended the turn, not a failure: the turn goes on under that prompt.
-        if let Some(prompt) = self.interrupting.take()
-            && status != "failed"
-        {
-            self.awaiting = Some(prompt);
-            end.fields.insert("continued".into(), "true".into());
-        }
-        self.stopping = false;
         end.open = false;
         out.row(&end);
         if !status.is_empty()
@@ -987,18 +956,6 @@ impl State {
         }
         let already_read = self.prompts.get(&hash).is_some_and(|p| p.read);
         let steer = steer || already_read;
-        // A prompt sent now that runs before its turn ended stopped nothing; one a turn's end went
-        // on under continues that turn. Another prompt opening a turn first means it never ran.
-        if !prompt_key.is_empty() && self.interrupting == Some(hash) {
-            self.interrupting = None;
-        }
-        let continues = !prompt_key.is_empty() && self.awaiting == Some(hash);
-        if continues || !steer {
-            self.awaiting = None;
-        }
-        if !steer {
-            self.stopping = false;
-        }
         self.queue_remove(prompt_key, out);
         if steer {
             if !already_read {
@@ -1015,9 +972,6 @@ impl State {
         }
         if notice {
             row.fields.insert("notice".into(), "true".into());
-        }
-        if continues {
-            row.fields.insert("continues".into(), "true".into());
         }
         if steer {
             if !already_read {

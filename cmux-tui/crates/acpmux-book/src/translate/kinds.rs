@@ -1,6 +1,7 @@
 //! Every v1 kind the hub writes, and what the chat draws of it: one line a kind (decision 231).
 //! A `Row` is drawn from its line alone; `Code` is drawn or read by code that keeps state
-//! (the line names where); `Not` is not drawn, with the reason. A kind in none of the tables is
+//! (the line names where); `Not` is not drawn, with the reason; `PageState` is not drawn because
+//! the page reads its whole state over a v1 attach (decision 234). A kind in none of the tables is
 //! counted (`Counters::unknown_kinds`). Both tables are sorted by name; a test holds that.
 use crate::row::RowKind;
 
@@ -39,6 +40,9 @@ pub(super) enum Draw {
     Row(Drawn),
     Code(&'static str),
     Not(&'static str),
+    /// Not drawn: page state. Every record of the kind carries its whole state, which the page
+    /// reads over a v1 attach that carries no rows (decision 234). Never also a row or a part.
+    PageState,
 }
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Kind {
@@ -60,6 +64,9 @@ const fn notice(name: &'static str, fields: &'static [Field]) -> Kind {
 }
 const fn code(name: &'static str, by: &'static str) -> Kind {
     Kind { name, draw: Draw::Code(by) }
+}
+const fn page(name: &'static str) -> Kind {
+    Kind { name, draw: Draw::PageState }
 }
 const fn not(name: &'static str, why: &'static str) -> Kind {
     Kind { name, draw: Draw::Not(why) }
@@ -83,7 +90,7 @@ const RECORD: &str = "PR 3: a record row";
 const LIVE: &str = "PR 4: the open group row's live state";
 const QUEUE: &str = "row 2d: the queue head's entry, not a row";
 const RESULT: &str = "turn_result, which follows it, ends the turn";
-const SUMMARY: &str = "read over the v1 connection (the summary or page state), not a row";
+const IMPORTED: &str = "marks where an imported history ends, read over the v1 connection";
 const UNREAD: &str = "the chat view reads nothing of it";
 
 pub(super) const MUX: &[Kind] = &[
@@ -110,7 +117,7 @@ pub(super) const MUX: &[Kind] = &[
     not("auto_resume_stopped", UNREAD),
     not("background_turn", RECORD),
     not("background_wait_ended", UNREAD),
-    not("bookmarks", SUMMARY),
+    page("bookmarks"),
     not("bridge_delivered", UNREAD),
     not("claim_checks", "a reply's claims, which the chat view does not draw"),
     not("coach", RECORD),
@@ -162,7 +169,7 @@ pub(super) const MUX: &[Kind] = &[
     code("message_superseded", "hides the superseded reply (State::supersede)"),
     not("mode", UNREAD),
     not("model", UNREAD),
-    not("native_history", SUMMARY),
+    not("native_history", IMPORTED),
     not("permission_auto", ASK),
     not("permission_chat_allowance", ASK),
     not("permission_decision", ASK),
@@ -194,7 +201,7 @@ pub(super) const MUX: &[Kind] = &[
     code("queue_resumed", "the queue: entries released (State::queue_set_held)"),
     not("queue_updated", QUEUE),
     code("queued", "the queue: an entry (State::queue_add)"),
-    not("race", SUMMARY),
+    page("race"),
     notice("recap", &[]),
     not("registered", UNREAD),
     not("remote_control_ended", UNREAD),
@@ -218,7 +225,7 @@ pub(super) const MUX: &[Kind] = &[
     not("session_offer", RECORD),
     not("session_offer_decision", RECORD),
     not("start_default_skipped", UNREAD),
-    not("status", SUMMARY),
+    page("status"),
     not("stderr", UNREAD),
     code("steer_read", "a steer read: its user row settles (State::steer_read)"),
     not("steer_returned", UNREAD),
@@ -231,7 +238,7 @@ pub(super) const MUX: &[Kind] = &[
     not("subagent_retry", LIVE),
     not("subagents_running", UNREAD),
     not("subagents_working", UNREAD),
-    not("subsession", RECORD),
+    page("subsession"),
     not("subsessions_waiting", UNREAD),
     not("tags", UNREAD),
     not("team_message_consumed", UNREAD),
@@ -276,19 +283,19 @@ pub(super) const MUX: &[Kind] = &[
 pub(super) const UPDATES: &[Kind] = &[
     code("agent_message_chunk", "a text row (State::text)"),
     code("agent_thought_chunk", "a thinking row (State::text)"),
-    not("available_commands_update", SUMMARY),
+    page("available_commands_update"),
     not("background_task_update", RECORD),
     code("compaction", "a compaction notice, open while it runs"),
-    not("config_option_update", SUMMARY),
-    not("current_mode_update", SUMMARY),
+    page("config_option_update"),
+    page("current_mode_update"),
     code("plan", "the turn's plan row (State::plan)"),
     not("prompt_suggestion", LIVE),
-    not("session_info_update", SUMMARY),
+    page("session_info_update"),
     code("subagent_progress", "a sub row (State::sub)"),
     not("subagent_state_update", LIVE),
     code("tool_call", "a tool row (State::tool)"),
     code("tool_call_update", "a tool row (State::tool)"),
-    not("usage_update", LIVE),
+    page("usage_update"),
     not("user_message_chunk", "the prompt is the mux user_message's row"),
 ];
 
@@ -297,6 +304,14 @@ pub(super) const UPDATES: &[Kind] = &[
 pub(super) const PROTOCOL: &str =
     "protocol traffic: what the chat draws of it comes as mux records and updates";
 
+/// The kinds whose disposition is page state, for the parity test to hold against the page's list.
+#[cfg_attr(not(test), allow(dead_code, reason = "read by the parity test and this crate's tests"))]
+pub(super) fn page_state() -> impl Iterator<Item = &'static str> {
+    MUX.iter()
+        .chain(UPDATES)
+        .filter(|kind| matches!(kind.draw, Draw::PageState))
+        .map(|kind| kind.name)
+}
 pub(super) fn find(table: &'static [Kind], name: &str) -> Option<&'static Kind> {
     table.binary_search_by(|kind| kind.name.cmp(name)).ok().and_then(|at| table.get(at))
 }

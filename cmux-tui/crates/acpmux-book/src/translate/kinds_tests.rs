@@ -59,10 +59,28 @@ fn the_tables_are_sorted_with_one_line_a_kind() {
             match kind.draw {
                 Draw::Row(drawn) => assert!(drawn.patch.is_none() || !drawn.notice.is_empty()),
                 Draw::Code(why) | Draw::Not(why) => assert!(!why.is_empty(), "{}", kind.name),
+                Draw::PageState => {}
             }
         }
     }
     assert!(!kinds::PROTOCOL.is_empty());
+    // Decision 234: the kinds whose every record carries its whole state, which the page reads.
+    let mut page: Vec<_> = kinds::page_state().collect();
+    page.sort_unstable();
+    assert_eq!(
+        page,
+        [
+            "available_commands_update",
+            "bookmarks",
+            "config_option_update",
+            "current_mode_update",
+            "race",
+            "session_info_update",
+            "status",
+            "subsession",
+            "usage_update",
+        ]
+    );
 }
 
 #[test]
@@ -189,62 +207,6 @@ fn a_long_error_is_cut_and_counted() {
     let error: String = serde_json::from_str(&turn_end(&ops)["error"]).unwrap();
     assert_eq!(error.len(), 4096);
     assert!(state.counters().cut_fields > 0);
-}
-
-#[test]
-fn a_prompt_sent_now_continues_the_turn_it_ended() {
-    let queue_next = |seq| {
-        vec![
-            mux(seq, "queued", r#"{"promptId":"next","text":"now"}"#),
-            mux(seq + 1, "queue_order", r#"{"promptId":"next","next":true,"order":["next"]}"#),
-        ]
-    };
-    let continued = |ops: &[Op]| turn_end(ops).get("continued").cloned();
-    let continues = |ops: &[Op]| {
-        ops.iter().any(|op| {
-            matches!(&op.change, Change::Row(row)
-                if row.kind == RowKind::User && row.fields.get("continues").is_some_and(|v| v == "true"))
-        })
-    };
-
-    // Sent now into the running turn: the turn's end goes on under it.
-    let mut state = State::default();
-    let mut lines = vec![prompt(1, "p")];
-    lines.extend(queue_next(2));
-    lines.push(mux(4, "turn_result", r#"{"turnId":"p","status":"cancelled"}"#));
-    let ended = run(&mut state, Harness::V1, &lines);
-    assert_eq!(continued(&ended).as_deref(), Some("true"));
-    let ran = run(&mut state, Harness::V1, &[prompt(5, "next")]);
-    assert!(continues(&ran));
-
-    // After a Stop, the turn's end is the Stop's.
-    let mut state = State::default();
-    let mut lines = vec![prompt(1, "p"), mux(2, "stopping", r#"{"turnId":"p"}"#)];
-    lines.extend(queue_next(3));
-    lines.push(mux(5, "turn_result", r#"{"turnId":"p","status":"cancelled"}"#));
-    lines.push(prompt(6, "next"));
-    let ops = run(&mut state, Harness::V1, &lines);
-    assert_eq!(continued(&ops), None);
-    assert!(!continues(&ops));
-
-    // A failure shows; a prompt that left the queue stopped nothing.
-    for (end, between) in [
-        (r#"{"turnId":"p","status":"failed"}"#, None),
-        (
-            r#"{"turnId":"p","status":"cancelled"}"#,
-            Some(mux(4, "queue_removed", r#"{"promptId":"next"}"#)),
-        ),
-    ] {
-        let mut state = State::default();
-        let mut lines = vec![prompt(1, "p")];
-        lines.extend(queue_next(2));
-        lines.extend(between);
-        lines.push(mux(5, "turn_result", end));
-        lines.push(prompt(6, "next"));
-        let ops = run(&mut state, Harness::V1, &lines);
-        assert_eq!(continued(&ops), None);
-        assert!(!continues(&ops));
-    }
 }
 
 #[test]

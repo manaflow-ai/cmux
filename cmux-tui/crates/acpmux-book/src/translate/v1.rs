@@ -171,7 +171,6 @@ fn mux(
     let Line { place, span, .. } = line;
     match kind {
         "retracted" | "removed" => {
-            state.withdrawn(&msg.prompt_id);
             state.queue_remove(&msg.prompt_id, out);
             state.settle_prompt(super::prompt_hash(&msg.prompt_id), true, out);
         }
@@ -183,7 +182,6 @@ fn mux(
         }
         "queue_order" => {
             if msg.next {
-                state.interrupt(&msg.prompt_id);
                 state.queue_release(&msg.prompt_id, out);
             }
             state.queue_order(msg.order, out);
@@ -196,11 +194,7 @@ fn mux(
                 state.queue_set_all_held(false, out);
             }
         }
-        "dequeued" => state.queue_remove(&msg.prompt_id, out),
-        "queue_removed" | "queue_declined" => {
-            state.withdrawn(&msg.prompt_id);
-            state.queue_remove(&msg.prompt_id, out);
-        }
+        "dequeued" | "queue_removed" | "queue_declined" => state.queue_remove(&msg.prompt_id, out),
         "steer_read" => state.steer_read(&msg.prompt_id, out)?,
         "user_message" => {
             let notice = matches!(
@@ -245,11 +239,8 @@ fn mux(
                 let mut row = state.drawn(&spec, line.raw, out)?;
                 row.open = false;
                 out.row(&row);
-                match kind {
-                    "stopped" | "exited" => state.end_session(out),
-                    // A Stop the hub took: the turn's end is the Stop's, not a prompt sent now's.
-                    "stopping" => state.stopping = state.in_turn(),
-                    _ => {}
+                if matches!(kind, "stopped" | "exited") {
+                    state.end_session(out);
                 }
             }
             Some(_) => {}
