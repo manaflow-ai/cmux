@@ -1439,10 +1439,10 @@ impl RawSource for Parked {
 }
 
 /// A resume the actor's full mailbox refuses ends the subscription as `dropped`, so the client
-/// resumes instead of waiting. The actor still holds the old entry for the sid; the next `sub`
-/// on it replaces that entry, so each live op reaches the client once.
+/// resumes instead of waiting, and a `sub` on the same sid gets its window. The actor still
+/// holds the old entry for the sid until then (the test below reads its replacement).
 #[test]
-fn a_resume_a_full_mailbox_refuses_ends_as_dropped_and_the_next_sub_replaces_the_entry() {
+fn a_resume_a_full_mailbox_refuses_ends_as_dropped_and_the_sid_subscribes_again() {
     runtime().block_on(async {
         let hold = Arc::new(AtomicBool::new(false));
         let parked = Arc::new(AtomicBool::new(false));
@@ -1491,26 +1491,36 @@ fn a_resume_a_full_mailbox_refuses_ends_as_dropped_and_the_next_sub_replaces_the
         }
         client.sub("s", json!({})).await;
         client.window("s").await;
-        chat.append(&turn(2, "once-a"));
-        chat.append(&turn(3, "once-b"));
-        // Every delta on `s` until the last turn's reply: none twice, as a second entry for the
-        // sid would send each.
-        let mut seen = std::collections::HashSet::new();
-        loop {
-            let frame = client.recv().await;
-            if frame.kind != FrameKind::Delta {
-                continue;
-            }
-            let delta: ChatDelta = frame.decode_json().unwrap();
-            assert_eq!(delta.sid, "s");
-            let payload = frame.payload().to_vec();
-            let text = String::from_utf8_lossy(&payload).into_owned();
-            assert!(seen.insert(payload), "a delta reached the client twice: {text}");
-            if text.contains("once-b") {
-                break;
-            }
-        }
     });
+}
+
+/// The entry a refused resume left for a sid is replaced by the next `sub` on it from the same
+/// connection: one entry, the new sink's, which gets the window and the live ops; the old sink
+/// gets nothing more. Read at the actor: a client on the socket does not see a kept entry.
+#[test]
+fn the_next_sub_on_a_sid_replaces_the_actors_entry_for_it() {
+    let chat = Chat::new(&turn(1, "hello"));
+    let mut state = ready_state(&chat);
+    let (old, new) = (Arc::new(Recorder::default()), Arc::new(Recorder::default()));
+    let kept = subscriber(&state, "s", old.clone(), Phase::Live);
+    state.subs.list.push(kept);
+    let sub = ChatSub {
+        sid: "s".to_owned(),
+        conn: 1,
+        cursor: None,
+        edition: None,
+        anchor: None,
+        window: 0,
+        person: person_id(None),
+    };
+    subscribe(&mut state, sub, Ticket::new("s".to_owned(), new.clone()));
+    assert_eq!(state.subs.list.len(), 1, "the old entry is kept beside the new one");
+    let seq = state.log.last_seq();
+    offer_live(&mut state, br#"{"op":"text","seq":1,"rowId":1,"text":"x"}"#, seq);
+    let took = |kind| ("s".to_owned(), kind);
+    assert_eq!(*new.offers.lock().unwrap(), [took(FrameKind::Window), took(FrameKind::Delta)]);
+    assert!(old.offers.lock().unwrap().is_empty(), "the replaced entry was offered a frame");
+    assert!(old.dropped.lock().unwrap().is_empty() && new.dropped.lock().unwrap().is_empty());
 }
 
 /// Row 3c's release gates, beside the tests whose chats and clients they use.
