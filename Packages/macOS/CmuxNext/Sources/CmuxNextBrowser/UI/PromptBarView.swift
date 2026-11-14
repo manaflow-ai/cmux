@@ -77,7 +77,7 @@ final class PromptBarView: NSView {
             alwaysCheck.font = BrowserMetrics.bodyFont
             messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth - padding * 2
             for field in [inputField, userField, passwordField] as [NSTextField] {
-                field.layer?.cornerRadius = BrowserMetrics.controlCornerRadius
+                field.layer?.cornerRadius = Metrics.buttonCornerRadius
             }
             buttons.spacing = BrowserMetrics.itemSpacing
             stack.spacing = padding

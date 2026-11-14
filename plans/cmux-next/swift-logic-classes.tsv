@@ -6684,7 +6684,7 @@ CmuxNextDesign	protocol	PaneTabRowSharing	0	PLATFORM	0	0	Packages/macOS/CmuxNext
 CmuxNextDesign	struct	PaneTabRowMenuItem	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneTabRowTool.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	PaneTabRowTool	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneTabRowTool.swift	from struct PaneTabRowMenuItem:4: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	PaneTintView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneTintView.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	class	KeyWindowObserver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PointerHover.swift	from class PointerHover:19: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
+CmuxNextDesign	class	KeyWindowObserver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/KeyWindowObserver.swift	from class PointerHover:19: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	PointerHover	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PointerHover.swift	from class PointerHover:19: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	TargetIndex	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PointerHover.swift	from class PointerHover:19: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	CmuxPopoverAnchor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PopoverAnchor.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
@@ -6761,9 +6761,6 @@ CmuxNextDesign	extension	CALayer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/
 CmuxNextDesign	struct	SystemScrollers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SystemScrollers.swift	from struct SystemScrollers:17: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	Metrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TabCornerRadius.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	ChromeLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	extension	ChromeLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	extension	NSTextField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	from class ChromeLabel:23: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	protocol	ShownText	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	from class ChromeLabel:23: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	LabelDefaults	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	enum	GlyphMask	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/GlyphMask.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	LabelParityProbe	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/LabelParityProbe.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
@@ -6771,6 +6768,9 @@ CmuxNextDesign	class	LabelSelectionView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/S
 CmuxNextDesign	enum	LabelText	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/LabelText.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	MarqueeLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/MarqueeLabel.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	NSTextView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/NSTextView+UndoableReplace.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
+CmuxNextDesign	extension	ChromeLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ShownText.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
+CmuxNextDesign	extension	NSTextField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ShownText.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
+CmuxNextDesign	protocol	ShownText	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ShownText.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	TextWeightProbe	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/TextWeightProbe.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	TextWeightProbe	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/TextWeightProbe.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	TitleFade	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/TitleFade.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
@@ -7886,10 +7886,10 @@ CmuxNextHome	class	HomeDropHighlightView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/
 CmuxNextHome	class	HomeDropState	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeDropHighlightView.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeFirstRunHero	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunHero.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeFirstRunIntro	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunIntro.swift	AppKit/SwiftUI view or platform code
+CmuxNextHome	class	HomeFirstRunRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunRow.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeFirstRunSwitchCard	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunSwitchCard.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	HomeFirstRunView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView+Debug.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	struct	HomeDebugAgentRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView+Debug.swift	from extension HomeFirstRunView:5: AppKit/SwiftUI view or platform code
-CmuxNextHome	class	HomeFirstRunRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView.swift	from enum HomeFirstRunAction:6: AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeFirstRunView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView.swift	from enum HomeFirstRunAction:6: AppKit/SwiftUI view or platform code
 CmuxNextHome	enum	HomeFirstRunAction	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	VideoJob	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFixtureMedia.swift	from enum HomeFixtureMedia:11: AppKit/SwiftUI view or platform code
@@ -7925,6 +7925,7 @@ CmuxNextHome	struct	HomeStarterStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextHome	enum	HomeStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeStrings.swift	AppKit/SwiftUI view or platform code
 CmuxNextHomeModel	struct	HomeSwitchKeys	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/NativeTranscript/HomeSwitchKeys.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	enum	HomeThemePalette	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeThemePalette.swift	AppKit/SwiftUI view or platform code
+CmuxNextHome	class	HomeUnavailableLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeUnavailableLabel.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeVoiceDictation	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeVoiceDictation.swift	from class HomeVoiceDictation:28: AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	DictationSession	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeVoiceDictation.swift	from protocol HomeDictationEngine:12: AppKit/SwiftUI view or platform code
 CmuxNextHome	protocol	HomeDictationEngine	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeVoiceDictation.swift	from protocol HomeDictationEngine:12: AppKit/SwiftUI view or platform code
@@ -10723,8 +10724,6 @@ CmuxNextSidebar	extension	SidebarListViewComponents	0	PLATFORM	0	0	Packages/macO
 CmuxNextSidebar	extension	SidebarListViewComponents	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+PinnedHoverCard.swift	AppKit/SwiftUI view, drawing, gesture or animation code
 CmuxNextSidebar	extension	SidebarListViewComponents	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+PointerEnd.swift	AppKit/SwiftUI view, drawing, gesture or animation code
 CmuxNextSidebar	extension	SidebarListViewComponents	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+Reuse.swift	AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextSidebar	extension	SidebarListViewComponents	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+RowHold.swift	from struct SidebarRowHold:8: holds row content patches while a drag runs, applies after
-CmuxNextSidebar	struct	SidebarRowHold	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+RowHold.swift	holds row content patches while a drag runs, applies after
 CmuxNextSidebar	extension	SidebarListViewComponents	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+SelectionOrder.swift	from extension SidebarRegionView.Content:6: shift-click range order across pinned tiles and list rows
 CmuxNextSidebar	extension	SidebarRegionView.Content	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+SelectionOrder.swift	shift-click range order across pinned tiles and list rows
 CmuxNextSidebar	extension	SidebarListViewComponents	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+SelectionPatch.swift	AppKit/SwiftUI view, drawing, gesture or animation code

@@ -104,6 +104,11 @@ direct push, and cmux-app-ffi's lock failed --locked on every pull request until
 own lock error. CI's rust workspaces plan job runs the same check, and the base autofix rewrites a stale lock on
 feat-cmux-next (base-autofix.sh --locks).
 
+Also on every local run, the same way: "Cargo.lock adds no new crate versions" (cargo-lock-new-versions.py): when the
+push changes a Cargo.lock, every downloaded (crate, version) in each changed lock must be in some Cargo.lock at the
+base, unless a pushed commit has a `Cargo-Lock-New-Versions: <why>` line (#42155 said it added no versions and added
+seven). Git objects only, no cargo.
+
 Also on every local run, the same way: "Port drift" (ffi_caller_ratchet.py): every function a cmux-tui crate exports
 in cmux-tui/crates/*/include/*.h has a caller in Packages/**/*.swift outside test targets, or is listed in
 scripts/cmux-next/ffi-caller-baseline.txt, which only shrinks. A push that adds an uncalled export, removes its last
@@ -226,9 +231,9 @@ DEPS_CHECKER = "scripts/cmux-next/check-package-dependency-lists.py"
 # package, {s} its scripts/cmux-next. Mirrors the job's steps; tests/test_cmux_next_prepush_gate.py
 # keeps this list in step with the workflow.
 # The exit codes each scanner's verdicts use (audited 2026-11-11): 0 for none and 1 for findings, all of them. Exit 2
-# is a refusal to judge in check-crash-safety.sh (not a git checkout), check-state-roots.sh, check-no-process-scan.py
-# and check-no-raw-spawn.py (a bad baseline row); any other code, or a signal, is no verdict either. A scanner whose
-# verdicts use other codes names them here.
+# is a refusal to judge in check-crash-safety.sh (not a git checkout), check-state-roots.sh, check-no-process-scan.py,
+# check-no-raw-spawn.py and check-no-raw-flock.py (a bad baseline row); any other code, or a signal, is no verdict
+# either. A scanner whose verdicts use other codes names them here.
 SCANNER_VERDICT_CODES: dict[str, tuple[int, ...]] = {}
 DEFAULT_VERDICT_CODES = (0, 1)
 
@@ -247,6 +252,8 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-surface-materials.py", "{root}"],
      (PKG + "/", "webviews/src/", "schemas/surface-materials/", "scripts/cmux-next/check-surface-materials.py")),
     ("Scrollbars thin, one style", ["/bin/bash", "{s}/check-scrollbars.sh", "{root}"], (PKG + "/", "webviews/")),
+    # Lawrence 2026-11-12: "roundness of all buttons should match roundness of tabs/workspaces".
+    ("Buttons round as tabs", ["python3", "-I", "{s}/check-button-radius.py", "{root}"], (PKG + "/", "webviews/src/")),
     ("No literal state roots (per-build isolation S7, cx-is1kf.8)", ["/bin/bash", "{s}/check-state-roots.sh", "{root}"], SCOPES),
     ("No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)",
      ["python3", "-I", "{s}/check-no-process-scan.py", "{root}"], SCOPES),
@@ -254,6 +261,8 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-no-raw-spawn.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-spawn-baseline.tsv")),
     ("Every spawn has an owner (cmux_scope::Scope, cmux_process::Child; cmuxterm-hq#9096)",
      ["python3", "-I", "{s}/check-spawn-owner.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/spawn-owner-baseline.tsv")),
+    ("No raw file locks (cmux_file_lock::FileLock, lane c-agenthost lock audit)",
+     ["python3", "-I", "{s}/check-no-raw-flock.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-flock-baseline.tsv")),
     ("No app id special cases (zero first-party privilege, docs/app-store-platonic-ideal.md 5)",
      ["python3", "-I", "{s}/check-app-id-special-cases.py", "{root}"],
      (PKG + "/", "cmux-tui/", "first-party-apps/", "scripts/cmux-next/app-id-special-cases-baseline.tsv")),
@@ -333,6 +342,14 @@ CARGO_LOCKS_SCRIPT = SCRIPTS + "/cargo-locks.py"
 # resolves by then and reports what it could not judge, so this limit is never what ends it (cmux#41742 review F2).
 CARGO_LOCKS_TIMEOUT = 300
 CARGO_LOCKS_DEADLINE = CARGO_LOCKS_TIMEOUT - 45
+# A changed Cargo.lock adds no (crate, version) that no base Cargo.lock has, unless a pushed commit says so
+# (2026-11-12: #42155 called itself a lock alignment that added no versions and added seven).
+NEW_VERSIONS_CHECK = "Cargo.lock adds no new crate versions (scripts/cmux-next/cargo-lock-new-versions.py)"
+NEW_VERSIONS_SCRIPT = SCRIPTS + "/cargo-lock-new-versions.py"
+NEW_VERSIONS_HINT = ("A changed Cargo.lock uses a crate version that no Cargo.lock on the base has. If the change means "
+                     "to add it, say so: add a line `Cargo-Lock-New-Versions: <why>` to a pushed commit's message "
+                     "(and the PR body). Otherwise pin it to a version a base lock already has "
+                     "(`cargo update -p NAME --precise VERSION`).")
 CARGO_HINT = ("Fix the locks: run `scripts/cmux-next/cargo-locks.py fix` (it runs `cargo update --workspace` in each "
               "stale workspace, which rewrites only what the manifests now need), commit the Cargo.lock files, then "
               "push. A manifest change in one workspace can leave another workspace's lock stale (eb4f3eb1d94).")
@@ -396,6 +413,7 @@ RATCHET_BASELINES = {
     "process-scan-baseline.tsv": ((0,), 1),
     "state-roots-baseline.tsv": ((0,), 1),
     "raw-spawn-baseline.tsv": ((0,), 1),
+    "raw-flock-baseline.tsv": ((0,), 1),
     "spawn-owner-baseline.tsv": ((0,), 1),
     "app-id-special-cases-baseline.tsv": ((0,), 1),
     "swift-type-scale-baseline.tsv": ((0, 1), 2),
@@ -1893,6 +1911,30 @@ def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | N
     return stale
 
 
+def new_crate_versions(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """`<lock>: <crate> <version>` of each downloaded crate version a Cargo.lock changed in base..head has and no
+    Cargo.lock at base has (NEW_VERSIONS_CHECK), unless a commit in base..head has a `Cargo-Lock-New-Versions: <why>`
+    line. It reads git objects only (no cargo, no network), and runs only when the range changes a Cargo.lock."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode("utf-8", "surrogateescape")
+    if not any(p == "Cargo.lock" or p.endswith("/Cargo.lock") for p in names.split("\0") if p):
+        return []
+    script = check_script(repo, head, NEW_VERSIONS_SCRIPT, trusted_scripts, base)
+    if script is None:
+        return []  # a commit older than this check
+    with tempfile.TemporaryDirectory(prefix="cmux-new-versions-") as tmp:
+        check = absolute(Path(tmp)) / "cargo-lock-new-versions.py"
+        check.write_bytes(script)
+        code, out = run(["python3", "-I", str(check), "--repo", str(repo.resolve()), "--base", base, "--head", head],
+                        absolute(Path(tmp)), timeout=120)
+    found = [line.removeprefix("new: ") for line in out.splitlines() if line.startswith("new: ")]
+    stopped = no_verdict(code, out, (0, 1)) or ("exited 1 but named no crate version" if code == 1 and not found
+                                                else None)
+    if stopped:
+        return [NoVerdict(f"{NEW_VERSIONS_SCRIPT} {stopped} instead of judging the locks, so the push is refused: "
+                          f"{out_tail(out.splitlines())}")]
+    return found
+
+
 def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
     """`file:line` of each conflict marker the push adds, in any file of the repository.
 
@@ -2608,6 +2650,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         drift = cargo_lock_drift(repo, base, head, trusted_scripts)
         if drift:
             reserved.append((CARGO_LOCK_CHECK, drift))
+    # Local only (CLAUDE.md: no new CI gates): git objects only, seconds, and only when a Cargo.lock changes.
+    if highlights_layer if only is None else "new-crate-versions" in only:
+        added = new_crate_versions(repo, base, head, trusted_scripts)
+        if added:
+            reserved.append((NEW_VERSIONS_CHECK, added))
     # Local only, like SwiftFormat (CLAUDE.md: no new CI gates).
     if highlights_layer if only is None else "redefinitions" in only:
         redefined = test_redefinition_problems(repo, base, head, trusted_scripts, restrict)
@@ -3399,7 +3446,7 @@ def _main(argv: list[str] | None = None) -> int:
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
-                                       "single-host-fallbacks,redefinitions,port-drift")
+                                       "single-host-fallbacks,redefinitions,port-drift,new-crate-versions")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child
@@ -3566,6 +3613,8 @@ def _main(argv: list[str] | None = None) -> int:
             print(PICTURES_BEFORE_HINT)
     if any(name == CARGO_LOCK_CHECK for name, _ in found_any):
         print(CARGO_HINT)
+    if any(name == NEW_VERSIONS_CHECK for name, _ in found_any):
+        print(NEW_VERSIONS_HINT)
     if any(name == FALLBACKS_CHECK for name, _ in found_any):
         print(FALLBACKS_HINT)
     if any(name == CRASH_RATCHET_CHECK for name, _ in found_any):

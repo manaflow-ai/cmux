@@ -1359,7 +1359,8 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
             # preflight falls back to the run-list election (fake curl answers it).
             env.pop("ACTIONS_ID_TOKEN_REQUEST_URL", None)
             env.pop("ACTIONS_ID_TOKEN_REQUEST_TOKEN", None)
-            result = run_step(script, env, timeout=5)
+            # A hang guard, not a speed bound: two tree keys take more than 5 s on a loaded Mac mini.
+            result = run_step(script, env, timeout=60)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             return dict(line.split("=", 1) for line in output.read_text().splitlines())
 
@@ -2772,6 +2773,39 @@ class PortablePlacementBootstrapAdmission(unittest.TestCase):
                                "vars.LINUX_RUNNER": fleet,
                                "vars.CI_CLOUD_OVERFLOW_SAVED": overflow}
                     self.assertEqual(evaluate(bootstrap, context), expected)
+
+
+class ChecksTimeoutFitsItsRunner(unittest.TestCase):
+    """A checks job placed on a mini gets a verdict, not a timeout's cancel (docs note-349).
+
+    #42624, a data-only devbox image promotion, was placed on a mini on all three of its heads; each run
+    hit the 15-minute timeout sized for Blacksmith (jobs 131984422217, 132002973791, 132013731059: the
+    runner hook's admission wait and the slower checks), ended cancelled, and merge_hold had no verdict.
+    """
+
+    def context(self, **extra) -> dict:
+        return {"github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
+                "github.event_name": "pull_request", "github.run_attempt": 1,
+                "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+                "needs.portable-placement.outputs.placed_attempt": "1", **extra}
+
+    def test_a_mini_placed_checks_job_outlasts_the_hook_wait_and_the_slow_checks(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][JOB]
+        mini = self.context(**{"needs.portable-placement.outputs.mini_jobs": " path_route checks ",
+                               "needs.portable-placement.outputs.mini_runner": "glaeda-side-std-xcode-26.6"})
+        self.assertEqual(evaluate(one_runs_on(job), mini), "glaeda-side-std-xcode-26.6")
+        # Observed on a mini: 8 min 5 s of admission wait (job 132013731059) plus about 16 min of checks.
+        self.assertGreaterEqual(evaluate(str(job["timeout-minutes"]), mini), 30)
+        for why, context in (
+                ("Blacksmith", self.context()),
+                ("fleet Linux", self.context(**{"needs.portable-placement.outputs.linux_jobs": " checks ",
+                                                "needs.portable-placement.outputs.linux_runner": "glaeda-linux"})),
+                ("an earlier attempt's mini", {**mini, "github.run_attempt": 2}),
+                ("a listed job with no mini label", {**mini, "needs.portable-placement.outputs.mini_runner": ""}),
+                ("a fork repository", {**mini, "github.repository_owner": "someone"})):
+            with self.subTest(why=why):
+                self.assertNotEqual(evaluate(one_runs_on(job), context), "glaeda-side-std-xcode-26.6")
+                self.assertEqual(evaluate(str(job["timeout-minutes"]), context), 15)
 
 
 class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
@@ -4227,6 +4261,87 @@ esac
                                            "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary")}))
                 self.assertEqual(done.returncode, code, done.stdout + done.stderr)
                 self.assertEqual("::error::no verdict: " in done.stdout, code == 3, done.stdout)
+
+
+class ChecksBringNodeAndTimeoutToAMini(unittest.TestCase):
+    """A mini has no node and no GNU timeout (macOS ships neither, and no Homebrew coreutils is there). On
+    2026-11-13 every mini-placed checks job seen went red on both, `node: command not found` (exit 127) and
+    `timeout: command not found`: cmux10s (jobs 132126781527, 132041381666), cmux11s (132093783125,
+    132002973791), cmux13s (130627140300), cmuxs-mac-mini-6 (130624833630) and cmux14 (131984422217). The
+    prepare step brings both wherever the job lands, and its preflight names a tool still missing."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.bin = self.tmp / "host-bin"  # a host's PATH: every system tool but timeout, gtimeout, node, python3
+        self.bin.mkdir()
+        for folder in ("/usr/bin", "/bin"):
+            for tool in sorted(Path(folder).iterdir()) if Path(folder).is_dir() else ():
+                if tool.name in {"timeout", "gtimeout", "node", "nodejs"} or tool.name.startswith("python"):
+                    continue
+                if not (self.bin / tool.name).exists() and os.access(tool, os.X_OK):
+                    (self.bin / tool.name).symlink_to(tool)
+        # The host's python3 makes a venv whose python runs this interpreter (PyYAML in), pip a no-op: no network.
+        wrapper = f'#!/bin/sh\n[ "$1 $2" = "-m pip" ] && exit 0\nexec {shlex.quote(sys.executable)} "$@"\n'
+        (self.bin / "python3").write_text(
+            "#!/bin/sh\nif [ \"$1 $2\" = \"-m venv\" ]; then mkdir -p \"$3/bin\"\n"
+            f"  for p in python python3; do printf '%s' {shlex.quote(wrapper)} > \"$3/bin/$p\"; chmod +x \"$3/bin/$p\"; done\n"
+            f"  exit 0\nfi\nexec {shlex.quote(sys.executable)} \"$@\"\n")
+        (self.bin / "python3").chmod(0o755)
+        self.temp = self.tmp / "runner-temp"
+        self.temp.mkdir()
+        self.github_path = self.tmp / "github_path"
+        self.github_path.write_text("")
+
+    def prepare(self) -> subprocess.CompletedProcess[str]:
+        run = next(s for s in steps() if s.get("name") == "Prepare check Python (PyYAML) and timeout")["run"]
+        env = git_fixture_env.fixture_env({"PATH": str(self.bin), "HOME": str(self.tmp), "RUNNER_TEMP": str(self.temp),
+               "RUNNER_NAME": "cmux10s-mac-mini-glaeda-3", "GITHUB_PATH": str(self.github_path),
+               "GITHUB_WORKSPACE": str(ROOT), "RUNNER_TOOL_CACHE": str(self.tmp / "toolcache"),
+               "ENSURE_NODE_DIST": (self.tmp / "no-dist").as_uri()})  # no download: node stays missing
+        return subprocess.run(["bash", "-e", "-c", run], cwd=ROOT, env=env, capture_output=True, text=True,
+                              timeout=120)
+
+    def test_a_host_without_gnu_timeout_gets_one_that_ends_a_command_at_its_deadline(self):
+        if not shutil.which("perl"):
+            self.skipTest("needs perl, the watchdog behind scripts/ci/timeout.sh")
+        node = self.bin / "node"
+        node.write_text("#!/bin/sh\necho v24.22.1\n")
+        node.chmod(0o755)
+        result = self.prepare()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        venv_bin = self.temp / "checks-venv" / "bin"
+        self.assertIn(str(venv_bin), self.github_path.read_text().splitlines())
+        # As tests/test_guard_hooks_from_base.py runs it: as `gtimeout`, under a PATH of a few symlinks.
+        few = self.tmp / "few"
+        few.mkdir()
+        for tool in ("bash", "sleep"):
+            (few / tool).symlink_to(shutil.which(tool, path=str(self.bin)))
+        (few / "gtimeout").symlink_to(venv_bin / "timeout")
+        few_env = git_fixture_env.fixture_env({"PATH": str(few)})
+        # 124 is the deadline's own status: a `sleep 20` that ran out its time would exit 0.
+        ended = subprocess.run(["gtimeout", "1", "sleep", "20"], env=few_env, capture_output=True,
+                               text=True, timeout=30)
+        self.assertEqual(ended.returncode, 124, ended.stderr)
+        ran = subprocess.run(["gtimeout", "5", "bash", "-c", "exit 3"], env=few_env, timeout=30)
+        self.assertEqual(ran.returncode, 3)
+
+    def test_the_preflight_names_a_missing_node_and_stops_the_job_there(self):
+        result = self.prepare()
+        self.assertNotEqual(result.returncode, 0, "a host without node passed the prepare step")
+        self.assertIn("::error title=checks preflight::cmux10s-mac-mini-glaeda-3 lacks node", result.stdout)
+        if shutil.which("perl"):
+            self.assertNotIn("timeout (", result.stdout)
+
+    def test_the_preflight_names_a_missing_timeout(self):
+        for tool in ("perl",):
+            (self.bin / tool).unlink(missing_ok=True)
+        node = self.bin / "node"
+        node.write_text("#!/bin/sh\necho v24.22.1\n")
+        node.chmod(0o755)
+        result = self.prepare()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("lacks timeout (no GNU timeout, gtimeout or perl)", result.stdout)
 
 
 if __name__ == "__main__":

@@ -12,8 +12,8 @@
 // between them.
 //
 // The page is send-stream-motion's (browser/send-stream-motion.harness.tsx, `heldFold`) on the frames'
-// own clock. No experiment arm is pinned: this is the look the app ships (live-turn-work `runs`,
-// where each finished run of a running turn is a closed line that a click opens).
+// own clock, on the blocks follow arm (below), with live-turn-work `runs` as the app ships it (each
+// finished run of a running turn is a closed line that a click opens).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import type { HeldFold, RowSample, Sample } from "./browser/send-stream-motion.harness";
@@ -71,10 +71,17 @@ await requireBrowserLane("held-live-line-fold-browser.test.ts", async () => {
 
   test("a run opened over a held live line leaves the line where it is held, with no blank band over it", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
-    // No arm in the query: the page draws the default look.
-    const frames = await open120Hz(`http://127.0.0.1:${port}${PAGE}?clock=frames&rows=1&history=${HISTORY}`, {
-      clock: "frames",
-    });
+    // The blocks follow arm: a held live line is its chase's (the reader's input holds the chase where
+    // it is drawn). The slim `send` arm, the product's, ends every follow motion where the rows lay
+    // out on the reader's input, so nothing is held and no band can open over the line (Leo,
+    // 2026-11-09: "when i scroll down now there's a little readjustment sometimes that shold never
+    // happen").
+    const frames = await open120Hz(
+      `http://127.0.0.1:${port}${PAGE}?clock=frames&rows=1&history=${HISTORY}&arm=blocks`,
+      {
+        clock: "frames",
+      },
+    );
     let out: HeldFold;
     try {
       await frames.page.waitForFunction(() => "__sendStream" in window);
