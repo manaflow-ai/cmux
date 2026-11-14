@@ -150,8 +150,8 @@ extension PaneController {
         // The PTY starts at the grid this pane's view will fit, so the first frame is final (NewTerminalGrid).
         let size = newTerminalSize
         let command = NewTerminalTabCommand(pane: handle, options: SpawnOptions(cwd: cwd, size: size, workspace: workspace, keep: keep))
-        if text == nil, page == nil, command.isOptimistic(on: daemon) {
-            return newTerminalTabNow(command, agent: agent, intent: intent, window: window,
+        if page == nil, command.isOptimistic(on: daemon) { // a tab that types its text too (Toggle Terminal and Chat's resume-here)
+            return newTerminalTabNow(command, typing: text, connection: connection, agent: agent, intent: intent, window: window,
                                      selectHere: selectHere, homePlacement: homePlacement, then: then)
         }
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, machine: daemon.machineID, newTerminal: true)
@@ -185,8 +185,8 @@ extension PaneController {
     /// waits for nothing (Ctrl-`, ctrl-backtick-instant): the stand-in tab is in the store, selected
     /// and shown in this turn, so it draws in the key's frame; `new-tab` runs behind it, and the
     /// daemon's tab takes its place (``NewTerminalTabCommand``). The keys typed meanwhile wait for
-    /// the daemon's terminal and go only into it: the stand-in's tab is their lane (`NewTerminalKeys`).
-    private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?, // perf-hot: 10ms new-tab (the terminal stand-in shows in the key's turn)
+    /// the daemon's terminal and go only into it: the stand-in's tab is their lane (`NewTerminalKeys`). `text` goes there first.
+    private func newTerminalTabNow(_ command: NewTerminalTabCommand, typing text: String?, connection: DaemonConnection, agent: AgentPaneView?, intent: UInt64?, // perf-hot: 10ms new-tab (the terminal stand-in shows in the key's turn)
                                    window: NSWindow?, selectHere: Bool,
                                    homePlacement: Bool, then: (@MainActor (SurfaceID) -> Void)?) {
         // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
@@ -207,7 +207,7 @@ extension PaneController {
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: made != nil, in: window, madeTab: { [made] in made.flatMap { daemon.store.locatedTab(surface: $0)?.tab.id } }, madeSurface: made?.rawValue) } // a read that hears the tab list: the hold's wake-up
             await previous?.value
             do {
-                let created = try await pending.send(); BenchSpans.mark("daemon.newTab.returned")
+                let created = try await pending.send(); BenchSpans.mark("daemon.newTab.returned"); if let text { try await connection.send(created.surface, text: text) }
                 // The swap moved the selection already (NewTabSuccession); a pane still on the stand-in follows it (its `successor`'s).
                 if selectHere {
                     if (successor ?? self).stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: created.surface) }
