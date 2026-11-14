@@ -291,8 +291,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var settingOffset = false
     private var resizeSettle = TerminalResizeSettle()
     private var settleTask: Task<Void, Never>?
-    /// The foreground program's read in flight (``readForegroundProgram()``).
-    private var programRead: Task<Void, Never>?
     /// Hide Toolbar: the key row's height is 0.
     private var keyRowCollapsed: NSLayoutConstraint!
     /// The composer is closed or hidden: its height is 0.
@@ -690,6 +688,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // composer on the first frame (Codex QA F8).
         view.setNeedsLayout()
         view.layoutIfNeeded()
+        // The keyboard may have come or gone while the page was away.
+        settleKeyboardLift()
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
         outputSinceProbe = true
         updateDocument()
         applyScroll()
@@ -1032,6 +1034,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
     }
 
+    override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        // A rotation with a hardware keyboard posts no keyboard notification:
+        // settle the keyboard's lift against the new layout once it lands.
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            guard let self else { return }
+            settleKeyboardLift()
+            view.setNeedsLayout()
+        }
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         keyboardDock.refresh()
@@ -1221,7 +1234,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             case .alternateScreen(let on):
                 model.ingest(.alternateScreen(on))
                 applyMode(tui: on)
-                readForegroundProgram()
             case .hostGrid(let columns, let rows):
                 appliedHostColumns = columns
                 appliedHostRows = rows
@@ -2906,28 +2918,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         // The rows move under a selection: it would point at other text.
         tuiScroll.dragBegan = { [weak self] in self?.tuiSelection.clear() }
-        tuiScroll.routeMayHaveChanged = { [weak self] in self?.readForegroundProgram() }
         tuiScroll.install(in: tuiClip, surface: surface, tap: tuiTap)
-    }
-
-    /// Reads the Mac terminal's foreground program for the drag's route
-    /// (``TerminalPanRoute``): when the alternate screen comes and when a drag
-    /// begins on it. Each read forgets the program first: until it answers a
-    /// drag there sends nothing, so a name from before (less, before Claude
-    /// Code took the screen in an output hold that never showed the primary
-    /// screen) never sends Claude Code a key.
-    private func readForegroundProgram() {
-        programRead?.cancel()
-        programRead = nil
-        surface.foregroundProgram = nil
-        guard model.isTUI else { return tuiScroll.programRead() }
-        let session = model.session
-        programRead = Task { [weak self] in
-            let program = await session.foregroundProgram()
-            guard !Task.isCancelled, let self else { return }
-            if self.model.isTUI { self.surface.foregroundProgram = program }
-            self.tuiScroll.programRead()
-        }
     }
 
     /// While a long press selects, the page does not scroll under the finger.
@@ -3019,12 +3010,24 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         return visible == onScreen
     }
 
+    /// Records how far the keyboard lifts the composer stack now. Only a page
+    /// in a window has a settled layout: `dockChanged()` from viewDidLoad runs
+    /// before the page has a window or its final insets, and its gap read as
+    /// a keyboard lift. A page back in a window, or after a rotation, settles
+    /// again: the keyboard may have come or gone while it was away (a hide
+    /// after a tab switch posts did-hide to a page with no window), and a
+    /// rotation with a hardware keyboard posts no keyboard notification.
+    private func settleKeyboardLift() {
+        guard view.window != nil else { return }
+        tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY + composerGrowth + jumpRowHeight, restingStackTop: restingStackTop, isTUI: model.isTUI)
+    }
+
     @objc private func keyboardDidChange() {
         view.setNeedsLayout()
         view.layoutIfNeeded()
         // The keyboard settled: a TUI gets the rows above the composer now,
         // one resize (R1-1).
-        tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY + composerGrowth + jumpRowHeight, restingStackTop: restingStackTop, isTUI: model.isTUI)
+        settleKeyboardLift()
         view.setNeedsLayout()
         view.layoutIfNeeded()
         // The page changed without output (the keyboard came or went): the
