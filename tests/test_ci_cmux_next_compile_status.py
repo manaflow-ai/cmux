@@ -11,6 +11,7 @@ import http.server
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -602,36 +603,148 @@ OWN_HOST = re.compile(r"https?://[\w.-]*cmux\.com\b")
 OWN_BOUND = 300  # seconds: a read of our own service hands off after this, as compile-status does
 
 
-def curl_commands(text: str) -> list[tuple[int, str]]:
-    """(line, command) for each shell line that runs curl, its backslash continuations joined."""
+SHELL_SEPARATORS = {";", "&&", "||", "|", "&", ";;", "|&"}
+
+
+def shell_tokens(text: str) -> list[str]:
+    """One shell line's words, as a shell splits them: any run of spaces or tabs, quotes removed, `;`, `&&`, `|` apart,
+    a `#` comment to the end of the line. A word holding a command substitution (`"$(timeout 3 curl ...)"`, which
+    shlex reads as one quoted word) is lexed again inside, so its curl is a command too."""
+    try:
+        lex = shlex.shlex(text, posix=True, punctuation_chars=";&|")
+        lex.whitespace_split = True
+        words = list(lex)
+    except ValueError:  # an unbalanced quote (a `"$(` that the next line closes): words without quotes still serve
+        return shell_tokens(re.sub(r"""["'`]|\$\(|\)""", lambda m: " ; " if m.group() != '"' and m.group() != "'" else " ",
+                                   text))
+    out = []
+    for word in words:
+        out.append(word)
+        inner = word.find("$(")
+        if inner >= 0:
+            body = word[inner + 2:]
+            out += [";", *shell_tokens(body[:body.rfind(")")] if ")" in body else body), ";"]
+    return out
+
+
+def logical_lines(text: str) -> list[tuple[int, str]]:
+    """(first line number, text) per shell line, each backslash continuation joined to its line. Lines are lexed one by
+    one, so a `#` comment ends at its own line (shlex reads one to the end of its input: LW#4170)."""
     lines, out, i = text.splitlines(), [], 0
     while i < len(lines):
-        start, command = i + 1, lines[i]
-        while command.rstrip().endswith("\\") and i + 1 < len(lines):
+        start, line = i + 1, lines[i]
+        while re.search(r"(?<!\\)\\$", line) and i + 1 < len(lines):
             i += 1
-            command = command.rstrip()[:-1] + " " + lines[i].strip()
-        if re.search(r"\bcurl\b", command) and not command.lstrip().startswith("#"):
-            out.append((start, command))
+            line = line[:-1] + " " + lines[i]
+        out.append((start, line))
         i += 1
     return out
 
 
-def retry_bound(command: str) -> int | None:
-    """The most seconds a --retry-all-errors curl can take, from literal flags only; None when nothing fixes it."""
-    flag = lambda name: (m := re.search(rf"(?<![\w-])--{name}[ =](\d+)\b", command)) and int(m.group(1))
-    outer = re.search(r"\btimeout\s+(?:-\S+\s+)*(\d+)s?\s+curl\b", command)
-    if outer:
-        return int(outer.group(1))
-    if flag("retry-max-time") is not None and flag("max-time") is not None:
-        return flag("retry-max-time") + flag("max-time")
-    if flag("retry") is not None and flag("max-time") is not None and flag("retry-delay") is not None:
-        return (flag("retry") + 1) * flag("max-time") + flag("retry") * flag("retry-delay")
+def curl_calls(text: str) -> list[tuple[int, list[str], list[str]]]:
+    """(line, the words before curl in its command, curl's own arguments) for each curl the shell text runs."""
+    calls = []
+    for line, logical in logical_lines(text):
+        command: list[str] = []
+        for word in [*shell_tokens(logical), ";"]:
+            if word not in SHELL_SEPARATORS:
+                command.append(word)
+                continue
+            for k, w in enumerate(command):
+                if w == "curl" or w.endswith("/curl"):
+                    calls.append((line, command[:k], command[k + 1:]))
+                    break
+            command = []
+    return calls
+
+
+# curl's options that take a value, short and long, so the words after them are values and not options (a subset: the
+# ones these scripts use, and every one that bounds time or retries).
+CURL_SHORT_VALUE = set("AbcCdDeEFhHKmoPQrTuUwxXyYz")
+CURL_LONG = {"-m": "--max-time"}
+
+
+def curl_options(args: list[str]) -> dict[str, list[str]]:
+    """Each long option curl is given, with its values: `--retry 5`, `--retry=5`, `-m 30`, `-m30` and a combined
+    `-fsSm 30` all read as the option and its value. A short option that takes a value ends a combined group."""
+    options: dict[str, list[str]] = {}
+    i = 0
+    while i < len(args):
+        word = args[i]
+        if word.startswith("--") and len(word) > 2:
+            name, eq, value = word.partition("=")
+            if not eq and i + 1 < len(args) and not args[i + 1].startswith("-"):
+                value, i = args[i + 1], i + 1
+            options.setdefault(name, []).append(value)
+        elif word.startswith("-") and len(word) > 1:
+            for j, letter in enumerate(word[1:], 1):
+                if letter in CURL_SHORT_VALUE:
+                    rest = word[j + 1:]
+                    if not rest and i + 1 < len(args):
+                        rest, i = args[i + 1], i + 1
+                    options.setdefault(CURL_LONG.get(f"-{letter}", f"-{letter}"), []).append(rest)
+                    break
+        i += 1
+    return options
+
+
+def literal(values: list[str] | None) -> int | None:
+    """The option's last value when it is a literal whole number of seconds (curl reads the last one), else None."""
+    return int(values[-1]) if values and re.fullmatch(r"\d+", values[-1]) else None
+
+
+def outer_bound(prefix: list[str]) -> int | None:
+    """N when the words before curl run it under a fixed total bound: `timeout [options] N curl` or perl's alarm,
+    `perl -e 'alarm shift; exec @ARGV' N curl` (macOS ships perl, not `timeout`)."""
+    if len(prefix) >= 2 and re.fullmatch(r"\d+s?", prefix[-1]):
+        seconds = int(prefix[-1].rstrip("s"))
+        if prefix[-4:-1] == ["perl", "-e", "alarm shift; exec @ARGV"]:
+            return seconds
+        if "timeout" in prefix:
+            k = len(prefix) - 1 - prefix[::-1].index("timeout")
+            between = prefix[k + 1:-1]
+            j = 0
+            while j < len(between) and between[j].startswith("-"):  # timeout's own options
+                j += 2 if between[j] in ("-k", "-s") else 1
+            if j == len(between):
+                return seconds
     return None
 
 
+def call_retries(args: list[str]) -> bool:
+    """Whether a curl retries: any --retry but a literal 0 (a variable count may be anything)."""
+    return any(value != "0" for value in curl_options(args).get("--retry", []))
+
+
+def call_bound(prefix: list[str], args: list[str]) -> int | None:
+    """The most seconds a retrying curl can take, from literal values only; None when nothing fixes the total.
+
+    Only two shapes hold with Retry-After, which overrides --retry-delay (curl 8: a 503 with `Retry-After: 8` kept
+    `--retry 2 --retry-delay 1 --max-time 1` busy 16 s, not the 3 s that count times delay gives): an outer bound on
+    the whole command (`timeout N`, perl's alarm), or --retry-max-time N with --max-time M, since curl sleeps for no
+    retry that would pass N and each attempt stops at M, so the total is at most N + M. RetryAfterBound checks both
+    against real curl."""
+    outer = outer_bound(prefix)
+    if outer is not None:
+        return outer
+    options = curl_options(args)
+    retry_max, max_time = literal(options.get("--retry-max-time")), literal(options.get("--max-time"))
+    return retry_max + max_time if retry_max is not None and max_time is not None else None
+
+
+def retrying(command: str) -> bool:
+    return any(call_retries(args) for _, _, args in curl_calls(command))
+
+
+def retry_bound(command: str) -> int | None:
+    """call_bound of the first curl in a shell command."""
+    _, prefix, args = curl_calls(command)[0]
+    return call_bound(prefix, args)
+
+
 def unbounded_retries(workflow: Path = WORKFLOW) -> list[str]:
-    """Each `curl --retry-all-errors` in cmux-next.yml, or in a scripts/cmux-next script it runs, that nothing bounds,
-    or that reads our own service and may outlast OWN_BOUND (cmux#40600: a 530 retried for the whole 40 minutes)."""
+    """Each retrying curl in cmux-next.yml, or in a scripts/cmux-next script it names, that nothing bounds in total, or
+    that reads our own service and may outlast OWN_BOUND (cmux#40600: a 530 retried for the whole 40 minutes)."""
     text = workflow.read_text(encoding="utf-8")
     own_vars = {m.group(1) for m in re.finditer(r"^\s*([A-Za-z_]\w*):\s*\S*https?://[\w.-]*cmux\.com", text, re.M)}
     sources = [(workflow, text)] + [(ROOT / rel, (ROOT / rel).read_text(encoding="utf-8"))
@@ -639,16 +752,17 @@ def unbounded_retries(workflow: Path = WORKFLOW) -> list[str]:
                                     if (ROOT / rel).is_file()]
     found = []
     for path, body in sources:
-        for line, command in curl_commands(body):
-            if "--retry-all-errors" not in command:
+        for line, prefix, args in curl_calls(body):
+            if not call_retries(args):
                 continue
+            command = " ".join(args)
             own = bool(OWN_HOST.search(command)) or any(re.search(rf"\$\{{?{name}\b", command) for name in own_vars)
-            bound = retry_bound(command)
+            bound = call_bound(prefix, args)
             if bound is None or own and bound > OWN_BOUND:
                 where = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
-                found.append(f"{where}:{line}: curl --retry-all-errors "
-                             + ("with no fixed bound (an outer `timeout N`, --retry-max-time N, or --retry, "
-                                "--max-time and --retry-delay N)" if bound is None else
+                found.append(f"{where}:{line}: a retrying curl "
+                             + ("with no total bound (--retry-max-time N with --max-time M, or an outer `timeout N`; "
+                                "Retry-After overrides --retry-delay, so a retry count bounds nothing)" if bound is None else
                                 f"against our own service may retry for {bound} s, over {OWN_BOUND} s")
                              + (" against our own service: probe it and hand off on 000/52x/530 instead" if own else ""))
     return found
@@ -656,9 +770,10 @@ def unbounded_retries(workflow: Path = WORKFLOW) -> list[str]:
 
 class UnboundedRetryDetector(unittest.TestCase):
     """The class of cmux#40600: a `curl --retry-all-errors` against our own endpoint retries a proxy's 530 until its
-    caller's deadline. Run it against another copy with CMUX_NEXT_WORKFLOW=PATH (the tip before this fix fails)."""
+    caller's deadline. Any retrying curl has the same hole: a Retry-After header overrides --retry-delay, so only a total
+    bound holds (RetryAfterBound). Run it against another copy with CMUX_NEXT_WORKFLOW=PATH."""
 
-    def test_every_retry_all_errors_curl_is_bounded(self):
+    def test_every_retrying_curl_is_bounded(self):
         self.assertEqual(unbounded_retries(), [])
 
     def test_the_detector_catches_the_shapes_it_names(self):
@@ -668,16 +783,108 @@ class UnboundedRetryDetector(unittest.TestCase):
                 ('RESULTS: https://gh-events.cmux.com/x\n  timeout "$left" curl -sS --retry 60 --retry-all-errors \\\n'
                  '    --retry-max-time "$left" "$RESULTS/a"\n', True),
                 ('curl -fsSL --retry 5 --retry-all-errors https://ci-cache.cmux.com/a\n', True),
-                ('timeout 900 curl --retry-all-errors https://gh-events.cmux.com/a\n', True),
+                ('timeout 900 curl --retry 3 --retry-all-errors https://gh-events.cmux.com/a\n', True),
                 ('timeout 110 curl --max-time 30 --retry 2 --retry-delay 10 --retry-all-errors "$API/x"\n', False),
-                ('curl --max-time 60 --retry 5 --retry-delay 3 --retry-all-errors "$@"\n', False),
-                ('curl --max-time 20 --retry 3 --retry-delay 5 --retry-all-errors https://gh-events.cmux.com/a\n', False),
-                ('curl -sS --retry-all-errors "$url"\n', True),
-                ('# curl --retry-all-errors in a comment\n', False),
+                # A retry count, a delay and a per-attempt --max-time bound nothing: Retry-After overrides the delay.
+                ('curl --max-time 60 --retry 5 --retry-delay 3 --retry-all-errors "$@"\n', True),
+                ('curl --max-time 20 --retry 3 --retry-delay 5 --retry-all-errors https://gh-events.cmux.com/a\n', True),
+                ('curl -fL --retry 5 -o "$archive" "$url"\n', True),  # any --retry, not only --retry-all-errors
+                ('curl --retry "${2:-0}" --max-time 3 "$u"\n', True),  # a count that is not a literal 0
+                ('curl --max-time 60 --retry 5 --retry-max-time 300 --retry-all-errors "$@"\n', False),
+                ('curl --max-time 20 --retry 3 --retry-max-time 200 https://gh-events.cmux.com/a\n', False),
+                ('curl --max-time 20 --retry 3 --retry-max-time 600 https://gh-events.cmux.com/a\n', True),  # over 5 min
+                ('curl --retry 3 --retry-max-time 300 "$u"\n', True),  # one attempt may hang: no --max-time
+                ("perl -e 'alarm shift; exec @ARGV' 120 curl --retry 3 \"$u\"\n", False),
+                ('curl --retry 0 "$u"\n', False),
+                ('curl -sS --retry-all-errors "$url"\n', False),  # no --retry: curl retries nothing
+                ('# curl --retry 5 in a comment\n', False),
+                # Spacing and lines as a shell reads them (Codex on #40701): each was missed by a one-space regex.
+                ('curl --max-time 20  --retry  5 "$u"\n', True),  # two spaces
+                ('curl --max-time 20\t--retry\t5 "$u"\n', True),  # tabs
+                ('curl --max-time 20 --retry \\\n    5 "$u"\n', True),  # a backslash continuation between flag and value
+                ('curl --max-time 20 \\\n  --retry 5 \\\n  --retry-max-time 200 "$u"\n', False),
+                # The forms curl accepts: --flag=value, -m for --max-time, a combined short group ending in -m.
+                ('curl --retry=5 --max-time 20 "$u"\n', True),
+                ('curl --retry=5 --max-time=20 --retry-max-time=200 "$u"\n', False),
+                ('curl -fsS -m 20 --retry 5 --retry-max-time 200 "$u"\n', False),
+                ('curl -fsSm20 --retry 5 --retry-max-time 200 "$u"\n', False),
+                ('curl -fsSm 20 --retry 5 --retry-max-time 200 "$u"\n', False),
+                ('curl --retry-delay 5 --retry-max-time 200 -m 20 "$u"\n', False),  # --retry-delay is no --retry
+                ('curl -m "$t" --retry 5 --retry-max-time 200 "$u"\n', True),  # not a literal
+                ('curl --retry 5 --max-time 20 "$u"  # --retry-max-time 200\n', True),  # a bound in a comment is none
+                ('code="$(curl --retry 3 --max-time 5 "$u")"\n', True),  # inside a command substitution
+                ('code="$(timeout 30 curl --retry 3 "$u")"\n', False),
+                ('timeout -k 5 110 curl --retry 3 "$u"\n', False),
+                ('timeout "$left" curl --retry 3 --max-time 5 "$u"\n', True),
+                ('echo start; curl --retry 3 "$u" && echo done\n', True),  # one command among others
             ):
                 with self.subTest(text=text):
                     path.write_text(text)
                     self.assertEqual(bool(unbounded_retries(path)), bad, unbounded_retries(path))
+
+
+@unittest.skipUnless(shutil.which("curl") and shutil.which("timeout") and shutil.which("perl"), "curl, timeout or perl missing")
+class RetryAfterBound(unittest.TestCase):
+    """The detector's rule, checked against real curl and a local service that answers 503 with Retry-After: a retry
+    count and delay bound nothing, while --retry-max-time with --max-time, `timeout N` and perl's alarm each hold."""
+
+    def setUp(self):
+        self.retry_after, self.stall = "4", False
+        test = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                if test.stall:
+                    time.sleep(30)
+                    return
+                self.send_response(503)
+                self.send_header("Retry-After", test.retry_after)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server.daemon_threads = True
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.url = f"http://127.0.0.1:{server.server_address[1]}/x"
+
+    def took(self, *argv: str) -> float:
+        started = time.monotonic()
+        subprocess.run([*argv, self.url], capture_output=True, timeout=60)
+        return time.monotonic() - started
+
+    def curl(self, *flags: str) -> list[str]:
+        return ["curl", "-sS", "-o", "/dev/null", *flags]
+
+    def test_a_retry_count_and_delay_bound_nothing(self):
+        # 2 attempts of at most 1 s and one 1 s delay "bound" 3 s; Retry-After makes curl sleep 4 s instead.
+        took = self.took(*self.curl("--max-time", "1", "--retry", "1", "--retry-delay", "1", "--retry-all-errors"))
+        self.assertGreaterEqual(took, 4)
+        self.assertEqual(retry_bound("curl --max-time 1 --retry 1 --retry-delay 1 --retry-all-errors"), None)
+
+    def test_retry_max_time_with_max_time_holds_with_retry_after(self):
+        for retry_after, stall in (("2", False), ("4", False), ("100", False), ("1", True)):
+            with self.subTest(retry_after=retry_after, stall=stall):
+                self.retry_after, self.stall = retry_after, stall
+                flags = ("--max-time", "1", "--retry", "10", "--retry-delay", "1", "--retry-max-time", "3",
+                         "--retry-all-errors")
+                bound = retry_bound("curl " + " ".join(flags))
+                self.assertEqual(bound, 4)
+                self.assertLess(self.took(*self.curl(*flags)), bound + 1)
+
+    def test_an_outer_bound_holds_with_retry_after(self):
+        flags = ("--max-time", "1", "--retry", "5", "--retry-delay", "1", "--retry-all-errors")
+        for outer in (["timeout", "3"], ["perl", "-e", "alarm shift; exec @ARGV", "3"]):
+            with self.subTest(outer=outer[0]):
+                self.assertEqual(retry_bound(" ".join(outer[:2] + [f"'{outer[2]}'"] + outer[3:]
+                                                      if outer[0] == "perl" else outer) + " curl " + " ".join(flags)), 3)
+                self.assertLess(self.took(*outer, *self.curl(*flags)), 3.5)
 
 
 if __name__ == "__main__":
