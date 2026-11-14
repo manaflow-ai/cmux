@@ -5476,11 +5476,20 @@ mod unix {
                     // SAFETY: both descriptors stay open for this call: the
                     // listener until the accept loop exits and the waker with
                     // `shared`.
-                    if unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout_ms) } < 0 {
-                        let error = std::io::Error::last_os_error();
-                        if error.kind() != std::io::ErrorKind::Interrupted {
-                            return Err(error.into());
-                        }
+                    let poll_interrupted =
+                        if unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout_ms) } < 0 {
+                            let error = std::io::Error::last_os_error();
+                            if error.kind() != std::io::ErrorKind::Interrupted {
+                                return Err(error.into());
+                            }
+                            true
+                        } else {
+                            false
+                        };
+                    if poll_interrupted {
+                        // EINTR leaves revents unset. Re-enter through the
+                        // listener accept before considering orphan expiry.
+                        continue;
                     }
                     if fds[1].revents != 0 {
                         shared.accept_waker.drain();
