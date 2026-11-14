@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43540553676",
+  "recorded_at": "2026-11-14T01:33:05Z",
+  "reason": "cmux-tui ce6bb8f60ffc changes the image's cmux-tui (pinned 001b11a73f3c)",
+  "dry_run": false,
+  "cmux_tui": "ce6bb8f60ffc271a409911eca9f83065cc9f7dba",
+  "fixes": [
+    {
+      "sha": "ce6bb8f60ffc271a409911eca9f83065cc9f7dba",
+      "mergedAt": "2026-11-13T17:00:27-08:00",
+      "subject": "test(ghostty-vt): check indicator cells after replay and dismissal (#42758)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T01:33:05Z",
+    "snapshot_id": "sh-af794e53c433459dbfe6017ce4cadfb6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43540553676): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b698481e9ec224915219acf0dd595a50460bbb81",
+    "image": "cloud-native-auto-ce6bb8f6-43540553676-1",
+    "revision": "ci-43540553676-1",
+    "at": "2026-11-14T01:33:05Z"
+  },
+  "rolled_back": false
+}
