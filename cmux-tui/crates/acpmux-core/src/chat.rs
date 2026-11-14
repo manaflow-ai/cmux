@@ -779,7 +779,14 @@ fn open_state_from_log(
         actor.boot_id = actor.config.boot_id;
         actor.replay_remaining = 0;
     }
-    if stamp_changed || !recovered.checkpoint {
+    // The source's line in `raw.map` from the book's first checkpoint on, so every checkpoint
+    // holds a cursor with the stamp: a source that changes before the first line settles (v1
+    // compacting a chat mid catch-up) is then a changed stamp at the next open.
+    let named = actor.raw_file == 0;
+    if named {
+        actor.raw_file = actor.log.append_raw_file(actor.source.identity())?;
+    }
+    if stamp_changed || !recovered.checkpoint || named {
         checkpoint(&mut actor)?;
     }
     Ok(actor)

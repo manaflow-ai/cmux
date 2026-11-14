@@ -353,7 +353,7 @@ impl LocalStore {
             && let Some(position) = segments.iter().position(|(i, _)| *i == mark.segment)
             && let Some((index, path)) = segments.get(position)
         {
-            let mut segment = Segment::open(*index, path)?;
+            let segment = Segment::open(*index, path)?;
             if segment.id == mark.file {
                 // A later seq goes on from the mark only while it is in the mark's segment: the
                 // next segment's first seq says.

@@ -150,15 +150,16 @@ where
         let cursor = self.marks.end.clone().filter(|_| self.marks.end_seq() != Some(place));
         let mut bytes = Vec::with_capacity(CHUNK_BYTES);
         let mut tries = 0;
+        let store = self.store.clone();
+        let store = store.as_ref();
         let (chunk, stamp) = loop {
-            let before = self.store().log_stamp(&self.id).map_err(other)?;
-            let chunk = self
-                .store()
+            let before = store.log_stamp(&self.id).map_err(other)?;
+            let chunk = store
                 .read_log(&self.id, place, LogFilter::ALL, before, &mut self.marks, &mut bytes)
                 .map_err(other)?;
             self.counters.read.fetch_add(chunk.read, Ordering::Relaxed);
             self.counters.held_max.fetch_max(bytes.capacity() as u64, Ordering::Relaxed);
-            let after = self.store().log_stamp(&self.id).map_err(other)?;
+            let after = store.log_stamp(&self.id).map_err(other)?;
             if before == after || tries == TRIES {
                 break (chunk, after);
             }
