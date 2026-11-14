@@ -436,6 +436,7 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "chat.attach.external": self = .attachExternal
         case "attachment.sourceIcon":
             if let bundleId = params?["bundleId"] as? String, AttachmentSource.isBundleId(bundleId) { self = .attachmentSourceIcon(bundleId) }
             else { self = .unsupported(method) }

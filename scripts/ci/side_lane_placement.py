@@ -313,7 +313,10 @@ GUI_JOBS = ("swift-test", "daemon-test", "generated-files")
 def gui_overflow(env: Mapping[str, str], live: Mapping[str, int] | None, waiting: Mapping[str, int] | None,
                  seen: Any, placed: Any = None) -> str:
     """next_macos_cascade.gui_overflow_label() for this run's GUI jobs (in JOBS), with the Blacksmith slots the
-    run's own cascade just took (`placed`, a cascade.Placement) counted as in flight."""
+    run's own cascade just took (`placed`, a cascade.Placement) counted as in flight. With Blacksmith macOS off
+    (next_macos_cascade.blacksmith_on()) it is empty: the GUI jobs keep the owned GUI route."""
+    if not cascade.blacksmith_on(env):
+        return ""
     if live is not None and placed is not None:
         live = {**live, **{label: live.get(label, 0) + len(placed.jobs.get(label, ()))
                            for label in cascade.LABELS}}
@@ -1223,7 +1226,10 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
 
 
 def _timeout_fallback(env: Mapping[str, str]) -> int:
-    """Publish a safe ephemeral Mac route when placement reads exceed the deadline."""
+    """Publish a safe ephemeral Mac route when placement reads exceed the deadline: Blacksmith 6 vCPU, or with
+    Blacksmith macOS off (next_macos_cascade.blacksmith_on()) the owned side label and no overflow."""
+    if not cascade.blacksmith_on(env):
+        return _owned_timeout_fallback(env)
     output = env.get("GITHUB_OUTPUT")
     if output:
         retry_jobs = cascade.delimited(cascade.candidates(env, ())[:cascade.MAX_PER_RUN])
@@ -1244,6 +1250,31 @@ def _timeout_fallback(env: Mapping[str, str]) -> int:
             handle.write("### macOS placement\n\nPlacement exceeded its read deadline; using "
                          f"{cascade.SMALL}.\n")
     print(f"::warning title=side-lane placement::read deadline exceeded; using {cascade.SMALL}")
+    return 0
+
+
+def _owned_timeout_fallback(env: Mapping[str, str]) -> int:
+    """_timeout_fallback() with Blacksmith macOS off: every job keeps the owned route its runs-on falls back to."""
+    label = (env.get("SIDE_LABEL") or "").strip()
+    route = label if label.startswith(pool.SIDE_PREFIX) else ""
+    output = env.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(
+                f"owned_jobs=\nfallback_jobs=\nrunner={route}\ndeferred_runner={route}\n"
+                f"gui_runner=\nsession_runner=\nfree_gui_runner=\nfree_session_runner=\n"
+                f"gui_overflow=\nsession_lane_runner=\n"
+                f"nightly_runner_ready=\nfast_runner=\nfresh_runner=\nfresh_jobs=\nlight_runner=\nlight_jobs=\n"
+                f"gateway_runner=\ngateway_attempt=\npromote_runner=\nwatch=true\n"
+                f"blacksmith_12_jobs=\nblacksmith_6_jobs=\nfresh_stalled={cascade.delimited(cascade.LABELS)}\n"
+                f"fleet_jobs=\nretry_runner=\nfree_retry_runner=\nretry_jobs=\n"
+            )
+    why = f"{cascade.blacksmith_off_why(env)}, so every job keeps its owned route"
+    summary = env.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write(f"### macOS placement\n\nPlacement exceeded its read deadline; {why}.\n")
+    print(f"::warning title=side-lane placement::read deadline exceeded; {why}")
     return 0
 
 

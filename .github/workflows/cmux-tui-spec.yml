@@ -48,6 +48,7 @@ on:
       - "skills/cmux-live/SKILL.md"
       - "skills/cmux/SKILL.md"
       - "scripts/ci/webviews_test_results.py"
+      - "scripts/cmux-next/run-v2-gates.sh"
       - "webviews/src/pages/shared/generated/pageRouter.ts"
   # Every pull request (no paths): feat-cmux-next requires `clippy (changed cmux-tui
   # packages)`, and a required check must report. The `changes` job below says whether

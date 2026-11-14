@@ -20,6 +20,8 @@ final class ExternalOpenController {
     /// The `ssh://` link question: acpmux peers and saved SSH machines are known hosts, and
     /// "Always allow this host" writes `ssh.linkAllowedHosts` (Settings > Privacy and Security).
     private(set) lazy var sshGate = makeSSHGate()
+    /// Files from another app into a chat's composer (``attachToChat(_:from:)``).
+    let chatAttach = AgentPaneExternalAttach()
 
     private func makeSSHGate() -> ExternalLinkGate {
         let services = services
@@ -72,6 +74,17 @@ final class ExternalOpenController {
         guard route != .unsupported else { return false }
         perform(route)
         return true
+    }
+
+    /// The route every door from another app takes to put files into an agent chat as an unsent
+    /// draft (an image opened with cmux, the Send to cmux Chat service; a capture shortcut and the
+    /// Share menu later): the focused agent chat of the current window, else the one focused most
+    /// recently there, else a new agent chat, brought forward with its composer focused
+    /// (``AgentPaneExternalAttach``). `source`: the bundle id of the app they came from, when known; a
+    /// file's own metadata (a screenshot's) still names its source first.
+    func attachToChat(_ urls: [URL], from source: String?) {
+        guard !urls.isEmpty else { return }
+        perform(.attachImages(urls, from: source))
     }
 
     /// Finder service "New cmux Tab Here" with the selected paths.
@@ -183,6 +196,19 @@ final class ExternalOpenController {
         // The one file path every opener takes (Open File..., `file.open`); a refusal shows its reason.
         case .file(let url): services.viewers.openFile(url, in: pane, markdown: false)
         case .shareLink(let url): AgentShareLinks(host: services).open(url) { [weak pane] in pane?.newBrowserTab(url: $0) }
+        case .attachImages(let urls, let source):
+            // The pane's chat, else the one shown in the workspace's most recently focused pane; a New Tab page is no chat.
+            let recent = pane.workspace.map { content in content.recentPanes.compactMap { content.panes[$0] } } ?? []
+            let target = ([pane] + recent).lazy.compactMap { candidate in candidate.shownChat.map { (pane: candidate, view: $0) } }.first
+            let shown = target?.pane ?? pane, tabs = services.agentTabs, machine = pane.daemon.machineID
+            chatAttach.attach(urls, claimed: source, target: target?.view, openChat: { made in
+                pane.openAgentTab(seed: pane.agentSeedFromSelectedTab()) { made(tabs.existingView($0, machine: machine) ?? tabs.view(for: $0, machine: machine)) }
+            }, show: { [weak shown, services] view in
+                // The pane that shows the chat: a new one may have been placed beside the pane it opened from.
+                guard let shown, case let pane = shown.workspace?.panes.values.first(where: { $0.shownChat === view }) ?? shown,
+                      let key = pane.currentTabKey else { return }
+                _ = services.registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user).onMachine(pane.daemon.isLocal ? nil : pane.daemon.machineID))
+            })
         case .deepLink, .unsupported: return
         }
     }
@@ -190,7 +216,8 @@ final class ExternalOpenController {
 
 /// The Finder services (`NSServices` in Info.plist): New cmux Tab Here,
 /// New cmux Workspace Here, New cmux Window Here. AppKit calls these with
-/// the selected folders or files (a file opens in its folder).
+/// the selected folders or files (a file opens in its folder). Send to cmux
+/// Chat takes images: files, or a picture another app selected.
 @MainActor
 final class CmuxServicesProvider: NSObject {
     private let open: ExternalOpenController
@@ -211,6 +238,17 @@ final class CmuxServicesProvider: NSObject {
         for path in Self.paths(pasteboard) { open.newWorkspace(at: path, newWindow: true) }
     }
 
+    /// Send to cmux Chat: the image files selected (in Finder), else the picture the app selected
+    /// (PNG or TIFF data, kept as a file under Chat Uploads), go into an agent chat's composer
+    /// (``ExternalOpenController/attachToChat(_:from:)``), named as coming from the app that sent them.
+    @objc(sendToChat:userData:error:) func sendToChat(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
+        // The service's caller is still the frontmost app: cmux is not activated until the route runs.
+        let source = NSWorkspace.shared.frontmostApplication?.bundleIdentifier, files = AgentPaneDroppedPaths.imageFiles(Self.paths(pasteboard))
+        if !files.isEmpty { return open.attachToChat(files, from: source) }
+        guard let picture = AgentPaneDroppedPaths.imageData(on: pasteboard), let folders = ChatUploadFolders.standard else { return }
+        Task { [open] in if let saved = await AgentPaneDroppedPaths.save(picture.data, ext: picture.ext, in: folders) { open.attachToChat([saved], from: source) } } // task-owner: one write of the service's picture
+    }
+
     /// File URLs, legacy filename lists, or absolute paths as plain text.
     static func paths(_ pasteboard: NSPasteboard) -> [String] {
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
@@ -220,6 +258,14 @@ final class CmuxServicesProvider: NSObject {
             return names
         }
         return (pasteboard.string(forType: .string) ?? "").split(whereSeparator: \.isNewline).map(String.init).filter { $0.hasPrefix("/") }
+    }
+}
+
+extension PaneController {
+    /// The agent chat this pane shows, not a New Tab page; nil for any other tab.
+    var shownChat: AgentPaneView? {
+        guard case .agent(let view) = currentContent, view.model.newTab == nil else { return nil }
+        return view
     }
 }
 
