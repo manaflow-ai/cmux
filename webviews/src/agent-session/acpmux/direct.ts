@@ -50,12 +50,12 @@ import type {
   AcpmuxRecap,
 } from "./model";
 import {
+  PROMPT_PENDING_AFTER_MS,
   QUEUED_MESSAGE,
   SINCE_DIVIDER,
   TURN_RETRY,
   type AcpmuxSince,
   type AcpmuxTurnRetry,
-  PROMPT_PENDING_AFTER_MS,
   rowFrameKey,
 } from "./model";
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
@@ -104,13 +104,13 @@ import {
   forgetTail,
   keptEvents,
   keptTail,
+  olderThanShown,
   KEPT_EVENTS,
   type KeptTail,
   readHostTail,
   rememberReadAhead,
   rememberTail,
   shareReadAhead,
-  olderThanShown,
 } from "./tailCache";
 import { HOVER_RECENT, HoverPrefetch, type HoverOptions } from "./hoverPrefetch";
 import { type PeerCopy, PEER_COPY_READ_MS, peerBack, peerCopyTail, peerDown, sameGeneration } from "./peerCopy";
@@ -153,8 +153,8 @@ import { PLAN_BUILD_KIND } from "./planBuild/planBuild";
 import { PlanBuildRows } from "./planBuild/planBuildRows";
 import { OfferChildren } from "./offer/offerChildren";
 import type { OfferPicks } from "./offer/offerChoice";
-import { errorMessage, startCancelled } from "./transportErrors";
-import { failedSendText, retryHelps, sendCause, heldSendNotice } from "./sendFailure";
+import { errorMessage, startCancelled, knownRefusalText, switchFailedText } from "./transportErrors";
+import { failedSendText, heldSendNotice, retryHelps, sendCause } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
 import { SessionPageError, SessionPager, type SessionPage, withUsage, LIST_FOLLOW_CAPABILITY } from "./sessionPages";
@@ -5215,9 +5215,11 @@ export class AcpmuxDirectClient {
       return;
     this.stopAfterSeq = undefined;
     this.stoppingEnded();
-    const reason =
-      typeof params.message === "string" && params.message ? params.message : translate("transport.refused");
-    this.transient(translate("queue.stopRefused", { reason }));
+    // acpmux's message is English for its CLI ("only the owner can stop this session"): the log
+    // keeps it, and the toast says a reason only when the pane words that reason itself.
+    const reason = knownRefusalText({ reason: params.reason, code: params.code });
+    console.warn("agent pane: acpmux refused Stop", params.message ?? params.reason);
+    this.transient(reason ? translate("queue.stopRefused", { reason }) : translate("queue.stopRefusedPlain"), "error");
   }
 
   /// The daemon dropped events for this client. Fetch what came after the last
@@ -7089,6 +7091,9 @@ export class AcpmuxDirectClient {
       // So were the rail's indexed placeholders and the gaps still being filled under them.
       this.clearIndexedHistory();
     }
+    // A reconnect that kept the held events keeps their indexed gaps too: a fill that gave up while
+    // the socket was down (past its last LAG_RETRY_MS step) reads them now.
+    if (this.indexedGaps.length > 0) this.startIndexedGapFill();
     // A reconnect to the same session keeps its events, and open() fills the gap to the new page
     // (every kind, usage included): the client still holds what it held. A fresh attach (Infinity,
     // whatever live events landed before this reply) holds the page only.
@@ -9410,6 +9415,7 @@ export class AcpmuxDirectClient {
         // A turn the agent started on its own runs no earlier checklist: Progress shows it ended
         // until the agent sends a plan again.
         if (agentStarted && this.progressRow) this.progressSuperseded = true;
+        this.carryPrompts(msg.carried, startedTurnId);
         this.turnOpen = true;
         this.turnStartedAtMs = event.at;
         if (startedTurnId !== undefined) this.runningTurnId = startedTurnId;
@@ -9795,6 +9801,16 @@ export class AcpmuxDirectClient {
             ? stillRunning(running.compaction, compaction)
             : compaction,
       });
+      // A compaction that went on into the turn that opened since is that turn's: it draws there, as
+      // its live line under what the turn holds, never back in the turn before it (Leo, 2026-11-09:
+      // "im still seeing compacting not be at the bottom").
+      if (
+        compaction.state === "running" &&
+        running &&
+        this.runningTurnId !== undefined &&
+        running.turnId !== this.runningTurnId
+      )
+        this.rows.placeAfterCurrent(id);
     } else if (event.kind === "plan") {
       const plan = planEntries(update.entries);
       const existing = this.planRow ? this.rows.get(this.planRow) : undefined;
@@ -10058,6 +10074,32 @@ export class AcpmuxDirectClient {
         this.rows.delete(row.id);
   }
 
+  /// The prompts a turn ended without reading, which acpmux carried into this new turn
+  /// (`turn_started.carried.promptIds`): sent as steers into the turn before, they were never part
+  /// of it. Each row moves to where this turn starts and opens it, so the earlier turn's reply (one
+  /// to a background notice, say) no longer draws under the person's message as if it answered it
+  /// (Leo, 2026-11-12, on a "No change." under his "hm? what happened here").
+  private carryPrompts(carried: unknown, turnId: string | undefined): void {
+    const ids = (carried as { promptIds?: unknown } | undefined)?.promptIds;
+    if (!Array.isArray(ids)) return;
+    for (const id of ids) {
+      if (typeof id !== "string") continue;
+      const rowId = this.steerRows.get(id) ?? this.promptRowKeys.get(id);
+      const row = rowId ? this.rows.get(rowId) : undefined;
+      if (!rowId || !row || row.kind !== "user") continue;
+      this.steerRows.delete(id);
+      this.waitingSteers = this.waitingSteers.filter((waiting) => waiting.rowId !== rowId);
+      this.lateSteers = this.lateSteers.filter((late) => late !== rowId);
+      const { steer: _steer, steerPromptId: _steerPromptId, ...rest } = row;
+      this.rows.set(rowId, {
+        ...rest,
+        version: row.version + 1,
+        ...(turnId !== undefined ? { turnId } : {}),
+      });
+      this.rows.adoptEventOrder(rowId);
+    }
+  }
+
   /// The waiting steers (or the one `promptId` names) were read: their rows say so.
   private landSteer(promptId?: string): void {
     const read = this.waitingSteers.filter((waiting) => promptId === undefined || waiting.promptId === promptId);
@@ -10316,6 +10358,8 @@ export class AcpmuxDirectClient {
           backgroundsWork: summary.backgroundsWork === true,
           queuePaused: summary.queuePaused === true,
           ...(text(summary.watching) ? { watching: text(summary.watching) } : {}),
+          // The harness's own session id: Move to Terminal resumes it (header/terminalMoveRow.ts).
+          ...(text(summary.agentSessionId) ? { agentSessionId: text(summary.agentSessionId) } : {}),
           ...(bridgedWatch(summary) ? { bridged: true } : {}),
           ...(Array.isArray(summary.mcpServers) ? { mcpServers: summary.mcpServers } : {}),
           ...(limits ? { subsessionLimits: limits } : {}),
@@ -10547,6 +10591,10 @@ export class AcpmuxDirectClient {
   get startedSession(): string | undefined {
     return this.creating ? undefined : this.selectedSessionId;
   }
+  /// The chat this pane's latest new chat took, and the visit (`selectionToken`) it was started
+  /// from: the prompts sent in that visit before the chat took its session are its own
+  /// (startingSends.ts `startingIn`).
+  startedChat: { sessionId: string; visit: number } | undefined;
   /** Changes on every selection, including leaving and returning to the same session. */
   get selectionToken(): number {
     return this.selectionGeneration;
@@ -10643,7 +10691,7 @@ export class AcpmuxDirectClient {
         // A held mode the agent refuses says so, as the switch's does; the prompt still goes.
         await this.request("session/set_mode", { sessionId, modeId: held.modeId, ...gestureMeta(ticket) }).catch(
           (error: unknown) => {
-            this.notice(translate("switch.modeFailed", { mode: held.modeId, reason: errorMessage(error) || "?" }));
+            this.notice(switchFailedText("mode", held.modeId, error));
           },
         );
       }
@@ -11889,6 +11937,14 @@ export class AcpmuxDirectClient {
       if (this.purgingSessionId === sessionId) this.purgingSessionId = undefined;
     }
   }
+  /// Move to Terminal (header/terminalMoveRow.ts): stops the harness process that runs the shown
+  /// chat `sessionId`, so the terminal's resume is the conversation's only writer. The chat and its
+  /// history stay (`_acpmux/kill` without purge). `ifIdle`: acpmux refuses (reason `busy`) while a
+  /// turn, a queued prompt, a permission or a tool call is open, checked under its turn lock.
+  async releaseToTerminal(sessionId: string): Promise<void> {
+    if (!sessionId || sessionId !== this.selectedSessionId) throw new Error(translate("error.notOpen"));
+    await this.request("_acpmux/kill", { sessionId, purge: false, ifIdle: true });
+  }
   /// Mark as Unread (cx-ncc.78): acpmux keeps the selected chat unread until it is hidden and
   /// shown again.
   async markUnread(): Promise<void> {
@@ -12786,6 +12842,7 @@ export class AcpmuxDirectClient {
         if (sessionId && !this.closed) this.discard(sessionId);
         return undefined;
       }
+      if (sessionId) this.startedChat = { sessionId, visit: generation };
       return sessionId ? this.select(sessionId) : undefined;
     })();
     const tracked = started.finally(() => {
@@ -13488,7 +13545,8 @@ export class AcpmuxDirectClient {
         this.emit();
         return false;
       }
-      this.transient(errorMessage(error) || String(error));
+      console.warn("agent pane: taking over the session failed", error);
+      this.transient(knownRefusalText(error) ?? translate("watch.takeOverFailed"), "error");
       return false;
     }
   }
@@ -13509,14 +13567,15 @@ export class AcpmuxDirectClient {
   }
   /// Where feedback on a click goes (App.tsx: the pane's toasts, paneToasts.ts). Unset (a test, a
   /// client with no pane), it is a transcript line as before.
-  toastSink: ((text: string) => void) | undefined;
+  toastSink: ((text: string, kind?: "error") => void) | undefined;
   /// Feedback on the person's click or action that belongs to the moment, not the chat (a Stop the
-  /// agent refused, a take-over that failed): a toast, never a transcript line.
-  transient(text: string): void {
+  /// agent refused, a take-over that failed): a toast, never a transcript line. `kind: "error"`
+  /// draws a failure as one.
+  transient(text: string, kind?: "error"): void {
     // A closed client's late failure (a takeOver() that fails after a reconnect replaced it) is
     // about a pane that is gone: neither the new pane's toasts nor a line.
     if (this.closed) return;
-    if (this.toastSink) this.toastSink(text);
+    if (this.toastSink) this.toastSink(text, kind);
     else this.notice(text);
   }
   /// A line in the shown transcript (a pick the agent refused); its row id, for `dismissNotice`.
@@ -13798,8 +13857,13 @@ export class AcpmuxDirectClient {
     } catch (error) {
       if (!this.forkCancelled && generation === this.selectionGeneration) {
         // Feedback on the person's Fork: a toast, never a transcript row (review of #37629).
-        const reason = errorMessage(error) || undefined;
-        this.transient(reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"));
+        // The pane's own reason when it knows one (a refusal it words); acpmux's text goes to the log.
+        const reason = knownRefusalText(error);
+        if (!reason) console.warn("agent pane: fork failed", error);
+        this.transient(
+          reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
+          "error",
+        );
       }
       return undefined;
     } finally {
@@ -14663,7 +14727,8 @@ export class AcpmuxDirectClient {
           if (stale()) return undefined;
           if (!take(result)) more = false;
         }
-        if (more) takeSlot(results[slot]);
+        // A slot read at `before` itself is the read that ends the window when it comes back empty.
+        if (more) (slots[slot] === before ? take : takeSlot)(results[slot]);
       }
     }
     return { pages, before, more };

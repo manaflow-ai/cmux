@@ -19,6 +19,11 @@
 //! turns the repository's off), and its include lines come after the
 //! repository's, so a `!` line takes one back. Both are read from the main
 //! checkout, as it is now.
+//!
+//! The two files are the repository's own: each is read through the real
+//! folders of the main checkout ([`super::work_tree_entry`]). A file that is
+//! a link, or that is below a link, is not read, and the reply says so with
+//! [`LINK_PROBLEM`].
 
 use std::io::Read as _;
 use std::path::Path;
@@ -26,6 +31,7 @@ use std::path::Path;
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use super::work_tree_entry::{Kind, NoEntry, Tree};
 use super::worktree_include;
 use crate::Mux;
 use crate::state::projects::WorktreeRecipe;
@@ -34,6 +40,8 @@ use crate::state::projects::WorktreeRecipe;
 pub(crate) const PROJECT_FILE: &str = ".cmux/worktree.toml";
 /// The largest recipe or include file read.
 const MAX_FILE_BYTES: u64 = 256 * 1024;
+/// What is wrong with a recipe file that is a link or is below a link.
+const LINK_PROBLEM: &str = "not read: the file or a folder above it is a symbolic link";
 
 /// The recipe a worktree runs with.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
@@ -117,7 +125,8 @@ pub(crate) fn resolve(mux: &Mux, main_root: Option<&Path>, project: &Path) -> Re
 }
 
 fn read_repository(root: &Path, resolved: &mut Resolved) {
-    match read_text(&root.join(worktree_include::FILE_NAME)) {
+    let Some(mut tree) = Tree::open(root) else { return };
+    match read_text(&mut tree, worktree_include::FILE_NAME) {
         Ok(Some(text)) => {
             resolved.files.push(worktree_include::FILE_NAME);
             resolved.repository.include.extend(text.lines().map(str::to_string));
@@ -125,7 +134,7 @@ fn read_repository(root: &Path, resolved: &mut Resolved) {
         Ok(None) => {}
         Err(error) => resolved.problems.push(format!("{}: {error}", worktree_include::FILE_NAME)),
     }
-    let text = match read_text(&root.join(PROJECT_FILE)) {
+    let text = match read_text(&mut tree, PROJECT_FILE) {
         Ok(Some(text)) => text,
         Ok(None) => return,
         Err(error) => return resolved.problems.push(format!("{PROJECT_FILE}: {error}")),
@@ -157,15 +166,28 @@ fn read_repository(root: &Path, resolved: &mut Resolved) {
     }
 }
 
-/// A regular file's text (`None` when there is none). A link is not read:
-/// the recipe is the repository's own.
-fn read_text(path: &Path) -> Result<Option<String>, String> {
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.is_file() => {}
-        Ok(_) => return Err("not a regular file".into()),
-        Err(_) => return Ok(None),
+/// The text of the regular file `file` of the checkout `tree` (`None` when
+/// there is none). A link is not read, at the file's own name or at a folder
+/// above it: the recipe is the repository's own.
+fn read_text(tree: &mut Tree, file: &str) -> Result<Option<String>, String> {
+    let entry = match tree.entry(Path::new(file)) {
+        Ok(entry) => entry,
+        Err(NoEntry::Link) => return Err(LINK_PROBLEM.into()),
+        // A file in the place of a folder above it: no recipe file is there.
+        Err(NoEntry::NotFolder | NoEntry::Nothing) => return Ok(None),
+    };
+    match entry.kind() {
+        Some(Kind::File) => {}
+        Some(Kind::Link) => return Err(LINK_PROBLEM.into()),
+        Some(Kind::Folder | Kind::Other) => return Err("not a regular file".into()),
+        None => return Ok(None),
     }
-    let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
+    // The open follows no link either: a link that took the file's place
+    // after the look above is refused with the same words.
+    let file = entry.open_file().map_err(|error| match entry.kind() {
+        Some(Kind::Link) => LINK_PROBLEM.to_string(),
+        _ => error.to_string(),
+    })?;
     let mut text = String::new();
     file.take(MAX_FILE_BYTES + 1).read_to_string(&mut text).map_err(|error| error.to_string())?;
     if text.len() as u64 > MAX_FILE_BYTES {

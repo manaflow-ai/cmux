@@ -325,7 +325,10 @@ impl Hub {
             return Some(cmd);
         }
         // The chat's own Claude Code: the sign-in and route its turn just used.
-        let profile = cfg.harnesses.get(harness)?;
+        // A copy: the lock is let go before the login shell's environment is awaited below (up
+        // to a few seconds cold), or a config writer queued behind it would stall every reader,
+        // `_acpmux/status` too (ask-64cfa32e34).
+        let profile = cfg.harnesses.get(harness)?.clone();
         if profile.kind != crate::config::HarnessKind::ClaudeStdio {
             return None;
         }
@@ -352,9 +355,10 @@ impl Hub {
             ]
             .map(str::to_owned),
         );
+        drop(cfg);
         match crate::agent::harness_command_ready(
             harness,
-            profile,
+            &profile,
             &cwd,
             Some((program, args)),
             None,

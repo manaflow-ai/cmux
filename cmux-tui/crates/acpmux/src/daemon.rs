@@ -359,6 +359,26 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Bind before durable startup work, so clients can connect independently of journal replay.
     // Requests wait for the hub and launch tokens; agent spawns wait for `finish_startup`.
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;
+    // The v2 handle is created only after the listener is ready. Its empty
+    // published index is filled by the list tee in the follow-up lane; startup
+    // never waits on this handle or on a chat book.
+    let mut v2_tasks = tokio::task::JoinSet::new();
+    let v2 = if config.acpmux_v2.is_empty() {
+        None
+    } else {
+        let (hub, writer) = acpmux_core::hub::Hub::new(acpmux_book::index::SummaryIndex::new());
+        let surfaces = config.acpmux_v2.enabled().into_iter().map(str::to_owned).collect();
+        Some(std::sync::Arc::new(acpmux_core::life::V2::with_surfaces(hub, writer, surfaces)))
+    };
+    if let Some(v2) = v2.as_ref()
+        && let Some(writer) = v2.take_writer()
+    {
+        v2_tasks.spawn(async move {
+            if let Err(error) = writer.run().await {
+                tracing::warn!(%error, "v2 hub writer stopped");
+            }
+        });
+    }
     // The socket as bound, read at once: the home watch and the shutdown's removal use it.
     let bound_socket = home_watch::Owned::now(&[&socket_path()]);
     // Gone already: nothing can reach this daemon, so it stops before the startup.
@@ -564,6 +584,14 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     };
     // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
     let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
+    if let Some(v2) = v2.as_ref() {
+        let (tee, task) = crate::hub::list_tee::start_v2_tee(hub.clone(), v2.clone());
+        hub.install_v2_tee(tee);
+        v2.hub.set_page_provider(std::sync::Arc::new(crate::hub::list_tee::V1PageProvider::new(
+            hub.clone(),
+        )));
+        v2_tasks.spawn(task);
+    }
     // A copied machine's first start settles what the logs left open as stopped
     // (`hub/clone_boot.rs`); read before any log is.
     let cloned = hub.take_clone_marker(&home()).is_some();
@@ -757,7 +785,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     #[cfg(unix)]
     let (rebound_tx, rebound_rx) = tokio::sync::mpsc::channel(1);
     #[cfg(unix)]
-    let unix = tokio::spawn(socket_rebind::serve(hub.clone(), unix_listener, rebound_rx));
+    let unix =
+        tokio::spawn(socket_rebind::serve(hub.clone(), unix_listener, rebound_rx, v2.clone()));
     #[cfg(not(unix))]
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());

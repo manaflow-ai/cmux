@@ -28,7 +28,18 @@ green job, and no run built the tree; the nightly that waited for it gave up):
   step fails the job. A hand-off that re-ran a run and then could not delete
   its marker did run: that is a warning, and the step passes.
 
-usage: cmux_tui_tree_handoff.py --repo OWNER/NAME --run-id ID --key KEY
+With --published the key is published (publish-tree, or a run that adopted
+it): every run that deferred to it is re-run, not one. Such a run built
+nothing and so wrote no cmux-tui/<sha>/manifest.json; its re-run finds the
+tree published and writes that manifest from it with no build
+(adopt-commit-manifest, scripts/ci/adopt_cmux_tui_commit.py). Only a run of
+<sha> can attest its manifest, so the publisher re-runs it instead of writing
+it. A re-run that finds the tree published never defers again, so the markers
+(each used once) bound the re-runs; PUBLISHED_MAX_ATTEMPT is a backstop.
+A run still in progress is left with its marker: its own adopt step, after its
+marker, reads the tree this run already published.
+
+usage: cmux_tui_tree_handoff.py --repo OWNER/NAME --run-id ID --key KEY [--published]
 Needs GH_TOKEN with actions: write (job logs are read with actions access).
 GH_TOKEN_SPARE, optional: a second token with actions: write and its own rate limit.
 """
@@ -47,6 +58,9 @@ import gh_pages  # noqa: E402
 
 # A deferred run's last attempt the hand-off may start: two re-runs at most.
 MAX_ATTEMPT = 3
+# The same for --published: a deferred run may already be at MAX_ATTEMPT (f8a39fdd's run 43425734678
+# deferred at attempt 3 on 2026-11-13), and its manifest re-run builds nothing.
+PUBLISHED_MAX_ATTEMPT = MAX_ATTEMPT + 2
 # publish to R2's actions/attest-build-provenance steps: "Attest raw binary subjects",
 # its "(try 2)" / "(try 3)" / "(last try)" retries, and "Retry the attestation of ...".
 ATTEST_STEP = re.compile(r"^(?:Attest raw binary subjects(?: \((?:try \d+|last try)\))?|Retry the attestation\b.*)$")
@@ -89,13 +103,13 @@ def order_candidates(artifacts: Iterable[Mapping[str, Any]], self_run: int) -> l
     return sorted(rows, key=lambda row: (row[2] != "feat-cmux-next", -row[1]))
 
 
-def may_rerun(run: Mapping[str, Any]) -> tuple[bool, str]:
+def may_rerun(run: Mapping[str, Any], cap: int = MAX_ATTEMPT) -> tuple[bool, str]:
     """Whether a deferred run may be re-run now: completed (GitHub refuses a live one) and under the cap."""
     attempt = int(run.get("run_attempt") or 1)
     if run.get("status") != "completed":
         return False, f"run is {run.get('status')}"
-    if attempt >= MAX_ATTEMPT:
-        return False, f"attempt {attempt} reached the cap of {MAX_ATTEMPT} (two re-runs)"
+    if attempt >= cap:
+        return False, f"attempt {attempt} reached the cap of {cap}"
     return True, f"attempt {attempt}"
 
 
@@ -123,6 +137,43 @@ def _list(path: str, key: str) -> list[dict]:
         return gh_pages.items(fetch, path)
     except gh_pages.PageCapError as error:
         raise RuntimeError(str(error)) from None
+
+
+def _delete_marker(repo: str, artifact: int, deferred: int) -> None:
+    # Right after the re-run the delete can answer 404: the marker is gone already
+    # (2026-11-13: run 43364473890 re-ran its deferred run and went red on that 404).
+    deleted = _gh("api", "-X", "DELETE", f"repos/{repo}/actions/artifacts/{artifact}")
+    if deleted.returncode != 0 and MARKER_GONE.search(deleted.stderr):
+        print(f"Deferred marker {artifact} of run {deferred} was already gone.")
+    elif deleted.returncode != 0:
+        print(f"::warning::could not delete deferred marker {artifact} of run {deferred}: {deleted.stderr.strip()}")
+
+
+def rerun_published(repo: str, run_id: int, key: str) -> None:
+    """Re-run every completed run that deferred to published tree `key`, so each writes its commit manifest."""
+    artifacts = _list(f"repos/{repo}/actions/artifacts?name=cmux-tui-tree-deferred-{key}&per_page=100", "artifacts")
+    candidates = order_candidates(artifacts, run_id)
+    if not candidates:
+        print(f"No run of tree {key} deferred to it.")
+        return
+    failed = []
+    for artifact, deferred, branch in candidates:
+        result = _gh("api", f"repos/{repo}/actions/runs/{deferred}")
+        if result.returncode != 0 or not result.stdout.strip():
+            failed.append(f"could not read run {deferred} ({branch}): {result.stderr.strip()}")
+            continue
+        allowed, why = may_rerun(json.loads(result.stdout), PUBLISHED_MAX_ATTEMPT)
+        if not allowed:
+            print(f"Not re-running run {deferred} ({branch}): {why}.")
+            continue
+        rerun = _gh("run", "rerun", str(deferred), "--repo", repo)
+        if rerun.returncode != 0:
+            failed.append(f"could not re-run run {deferred} ({branch}): {rerun.stderr.strip()}")
+            continue
+        print(f"Re-ran run {deferred} ({branch}, {why}): tree {key} is published, and that run writes its commit manifest from it.")
+        _delete_marker(repo, artifact, deferred)
+    if failed:
+        raise RuntimeError("; ".join(failed))
 
 
 def handoff(repo: str, run_id: int, key: str) -> None:
@@ -160,13 +211,8 @@ def handoff(repo: str, run_id: int, key: str) -> None:
         print(f"Re-ran run {deferred} ({branch}, {why}), which deferred to this one, to build tree {key}.")
         # The marker is used once. If it cannot be deleted, a later owner may re-run this run again, but only
         # up to MAX_ATTEMPT: the cap is read from the run itself, not from the marker. The key was handed on,
-        # so the step passes. Right after the re-run the delete can answer 404: the marker is gone already
-        # (2026-11-13: run 43364473890 re-ran its deferred run and went red on that 404).
-        deleted = _gh("api", "-X", "DELETE", f"repos/{repo}/actions/artifacts/{artifact}")
-        if deleted.returncode != 0 and MARKER_GONE.search(deleted.stderr):
-            print(f"Deferred marker {artifact} of run {deferred} was already gone.")
-        elif deleted.returncode != 0:
-            print(f"::warning::could not delete deferred marker {artifact} of run {deferred}: {deleted.stderr.strip()}")
+        # so the step passes.
+        _delete_marker(repo, artifact, deferred)
         return
     print(f"::warning::no run that deferred tree {key} to this one could be re-run")
 
@@ -176,10 +222,20 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--repo", required=True)
     parser.add_argument("--run-id", required=True, type=int)
     parser.add_argument("--key", required=True)
+    parser.add_argument("--published", action="store_true",
+                        help="the key is published: re-run every run that deferred to it, for its commit manifest")
     args = parser.parse_args(argv)
     if not os.environ.get("GH_TOKEN"):
         print("::warning::tree hand-off needs GH_TOKEN; nothing was handed off", file=sys.stderr)
         return 2
+    if args.published:
+        try:
+            rerun_published(args.repo, args.run_id, args.key)
+        except Exception as error:  # the step fails its job: a deferred commit is left without its manifest
+            print(f"::error title=deferred runs not re-run::tree {args.key} is published, but {error}. Those "
+                  "commits have no cmux-tui manifest until their runs are re-run (gh run rerun RUN).")
+            return 1
+        return 0
     try:
         handoff(args.repo, args.run_id, args.key)
     except Exception as error:  # the step fails its job: say why nothing was handed off, and the way out
