@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde. */
+/* cmux-tui mux protocol 12, IR 3d5aa4510bf553d836056175a290c24a6ac1d16e5a486e3ad6f71712aa8a902a. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde" as const;
+export const SDK_IR_SHA256 = "3d5aa4510bf553d836056175a290c24a6ac1d16e5a486e3ad6f71712aa8a902a" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1684,7 +1684,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 5,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "known": {
+        "since": 12,
+        "capability": "list-workspaces-known-v1"
+      },
+      "limit": {
+        "since": 12,
+        "capability": "list-workspaces-limit-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -8585,6 +8594,69 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ListWorkspacesKnown": {
+    "additional_properties": false,
+    "fields": {
+      "generation": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "pane_revision": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "registry_id": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_revision": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "tree_revision": {
+        "constraints": [
+          "Opaque; from the tree_revision of the last whole tree."
+        ],
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "workspace_revision": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "LivePane": {
     "additional_properties": false,
     "fields": {
@@ -15449,6 +15521,45 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      },
+      "total": {
+        "capability": "list-workspaces-limit-v1",
+        "constraints": [
+          "With limit: the number of workspaces in the session."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "tree_revision": {
+        "capability": "list-workspaces-known-v1",
+        "constraints": [
+          "Opaque revision of everything the tree shows; only in replies to a request with known. Send it back in known."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "unchanged": {
+        "capability": "list-workspaces-known-v1",
+        "constraints": [
+          "True when the request's known tree is current: workspaces is then empty, and the client keeps the tree it holds."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       },
       "workspace_revision": {
@@ -22692,7 +22803,36 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
   "list-workspaces": {
     "request": {
       "additional_properties": false,
-      "fields": {},
+      "fields": {
+        "known": {
+          "capability": "list-workspaces-known-v1",
+          "constraints": [
+            "The identity and revisions of the whole tree the client holds ({} when none). When all are current the result is unchanged: true with empty workspaces; keep the tree you hold. Otherwise the whole tree with its tree_revision."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "ListWorkspacesKnown"
+          }
+        },
+        "limit": {
+          "capability": "list-workspaces-limit-v1",
+          "constraints": [
+            "Only the first limit workspaces in sidebar order, with total. A reply with fewer than total workspaces has no tree_revision."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
       "kind": "object"
     },
     "result": {

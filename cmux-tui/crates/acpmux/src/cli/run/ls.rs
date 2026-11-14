@@ -6,15 +6,20 @@
 //! (`ls_pages.rs`), and `--cursor` reads one. A listing never starts a daemon
 //! (`daemon/running.rs`).
 
+use std::sync::Arc;
+
+use acpmux_book::index::Summary;
+use acpmux_client::wire::ListView;
 use anyhow::Result;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::ls_pages::{self, PAGE_ROWS, Plan, Step};
 use crate::cli::errors;
+use crate::cli::list_read::{self, Via};
 use crate::cli::ls_table::{self, View};
-use crate::cli::output::print_json;
 use crate::cli::select::{self, parse_fields, project_fields, text_field};
+use crate::client::Client;
 use crate::daemon::connect_running;
 use crate::rpc::method;
 
@@ -82,7 +87,30 @@ pub struct LsArgs {
     leads: bool,
 }
 
+/// The v1 list `ls` pages when its daemon has no list surface or rows by key (`list_read.rs`).
+const V1_PAGES: &str = method::MUX_SESSIONS;
+
+/// `ls --cursor C`: one v1 page, a v1 read kept. It moves before the v1 list is deleted.
+const CURSOR_PAGE: &str = method::MUX_SESSIONS;
+
 pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
+    // A listing never starts a daemon (hq#4897 failure 4: an empty one on a dead socket read as
+    // a host with no sessions).
+    let client = connect_running().await?;
+    let via = Via::daemon();
+    print!("{}", output(args, json_out, &client, via, crate::store::now_ms()).await?);
+    Ok(())
+}
+
+/// What `acpmux ls` prints for `args`, read from `client`'s daemon `via` the v2 list or v1's
+/// pages, with ages as of `now`.
+pub(crate) async fn output(
+    args: LsArgs,
+    json_out: bool,
+    client: &Arc<Client>,
+    via: Via,
+    now: u64,
+) -> Result<String> {
     let LsArgs {
         mut patterns,
         name_patterns,
@@ -116,11 +144,8 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         || selected
         || named
         || cursor.is_some();
-    // A listing never starts a daemon (hq#4897 failure 4: an empty one on a dead socket read as
-    // a host with no sessions).
-    let client = connect_running().await?;
     // The text view says which peers are down; read alongside the list.
-    let peers = (!json_out && fields.is_none()).then(|| {
+    let mut peers = (!json_out && fields.is_none()).then(|| {
         let client = client.clone();
         tokio::spawn(async move { client.request(method::MUX_STATUS, json!({})).await })
     });
@@ -176,13 +201,14 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     // `--cursor` reads one page (of `--limit` rows); `--limit` alone, the newest rows up to it;
     // neither, every page.
     let paged = cursor.is_some() || limit.is_some();
+    let want = if cursor.is_some() {
+        None
+    } else {
+        limit.map(|n| usize::try_from(n).unwrap_or(usize::MAX))
+    };
     let plan = Plan {
         size: cursor.is_some().then_some(limit).flatten().unwrap_or(PAGE_ROWS),
-        want: if cursor.is_some() {
-            None
-        } else {
-            limit.map(|n| usize::try_from(n).unwrap_or(usize::MAX))
-        },
+        want,
         one: cursor.is_some(),
         // A filter only this side applies thins the pages: asking for just the rows still
         // wanted could then take a request per row.
@@ -192,17 +218,103 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
             && (status.is_none() || daemon_status.is_some())
             && (host.is_none() || rows.local_only()),
     };
-    let fetch = |page: Value| {
-        let client = client.clone();
-        async move { client.request(method::MUX_SESSIONS, page).await }
-    };
     let cursor = cursor.filter(|c| !c.is_empty());
     let one_page = cursor.is_some();
-    let read = crate::cli::slow_notice::noted(
-        "the session list",
-        ls_pages::read(params, cursor, plan, step, fetch),
-    )
-    .await?;
+    // The compact view: closed rows are hidden and counted, so only the live view is read and
+    // the count comes from `_acpmux/status`.
+    let compact = !json_out && fields.is_none() && !filtered && !all;
+    let live_status = status.as_deref().is_some_and(|s| s != "closed");
+    // The v1 list a `--limit` read's `nextCursor` speaks of holds closed rows unless a daemon
+    // filter drops them: such a read walks the whole view to know.
+    let daemon_live = live || daemon_status.is_some_and(|s| s != "closed");
+    let view = if daemon_live || (want.is_none() && (pending || live_status || compact)) {
+        ListView::Live
+    } else {
+        ListView::All
+    };
+    let walks_all = view == ListView::All;
+    let mut status_read = None;
+    if (compact || walks_all) && let Some(read) = peers.take() {
+        status_read = Some(read.await.ok().and_then(Result::ok));
+    }
+    if walks_all && status_read.is_none() {
+        status_read = Some(client.request(method::MUX_STATUS, json!({})).await.ok());
+    }
+    let closed_listed = status_read
+        .as_ref()
+        .and_then(|status| status.as_ref()?.get("closedListed")?.as_u64())
+        .map(|n| usize::try_from(n).unwrap_or(usize::MAX));
+    // `--cursor` is a v1 read kept; it moves before the v1 list is deleted. The compact view
+    // needs the closed count: a status without it means the v1 path. A walk of the whole view
+    // reads v1 while another machine's closed row is listed (decision 213).
+    let known_peers = status_read
+        .as_ref()
+        .and_then(|status| status.as_ref()?.get("peers")?.as_array().cloned());
+    let remote_closed =
+        walks_all && list_read::closed_remote_listed(status_read.as_ref().and_then(Option::as_ref));
+    let source = if !one_page && !remote_closed && (!compact || closed_listed.is_some()) {
+        via.open_knowing(client, known_peers.as_deref()).await?
+    } else {
+        None
+    };
+    let (read, closed) = match source {
+        Some(mut source) => {
+            let may_keep = |s: &Summary| {
+                let peer = (s.origin != "local").then_some(s.origin.as_str());
+                (!live || !list_read::closed(s))
+                    && (status.as_deref() != Some("closed") || list_read::closed(s))
+                    && (!live_status || !list_read::closed(s))
+                    && (!(pending || status.as_deref() == Some("waiting"))
+                        || list_read::pending(s))
+                    && rows.keeps(&json!({"peer": peer}))
+                    && (!named
+                        || list_read::name_probe(s)
+                            .is_none_or(|probe| select::name_matches(&probe, &patterns)))
+            };
+            let lists = |s: &Summary| {
+                if (live && list_read::closed(s)) || (rows.local_only() && s.origin != "local") {
+                    return Some(false);
+                }
+                match daemon_status {
+                    None => Some(true),
+                    Some("closed") => Some(list_read::closed(s)),
+                    Some(_) if list_read::closed(s) => Some(false),
+                    Some(_) => None,
+                }
+            };
+            let lists_row = |r: &Value| {
+                (!live || is_live(r))
+                    && daemon_status.is_none_or(|st| r["status"].as_str() == Some(st))
+                    && (!rows.local_only() || r["peer"].as_str().is_none())
+            };
+            let form = list_read::Form {
+                view,
+                may_keep: &may_keep,
+                keeps: &keeps,
+                cutoff,
+                want: want.map(|n| list_read::Want { rows: n, lists: &lists, lists_row: &lists_row }),
+                with_tools,
+                usage,
+            };
+            let fetched =
+                crate::cli::slow_notice::noted("the session list", source.read(form)).await?;
+            let closed = if compact { closed_listed.unwrap_or(0) } else { 0 };
+            (ls_pages::Pages { rows: fetched.rows, next: fetched.next }, closed)
+        }
+        None => {
+            let list = if one_page { CURSOR_PAGE } else { V1_PAGES };
+            let fetch = |page: Value| {
+                let client = client.clone();
+                async move { client.request(list, page).await }
+            };
+            let read = crate::cli::slow_notice::noted(
+                "the session list",
+                ls_pages::read(params, cursor, plan, step, fetch),
+            )
+            .await?;
+            (read, 0)
+        }
+    };
     let mut sessions = read.rows;
     // A peer's row comes without its tools (`ls_tools.rs`): each is read from the peer, for
     // the views that print them.
@@ -269,51 +381,57 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     if let Some(next) = read.next.filter(|_| paged) {
         v.set("nextCursor", next);
     }
+    let mut out = String::new();
     if json_out {
-        print_json(&v);
-        return Ok(());
+        out.push_str(&serde_json::to_string_pretty(&v).unwrap_or_default());
+        out.push('\n');
+        return Ok(out);
     }
     let sessions = match v.get_mut("sessions") {
         Some(Value::Array(rows)) => std::mem::take(rows),
         _ => Vec::new(),
     };
     if let Some(fields) = fields.as_deref() {
-        println!("{}", fields.join("\t"));
+        out.push_str(&fields.join("\t"));
+        out.push('\n');
         for session in sessions {
-            println!(
-                "{}",
-                fields
-                    .iter()
-                    .map(|field| text_field(select::field(&session, field)))
-                    .collect::<Vec<_>>()
-                    .join("\t")
-            );
+            let cells: Vec<String> =
+                fields.iter().map(|field| text_field(select::field(&session, field))).collect();
+            out.push_str(&cells.join("\t"));
+            out.push('\n');
         }
-        return Ok(());
+        return Ok(out);
     }
     if leads {
-        print!("{}", super::ls_leads::render(&sessions));
-        return Ok(());
+        out.push_str(&super::ls_leads::render(&sessions));
+        return Ok(out);
     }
-    let status = match peers {
-        Some(read) => read.await.ok().and_then(Result::ok),
-        None => None,
+    let status = match (status_read, peers) {
+        (Some(read), _) => read,
+        (None, Some(read)) => read.await.ok().and_then(Result::ok),
+        (None, None) => None,
     };
     let peers = status.as_ref().and_then(|s| s.get("peers")).and_then(Value::as_array).cloned();
     let view = View { all, wide };
-    let now = crate::store::now_ms();
     let pauses = ls_table::registry_pauses();
-    print!(
-        "{}",
-        ls_table::render_paused(&sessions, peers.as_deref(), view, filtered, now, &pauses)
-    );
+    out.push_str(&ls_table::render_counted(
+        &sessions,
+        closed,
+        peers.as_deref(),
+        view,
+        filtered,
+        now,
+        &pauses,
+    ));
     for line in status.as_ref().map(crate::shadow_admission::ls_lines).unwrap_or_default() {
-        println!("{line}");
+        out.push_str(&line);
+        out.push('\n');
     }
     if let Some(line) = status.as_ref().and_then(outbox_line) {
-        println!("{line}");
+        out.push_str(&line);
+        out.push('\n');
     }
-    Ok(())
+    Ok(out)
 }
 
 /// The line `acpmux ls` ends with while messages wait in this daemon's outbox (`hub/outbox.rs`).

@@ -303,7 +303,7 @@ async fn hub_carrier_a_turn_streams_over_the_relay_and_survives_a_relay_reconnec
     });
     let carrier_a = HubCarrier::new(tickets_a.clone(), key_a, fast);
     carrier_a.set_route("b", &public(&key_b));
-    assert!(a.hub_carrier.set(carrier_a.clone()));
+    a.hub_carrier.set(carrier_a.clone());
     let dead = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
     a.add_peer("b", &format!("ws://{dead}"), Some("tok".into()), Some(peer_token), false)
         .await
