@@ -549,6 +549,11 @@ impl HubRowSide {
             self.sessions[0] = hub_book_session(0, next);
             let (hosts, rows) = hub_book(self.sessions.clone());
             self.v1.set_mesh_book(hosts, rows);
+            // The book read (v1's, not timed) frees its rows; the next large allocation pays the
+            // allocator for them, whoever makes it. One here, on both sides, so the turn is the
+            // tee's own: at 2,048 book rows the summary's build took 103 us after the read and
+            // 11.6 us after this (`hub_row_drain_steps`, 2026-11-14).
+            std::hint::black_box(vec![1_u8; 1 << 20]);
             let before = self.v2.hub.snapshot().seq();
             let started = Instant::now();
             drain_marks(&self.v1, &self.v2, &self.state, &mut self.expiries);
