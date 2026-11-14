@@ -4929,10 +4929,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     runHereSend.current = true;
     sandbox.setMode("persistent");
   };
-  /// The card's "Start without a folder" start, until it opens or is dismissed: its Retries go without a folder too.
-  const cloudHomeStart = useRef(false);
+  /// The folder the latest Cloud send named (the card's "Start without a folder", or its project): Retry
+  /// repeats this exact folder, even when a New Tab pick changed from project A to project B.
+  const cloudRetryFolder = useRef<ReturnType<typeof cloudStartFolder> | undefined>(undefined);
   const dismissCloudFailure = () => {
-    cloudHomeStart.current = false;
+    cloudRetryFolder.current = undefined;
     setCloudStart(undefined);
   };
   /// The plan card's Switch to <team>: the next Cloud send carries the team, and the host switches to it
@@ -5184,7 +5185,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // A folder the host refused before binding the compose's reservation: that machine is given back now.
       if (!answer.ok && answer.code === "cloud_folder_too_big" && request.reservationKey)
         cloudReservation.returned(request.reservationKey);
-      if (answer.ok) cloudHomeStart.current = false;
+      if (answer.ok) cloudRetryFolder.current = undefined;
       setCloudStart((current) => cloudStartEnded(current, key, answer));
       if (!answer.ok && !cloudStartSaid(answer))
         notices.transient(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
@@ -6482,7 +6483,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// A Retry keeps the start's own folder: a start the too-big card sent without a folder retries without one, never
   /// from the composer's folder the preflight refused (Codex review F2 on #40957).
   const retryCloudStart = () => {
-    if (cloudHomeStart.current) cloudFolderOnce.current = { home: true };
+    if (cloudRetryFolder.current) cloudFolderOnce.current = cloudRetryFolder.current;
     sendStartPrompt();
   };
   /// The folder the next Cloud send names instead of the composer's (a too-big folder's card: a repository inside
@@ -6491,7 +6492,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The too-big card's way on: the same prompt, sent again in `folder` (a new start: another folder is another key).
   const sendCloudIn = (folder: { cwd: string } | { home: true }) => {
     cloudFolderOnce.current = folder;
-    cloudHomeStart.current = "home" in folder;
     sendStartPrompt();
   };
   /// A repository inside the folder, or a folder the person browses to: picked as the chat's folder (granted to the
@@ -12355,11 +12355,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 // The chat's project, copied to the machine; none: the machine's own folder (cloudStartFolder).
                 const once = cloudFolderOnce.current;
                 cloudFolderOnce.current = undefined;
+                const folder = once ?? cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
+                // Each send records its complete folder, so a Retry repeats this send's folder, never an older one's.
+                cloudRetryFolder.current = folder;
                 const started = sendToCloud(
                   text,
                   shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
                   {
-                    ...(once ?? cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd)),
+                    ...folder,
                     ...heldPick(composerSnapshot),
                     ...cloudStartModePick(composerSnapshot.summary?.harness),
                   },
@@ -13302,12 +13305,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                           cwd: string | undefined,
                           model: string | undefined,
                           attachments: ComposerAttachment[],
-                        ) =>
-                          sendToCloud(
+                        ) => {
+                          const folder = cloudStartFolder(cwd);
+                          // New Tab sends use this callback directly, so record their complete folder too.
+                          // Otherwise Retry would reuse the pane's previous folder.
+                          cloudRetryFolder.current = folder;
+                          return sendToCloud(
                             text,
                             attachments,
                             {
-                              ...cloudStartFolder(cwd),
+                              ...folder,
                               // The agent the Mode chip names and its pick: a harness with no
                               // Cloud start mode is left out, so the machine starts Claude.
                               ...cloudSendAgent(
@@ -13317,7 +13324,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                               ),
                             },
                             true,
-                          ),
+                          );
+                        },
                         onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
                           const started = sandboxPickedNotOffered
                             ? sandboxNotNow

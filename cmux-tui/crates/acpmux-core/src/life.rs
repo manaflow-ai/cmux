@@ -135,9 +135,22 @@ where
                 health.send_replace(Health::Ended);
                 return Ok(value);
             }
-            Ok(Err(error)) => {
-                health.send_replace(Health::Failed);
-                return Err(Failure::Task(error));
+            Ok(Err(_error)) => {
+                let now = Instant::now();
+                while panics
+                    .front()
+                    .is_some_and(|at| now.duration_since(*at) >= policy.panic_window)
+                {
+                    panics.pop_front();
+                }
+                if panics.len() == policy.panic_limit {
+                    panics.pop_front();
+                }
+                panics.push_back(now);
+                failed = panics.len() >= policy.panic_limit;
+                health.send_replace(if failed { Health::Failed } else { Health::Restarting });
+                sleep(if failed { policy.failed_wait } else { delay }).await;
+                delay = delay.saturating_mul(2).min(policy.max_wait);
             }
             Err(error) if error.is_panic() => {
                 let now = Instant::now();
@@ -198,6 +211,33 @@ mod tests {
         assert!(matches!(result, Ok(42)));
         assert_eq!(starts.load(Ordering::SeqCst), 2);
         assert!(before.elapsed() >= policy.first_wait);
+        assert!(scope.close(Duration::from_secs(1)).await.joined());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_actor_error_uses_the_same_restart_wait_as_a_panic() {
+        let scope = Scope::new("supervision-test");
+        let starts = Arc::new(AtomicUsize::new(0));
+        let (health, _) = watch::channel(Health::Starting);
+        let policy = Policy { first_wait: Duration::from_millis(10), ..Policy::default() };
+        let result = supervise(
+            &scope,
+            || {
+                let starts = Arc::clone(&starts);
+                async move {
+                    if starts.fetch_add(1, Ordering::SeqCst) < 2 {
+                        Err::<u32, _>(())
+                    } else {
+                        Ok::<u32, _>(42)
+                    }
+                }
+            },
+            policy,
+            health,
+        )
+        .await;
+        assert!(matches!(result, Ok(42)));
+        assert_eq!(starts.load(Ordering::SeqCst), 3);
         assert!(scope.close(Duration::from_secs(1)).await.joined());
     }
 
