@@ -69,6 +69,7 @@ impl ResourceOperation {
                 | Self::DiffCommentsList
                 | Self::GitDiff
                 | Self::GitFilesList
+                | Self::GitFingerprint
                 | Self::GitFilesSearch
                 | Self::GitStatus
                 | Self::GitWorktreeSetup

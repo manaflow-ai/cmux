@@ -116,6 +116,7 @@ pub async fn serve_connection_device(
         None,
         None,
         None,
+        None,
     )
     .await
 }

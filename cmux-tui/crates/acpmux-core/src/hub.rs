@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use thiserror::Error;
 use tokio::sync::Notify;
 
-use crate::wire::{Frame, FrameError, FrameKind, ListFilter, Origin, PageSide, Position, Sub};
+use crate::wire::{Frame, FrameError, FrameKind, Origin, PageSide, Position, Sub};
 mod compaction;
 mod disk;
 #[cfg(test)]
@@ -39,6 +39,8 @@ mod mirror_gates;
 mod mirror_tests;
 mod origins;
 pub use acpmux_book::index::MirrorMark;
+#[cfg(test)]
+mod peer_tests;
 pub use compaction::CompactionStats;
 use history::{History, PeerHistory};
 pub use mirror::{MAX_UNIT_CHANGES, MirrorCounts, MirrorUnit, UnitChange};
@@ -393,7 +395,11 @@ impl ListReceiver {
         let span = if let Some(peer_history) = self.peer_history.as_ref() {
             let history = peer_history.lock().ok()?;
             let Some(history) = history.as_ref() else { return Some(RawRead::Lagged) };
-            let last = history.last_seq().max(self.published.load().seq());
+            // A wake can come before the writer appends the op it names: the
+            // index is published first. Read only what the peer history has
+            // committed, or an empty span would carry the cursor past an op
+            // appended a moment later.
+            let last = history.last_seq();
             let target = through.unwrap_or(cursor.saturating_add(1)).min(last);
             if cursor >= target {
                 return None;
@@ -514,6 +520,10 @@ pub struct HubWriter {
     hydrated: tokio::sync::watch::Sender<disk::HydrationState>,
     #[cfg(test)]
     turn_measure: disk::TurnMeasure,
+    /// Runs in a turn after the index is published and before its op is in
+    /// the histories: where a wake can reach a reader first.
+    #[cfg(test)]
+    before_record: Mutex<Option<RecordHook>>,
     compaction: Option<compaction::Job>,
     retirement: Option<tokio::task::JoinHandle<()>>,
     maintenance: Option<compaction::Maintenance>,
@@ -754,6 +764,8 @@ impl Hub {
             hydrated: hydrated_tx,
             #[cfg(test)]
             turn_measure: disk::TurnMeasure::default(),
+            #[cfg(test)]
+            before_record: Mutex::new(None),
             compaction: None,
             retirement: None,
             maintenance: None,
@@ -964,6 +976,16 @@ impl Hub {
         Ok(Some(target))
     }
 
+    /// Ops encoded in peer form since the peer history was made: one per local change, read
+    /// by the peer link's gates against the number of peers sent to.
+    pub fn peer_encodes(&self) -> u64 {
+        self.peer_history
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(PeerHistory::encodes))
+            .unwrap_or(0)
+    }
+
     pub fn peer_resume_target(&self, cursor: u64) -> Result<Option<u64>, HubError> {
         let slot = self.peer_history.lock().map_err(|_| HubError::WriterGone)?;
         let Some(history) = slot.as_ref() else { return Ok(None) };
@@ -1130,13 +1152,12 @@ impl Hub {
             _ => (None, ReadSide::After),
         };
         let page = index
-            .read_live_page(
+            .read_local_live_page(
                 key.as_ref(),
                 side,
                 true,
                 requested,
                 crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
-                Some(&ListFilter { origin: Some("local".into()), ..Default::default() }),
             )
             .map_err(|error| self.page_error(error))?;
         let window = Window {
@@ -1182,13 +1203,12 @@ impl Hub {
         };
         let index = self.snapshot();
         let page = index
-            .read_live_page(
+            .read_local_live_page(
                 key.as_ref(),
                 side,
                 false,
                 MAX_WINDOW_ROWS,
                 max - 8192 - request.sid.len(),
-                Some(&ListFilter { origin: Some("local".into()), ..Default::default() }),
             )
             .map_err(|error| self.page_error(error))?;
         let reply = crate::wire::PageResult {
@@ -1268,10 +1288,7 @@ impl Hub {
                     id: origin.id.clone(),
                     state: origin.state,
                     since: origin.since,
-                    extra: origin
-                        .extra
-                        .as_ref()
-                        .and_then(|extra| serde_json::from_str(extra.get()).ok()),
+                    extra: origin.extra.as_ref().and_then(|extra| parse_extra(extra)),
                 })
                 .collect(),
             before_key: page.before_key.map(wire_key),
@@ -1391,6 +1408,25 @@ impl Hub {
         }
         HubError::page_error(error)
     }
+}
+
+/// What a test runs between a turn's publish and its history record.
+#[cfg(test)]
+type RecordHook = Box<dyn FnMut(u64) + Send>;
+
+static EXTRA_PARSES: AtomicU64 = AtomicU64::new(0);
+
+/// Every `extra` the list's path parses: an origin record's, for a local window. Nothing that
+/// sends to a peer parses one; the peer link's gates read this.
+pub fn extra_parses() -> u64 {
+    EXTRA_PARSES.load(Ordering::Relaxed)
+}
+
+pub(crate) fn parse_extra<T: serde::de::DeserializeOwned>(
+    extra: &serde_json::value::RawValue,
+) -> Option<T> {
+    EXTRA_PARSES.fetch_add(1, Ordering::Relaxed);
+    serde_json::from_str(extra.get()).ok()
 }
 
 fn book_key(key: &crate::wire::ListKey) -> SortKey {
@@ -1635,6 +1671,18 @@ impl HubWriter {
     }
 
     fn record_history(&self, item: ListItem) {
+        #[cfg(test)]
+        if let Ok(mut hook) = self.before_record.lock()
+            && let Some(hook) = hook.as_mut()
+        {
+            hook(match &item {
+                ListItem::Summary(event) => event.seq,
+                ListItem::Gone { seq, .. }
+                | ListItem::Origin { seq, .. }
+                | ListItem::Folders { seq, .. }
+                | ListItem::Lagged { cursor: seq } => *seq,
+            });
+        }
         if let Ok(mut history) = self.history.lock()
             && history.append(&item).is_err()
         {

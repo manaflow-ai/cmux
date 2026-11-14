@@ -5469,6 +5469,109 @@ Result<ListTerminalsResult> Codec<ListTerminalsResult>::decode(const Json& value
     return result;
 }
 
+Result<Json> Codec<ListWorkspacesKnown>::encode(const ListWorkspacesKnown& value) {
+    (void)value;
+    Json::Object object;
+    if (!value.generation.is_absent()) {
+        auto encoded = encode_value(value.generation);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("generation", std::move(encoded).value());
+    }
+    if (!value.pane_revision.is_absent()) {
+        auto encoded = encode_value(value.pane_revision);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("pane_revision", std::move(encoded).value());
+    }
+    if (!value.registry_id.is_absent()) {
+        auto encoded = encode_value(value.registry_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("registry_id", std::move(encoded).value());
+    }
+    if (!value.terminal_revision.is_absent()) {
+        auto encoded = encode_value(value.terminal_revision);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_revision", std::move(encoded).value());
+    }
+    if (!value.tree_revision.is_absent()) {
+        auto encoded = encode_value(value.tree_revision);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("tree_revision", std::move(encoded).value());
+    }
+    if (!value.workspace_revision.is_absent()) {
+        auto encoded = encode_value(value.workspace_revision);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("workspace_revision", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<ListWorkspacesKnown> Codec<ListWorkspacesKnown>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ListWorkspacesKnown result{};
+    const Json* field_generation = value.find("generation");
+    if (field_generation) {
+        if (field_generation->is_null()) {
+            result.generation = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_generation);
+            if (!decoded) return std::move(decoded).error();
+            result.generation = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_pane_revision = value.find("pane_revision");
+    if (field_pane_revision) {
+        if (field_pane_revision->is_null()) {
+            result.pane_revision = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_pane_revision);
+            if (!decoded) return std::move(decoded).error();
+            result.pane_revision = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_registry_id = value.find("registry_id");
+    if (field_registry_id) {
+        if (field_registry_id->is_null()) {
+            result.registry_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_registry_id);
+            if (!decoded) return std::move(decoded).error();
+            result.registry_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_terminal_revision = value.find("terminal_revision");
+    if (field_terminal_revision) {
+        if (field_terminal_revision->is_null()) {
+            result.terminal_revision = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_terminal_revision);
+            if (!decoded) return std::move(decoded).error();
+            result.terminal_revision = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_tree_revision = value.find("tree_revision");
+    if (field_tree_revision) {
+        if (field_tree_revision->is_null()) {
+            result.tree_revision = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_tree_revision);
+            if (!decoded) return std::move(decoded).error();
+            result.tree_revision = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_workspace_revision = value.find("workspace_revision");
+    if (field_workspace_revision) {
+        if (field_workspace_revision->is_null()) {
+            result.workspace_revision = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_workspace_revision);
+            if (!decoded) return std::move(decoded).error();
+            result.workspace_revision = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<LivePane>::encode(const LivePane& value) {
     (void)value;
     Json::Object object;
@@ -16269,6 +16372,21 @@ Result<Json> Codec<Tree>::encode(const Tree& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("terminal_revision", std::move(encoded).value());
     }
+    if (value.total) {
+        auto encoded = encode_value(*value.total);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("total", std::move(encoded).value());
+    }
+    if (value.tree_revision) {
+        auto encoded = encode_value(*value.tree_revision);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("tree_revision", std::move(encoded).value());
+    }
+    if (value.unchanged) {
+        auto encoded = encode_value(*value.unchanged);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("unchanged", std::move(encoded).value());
+    }
     if (value.workspace_revision) {
         auto encoded = encode_value(*value.workspace_revision);
         if (!encoded) return std::move(encoded).error();
@@ -16307,6 +16425,24 @@ Result<Tree> Codec<Tree>::decode(const Json& value) {
         auto decoded = decode_value<std::uint64_t>(*field_terminal_revision);
         if (!decoded) return std::move(decoded).error();
         result.terminal_revision = std::move(decoded).value();
+    }
+    const Json* field_total = value.find("total");
+    if (field_total) {
+        auto decoded = decode_value<std::uint64_t>(*field_total);
+        if (!decoded) return std::move(decoded).error();
+        result.total = std::move(decoded).value();
+    }
+    const Json* field_tree_revision = value.find("tree_revision");
+    if (field_tree_revision) {
+        auto decoded = decode_value<std::string>(*field_tree_revision);
+        if (!decoded) return std::move(decoded).error();
+        result.tree_revision = std::move(decoded).value();
+    }
+    const Json* field_unchanged = value.find("unchanged");
+    if (field_unchanged) {
+        auto decoded = decode_value<bool>(*field_unchanged);
+        if (!decoded) return std::move(decoded).error();
+        result.unchanged = std::move(decoded).value();
     }
     const Json* field_workspace_revision = value.find("workspace_revision");
     if (field_workspace_revision) {
@@ -26302,6 +26438,16 @@ Result<ListWorkspaceGroupsRequest> Codec<ListWorkspaceGroupsRequest>::decode(con
 Result<Json> Codec<ListWorkspacesRequest>::encode(const ListWorkspacesRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.known.is_absent()) {
+        auto encoded = encode_value(value.known);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("known", std::move(encoded).value());
+    }
+    if (!value.limit.is_absent()) {
+        auto encoded = encode_value(value.limit);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("limit", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -26309,6 +26455,26 @@ Result<ListWorkspacesRequest> Codec<ListWorkspacesRequest>::decode(const Json& v
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ListWorkspacesRequest result{};
+    const Json* field_known = value.find("known");
+    if (field_known) {
+        if (field_known->is_null()) {
+            result.known = Field<ListWorkspacesKnown>::null();
+        } else {
+            auto decoded = decode_value<ListWorkspacesKnown>(*field_known);
+            if (!decoded) return std::move(decoded).error();
+            result.known = Field<ListWorkspacesKnown>(std::move(decoded).value());
+        }
+    }
+    const Json* field_limit = value.find("limit");
+    if (field_limit) {
+        if (field_limit->is_null()) {
+            result.limit = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_limit);
+            if (!decoded) return std::move(decoded).error();
+            result.limit = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
     return result;
 }
 
@@ -45936,6 +46102,10 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand127FieldRequirements{{
     {"machine_metadata", 12U, "machine-identity-v1"},
     {"revisions", 12U, ""},
 }};
+constexpr std::array<CommandFieldRequirement, 2> kCommand143FieldRequirements{{
+    {"known", 12U, "list-workspaces-known-v1"},
+    {"limit", 12U, "list-workspaces-limit-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 1> kCommand156FieldRequirements{{
     {"transaction", 12U, "tab-drag-v1"},
 }};
@@ -46259,7 +46429,7 @@ constexpr std::array<CommandMetadata, 301> kCommands{{
     {"list-terminal-commands", "local-admin", 12U, "terminal-command-history-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"list-terminals", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"list-workspace-groups", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"list-workspaces", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"list-workspaces", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand143FieldRequirements)},
     {"machine-listening-tcp", "control", 12U, "machine-listening-tcp-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"machine-usage", "control", 12U, "machine-usage-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"mark-workspaces-provider-managed", "provider-authority", 9U, "provider-managed-workspace-authority-v2", false, "", "", std::span<const CommandFieldRequirement>{}},

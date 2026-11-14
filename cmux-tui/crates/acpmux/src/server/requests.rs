@@ -1151,12 +1151,18 @@ async fn dispatch_request_with_identity(
             return Ok(json!({"harnesses": rows}));
         }
     }
+    // Rows by key (`info.rs`) are answered here, a peer's from its mirror: never forwarded, and
+    // refused when they name one session beside them.
+    let rows_by_key =
+        m == method::MUX_INFO && params.get("sessionIds").is_some_and(|keys| !keys.is_null());
     // A session that lives on a peer (`peer_forward.rs`).
-    if let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await {
+    if !rows_by_key && let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await {
         return reply;
     }
     // A session on a machine only the mesh hub reaches (`mesh_read.rs`).
-    if let Some(reply) = super::mesh_relay::read::forward(hub, conn, m, &params).await {
+    if !rows_by_key
+        && let Some(reply) = super::mesh_relay::read::forward(hub, conn, m, &params).await
+    {
         return reply;
     }
     // The app's prompt to a chat on a machine only the hub reaches (`mesh_read.rs`).
@@ -1273,6 +1279,14 @@ async fn dispatch_request_with_identity(
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
                 "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
             });
+            // This link carries the v2 list stream (`link_v2.rs`): the one change `peers` makes
+            // to what v1 sends a link.
+            if conn.list_stream
+                && let Some(features) =
+                    reply.pointer_mut("/_meta/acpmux/features").and_then(Value::as_array_mut)
+            {
+                features.push(json!(crate::link_v2::FEATURE));
+            }
             // The daemon's v2 list holds the hub machines' rows (`hub/list_tee.rs`): a fact of
             // its index, named on every connection.
             if hub.v2_lists_hub_rows()
