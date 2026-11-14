@@ -10,7 +10,7 @@
 // ``SubagentChipPreview``: the start line (SubagentStartedLine.tsx, grouped or one), the end line
 // (SubagentDoneLine.tsx, each of its looks). The running tray's lines name their task whole and keep
 // their own title tooltip (SubagentTray.tsx `agentTooltip`).
-import { cloneElement, useContext, type ReactElement, type ReactNode } from "react";
+import { cloneElement, type ReactElement, type ReactNode } from "react";
 import { Tooltip } from "../../../ui/Tooltip";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
@@ -18,7 +18,7 @@ import { subagentStateText, subagentStatus, type SubagentStatus } from "../summa
 import { useAgentProgress } from "./agentProgressStore";
 import { isRepeatedAgentKind } from "./agentIdentityModel";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
-import { elapsed, SubagentClockContext } from "./subagentGroupModel";
+import { elapsed, useNow } from "./subagentGroupModel";
 import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { latestLine } from "./trayDetail";
 
@@ -68,8 +68,8 @@ export function SubagentPreviewCard({
 }) {
   const t = useT();
   const progress = useAgentProgress(agent);
-  // The card reads the session's clock when it opens: it shows for seconds, so it never ticks.
-  const now = Date.now() - useContext(SubagentClockContext);
+  // The session's clock as the card opens (it mounts on open): it shows for seconds, so it never ticks.
+  const now = useNow(false);
   const title = name ?? subagentTaskLabel(t, agent);
   const status = subagentStatus(agent, waiting, now);
   const own = subagentDisplayName(t, agent);
