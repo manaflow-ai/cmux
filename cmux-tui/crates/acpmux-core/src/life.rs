@@ -122,11 +122,10 @@ where
     }
     let mut panics = VecDeque::new();
     let mut delay = policy.first_wait;
-    let mut failed = false;
     loop {
         // A failed chat stays failed during its probationary attempt. Its actor publishes
         // Running only after recovery succeeds, so callers cannot observe false readiness.
-        if !failed {
+        if *health.borrow() != Health::Failed {
             health.send_replace(Health::Starting);
         }
         let mut active = Active(scope.spawn_named("chat-actor", start()));
@@ -147,7 +146,7 @@ where
                     panics.pop_front();
                 }
                 panics.push_back(now);
-                failed = panics.len() >= policy.panic_limit;
+                let failed = panics.len() >= policy.panic_limit;
                 health.send_replace(if failed { Health::Failed } else { Health::Restarting });
                 sleep(if failed { policy.failed_wait } else { delay }).await;
                 delay = delay.saturating_mul(2).min(policy.max_wait);
@@ -165,7 +164,7 @@ where
                     panics.pop_front();
                 }
                 panics.push_back(now);
-                failed = panics.len() >= policy.panic_limit;
+                let failed = panics.len() >= policy.panic_limit;
                 health.send_replace(if failed { Health::Failed } else { Health::Restarting });
                 sleep(if failed { policy.failed_wait } else { delay }).await;
                 delay = delay.saturating_mul(2).min(policy.max_wait);
