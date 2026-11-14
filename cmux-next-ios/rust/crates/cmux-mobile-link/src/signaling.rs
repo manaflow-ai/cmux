@@ -582,11 +582,9 @@ impl Shared {
         let unanswered = &self.pings_unanswered;
         let settle = || {
             unanswered
-                .fetch_update(
-                    std::sync::atomic::Ordering::Relaxed,
-                    std::sync::atomic::Ordering::Relaxed,
-                    |n| n.checked_sub(1),
-                )
+                .try_update(std::sync::atomic::Ordering::Relaxed, std::sync::atomic::Ordering::Relaxed, |n| {
+                    n.checked_sub(1)
+                })
                 .is_ok()
         };
         if text == APP_PONG {
@@ -697,7 +695,10 @@ mod tests {
         assert!(matches!(events.try_recv(), Ok(SignalingEvent::Error { session_id: None, .. })));
         // An error that names a session is never taken for a ping's answer.
         shared.pings_unanswered.store(1, std::sync::atomic::Ordering::Relaxed);
-        shared.dispatch_text(r#"{"type":"error","code":"bad_request","message":"x","sessionId":"s1"}"#, &incoming);
+        shared.dispatch_text(
+            r#"{"type":"error","code":"bad_request","message":"x","sessionId":"s1"}"#,
+            &incoming,
+        );
         assert!(matches!(events.try_recv(), Ok(SignalingEvent::Error { session_id: Some(_), .. })));
         // A 0.15.0 Worker's pong settles a ping and is dropped.
         shared.dispatch_text("pong", &incoming);

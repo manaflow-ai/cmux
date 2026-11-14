@@ -248,7 +248,7 @@ impl<'c, C: Connection> Painter<'c, C> {
                 let ny = ((y + dy) & 1023) * 1024;
                 let gy = ((y * 255 / h) + t * 3) as u8;
                 let row = &mut buf[y * stride..(y + 1) * stride];
-                for (x, px) in row.chunks_exact_mut(4).enumerate() {
+                for (x, px) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                     let n = m.noise[ny + ((x + dx) & 1023)] >> 2;
                     let r = col[x].wrapping_add((t * 2) as u8);
                     let b = col[x].wrapping_add(gy).wrapping_sub(t as u8);
