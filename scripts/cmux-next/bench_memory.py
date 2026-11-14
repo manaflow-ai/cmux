@@ -38,6 +38,17 @@ workspaces' chat tabs one at a time and times each chat back on screen with the 
 a chat that loads again; a chat whose page stayed live shows at once and is counted as `live`, not
 timed. One count per run, like --purge-hidden.
 
+--diff-tab small|large gives the count's idle window a visible diff tab (diff_tab_cells.py): a
+repository of that size with uncommitted changes, its diff tab opened and shown in the focused pane
+before the settle. The page asks the app for the repository's fingerprint on a timer while it is
+visible, each 4 s with the focus and each 30 s without it, so the window is --measure seconds when
+the page says that it has the focus and --diff-unfocused-measure seconds when it does not.
+--diff-scroll sends the page wheel events for the whole window. --child-time adds `child_cpu_pct`
+to each process and kind: the CPU time of the children that ended in the window (the daemon's git
+runs), which no live process's own time has. It is the whole CPU of each such child, also its part
+from before the window. The run first proves the read with a child of its own (`child_time_check`
+in the report); when that fails, no `child_cpu_pct` is written. One count per run, like --purge-hidden.
+
 Two ways to run (macOS only, a fleet or capture mini, never a laptop):
   attach  --socket PATH --app-pid PID: an app someone else launched, for
           example by `capture-host launch` into a capture slot (capture
@@ -51,6 +62,7 @@ Usage:
       [--settle 30] [--measure 0] [--churn-minutes 0] [--sample-minutes 5]
       [--url URL] [--top 15] [--config JSON] [--fake-agent SCRIPT] [--purge-hidden]
       [--release-hidden-chats MINUTES [--restore-chats 10]] [--out FILE.json]
+      [--diff-tab small|large [--diff-scroll] [--diff-unfocused-measure 300]] [--child-time]
   bench_memory.py --app BUNDLE --tabs 1,10,20 [--urls local|real|URL,URL,...] [--settle 30]
 
 Prints a table per measurement (top processes by footprint, totals per
@@ -74,6 +86,29 @@ import tempfile
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+
+
+
+def _thread_wakes():
+    """thread_wakes.py beside this file (thread names and --attribute-trace), or None: a sparse checkout
+    that copies only this script (cmux-next-frame-pacing.yml) still runs everything but those."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    try:
+        import thread_wakes
+    except ImportError:
+        return None
+    return thread_wakes
+
+def _diff_tab_cells():
+    """diff_tab_cells.py beside this file (--diff-tab, --child-time); a run that names neither needs none."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import diff_tab_cells
+    return diff_tab_cells
+
 
 _libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
 _libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
@@ -179,16 +214,20 @@ def webkit_owned(pid: int, app_pid: int) -> bool:
     return _direct_launch and pid not in _webkit_before and owner == _responsible(app_pid)
 
 
-def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: float = 0):
+def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: float = 0, child_ns=None):
     """Memory per process now; with `measure` > 0 also CPU % and wakeups/s
     over that many idle seconds (proc_pid_rusage at both ends, so the bench
-    adds no wakeups to the measured processes)."""
+    adds no wakeups to the measured processes). `child_ns` (pid -> ns, --child-time)
+    adds `child_cpu_pct`: the CPU of the process's children that ended in the window."""
     start = {}
+    child_start = {}
     if measure > 0:
         for pid in owned(app_pid, bundle):
             got = usage(pid)
             if got is not None:
                 start[pid] = got
+                if child_ns is not None:
+                    child_start[pid] = child_ns(pid)
         time.sleep(measure)  # test script: the measured idle window
     rows = []
     for pid, (kind, cmd) in owned(app_pid, bundle).items():
@@ -201,6 +240,9 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
         if pid in start:
             row["cpu_pct"] = round(100 * (got[3] - start[pid][3]) / 1e9 / measure, 3)
             row["wakeups_per_s"] = round((got[4] - start[pid][4]) / measure, 2)
+            child_end = child_ns(pid) if child_ns is not None else None
+            if child_end is not None and child_start.get(pid) is not None:
+                row["child_cpu_pct"] = round(100 * (child_end - child_start[pid]) / 1e9 / measure, 3)
         rows.append(row)
     rows.sort(key=lambda row: -row["footprint_mb"])
     kinds = {}
@@ -212,6 +254,8 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
         if "cpu_pct" in row:
             entry["cpu_pct"] = round(entry.get("cpu_pct", 0.0) + row["cpu_pct"], 3)
             entry["wakeups_per_s"] = round(entry.get("wakeups_per_s", 0.0) + row["wakeups_per_s"], 2)
+        if "child_cpu_pct" in row:
+            entry["child_cpu_pct"] = round(entry.get("child_cpu_pct", 0.0) + row["child_cpu_pct"], 3)
     return {"measure_s": measure, "label": label, "workspaces": workspaces, "time": round(time.time()),
             "total_rss_mb": round(sum(r["rss_mb"] for r in rows), 1),
             "total_footprint_mb": round(sum(r["footprint_mb"] for r in rows), 1),
@@ -266,6 +310,8 @@ def stack_sample(pid: int, seconds: int = 3) -> dict:
         if os.path.exists(path):
             os.remove(path)
     threads = [line.strip() for line in text.splitlines() if re.match(r"^\s{4}\d+ Thread_\d+", line)]
+    wakes_lib = _thread_wakes()
+    by_tid = wakes_lib.sample_threads(text) if wakes_lib else {}
     top, in_top = [], False
     for line in text.splitlines():
         if line.startswith("Sort by top of stack"):
@@ -277,7 +323,7 @@ def stack_sample(pid: int, seconds: int = 3) -> dict:
                     break
                 continue
             top.append(line.strip())
-    return {"threads": threads[:60], "top_of_stack": top[:40]}
+    return {"threads": threads[:60], "top_of_stack": top[:40], "by_tid": by_tid}
 
 
 class Attribution:
@@ -286,8 +332,9 @@ class Attribution:
     reset at the start; its main run loop's timers at the end) and live pages (`debug.cef_pages`);
     after it, a short stack `sample` of both."""
 
-    def __init__(self, app: "App", app_pid: int, bundle: str, kinds: tuple = ("app", "cef-gpu")):
+    def __init__(self, app: "App", app_pid: int, bundle: str, kinds: tuple = ("app", "cef-gpu"), trace_s: int = 0):
         self.app, self.app_pid, self.bundle, self.kinds = app, app_pid, bundle, kinds
+        self.trace_s = trace_s
         self.before: dict = {}
         self.started = 0.0
 
@@ -310,7 +357,29 @@ class Attribution:
         timers = [line.strip() for line in run_loop.splitlines() if "CFRunLoopTimer" in line]
         pages = (self.app.call("debug.cef_pages", timeout=30) or {}).get("pages") or []
         stacks = {f"{kind}:{pid}": stack_sample(pid) for pid, kind in pids.items()}
-        return {"window_s": round(seconds, 1), "threads": threads,
+        thread_wakes = _thread_wakes()
+        # Each thread named: its pthread name, else its sample header or first frames (by thread id).
+        for key, rows in threads.items():
+            sampled = stacks.get(key, {}).get("by_tid") or {}
+            for row in rows:
+                row["label"] = thread_wakes.label(row["name"], sampled.get(row["thread"])) if thread_wakes else row["name"]
+        # --attribute-trace: per-thread wakeups from a System Trace after the window (so it is not in
+        # the rusage window), each thread named the same way.
+        wakes = {}
+        for pid, kind in (pids.items() if self.trace_s > 0 else ()):
+            key = f"{kind}:{pid}"
+            if thread_wakes is None:
+                wakes[key] = {"error": "no thread_wakes.py beside bench_memory.py"}
+                continue
+            got = thread_wakes.record(pid, self.trace_s)
+            sampled = stacks.get(key, {}).get("by_tid") or {}
+            if got.get("error"):
+                wakes[key] = {"error": got["error"]}
+                continue
+            wakes[key] = thread_wakes.summarize(got, sampled)
+        for stack in stacks.values():
+            stack.pop("by_tid", None)
+        return {"thread_wakes": wakes, "window_s": round(seconds, 1), "threads": threads,
                 "ledger": [{k: e.get(k) for k in ("owner", "reason", "count")} for e in ledger[:25]],
                 "frame_clients": wakeups.get("active_frame_clients"),
                 "frame_schedulers": [s for s in wakeups.get("frame_schedulers") or [] if s.get("running") or s.get("has_link")],
@@ -324,8 +393,18 @@ def print_attribution(label: str, found: dict):
     print(f"PERF-ATTR {label} window_s={window}")
     for key, rows in found["threads"].items():
         for row in rows:
-            print(f"PERF-ATTR {label} thread {key} name={row['name']!r} cpu_ms_per_s={row['cpu_ms_per_s']}"
+            print(f"PERF-ATTR {label} thread {key} tid={row['thread']} name={row.get('label', row['name'])!r} "
+                  f"cpu_ms_per_s={row['cpu_ms_per_s']}"
                   f"{' new' if row['new'] else ''}")
+    for key, got in (found.get("thread_wakes") or {}).items():
+        if got.get("error"):
+            print(f"PERF-ATTR {label} wakes {key} error={got['error']!r}")
+            continue
+        print(f"PERF-ATTR {label} wakes {key} window_s={got['seconds']} total_wakes_per_s={got['total_wakes_per_s']}")
+        for row in got["threads"][:25]:
+            print(f"PERF-ATTR {label} wakes {key} tid={row['thread']} name={row['label']!r} "
+                  f"wakes_per_s={row['wakes_per_s']} runs_per_s={row['runs_per_s']} cpu_ms_per_s={row['cpu_ms_per_s']}"
+                  f" frames={' > '.join(row['frames'])!r}")
     for entry in found["ledger"]:
         print(f"PERF-ATTR {label} ledger owner={entry['owner']} reason={entry['reason']!r} "
               f"per_s={round((entry['count'] or 0) / window, 2)}")
@@ -353,6 +432,9 @@ def print_sample(result, top: int):
     for kind, entry in result["kinds"].items():
         print(f"   {kind:<22}{entry['count']:>4}{entry['footprint_mb']:>14.1f}{entry['rss_mb']:>10.1f}"
               f"{entry.get('cpu_pct', float('nan')):>9.3f}{entry.get('wakeups_per_s', float('nan')):>11.2f}")
+    for kind, entry in result["kinds"].items():
+        if "child_cpu_pct" in entry:
+            print(f"   children of {kind:<22}{entry['child_cpu_pct']:>9.3f} CPU % (ended in the window)")
     print(f"   top {top} processes by footprint:")
     for row in result["processes"][:top]:
         print(f"   {row['footprint_mb']:>8.1f} MB  RSS {row['rss_mb']:>7.1f}  max {row['max_footprint_mb']:>7.1f}  "
@@ -1038,6 +1120,20 @@ def main():
                              "PERF-ATTR lines")
     parser.add_argument("--attribute-kinds", default="app,cef-gpu",
                         help="--attribute: the process kinds whose threads and stacks it reads (PERF-IDLE kind names)")
+    parser.add_argument("--attribute-trace", type=int, default=0, metavar="SECONDS",
+                        help="--attribute: also record SECONDS of System Trace per attributed process after each "
+                             "window, and print each thread's wakeups per second with its name (thread_wakes.py)")
+    parser.add_argument("--diff-tab", choices=("small", "large"),
+                        help="with --measure: a visible diff tab on a repository of this size in the count's "
+                             "idle window (diff_tab_cells.py); one --workspaces count")
+    parser.add_argument("--diff-scroll", action="store_true",
+                        help="--diff-tab: wheel events on the diff page for the whole window")
+    parser.add_argument("--diff-unfocused-measure", type=float, default=300, metavar="SECONDS",
+                        help="--diff-tab: the window when the diff page does not say that it has the focus "
+                             "(its timer is then 30 s, not 4 s)")
+    parser.add_argument("--child-time", action="store_true",
+                        help="with --measure: child_cpu_pct, the whole CPU of each process's children that ended "
+                             "in the window (the daemon's git runs); none when the run's own check of the read fails")
     parser.add_argument("--out")
     args = parser.parse_args()
     global CHAT_PROMPT
@@ -1046,12 +1142,28 @@ def main():
         # A later count's idle sample would follow the earlier purge, not an unpurged app. Checked
         # before the launch, so a refused run leaves no app behind.
         parser.error("--purge-hidden and --release-hidden-chats take one --workspaces count; run each count on its own")
+    if args.diff_tab and (len([n for n in args.workspaces.split(",") if n]) > 1 or args.tabs or args.measure <= 0):
+        parser.error("--diff-tab takes one --workspaces count, --measure seconds and no --tabs")
+    if args.diff_scroll and not args.diff_tab:
+        parser.error("--diff-scroll needs --diff-tab")
+    if args.diff_tab and args.socket:
+        # An attached app would keep the tab open on a repository that this run removes.
+        parser.error("--diff-tab needs an app that this run launches (no --socket)")
     # SIGTERM (a timeout, a scheduler) ends the run through its cleanup, as Ctrl-C does.
     signal.signal(signal.SIGTERM, interrupted)
     if sys.platform != "darwin":
         raise SystemExit("bench-memory: macOS only (run it on a fleet or capture mini)")
 
     bundle = os.path.realpath(args.app)
+    # Before the launch: this part needs no app, and an error here leaves none behind.
+    cells = _diff_tab_cells() if args.diff_tab or args.child_time else None
+    child_ns = child_check = None
+    if args.child_time:
+        # Proven on this Mac first, with a child of this script. A read that does not agree gives no
+        # child_cpu_pct: the report says so, and a number that is not proven is not written.
+        child_check = cells.child_time_check()
+        print(f"== child time check: {json.dumps(child_check)}", flush=True)
+        child_ns = cells.read_child_ns if child_check.get("ok") else None
     launched = scratch = None
     if args.socket:
         if not args.app_pid:
@@ -1069,14 +1181,36 @@ def main():
     report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [], "cef_switches": args.cef_switches,
               "webkit_attributed": _responsible is not None}
     opened = []
+    diff_scratch = None
+    if child_check is not None:
+        report["child_time_check"] = child_check
 
-    def settle_and_sample(label):
+    def settle_and_sample(label, diff_tab=None):
         time.sleep(args.settle)  # test script: let the app and its helpers go idle
+        measure, scroller = args.measure, None
+        if diff_tab is not None:
+            # What the page says now decides the window: its timer is 4 s with the focus and 30 s without it.
+            facts = cells.require_visible(cells.page_facts(app))
+            measure = cells.window_seconds(facts.get("focus"), args.measure, args.diff_unfocused_measure)
+            diff_tab.update(page=facts, reads_expected=cells.reads_expected(facts.get("focus"), facts.get("hidden"), measure))
+            print(f"== diff tab before the window: {json.dumps(diff_tab)[:1500]}", flush=True)
+            if args.diff_scroll:
+                scroller = cells.Scroller(app, facts)
+                scroller.start()
         kinds = tuple(kind for kind in args.attribute_kinds.split(",") if kind)
-        attribution = Attribution(app, app_pid, bundle, kinds) if args.attribute and args.measure > 0 else None
+        attribution = Attribution(app, app_pid, bundle, kinds, args.attribute_trace) if args.attribute and args.measure > 0 else None
         if attribution:
             attribution.start()
-        result = sample(app_pid, bundle, label, len(opened) + 1, args.measure)
+        try:
+            result = sample(app_pid, bundle, label, len(opened) + 1, measure, child_ns)
+        finally:
+            if scroller:
+                diff_tab["scroll"] = scroller.stop()
+        if diff_tab is not None:
+            # After the window, so the read costs it nothing: the page is still the visible one.
+            diff_tab["page_after"] = cells.page_facts(app)
+            result["diff_tab"] = diff_tab
+            print(f"== diff tab after the window: {json.dumps({k: diff_tab[k] for k in ('scroll', 'page_after') if k in diff_tab})[:1500]}", flush=True)
         if attribution:
             result["attribution"] = attribution.finish()
             print_attribution(label, result["attribution"])
@@ -1109,7 +1243,14 @@ def main():
                 if workspace is None:
                     break
                 opened.append(workspace)
-            settle_and_sample(f"idle-{count}")
+            diff_tab = None
+            if args.diff_tab:
+                # In the launch's scratch; an attached app has none, so in a folder of its own. Both are removed at the end.
+                diff_scratch = scratch or tempfile.mkdtemp(prefix="bench-memory-diff-")
+                repository = os.path.join(os.path.realpath(diff_scratch), "diff-tab-repository")
+                diff_tab = {"repository": cells.make_repository(repository, args.diff_tab)}
+                diff_tab["open"] = cells.open_tab(app, repository)
+            settle_and_sample(f"idle-{count}", diff_tab)
             if args.purge_hidden:
                 purge = purge_hidden_pages(app)
                 print(f"== purge at {count}: {json.dumps(purge)}", flush=True)
@@ -1171,6 +1312,8 @@ def main():
             print(f"bench-memory: wrote {args.out}")
         if scratch:
             shutil.rmtree(scratch, ignore_errors=True)
+        if diff_scratch and diff_scratch != scratch:
+            shutil.rmtree(diff_scratch, ignore_errors=True)
 
 
 if __name__ == "__main__":

@@ -156,13 +156,15 @@ struct AgentPageHibernationNewTabTests {
         #expect(rig.displaced.isEmpty)
     }
 
-    @Test func hiddenChatsRetainTheirExistingDefaultEvenUnderMemoryPressure() throws {
+    /// The New Tab cap leaves chats to their own rule: a hidden idle chat goes by default (IdleChatReleaseTests).
+    @Test func hiddenIdleChatsFollowTheirOwnReleaseNotTheNewTabCap() async throws {
         let rig = rig()
         defer { rig.window.closeAfterTest() }
-        let chat = try rig.hiddenChat("tab_chat", session: "same-session")
+        _ = try rig.hiddenChat("tab_chat", session: "same-session")
         rig.hibernation.update(setting: .fallback, pressure: .critical)
+        #expect(!rig.hibernation.pages.newTabIsExcess("tab_chat"))
         rig.advance(minutes: 120)
-        #expect(rig.tabs.existingView("tab_chat") === chat)
-        #expect(rig.hibernation.keepsPage("tab_chat") == .keepsState)
+        await rig.settle { rig.tabs.existingView("tab_chat") == nil }
+        #expect(rig.tabs.existingView("tab_chat") == nil, "a hidden idle chat kept its page by default")
     }
 }

@@ -520,20 +520,6 @@
       "title" : "Your Skills in Every Chat",
       "type" : "boolean"
     },
-    "agents.hiddenChats.discard" : {
-      "default" : false,
-      "description" : "A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released.",
-      "title" : "Release Hidden Agent Chats",
-      "type" : "boolean"
-    },
-    "agents.hiddenChats.discardAfterMinutes" : {
-      "default" : 15,
-      "description" : "How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner.",
-      "maximum" : 1440,
-      "minimum" : 1,
-      "title" : "Release Hidden Chats After",
-      "type" : "number"
-    },
     "agents.modelRouter.model" : {
       "default" : "deepseek/deepseek-v4.1-flash-1017",
       "description" : "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only.",
