@@ -39,6 +39,7 @@ import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from
 import { t } from "./strings";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import { readRecipe, readSetupReply, type ResolvedWorktreeRecipe, type WorktreeRecipe } from "../../worktreeRecipe";
+import { readExtensionSettings, type ExtensionSettings } from "./extensionSettings";
 import {
   errorCode,
   newIdempotencyKey,
@@ -760,6 +761,36 @@ export class SettingsStore {
       idempotency_key: newIdempotencyKey(),
     });
     return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+  }
+
+  /** Settings > Extensions: every installed extension whose manifest declares settings, or the
+   * host's refusal (`unavailable` when this build's host cannot reach them). */
+  async extensionSettings(): Promise<{ apps: ExtensionSettings[]; error: string | null; unavailable: boolean }> {
+    const reply = await this.request("cmux.settings.extensions.list", {});
+    if (!reply.ok)
+      return { apps: [], error: userMessage(reply.error, SETTINGS_SENTENCES), unavailable: isUnsupported(reply.error) };
+    return { apps: readExtensionSettings(reply.value), error: null, unavailable: false };
+  }
+
+  /** Changes settings of one extension (`null` resets a key): the values it now runs with, or the
+   * daemon's refusal text. The running extension hears the change at once. */
+  async setExtensionSettings(
+    app: string,
+    values: Record<string, unknown>,
+  ): Promise<{ values: Record<string, unknown> | null; error: string | null }> {
+    const reply = await this.request("cmux.settings.extensions.set", {
+      app,
+      values,
+      idempotency_key: newIdempotencyKey(),
+    });
+    if (!reply.ok) {
+      // The daemon's reason names the key and the limit in English, for the log; the row shows ours.
+      const sentences = { ...SETTINGS_SENTENCES, "cmux.apps.settings.invalid": t("settingsPage.extensions.invalid") };
+      return { values: null, error: userMessage(reply.error, sentences) };
+    }
+    const answered = (reply.value as { values?: unknown } | null)?.values;
+    const next = answered && typeof answered === "object" ? (answered as Record<string, unknown>) : null;
+    return { values: next, error: null };
   }
 
   /** One Cloud Environments gesture, then the fresh state; the host's failure text, else null. */

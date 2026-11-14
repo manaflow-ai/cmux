@@ -58,6 +58,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case sharedLinks
         /// Settings > Agents > Worktree Setup: a project's worktree recipe (setup, run and teardown scripts, files to copy) over the repository's .worktreeinclude and .cmux/worktree.toml (design/worktree-setup.md); `cmux.project.list`, `cmux.project.update` and `cmux.git.worktree.setup` through the page relay.
         case worktreeSetup
+        /// Settings > Extensions: each installed extension's own settings from its manifest's `settings` schema, one group per extension; `cmux.settings.extensions.list` and `.set` (ExtensionSettingsPageRoute) send the daemon's `apps.settings.list` and `apps.settings.set` on the app's own connection.
+        case extensions
     }
 
     /// A group card as the layout states it: rows claimed by key to lead it, the rows

@@ -1234,6 +1234,11 @@ export type SettingsOps = {
   "cmux.settings.worktree.list": [{ limit?: number }, unknown];
   "cmux.settings.worktree.read": [{ path: string }, unknown];
   "cmux.settings.worktree.save": [Mutation<{ path: string; worktree: WorktreeRecipe | null }>, unknown];
+  /** Native: Settings > Extensions, the daemon's `apps.settings.list` and (on your click or key)
+   * `apps.settings.set {app, values}` on the app's own connection. A value of `null` resets that
+   * setting; the daemon refuses one the manifest does not allow (`cmux.apps.settings.invalid`). */
+  "cmux.settings.extensions.list": [Record<string, never>, unknown];
+  "cmux.settings.extensions.set": [Mutation<{ app: string; values: Record<string, unknown> }>, unknown];
   /** Native: Settings > Devices; rejects with `cmux.page.unavailable` when the host has no device hub. */
   "cmux.settings.devices.state": [Record<string, never>, DevicesState];
   /** Native: one Devices gesture; a failure answers its localized text in `error`. */
