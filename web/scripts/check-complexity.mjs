@@ -398,20 +398,21 @@ function treeEntry(gitArgs, tree, relative) {
   return result.stdout;
 }
 
-// A stale branch carries old copies of trusted files that main has since
-// updated, and those copies never land: the merge keeps main's. So when the
-// workflow supplies the merge of this head into its base (git merge-tree, which
-// handles renames and criss-cross history the way the real merge does), each
-// trusted file is judged by its entry in that merge. Mode and object ID are
-// compared, so a symlink or type change cannot pass as an identical file.
-function assertTrustedFilesInMerge(toolRoot, merge) {
+// Compare trusted files as Git tree entries. This preserves the file mode,
+// object type, and object ID, so a symlink or type change cannot pass as an
+// identical file by making readFileSync follow it. A stale branch carries old
+// copies of trusted files that main has since updated, and those copies never
+// land: the merge keeps main's. So when the workflow supplies the merge of this
+// head into its base (git merge-tree, which handles renames and criss-cross
+// history the way the real merge does), judge each trusted file in that merge.
+function assertTrustedFileEntries(toolRoot, candidateGitArgs, candidateTree) {
   for (const relative of TRUSTED_POLICY_FILES) {
     const trusted = treeEntry(["-C", toolRoot], "HEAD", relative);
-    const merged = treeEntry([`--git-dir=${merge.repo}`], merge.tree, relative);
-    if (trusted.length === 0 || merged.length === 0) {
+    const candidate = treeEntry(candidateGitArgs, candidateTree, relative);
+    if (trusted.length === 0 || candidate.length === 0) {
       fail(`${relative} must remain present and unchanged in a pull request`);
     }
-    if (Buffer.compare(trusted, merged) !== 0) {
+    if (Buffer.compare(trusted, candidate) !== 0) {
       fail(`${relative} is a trusted policy file and must be changed in a separate reviewed update`);
     }
   }
@@ -421,18 +422,9 @@ function assertTrustedPolicy(repoRoot, toolRoot, merge) {
   if (path.resolve(repoRoot) === path.resolve(toolRoot)) return;
 
   if (merge) {
-    assertTrustedFilesInMerge(toolRoot, merge);
+    assertTrustedFileEntries(toolRoot, [`--git-dir=${merge.repo}`], merge.tree);
   } else {
-    for (const relative of TRUSTED_POLICY_FILES) {
-      const trustedFile = path.join(toolRoot, relative);
-      const candidateFile = path.join(repoRoot, relative);
-      if (!existsSync(trustedFile) || !existsSync(candidateFile)) {
-        fail(`${relative} must remain present and unchanged in a pull request`);
-      }
-      if (readFileSync(trustedFile).compare(readFileSync(candidateFile)) !== 0) {
-        fail(`${relative} is a trusted policy file and must be changed in a separate reviewed update`);
-      }
-    }
+    assertTrustedFileEntries(toolRoot, ["-C", repoRoot], "HEAD");
   }
 
   complexityRule(repoRoot);
