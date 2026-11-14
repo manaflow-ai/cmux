@@ -42,3 +42,16 @@ that carries `debug.densityOverlayPlayground`). Debug Settings > Browser Chrome 
    pixel loupe; the arrows move the reference a pixel; Tolerance ignores anti-aliasing.
 4. Controls opens every density's values; a change redraws the chrome and the diff at once (Live). Copy Values
    exports them as Swift constants for the presets.
+
+## Sheets and the remaining difference (2026-11-14, cmux-lawrence-2, 2x)
+
+| Sheet | What |
+| --- | --- |
+| [sheet-before-after-light.png](sheets/sheet-before-after-light.png), [-dark](sheets/sheet-before-after-dark.png) | The window's top at each density, before (feat-cmux-next at cc582e8) and after. |
+| [sheet-vs-helium-chrome-light.png](sheets/sheet-vs-helium-chrome-light.png), [-dark](sheets/sheet-vs-helium-chrome-dark.png) | Helium 0.21 over cmux Default, Compact and Comfortable; Chrome 157 over cmux Spacious. |
+
+Measured at Default against Helium-*-rest.png (pixels, 2x): pill 56 tall, 6 to the omnibar, omnibar 56 tall, 6 to the
+page, favicon ink 14 inside the pill: all equal. The one difference: cmux's pill starts 14 px under the window's top
+edge, Helium's 6, because cmux centers the tab row on its traffic lights (21 pt; Helium's sit at 17 pt). That is the
+window's titlebar layout, not the browser pane's, and stays. Colors differ by theme only (the light sheets use the
+Catppuccin Latte theme, as cmux's shots do).
