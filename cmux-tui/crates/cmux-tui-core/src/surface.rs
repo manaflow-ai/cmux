@@ -10547,7 +10547,7 @@ mod tests {
         ) -> Option<Arc<SurfaceRenderFrame>> {
             loop {
                 let left = deadline.saturating_duration_since(Instant::now());
-                match attach.recv_timeout(left) {
+                match attach.stream.recv_timeout(left) {
                     Ok(RenderAttachFrame::Frame(frame)) => return Some(frame),
                     Ok(RenderAttachFrame::ScrollChanged { .. }) => {}
                     Err(_) => return None,
