@@ -137,11 +137,13 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.background", "Background"),
-                help: SettingsText.keyed("settings.appearance.background.help", "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."),
+                help: SettingsText.keyed("settings.appearance.background.help", "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material. It can switch with light and dark, the time of day, or the sun."),
                 summary: SettingsText.keyed("settings.appearance.background.summary", "Image behind your terminals"),
                 kind: .choice([
                     SettingChoice("none", SettingsText.keyed("settings.choice.none", "None")),
                     SettingChoice("daily", SettingsText.keyed("settings.choice.shufflePaintings", "Shuffle Paintings")),
+                    SettingChoice("appearance", SettingsText.keyed("settings.choice.backgroundFollowAppearance", "Light and Dark")),
+                    SettingChoice("schedule", SettingsText.keyed("settings.choice.backgroundTimeOfDay", "Time of Day")),
                 ] + BackdropSelectionSetting.catalogChoices),
                 default: .string(BackdropSelectionSetting.fallback),
                 keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "museum", "dark", "doré", "shuffle", "folder"]
@@ -151,15 +153,73 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.backgroundRotation", "Change Picture"),
-                help: SettingsText.keyed("settings.appearance.backgroundRotation.help", "How often a shuffled background turns to its next picture."),
+                help: SettingsText.keyed("settings.appearance.backgroundRotation.help", "How often a shuffled background turns to its next picture: every 15 minutes, hour or day, or a number of minutes."),
                 summary: SettingsText.keyed("settings.appearance.backgroundRotation.summary", "How often Shuffle changes the picture"),
-                kind: .choice([
+                kind: .choiceOrNumber([
                     SettingChoice(BackdropRotation.quarterHour.rawValue, SettingsText.keyed("settings.choice.every15Minutes", "Every 15 Minutes")),
                     SettingChoice(BackdropRotation.hourly.rawValue, SettingsText.keyed("settings.choice.everyHour", "Every Hour")),
                     SettingChoice(BackdropRotation.daily.rawValue, SettingsText.keyed("settings.choice.everyDay", "Every Day")),
-                ]),
+                ], SettingNumber(BackdropSelectionSetting.rotationRange, step: 1, unit: .minutes, placeholder: BackdropSelectionSetting.rotationPlaceholder)),
                 default: .string(BackdropSelectionSetting.rotationDefault.rawValue),
-                keywords: ["shuffle", "rotate", "rotating", "wallpaper", "interval", "change picture", "background"]
+                keywords: ["shuffle", "rotate", "rotating", "wallpaper", "interval", "change picture", "background", "minutes"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.lightPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundLight", "Light Picture"),
+                help: SettingsText.keyed("settings.appearance.backgroundLight.help", "The picture Light and Dark shows in the light appearance. Unset, it shows the dark picture."),
+                kind: .choice(BackdropSelectionSetting.catalogChoices),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.sameAsDark", "Same as Dark"),
+                keywords: ["wallpaper", "background", "light", "appearance", "day", "auto switch"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.darkPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundDark", "Dark Picture"),
+                help: SettingsText.keyed("settings.appearance.backgroundDark.help", "The picture Light and Dark shows in the dark appearance. Unset, it shows the light picture."),
+                kind: .choice(BackdropSelectionSetting.catalogChoices),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.sameAsLight", "Same as Light"),
+                keywords: ["wallpaper", "background", "dark", "appearance", "night", "auto switch"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.schedulePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundSchedule", "Time of Day Pictures"),
+                help: SettingsText.keyed("settings.appearance.backgroundSchedule.help", "Map a time (07:00) or a sun event (sunrise, sunset, dawn, dusk, noon, with an offset such as sunset-30m) to a picture. Each shows from its time until the next."),
+                kind: .stringMap,
+                default: nil,
+                keywords: ["wallpaper", "background", "schedule", "time of day", "sunrise", "sunset", "night", "auto switch"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.dynamicPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundDynamic", "Dynamic Wallpaper"),
+                help: SettingsText.keyed("settings.appearance.backgroundDynamic.help", "A dynamic macOS wallpaper can follow light and dark, or change through the day with the sun like the macOS Dynamic setting."),
+                summary: SettingsText.keyed("settings.appearance.backgroundDynamic.summary", "Follow light and dark, or the sun"),
+                kind: .choice([
+                    SettingChoice(BackdropDynamicMode.appearance.rawValue, SettingsText.keyed("settings.choice.backgroundFollowAppearance", "Light and Dark")),
+                    SettingChoice(BackdropDynamicMode.time.rawValue, SettingsText.keyed("settings.choice.backgroundTimeOfDay", "Time of Day")),
+                ]),
+                default: .string(BackdropSelectionSetting.dynamicDefault.rawValue),
+                keywords: ["dynamic", "wallpaper", "sun", "solar", "time of day", "macos"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.locationPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundLocation", "Sun Location"),
+                help: SettingsText.keyed("settings.appearance.backgroundLocation.help", "Latitude and longitude for sunrise and sunset, such as 37.77,-122.42. Unset, cmux uses your time zone's city; it never asks for your location."),
+                kind: .text,
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.fromTimeZone", "From Time Zone"),
+                keywords: ["location", "latitude", "longitude", "sunrise", "sunset", "sun"],
+                placeholder: SettingText(key: nil, text: "37.77,-122.42")
             ),
             SettingDescriptor(
                 BackdropSelectionSetting.displayBackgroundsPath,

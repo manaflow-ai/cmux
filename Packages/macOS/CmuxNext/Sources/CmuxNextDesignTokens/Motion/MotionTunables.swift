@@ -90,6 +90,7 @@ public nonisolated enum MotionTunables {
         .fadeOut: (MotionScale.quick, "Palette close, find bar, notices, hover card hide."),
         .crossfade: (MotionScale.quick, "Hover card thumbnail swap; also the Reduce Motion ceiling of every fade."),
         .scrim: (MotionScale.standard, "Whole-window wash easing in and out (the dim under the palette, an inactive window)."),
+        .wallpaper: (0.6, "A window background picture turning to its next one (schedule, shuffle, dynamic wallpaper) crossfades."),
         .lift: (MotionScale.micro, "Sidebar drag lift shadow."),
         .theme: (MotionScale.micro, "Room, workspace or terminal theme switch."),
         .highlight: (1.2, "Settings row highlight after a search jump or deep link fades out."),
