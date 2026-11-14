@@ -195,6 +195,7 @@
     "git.diff",
     "git.files.list",
     "git.files.search",
+    "git.fingerprint",
     "git.push",
     "git.status",
     "git.worktree.apply",

@@ -1,0 +1,10 @@
+{
+  "name": "cmux-extension-pr-card",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Example chat widget: a pull request card under GitHub tool calls, built only against cmux-extension-sdk.",
+  "dependencies": {
+    "cmux-extension-sdk": "file:../../../cmux-tui/crates/cmux-extension-sdk/typescript"
+  }
+}

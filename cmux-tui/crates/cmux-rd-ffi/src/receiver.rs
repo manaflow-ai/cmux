@@ -6,9 +6,9 @@ use std::collections::VecDeque;
 
 use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
 use cmux_rd_proto::{
-    Arrival, DatagramHeader, DatagramKind, DecodeError, Feedback, HEADER_LEN, MAX_ARRIVALS,
-    MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack, REF_NONE, STREAM_BULK, STREAM_CONTROL,
-    STREAM_DATAGRAM, StreamDeframer, encode_stream_frame, flags,
+    Arrival, DatagramHeader, DatagramKind, DecodeError, Feedback, HEADER_LEN, MAX_ARRIVALS, Nack,
+    REF_NONE, STREAM_BULK, STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer, encode_stream_frame,
+    flags,
 };
 
 /// How the session's datagrams travel.
@@ -230,6 +230,10 @@ impl Receiver {
         if let Some(expiry) = self.reassembler.next_expiry_us() {
             deadline = deadline.min(expiry);
         }
+        if let Some(nack) = self.reassembler.next_nack_us(self.nack_after_us, FEEDBACK_INTERVAL_US)
+        {
+            deadline = deadline.min(nack);
+        }
         deadline
     }
 
@@ -244,9 +248,14 @@ impl Receiver {
         let due = since.is_none_or(|s| s >= FEEDBACK_INTERVAL_US);
         let keepalive = since.is_none_or(|s| s >= KEEPALIVE_US);
         let overflow = self.arrivals.len() > MAX_ARRIVALS;
+        let nack_due = self
+            .reassembler
+            .next_nack_us(self.nack_after_us, FEEDBACK_INTERVAL_US)
+            .is_some_and(|deadline| now_us >= deadline);
         if !(self.released_since_feedback
             || keepalive
             || overflow
+            || nack_due
             || (due && (!self.arrivals.is_empty() || self.need_recovery())))
         {
             return None;
@@ -280,16 +289,8 @@ impl Receiver {
         sorted.get(sorted.len() / 2).copied().unwrap_or(0)
     }
 
-    fn nacks(&self, now_us: u64) -> Vec<Nack> {
-        self.reassembler
-            .missing(now_us, self.nack_after_us)
-            .into_iter()
-            .take(MAX_NACK_FRAMES)
-            .map(|(frame, indexes)| Nack {
-                frame,
-                indexes: indexes.into_iter().take(MAX_NACK_INDEXES).collect(),
-            })
-            .collect()
+    fn nacks(&mut self, now_us: u64) -> Vec<Nack> {
+        self.reassembler.take_nacks(now_us, self.nack_after_us, FEEDBACK_INTERVAL_US)
     }
 
     fn frame_datagram(&self, payload: &[u8]) -> Vec<u8> {

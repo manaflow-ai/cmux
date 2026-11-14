@@ -87,7 +87,7 @@ pub(crate) struct GitHead {
 /// filesystem work of a tree snapshot and the staleness of a branch switch
 /// made without changing directory.
 const GIT_HEAD_TTL: Duration = Duration::from_secs(2);
-const GIT_HEAD_CACHE_LIMIT: usize = 4096;
+pub(super) const GIT_HEAD_CACHE_LIMIT: usize = 4096;
 const GIT_METADATA_MAX_BYTES: u64 = 4096;
 
 fn read_small_file(path: &Path) -> Option<String> {
@@ -445,13 +445,30 @@ impl Mux {
         if !refresh {
             return None;
         }
+        // A branch switched with no directory change has no event (tree_revision.rs).
         let head = read_git_head(Path::new(cwd));
-        let mut cache = self.git_heads.lock().unwrap();
-        if cache.len() >= GIT_HEAD_CACHE_LIMIT {
-            cache.clear();
+        self.tree_revision.store_git_head(&self.git_heads, cwd, now, head)
+    }
+
+    /// Read again each cached git HEAD older than [`GIT_HEAD_TTL`], so a
+    /// branch switched with no event moves the tree revision before a
+    /// `known` is compared with it (cmux#42895), as a whole tree's read
+    /// would. The cache holds the directories the tree showed; this reads no
+    /// state and no row, and the disk only for entries past their lifetime.
+    pub(crate) fn revalidate_git_heads(&self) {
+        let now = Instant::now();
+        let stale: Vec<String> = {
+            let cache = self.git_heads.lock().unwrap_or_else(PoisonError::into_inner);
+            cache
+                .iter()
+                .filter(|(_, (checked, _))| now.saturating_duration_since(*checked) >= GIT_HEAD_TTL)
+                .map(|(cwd, _)| cwd.clone())
+                .collect()
+        };
+        for cwd in stale {
+            let head = read_git_head(Path::new(&cwd));
+            self.tree_revision.store_git_head(&self.git_heads, &cwd, now, head);
         }
-        cache.insert(cwd.to_string(), (now, head.clone()));
-        head
     }
 
     /// Tell subscribers that one tab's metadata (pin, directory, git HEAD,

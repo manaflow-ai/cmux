@@ -47,20 +47,44 @@ impl Hub {
         &["transfer_out", "transferred", "transfer_aborted", "imported"];
 
     pub(super) fn restore_transfer_authority(&self, session: &Session) {
-        let mut latest = (0, false);
+        self.restore_transfer_authority_after(session, None);
+    }
+
+    /// [`Self::restore_transfer_authority`] of the records past a restore point, from its value
+    /// (`restore_point.rs`); none: the whole log. Returns the value read, or none when the log
+    /// did not read.
+    pub(super) fn restore_transfer_authority_after(
+        &self,
+        session: &Session,
+        from: Option<&super::restore_point::RestorePoint>,
+    ) -> Option<Option<(u64, bool)>> {
+        let after = from.map_or(0, |p| p.seq);
+        let start = from.and_then(|p| p.transfer_authority);
+        let mut latest = start.unwrap_or((0, false));
+        let mut found = start.is_some();
         // Fail closed on an unreadable log. This runs only in load_session_log, never in
         // info, and does not hold the cache lock while reading disk.
-        match self.store.scan_kinds_strict(&session.id, Self::TRANSFER_KINDS, &mut |record| {
-            if let Some(blocked) = transfer_state(&record)
-                && record.seq >= latest.0
-            {
-                latest = (record.seq, blocked);
+        match self.store.scan_kinds_after_strict(
+            &session.id,
+            after,
+            Self::TRANSFER_KINDS,
+            &mut |record| {
+                if let Some(blocked) = transfer_state(&record)
+                    && record.seq >= latest.0
+                {
+                    latest = (record.seq, blocked);
+                    found = true;
+                }
+                true
+            },
+        ) {
+            Ok(()) => {
+                session.note_transfer_authority(latest.0, latest.1);
+                Some(found.then_some(latest))
             }
-            true
-        }) {
-            Ok(()) => session.note_transfer_authority(latest.0, latest.1),
             Err(error) => {
-                tracing::warn!(session = %session.id, "transfer authority unreadable: {error}")
+                tracing::warn!(session = %session.id, "transfer authority unreadable: {error}");
+                None
             }
         }
     }
@@ -68,10 +92,21 @@ impl Hub {
     /// Restore the highest transfer fencing epoch before a session can accept a resumed move.
     /// Epochs live in transfer events rather than session metadata so old stores remain readable.
     pub(super) fn restore_ownership_epoch(&self, session: &Session) -> anyhow::Result<()> {
-        let mut epoch = 0;
+        self.restore_ownership_epoch_after(session, None).map(drop)
+    }
+
+    /// [`Self::restore_ownership_epoch`] of the records past a restore point, from its epoch
+    /// (`restore_point.rs`); none: the whole log. Returns the epoch.
+    pub(super) fn restore_ownership_epoch_after(
+        &self,
+        session: &Session,
+        from: Option<&super::restore_point::RestorePoint>,
+    ) -> anyhow::Result<u64> {
+        let mut epoch = from.map_or(0, |p| p.ownership_epoch);
         let mut malformed = false;
-        self.store.scan_kinds_strict(
+        self.store.scan_kinds_after_strict(
             &session.id,
+            from.map_or(0, |p| p.seq),
             &["transfer_out", "transferred", "transferred_in", "transfer_aborted"],
             &mut |record| {
                 if let Some(value) = record.msg.get("epoch") {
@@ -86,7 +121,7 @@ impl Hub {
         )?;
         anyhow::ensure!(!malformed, "transfer event contains a malformed ownership epoch");
         session.restore_ownership_epoch(epoch);
-        Ok(())
+        Ok(epoch)
     }
 }
 

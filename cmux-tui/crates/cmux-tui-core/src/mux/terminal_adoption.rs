@@ -104,7 +104,7 @@ impl Mux {
         let mut deferred: Vec<(
             crate::terminal_host_runtime::TerminalHostRecord,
             std::path::PathBuf,
-            crate::diagnostics::KeptHostSeat,
+            terminal_host_records::KeptHostHold,
         )> = Vec::new();
         // At most one warm snapshot host becomes the first terminal of a
         // fresh registry (SurfaceOptions::adopt_template_terminal).
@@ -897,7 +897,7 @@ impl Mux {
             record_path,
             Duration::from_millis(100),
             None,
-            crate::diagnostics::KeptHostSeat::default(),
+            terminal_host_records::KeptHostHold::default(),
         );
     }
 
@@ -914,7 +914,7 @@ impl Mux {
         record_path: std::path::PathBuf,
         first_delay: Duration,
         kitty_expectation: Option<KittyImageAdoptionExpectation>,
-        host_seat: crate::diagnostics::KeptHostSeat,
+        host_seat: terminal_host_records::KeptHostHold,
     ) {
         let terminal_id = record.terminal_id.clone();
         if !self.terminal_adoptions.lock().unwrap().insert(terminal_id.clone()) {

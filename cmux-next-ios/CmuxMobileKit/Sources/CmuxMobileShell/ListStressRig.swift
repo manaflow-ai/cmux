@@ -4,6 +4,8 @@ import CmuxMobileAgentChat
 import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxMobileTerminal
+import CmuxMobileTransport
 import CmuxMobileWorkspaces
 import Darwin
 import OSLog
@@ -43,6 +45,8 @@ final class ListStressRig: NSObject {
         guard let screen = settings.screen else { return }
         let rig = ListStressRig(settings: settings, shell: shell)
         running = rig
+        // The energy bench reads the bytes the app receives from these log lines.
+        ReceivedByteCount.shared.startLogging()
         if settings.wraps {
             // For this launch only (the argument domain), as Settings → Wrap code would.
             // Merged into the launch arguments (replacing the domain dropped `-cmuxMobile.setupComplete`).
@@ -107,6 +111,8 @@ final class ListStressRig: NSObject {
             WorkspaceDemoDirector.shared.post(.showGrid(true))
             try? await Task.sleep(for: .seconds(2))
             FrameIntervalLog.shared.end()
+        case "terminals":
+            await openTerminals()
         case "chat", "diff", "artifacts":
             guard let ws = store.workspace(id: "ws-cmux") else { return }
             store.requestOpen(tabID: "t-codex-stress", in: ws.id)
@@ -159,7 +165,8 @@ final class ListStressRig: NSObject {
                 }
                 try? await Task.sleep(for: .seconds(1))
                 // As a reader does: leave the newest turn (the transcript stops following it).
-                DemoDirector.shared.post(.chatScroll(toTop: true))
+                // `LIST_LEAVE_NEWEST=0` stays on it (a running chat watched).
+                if settings.leavesNewest { DemoDirector.shared.post(.chatScroll(toTop: true)) }
             }
         case "feed":
             // The Feed's own seeding (`CMUX_MOBILE_FEED_STRESS=N`); this rig only scrolls, as a reference.
@@ -170,6 +177,50 @@ final class ListStressRig: NSObject {
         default:
             log.error("FRAMELOG list-stress unknown screen \(screen, privacy: .public)")
         }
+    }
+
+    /// Warm terminal tabs nobody sees: `count` terminal pages are opened one by one (each
+    /// builds its host, so it joins the warm set), then the rig goes back to the workspaces
+    /// list, which leaves every page out of its window with its session attached. With
+    /// `CMUX_MOBILE_LIST_STREAM=1` each mock shell streams a row every 20 ms meanwhile (its
+    /// `stream` command, after a Ctrl-C ends its intro), as a Mac's busy terminal does.
+    private func openTerminals() async {
+        let store = shell.store
+        guard var ws = store.workspace(id: "ws-cmux") else { return }
+        let terminals = (1...max(settings.count, 1)).map {
+            WorkspaceTab(id: "t-term\($0)", kind: .terminal, title: "zsh \($0)", subtitle: "~/Development/cmux")
+        }
+        ws.tabs = terminals
+        ws.activeTabID = terminals[0].id
+        store.workspaces = store.workspaces.map { $0.id == ws.id ? ws : $0 }
+        store.requestOpen(tabID: terminals[0].id, in: ws.id)
+        shell.tab = .workspaces
+        try? await Task.sleep(for: .seconds(1))
+        shell.workspacesPath = [ws]
+        try? await Task.sleep(for: .seconds(2))
+        var streaming = 0
+        for tab in terminals {
+            WorkspaceDemoDirector.shared.post(.activate(tab.id))
+            try? await Task.sleep(for: .seconds(2))
+            guard let model = shell.terminalTabs.model(forTabID: tab.id) else { continue }
+            if settings.streams {
+                model.session.send(Data("\u{3}stream 1000000 20\r".utf8))
+                streaming += 1
+            } else if settings.terminalVisible {
+                // Idle: Ctrl-C ends the mock shell's intro, leaving it at its prompt.
+                model.session.send(Data("\u{3}".utf8))
+            }
+        }
+        if settings.terminalVisible, let first = terminals.first {
+            // `LIST_TERMINAL_VISIBLE=1`: the first terminal stays on screen, the rest hidden.
+            WorkspaceDemoDirector.shared.post(.activate(first.id))
+        } else {
+            shell.workspacesPath = []
+        }
+        try? await Task.sleep(for: .seconds(1))
+        let warm = terminals.filter { shell.terminalTabs.model(forTabID: $0.id) != nil }.count
+        let hidden = settings.terminalVisible ? terminals.count - 1 : terminals.count
+        log.notice("FRAMELOG list-stress terminals hidden=\(hidden, privacy: .public) visible=\(terminals.count - hidden, privacy: .public) warm=\(warm, privacy: .public) streaming=\(streaming, privacy: .public)")
     }
 
     /// `count` workspaces cycled from the mock ones: a quarter working (the shimmer),

@@ -723,6 +723,40 @@ class InventoryContractTests(unittest.TestCase):
             CHECKER.validate_events(inventory)
         self.assertIn("event stream", errors.getvalue())
 
+    def test_event_discovery_excludes_test_modules_without_losing_production(self) -> None:
+        for module in ("server.rs", "server/message_writer.rs", "server/url_open.rs"):
+            for attribute in ("#[cfg(test)]\nmod tests", "  # [ cfg ( test ) ]\n#[allow(dead_code)]\npub(crate) mod overflow_tests"):
+                with self.subTest(module=module, attribute=attribute), tempfile.TemporaryDirectory() as directory:
+                    tui = Path(directory)
+                    source = tui / "crates/cmux-tui-core/src"
+                    source.mkdir(parents=True)
+                    (source / "server.rs").write_text("")
+                    (source / "mux.rs").write_text('impl TreeDeltaKind {\n}\n')
+                    target = source / module
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(
+                        'fn before() { json!({"event": "before-event"}); }\n'
+                        + attribute + r'''
+{
+    fn fixture() {
+        let _ = r###" } #[cfg(test)] mod fake { "###;
+        let _ = '}';
+        let _ = '"';
+        let _ = '\'';
+        let _ = '\\';
+        /* } /* nested comment */ } */
+        json!({"event": "fixture-only", "nested": {"value": "}"}});
+    }
+}
+#[cfg(not(test))]
+mod production {
+    fn after() { json!({"event": "after-event"}); }
+}
+'''
+                    )
+                    with patch.object(CHECKER, "TUI", tui):
+                        self.assertEqual(CHECKER.event_names(), {"before-event", "after-event"})
+
     def test_event_discovery_scans_early_production_serializers(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
