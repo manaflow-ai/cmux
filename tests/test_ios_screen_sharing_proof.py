@@ -143,6 +143,27 @@ class HostTests(unittest.TestCase):
     def setUp(self):
         self.host = proof.host_module()
 
+    def test_freshness_checks_resolved_app_identity_namespace(self):
+        bundle = "com.cmuxterm.app.debug.capabc"
+        for legacy in (False, True):
+            selection = dict(bundle_id=bundle, legacy_storage=legacy, auth_namespace="development",
+                             auth_storage_namespace="deliberately-different")
+            with self.subTest(legacy=legacy), patch.object(self.host, "command", return_value=json.dumps(selection)) as command:
+                service = self.host.identity_service(Path("/tmp/owned.app"), bundle, {"HOME": "/tmp/owned"})
+                self.assertEqual(service, bundle + ("" if legacy else ".cloud.development") + ".device-hub")
+                self.assertEqual(command.call_args.kwargs["env"]["CMUX_BUNDLE_ID"], bundle)
+                self.assertEqual(command.call_args.kwargs["env"]["HOME"], "/tmp/owned")
+                self.assertEqual(command.call_args.args[0][-4:], ["--json", "cloud", "env", "get"])
+
+    def test_unknown_or_mismatched_namespace_fails_closed(self):
+        valid = dict(bundle_id="cap", legacy_storage=False, auth_namespace="development")
+        invalid = [[], {**valid, "bundle_id": "other"}, {**valid, "legacy_storage": "false"},
+                   {**valid, "auth_namespace": ""}, {**valid, "auth_namespace": "bad/name"}]
+        for selection in invalid:
+            with self.subTest(selection=selection), patch.object(self.host, "command", return_value=json.dumps(selection)):
+                with self.assertRaisesRegex(self.host.HostFailure, "host_cloud_namespace_unavailable"):
+                    self.host.identity_service(Path("/tmp/owned.app"), "cap", {})
+
     def test_artifact_requires_completed_verified_exact_source(self):
         source, digest = "a" * 40, "b" * 64
         job = dict(kind="cmux", state="done", source_digest=source,
