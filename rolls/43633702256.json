@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43633702256",
+  "recorded_at": "2026-11-14T19:52:12Z",
+  "reason": "cmux-tui 899e9ed245d8 changes the image's cmux-tui (pinned 13ff155872dc)",
+  "dry_run": false,
+  "cmux_tui": "899e9ed245d8f653f71bfe620a99d8232db8666e",
+  "fixes": [
+    {
+      "sha": "899e9ed245d8f653f71bfe620a99d8232db8666e",
+      "mergedAt": "2026-11-14T11:20:51-08:00",
+      "subject": "fix(daemon): the walk to a work tree's top folder asks for no list of a folder above it on macOS (#43175)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T19:52:12Z",
+    "snapshot_id": "sh-f6c9f67fe5274590825d038794f3513a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43633702256): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6c3713b877e87ed6b37b4f7de136d62cf80505b1",
+    "image": "cloud-native-auto-899e9ed2-43633702256-1",
+    "revision": "ci-43633702256-1",
+    "at": "2026-11-14T19:52:12Z"
+  },
+  "rolled_back": false
+}
