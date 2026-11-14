@@ -320,56 +320,77 @@ impl HubWriter {
                 job.changed.insert(RowKey::new(origin, record.chat_id.as_str()));
             }
         }
-        for record in records {
+        for record in &records {
             self.retry_log.remove(&RowKey::new(origin, record.chat_id.as_str()));
-            self.publish_written(record);
         }
-        let next = self.published.load().apply_mark(&mark);
-        self.published.store(Arc::new(next));
+        self.publish_unit(records, &mark);
         counters.applied.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
-    /// Publishes one row record already in the log, as a single apply does.
-    fn publish_written(&mut self, record: IndexRecord) {
-        let current = self.published.load_full();
-        let key = RowKey::new(record.origin.as_str(), record.chat_id.as_str());
+    /// Publishes a unit's rows, already in the log, and then its mark. The rows
+    /// apply into one owned index, so the unit copies each map's shared path
+    /// once; the index is published once, before the rows' history and wakes,
+    /// in the order a single apply keeps.
+    fn publish_unit(&mut self, records: Vec<IndexRecord>, mark: &MarkRecord) {
         #[cfg(test)]
         let began = std::time::Instant::now();
-        if record.gone {
-            let Some(next) = current.remove_row(record.seq, &key) else {
-                self.published.store(Arc::new(current.advance_seq(record.seq)));
-                return;
+        let current = self.published.load_full();
+        let mut next = current.as_ref().clone();
+        for record in &records {
+            let key = RowKey::new(record.origin.as_str(), record.chat_id.as_str());
+            next = if record.gone {
+                let removed = next.remove_row(record.seq, &key);
+                removed.unwrap_or(next).advance_seq(record.seq)
+            } else {
+                next.apply_summary_owned(record.seq, record.summary.clone())
             };
-            let folder_ops = next.folder_changes(&current, current.get_row(&key).as_deref(), None);
-            self.publish_folder_index(next, &folder_ops);
-            self.record_history(ListItem::Gone {
-                seq: record.seq,
-                chat_id: record.chat_id,
-                origin: record.origin,
-            });
-            self.publish_gone(record.seq, &key);
-        } else {
-            let next = current.apply_summary(record.seq, record.summary.clone());
-            let folder_ops = next.folder_changes(
-                &current,
-                current.get_row(&key).as_deref(),
-                next.get_row(&key).as_deref(),
-            );
-            let event = SummaryEvent { seq: record.seq, summary: Arc::new(record.summary) };
-            #[cfg(test)]
-            let applied = std::time::Instant::now();
-            #[cfg(test)]
-            {
-                self.turn_measure.unit_ns[2] += applied.duration_since(began).as_nanos();
+        }
+        let next = next.apply_mark(mark);
+        // One op per folder the unit touched, from before the unit to after it.
+        let mut folders = std::collections::BTreeSet::new();
+        let mut folder_ops = Vec::new();
+        for record in &records {
+            let key = RowKey::new(record.origin.as_str(), record.chat_id.as_str());
+            let old = current.get_row(&key);
+            let new = next.get_row(&key);
+            let mut first = |row: &Option<Arc<Summary>>| {
+                row.as_ref()
+                    .filter(|row| {
+                        acpmux_book::index::FolderKey::of(row)
+                            .is_some_and(|folder| folders.insert(folder))
+                    })
+                    .cloned()
+            };
+            let old = first(&old);
+            let new = first(&new);
+            folder_ops.extend(next.folder_changes(&current, old.as_deref(), new.as_deref()));
+        }
+        #[cfg(test)]
+        let applied = std::time::Instant::now();
+        #[cfg(test)]
+        {
+            self.turn_measure.unit_ns[2] += applied.duration_since(began).as_nanos();
+        }
+        self.publish_folder_index(next, &folder_ops);
+        for record in records {
+            if record.gone {
+                let key = RowKey::new(record.origin.as_str(), record.chat_id.as_str());
+                self.record_history(ListItem::Gone {
+                    seq: record.seq,
+                    chat_id: record.chat_id,
+                    origin: record.origin,
+                });
+                self.publish_gone(record.seq, &key);
+            } else {
+                let event = SummaryEvent { seq: record.seq, summary: Arc::new(record.summary) };
+                self.record_history(ListItem::Summary(event.clone()));
+                self.publish(event);
             }
-            self.publish_folder_index(next, &folder_ops);
-            self.record_history(ListItem::Summary(event.clone()));
-            self.publish(event);
-            #[cfg(test)]
-            {
-                self.turn_measure.unit_ns[3] += applied.elapsed().as_nanos();
-            }
+        }
+        #[cfg(test)]
+        {
+            self.turn_measure.unit_ns[3] += applied.elapsed().as_nanos();
         }
     }
 

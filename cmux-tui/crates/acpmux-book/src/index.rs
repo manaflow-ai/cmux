@@ -686,43 +686,50 @@ impl SummaryIndex {
 
     /// Applies one summary without walking the rest of the index.
     pub fn apply(&self, seq: u64, summary: Summary) -> Self {
+        self.clone().apply_owned(seq, summary)
+    }
+
+    /// [`Self::apply`] on an index the caller owns. Several applies in a row
+    /// copy each persistent map's shared path once and change the copied
+    /// nodes in place after it.
+    pub fn apply_owned(mut self, seq: u64, summary: Summary) -> Self {
         let summary = Arc::new(summary.bounded());
-        let old = self.by_id.get(&summary.key()).cloned();
-        if old.as_ref().is_some_and(|old| old.same_content(&summary)) {
-            let mut next = self.clone();
-            next.seq = next.seq.max(seq);
-            return next;
-        }
-        let mut by_id = self.by_id.clone();
-        let mut ordered = self.ordered.clone();
-        let mut live_ordered = self.live_ordered.clone();
         let key = summary.key();
-        if let Some(old) = by_id.get(&key) {
-            ordered.remove(&SortKey::of(old));
-            live_ordered.remove(&SortKey::of(old));
+        let old = self.by_id.get(&key).cloned();
+        self.seq = self.seq.max(seq);
+        if old.as_ref().is_some_and(|old| old.same_content(&summary)) {
+            return self;
+        }
+        if let Some(old) = &old {
+            self.ordered.remove(&SortKey::of(old));
+            self.live_ordered.remove(&SortKey::of(old));
         }
         let sort_key = SortKey::of(&summary);
-        ordered.insert(sort_key.clone(), summary.clone());
+        self.ordered.insert(sort_key.clone(), summary.clone());
         if summary.is_live() {
-            live_ordered.insert(sort_key, summary.clone());
+            self.live_ordered.insert(sort_key, summary.clone());
         }
-        by_id.insert(key.clone(), summary.clone());
-        let mut shadowed = self.shadowed.clone();
+        self.by_id.insert(key.clone(), summary.clone());
         if self.disk.is_some() {
-            shadowed.insert(key);
+            self.shadowed.insert(key);
         }
-        let kin = self.kin.replace_arc(old.as_ref(), Some(&summary), &by_id);
-        let mut next =
-            Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
-        next.kin = kin;
-        next.folders = Self::refresh_folders(
+        self.kin = self.kin.replace_arc(old.as_ref(), Some(&summary), &self.by_id);
+        self.folders = Self::refresh_folders(
             &self.folders,
-            &next.kin,
-            &next.by_id,
+            &self.kin,
+            &self.by_id,
             old.as_deref(),
             Some(&summary),
         );
-        next
+        self
+    }
+
+    /// [`Self::apply_summary`] on an index the caller owns.
+    pub fn apply_summary_owned(self, seq: u64, summary: Summary) -> Self {
+        let remote_closed = !Self::contributes_to_index(&summary);
+        let key = summary.key();
+        let next = self.apply_owned(seq, summary);
+        if remote_closed { next.remove_ephemeral(&key) } else { next }
     }
 
     /// Apply the durable summary rule shared by the writer and replay. Remote
