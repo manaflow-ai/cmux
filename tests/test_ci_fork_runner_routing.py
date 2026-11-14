@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import yaml
 import workflow_jobs
 from job_lists_routing import (
     NIGHTLY,
@@ -759,6 +760,30 @@ def excludes_fork_pull_request(condition: object) -> bool:
         return False
 
 
+def fork_excluded_job_lines(text: str) -> set[int]:
+    """Whole source lines belonging only to jobs proven unreachable by forks.
+
+    Use YAML marks, not indentation/header regexes: quoted keys and alternate
+    indentation must not leak an exemption into a sibling. Aliases can share
+    source with an unguarded consumer, so leave those workflows fully checked.
+    Inline/flow mappings likewise remain checked rather than exempting a line
+    that could contain another job or workflow-level value.
+    """
+    jobs = workflow_jobs.jobs(text)
+    if any(isinstance(token, yaml.tokens.AliasToken) for token in yaml.scan(text)):
+        return set()
+    document = yaml.compose(text)
+    excluded = set()
+    for key, value in document.value:
+        if key.value != "jobs" or not isinstance(value, yaml.MappingNode) or value.flow_style:
+            continue
+        for job_key, job_value in value.value:
+            if (isinstance(job_value, yaml.MappingNode) and not job_value.flow_style
+                    and excludes_fork_pull_request(jobs[job_key.value].get("if"))):
+                excluded.update(range(job_key.start_mark.line + 2, job_value.end_mark.line + 1))
+    return excluded
+
+
 def pull_request_workflows() -> list[Path]:
     result: list[Path] = []
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
@@ -1179,23 +1204,12 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         failures = []
         for path in fork_exercised_workflows():
             text = path.read_text(encoding="utf-8")
-            excluded_jobs = {
-                name for name, body in workflow_jobs.jobs(text).items()
-                if excludes_fork_pull_request(body.get("if"))
-            }
-            job = None
-            in_jobs = False
+            excluded_lines = fork_excluded_job_lines(text)
             dispatch_inputs_are_empty = not has_workflow_call_trigger(text)
             for number, line in enumerate(text.splitlines(), start=1):
                 if line.lstrip().startswith("#"):
                     continue
-                if line and not line.startswith(" "):
-                    in_jobs = line.strip() == "jobs:"
-                    job = None
-                header = JOB_HEADER.match(line) if in_jobs else None
-                if header:
-                    job = header.group(1)
-                if job in excluded_jobs:
+                if number in excluded_lines:
                     continue
                 if not (
                     OWNED_RUNNER_VARIABLE.search(line)
@@ -1265,6 +1279,26 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                             else:
                                 with self.assertRaises(AssertionError):
                                     self.test_fork_pull_requests_into_manaflow_ai_never_reach_an_owned_runner_label()
+
+    def test_job_gate_keeps_shared_source_and_inline_jobs_checked(self) -> None:
+        unsafe = "${{ vars.MACOS_RUNNER_PR }}"
+        same = "github.event.pull_request.head.repo.full_name == github.repository"
+        fixtures = (
+            f"jobs:\n  guarded: &job\n    if: {same}\n    runs-on: {unsafe}\n"
+            "  sibling:\n    <<: *job\n    if: true\n",
+            "jobs: {guarded: {if: false, runs-on: macos-26}, "
+            "sibling: {runs-on: '${{ vars.MACOS_RUNNER_PR }}'}}\n",
+            f"jobs:\n  guarded:\n    if: {same}\n    runs-on: {unsafe}\n"
+            f"env:\n  LABEL: {unsafe}\n",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "proof.yml"
+            for fixture in fixtures:
+                with self.subTest(fixture=fixture):
+                    path.write_text("on:\n  pull_request:\n" + fixture)
+                    with patch(__name__ + ".fork_exercised_workflows", return_value=[path]):
+                        with self.assertRaisesRegex(AssertionError, "MACOS_RUNNER_PR"):
+                            self.test_fork_pull_requests_into_manaflow_ai_never_reach_an_owned_runner_label()
 
     def test_pull_request_xcode_pin_follows_the_same_repository_lane(self) -> None:
         """A fork PR leaves MACOS_RUNNER_PR, so it must leave its Xcode pin too.
