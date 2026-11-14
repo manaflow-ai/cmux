@@ -79,6 +79,7 @@ FILES = {
 # What each job's workflow step passes (the real values come from the runner).
 TOOLCHAIN = {
     "fast-tier": {
+        "suite_scope": "all",
         "xcode": "Xcode 26.0 Build version 17A324",
         "macos": "26.0.1",
         "macos_build": "25A362",
