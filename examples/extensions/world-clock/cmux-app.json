@@ -1,0 +1,34 @@
+{
+  "$schema": "../../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "local/showcase-world-clock",
+  "name": { "en": "World clock" },
+  "version": "1.0.0",
+  "description": { "en": "An example extension built only on cmux-extension-sdk: the time in the places you work with, in a sidebar section." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "globe" },
+  "categories": ["sidebar"],
+  "keywords": ["clock", "time zones", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderWorldClock",
+      "title": { "en": "World clock" },
+      "symbol": "globe",
+      "options": { "defaultRegion": "bottom", "maxRows": 8 }
+    }
+  },
+  "scopes": {},
+  "settings": {
+    "type": "object",
+    "properties": {
+      "zones": { "type": "string", "title": "Time zones", "description": "IANA names separated by commas, for example Europe/London, Asia/Tokyo.", "default": "America/Los_Angeles, America/New_York, Europe/London, Asia/Tokyo" },
+      "hour12": { "type": "boolean", "title": "12-hour clock", "default": false }
+    }
+  },
+  "activation": ["onInterface:cmux.section/1"],
+  "files": ["dist/"]
+}
