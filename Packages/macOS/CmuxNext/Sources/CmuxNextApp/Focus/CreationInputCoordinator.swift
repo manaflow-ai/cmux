@@ -251,7 +251,7 @@ final class CreationInputCoordinator {
         }
         // A close key while a close of the focused terminal (or a hidden close) still reads: it acts now, and the held keys
         // keep waiting (flushed, they ran into the closing terminal or the neighbour, #29409). A new-tab key on a stand-in too.
-        if closes ? buffer.isClosing(tab: controller?.focus.state.terminalTab) : (kind == .content && buffer.opensTabNow(command?.rawValue, onStandIn: controller?.focus.state.typingTab.flatMap { ProvisionalTab.isProvisional($0) ? $0 : nil })) { return false }
+        if closes ? buffer.isClosing(tab: controller?.focus.state.terminalTab) : (kind == .content && buffer.opensTabNow(command?.rawValue, onStandIn: (controller?.focusedPane?.stripModel.selectedID?.rawValue).flatMap { ProvisionalTab.isProvisional($0) ? $0 : nil })) { return false }
         // Focus left the content (a sidebar or bar field) or the hold lets this key go: the held
         // keys go on first, then this one (into a hold a replayed key opened, if it keeps it). A surface hold keeps a chord no app shortcut takes (Ctrl-C).
         // A page hold keeps every key but a close (Cmd-L needs the page), until its bound.

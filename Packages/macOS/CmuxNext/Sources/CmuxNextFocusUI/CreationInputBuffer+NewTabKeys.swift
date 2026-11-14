@@ -11,7 +11,8 @@ extension CreationInputBuffer {
     /// Not for a creation that shows no tab of its own (a split or a workspace on its way): its keys wait as before.
     /// - Parameters:
     ///   - command: the action the key's shortcut resolves to, nil for a key that is no shortcut.
-    ///   - tab: the tab the key was typed on when it is a stand-in (a provisional tab), else nil.
+    ///   - tab: the tab its pane shows selected when that is a stand-in (a provisional tab), else nil. Not the focus's
+    ///     tab: a new browser tab's focus is on its way to the address bar.
     public func opensTabNow(_ command: String?, onStandIn tab: String?) -> Bool {
         guard let command, let tab, Self.newTabCommands.contains(command) else { return false }
         return lane(focusedTab: tab) != nil && !isClosing(tab: tab)

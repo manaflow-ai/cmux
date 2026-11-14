@@ -177,8 +177,8 @@ enum TabLifecycle {
 
     /// A person's new terminal or browser naming no pane (a key, the palette, the menu bar) goes where Cmd-T's does; a menu's
     /// named pane (the +'s) or a script's, the end (Leo 2026-11-07: "you make a new tab with the hotkeys, it opens up, like, subsequently").
-    /// The pane's current tab for a new tab's slot: one it selects once listed (Ctrl-` then Cmd-T: after the terminal; a reopened tab), else the strip's selection.
-    static func current(_ pane: PaneController) -> String? { pane.pendingSelect.listed(in: pane.pane.tabs) ?? pane.stripModel.selectedID?.rawValue }
+    /// The pane's current tab for a new tab's slot: one it selects once listed (Ctrl-` then Cmd-T: after the terminal; a reopened tab), else the strip's selection. A selected stand-in the store already replaced is the daemon tab it became.
+    static func current(_ pane: PaneController) -> String? { (pane.pendingSelect.listed(in: pane.pane.tabs) ?? pane.stripModel.selectedID?.rawValue).map { pane.daemon.store.creations.replacement(ofStandIn: $0, in: pane.pane)?.id ?? $0 } }
 
     static func keySlot(_ ctx: AppActionContext, _ invocation: ActionInvocation) -> NewTabSlot.Target? {
         guard invocation.origin == .user, invocation.target == nil, !invocation.besideCaller, let pane = ctx.services.windows.active?.focusedPane else { return nil }
