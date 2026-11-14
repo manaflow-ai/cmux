@@ -2744,6 +2744,9 @@ type ShownRows = {
   generation: number | undefined;
 };
 
+/// Rows a page of a chat's process list asks for: acpmux's most (hub/processes.rs).
+const PROCESS_LIST_PAGE = 1_000;
+
 /// The chat a client held when its connection was lost, handed to the client the page connects
 /// next (`carriedChat`, `connect`). Leo, 2026-11-11: "it keeps showing and then hiding, and then
 /// showing and then hiding your responses, or my responses". In the app every lost connection
@@ -6102,9 +6105,36 @@ export class AcpmuxDirectClient {
     return () => void this.raceListeners.delete(listener);
   }
 
-  /// Chat `sessionId`'s background processes (acpmux docs/background-processes.md).
-  listProcesses(sessionId: string): Promise<unknown> {
-    return this.request("_acpmux/process/list", { sessionId });
+  /// Chat `sessionId`'s background processes (acpmux docs/background-processes.md), every one: read
+  /// page by page with `limit` and each page's `nextCursor`, as `acpmux process list` reads them
+  /// (cli/process.rs). One unpaged reply holds only the newest that fit it (`omitted` counts the
+  /// rest), so older processes went missing from Session Info. An acpmux that pages nothing
+  /// answers the whole list with no cursor: one read, as before. A daemon that keeps no list (its
+  /// reply has no `processes`) is answered with no list too, so Session Info still shows the
+  /// transcript's running commands (processes.ts `backgroundCommands`, `listed`).
+  async listProcesses(sessionId: string): Promise<{ processes?: unknown[] }> {
+    const processes: unknown[] = [];
+    let listed = false;
+    const read = new Set<string>();
+    let cursor: string | undefined;
+    for (;;) {
+      const page = (await this.request("_acpmux/process/list", {
+        sessionId,
+        limit: PROCESS_LIST_PAGE,
+        ...(cursor === undefined ? {} : { cursor }),
+      })) as { processes?: unknown; nextCursor?: unknown } | undefined;
+      if (Array.isArray(page?.processes)) {
+        listed = true;
+        processes.push(...page.processes);
+      }
+      const next = page?.nextCursor;
+      if (typeof next !== "string" || next === "") return listed ? { processes } : {};
+      // A cursor given twice would read the same pages forever.
+      // l10n-allow: a daemon's bug for the list's readers, which drop a failed read; never shown.
+      if (read.has(next)) throw new Error(`process list: the daemon gave cursor ${next} twice`);
+      read.add(next);
+      cursor = next;
+    }
   }
 
   /// What running `command` on another machine would send, and where it can go
