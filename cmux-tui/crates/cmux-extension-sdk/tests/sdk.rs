@@ -1,6 +1,6 @@
 use cmux_extension_sdk::{
-    API_VERSION, EVENTS, Manifest, RUNTIME_VERSION, Region, SDK_VERSION, SIGNALS, check_package,
-    event, is_valid,
+    API_VERSION, EVENTS, Manifest, RUNTIME_VERSION, Region, SDK_VERSION, SIGNALS, Severity,
+    check_package, event, is_valid,
 };
 use serde_json::Value;
 use std::path::PathBuf;
@@ -99,6 +99,17 @@ fn the_builder_makes_the_example_extensions_manifest() {
         assert_eq!(built["implements"][place]["export"], example["implements"][place]["export"]);
     }
 
+    // dist/main.js is build output (`cmux ext dev` writes it): the only error an unbuilt checkout has.
     let report = check_package(&dir);
-    assert!(report.is_valid(), "{:?}", report.issues);
+    let errors: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|i| i.severity == Severity::Error)
+        .map(|i| (i.path.as_str(), i.code))
+        .collect();
+    assert!(
+        errors.is_empty() || errors == [("/runtime/main", "path.missing")],
+        "{:?}",
+        report.issues
+    );
 }
