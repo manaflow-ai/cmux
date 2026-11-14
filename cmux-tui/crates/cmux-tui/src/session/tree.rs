@@ -16,9 +16,9 @@ use cmux_tui_core::{
 use serde_json::Value;
 
 mod tab_view;
-use tab_view::parse_notification;
 pub(crate) use tab_view::parse_program_status;
-pub use tab_view::{TabNotificationView, TabView};
+pub use tab_view::{TabAttentionView, TabNotificationView, TabView};
+use tab_view::{parse_attention, parse_notification};
 
 #[derive(Clone, Default)]
 pub struct TreeView {
@@ -605,10 +605,16 @@ impl PaneView {
     }
 }
 
+/// `presentation`: the mux's presentation snapshot. It holds the attention
+/// marks of live tabs by public tab id (`tab-attention-v1`) and the rule for
+/// what a tab shows of its title.
 pub fn tree_from_state_with_notifications(
     state: &State,
     notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    presentation: &cmux_tui_core::PresentationSnapshot,
+    git_branches: &HashMap<SurfaceId, String>,
 ) -> TreeView {
+    let attention = &presentation.tab_attention;
     let ids = state
         .workspaces
         .iter()
@@ -655,7 +661,11 @@ pub fn tree_from_state_with_notifications(
                         }),
                     short_id: short_ids.get(sid).cloned().unwrap_or_default(),
                     name: state.surfaces.get(sid).and_then(|s| s.name()),
-                    title: state.surfaces.get(sid).map(|s| s.title()).unwrap_or_default(),
+                    title: state
+                        .surfaces
+                        .get(sid)
+                        .map(|s| presentation.shown_title(s).text.to_string())
+                        .unwrap_or_default(),
                     kind: state.surfaces.get(sid).map(|s| s.kind()).unwrap_or(SurfaceKind::Pty),
                     browser_source: state.surfaces.get(sid).and_then(|s| s.browser_source()),
                     browser_frames_stalled: state
@@ -670,11 +680,22 @@ pub fn tree_from_state_with_notifications(
                     notification: notifications.get(sid).map(|notification| TabNotificationView {
                         unread: notification.unread,
                         level: notification.level.as_str(),
+                        sequence: notification.notification,
                     }),
                     program_status: state
                         .surfaces
                         .get(sid)
                         .and_then(|surface| surface.shown_program_status()),
+                    attention: state
+                        .surfaces
+                        .get(sid)
+                        .and_then(|surface| surface.resource_identity())
+                        .and_then(|identity| attention.get(identity.tab_id.as_str()))
+                        .map(|mark| TabAttentionView {
+                            reason: std::sync::Arc::from(mark.reason.as_str()),
+                            at_ms: mark.at_ms,
+                        }),
+                    git_branch: git_branches.get(sid).cloned(),
                 })
                 .collect(),
         })
@@ -729,6 +750,7 @@ fn parse_layout(value: &Value) -> Option<Node> {
                 _ => return None,
             };
             Some(Node::Split {
+                divider_hidden: false,
                 id: value.get("split")?.as_u64()?,
                 dir,
                 ratio: value.get("ratio")?.as_f64()? as f32,
@@ -802,11 +824,7 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                                 .unwrap_or_default()
                                 .to_string(),
                             name: tab.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                            title: tab
-                                .get("title")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or_default()
-                                .to_string(),
+                            title: cmux_tui_core::TabTitle::of_tree_tab(tab).text.to_string(),
                             kind: match tab.get("kind").and_then(|v| v.as_str()) {
                                 Some("browser" | "remote-terminal") => SurfaceKind::Browser,
                                 _ => SurfaceKind::Pty,
@@ -827,6 +845,12 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                                 .unwrap_or(false),
                             notification: tab.get("notification").and_then(parse_notification),
                             program_status: parse_program_status(tab),
+                            attention: parse_attention(tab),
+                            git_branch: tab
+                                .get("git_branch")
+                                .and_then(Value::as_str)
+                                .filter(|branch| !branch.is_empty())
+                                .map(str::to_string),
                         })?;
                         if raw_active_tab == Some(raw_index) {
                             active_tab = Some(compact_index);

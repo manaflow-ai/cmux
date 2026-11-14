@@ -53,7 +53,7 @@ struct ClosedAgentIdentityTests {
         #expect(item.agentSession?.sessionID == "same-session")
         #expect(item.agentSession?.harness == "codex")
         #expect(NewTabClosed.kind(for: item) == .agent)
-        #expect(HistoryPalettePages.agentBrand(entry) != nil)
+        #expect(entry.agentBrand != nil)
         #expect(entry.searchText.contains("same-session"))
 
         let plain = try JSONDecoder().decode(DaemonHistoryEntry.self, from: Data("""

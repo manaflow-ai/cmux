@@ -8,9 +8,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ContextRing } from "../src/agent-session/acpmux/ComposerPickers";
-import { contextBreakdown, ContextSection } from "../src/agent-session/acpmux/session-info/ContextSection";
+import { ContextSection } from "../src/agent-session/acpmux/session-info/ContextSection";
+import { contextBreakdown } from "../src/agent-session/acpmux/session-info/contextSectionModel";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
 import { COMPACT_PROMPT, compactThrough } from "../src/agent-session/acpmux/conversation/turnActions";
+import { settleReact } from "./support/domTeardown";
 
 const BREAKDOWN = {
   categories: [
@@ -112,6 +114,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

@@ -22,11 +22,11 @@ from __future__ import annotations
 import re
 
 EPHEMERAL_RUNNER_VARIABLES = ("LINUX_RUNNER", "MACOS_RUNNER_26")
-EPHEMERAL_LABEL = re.compile(r"^(blacksmith-|ubuntu-)[a-z0-9.-]+$")
+EPHEMERAL_LABEL = re.compile(r"^(blacksmith-|ubuntu-|macos-)[a-z0-9.-]+$")
 
 
 def ephemeral_label(value: str | None) -> bool:
-    """Whether a runner label names an ephemeral runner (blacksmith-* or ubuntu-*)."""
+    """Whether a runner label names an ephemeral runner (blacksmith-*, ubuntu-* or GitHub-hosted macos-*)."""
     return bool(EPHEMERAL_LABEL.match((value or "").strip()))
 
 

@@ -1,5 +1,7 @@
 #if os(iOS)
+import enum CmuxMobileModel.UserFacingError
 import CmuxMobileDesign
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -83,7 +85,7 @@ struct EarlierPromptEditSheet: View {
                 }
             }
             .overlay {
-                if sending { ProgressView().controlSize(.large) }
+                if sending { CmuxSpinner().controlSize(.large) }
             }
         }
         .presentationDetents([.medium, .large])
@@ -121,7 +123,7 @@ struct SessionStatusSheet: View {
             Group {
                 switch load {
                 case .loading:
-                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                    CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .failed(let message):
                     ContentUnavailableView {
                         Label("Status is unavailable", systemImage: "exclamationmark.triangle")
@@ -181,7 +183,7 @@ struct SessionStatusSheet: View {
         do {
             load = .loaded(try await store.source.sessionStatus())
         } catch {
-            load = .failed((error as? LocalizedError)?.errorDescription ?? String(describing: error))
+            load = .failed(UserFacingError.message(error, fallback: "Couldn't read the session status. Try again."))
         }
     }
 }

@@ -121,6 +121,8 @@ impl HostLoss {
             return;
         }
         let Some(line) = &self.line else { return };
+        #[cfg(test)]
+        log_hook::run(&self.terminal_id);
         eprintln!("cmux-tui: terminal {} lost its host: {}", self.terminal_id, line["cause"]);
         if let Some(log) =
             self.record_path.parent().and_then(Path::parent).map(|dir| dir.join(LOSS_LOG_FILE))
@@ -218,6 +220,9 @@ pub(crate) enum Prefilled {
     /// The resume command a person set for the terminal (`resume-command`),
     /// typed without Return.
     Resume,
+    /// The last command a freed shell finished (`park-tabs`), typed without
+    /// Return: the person runs it again with one key.
+    LastCommand,
     None,
 }
 
@@ -226,6 +231,7 @@ impl Prefilled {
         match self {
             Self::Harness => "harness",
             Self::Resume => "resume",
+            Self::LastCommand => "last_command",
             Self::None => "none",
         }
     }
@@ -322,5 +328,38 @@ fn append_rotating(log: &Path, line: &serde_json::Value) {
     bytes.push(b'\n');
     if let Ok(mut file) = options.open(log) {
         let _ = file.write_all(&bytes);
+    }
+}
+
+/// Test seam: a hook that runs as a host loss is logged (before its stderr
+/// line and its log append), keyed by terminal id so parallel tests do not
+/// see each other's losses.
+#[cfg(test)]
+pub(crate) mod log_hook {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, PoisonError};
+
+    type Hook = Arc<dyn Fn() + Send + Sync>;
+
+    static HOOKS: Mutex<Option<HashMap<String, Hook>>> = Mutex::new(None);
+
+    pub(crate) fn set(terminal_id: &str, hook: Option<Hook>) {
+        let mut hooks = HOOKS.lock().unwrap_or_else(PoisonError::into_inner);
+        let hooks = hooks.get_or_insert_with(HashMap::new);
+        match hook {
+            Some(hook) => hooks.insert(terminal_id.to_string(), hook),
+            None => hooks.remove(terminal_id),
+        };
+    }
+
+    pub(super) fn run(terminal_id: &str) {
+        let hook = HOOKS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .and_then(|hooks| hooks.get(terminal_id).cloned());
+        if let Some(hook) = hook {
+            hook();
+        }
     }
 }

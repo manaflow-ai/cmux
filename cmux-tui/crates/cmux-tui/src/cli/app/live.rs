@@ -13,6 +13,12 @@
 //! each saved .rs, builds the daemons it reaches (here or on `--build-host`) and swaps the running
 //! daemon for the build, keeping every terminal and agent session (`scripts/cmux-next/rust-live.py`).
 //! `status` shows the last swap and how long it took from the save.
+//! `--swift` is live mode for the app's Swift (docs/cmux-next/live-code.md). Leo (2026-11-05):
+//! "there should likely be a way to switch it on and off for when you're hot-building". The live
+//! code build is slower and bigger (unoptimized, a file at a time, interposable calls), a cost of how
+//! the app is built, so `start --swift` restarts a tagged build into the live code build of its own
+//! commit with every session kept, and `stop --swift` restarts it back into the normal build. The
+//! work is `scripts/live-code/live-mode.py` in the checkout (it builds with that tree's build.sh).
 //!
 //! `--chromium` does it for the browser engine's renderer and Blink C++: `start --chromium` watches
 //! the checkout's `.cmux-dev/chromium/`, builds the engine incrementally on `--build-host`'s warm
@@ -31,6 +37,8 @@ mod chromium;
 const SCRIPT: &str = "scripts/cmux-next/web-overlay.sh";
 /// The script in a cmux checkout that runs the Rust daemon loop (`--rust`).
 const RUST_SCRIPT: &str = "scripts/cmux-next/rust-live.py";
+/// The script in a cmux checkout that swaps a tagged build to its live code build and back.
+const SWIFT_SCRIPT: &str = "scripts/live-code/live-mode.py";
 
 /// A parsed `cmux live` command.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,7 +49,7 @@ pub(crate) enum Command {
     Start { worktree: Option<PathBuf>, port: Option<u16> },
     /// Stop the dev server `start` ran; the app goes back to its shipped web UI.
     Stop { worktree: Option<PathBuf> },
-    /// What the app loads from, and the Live Web Reload setting.
+    /// What the app loads its web UI from and why (the cmux Live setting, web-dev.json, the server); and the Swift live mode line.
     Status { worktree: Option<PathBuf> },
     /// `start|stop|status --rust`: the Rust daemon loop of `worktree`'s [`RUST_SCRIPT`].
     Rust {
@@ -50,6 +58,8 @@ pub(crate) enum Command {
         build_host: Option<String>,
         session: Option<String>,
     },
+    /// `start|stop --swift`: restart the tagged build into its live code build, or back.
+    Swift(Swift),
     /// `start|stop|status --chromium`: the engine loop of `worktree`'s `chromium-live.py`;
     /// `args` are its own `start` flags (`--build-host`, `--src`, `--out`, ...), passed through.
     Chromium { verb: RustVerb, worktree: Option<PathBuf>, args: Vec<String> },
@@ -64,6 +74,23 @@ pub(crate) enum RustVerb {
     Stop,
     /// Whether it watches, and the last swap with its timing.
     Status,
+}
+
+/// `cmux live start|stop --swift` (scripts/live-code/live-mode.py).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Swift {
+    pub on: bool,
+    pub worktree: Option<PathBuf>,
+    /// The tagged build (default: the one this terminal belongs to, `CMUX_TAG`).
+    pub tag: Option<String>,
+    /// Return at once; the swap runs in its own session (the app's Live Mode buttons: the app quits).
+    pub detach: bool,
+    /// The app already set `labs.liveCode` (the person's click on its button).
+    pub setting_done: bool,
+    /// `stop` only: restart into the build from before live mode, not the optimized build of the edits.
+    pub discard: bool,
+    /// `start` only: build the live code build of HEAD, not reuse the last one with the difference patched in.
+    pub fresh: bool,
 }
 
 /// Parses the words after `live`.
@@ -82,6 +109,9 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
     let mut passthrough: Vec<String> = Vec::new();
     let mut build_host = None;
     let mut session = None;
+    let (mut swift, mut tag, mut detach, mut setting_done, mut discard, mut fresh) =
+        (false, None, false, false, false, false);
+    let switches = matches!(verb, Some("start" | "stop"));
     let mut words = rest.iter().skip(1);
     while let Some(word) = words.next() {
         let (flag, inline) = match word.split_once('=') {
@@ -108,6 +138,12 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             }
             "--build-host" if verb == Some("start") => build_host = Some(value()?),
             "--session" if verb == Some("start") => session = Some(value()?),
+            "--swift" if switches => swift = true,
+            "--tag" if switches => tag = Some(value()?),
+            "--detach" if switches => detach = true,
+            "--setting-done" if switches => setting_done = true,
+            "--discard" if verb == Some("stop") => discard = true,
+            "--fresh" if verb == Some("start") => fresh = true,
             "--port" if verb == Some("start") => {
                 port = Some(value()?.parse::<u16>().ok().filter(|port| *port > 0).ok_or_else(
                     || UsageError::new(messages.missing_value.replace("{flag}", "--port")),
@@ -119,6 +155,46 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
                 ));
             }
         }
+    }
+    let unexpected =
+        |flag: &str| UsageError::new(messages.unexpected_argument.replace("{value}", flag));
+    if swift {
+        // The Swift switch takes none of the other loops' flags (a flag it would drop unread).
+        let other = [
+            (rust, "--rust"),
+            (chromium, "--chromium"),
+            (port.is_some(), "--port"),
+            (build_host.is_some(), "--build-host"),
+            (session.is_some(), "--session"),
+        ]
+        .into_iter()
+        .find_map(|(given, flag)| given.then_some(flag))
+        .or(passthrough.first().map(String::as_str));
+        if let Some(flag) = other {
+            return Err(unexpected(flag));
+        }
+        return Ok(Command::Swift(Swift {
+            on: verb == Some("start"),
+            worktree,
+            tag,
+            detach,
+            setting_done,
+            discard,
+            fresh,
+        }));
+    }
+    if let Some(flag) = [
+        (tag.is_some(), "--tag"),
+        (detach, "--detach"),
+        (setting_done, "--setting-done"),
+        (discard, "--discard"),
+        (fresh, "--fresh"),
+    ]
+    .into_iter()
+    .find_map(|(given, flag)| given.then_some(flag))
+    {
+        // Only the Swift switch takes these.
+        return Err(unexpected(flag));
     }
     let unexpected =
         |flag: &str| UsageError::new(messages.unexpected_argument.replace("{value}", flag));
@@ -187,10 +263,14 @@ pub(super) fn run(command: &Command) -> i32 {
         Command::Stop { worktree } => (worktree, vec!["server".to_owned(), "off".to_owned()]),
         Command::Status { worktree } => (worktree, vec!["status".to_owned()]),
         Command::Rust { .. } => return run_rust(command),
+        Command::Swift(swift) => return run_swift(swift),
         Command::Chromium { verb, worktree, args } => return chromium::run(*verb, worktree, args),
     };
     let started = matches!(command, Command::Stop { .. } | Command::Status { .. });
     let Some(tree) = checkout(worktree.as_deref(), started) else {
+        if matches!(command, Command::Status { .. }) && swift_status(worktree.as_deref()) {
+            return 0;
+        }
         eprintln!("{}", messages.no_checkout);
         return 2;
     };
@@ -208,15 +288,16 @@ pub(super) fn run(command: &Command) -> i32 {
             if code == 0 && matches!(command, Command::Start { .. }) {
                 println!("{}", messages.started);
             }
-            if matches!(command, Command::Status { .. }) && tree.join(RUST_SCRIPT).is_file() {
-                // The Rust loop's last swap, when it ever ran (prints nothing otherwise).
-                let _ = Process::new("python3")
-                    .arg(tree.join(RUST_SCRIPT))
-                    .args(["status", "--if-used"])
-                    .current_dir(&tree)
-                    .status();
-            }
             if matches!(command, Command::Status { .. }) {
+                swift_status(Some(&tree));
+                if tree.join(RUST_SCRIPT).is_file() {
+                    // The Rust loop's last swap, when it ever ran (prints nothing otherwise).
+                    let _ = Process::new("python3")
+                        .arg(tree.join(RUST_SCRIPT))
+                        .args(["status", "--if-used"])
+                        .current_dir(&tree)
+                        .status();
+                }
                 chromium::status_if_used(&tree);
             }
             code
@@ -295,6 +376,38 @@ fn run_rust(command: &Command) -> i32 {
     }
 }
 
+/// Runs live-mode.py `start` or `stop` in the checkout, with this process's terminal.
+fn run_swift(swift: &Swift) -> i32 {
+    let messages = &crate::localization::catalog().app_control.live;
+    let Some(tree) = swift_checkout(swift.worktree.as_deref(), !swift.on) else {
+        eprintln!("{}", messages.no_swift_checkout);
+        return 2;
+    };
+    let mut args = vec![if swift.on { "start" } else { "stop" }.to_owned()];
+    if let Some(tag) = &swift.tag {
+        args.extend(["--tag".to_owned(), tag.clone()]);
+    }
+    if swift.detach {
+        args.push("--detach".to_owned());
+    }
+    if swift.setting_done {
+        args.push("--setting-done".to_owned());
+    }
+    if swift.discard {
+        args.push("--discard".to_owned());
+    }
+    if swift.fresh {
+        args.push("--fresh".to_owned());
+    }
+    match swift_process(&tree, &args).status() {
+        Ok(status) => status.code().unwrap_or(1),
+        Err(error) => {
+            eprintln!("{}", messages.cannot_run_swift.replace("{error}", &error.to_string()));
+            1
+        }
+    }
+}
+
 /// The running Rust loop's script, from the checkout its `watch.pid` names.
 fn recorded_rust_script() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
@@ -323,6 +436,58 @@ pub(super) fn recorded_watch_tree(file: &Path) -> Option<PathBuf> {
     let text = std::fs::read_to_string(file).ok()?;
     let (pid, tree) = text.lines().next()?.trim().split_once(' ')?;
     (pid.parse::<u32>().is_ok() && !tree.is_empty()).then(|| PathBuf::from(tree))
+}
+
+/// Prints live-mode.py's `status` line when a checkout with it is found; whether one was.
+fn swift_status(worktree: Option<&Path>) -> bool {
+    let Some(tree) = swift_checkout(worktree, true) else { return false };
+    swift_process(&tree, &["status".to_owned()]).status().is_ok_and(|status| status.success())
+}
+
+fn swift_process(tree: &Path, args: &[String]) -> Process {
+    let mut process = Process::new("python3");
+    process.arg(tree.join(SWIFT_SCRIPT)).args(args).args(["--tree".as_ref(), tree.as_os_str()]);
+    process.current_dir(tree);
+    if let Some(path) = tool_path(std::env::var_os("PATH"), std::env::var_os("HOME")) {
+        process.env("PATH", path);
+    }
+    process
+}
+
+/// The checkout for `--swift`: `worktree`, else the one around the current folder, else the one
+/// that built the running tagged app (`CMUXTERM_REPO_ROOT`, which reload.sh writes into its
+/// environment), else (`started`: stop and status) the one live mode last ran from.
+fn swift_checkout(worktree: Option<&Path>, started: bool) -> Option<PathBuf> {
+    let holds = |tree: &Path| tree.join(SWIFT_SCRIPT).is_file();
+    if let Some(worktree) = worktree {
+        return worktree.canonicalize().ok().filter(|tree| holds(tree));
+    }
+    let around = Process::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()))
+        .filter(|tree| holds(tree));
+    let built_from = || {
+        std::env::var_os("CMUXTERM_REPO_ROOT")
+            .filter(|root| !root.is_empty())
+            .map(PathBuf::from)
+            .filter(|tree| holds(tree))
+    };
+    let recorded = || {
+        let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
+        let file = PathBuf::from(home).join("Library/Caches/cmux-next/live-mode/tree");
+        recorded_swift_tree(&file).filter(|tree| holds(tree))
+    };
+    around.or_else(built_from).or_else(|| started.then(recorded).flatten())
+}
+
+/// The checkout in live mode's `tree` file (one absolute path, written by live-mode.py).
+pub(super) fn recorded_swift_tree(file: &Path) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(file).ok()?;
+    let line = text.lines().next()?.trim();
+    line.starts_with('/').then(|| PathBuf::from(line))
 }
 
 /// The cmux checkout to use: `worktree`, else the one around the current folder, else (for `stop`

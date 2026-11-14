@@ -197,24 +197,25 @@ impl App {
         }
         // Composer.
         if hit(self.areas.composer) {
-            let running =
-                self.selected_session().and_then(|s| s.get("status").and_then(Value::as_str))
-                    == Some("running");
+            let running = self.turn_open();
             let mut items = vec![
                 item("Copy text", MenuAction::Composer(ComposerOp::CopyAll)),
                 item("Clear", MenuAction::Composer(ComposerOp::Clear)),
                 item("Undo", MenuAction::Composer(ComposerOp::Undo)),
             ];
             if !self.editor().is_empty() {
-                items.push(item("Send", MenuAction::Composer(ComposerOp::Send)));
-                if running {
+                if !running {
+                    items.push(item("Send", MenuAction::Composer(ComposerOp::Send)));
+                } else {
+                    if self.selected_supports_steer() {
+                        items.push(item(
+                            "Steer the running turn",
+                            MenuAction::Composer(ComposerOp::Steer),
+                        ));
+                    }
                     items.push(item(
-                        if self.selected_supports_steer() {
-                            "Steer the running turn"
-                        } else {
-                            "Queue after the running turn"
-                        },
-                        MenuAction::Composer(ComposerOp::Steer),
+                        "Queue after the running turn",
+                        MenuAction::Composer(ComposerOp::Send),
                     ));
                 }
             }

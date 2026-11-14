@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextSettings
 
 extension DebugHome {

@@ -1,0 +1,304 @@
+{
+ "title": "Sidebar: Projects and Recents (sidebar.groupBy = recents)",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2
+  },
+  {
+   "title": "Workspace cmuxterm-hq",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "cmuxterm-hq"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Into a new group",
+   "cmux": [
+    "action",
+    "run",
+    "workspace.moveToNewGroup"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "group creation by CLI depends on the target the run resolves"
+  },
+  {
+   "title": "Another member",
+   "cmux": [
+    "action",
+    "run",
+    "workspaceGroup.newWorkspace"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "needs the group target"
+  },
+  {
+   "title": "Workspace harness-research",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "harness-research"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Into a new group",
+   "cmux": [
+    "action",
+    "run",
+    "workspace.moveToNewGroup"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "group creation by CLI depends on the target the run resolves"
+  },
+  {
+   "title": "Another member",
+   "cmux": [
+    "action",
+    "run",
+    "workspaceGroup.newWorkspace"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "needs the group target"
+  },
+  {
+   "title": "Workspace ui-atlas",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "ui-atlas"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Into a new group",
+   "cmux": [
+    "action",
+    "run",
+    "workspace.moveToNewGroup"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "group creation by CLI depends on the target the run resolves"
+  },
+  {
+   "title": "Another member",
+   "cmux": [
+    "action",
+    "run",
+    "workspaceGroup.newWorkspace"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "needs the group target"
+  },
+  {
+   "title": "Workspace billing",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "billing"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Into a new group",
+   "cmux": [
+    "action",
+    "run",
+    "workspace.moveToNewGroup"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "group creation by CLI depends on the target the run resolves"
+  },
+  {
+   "title": "Another member",
+   "cmux": [
+    "action",
+    "run",
+    "workspaceGroup.newWorkspace"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "needs the group target"
+  },
+  {
+   "title": "Workspace docs-site",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "docs-site"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Into a new group",
+   "cmux": [
+    "action",
+    "run",
+    "workspace.moveToNewGroup"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "group creation by CLI depends on the target the run resolves"
+  },
+  {
+   "title": "Another member",
+   "cmux": [
+    "action",
+    "run",
+    "workspaceGroup.newWorkspace"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "needs the group target"
+  },
+  {
+   "title": "Workspace infra",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "infra"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Into a new group",
+   "cmux": [
+    "action",
+    "run",
+    "workspace.moveToNewGroup"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "group creation by CLI depends on the target the run resolves"
+  },
+  {
+   "title": "Another member",
+   "cmux": [
+    "action",
+    "run",
+    "workspaceGroup.newWorkspace"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "needs the group target"
+  },
+  {
+   "title": "Workspace mobile",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "mobile"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Into a new group",
+   "cmux": [
+    "action",
+    "run",
+    "workspace.moveToNewGroup"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "group creation by CLI depends on the target the run resolves"
+  },
+  {
+   "title": "Another member",
+   "cmux": [
+    "action",
+    "run",
+    "workspaceGroup.newWorkspace"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "needs the group target"
+  },
+  {
+   "title": "Workspace fix-login-bug",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "fix-login-bug"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Workspace release-notes",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "release-notes"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Workspace flaky-ci",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "flaky-ci"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Workspace design-review",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "design-review"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Workspace perf-trace",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "perf-trace"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Projects and Recents (Settings > Sidebar > Group Projects By)",
+   "wait": 3
+  }
+ ],
+ "settings": {
+  "sidebar": {
+   "groupBy": "recents"
+  }
+ }
+}

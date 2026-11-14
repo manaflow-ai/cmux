@@ -13,6 +13,8 @@ const rowsOf = (count: number) =>
     summary(299.6 - index * 2, { status: "completed" }),
   ]).flat();
 
+const short = rowsOf(3);
+const thirteen = rowsOf(13);
 const medium = rowsOf(18);
 const long = rowsOf(70);
 const tall = rowsOf(260);
@@ -33,8 +35,22 @@ export default agentPaneEntry({
     ],
   },
   variants: {
+    "three-prompts": {
+      note: "Three prompts. The fit-* arms draw a 30 px rail at the 10 px pitch (fit-480 at its slot's top, chosen); the fixed arms draw their whole box with the three ticks at its top, fixed-480 20 px apart.",
+      snapshot: chat(short, { title: "Thread minimap height: three prompts" }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__list"));
+      },
+    },
+    "thirteen-prompts": {
+      note: "Thirteen prompts. fit-480 is 130 px at the same top as with three prompts; fit-480-center and fit-480-bottom moved up as the chat grew.",
+      snapshot: chat(thirteen, { title: "Thread minimap height: thirteen prompts" }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__list"));
+      },
+    },
     "eighteen-prompts": {
-      note: "Eighteen prompts. The fixed arms (200, 240 before, 280, 360, 480 shipped) keep one height with quiet rail under the last tick; the older initial-* arms are here for comparison.",
+      note: "Eighteen prompts. The fit arms (fit-480 shipped) are 180 px at the 10 px pitch; the fixed arms (200, 240, 280, 360, 480) keep one height with quiet rail under the last tick; the older initial-* arms are here for comparison.",
       snapshot: chat(medium, { title: "Thread minimap height: initial rail" }),
       play: async (ctx) => {
         if (!ctx.document.querySelector('[data-tick="8"]')) return;
@@ -44,7 +60,7 @@ export default agentPaneEntry({
       },
     },
     "long-rest": {
-      note: "Seventy prompts at rest: compare fixed-240 (before), fixed-360 and fixed-480 (chosen). Equal tick lengths; on-screen prompts brighter. The height and pitch scale together.",
+      note: "Seventy prompts at rest: compare fit-480 (chosen, 480 px at the 10 px pitch, 48 prompts), fit-240, fixed-240, fixed-360 and fixed-480. Equal tick lengths; on-screen prompts brighter.",
       snapshot: chat(long, { title: "Thread minimap height: long chat" }),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__list"));

@@ -8,7 +8,7 @@
 // own: compare the arms of traySurface.experiment.ts (view Compare arms); `tint` ships.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, row, user } from "../../../gallery/fixtures/acpmux";
-import { minutesAgo } from "../../../gallery/clock";
+import { recentRun } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 import { traySurfaceLook } from "./traySurface.experiment";
@@ -19,8 +19,8 @@ const ended = (name: string, minutes: number, ran: number): Subagent => ({
   name,
   task: name,
   state: "completed",
-  startedAt: minutesAgo(minutes),
-  endedAt: minutesAgo(minutes - ran),
+  // What ended lingers in the hat only for its grace (trayLinger.ts): it ended just now.
+  ...recentRun(minutes, ran),
 });
 
 const settled = (count: number) =>

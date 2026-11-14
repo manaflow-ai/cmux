@@ -177,12 +177,29 @@ const WAITING = [
   message: { name: "grid-lane", sessionId: "s-grid", harness: "claude", text, raw: text },
 }));
 
+/// Three messages from two sessions waiting (Leo's 2026-11-05 capture: "3 messages from 2 sessions
+/// claude-13, gcp-codex-swarm-08/claude").
+const WAITING_TWO = [
+  ...WAITING,
+  {
+    id: "w3",
+    prompt: "Review passed at e34ce27, no findings.",
+    message: {
+      name: "review-box",
+      sessionId: "s-review",
+      harness: "codex",
+      text: "Review passed at e34ce27, no findings.",
+      raw: "Review passed at e34ce27, no findings.",
+    },
+  },
+];
+
 /// Inbox rows among tool rows, as a coordinator's chat draws them: a run of commands, one thread's
 /// line, a delivered group of one sender's threads, one of several senders', and the messages that
 /// wait (Leo, 2026-11-01: "i wanted this to be left aligned with the other tool calls" and "let's
 /// just make this look better"). Every group's head is a tool row (MessageGroupHead.tsx).
 /// inbox-row-icon-column.test.ts measures it.
-function amongTools() {
+function amongTools(queue = WAITING) {
   const run = (minutes: number) =>
     activity(
       [
@@ -211,7 +228,7 @@ function amongTools() {
     {
       title: "polish-coordinator",
       isWorking: true,
-      queue: WAITING,
+      queue,
       sessions: [
         session({ sessionId: SESSION_ID, title: "polish-coordinator", name: "polish-coordinator" }),
         session({ sessionId: "s-log-bloat", title: "ao-log-bloat", name: "ao-log-bloat", harness: "codex" }),
@@ -236,19 +253,33 @@ const SIX = [
 /// deliveries now use the same flat lane-notice projection as the transcript, so a notice's
 /// own InboxNoticeCard selectors are only present for the legacy singleton shape.
 const openFirst: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__toggle, .cv-received .cv-disclosure__toggle"));
+  await ctx.waitFor(() =>
+    ctx.document.querySelector(
+      ".cv-lane-batch__toggle, .cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)",
+    ),
+  );
   ctx.document.querySelector<HTMLButtonElement>(".cv-lane-batch__toggle")?.click();
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-disclosure__toggle"));
-  ctx.document.querySelector<HTMLButtonElement>(".cv-received .cv-disclosure__toggle")?.click();
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)"));
+  ctx.document
+    .querySelector<HTMLButtonElement>(".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)")
+    ?.click();
   await ctx.waitFor(() => ctx.document.querySelector(".cv-received__text"));
 };
 /// Opens every delivered batch and the last received line, which is the three-message rail thread
 /// in the fixture after inbox flattening.
 const openRail: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__toggle, .cv-received .cv-disclosure__toggle"));
+  await ctx.waitFor(() =>
+    ctx.document.querySelector(
+      ".cv-lane-batch__toggle, .cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)",
+    ),
+  );
   for (const batch of ctx.document.querySelectorAll<HTMLButtonElement>(".cv-lane-batch__toggle")) batch.click();
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received .cv-disclosure__toggle").length >= 3);
-  const lines = ctx.document.querySelectorAll<HTMLButtonElement>(".cv-received .cv-disclosure__toggle");
+  await ctx.waitFor(
+    () => ctx.document.querySelectorAll(".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)").length >= 3,
+  );
+  const lines = ctx.document.querySelectorAll<HTMLButtonElement>(
+    ".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)",
+  );
   lines[lines.length - 1]?.click();
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__text").length >= 1);
 };
@@ -290,6 +321,15 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-message-group__head").length >= 2);
         ctx.document.querySelectorAll<HTMLButtonElement>(".cv-message-group__head")[1]?.click();
         await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__body .cv-received"));
+      },
+    },
+    "waiting-open-all": {
+      note: 'The waiting digest of three messages from two sessions, opened by a pointer click on its own line: every message shows its words under it, no row left to open one by one (Leo, 2026-11-05: "we don\'t seem to be able to click it at the top level").',
+      snapshot: amongTools(WAITING_TWO),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-pending__toggle"));
+        await ctx.click({ selector: ".cv-pending__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-pending .cv-received__text").length >= 3);
       },
     },
     "before-six": {

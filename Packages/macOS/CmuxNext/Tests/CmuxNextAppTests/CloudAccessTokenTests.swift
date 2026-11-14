@@ -88,9 +88,8 @@ import Testing
 
     @Test func theDefaultIsTheActiveTeamAndAManagedDeviceMintsOnlyForItsTeam() throws {
         let project = "proj_1", stackTeam = "6F1C2D9E-0000-4000-8000-000000000001", other = "6f1c2d9e-0000-4000-8000-000000000002"
-        let backend = CloudAccessToken.backendTeamID(stackProjectID: project, stackTeamID: stackTeam)
-        // The same id the Worker and Home use for that team.
-        #expect(backend == CloudIdentity.workerTeamID(stackProjectID: project, stackTeamID: stackTeam))
+        // Rust mints for the same id the Worker and Home use for that team.
+        let backend = CloudIdentity.workerTeamID(stackProjectID: project, stackTeamID: stackTeam)
         #expect(CloudAccessToken.isTeam(backend))
         // Unmanaged: the asked team, else the active team, else the install's own (personal) team.
         #expect(try CloudAccessToken.team(requested: team, activeStackTeam: stackTeam, managedStackTeam: nil, stackProjectID: project) == team)

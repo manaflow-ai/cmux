@@ -2,7 +2,7 @@
 // the page reads no template dots and no "default: X" toggle from the host, even from a host
 // that still sends them, so neither the Terminal dot nor the toggle can make Cmd-T skip the page.
 import { expect, test } from "bun:test";
-import { newTabHost } from "../src/agent-session/acpmux/NewTabPage";
+import { newTabHost } from "../src/agent-session/acpmux/newTabModel";
 
 test("the New Tab page takes no template dots or default-kind toggle from the host", () => {
   const host = newTabHost({

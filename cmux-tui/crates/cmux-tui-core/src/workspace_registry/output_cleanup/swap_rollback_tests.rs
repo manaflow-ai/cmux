@@ -154,3 +154,24 @@ fn a_full_start_beside_another_registrys_backup_is_not_counted() {
     assert_eq!(full_starts(&db_path), None);
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_version_1_swap_later_marked_not_needed_by_version_2_is_still_the_swapped_registry() {
+    // A version 1 cleanup swapped this registry (its key holds what it kept);
+    // version 2 then found it clean and wrote `not-needed`. The swap is still
+    // the version 1 one: a full start is counted, which lets the backup go.
+    let dir = temp_dir("v1-swap-v2-not-needed");
+    let db_path = dir.join("workspace-registry.sqlite3");
+    registry_with_meta(
+        &db_path,
+        &[
+            ("registry_id", "r1"),
+            (super::super::V1_DONE_META_KEY, "{\"at_ms\":\"1\",\"kept\":\"1\"}"),
+            (DONE_META_KEY, "not-needed"),
+        ],
+    );
+    registry_with_meta(&previous_path(&db_path), &[("registry_id", "r1")]);
+    note_full_start(&db_path).unwrap();
+    assert_eq!(full_starts(&db_path).as_deref(), Some("1"), "the start was not counted");
+    fs::remove_dir_all(&dir).unwrap();
+}

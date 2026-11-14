@@ -10866,127 +10866,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Import these Conductor workspaces?"
+            "value" : "Import these workspaces?"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Diese Conductor-Arbeitsbereiche importieren?"
+            "value" : "Diese Arbeitsbereiche importieren?"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Importer ces espaces de travail Conductor ?"
+            "value" : "Importer ces espaces de travail ?"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "هل تريد استيراد مساحات عمل Conductor هذه؟"
+            "value" : "هل تريد استيراد مساحات العمل هذه؟"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "¿Importar estos espacios de trabajo de Conductor?"
+            "value" : "¿Importar estos espacios de trabajo?"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "要匯入這些 Conductor 工作區嗎？"
+            "value" : "要匯入這些工作區嗎？"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "要导入这些 Conductor 工作区吗？"
+            "value" : "要导入这些工作区吗？"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "이 Conductor 작업 공간을 가져올까요?"
+            "value" : "이 작업 공간을 가져올까요?"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "これらの Conductor ワークスペースを読み込みますか？"
+            "value" : "これらのワークスペースを読み込みますか？"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Uvesti ove Conductor radne prostore?"
+            "value" : "Uvesti ove radne prostore?"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vil du importere disse Conductor-arbejdsområder?"
+            "value" : "Vil du importere disse arbejdsområder?"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Importare questi spazi di lavoro di Conductor?"
+            "value" : "Importare questi spazi di lavoro?"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "នាំចូលកន្លែងធ្វើការ Conductor ទាំងនេះទេ?"
+            "value" : "នាំចូលកន្លែងធ្វើការទាំងនេះទេ?"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vil du importere disse Conductor-arbeidsområdene?"
+            "value" : "Vil du importere disse arbeidsområdene?"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Zaimportować te obszary robocze Conductor?"
+            "value" : "Zaimportować te obszary robocze?"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Importar estes espaços de trabalho do Conductor?"
+            "value" : "Importar estes espaços de trabalho?"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Импортировать эти рабочие пространства Conductor?"
+            "value" : "Импортировать эти рабочие пространства?"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "นำเข้าพื้นที่ทำงาน Conductor เหล่านี้ไหม"
+            "value" : "นำเข้าพื้นที่ทำงานเหล่านี้ไหม"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bu Conductor çalışma alanları içe aktarılsın mı?"
+            "value" : "Bu çalışma alanları içe aktarılsın mı?"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Імпортувати ці робочі простори Conductor?"
+            "value" : "Імпортувати ці робочі простори?"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nhập các không gian làm việc Conductor này?"
+            "value" : "Nhập các không gian làm việc này?"
           }
         }
       }
@@ -11784,133 +11784,133 @@
       }
     },
     "conductorImport.preview.deadline" : {
-      "comment" : "The last line of the Import from Conductor preview: Conductor Cloud's announced dates.",
+      "comment" : "The last line of the Import from Conductor preview: the import can run again later without duplicating workspaces already open.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud becomes read-only on November 13 and shuts down on November 20."
+            "value" : "You can import again later. Workspaces already open here aren’t duplicated."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud ist ab dem 13. November schreibgeschützt und wird am 20. November eingestellt."
+            "value" : "Du kannst später erneut importieren. Arbeitsbereiche, die hier schon offen sind, werden nicht doppelt angelegt."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud passe en lecture seule le 13 novembre et ferme le 20 novembre."
+            "value" : "Vous pourrez importer à nouveau plus tard. Les espaces de travail déjà ouverts ici ne sont pas dupliqués."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "يصبح Conductor Cloud للقراءة فقط في 13 نوفمبر ويتوقف في 20 نوفمبر."
+            "value" : "يمكنك الاستيراد مرة أخرى لاحقًا. لا تتكرر مساحات العمل المفتوحة هنا بالفعل."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud pasa a ser de solo lectura el 13 de noviembre y cierra el 20 de noviembre."
+            "value" : "Puedes volver a importar más tarde. Los espacios de trabajo que ya están abiertos aquí no se duplican."
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud 將於 11 月 13 日變為唯讀，並於 11 月 20 日關閉。"
+            "value" : "你之後可以再次匯入。已在此開啟的工作區不會重複建立。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud 将于 11 月 13 日变为只读，并于 11 月 20 日关闭。"
+            "value" : "你之后可以再次导入。已在此打开的工作区不会重复创建。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud는 11월 13일에 읽기 전용이 되고 11월 20일에 종료됩니다."
+            "value" : "나중에 다시 가져올 수 있습니다. 여기에서 이미 열려 있는 작업 공간은 중복되지 않습니다."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud は 11 月 13 日に読み取り専用になり、11 月 20 日に終了します。"
+            "value" : "あとで再度読み込めます。ここですでに開いているワークスペースは重複しません。"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud postaje samo za čitanje 13. novembra i gasi se 20. novembra."
+            "value" : "Kasnije možete ponovo uvesti. Radni prostori koji su ovdje već otvoreni neće se duplirati."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud bliver skrivebeskyttet den 13. november og lukker den 20. november."
+            "value" : "Du kan importere igen senere. Arbejdsområder, der allerede er åbne her, dubleres ikke."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud diventa di sola lettura il 13 novembre e chiude il 20 novembre."
+            "value" : "Puoi importare di nuovo più tardi. Gli spazi di lavoro già aperti qui non vengono duplicati."
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud នឹងក្លាយជាអានតែប៉ុណ្ណោះនៅថ្ងៃទី 13 ខែវិច្ឆិកា ហើយបិទនៅថ្ងៃទី 20 ខែវិច្ឆិកា។"
+            "value" : "អ្នកអាចនាំចូលម្តងទៀតនៅពេលក្រោយ។ កន្លែងធ្វើការដែលបានបើករួចនៅទីនេះ មិនត្រូវបានចម្លងស្ទួនទេ។"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud blir skrivebeskyttet 13. november og stenges 20. november."
+            "value" : "Du kan importere på nytt senere. Arbeidsområder som allerede er åpne her, dupliseres ikke."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud przejdzie w tryb tylko do odczytu 13 listopada i zostanie wyłączony 20 listopada."
+            "value" : "Możesz zaimportować ponownie później. Obszary robocze już otwarte tutaj nie zostaną zduplikowane."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O Conductor Cloud passa a ser somente leitura em 13 de novembro e será encerrado em 20 de novembro."
+            "value" : "Você pode importar de novo depois. Espaços de trabalho que já estão abertos aqui não são duplicados."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud станет доступен только для чтения 13 ноября и закроется 20 ноября."
+            "value" : "Позже можно импортировать снова. Рабочие пространства, уже открытые здесь, не дублируются."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud จะเป็นแบบอ่านอย่างเดียวในวันที่ 13 พฤศจิกายน และปิดให้บริการในวันที่ 20 พฤศจิกายน"
+            "value" : "คุณนำเข้าอีกครั้งภายหลังได้ พื้นที่ทำงานที่เปิดอยู่ที่นี่แล้วจะไม่ถูกสร้างซ้ำ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud 13 Kasım'da salt okunur olur ve 20 Kasım'da kapanır."
+            "value" : "Daha sonra yeniden içe aktarabilirsiniz. Burada zaten açık olan çalışma alanları çoğaltılmaz."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud стане доступним лише для читання 13 листопада й закриється 20 листопада."
+            "value" : "Пізніше можна імпортувати знову. Робочі простори, уже відкриті тут, не дублюються."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud chuyển sang chỉ đọc vào ngày 13 tháng 11 và ngừng hoạt động vào ngày 20 tháng 11."
+            "value" : "Bạn có thể nhập lại sau. Các không gian làm việc đã mở ở đây sẽ không bị trùng lặp."
           }
         }
       }
@@ -11922,127 +11922,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Your Conductor workspaces are open."
+            "value" : "Your imported workspaces are open."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deine Conductor-Arbeitsbereiche sind geöffnet."
+            "value" : "Deine importierten Arbeitsbereiche sind geöffnet."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vos espaces de travail Conductor sont ouverts."
+            "value" : "Vos espaces de travail importés sont ouverts."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "مساحات عمل Conductor مفتوحة."
+            "value" : "مساحات العمل التي استوردتها مفتوحة."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tus espacios de trabajo de Conductor están abiertos."
+            "value" : "Tus espacios de trabajo importados están abiertos."
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你的 Conductor 工作區已開啟。"
+            "value" : "你匯入的工作區已開啟。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你的 Conductor 工作区已打开。"
+            "value" : "你导入的工作区已打开。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor 작업 공간이 열렸습니다."
+            "value" : "가져온 작업 공간이 열렸습니다."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor のワークスペースを開きました。"
+            "value" : "読み込んだワークスペースを開きました。"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vaši Conductor radni prostori su otvoreni."
+            "value" : "Vaši uvezeni radni prostori su otvoreni."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dine Conductor-arbejdsområder er åbne."
+            "value" : "Dine importerede arbejdsområder er åbne."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "I tuoi spazi di lavoro di Conductor sono aperti."
+            "value" : "I tuoi spazi di lavoro importati sono aperti."
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "កន្លែងធ្វើការ Conductor របស់អ្នកត្រូវបានបើក។"
+            "value" : "កន្លែងធ្វើការដែលបាននាំចូលរបស់អ្នកត្រូវបានបើក។"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor-arbeidsområdene dine er åpne."
+            "value" : "De importerte arbeidsområdene dine er åpne."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Twoje obszary robocze Conductor są otwarte."
+            "value" : "Zaimportowane obszary robocze są otwarte."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Seus espaços de trabalho do Conductor estão abertos."
+            "value" : "Seus espaços de trabalho importados estão abertos."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ваши рабочие пространства Conductor открыты."
+            "value" : "Импортированные рабочие пространства открыты."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "พื้นที่ทำงาน Conductor ของคุณเปิดแล้ว"
+            "value" : "พื้นที่ทำงานที่นำเข้าของคุณเปิดแล้ว"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor çalışma alanlarınız açık."
+            "value" : "İçe aktardığınız çalışma alanları açık."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ваші робочі простори Conductor відкрито."
+            "value" : "Імпортовані робочі простори відкрито."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Không gian làm việc Conductor của bạn đã mở."
+            "value" : "Các không gian làm việc đã nhập của bạn đã mở."
           }
         }
       }
@@ -12054,127 +12054,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Every Conductor workspace is already open here."
+            "value" : "Every workspace is already open here."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Alle Conductor-Arbeitsbereiche sind hier bereits geöffnet."
+            "value" : "Jeder Arbeitsbereich ist hier bereits geöffnet."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tous les espaces de travail Conductor sont déjà ouverts ici."
+            "value" : "Chaque espace de travail est déjà ouvert ici."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "كل مساحات عمل Conductor مفتوحة هنا بالفعل."
+            "value" : "كل مساحة عمل مفتوحة هنا بالفعل."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Todos los espacios de trabajo de Conductor ya están abiertos aquí."
+            "value" : "Todos los espacios de trabajo ya están abiertos aquí."
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "所有 Conductor 工作區都已在此開啟。"
+            "value" : "每個工作區都已在此開啟。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "所有 Conductor 工作区都已在此打开。"
+            "value" : "每个工作区都已在此打开。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "모든 Conductor 작업 공간이 이미 여기에 열려 있습니다."
+            "value" : "모든 작업 공간이 이미 여기에서 열려 있습니다."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "すべての Conductor ワークスペースはすでにここで開いています。"
+            "value" : "すべてのワークスペースがすでにここで開いています。"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Svi Conductor radni prostori su već otvoreni ovdje."
+            "value" : "Svaki radni prostor je ovdje već otvoren."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Alle Conductor-arbejdsområder er allerede åbne her."
+            "value" : "Alle arbejdsområder er allerede åbne her."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tutti gli spazi di lavoro di Conductor sono già aperti qui."
+            "value" : "Ogni spazio di lavoro è già aperto qui."
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "កន្លែងធ្វើការ Conductor ទាំងអស់បានបើកនៅទីនេះរួចហើយ។"
+            "value" : "កន្លែងធ្វើការនីមួយៗត្រូវបានបើករួចហើយនៅទីនេះ។"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Alle Conductor-arbeidsområder er allerede åpne her."
+            "value" : "Alle arbeidsområdene er allerede åpne her."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Wszystkie obszary robocze Conductor są już tu otwarte."
+            "value" : "Każdy obszar roboczy jest już tu otwarty."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Todos os espaços de trabalho do Conductor já estão abertos aqui."
+            "value" : "Todos os espaços de trabalho já estão abertos aqui."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Все рабочие пространства Conductor уже открыты здесь."
+            "value" : "Все рабочие пространства уже открыты здесь."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "พื้นที่ทำงาน Conductor ทั้งหมดเปิดอยู่ที่นี่แล้ว"
+            "value" : "พื้นที่ทำงานทุกแห่งเปิดอยู่ที่นี่แล้ว"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tüm Conductor çalışma alanları zaten burada açık."
+            "value" : "Tüm çalışma alanları burada zaten açık."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Усі робочі простори Conductor уже відкриті тут."
+            "value" : "Усі робочі простори вже відкрито тут."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mọi không gian làm việc Conductor đều đã mở ở đây."
+            "value" : "Mọi không gian làm việc đều đã mở ở đây."
           }
         }
       }
@@ -12186,259 +12186,259 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Couldn’t import from Conductor."
+            "value" : "Couldn’t import your workspaces."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Import aus Conductor fehlgeschlagen."
+            "value" : "Deine Arbeitsbereiche konnten nicht importiert werden."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Impossible d’importer depuis Conductor."
+            "value" : "Impossible d’importer vos espaces de travail."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "تعذّر الاستيراد من Conductor."
+            "value" : "تعذّر استيراد مساحات عملك."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudo importar desde Conductor."
+            "value" : "No se pudieron importar tus espacios de trabajo."
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "無法從 Conductor 匯入。"
+            "value" : "無法匯入你的工作區。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "无法从 Conductor 导入。"
+            "value" : "无法导入你的工作区。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor에서 가져오지 못했습니다."
+            "value" : "작업 공간을 가져오지 못했습니다."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor から読み込めませんでした。"
+            "value" : "ワークスペースを読み込めませんでした。"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Uvoz iz Conductora nije uspio."
+            "value" : "Uvoz vaših radnih prostora nije uspio."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kunne ikke importere fra Conductor."
+            "value" : "Kunne ikke importere dine arbejdsområder."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Impossibile importare da Conductor."
+            "value" : "Impossibile importare i tuoi spazi di lavoro."
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "មិនអាចនាំចូលពី Conductor បានទេ។"
+            "value" : "មិនអាចនាំចូលកន្លែងធ្វើការរបស់អ្នកបានទេ។"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kunne ikke importere fra Conductor."
+            "value" : "Kunne ikke importere arbeidsområdene dine."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nie udało się zaimportować z Conductor."
+            "value" : "Nie udało się zaimportować obszarów roboczych."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Não foi possível importar do Conductor."
+            "value" : "Não foi possível importar seus espaços de trabalho."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не удалось импортировать из Conductor."
+            "value" : "Не удалось импортировать рабочие пространства."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "นำเข้าจาก Conductor ไม่สำเร็จ"
+            "value" : "นำเข้าพื้นที่ทำงานของคุณไม่สำเร็จ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor'dan içe aktarılamadı."
+            "value" : "Çalışma alanlarınız içe aktarılamadı."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не вдалося імпортувати з Conductor."
+            "value" : "Не вдалося імпортувати робочі простори."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Không thể nhập từ Conductor."
+            "value" : "Không thể nhập không gian làm việc của bạn."
           }
         }
       }
     },
     "importSuggestions.benefit.conductor" : {
-      "comment" : "What the Conductor card in Settings › Import brings over (its source is named here, inside Import; no date).",
+      "comment" : "What the Conductor card in Settings › Import brings over.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Your Conductor workspaces open here in place, on their branches, with their chats."
+            "value" : "Your workspaces open here in place, on their branches, with their chats."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deine Conductor-Arbeitsbereiche öffnen sich hier an Ort und Stelle, auf ihren Branches, mit ihren Chats."
+            "value" : "Deine Arbeitsbereiche öffnen sich hier an Ort und Stelle, auf ihren Branches, mit ihren Chats."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vos espaces de travail Conductor s’ouvrent ici sur place, sur leurs branches, avec leurs discussions."
+            "value" : "Vos espaces de travail s’ouvrent ici sur place, sur leurs branches, avec leurs discussions."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "تُفتح مساحات عمل Conductor هنا في مكانها، على فروعها، مع محادثاتها. يتوقف"
+            "value" : "تُفتح مساحات عملك هنا في مكانها، على فروعها، مع محادثاتها."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tus espacios de trabajo de Conductor se abren aquí en su lugar, en sus ramas, con sus chats."
+            "value" : "Tus espacios de trabajo se abren aquí en su lugar, en sus ramas, con sus chats."
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你的 Conductor 工作區會就地在此開啟，保留其分支與對話。"
+            "value" : "你的工作區會就地在此開啟，保留其分支與對話。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你的 Conductor 工作区会就地在此打开，保留其分支和对话。"
+            "value" : "你的工作区会就地在此打开，保留其分支和对话。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor 작업 공간이 브랜치와 채팅 그대로 여기에서 열립니다."
+            "value" : "작업 공간이 브랜치와 채팅 그대로 여기에서 열립니다."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor のワークスペースが、ブランチとチャットはそのままにここで開きます。"
+            "value" : "ワークスペースが、ブランチとチャットはそのままにここで開きます。"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vaši Conductor radni prostori otvaraju se ovdje na mjestu, na svojim granama, sa svojim razgovorima."
+            "value" : "Vaši radni prostori otvaraju se ovdje na mjestu, na svojim granama, sa svojim razgovorima."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dine Conductor-arbejdsområder åbnes her på stedet, på deres branches, med deres chats."
+            "value" : "Dine arbejdsområder åbnes her på stedet, på deres branches, med deres chats."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "I tuoi spazi di lavoro di Conductor si aprono qui sul posto, sui loro branch, con le loro chat."
+            "value" : "I tuoi spazi di lavoro si aprono qui sul posto, sui loro branch, con le loro chat."
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "កន្លែងធ្វើការ Conductor របស់អ្នកបើកនៅទីនេះនៅនឹងកន្លែង លើ branch របស់វា ជាមួយការជជែករបស់វា។"
+            "value" : "កន្លែងធ្វើការរបស់អ្នកបើកនៅទីនេះនៅនឹងកន្លែង លើ branch របស់វា ជាមួយការជជែករបស់វា។"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor-arbeidsområdene dine åpnes her der de er, på sine grener, med chattene sine."
+            "value" : "Arbeidsområdene dine åpnes her der de er, på sine grener, med chattene sine."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Twoje obszary robocze Conductor otwierają się tu na miejscu, na swoich gałęziach, z czatami."
+            "value" : "Twoje obszary robocze otwierają się tu na miejscu, na swoich gałęziach, z czatami."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Seus espaços de trabalho do Conductor abrem aqui no lugar, nos branches deles, com as conversas."
+            "value" : "Seus espaços de trabalho abrem aqui no lugar, nos branches deles, com as conversas."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ваши рабочие пространства Conductor открываются здесь на месте, на своих ветках, со своими чатами."
+            "value" : "Ваши рабочие пространства открываются здесь на месте, на своих ветках, со своими чатами."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "พื้นที่ทำงาน Conductor ของคุณจะเปิดที่นี่ในที่เดิม บนสาขาของมัน พร้อมแชต"
+            "value" : "พื้นที่ทำงานของคุณจะเปิดที่นี่ในที่เดิม บนสาขาของมัน พร้อมแชต"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor çalışma alanlarınız burada yerinde, dallarında ve sohbetleriyle açılır."
+            "value" : "Çalışma alanlarınız burada yerinde, dallarında ve sohbetleriyle açılır."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ваші робочі простори Conductor відкриваються тут на місці, на своїх гілках, зі своїми чатами."
+            "value" : "Ваші робочі простори відкриваються тут на місці, на своїх гілках, зі своїми чатами."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Không gian làm việc Conductor của bạn mở tại chỗ ở đây, trên nhánh của chúng, cùng các cuộc trò chuyện."
+            "value" : "Không gian làm việc của bạn mở tại chỗ ở đây, trên nhánh của chúng, cùng các cuộc trò chuyện."
           }
         }
       }
@@ -12450,127 +12450,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Your Conductor workspaces are open."
+            "value" : "Your workspaces are open."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deine Conductor-Arbeitsbereiche sind geöffnet."
+            "value" : "Deine Arbeitsbereiche sind geöffnet."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vos espaces de travail Conductor sont ouverts."
+            "value" : "Vos espaces de travail sont ouverts."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "مساحات عمل Conductor مفتوحة."
+            "value" : "مساحات عملك مفتوحة."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tus espacios de trabajo de Conductor están abiertos."
+            "value" : "Tus espacios de trabajo están abiertos."
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你的 Conductor 工作區已開啟。"
+            "value" : "你的工作區已開啟。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你的 Conductor 工作区已打开。"
+            "value" : "你的工作区已打开。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor 작업 공간이 열렸습니다."
+            "value" : "작업 공간이 열렸습니다."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor のワークスペースを開きました。"
+            "value" : "ワークスペースを開きました。"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vaši Conductor radni prostori su otvoreni."
+            "value" : "Vaši radni prostori su otvoreni."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dine Conductor-arbejdsområder er åbne."
+            "value" : "Dine arbejdsområder er åbne."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "I tuoi spazi di lavoro di Conductor sono aperti."
+            "value" : "I tuoi spazi di lavoro sono aperti."
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "កន្លែងធ្វើការ Conductor របស់អ្នកត្រូវបានបើក។"
+            "value" : "កន្លែងធ្វើការរបស់អ្នកត្រូវបានបើក។"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor-arbeidsområdene dine er åpne."
+            "value" : "Arbeidsområdene dine er åpne."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Twoje obszary robocze Conductor są otwarte."
+            "value" : "Twoje obszary robocze są otwarte."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Seus espaços de trabalho do Conductor estão abertos."
+            "value" : "Seus espaços de trabalho estão abertos."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ваши рабочие пространства Conductor открыты."
+            "value" : "Ваши рабочие пространства открыты."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "พื้นที่ทำงาน Conductor ของคุณเปิดแล้ว"
+            "value" : "พื้นที่ทำงานของคุณเปิดแล้ว"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor çalışma alanlarınız açık."
+            "value" : "Çalışma alanlarınız açık."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ваші робочі простори Conductor відкрито."
+            "value" : "Ваші робочі простори відкрито."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Không gian làm việc Conductor của bạn đã mở."
+            "value" : "Không gian làm việc của bạn đã mở."
           }
         }
       }
@@ -12839,662 +12839,134 @@
         }
       }
     },
-    "conductorImport.note.title" : {
-      "comment" : "The title of the sidebar's one-time note that points to Settings › Import when this Mac has workspaces another app can hand over. Names no app.",
+    "conductorImport.preview.recipes" : {
+      "comment" : "A line of the Import from Conductor preview: how many projects get a saved worktree recipe (setup, run and teardown commands and files to copy), each listed below it with its commands as written.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Import your workspaces"
+            "value" : "Projects whose new worktrees get the same setup (edit it in the project’s settings): %@"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Arbeitsbereiche importieren"
+            "value" : "Projekte, deren neue Worktrees dieselbe Einrichtung bekommen (bearbeite sie in den Projekteinstellungen): %@"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Importez vos espaces de travail"
+            "value" : "Projets dont les nouveaux worktrees reçoivent la même configuration (modifiez-la dans les réglages du projet) : %@"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "استورد مساحات عملك"
+            "value" : "المشاريع التي تحصل مساحات العمل الجديدة فيها على الإعداد نفسه (عدّله في إعدادات المشروع): %@"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Importa tus espacios de trabajo"
+            "value" : "Proyectos cuyos nuevos worktrees reciben la misma configuración (edítala en los ajustes del proyecto): %@"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "匯入你的工作區"
+            "value" : "新 worktree 使用相同設定的專案（可在專案設定中編輯）：%@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "导入你的工作区"
+            "value" : "新 worktree 使用相同设置的项目（可在项目设置中编辑）：%@"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "작업 공간 가져오기"
+            "value" : "새 worktree가 같은 설정을 받는 프로젝트(프로젝트 설정에서 편집): %@"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ワークスペースを読み込む"
+            "value" : "新しい worktree で同じセットアップを使うプロジェクト（プロジェクト設定で編集できます）: %@"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Uvezite svoje radne prostore"
+            "value" : "Projekti čiji novi worktreeovi dobijaju isto podešavanje (uredi ga u postavkama projekta): %@"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Importér dine arbejdsområder"
+            "value" : "Projekter, hvis nye worktrees får samme opsætning (rediger den i projektets indstillinger): %@"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Importa i tuoi spazi di lavoro"
+            "value" : "Progetti i cui nuovi worktree ricevono la stessa configurazione (modificala nelle impostazioni del progetto): %@"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "នាំចូលកន្លែងធ្វើការរបស់អ្នក"
+            "value" : "គម្រោងដែល worktree ថ្មីទទួលបានការរៀបចំដូចគ្នា (កែវានៅក្នុងការកំណត់គម្រោង): %@"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Importer arbeidsområdene dine"
+            "value" : "Prosjekter der nye worktrees får samme oppsett (rediger det i prosjektinnstillingene): %@"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Zaimportuj swoje obszary robocze"
+            "value" : "Projekty, których nowe worktree dostają tę samą konfigurację (edytuj ją w ustawieniach projektu): %@"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Importe seus espaços de trabalho"
+            "value" : "Projetos cujos novos worktrees recebem a mesma configuração (edite-a nos ajustes do projeto): %@"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Импортируйте рабочие пространства"
+            "value" : "Проекты, новые worktree которых получают ту же настройку (её можно изменить в настройках проекта): %@"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "นำเข้าพื้นที่ทำงานของคุณ"
+            "value" : "โปรเจกต์ที่ worktree ใหม่ได้รับการตั้งค่าเดียวกัน (แก้ไขได้ในการตั้งค่าโปรเจกต์): %@"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Çalışma alanlarınızı içe aktarın"
+            "value" : "Yeni worktree'leri aynı kurulumu alan projeler (proje ayarlarından düzenleyebilirsin): %@"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Імпортуйте робочі простори"
+            "value" : "Проєкти, нові worktree яких отримують те саме налаштування (його можна змінити в налаштуваннях проєкту): %@"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nhập không gian làm việc của bạn"
-          }
-        }
-      }
-    },
-    "conductorImport.note.detail" : {
-      "comment" : "The detail of the sidebar's one-time import note. Names no app and no date.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bring sessions from other apps into cmux, in place."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bring Sitzungen aus anderen Apps an Ort und Stelle in cmux."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apportez vos sessions d’autres apps dans cmux, sur place."
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "انقل جلساتك من التطبيقات الأخرى إلى cmux، في مكانها."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Trae tus sesiones de otras apps a cmux, en su lugar."
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "將其他 App 中的工作階段就地帶入 cmux。"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将其他应用中的会话就地带入 cmux。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "다른 앱의 세션을 그대로 cmux로 가져옵니다."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ほかのアプリのセッションを、その場のまま cmux に取り込めます。"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Prenesite sesije iz drugih aplikacija u cmux, na mjestu."
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tag sessioner fra andre apps med ind i cmux, på stedet."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Porta in cmux le sessioni di altre app, sul posto."
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "នាំវគ្គពីកម្មវិធីផ្សេងទៀតចូល cmux នៅនឹងកន្លែង។"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ta med økter fra andre apper inn i cmux, der de er."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Przenieś sesje z innych aplikacji do cmux, na miejscu."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Traga sessões de outros apps para o cmux, no lugar."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Перенесите сеансы из других приложений в cmux, на месте."
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "นำเซสชันจากแอปอื่นเข้ามาใน cmux ในที่เดิม"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Diğer uygulamalardaki oturumları yerinde cmux’a getirin."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Перенесіть сеанси з інших застосунків у cmux, на місці."
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Đưa phiên từ các ứng dụng khác vào cmux, tại chỗ."
-          }
-        }
-      }
-    },
-    "conductorImport.note.open" : {
-      "comment" : "The button of the sidebar's import note: opens Settings › Import.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Import…"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importieren …"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importer…"
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "استيراد…"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importar…"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "匯入…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "导入…"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "가져오기…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "読み込む…"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Uvezi…"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importér…"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importa…"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "នាំចូល…"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importer …"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importuj…"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importar…"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Импортировать…"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "นำเข้า…"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "İçe Aktar…"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Імпортувати…"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nhập…"
-          }
-        }
-      }
-    },
-    "conductorImport.note.close" : {
-      "comment" : "The x of the sidebar's Import from Conductor note (tooltip and VoiceOver label): it never shows again.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Don’t Show Again"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nicht mehr anzeigen"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ne plus afficher"
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "عدم الإظهار مرة أخرى"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No volver a mostrar"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "不再顯示"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "不再显示"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "다시 보지 않기"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今後表示しない"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ne prikazuj ponovo"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vis ikke igen"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Non mostrare più"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "កុំបង្ហាញម្តងទៀត"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ikke vis igjen"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nie pokazuj ponownie"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Não mostrar novamente"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Больше не показывать"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ไม่ต้องแสดงอีก"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bir Daha Gösterme"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Більше не показувати"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Không hiển thị lại"
-          }
-        }
-      }
-    },
-    "conductorImport.onboarding.line" : {
-      "comment" : "A line on the first-run Bring your history page when this Mac has workspaces another app can hand over: where to import them. Names no app and no date.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Workspaces from other apps: import them in place from Settings › Import."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Arbeitsbereiche aus anderen Apps: Importiere sie an Ort und Stelle unter Einstellungen › Import."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Espaces de travail d’autres apps : importez-les sur place depuis Réglages › Importation."
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "مساحات العمل من التطبيقات الأخرى: استوردها في مكانها من الإعدادات › الاستيراد."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Espacios de trabajo de otras apps: impórtalos en su lugar desde Ajustes › Importar."
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "其他 App 的工作區：可在「設定 › 匯入」中就地匯入。"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "其他应用的工作区：可在“设置 › 导入”中就地导入。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "다른 앱의 작업 공간: 설정 › 가져오기에서 그대로 가져올 수 있습니다."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ほかのアプリのワークスペースは、設定 › 読み込みからその場のまま読み込めます。"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Radni prostori iz drugih aplikacija: uvezite ih na mjestu iz Postavke › Uvoz."
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Arbejdsområder fra andre apps: importér dem på stedet fra Indstillinger › Import."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Spazi di lavoro di altre app: importali sul posto da Impostazioni › Importa."
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "កន្លែងធ្វើការពីកម្មវិធីផ្សេងទៀត៖ នាំចូលពួកវានៅនឹងកន្លែងពី ការកំណត់ › នាំចូល។"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Arbeidsområder fra andre apper: importer dem der de er fra Innstillinger › Import."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Obszary robocze z innych aplikacji: zaimportuj je na miejscu w Ustawienia › Import."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Espaços de trabalho de outros apps: importe-os no lugar em Ajustes › Importar."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Рабочие пространства из других приложений: импортируйте их на месте в Настройки › Импорт."
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "พื้นที่ทำงานจากแอปอื่น: นำเข้าในที่เดิมได้จาก การตั้งค่า › นำเข้า"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Diğer uygulamalardaki çalışma alanları: Ayarlar › İçe Aktar’dan yerinde içe aktarın."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Робочі простори з інших застосунків: імпортуйте їх на місці в Параметри › Імпорт."
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Không gian làm việc từ ứng dụng khác: nhập tại chỗ từ Cài đặt › Nhập."
+            "value" : "Các dự án có worktree mới nhận cùng thiết lập (sửa trong cài đặt dự án): %@"
           }
         }
       }

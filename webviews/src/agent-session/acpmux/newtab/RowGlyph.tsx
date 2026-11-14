@@ -1,7 +1,7 @@
 // The New Tab rows' glyph when there is no favicon (POLISH, cx-9br4q): one icon from the cmux pack
 // at 14 px in the rows' dim text, the same in the field's suggestions, Open Tabs and Recently Closed.
 import { Icon } from "../icons/Icon";
-import type { TabKind } from "../NewTabPage";
+import type { TabKind } from "../newTabModel";
 import type { ClosedItem } from "./recentlyClosed";
 import type { ScreenRow } from "./screenModel";
 

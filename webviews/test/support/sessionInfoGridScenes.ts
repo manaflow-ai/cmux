@@ -12,6 +12,9 @@ const line = (name: string, selector: string, metric: GridMetric, expected: stri
 /// The body's left gutter for the sections' grips (sessionInfo.css --acpmux-session-info-grip-gutter):
 /// every column on the left sits that much further in than the sidebar grid's own.
 const GUTTER = "var(--acpmux-session-info-grip-gutter, 0px)";
+/// The body's right gutter, which holds the sections' grips (--acpmux-session-info-grip-trail): every
+/// trailing column sits that much further in than the sidebar grid's own.
+const TRAIL = "var(--acpmux-session-info-grip-trail, 0px)";
 const lead = (name: string, selector: string, nested = false) =>
   line(
     `${name}: lead cx`,
@@ -36,7 +39,7 @@ const trail = (name: string, selector: string): GridLine => ({
   origin: point(":scope", "right"),
   inward: true,
   all: true,
-  expected: token("sidebar-trail-center"),
+  expected: `calc(${token("sidebar-trail-center")} + ${TRAIL})`,
 });
 const p = ".acpmux-session-info";
 const section = (id: string) => `${p}-section[data-section="${id}"]`;

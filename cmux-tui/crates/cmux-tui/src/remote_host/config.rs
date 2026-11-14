@@ -39,6 +39,10 @@ pub(crate) struct Config {
     pub grants: Vec<super::grant::Grant>,
     #[serde(default)]
     pub shares: Vec<super::shares::Share>,
+    /// Shares moved to cmux Cloud (`platform_shares.rs`): each one the platform confirmed, removed
+    /// from `shares` in the same write. The marker of the one-time move, and what it moved.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub moved_shares: Vec<super::platform_shares::Moved>,
 }
 
 fn default_port() -> u16 {
@@ -62,6 +66,7 @@ impl Default for Config {
             teammate_access: false,
             grants: Vec::new(),
             shares: Vec::new(),
+            moved_shares: Vec::new(),
         }
     }
 }

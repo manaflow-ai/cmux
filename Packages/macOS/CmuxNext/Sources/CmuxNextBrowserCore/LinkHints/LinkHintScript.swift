@@ -79,10 +79,18 @@ public nonisolated extension LinkHintSession {
           host.style.cssText = 'all:initial;position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
           const root = host.attachShadow({ mode: 'open' });
           const style = document.createElement('style');
-          style.textContent = `span{position:absolute;font:700 11px/14px ui-monospace,Menlo,monospace;` +
-            `letter-spacing:.04em;padding:0 3px;color:#16130a;background:#ffd84d;border:1px solid #8a6d00;` +
-            `border-radius:2px;box-shadow:0 1px 3px rgba(0,0,0,.35);white-space:pre}` +
-            `span[hidden]{display:none}b{color:#9a7b00;font-weight:700}`;
+          // Legible on any page, light or dark: one warm yellow with a hairline ring and a soft lift,
+          // crisp text, digits of one width, and a 90ms rise (none under reduced motion).
+          style.textContent = `span{position:absolute;box-sizing:border-box;min-width:16px;height:16px;` +
+            `font:650 11px/16px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.06em;text-align:center;` +
+            `font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;padding:0 4px;color:#1f1700;` +
+            `background:#ffd84d;border-radius:4px;white-space:pre;user-select:none;` +
+            `box-shadow:0 0 0 1px rgba(110,84,0,.55),0 1px 2px rgba(0,0,0,.25),0 2px 6px rgba(0,0,0,.18);` +
+            `transform-origin:top left;animation:cmux-hint-in 90ms cubic-bezier(.2,.8,.2,1)}` +
+            `@keyframes cmux-hint-in{from{opacity:0;transform:scale(.96)}}` +
+            `@media (prefers-reduced-motion:reduce){span{animation:none}}` +
+            `@media (prefers-color-scheme:dark){span{box-shadow:0 0 0 1px rgba(0,0,0,.6),0 2px 8px rgba(0,0,0,.5)}}` +
+            `span[hidden]{display:none}b{color:rgba(31,23,0,.42);font-weight:650}`;
           root.append(style);
           for (const hint of hints) {
             const label = document.createElement('span');
@@ -117,6 +125,21 @@ public nonisolated extension LinkHintSession {
           }
           return true;
         })(\(scriptLiteral(prefix)))
+        """
+    }
+
+    /// Clicks the element at `target`'s center (an engine with no trusted host click, WebKit):
+    /// a field or other focusable element takes the keyboard, then gets the click.
+    package static func clickScript(_ target: LinkHintTarget) -> String {
+        """
+        (() => {
+          const hit = document.elementFromPoint(\(target.x), \(target.y));
+          if (!hit) return false;
+          const element = hit.closest('a[href],area[href],button,input,select,textarea,summary,label,[role],[onclick],[tabindex],[contenteditable]') || hit;
+          if (typeof element.focus === 'function') element.focus({ preventScroll: true });
+          if (typeof element.click === 'function') element.click();
+          return true;
+        })()
         """
     }
 

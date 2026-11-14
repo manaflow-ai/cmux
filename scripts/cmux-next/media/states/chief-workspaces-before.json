@@ -1,0 +1,153 @@
+{
+ "title": "Chief subagent workspaces BEFORE (host at feat-cmux-next d9b91678): four Chief spawns, as that host routed them. 'Hat variants' (design) is shown; 'Dev server log' is tucked into a collapsed \"Chief\" group (and closed when its work ended); 'Sha lookup' and 'Landq follower' got no workspace at all (hidden), so the sidebar and Cmd-P cannot find them. Staged with the same daemon calls that host makes. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/chief-workspaces-before.json",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Workspace Your own work",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Your own work"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Workspace Dev server log",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Dev server log"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Group \"Chief\", collapsed (the host's workspace_group.create: collapsed, reuse)",
+   "cmux": [
+    "workspace",
+    "group",
+    "create",
+    "--name",
+    "Chief",
+    "--collapse",
+    "--reuse"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Dev server log into \"Chief\" (the host's workspace.place)",
+   "cmux": [
+    "workspace",
+    "group",
+    "Chief",
+    "add",
+    "--workspace",
+    "Dev server log",
+    "--index",
+    "0"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Workspace Hat variants",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Hat variants"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Before: two of the four Chief subagents have no row; one is tucked in \"Chief\"",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "collect": "sidebar-before.png",
+   "wait": 1
+  },
+  {
+   "title": "Open Go to Workspace",
+   "cmux": [
+    "action",
+    "run",
+    "commandPalette"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Type '#'",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "#",
+     "target": "palette"
+    }
+   },
+   "wait": 0.8,
+   "shot": false
+  },
+  {
+   "title": "Type 's'",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "s",
+     "target": "palette"
+    }
+   },
+   "wait": 0.25,
+   "shot": false
+  },
+  {
+   "title": "Type 'h'",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "h",
+     "target": "palette"
+    }
+   },
+   "wait": 0.25,
+   "shot": false
+  },
+  {
+   "title": "Type 'a'",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "a",
+     "target": "palette"
+    }
+   },
+   "wait": 0.25,
+   "shot": false
+  },
+  {
+   "title": "Before: Cmd-P \"sha\" finds no Sha lookup (it was hidden)",
+   "rpc": {
+    "method": "debug.palette.capture",
+    "params": {
+     "path": "{collect}"
+    }
+   },
+   "collect": "palette-before.png",
+   "wait": 1
+  }
+ ]
+}

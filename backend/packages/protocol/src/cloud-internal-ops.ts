@@ -42,6 +42,9 @@ export const CloudMachineBindParams = Schema.Struct({
   machine: Schema.String.check(isPattern(/^vm_[a-z0-9]{20}$/)),
   token_sha256: Schema.String.check(isPattern(/^[0-9a-f]{64}$/)),
   wg_public_key: Schema.String.check(isPattern(/^[A-Za-z0-9+/]{43}=$/)),
+  /** The session daemon's Noise static public key (base64url of 32 bytes, unpadded). A device pins it to reach
+   *  the machine over the carrier (design/cloud-carrier.md); a VM image older than the carrier sends none. */
+  daemon_noise_key: Schema.optionalKey(Schema.String.check(isPattern(/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/))),
   daemon: Schema.Struct({
     version: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64)),
     capabilities: Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64))).check(Schema.isMaxLength(32))

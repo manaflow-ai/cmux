@@ -25,6 +25,10 @@ public struct AgentPaneDebugAutomationArguments {
             return [params["seconds"]?.doubleValue ?? 3, options]
         case "perf_stats":
             return [["raw": params["raw"]?.boolValue == true] as [String: Any]]
+        case "tick_watch":
+            var options: [String: Any] = ["stop": params["stop"]?.boolValue == true]
+            if let nominal = params["nominal_ms"]?.doubleValue { options["nominal_ms"] = nominal }
+            return [options]
         case "stream":
             // R104: a scripted reply streamed into `rows` synthetic rows (streamDebug.ts).
             var options: [String: Any] = [:]
@@ -41,6 +45,13 @@ public struct AgentPaneDebugAutomationArguments {
                 if let value = params[key]?.doubleValue { options[key] = value }
             }
             return [options]
+        case "paste_probe":
+            // A screenshot pasted into the composer, timed until its chip shows (pasteProbe.ts).
+            var options: [String: Any] = [:]
+            for key in ["width", "height", "watchMs"] { if let value = params[key]?.intValue { options[key] = value } }
+            if let kind = params["kind"]?.stringValue { options["kind"] = kind }
+            for key in ["send", "read", "real", "edit"] { if let value = params[key]?.boolValue { options[key] = value } }
+            return [options]
         case "idle_probe":
             // What the page asks for while nobody touches it (idleProbe.ts), over `ms`.
             return [params["ms"]?.doubleValue.map { ["ms": $0] as [String: Any] } ?? [:]]
@@ -48,7 +59,7 @@ public struct AgentPaneDebugAutomationArguments {
             return [params["label"]?.stringValue ?? ""]
         case "acp_log":
             return [params["limit"]?.intValue.map { ["limit": $0] as [String: Any] } ?? [:]]
-        case "send_prompt", "compose_send":
+        case "send_prompt", "compose_send", "toast":
             return [params["text"]?.stringValue ?? ""]
         case "run_mode":
             return [params["mode"]?.stringValue ?? NSNull()]

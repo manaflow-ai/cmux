@@ -1,5 +1,6 @@
 import CmuxNextSettings
 public import Foundation
+import os
 public import WebKit
 
 /// Watches `web-dev.json` and the overlay's `manifest.json` (``WebDevOverride``), keeps
@@ -72,13 +73,16 @@ public final class WebDevOverrideWatcher {
     private func apply(_ value: WebDevOverride) {
         watchManifest(of: value.overlay)
         guard WebDevOverride.update(value) else { return }
+        if let refusal = value.refusal {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "web-dev").notice("overlay refused: \(refusal, privacy: .public)")
+        }
         Self.reloadPages()
     }
 
     /// Reloads every page and agent pane from where the override now says, in both engines: the
     /// same URL again, which the WebKit scheme handlers and (with ``PageChromiumHosting/setLivePages(_:)``)
     /// Chromium's page host answer from the dev server, the overlay, a web update or the bundle.
-    /// Also run when the Live Web Reload setting changes (``WebDevOverride/setAllowed(_:)``).
+    /// Also run when the cmux Live setting changes (``WebDevOverride/setAllowed(_:)``).
     ///
     /// - Parameters:
     ///   - live: Whether the override points pages at a server or an overlay.

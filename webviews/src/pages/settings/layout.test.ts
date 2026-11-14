@@ -105,7 +105,9 @@ test("the refined look stacks a narrow pane too: no side border, strip-sized tab
   // card: the sidebar kept its right border and 18 px padding, the tabs their 30 px rows, and the
   // content its left-cut corners and gap, all from the refined rules that outrank the narrow block.
   expect(refined(".settings > .sidebar", "border-right", 480)).toBe("0");
-  expect(refined(".settings > .sidebar", "border-bottom", 480)).toBe("1px solid var(--polish-edge)");
+  expect(refined(".settings > .sidebar", "border-bottom", 480)).toBe(
+    "1px solid var(--polish-divider, var(--polish-edge))",
+  );
   expect(refined(".settings .section-link", "min-height", 480)).toBe("0");
   // The content pane paints no fill of its own (user, 2026-10-30: one background), so it needs no
   // inset gap at any width; a wide pane has no divider beside the sidebar either.
@@ -122,21 +124,15 @@ test("the masked content pane draws no outline at any width", () => {
       expect(refined(".settings > .content", property, width)).toBeUndefined();
 });
 
-test("a setting row's Reset slot stays on its control's line", () => {
-  // Live QA 7a: a three-choice segmented control (330 px) plus the slot passed the 60 % cap, so the
-  // slot wrapped and the control sat in the slot's column, 30 px right and a line high.
-  expect(computed(".row-control", "flex-wrap", 1000)).toBe("wrap");
-  expect(computed(".row-control:has(> .reset-slot)", "flex-wrap", 1000)).toBe("nowrap");
-  expect(computed(".row-control:has(> .reset-slot)", "max-width", 480)).toBe("100%");
-});
-
 // The gallery split separately imported sheets into shared chunks and loaded layout.css before
 // styles.css (and refined.css before both), so it drew the old switch, rows and titles. page.css
 // holds them in cascade order; nothing else may import them.
 test("only page.css imports the page's sheets", () => {
   const src = fileURLToPath(new URL("../../", import.meta.url));
   const sheets = new Set(
-    ["styles.css", "layout.css", "refined.css"].map((name) => fileURLToPath(new URL(`./${name}`, import.meta.url))),
+    ["styles.css", "layout.css", "refined.css", "look.css"].map((name) =>
+      fileURLToPath(new URL(`./${name}`, import.meta.url)),
+    ),
   );
   const importers: string[] = [];
   for (const file of new Glob("**/*.{ts,tsx,css}").scanSync(src)) {

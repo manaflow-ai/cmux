@@ -13,7 +13,7 @@ use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 mod permission;
 pub(crate) use permission::{answer_permission, answer_question};
-pub(crate) use send_async::list_lines as sent_list_lines;
+pub(crate) use send_async::{list_lines as sent_list_lines, status_line as sent_status_line};
 
 mod extra;
 pub(crate) mod fanout;
@@ -52,6 +52,9 @@ pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
     })?;
     crate::cli::resolve::routed_id(&v)
 }
+
+#[cfg(all(test, unix))]
+mod list_callers_tests;
 
 #[cfg(all(test, unix))]
 mod tests {

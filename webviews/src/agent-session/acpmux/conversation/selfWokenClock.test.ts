@@ -19,7 +19,7 @@ const call = (id: string, at: number, status: string) =>
     items: [{ kind: "tool", text: `Ran ${id}`, tool: { id, title: id, kind: "execute", status } }],
   });
 const liveLine = (rows: AcpmuxRow[], now: number) =>
-  turnView(rows, new Set(), { now, working: true, liveRuns: true, lineBelow: true }).find((entry) => entry.below);
+  turnView(rows, new Set(), { now, working: true }).find((entry) => entry.below);
 
 test("a turn the agent started on its own after others it ended is timed from its own start", () => {
   const rows = [

@@ -21,6 +21,7 @@ import { agentMessage } from "../src/agent-session/acpmux/conversation/agentMess
 import { AgentNamesContext, agentNames } from "../src/agent-session/acpmux/conversation/agentNames";
 import { MessageCard } from "../src/agent-session/acpmux/conversation/MessageCard";
 import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
+import { settleReact } from "./support/domTeardown";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000f8";
 const START = Date.UTC(2026, 10, 3, 4, 0, 0);
@@ -127,6 +128,7 @@ async function render(node: ReactNode): Promise<HTMLElement> {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -141,7 +143,7 @@ test("a finished background subagent whose Agent call is not loaded reads its de
   const row = snapshot.rows.find((row: any) => row.subagents?.[0]?.state === "completed");
   const container = await render(createElement(SubagentDoneLine, { row }));
   const sentence = container.querySelector(".cv-tool__text")!.textContent;
-  expect(sentence).toBe(`Subagent finished: ${SUBAGENT_NAMES_TASK}`);
+  expect(sentence).toBe(`${SUBAGENT_NAMES_TASK} finished`);
 });
 
 test("a SendMessage to a subagent's agentId reads Sent to <its description>", async () => {

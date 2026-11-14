@@ -1,8 +1,8 @@
 // Leo 2026-10-29: "project and cloudness at the top. make them open away from teh chat, which is
 // obviously up if it's up, down if it's down." The gallery's `agent-pane.composer-context-away`
 // plays open the folder and machine menus of a new chat's composer (at the pane's foot) and of New
-// Tab's (high on the page) and fail when a menu opens toward the conversation or leaves the
-// window; this runs them in Chromium and checks they passed.
+// Tab's (high on the page) and fail when a menu opens on the wrong side, covers its own control
+// (Lucas 2026-11-07) or leaves the window; this runs them in Chromium and checks they passed.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -43,8 +43,8 @@ await requireBrowserLane("composer-location-away.test.ts", async () => {
   });
 
   const cases: [variant: string, height: number, what: string][] = [
-    ["chat-folder", 560, "a new chat's folder menu opens down, over its composer"],
-    ["chat-computer", 560, "a new chat's machine menu opens down, over its composer"],
+    ["chat-folder", 560, "a new chat's folder menu opens up, clear of its control, when the room under it is short"],
+    ["chat-computer", 560, "a new chat's machine menu opens up, clear of its control, when the room under it is short"],
     ["newtab-folder", 720, "New Tab's folder menu opens up, away from the chats under it"],
     ["newtab-computer", 720, "New Tab's machine menu opens up, away from the chats under it"],
   ];
@@ -60,7 +60,7 @@ await requireBrowserLane("composer-location-away.test.ts", async () => {
         const report = await page.evaluate(() =>
           JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
         );
-        // The play throws when the menu opens toward the chat or leaves the window.
+        // The play throws when the menu opens on the wrong side, covers its control or leaves the window.
         expect(playFailures(report)).toEqual([]);
       } finally {
         await page.close();

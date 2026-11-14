@@ -16,6 +16,13 @@ import subprocess
 import tempfile
 from unittest import mock
 import unittest
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LINTER = REPO_ROOT / "scripts" / "lint-feature-flags.py"
@@ -71,7 +78,9 @@ class ReviewDateScopeTests(unittest.TestCase):
              mock.patch.object(self.linter, "swift_registry_files", return_value=["Example.swift"]), \
              mock.patch.object(self.linter, "grep_key_files", return_value=set()), \
              contextlib.redirect_stdout(out):
-            status = self.linter.main(list(argv))
+            # A fixed date, never the real one: CURRENT's 2099 must stay unexpired whatever the clock
+            # (the tooling-tests time-bomb row runs this file with CMUX_NOW_EPOCH in 2101).
+            status = self.linter.main(["--today", "2026-06-01", *argv])
         return status, out.getvalue()
 
     def test_expired_flag_in_untouched_file_warns_and_passes(self):

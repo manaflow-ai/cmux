@@ -28,6 +28,8 @@
 //! (GitHub tokens for the machine's git and `gh` over the agent socket),
 //! [`github_repos`] (repository discovery through the platform connector),
 //! [`github_status`] (the person's connected GitHub account, no token),
+//! [`carrier_ticket`] (the session host's relay Register ticket),
+//! `carrier_server` (the thread and socket that answer it off the poll loop),
 //! [`handoff`] (hand-off reports for the machine's agent sessions, over the
 //! same socket), `github_minter` (the thread that answers both off the poll
 //! loop),
@@ -38,25 +40,25 @@
 //! machine, and their next machine gets it from their own machine's snapshot.
 
 #[cfg(target_os = "linux")]
+mod agent_socket;
+#[cfg(target_os = "linux")]
 mod bootstrap_role;
+#[cfg(unix)]
+pub mod carrier_keyset;
+#[cfg(unix)]
+pub mod carrier_server;
+pub mod carrier_ticket;
 pub mod client;
 pub mod clone_mark;
+pub mod daemon_noise_key;
+#[cfg(target_os = "linux")]
+pub mod gateway_token;
 pub mod github;
 #[cfg(unix)]
 pub mod github_minter;
 pub mod github_repos;
 pub mod github_status;
 pub mod handoff;
-pub mod private_bootstrap;
-pub mod receiver;
-#[cfg(target_os = "linux")]
-pub mod receiver_agent;
-#[cfg(target_os = "linux")]
-mod receiver_files;
-#[cfg(target_os = "linux")]
-mod receiver_lifecycle;
-#[cfg(unix)]
-pub mod relay;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;
@@ -80,11 +82,3 @@ mod trajectory_tests;
 mod github_repos_tests;
 #[cfg(test)]
 mod github_status_tests;
-#[cfg(test)]
-mod receiver_client_tests;
-#[cfg(all(test, target_os = "linux"))]
-mod receiver_files_tests;
-#[cfg(test)]
-mod receiver_read_tests;
-#[cfg(test)]
-mod receiver_reply_tests;

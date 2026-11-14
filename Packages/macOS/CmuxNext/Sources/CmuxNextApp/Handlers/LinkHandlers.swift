@@ -61,6 +61,8 @@ enum LinkHandlers {
             guard let (tab, _) = context.daemonTab(invocation) else { return }
             context.copy(try services.link(tab: tab))
         })
+        // A new chat has no link until its first message: its row says so instead of an enabled row that refuses.
+        context.setTargetReason("palette.copySurfaceLink") { agentTab($0, services: services).flatMap { services.agentTabs.session(of: $0) == nil ? RefusalStrings.agentTabHasNoSession : nil } }
     }
 
     /// The agent tab an invocation names: an explicit agent chat tab

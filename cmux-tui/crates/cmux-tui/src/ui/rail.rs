@@ -211,12 +211,27 @@ pub fn header_readout(frame: &mut Frame, area: Rect, text: &str, palette: RailPa
     frame.buffer_mut().set_stringn(x, area.y, text, width, palette.dim);
 }
 
+/// The one-cell mark before an entry's name: an unread dot, or an agent
+/// status glyph.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Indicator {
+    pub symbol: &'static str,
+    pub color: Color,
+}
+
+impl Indicator {
+    /// The unread or machine-status dot.
+    pub const fn dot(color: Color) -> Self {
+        Self { symbol: "•", color }
+    }
+}
+
 pub struct Entry<'a> {
     pub name: &'a str,
     pub subtitle: &'a str,
     pub highlighted: bool,
     pub active: bool,
-    pub indicator: Option<Color>,
+    pub indicator: Option<Indicator>,
     pub dimmed: bool,
 }
 
@@ -259,10 +274,10 @@ pub fn entry(
         }
     }
     let indicator = entry.indicator.filter(|_| content_w > 3);
-    if let Some(color) = indicator {
+    if let Some(indicator) = indicator {
         buf[(area.x + 1, y)]
-            .set_symbol("•")
-            .set_style(style.fg(color).add_modifier(Modifier::BOLD));
+            .set_symbol(indicator.symbol)
+            .set_style(style.fg(indicator.color).add_modifier(Modifier::BOLD));
     }
     let name_offset = if indicator.is_some() { 3 } else { 1 };
     if content_w > name_offset {
@@ -422,7 +437,7 @@ mod tests {
                         subtitle: "running",
                         highlighted: true,
                         active: true,
-                        indicator: Some(Color::Green),
+                        indicator: Some(Indicator::dot(Color::Green)),
                         dimmed: false,
                     },
                     palette,

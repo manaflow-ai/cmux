@@ -3,6 +3,7 @@ use std::net::TcpListener;
 use std::sync::mpsc;
 
 use super::*;
+use cmux_cloud_api::session::checked_session;
 
 const VM: &str = "vm_abcdefghij0123456789";
 const TOKEN: &str = "fs-identity-token-0123456789";
@@ -187,6 +188,15 @@ fn errors_print_only_known_codes() {
         assert_eq!(known_code(Some(echoed)), "", "{echoed}");
     }
     assert_eq!(known_code(None), "");
+}
+
+/// Every code of cmux-platform's refusal table (cmux-platform#1192) prints by name: the VM
+/// limit, a rate limit and a machine's state among them.
+#[test]
+fn every_platform_refusal_code_is_known() {
+    for row in cmux_cloud_machine::refusals::PLATFORM {
+        assert_eq!(known_code(Some(row.code)), row.code);
+    }
 }
 
 #[test]

@@ -21,6 +21,9 @@ pub enum Step {
     Identity,
     /// The machine lists this machine's cmux app key (`host_approvals.rs`).
     Approvals,
+    /// Claude Code and Codex on the machine: installed, signed in, and what to offer
+    /// (`host_agents.rs`). A warning at worst; nothing installs on its own.
+    Agents,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]

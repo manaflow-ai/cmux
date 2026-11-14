@@ -72,7 +72,8 @@ struct PointerMenuTrimTests {
             "pane.screenshot", "equalizeSplits", "pane.toggleTabBar", "agentPaneZoomIn", "agentPaneZoomOut", "agentPaneZoomReset",
             "remote.openRemote",
         ]
-        #expect(shown == retained)
+        // New ▸ Kind ▸ place: the four kind submenus and their forty places (NewPlacementActionCatalog).
+        #expect(shown == retained.union(ActionID.newPlacementSubmenus).union(ActionID.newPlacementActions))
         for id in Self.paneTrimmed {
             let descriptor = try #require(ActionCatalog.all.first { $0.id == id })
             #expect(descriptor.isPaletteVisible, "\(id)")

@@ -77,7 +77,7 @@ import Testing
             #expect(Typography.body.pointSize == 16)
             #expect(TypeScale.body > nativeDefault)
             let script = DesignSettings.shared.interfaceScaleScript(pageZoom: 1.5625)
-            #expect(script.contains("--cmux-interface-scale', '\(Typography.userScale)'"))
+            #expect(script.contains("--cmux-interface-scale', '\(Typography.pageScale)'"))
             #expect(script.contains("--cmux-ui-scale', '1.5625'"))
             #expect(script.contains("cmux-ui-scale-change"))
             let descriptor = try #require(SettingsSchema.descriptor(for: ["appearance", "metrics", "chromeFontSize"]))
@@ -148,7 +148,7 @@ import Testing
     @Test func workingIndicatorToggleAlsoControlsTerminalTitleActivity() async throws {
         try await withPage { page, _ in
             let store = DaemonStore()
-            let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, title: "⠐ Working")])
+            let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, title: "Working", titleActivity: .working)])
             let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
             store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "test", screens: [screen])]))
             let tab = try #require(store.tab(surface: 1))

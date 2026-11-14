@@ -143,7 +143,9 @@ concurrency:
 
 jobs:
   rescue:
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'Sweep runs on persistent pools' || 'Rescue a run stuck on a persistent pool' }}
     # NEXT's all-nightly reservation is selected by CI_NIGHTLY_ONLY_RUNNER and
     # is intentionally independent of the older trusted-pool pair.  Wake the

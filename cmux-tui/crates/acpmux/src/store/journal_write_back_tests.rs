@@ -19,7 +19,7 @@ const CHAT: &str = "chat-a";
 const WAIT: Duration = Duration::from_secs(10);
 
 fn config() -> StoreConfig {
-    StoreConfig { journal: true, ..StoreConfig::default() }
+    StoreConfig::default()
 }
 
 fn journal_config() -> cmux_journal::Config {

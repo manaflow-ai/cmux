@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { backgroundCounts } from "./conversation/BackgroundStatusLine";
 import { countsFailed, toolGroups } from "./conversation/toolGroups";
 import { toolSummaryRows } from "./toolSummaryFixture";
 
@@ -12,6 +11,7 @@ test("the tool-summary fixture's run is one command group with mixed background 
   if (group?.type !== "group") throw new Error(`expected one group, got ${group?.type}`);
   expect(group.kind).toBe("commands");
   expect(group.items).toHaveLength(7);
-  expect(backgroundCounts(group.items)).toEqual({ completed: 2, failed: 1, running: 1 });
+  const state = (want: string) => group.items.filter((item) => item.tool?.background?.state === want).length;
+  expect([state("completed"), state("failed"), state("running")]).toEqual([2, 1, 1]);
   expect(group.items.filter((item) => countsFailed(item.tool!))).toHaveLength(2);
 });

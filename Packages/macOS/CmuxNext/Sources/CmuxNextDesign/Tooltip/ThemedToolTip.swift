@@ -33,6 +33,13 @@ extension NSView {
     public func themedToolTipCanShow() {
         TooltipTracker.whole(of: self)?.trackIfShown()
     }
+
+    /// A view that went from clear (opacity 0) to drawn calls this (a hover control shown by paint): a pointer already
+    /// in its area gets its tooltip, which the presenter's pick skipped while the view was clear.
+    public func themedToolTipDrawn() {
+        guard let tracker = TooltipTracker.whole(of: self) else { return }
+        TooltipPresenter.shared.drawn(tracker)
+    }
 }
 
 /// One tooltip of a view, the whole view or a region of it, with the tracking area whose enter and

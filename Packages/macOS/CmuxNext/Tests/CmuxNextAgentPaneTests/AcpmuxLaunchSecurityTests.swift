@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -156,6 +157,66 @@ struct AcpmuxLaunchSecurityTests {
         let systemBinary = URL(fileURLWithPath: "/bin/ls")
         #expect(!AcpmuxServerPeer.executableSignedByAppTeam(systemBinary, team: "NOTCMUXTEAM"))
         #expect(!AcpmuxServerPeer.executableSignedByAppTeam(systemBinary, team: "invalid team"))
+    }
+
+    /// Launch: the first strict check of a process hashed every page of the bundled `cmux` (148 MB) on
+    /// the main thread, 2.5 s on a cold disk cache. A binary the kernel kills at a bad page (hardened
+    /// runtime, as every Team-signed nightly binary) is checked without its pages; one without that
+    /// flag still has every page hashed.
+    @Test func strictTeamCheckHashesPagesOnlyWhenTheKernelWouldNot() throws {
+        let plain = URL(fileURLWithPath: "/bin/ls")
+        let hardened = FileManager.default.temporaryDirectory.appendingPathComponent("acpmux-rt-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: hardened) }
+        try FileManager.default.copyItem(at: plain, to: hardened)
+        let sign = Process()
+        sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        sign.arguments = ["--force", "--sign", "-", "--options", "runtime", hardened.path]
+        try sign.run()
+        sign.waitUntilExit()
+        try #require(sign.terminationStatus == 0)
+
+        func flags(_ url: URL) throws -> UInt32 {
+            var code: SecStaticCode?
+            try #require(SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess)
+            return AcpmuxServerPeer.strictFlags(for: try #require(code)).rawValue
+        }
+        let strict = kSecCSCheckAllArchitectures | kSecCSStrictValidate
+        #expect(try flags(plain) == strict)
+        #expect(try flags(hardened) == strict | kSecCSDoNotValidateExecutable)
+    }
+
+    /// A script signed with `--options runtime` carries the runtime flag in a signature kept in
+    /// extended attributes, but the kernel never checks a script's contents. It is hashed in full,
+    /// so a script changed after signing fails the strict check.
+    @Test func strictTeamCheckHashesASignedScriptAndRejectsItOnceChanged() throws {
+        let script = FileManager.default.temporaryDirectory.appendingPathComponent("acpmux-sh-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: script) }
+        try Data("#!/bin/sh\necho signed\n".utf8).write(to: script)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let sign = Process()
+        sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        sign.arguments = ["--force", "--sign", "-", "--options", "runtime", script.path]
+        try sign.run()
+        sign.waitUntilExit()
+        try #require(sign.terminationStatus == 0)
+
+        func check() throws -> (flags: UInt32, status: OSStatus) {
+            var code: SecStaticCode?
+            try #require(SecStaticCodeCreateWithPath(script as CFURL, [], &code) == errSecSuccess)
+            let flags = AcpmuxServerPeer.strictFlags(for: try #require(code))
+            return (flags.rawValue, SecStaticCodeCheckValidity(try #require(code), flags, nil))
+        }
+        let strict = kSecCSCheckAllArchitectures | kSecCSStrictValidate
+        let signed = try check()
+        #expect(signed.flags == strict)
+        #expect(signed.status == errSecSuccess)
+
+        // Changed after signing; its extended-attribute signature stays.
+        let handle = try FileHandle(forWritingTo: script)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("echo changed\n".utf8))
+        try handle.close()
+        #expect(try check().status != errSecSuccess)
     }
 
     /// The nightly hang reports of 2026-11-05: `resolve`'s strict signature check read the whole

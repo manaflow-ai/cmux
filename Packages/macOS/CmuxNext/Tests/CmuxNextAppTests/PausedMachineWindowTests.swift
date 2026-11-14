@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextLayout
 import Foundation
@@ -31,9 +32,9 @@ struct PausedMachineWindowTests {
         controller.state.workspaceID = "paused-machine-ws"
         controller.showWorkspace(requested: "paused-machine-ws")
 
-        let view = try #require(controller.root.content as? CloudMachineProgressView,
+        let view = try #require(controller.root.content as? CloudProgressHost,
                                 "a window on a paused machine's workspace shows \(String(describing: controller.root.content)), not the machine's progress")
-        #expect(view.creation.session === session)
+        #expect((view.source as? CloudMachineCreation)?.session === session)
         #expect(session.connects == 1, "opening the workspace did not connect (and so start) its paused machine")
         #expect(controller.state.workspaceID == "paused-machine-ws", "the window gave up its workspace request")
 
@@ -58,7 +59,7 @@ struct PausedMachineWindowTests {
         controller.state.machineID = session.machineID
         controller.state.workspaceID = "live-machine-ws"
         controller.showWorkspace(requested: "live-machine-ws")
-        #expect(!(controller.root.content is CloudMachineProgressView))
+        #expect(!(controller.root.content is CloudProgressHost))
         #expect(session.connects == 0)
     }
 }

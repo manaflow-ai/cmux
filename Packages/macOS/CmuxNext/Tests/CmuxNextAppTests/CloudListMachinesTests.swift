@@ -53,6 +53,8 @@ struct CloudListMachinesTests {
     @Test func aLoadedListGivesEachMachineAndItsStatus() throws {
         let services = Self.services()
         let running = MachineIconTests.cloudMachine(services, id: "vm-list-run-\(UUID().uuidString.prefix(8))")
+        // The fixture's record has no status (`.unknown`) since its link moved to CloudTestLink (#36498).
+        running.machine.status = .running
         let paused = MachineIconTests.cloudMachine(services, id: "vm-list-pause-\(UUID().uuidString.prefix(8))")
         paused.machine.status = .paused
         paused.machine.displayName = "Paused VM"
@@ -85,8 +87,19 @@ struct CloudListMachinesTests {
 
         let account = try #require(Self.members(fields["account"]))
         #expect(account["signed_in"] == .bool(false))
+        // The team the list is for (none signed out): a sandboxed Run's cleanup trusts only its own team's list.
+        #expect(account["team_id"] == .null)
+        #expect(account["user_id"] == .null)
+        #expect(fields["account"] == CloudHandlers.listAccount(false, nil, nil), "the account is the app's own, whatever FFI is linked")
         // The store keeps no plan limits; a machine count is no entitlement.
         #expect(account["limits"] == nil)
+    }
+
+    /// A signed-in person's list names the person and team the daemon's sandboxed Run create checks (`account_scope`):
+    /// the pinned FFI's rules answer `account: {signed_in}` alone, and without these every Run was refused `run_not_signed_in`.
+    @Test func aSignedInListNamesThePersonAndTeamARunIsCheckedAgainst() {
+        #expect(CloudHandlers.listAccount(true, "u1", "team_1") == .object(["signed_in": .bool(true), "user_id": .string("u1"), "team_id": .string("team_1")]))
+        #expect(CloudHandlers.listAccount(true, "u1", nil) == .object(["signed_in": .bool(true), "user_id": .string("u1"), "team_id": .null]))
     }
 
     /// Before the store's first load (a relaunch, or signed out) its list says nothing about
@@ -103,6 +116,8 @@ struct CloudListMachinesTests {
         #expect(fields["machines"] == .array([]))
         #expect(fields["count"] == .int(0))
         #expect(Self.members(fields["account"])?["signed_in"] == .bool(false))
+        // No list read for this account: none says when it was read, so a sandboxed Run's cleanup never takes it for one.
+        #expect(fields["listed_at_ms"] == .null)
     }
 
     /// A create the server has not answered yet is listed under `creating` with the name it
@@ -134,12 +149,43 @@ struct CloudListMachinesTests {
         #expect(byName["nightly-check"]?["reason"] != nil)
     }
 
-    /// A person's palette run shows the Cloud sidebar instead; it leaves no result to capture.
-    @Test func aPersonsRunAnswersNoResult() async throws {
+    /// #39022 review at 946e940e, F2: a `cloud start-session` create (one waiting on the person's Start too) is listed under
+    /// `creating`, so a sandboxed Run's cleanup waits for its machine instead of taking it for gone while a Start can still make it.
+    @Test func aStartSessionsCreateIsListedWhileItCanStillMakeTheMachine() async throws {
+        let services = Self.services()
+        let runs = services.cloud.startSessionRuns, account = services.cloud.account
+        let (gate, open) = AsyncStream<Void>.makeStream(), (entered, enter) = AsyncStream<Void>.makeStream()
+        let making = Task { @MainActor in
+            try await runs.creating("sandbox-r1", account: account) {
+                enter.yield()
+                for await _ in gate { break }
+                throw CloudCreationTestError()
+            }
+        }
+        for await _ in entered { break }
+        let names = { () -> [ActionResultValue] in
+            guard case .array(let rows)? = CloudHandlers.machineListFields(AppActionContext(services: services), loaded: true)["creating"] else { return [] }
+            return rows.compactMap { Self.members($0)?["name"] }
+        }
+        #expect(names() == [.string("sandbox-r1")])
+        #expect(runs.creatingNames(account: ["someone-else", nil]).isEmpty, "another account's list never shows it")
+        open.yield()
+        open.finish()
+        _ = try? await making.value
+        #expect(names().isEmpty, "a create that ended can make nothing more")
+    }
+
+    /// A person's run of List Cloud Machines returns the list like every other run (#41025):
+    /// the same fields a CLI run gets from the same store, here a store that has not loaded yet.
+    @Test func aPersonsRunAnswersTheList() async throws {
         let services = Self.services()
         _ = MachineIconTests.cloudMachine(services, id: "vm-list-user-\(UUID().uuidString.prefix(8))")
-        let fields = try await Self.run(services, origin: .user)
-        #expect(fields == nil)
+        let fields = try #require(try await Self.run(services, origin: .user), "a person's run tracked no result")
+        #expect(fields["loaded"] == .bool(false))
+        #expect(fields["machines"] == .array([]))
+        #expect(fields["count"] == .int(0))
+        #expect(Self.members(fields["account"])?["signed_in"] == .bool(false))
+        #expect(fields == (try await Self.run(services, origin: .cli)), "a person's run answers what a CLI run does")
     }
 }
 

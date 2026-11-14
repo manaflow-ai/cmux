@@ -3,20 +3,18 @@
 
 Enforcement is scoped to the pull request that causes the problem.
 
-A test file with no registry entry is a hard failure only when this pull
-request is the one that added it (compared against the merge base). A test
-that was already unregistered on the base branch is reported as a warning:
-it is somebody else's oversight, and failing here would turn every open pull
-request red for a reason its author cannot fix.
+A test that does not run -- a file with no registry entry, an entry on a
+lane no workflow runs, or (with --pr-lanes) a test no pull request runs --
+only ever warns, even in the pull request that added it. Leo, 2026-11-05:
+"There is no way that, like, the notion of not adding tests should block CI."
+The warning says whether this change added the file and prints the [[test]]
+block to paste.
 
-Everything else -- malformed entries, unknown fields, entries pointing at
-files that no longer exist, lanes no workflow runs -- is judged the same way:
-with --base-sha, a finding the base's tree already has warns (a direct push to
-the base made it, and no later pull request can fix it), and only a finding
-this change adds fails. A test this change renames counts as one it adds.
-Leo, 2026-11-05, after a direct push's dead registration reddened every pull
-request: "There is no way that, like, the notion of not adding tests should
-block CI."
+What the runner cannot read -- malformed entries, unknown fields, entries
+pointing at files that no longer exist -- is judged against the base: with
+--base-sha, a finding the base's tree already has warns (a direct push to the
+base made it, and no later pull request can fix it), and only a finding this
+change adds fails. A test this change renames counts as one it adds.
 
 Each warning about a test file names the commit that added the file, when the
 checkout's history has it. `--warn-only` (a push to the branch) turns every
@@ -28,11 +26,11 @@ workflow already runs the file) and leaves the rest for a person to place.
 The pre-commit hook runs it, so wiring a new test into ci-guards.yml is
 enough to register it.
 
-`--pr-lanes BRANCH` also fails on a test no pull request into BRANCH runs
+`--pr-lanes BRANCH` also warns on a test no pull request into BRANCH runs
 (scripts/ci/pr_test_lanes.py reads the workflows as that event runs them),
-unless tests/pr-lane-exemptions.json lists it with a reason. With --base-sha
-only what this change adds fails; what the base already has warns. cmux-next
-guards / tooling-tests runs it for feat-cmux-next. It needs PyYAML, so the
+unless tests/pr-lane-exemptions.json lists it with a reason. A broken
+exemption list fails, with --base-sha only when this change broke it.
+cmux-next guards / tooling-tests runs it for feat-cmux-next. It needs PyYAML, so the
 pre-commit hook's copy never takes this path.
 
 Duplicate registrations sit between the two. Two pull requests that each
@@ -101,6 +99,8 @@ RECIPE_STEP_NAME_RE = re.compile(r"\s*(-\s+)?name:")
 RECIPE_VALUE_OPTIONS = {"--only", "--timeout", "--receipt", "--jobs"}
 # The reviewed list of tests no pull request lane runs on purpose (--pr-lanes).
 PR_LANE_EXEMPTIONS = Path("tests") / "pr-lane-exemptions.json"
+# The pull request lane finding for a test nothing runs; pr_lane_findings warns on it.
+UNRUN_ON_PULL_REQUESTS = "no job a pull request into"
 # What validate_pr_lanes reads, extracted from the base to judge it there too.
 PR_LANE_BASE_PATHS = (".github", "tests", "scripts/ci", "scripts/verify-local.py")
 
@@ -437,17 +437,17 @@ def validate(
         try:
             added = newly_added_tests(base_sha, root)
         except (OSError, subprocess.CalledProcessError) as error:
-            # Losing the comparison is an infrastructure problem, not something
-            # this pull request did. Warn instead of reddening it.
-            warnings.append(
-                f"could not compare new tests against {base_sha}: {error}; "
-                "unregistered tests are reported as warnings only"
-            )
+            warnings.append(f"could not compare new tests against {base_sha}: {error}")
 
+    # A test that does not run warns whoever added it: a missing entry or a
+    # dead lane leaves one test unrun, which is not worth a red build.
     for path in sorted(discovered - set(paths)):
         hint = registration_hint(path, workflows, live_runner_lanes)
         if added is not None and path in added:
-            errors.append(f"{path}: added by this pull request with no execution registry entry.{hint}")
+            warnings.append(
+                f"{path}: added by this pull request with no execution registry entry. "
+                f"This is a warning and does not fail the build.{hint}"
+            )
         else:
             warnings.append(
                 f"{path}: test exists but has no execution registry entry. "
@@ -462,9 +462,9 @@ def validate(
             continue
         if lane == DIRECT_RUN_LANE:
             if path not in guard_text:
-                errors.append(f"{path}: linux-guard lane is not run by any workflow")
+                warnings.append(f"{path}: linux-guard lane is not run by any workflow")
         elif lane not in live_runner_lanes:
-            errors.append(f"{path}: lane {lane!r} has no workflow invocation")
+            warnings.append(f"{path}: lane {lane!r} has no workflow invocation")
 
     if added is not None:
         for path in sorted(added):
@@ -554,7 +554,7 @@ def validate_pr_lanes(root: Path, branch: str) -> list[str]:
             )
         elif not runs and path not in exempt and lane != "manual":
             errors.append(
-                f"{path}: no job a pull request into {branch} runs executes it, so a change that breaks it "
+                f"{path}: {UNRUN_ON_PULL_REQUESTS} {branch} runs executes it, so a change that breaks it "
                 "lands green. Run it from a step of a job that runs on those pull requests (routed by the "
                 "paths of the code it tests), or list it in "
                 f"{PR_LANE_EXEMPTIONS} with the reason it cannot run there."
@@ -654,23 +654,25 @@ def attribute(warnings: list[str], root: Path) -> list[str]:
 def pr_lane_findings(root: Path, branch: str, base_sha: str = "") -> tuple[list[str], list[str]]:
     """(errors, warnings) of the pull request lane check, judged against the base.
 
-    feat-cmux-next takes direct-pushed main syncs and safe-push commits that skip pull request
-    checks. A test such a push left unrun, or an exemption it made stale, is in the base's
-    findings too: it warns, so it does not turn every later pull request red. Only a finding
-    this change adds fails. With no base every finding fails.
+    A test no pull request runs always warns: it is unrun, not broken. The exemption list's own
+    findings are judged against the base: feat-cmux-next takes direct-pushed main syncs and
+    safe-push commits that skip pull request checks, so an exemption such a push made stale is in
+    the base's findings too and warns. Only one this change adds fails. With no base they fail.
     """
-    errors = validate_pr_lanes(root, branch)
-    if not base_sha:
-        return errors, []
+    findings = validate_pr_lanes(root, branch)
+    unrun = [finding for finding in findings if UNRUN_ON_PULL_REQUESTS in finding.split("\n", 1)[0]]
+    errors = [finding for finding in findings if finding not in unrun]
+    if not base_sha or not errors:
+        return errors, unrun
     try:
         on_base = base_pr_lane_errors(root, branch, base_sha)
     except BASE_UNREADABLE as error:
         note = (f"could not judge the pull request lanes at the base {base_sha}: {error}; "
                 "every finding below is a warning")
-        return [], [note, *errors]
+        return [], [*unrun, note, *errors]
     return (
         [error for error in errors if error not in on_base],
-        [f"{error} (already so on the base, so this warns)" for error in errors if error in on_base],
+        [*unrun, *(f"{error} (already so on the base, so this warns)" for error in errors if error in on_base)],
     )
 
 
@@ -699,8 +701,8 @@ def report_warnings(warnings: list[str]) -> None:
     lines.extend(
         [
             "",
-            "These do not fail this run: they were already so on the base, or this is a push "
-            "(--warn-only). "
+            "These do not fail this run: a test that does not run only warns, and the rest were "
+            "already so on the base, or this is a push (--warn-only). "
             "Register unregistered tests in `tests/test-execution.d/` (--write); route or exempt "
             "(`tests/pr-lane-exemptions.json`) tests no pull request runs.",
             "",
@@ -727,7 +729,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--only", action="append", default=None, metavar="PATH",
                         help="with --write, register only these tests (repeatable)")
     parser.add_argument("--pr-lanes", metavar="BRANCH", default="",
-                        help="also fail on a test no pull request into BRANCH runs (needs PyYAML)")
+                        help="also warn on a test no pull request into BRANCH runs (needs PyYAML)")
     parser.add_argument("--warn-only", action="store_true",
                         help="report every finding as a warning and exit 0 (a push to the branch)")
     args = parser.parse_args(argv)

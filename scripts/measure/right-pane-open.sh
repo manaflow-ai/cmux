@@ -59,7 +59,7 @@ if [[ -n "$pair" ]]; then
       echo "right-pane-open: --pair takes two full commit SHAs, BEFORE,AFTER (got '$pair')" >&2
       exit 2
     fi
-    git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet origin "$sha"
+    git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet origin "$sha" 2>/dev/null || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$sha"
   done
   # Worktrees of this attempt only, removed on exit by path (never by name or glob).
   trap 'git -C "$root" worktree remove --force "$out/before" 2>/dev/null || true; git -C "$root" worktree remove --force "$out/after" 2>/dev/null || true' EXIT

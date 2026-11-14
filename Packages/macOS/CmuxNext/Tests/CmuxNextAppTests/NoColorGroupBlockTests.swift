@@ -157,6 +157,27 @@ import Testing
         }
     }
 
+    /// Leo 2026-11-07, on a tall uncolored group: "we want to make sure probably that we don't have this right edge going
+    /// on ... for the groupings". The glass rim lights the block's top and corners and is gone within the first row, so
+    /// no hairline runs down the grouped rows' sides.
+    @Test func theRimDrawsNoEdgeDownTheGroupsSides() throws {
+        try Self.withLook(.glass) {
+            let (sidebar, window) = Self.sidebar()
+            defer { window.close() }
+            let block = try Self.lineView(sidebar, Self.open)
+            block.updateLayer()
+            block.layoutSubtreeIfNeeded()
+            block.rim.layoutSubtreeIfNeeded()
+            #expect(!block.rim.isHidden)
+            #expect(block.frame.height > 2 * SidebarDensityTokens.rowHeight, "the block spans its members")
+            let colors = try #require(block.rim.gradient.colors as? [CGColor])
+            let end = try #require(colors.last.flatMap(NSColor.init(cgColor:)))
+            #expect(end.alphaComponent == 0, "the rim still shows at the block's bottom: \(end)")
+            let fadeEnd = try #require(block.rim.gradient.locations?.last).doubleValue * block.rim.bounds.height
+            #expect(fadeEnd <= SidebarDensityTokens.rowHeight + 0.5, "the rim runs \(fadeEnd) pt down the sides")
+        }
+    }
+
     /// The pane holds a group's trailing Done, Archived and Show more rows (router review F2); the rail of a colored
     /// group still ends at its last member.
     @Test func thePaneRunsToTheGroupsFoldRows() {

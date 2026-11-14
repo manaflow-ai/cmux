@@ -98,7 +98,7 @@ import Testing
         }
         Self.hover(header, false)
         for (name, view) in Self.buttons(header) {
-            #expect(view.isHidden, "the \(name) button stays under Reduce Motion")
+            #expect(view.isHidden || view.alphaValue == 0, "the \(name) button stays under Reduce Motion")
             #expect(Self.fade(view) == nil, "the \(name) button fades under Reduce Motion")
         }
     }

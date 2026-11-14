@@ -96,7 +96,7 @@ pub(super) fn sweep_transfers(moving: &[String]) {
             .and_then(|m| m.modified())
             .is_ok_and(|t| t.elapsed().is_ok_and(|age| age > STALE));
         if old && !moving.contains(&name) {
-            let _ = std::fs::remove_dir_all(entry.path());
+            let _ = crate::home_fs::remove_dir_all(entry.path());
         }
     }
 }
@@ -349,7 +349,7 @@ impl Hub {
         // the turn goes on where the chat lands. A move that does not happen queues it here.
         let mut carried: Option<String> = None;
         let unfreeze = |e: RpcError, carried: Option<&str>| {
-            let _ = std::fs::remove_dir_all(&dir);
+            let _ = crate::home_fs::remove_dir_all(&dir);
             self.end_move(session);
             if let Some(id) = carried {
                 self.queue_carried(session, id);
@@ -403,7 +403,7 @@ impl Hub {
         }
         // Export before the ownership scan so a concurrent log-scan callback cannot remove a
         // held prompt before `held_prompts` captures the move's exact queue snapshot.
-        if let Err(error) = std::fs::create_dir_all(&dir) {
+        if let Err(error) = crate::home_fs::create_dirs(&dir) {
             drop(guard);
             return Err(unfreeze(
                 RpcError::internal(format!("transfer: bundle dir: {error}")),
@@ -446,7 +446,7 @@ impl Hub {
             ));
         }
         let epoch = session.bump_ownership_epoch();
-        if let Err(error) = std::fs::write(dir.join("epoch"), epoch.to_string()) {
+        if let Err(error) = crate::home_fs::write(dir.join("epoch"), epoch.to_string()) {
             drop(guard);
             return Err(unfreeze(
                 RpcError::internal(format!("transfer: epoch marker: {error}")),
@@ -470,18 +470,18 @@ impl Hub {
         }
         drop(guard);
         if let Some(socket) = to {
-            let _ = std::fs::write(dir.join("to"), socket);
+            let _ = crate::home_fs::write(dir.join("to"), socket);
         }
         if let Some(host) = to_ssh {
-            let _ = std::fs::write(dir.join("to-ssh"), host);
+            let _ = crate::home_fs::write(dir.join("to-ssh"), host);
         }
         if let Some(host) = to_host {
-            let _ = std::fs::write(dir.join("to-host"), host);
+            let _ = crate::home_fs::write(dir.join("to-host"), host);
         }
         if let Some(id) = carried {
-            let _ = std::fs::write(dir.join("continues"), id);
+            let _ = crate::home_fs::write(dir.join("continues"), id);
         }
-        let _ = std::fs::write(dir.join("epoch"), epoch.to_string());
+        let _ = crate::home_fs::write(dir.join("epoch"), epoch.to_string());
         super::transfer_watch::note_activity(&dir, None);
         if let Some(watch) = watch {
             self.watch_claimed(session, watch);
@@ -629,7 +629,7 @@ impl Hub {
             json!({"transferId": transfer_id, "to": to, "epoch": session.ownership_epoch()}),
         );
         self.kill(session, false).await?;
-        let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));
+        let _ = crate::home_fs::remove_dir_all(transfers_dir().join(transfer_id));
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}))
     }
 
@@ -640,7 +640,7 @@ impl Hub {
         policy: crate::config::PermissionPolicy,
     ) -> Result<(), RpcError> {
         if session.moving().is_some() {
-            return Err(super::queue::moving_error());
+            return Err(super::queue::moving_error(session));
         }
         self.set_policy_answered(session, policy).await
     }
@@ -685,7 +685,7 @@ impl Hub {
         if let Some(id) = carried.as_deref().map(str::trim).filter(|id| !id.is_empty()) {
             self.queue_carried(session, id);
         }
-        let _ = std::fs::remove_dir_all(dir);
+        let _ = crate::home_fs::remove_dir_all(dir);
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "aborted": true}))
     }
 
@@ -723,7 +723,7 @@ impl Hub {
             block.set("text", json!(text));
         }
         q.run = Arc::new(run);
-        q.preview = short_text(&text, 200);
+        q.preview = short_text(super::inbox::relay_body(&text), 200);
         let run = &q.run;
         let mut msg = json!({"promptId": prompt_id, "turnId": q.turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate});
         // Its images, kept and named as `queued` names them (`prompt_images.rs`).

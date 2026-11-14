@@ -34,7 +34,7 @@ public actor ShareInstalls {
         self.accepts = accepts
         self.make = make
         for (api, identity) in given {
-            guard let key = Self.origin(api), byOrigin[key] == nil else { continue }
+            guard let key = Self.origin(of: api)?.origin, byOrigin[key] == nil else { continue }
             byOrigin[key] = identity
         }
     }
@@ -42,17 +42,17 @@ public actor ShareInstalls {
     /// The install for `api`, made at its first use; nil, a URL with no https host or one ``accepts`` refuses
     /// is the fallback.
     public func identity(for api: URL?) -> MacInstallIdentity {
-        guard let api, accepts(api), let key = Self.origin(api) else { return fallback }
+        guard let api, accepts(api), let key = Self.origin(of: api)?.origin else { return fallback }
         return byOrigin[key] ?? (closed ? nil : made(for: api)) ?? fallback
     }
 
     /// The install for an accepted https `api`, made now (also while ``closed``: the scan finds an earlier
     /// launch's to revoke it).
     private func made(for api: URL) -> MacInstallIdentity? {
-        guard let key = Self.origin(api), let host = api.host?.lowercased(), accepts(api), let origin = URL(string: key) else { return nil }
-        if let found = byOrigin[key] { return found }
-        let made = make(origin, Self.folderPrefix + host)
-        byOrigin[key] = made
+        guard accepts(api), let found = Self.origin(of: api), let origin = URL(string: found.origin) else { return nil }
+        if let known = byOrigin[found.origin] { return known }
+        let made = make(origin, found.folder)
+        byOrigin[found.origin] = made
         return made
     }
 
@@ -79,20 +79,23 @@ public actor ShareInstalls {
         if !scanned {
             scanned = true
             let names = (try? FileManager.checked.contentsOfDirectory(atPath: root.path)) ?? []
-            for name in names where name.hasPrefix(Self.folderPrefix) {
-                let host = String(name.dropFirst(Self.folderPrefix.count))
-                if let api = URL(string: "https://\(host)"), api.host == host { _ = made(for: api) }
-            }
+            for api in Self.shareOrigins(url: nil, folders: names).folderApis.compactMap(URL.init(string:)) { _ = made(for: api) }
         }
         var seen: Set<ObjectIdentifier> = [ObjectIdentifier(owner)]
         return ([fallback] + byOrigin.values).filter { seen.insert(ObjectIdentifier($0)).inserted }
     }
 
-    static let folderPrefix = "install-share-"
+    /// Rust's `identity::share_origin`: an https URL's origin, host and store folder; nil for any other scheme, so
+    /// a token is never minted over plain http.
+    struct Origin: Decodable { var origin: String, host: String, folder: String }
 
-    /// An https URL's origin; nil for any other scheme, so a token is never minted over plain http.
-    static func origin(_ url: URL) -> String? {
-        guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased(), !host.isEmpty else { return nil }
-        return url.port.map { "https://\(host):\($0)" } ?? "https://\(host)"
+    private struct Origins: Decodable { var origin: Origin?, folderApis: [String] }
+
+    private static func shareOrigins(url: String?, folders: [String]) -> Origins {
+        struct Request: Encodable { var url: String?, folders: [String] }
+        return CloudStartCore().call("cloud_identity_share_origin", Request(url: url, folders: folders), as: Origins.self)
+            ?? Origins(origin: nil, folderApis: [])
     }
+
+    static func origin(of url: URL) -> Origin? { shareOrigins(url: url.absoluteString, folders: []).origin }
 }

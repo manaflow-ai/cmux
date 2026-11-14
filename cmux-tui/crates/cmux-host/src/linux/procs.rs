@@ -12,7 +12,7 @@ use crate::daemon_spec::{
 };
 use crate::linux::fds::PidFd;
 
-fn cmdline(pid: u32) -> Option<Vec<String>> {
+pub(super) fn cmdline(pid: u32) -> Option<Vec<String>> {
     fs::read(format!("/proc/{pid}/cmdline")).ok().map(|raw| split_cmdline(&raw))
 }
 

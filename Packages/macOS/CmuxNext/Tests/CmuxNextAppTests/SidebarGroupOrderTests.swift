@@ -34,48 +34,17 @@ import Testing
         }
     }
 
-    /// The section's row order after moving `group` by `move`, as the verb does it.
-    static func moved(_ group: GroupID, _ move: SidebarGroupMove) throws -> [String] {
-        var sections = sections()
-        let index = try #require(SidebarEdits.groupIndex(group, move, in: sections), "\(move) of \(group.rawValue) found no index")
-        #expect(SidebarEdits.apply(.reorderGroup(group, index: index), to: &sections))
-        return order(sections)
-    }
-
-    @Test func moveToTopGoesAboveEveryRow() throws {
-        #expect(try Self.moved(Self.g2, .top) == ["g2", "a", "b", "g1", "f"])
-    }
-
-    @Test func moveToBottomGoesBelowEveryRow() throws {
-        #expect(try Self.moved(Self.g1, .bottom) == ["a", "b", "g2", "f", "g1"])
-    }
-
-    @Test func moveDownStepsBelowTheNextRow() throws {
-        #expect(try Self.moved(Self.g1, .down) == ["a", "b", "g2", "g1", "f"])
-    }
-
-    @Test func moveUpStepsAboveTheRowAbove() throws {
-        #expect(try Self.moved(Self.g2, .up) == ["a", "b", "g2", "g1", "f"])
-        #expect(try Self.moved(Self.g1, .up) == ["a", "g1", "b", "g2", "f"])
-    }
-
-    @Test func aMoveThatChangesNothingHasNoIndex() throws {
+    /// Move Group to Top through the app's call: the index the shared rule gives, applied by the shared edit,
+    /// with every row kept as it was. The ordering rules' cases are the Rust tests (cmux-layout-reducer
+    /// `sidebar_edits::tests`).
+    @Test func moveToTopThroughTheSharedRules() throws {
         var sections = Self.sections()
-        let top = try #require(SidebarEdits.groupIndex(Self.g2, .top, in: sections))
-        SidebarEdits.apply(.reorderGroup(Self.g2, index: top), to: &sections)
+        let index = try #require(SidebarEdits.groupIndex(Self.g2, .top, in: sections))
+        #expect(SidebarEdits.apply(.reorderGroup(Self.g2, index: index), to: &sections))
+        #expect(Self.order(sections) == ["g2", "a", "b", "g1", "f"])
+        #expect(sections[0].nodes.first.flatMap { if case let .group(group) = $0 { group.isCollapsed } else { nil } } == true)
         #expect(SidebarEdits.groupIndex(Self.g2, .top, in: sections) == nil)
-        #expect(SidebarEdits.groupIndex(Self.g2, .up, in: sections) == nil)
-        #expect(SidebarEdits.groupIndex(GroupID("missing"), .down, in: sections) == nil)
-    }
-
-    /// Collapse Other Groups (Slack's "Collapse all other sections"): every other expanded group
-    /// folds, and the kept group opens when it was folded.
-    @Test func collapseOthersTogglesTheOtherOpenGroupsAndOpensThisOne() {
-        let open = Self.sections(g2Collapsed: false)
-        #expect(SidebarEdits.groupsToggledByCollapsingOthers(keeping: Self.g1, in: open) == [Self.g2])
-        let folded = Self.sections(g2Collapsed: false, g1Collapsed: true)
-        #expect(SidebarEdits.groupsToggledByCollapsingOthers(keeping: Self.g1, in: folded) == [Self.g1, Self.g2])
-        #expect(SidebarEdits.groupsToggledByCollapsingOthers(keeping: Self.g1, in: Self.sections()).isEmpty)
+        #expect(SidebarEdits.groupsToggledByCollapsingOthers(keeping: Self.g1, in: Self.sections(g2Collapsed: false)) == [Self.g2])
     }
 
     /// A multi-selection moved to the top of its group lands there as one block, in sidebar order.

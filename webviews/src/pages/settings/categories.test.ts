@@ -31,11 +31,17 @@ test("the categories are the approved ones, in order", () => {
   expect(categories.map((category) => category.id)).toEqual([
     "general",
     "updates",
-    "theme",
+    // Personalization holds the theme; old Theme links open it (next tests).
+    "personalization",
     "appearance",
+    // Settings overhaul (2026-11-07): the sidebar, tabs and panes, and the New Tab page have pages.
+    "sidebar",
+    "tabs",
+    "newTab",
     "terminal",
     "editor",
     "browser",
+    "chat",
     "agents",
     "chief",
     "notifications",
@@ -43,15 +49,25 @@ test("the categories are the approved ones, in order", () => {
     // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it).
     "menus",
     "accounts",
+    // Mobile stays its own page (Lucas 2026-11-11); Devices holds what Server showed, and its old
+    // id opens it (next test).
     "mobile",
     "devices",
-    "server",
     "import",
     "privacy",
     "advanced",
     "experimental",
     "development",
   ]);
+});
+
+test("old Theme links open Personalization", () => {
+  expect(categoryOf("theme")).toBe("personalization");
+});
+
+test("Mobile opens its own page, and old Server links open Devices", () => {
+  expect(categoryOf("mobile")).toBe("mobile");
+  expect(categoryOf("server")).toBe("devices");
 });
 
 test("a route to the Development category opens the default category outside DEV builds", () => {
@@ -149,21 +165,17 @@ test("the page renders the exported layout", () => {
 
 // Live QA 7c: Mobile's `iphone` (and Import's `square.and.arrow.down`) had no icon, so the sidebar
 // drew the General gear for them. Every symbol the layout names, in the exported schema and in the
-// Swift source it is exported from, has its own icon.
+// layout source it is exported from, has its own icon.
 test("every category and section symbol has its own icon", () => {
   const exportedSymbols = [
     ...categories.map((category) => category.symbol),
     ...sections.map((section) => section.symbol),
   ];
-  const layout = readFileSync(
-    new URL(
-      "../../../../Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsPageLayout.swift",
-      import.meta.url,
-    ),
-    "utf8",
-  );
-  const swiftSymbols = [...layout.matchAll(/\bsymbol: "([^"]+)"/g)].map((match) => match[1]);
-  expect(swiftSymbols).toContain("iphone");
-  const missing = [...new Set([...exportedSymbols, ...swiftSymbols])].filter((symbol) => !hasIcon(symbol));
+  const layout = JSON.parse(
+    readFileSync(new URL("../../../../schemas/settings/source/page-layout.json", import.meta.url), "utf8"),
+  ) as { sidebar_sections: Array<{ categories: Array<{ symbol: string }> }> };
+  const layoutSymbols = layout.sidebar_sections.flatMap((run) => run.categories.map((category) => category.symbol));
+  expect(layoutSymbols).toContain("sidebar.left");
+  const missing = [...new Set([...exportedSymbols, ...layoutSymbols])].filter((symbol) => !hasIcon(symbol));
   expect(missing).toEqual([]);
 });

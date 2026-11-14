@@ -1,0 +1,46 @@
+/* A new worktree chat's setup line above the composer (worktreeSetup.tsx, design/worktree-setup.md).
+   The summary is one notice line (the notice's own inset, ink and 16 px line); Creating worktree…
+   and every setup state draw in it, so a state change never swaps rows. The drawer under it opens
+   from no height to its own (the Cloud start question row's motion) and moves the composer with it. */
+.acpmux-worktree-setup { display: flex; flex-direction: column; }
+.acpmux-worktree-setup__summary { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; min-height: 20px; }
+.acpmux-worktree-setup__summary .acpmux-cloud-start__mark { height: 20px; }
+/* The state words sit in the mark, clipped to nothing (the pane loads no global .visually-hidden;
+   the Cloud start's labels-over-names bug). */
+.acpmux-worktree-setup .visually-hidden { position: absolute; width: 1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; pointer-events: none; }
+.acpmux-worktree-setup__label { color: var(--agent-text); }
+.acpmux-worktree-setup[data-state="failed"] .acpmux-worktree-setup__label,
+.acpmux-worktree-setup[data-state="timed_out"] .acpmux-worktree-setup__label,
+.acpmux-worktree-setup[data-state="interrupted"] .acpmux-worktree-setup__label,
+.acpmux-worktree-setup[data-state="failed"] .acpmux-cloud-start__mark,
+.acpmux-worktree-setup[data-state="timed_out"] .acpmux-cloud-start__mark,
+.acpmux-worktree-setup[data-state="interrupted"] .acpmux-cloud-start__mark { color: var(--agent-danger, #f87171); }
+.acpmux-worktree-setup[data-state="creating"] .acpmux-worktree-setup__label { color: inherit; }
+.acpmux-worktree-setup__fact { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.acpmux-worktree-setup__toggle { display: inline-flex; align-items: center; gap: 4px; }
+.acpmux-worktree-setup__drawer {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
+    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+}
+:root[data-cmux-motion="reduced"] .acpmux-worktree-setup__drawer { transition: opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out); }
+.acpmux-worktree-setup__drawer[data-open="true"] { grid-template-rows: 1fr; opacity: 1; }
+.acpmux-worktree-setup__clip { display: block; min-height: 0; overflow: hidden; }
+/* The details reuse the Cloud start's checklist rows at the notice's size, not its column. */
+.acpmux-worktree-setup__details.acpmux-cloud-start { min-height: 0; max-width: none; margin: 4px 0 0; padding: 0; gap: 4px; }
+.acpmux-worktree-setup__output {
+  max-height: 160px;
+  margin: 0;
+  padding: 8px 12px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--agent-border) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-surface) 54%, transparent);
+  color: var(--agent-muted);
+  font-family: var(--font-mono, ui-monospace);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -87,6 +87,22 @@ nonisolated struct PaletteRankerBridgeFrecency: Encodable {
         hidden = store.hidden.sorted()
     }
 
+    /// The whole history the ranker holds for a revision: every learned pick, since each query
+    /// reads its own starts' picks from it.
+    init(installing store: FrecencyStore) {
+        entries = store.entries.mapValues { entry in
+            PaletteRankerBridgeFrecencyEntry(score: entry.score, lastUsed: entry.lastUsed.timeIntervalSinceReferenceDate)
+        }
+        halfLife = store.halfLife
+        capacity = store.capacity
+        picks = store.picks.map { pick in
+            PaletteRankerBridgePick(prefix: pick.prefix, key: pick.key, score: pick.score,
+                                    lastUsed: pick.lastUsed.timeIntervalSinceReferenceDate, last: pick.isLast)
+        }
+        pickHalfLife = store.pickHalfLife
+        hidden = store.hidden.sorted()
+    }
+
     /// The query as learned picks key it (the daemon's rule, palette_usage.rs
     /// `normalized_query`): white space collapsed, lowercased.
     static func normalized(_ query: String) -> String {

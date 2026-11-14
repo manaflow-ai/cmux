@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { loadsWithoutClick } from "../src/agent-session/acpmux/chips/ReplyImage";
+import { loadsWithoutClick } from "../src/agent-session/acpmux/chips/replyImageModel";
 import type { ReplyPolicy } from "../src/agent-session/acpmux/chips/linkStore";
 
 // Which reply images load without a click under agentPane.images.remote = click: only images

@@ -24,6 +24,17 @@ import Testing
         #expect(ParkedWorkspaceBudget(capacity: 1).evictions(parked: Array(parked.prefix(3)), kept: ["w1", "w2", "w3"]).isEmpty)
     }
 
+    /// The eviction decision moved out of `WindowController.trimParked`: the workspace that parked now and a kept one
+    /// stay, the one about to show neither counts nor leaves.
+    @Test func evictsAroundTheParkedNowKeptAndLeavingOnes() {
+        let parked = Dictionary(uniqueKeysWithValues: (1...6).map { ("w\($0)", UInt64($0)) })
+        let budget = ParkedWorkspaceBudget(capacity: 4)
+        #expect(budget.evictions(parked: parked, parkedNow: "w6", leaving: nil, keeps: { _ in false }) == ["w1", "w2"])
+        #expect(budget.evictions(parked: parked, parkedNow: "w1", leaving: nil, keeps: { $0 == "w2" }) == ["w3", "w4"])
+        #expect(budget.evictions(parked: parked, parkedNow: "w6", leaving: "w5", keeps: { _ in false }) == ["w1"])
+        #expect(ParkedWorkspaceBudget(capacity: 5).evictions(parked: parked, parkedNow: "w6", leaving: "w1", keeps: { _ in false }).isEmpty)
+    }
+
     private static func tree(_ keys: [String]) -> DaemonTree {
         var tree = DaemonTree(registryID: "s-local", workspaces: keys.enumerated().map { index, key in
             let pane = PaneSnapshot(id: PaneID(rawValue: UInt64(index + 1)), tabs: [TabSnapshot(surface: SurfaceID(rawValue: UInt64(index + 1)), title: "~")])

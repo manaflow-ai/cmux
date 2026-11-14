@@ -9,7 +9,7 @@ type Props = { variant?: InputVariant; value?: string; disabled?: boolean };
 function InputGallery({ variant = "filled", value = "", disabled = false }: Props) {
   const [text, setText] = useState(value);
   return (
-    <div className="ui-controls-stage">
+    <div className="ui-controls-stage" data-gallery-capture="">
       {(["sm", "md", "lg"] as const).map((size) => (
         <Input
           key={size}

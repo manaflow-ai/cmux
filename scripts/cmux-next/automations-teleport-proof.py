@@ -71,7 +71,7 @@ if st != 200:
 AUTH = {"authorization": "Bearer " + signed["access_token"]}
 http(o.api + "/v1/ops", {"op": "user.ensure", "params": {}, "idempotency_key": f"tp-proof-ensure-{int(time.time())}", "origin": "cli"}, AUTH)
 
-# The app's CloudAutomationRelay allowlist (CmuxNextCloud), kept here so the proof refuses what the app refuses.
+# The app's Cloud automation relay allowlist (cmux_cloud_wire::automation), kept here so the proof refuses what the app refuses.
 READS = {"automation.list", "automation.get", "automation.runs.list", "automation.webhook.get", "run.list", "run.get", "chief.list", "automation.audit.list"}
 MUTATIONS = {"automation.create", "automation.update", "automation.delete", "automation.run", "automation.import",
              "automation.teleport.begin", "automation.teleport.complete", "automation.teleport.abort"}

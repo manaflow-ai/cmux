@@ -30,6 +30,8 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
     var onClose: ((TabID) -> Void)? { didSet { rowViews.forEach(wireClose) } }
 
     var reportedLines: [String] { rowViews.prefix(tabs.count).map(\.reportedLine) }
+    /// The list's scroll view, so a test can show the legacy scrollers a mouse or the "always" setting shows.
+    var listScrollView: NSScrollView { scrollView }
     override var isFlipped: Bool { true }
 
     init(style: WorkspaceTabHoverCardStyle = .standard) {
@@ -38,7 +40,7 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
         isHidden = true
         scrollView.documentView = document
         scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false // set in `layout` when the list scrolls
         scrollView.verticalScrollElasticity = .none
         SystemScrollers.followThin(scrollView)
         container.addSubview(scrollView)
@@ -85,8 +87,14 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
         return out
     }
 
-    /// One pitch for every tab row (Lawrence msg 19245: "row spacing is uneven"); a group label is its own line.
-    private var rowPitch: CGFloat { style.rowHeight + Metrics.space1 }
+    /// One gap between every two tab rows (Lawrence msg 19245: "row spacing is uneven"); a row with a detail
+    /// line is two lines tall, one without is one row tall (Leo 2026-11-06: "you got all these empty things").
+    /// A group label is its own line.
+    private func rowHeight(_ index: Int) -> CGFloat {
+        style.rowHeight(hasDetail: index < rowViews.count && rowViews[index].hasDetail)
+    }
+
+    private func rowPitch(_ index: Int) -> CGFloat { rowHeight(index) + Metrics.space1 }
     private var groupHeight: CGFloat {
         let caption = Self.captionFont
         return ceil(caption.ascender - caption.descender) + Metrics.space3
@@ -97,7 +105,7 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
     private func height(of items: [Item]) -> CGFloat {
         guard !items.isEmpty else { return 0 }
         let sum = items.reduce(CGFloat(0)) { total, item in
-            if case .tab = item { return total + rowPitch }
+            if case let .tab(index) = item { return total + rowPitch(index) }
             return total + groupHeight
         }
         return sum - Metrics.space1
@@ -108,7 +116,9 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
     private var listHeight: CGFloat {
         let all = height(of: items(upTo: tabs.count))
         guard tabs.count > style.rowLimit + 1 else { return all }
-        return min(all, (CGFloat(style.rowLimit) + 1.5) * rowPitch - Metrics.space1)
+        // `rowLimit` and one more rows, then half of the next: the cut row says the list scrolls.
+        let shown = height(of: items(upTo: style.rowLimit + 1)) + rowPitch(style.rowLimit + 1) / 2
+        return min(all, shown)
     }
 
     override var intrinsicContentSize: NSSize {
@@ -173,12 +183,17 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
         container.frame = CGRect(x: -outset, y: 0, width: width, height: bounds.height)
         let list = listHeight
         scrollView.frame = CGRect(x: 0, y: 0, width: width, height: list)
-        // The legacy scroller takes its width from the content; an overlay scroller takes none.
+        let shown = items(upTo: tabs.count)
+        // A list that fits has no scroller: a legacy one (a mouse, or "Show scroll bars: Always") kept its width at the
+        // rows' right though nothing scrolled, so each row's fill stopped short of the card's right edge (Lawrence
+        // 2026-11-09, "right spacing is bad for the hover card"). A list that scrolls gives the legacy scroller its
+        // width; an overlay scroller takes none.
+        let scrolls = height(of: shown) > list + 0.5
+        if scrollView.hasVerticalScroller != scrolls { scrollView.hasVerticalScroller = scrolls }
         let contentWidth = NSScrollView.contentSize(forFrameSize: NSSize(width: width, height: list), horizontalScrollerClass: nil,
-                                                    verticalScrollerClass: scrollView.hasVerticalScroller ? NSScroller.self : nil,
+                                                    verticalScrollerClass: scrolls ? NSScroller.self : nil,
                                                     borderType: scrollView.borderType, controlSize: .regular,
                                                     scrollerStyle: scrollView.scrollerStyle).width
-        let shown = items(upTo: tabs.count)
         document.frame = CGRect(x: 0, y: 0, width: contentWidth, height: height(of: shown))
         var y: CGFloat = 0
         var group = 0
@@ -186,9 +201,9 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
         for item in shown {
             switch item {
             case let .tab(index):
-                rowViews[index].frame = CGRect(x: 0, y: y, width: contentWidth, height: style.rowHeight)
+                rowViews[index].frame = CGRect(x: 0, y: y, width: contentWidth, height: rowHeight(index))
                 rowViews[index].layoutSubtreeIfNeeded()
-                y += rowPitch
+                y += rowPitch(index)
             case .group:
                 let label = groupLabels[group]
                 let size = label.naturalSize

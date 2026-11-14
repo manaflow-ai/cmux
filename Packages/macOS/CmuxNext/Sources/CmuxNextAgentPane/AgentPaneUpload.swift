@@ -106,7 +106,7 @@ public nonisolated struct AgentPaneUpload: Sendable, Equatable, CustomStringConv
     /// is used, so another chat's paste keeps its gesture), then only with a real gesture.
     @MainActor static func respond(_ files: [AgentPaneUpload], in model: AgentPaneModel) async -> [String: Any] {
         guard let uploader = model.onUpload?() else { return AgentPaneModel.unsupported("chat.upload") }
-        guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+        guard model.transport.gestures.consumeUpload() else { return AgentPaneModel.transportFailure(.gestureRequired) }
         return await uploader(files)
     }
 }

@@ -758,10 +758,11 @@ pub fn mover(home: &Path) -> Option<i32> {
 }
 
 /// Holds `home` for this move: the host refuses to start until the hold goes.
-fn hold_for_move(home: &Path) -> Result<(), String> {
+/// `to` names the target (the app's Teleport chip and chat row show it).
+fn hold_for_move(home: &Path, to: &str) -> Result<(), String> {
     write_private(
         &home.join(MOVING_FILE),
-        serde_json::json!({"pid": std::process::id(), "at": now_rfc3339()})
+        serde_json::json!({"pid": std::process::id(), "at": now_rfc3339(), "to": to})
             .to_string()
             .as_bytes(),
     )
@@ -1045,7 +1046,7 @@ fn lock_pid(lock: &Path) -> Option<i32> {
 pub(crate) fn drain(home: &Path, options: &MoveOptions) -> Result<String, String> {
     let lock = home.join("state").join("host.lock");
     // First the hold: a host started after this line refuses, whoever starts it.
-    hold_for_move(home)?;
+    hold_for_move(home, &options.target.describe(""))?;
     write_private(&home.join(SHUTDOWN_FILE), b"chief move\n")?;
     if !crate::lock::held(&lock) {
         return Ok("host not running; app brain start held".into());
@@ -2050,6 +2051,22 @@ pub fn cli(args: &[String]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The app's Teleport chip and chat row read the hold: who moves (the
+    /// pid the host's refusal checks) and where to.
+    #[test]
+    fn a_move_hold_names_its_mover_and_target() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("state")).unwrap();
+        hold_for_move(dir.path(), "cloud:https://api.cmux.dev").unwrap();
+        let hold: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.path().join(MOVING_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(hold["pid"], std::process::id());
+        assert_eq!(hold["to"], "cloud:https://api.cmux.dev");
+        release_move_hold(dir.path());
+        assert!(!dir.path().join(MOVING_FILE).exists());
+    }
 
     #[test]
     fn session_dir_matches_a_real_chief_home() {

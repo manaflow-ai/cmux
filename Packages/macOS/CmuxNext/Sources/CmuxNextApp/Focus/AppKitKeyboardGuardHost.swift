@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextFocusUI
 import CmuxNextWakeups
 
@@ -20,7 +21,7 @@ final class AppKitKeyboardGuardHost: NoActivateKeyboardGuard.Host {
     /// True once the guard stopped (an update relaunch's startup ended): a hand-back still queued
     /// then does nothing, so it never undoes the click that ended it.
     var stopped: () -> Bool = { false }
-    var mouseButtonDown: Bool { NSEvent.pressedMouseButtons != 0 }
+    var mouseButtonDown: Bool { SyntheticInput.hardwareButtons != 0 }
     var commandHeld: Bool { NSEvent.modifierFlags.contains(.command) }
     var isAppActive: Bool { NSApp.isActive }
     var now: ContinuousClock.Instant { .now }
@@ -31,9 +32,8 @@ final class AppKitKeyboardGuardHost: NoActivateKeyboardGuard.Host {
     }
 
     func giveActivationBack(to app: NSRunningApplication?) {
-        // Deactivate synchronously so the guard never retains the keyboard.
-        // The LaunchServices handoff is deferred and uses the already-resolved
-        // object, avoiding both PID lookup and activation work in the observer.
+        // Deactivate synchronously so the guard never retains the keyboard. The LaunchServices handoff is
+        // deferred and uses the already-resolved object, avoiding PID lookup and activation work in the observer.
         NSApp.deactivate()
         guard let app else { return }
         let reference = NoActivateApplicationReference(app)

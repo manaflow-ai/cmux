@@ -42,6 +42,10 @@ final class CookieImportConsentPanel {
     /// Answers Deny once ``limit`` passes without an answer.
     private let deadline = DemandTimer(owner: "CookieImportConsentPanel.deadline")
     private let limitNote = NSTextField(labelWithString: "")
+    /// The lines and boxes the theme colors, recolored on every theme change (`body`).
+    private var primaryLines: [NSTextField] = []
+    private var secondaryLines: [NSTextField] = []
+    private var boxes: [NSBox] = []
     /// Reveals the requester's tab (the person's click; nil when the requester has none).
     private let onShowRequester: (() -> Void)?
     /// The Allow button shown now: the panel reads the person's click on it, never its action.
@@ -84,7 +88,9 @@ final class CookieImportConsentPanel {
     private func makeContent() -> NSView {
         let title = NSTextField(labelWithString: CookieImportStrings.title)
         title.font = .systemFont(ofSize: TypeScale.title, weight: TypeScale.emphasis)
-        let lead = Self.wrapping(CookieImportStrings.lead(browser: request.source), size: TypeScale.detail)
+        primaryLines = [title]
+        secondaryLines = [limitNote]
+        let lead = wrapping(CookieImportStrings.lead(browser: request.source), size: TypeScale.detail)
 
         // The reference to the agent: a borderless text button (not a link) that reveals its tab.
         let reference = NSButton(title: request.requester.reference, target: self, action: #selector(showRequester))
@@ -92,31 +98,31 @@ final class CookieImportConsentPanel {
         reference.font = .systemFont(ofSize: TypeScale.detail, weight: TypeScale.emphasis)
         reference.isEnabled = onShowRequester != nil
         reference.setAccessibilityIdentifier(Self.accessibilityID + ".requester")
-        var requesterViews: [NSView] = [Self.caption(CookieImportStrings.requestedBy), reference]
+        var requesterViews: [NSView] = [caption(CookieImportStrings.requestedBy), reference]
         if let workspace = request.requester.workspace, !workspace.isEmpty {
-            requesterViews.append(Self.wrapping(CookieImportStrings.inWorkspace(workspace), size: TypeScale.detail, secondary: true))
+            requesterViews.append(wrapping(CookieImportStrings.inWorkspace(workspace), size: TypeScale.detail, secondary: true))
         }
         let requester = NSStackView(views: requesterViews)
         requester.spacing = 6
 
         // The agent's reason, large and boxed: the first thing the person reads.
-        let reason = Self.boxed(Self.wrapping(request.reason, size: TypeScale.field, weight: TypeScale.emphasis), id: "reason")
-        var views: [NSView] = [title, lead, requester, Self.caption(CookieImportStrings.reasonLabel), reason]
+        let reason = boxed(wrapping(request.reason, size: TypeScale.field, weight: TypeScale.emphasis), id: "reason")
+        var views: [NSView] = [title, lead, requester, caption(CookieImportStrings.reasonLabel), reason]
         if let latest = request.requester.latestMessage, !latest.isEmpty {
-            views.append(Self.caption(CookieImportStrings.latestLabel))
-            views.append(Self.boxed(Self.wrapping(latest, size: TypeScale.detail, secondary: true), id: "latest"))
+            views.append(caption(CookieImportStrings.latestLabel))
+            views.append(boxed(wrapping(latest, size: TypeScale.detail, secondary: true), id: "latest"))
         }
         let sites = request.domains.isEmpty ? CookieImportStrings.allSites : request.domains.joined(separator: ", ")
         let grid = NSGridView(views: [
-            [Self.caption(CookieImportStrings.fromLabel), Self.wrapping(request.source, size: TypeScale.detail)],
-            [Self.caption(CookieImportStrings.sitesLabel), Self.wrapping(sites, size: TypeScale.detail)],
-            [Self.caption(CookieImportStrings.intoLabel), Self.wrapping(request.target, size: TypeScale.detail)],
+            [caption(CookieImportStrings.fromLabel), wrapping(request.source, size: TypeScale.detail)],
+            [caption(CookieImportStrings.sitesLabel), wrapping(sites, size: TypeScale.detail)],
+            [caption(CookieImportStrings.intoLabel), wrapping(request.target, size: TypeScale.detail)],
         ])
         grid.rowSpacing = 4
         grid.columnSpacing = 10
         views.append(grid)
-        views.append(Self.wrapping(request.sourceIsSafari ? CookieImportStrings.afterAllowSafari : CookieImportStrings.afterAllow,
-                                   size: TypeScale.caption, secondary: true))
+        views.append(wrapping(request.sourceIsSafari ? CookieImportStrings.afterAllowSafari : CookieImportStrings.afterAllow,
+                              size: TypeScale.caption, secondary: true))
 
         let showChat = CmuxDialogButtonView(standalone: CmuxDialogButton(
             id: "showChat", title: request.requester.kind == .terminal ? CookieImportStrings.showTerminal : CookieImportStrings.showAgentChat),
@@ -132,7 +138,6 @@ final class CookieImportConsentPanel {
         allow.setAccessibilityIdentifier(Self.accessibilityID + ".allow")
         allowButton = allow
         limitNote.font = .systemFont(ofSize: TypeScale.caption)
-        limitNote.textColor = .secondaryLabelColor
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let buttons = NSStackView(views: [showChat, limitNote, spacer, deny, allow])
@@ -150,9 +155,9 @@ final class CookieImportConsentPanel {
             latest.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -36).isActive = true
         }
         body.addSubview(stack)
-        body.onThemeChange = { [weak title, weak reference] in
-            title?.textColor = Palette.textPrimary
+        body.onThemeChange = { [weak self, weak reference] in
             reference?.contentTintColor = Palette.accent
+            self?.applyInks()
         }
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: body.leadingAnchor),
@@ -167,33 +172,44 @@ final class CookieImportConsentPanel {
         return glass
     }
 
-    private static func caption(_ text: String) -> NSTextField {
+    /// The theme's ink, in the panel's scope, on every line and box (`body`'s theme hook).
+    private func applyInks() {
+        body.performWithTheme {
+            for line in primaryLines { line.textColor = Palette.textPrimary }
+            for line in secondaryLines { line.textColor = Palette.textSecondary }
+            for box in boxes {
+                box.borderColor = Palette.separator
+                box.fillColor = Palette.hoverFill
+            }
+        }
+    }
+
+    private func caption(_ text: String) -> NSTextField {
         let label = NSTextField(labelWithString: text)
         label.font = .systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis)
-        label.textColor = .secondaryLabelColor
+        secondaryLines.append(label)
         return label
     }
 
-    private static func wrapping(_ text: String, size: CGFloat, weight: NSFont.Weight = TypeScale.regular, secondary: Bool = false) -> NSTextField {
+    private func wrapping(_ text: String, size: CGFloat, weight: NSFont.Weight = TypeScale.regular, secondary: Bool = false) -> NSTextField {
         let label = NSTextField(wrappingLabelWithString: text)
         label.font = .systemFont(ofSize: size, weight: weight)
-        label.textColor = secondary ? .secondaryLabelColor : .labelColor
+        if secondary { secondaryLines.append(label) } else { primaryLines.append(label) }
         label.isSelectable = true
         label.focusRingType = .none
         label.setContentCompressionResistancePriority(.required, for: .vertical)
         return label
     }
 
-    private static func boxed(_ label: NSTextField, id: String) -> NSView {
+    private func boxed(_ label: NSTextField, id: String) -> NSView {
         let box = NSBox()
         box.boxType = .custom
         box.cornerRadius = Metrics.insetCornerRadius
         box.borderWidth = 1
-        box.borderColor = .separatorColor
-        box.fillColor = NSColor.textBackgroundColor.withAlphaComponent(0.35)
+        boxes.append(box)
         box.contentViewMargins = NSSize(width: 10, height: 8)
         box.contentView = label
-        box.setAccessibilityIdentifier(accessibilityID + "." + id)
+        box.setAccessibilityIdentifier(Self.accessibilityID + "." + id)
         return box
     }
 

@@ -12,6 +12,10 @@
 //! [`ClosingPanes::rects`] places every closing pane each frame; [`ClosingPanes::remove`] gives where a taken-back close
 //! starts and its sides' velocities.
 //!
+//! A strip pane's x is in strip coordinates and a fixed (docked) pane's in the view's: a pane beside one of the other
+//! kind reads its x sides moved by the strip's view shift ([`across`]), so a docked pane borders the strip panes beside
+//! it and closes on their spring as a strip pane does.
+//!
 //! Panes, scroll areas and row columns are numbers the caller hands out (0: none). Every comparison and arithmetic step
 //! is the Swift one: `Swift.min(x, y)` is `if y < x { y } else { x }`, `Swift.max(x, y)` is `if y >= x { y } else { x }`,
 //! `Sequence.min()`/`max()` keep the first of equal values, so NaN and ties give the same answer. The test
@@ -101,6 +105,8 @@ pub struct FrameFact {
     pub vy: f64,
     pub vw: f64,
     pub vh: f64,
+    /// It scrolls with the strip (its x is in strip coordinates; a fixed pane's in the view's).
+    pub scrolls: bool,
 }
 
 /// Where a row column's scroll is and where it rests.
@@ -166,9 +172,9 @@ pub struct ClosingPanes {
     order: Vec<u64>,
     /// The panes this change began closing (they wait for the change's cameras).
     awaiting: BTreeSet<u64>,
-    /// Reused per frame by [`ClosingPanes::rects`].
-    shown: Vec<(u64, Placed)>,
-    rests: Vec<(u64, Placed)>,
+    /// Reused per frame by [`ClosingPanes::rects`]: each placed pane's rect and whether it scrolls.
+    shown: Vec<(u64, Placed, bool)>,
+    rests: Vec<(u64, Placed, bool)>,
     placed: Vec<(u64, Placed)>,
     values: Vec<f64>,
 }
@@ -215,8 +221,21 @@ fn row(column: u64, rows: &[RowTravel]) -> Option<RowTravel> {
     rows.iter().find(|r| r.column == column).copied()
 }
 
-fn lookup(id: u64, list: &[(u64, Placed)]) -> Option<Placed> {
-    list.iter().find(|(pane, _)| *pane == id).map(|(_, rect)| *rect)
+fn lookup(id: u64, list: &[(u64, Placed, bool)]) -> Option<(Placed, bool)> {
+    list.iter().find(|(pane, _, _)| *pane == id).map(|(_, rect, scrolls)| (*rect, *scrolls))
+}
+
+/// What to add to the x of a pane that scrolls as `other` does to place it in the coordinates of one that scrolls as
+/// `own` does: 0 for the same kind, else the strip's view shift `strip`, added to a strip x seen from a fixed pane and
+/// taken from a fixed x seen from a strip pane.
+pub fn across(own: bool, other: bool, strip: f64) -> f64 {
+    if own == other {
+        0.0
+    } else if other {
+        strip
+    } else {
+        -strip
+    }
 }
 
 fn move_side(side: &mut Side, value: f64) {
@@ -307,6 +326,10 @@ enum Edge {
 }
 
 impl Edge {
+    fn is_x(self) -> bool {
+        matches!(self, Edge::MinX | Edge::MaxX)
+    }
+
     fn of(self, edges: Edges) -> f64 {
         match self {
             Edge::MinX => edges.min_x,
@@ -395,8 +418,10 @@ impl ClosingPanes {
     }
 
     /// Starts `pane` closing: `shown` is where it shows in the new layout's coordinates, `panes` the layout it left (the
-    /// order its sides list their neighbours in), `handles` that layout's handles. Returns whether the pane was in that
+    /// order its sides list their neighbours in), `handles` that layout's handles, `strip_shift` that layout's view shift
+    /// at the close's camera (a pane of the other scroll kind is read moved by it). Returns whether the pane was in that
     /// layout.
+    #[allow(clippy::too_many_arguments)]
     pub fn begin(
         &mut self,
         pane: u64,
@@ -405,14 +430,21 @@ impl ClosingPanes {
         handles: &[HandleFact],
         max_gap: f64,
         view_shift: Option<f64>,
+        strip_shift: f64,
     ) -> bool {
         let Some(own) = panes.iter().find(|p| p.id == pane) else { return false };
         let rest = own.edges;
         let (scrolls, area, row_column) = (own.scrolls, own.area, own.row_column);
         let (mut lead, mut trail, mut top, mut bottom) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-        for other in panes.iter().filter(|o| o.id != pane && o.scrolls == scrolls) {
-            let was = other.edges;
+        for other in panes.iter().filter(|o| o.id != pane) {
+            let dx = across(scrolls, other.scrolls, strip_shift);
+            let was = Edges {
+                min_x: other.edges.min_x + dx,
+                max_x: other.edges.max_x + dx,
+                min_y: other.edges.min_y,
+                max_y: other.edges.max_y,
+            };
             if swift_min(was.max_y, rest.max_y) - swift_max(was.min_y, rest.min_y) > 1.0
                 && other.area == area
             {
@@ -543,9 +575,17 @@ impl ClosingPanes {
         self.still(&awaiting, frames)
     }
 
-    /// Where every closing pane shows this frame, in the order they were placed (the last to close first). The answer
-    /// borrows the handle's buffer: it stays until the next call. No allocation once the buffers have grown.
-    pub fn rects(&mut self, frames: &[FrameFact], rows: &[RowTravel]) -> &[(u64, Placed)] {
+    /// Where every closing pane shows this frame, in the order they were placed (the last to close first). `strip` is the
+    /// strip's view shift now and `rest_strip` where it rests: a neighbour of the other scroll kind is read moved by them
+    /// (its presented sides by `strip`, its target sides by `rest_strip`). The answer borrows the handle's buffer: it
+    /// stays until the next call. No allocation once the buffers have grown.
+    pub fn rects(
+        &mut self,
+        frames: &[FrameFact],
+        rows: &[RowTravel],
+        strip: f64,
+        rest_strip: f64,
+    ) -> &[(u64, Placed)] {
         self.shown.clear();
         self.rests.clear();
         self.placed.clear();
@@ -553,15 +593,28 @@ impl ClosingPanes {
             let Some(&pane) = self.order.get(index) else { continue };
             let (shown, rests, values) = (&self.shown, &self.rests, &mut self.values);
             let Some(entry) = self.entries.get_mut(&pane) else { continue };
+            let scrolls = entry.scrolls;
+            // A neighbour's side in this pane's coordinates (an x side moved across the strip's view shift).
+            let shift = |other: bool, x: bool, by: f64| -> f64 {
+                if x { across(scrolls, other, by) } else { 0.0 }
+            };
             let facing = |neighbour: u64, edge: Edge| -> Option<f64> {
+                let x = edge.is_x();
                 frame(neighbour, frames)
-                    .map(|f| edge.of(f.now))
-                    .or_else(|| lookup(neighbour, shown).map(|r| edge.of(Edges::of(r))))
+                    .map(|f| edge.of(f.now) + shift(f.scrolls, x, strip))
+                    .or_else(|| {
+                        lookup(neighbour, shown)
+                            .map(|(r, other)| edge.of(Edges::of(r)) + shift(other, x, strip))
+                    })
             };
             let resting_edge = |neighbour: u64, edge: Edge| -> Option<f64> {
+                let x = edge.is_x();
                 frame(neighbour, frames)
-                    .map(|f| edge.of(f.target))
-                    .or_else(|| lookup(neighbour, rests).map(|r| edge.of(Edges::of(r))))
+                    .map(|f| edge.of(f.target) + shift(f.scrolls, x, rest_strip))
+                    .or_else(|| {
+                        lookup(neighbour, rests)
+                            .map(|(r, other)| edge.of(Edges::of(r)) + shift(other, x, rest_strip))
+                    })
             };
             let mut place = |side: &mut Side,
                              slowest: fn(&[f64]) -> Option<f64>,
@@ -607,9 +660,9 @@ impl ClosingPanes {
                 width: swift_max(0.0, x1 - x0),
                 height: swift_max(0.0, y1 - y0),
             };
-            self.shown.push((pane, rect));
+            self.shown.push((pane, rect, scrolls));
             self.placed.push((pane, rect));
-            self.rests.push((pane, rest));
+            self.rests.push((pane, rest, scrolls));
         }
         &self.placed
     }
@@ -652,8 +705,9 @@ impl ClosingPanes {
         }
     }
 
-    /// Takes `pane` out (its close was taken back): where it shows now, with its sides' velocities.
-    pub fn remove(&mut self, pane: u64, frames: &[FrameFact]) -> Option<Taken> {
+    /// Takes `pane` out (its close was taken back): where it shows now, with its sides' velocities. `strip` is the strip's
+    /// view shift now (a neighbour of the other scroll kind is read moved by it).
+    pub fn remove(&mut self, pane: u64, frames: &[FrameFact], strip: f64) -> Option<Taken> {
         let entry = self.entries.remove(&pane)?;
         self.order.retain(|&p| p != pane);
         self.awaiting.remove(&pane);
@@ -664,12 +718,16 @@ impl ClosingPanes {
             height: swift_max(0.0, entry.max_y.fixed - entry.min_y.fixed),
         };
         let edges = Edges::of(rect);
+        let scrolls = entry.scrolls;
+        let distance = |f: &FrameFact, edge: Edge, at: f64| -> f64 {
+            let dx = if edge.is_x() { across(scrolls, f.scrolls, strip) } else { 0.0 };
+            (edge.of(f.now) + dx - at).abs()
+        };
         let speed = |side: &Side, at: f64, edge: Edge, velocity: fn(&FrameFact) -> f64| -> f64 {
             let mut best: Option<&FrameFact> = None;
             for live in side.neighbours.iter().filter_map(|&n| frame(n, frames)) {
                 // `Sequence.min(by:)`: a later frame replaces the best only when it is strictly closer.
-                let closer = best
-                    .is_none_or(|b| (edge.of(live.now) - at).abs() < (edge.of(b.now) - at).abs());
+                let closer = best.is_none_or(|b| distance(live, edge, at) < distance(b, edge, at));
                 if closer {
                     best = Some(live);
                 }
@@ -731,7 +789,17 @@ mod tests {
     }
 
     fn live(id: u64, now: Edges, target: Edges) -> FrameFact {
-        FrameFact { id, now, target, moving: now != target, vx: 0.0, vy: 0.0, vw: 0.0, vh: 0.0 }
+        FrameFact {
+            id,
+            now,
+            target,
+            moving: now != target,
+            vx: 0.0,
+            vy: 0.0,
+            vw: 0.0,
+            vh: 0.0,
+            scrolls: true,
+        }
     }
 
     /// p1 | p2 | p3 with 4 pt gaps: closing p2 with the divider x (p2 | p3) kept and the one before it gone.
@@ -756,7 +824,7 @@ mod tests {
         let kept =
             HandleFact { hit: e(198.0, 206.0, 0.0, 300.0), mid_x: 202.0, kept: true, ..gone };
         let mut closing = ClosingPanes::new();
-        assert!(closing.begin(2, panes[1].edges, &panes, &[gone, kept], 9.0, None));
+        assert!(closing.begin(2, panes[1].edges, &panes, &[gone, kept], 9.0, None, 0.0));
         (closing, panes)
     }
 
@@ -768,7 +836,7 @@ mod tests {
         let closing_pane = PaneFact { row_column: 7, ..pane(2, e(0.0, 300.0, 104.0, 200.0)) };
         let panes = [top, closing_pane];
         let mut closing = ClosingPanes::new();
-        assert!(closing.begin(2, closing_pane.edges, &panes, &[], 9.0, None));
+        assert!(closing.begin(2, closing_pane.edges, &panes, &[], 9.0, None, 0.0));
         let entry = &closing.entries()[&2];
         assert!(
             !entry.min_y.neighbours.is_empty() && entry.max_y.neighbours.is_empty(),
@@ -799,11 +867,11 @@ mod tests {
             live(3, e(204.0, 300.0, 0.0, 300.0), e(204.0, 300.0, 0.0, 300.0)),
         ];
         assert!(closing.settle(&frames, &[]).is_empty(), "p1 springs over it");
-        let placed = closing.rects(&frames, &[]).to_vec();
+        let placed = closing.rects(&frames, &[], 0.0, 0.0).to_vec();
         assert_eq!(placed, vec![(2, Placed { x: 150.0, y: 0.0, width: 50.0, height: 300.0 })]);
         let rest = [live(1, e(0.0, 200.0, 0.0, 300.0), e(0.0, 200.0, 0.0, 300.0)), frames[1]];
         assert_eq!(
-            closing.rects(&rest, &[]),
+            closing.rects(&rest, &[], 0.0, 0.0),
             &[(2, Placed { x: 200.0, y: 0.0, width: 0.0, height: 300.0 })]
         );
     }
@@ -823,11 +891,11 @@ mod tests {
         let mut moving = live(1, e(0.0, 150.0, 0.0, 300.0), e(0.0, 200.0, 0.0, 300.0));
         moving.vw = 30.0;
         let frames = [moving, live(3, e(204.0, 300.0, 0.0, 300.0), e(204.0, 300.0, 0.0, 300.0))];
-        closing.rects(&frames, &[]);
-        let taken = closing.remove(2, &frames).expect("closing");
+        closing.rects(&frames, &[], 0.0, 0.0);
+        let taken = closing.remove(2, &frames, 0.0).expect("closing");
         assert_eq!((taken.rect.x, taken.vx, taken.vw), (150.0, 30.0, -30.0));
         assert!(closing.is_empty() && closing.order().is_empty());
-        assert_eq!(closing.remove(2, &frames), None);
+        assert_eq!(closing.remove(2, &frames, 0.0), None);
     }
 
     #[test]

@@ -42,6 +42,9 @@ A cleanup archives work that exists only in a worktree before removing it.
 | Team messages the hub holds | `acpmux inbox` |
 | From an agent session, post a rule every session reads at its next prompt | `acpmux forum announce --key builds "No local builds"` |
 | The current rules | `acpmux forum rules` |
+| From a coordinator session, be woken once when a worker is done or blocked | `acpmux watch add review-27310 my-linux/fix-27311 --match BLOCKER` |
+| Watches and the wakes they still owe | `acpmux watch ls` |
+| Remove a watch (wakes it already owes still arrive) | `acpmux watch rm WATCH_ID` |
 
 ## This machine as a Cloud Chief's hand
 

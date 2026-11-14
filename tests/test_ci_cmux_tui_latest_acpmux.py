@@ -7,6 +7,10 @@ the devbox bake refuses a manifest without it (requireCmuxTuiAcpmux). The
 commit-addressed manifest and the rolling latest/ manifest are therefore
 verified to list acpmux, so a publish that drops it fails in CI instead of in
 the next image bake.
+
+The same checks require the agent screen detector for every macOS and Linux
+musl target: the app, npm and the deferred install put it beside the daemon
+(cmux-tui spec/plugins.md, "Bundled default"), so a publish without it fails.
 """
 from __future__ import annotations
 
@@ -21,6 +25,13 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/cmux-tui-artifacts.yml"
 VERIFY_SCRIPT = ROOT / "cmux-tui/scripts/verify_published_manifest.py"
 ACPMUX = ("cmux-tui-acpmux-x86_64-unknown-linux-musl", "cmux-tui-acpmux-aarch64-unknown-linux-musl")
+SCREEN_DETECTOR = tuple(
+    f"cmux-tui-agent-screen-detection-{target}"
+    for target in ("aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")
+)
+UNIX_TUI_MANIFEST = re.compile(
+    r'--manifest-file assets/cmux-tui/manifest\.json|--manifest-url "https://files\.cmux\.com/cmux-tui/(?:\$GITHUB_SHA|latest)/manifest\.json'
+)
 MANIFEST_URL = re.compile(r'--manifest-url "https://files\.cmux\.com/cmux-tui/(\$GITHUB_SHA|latest)/manifest\.json[^"]*"')
 
 
@@ -49,6 +60,16 @@ class LatestAcpmux(unittest.TestCase):
             for artifact in ACPMUX:
                 with self.subTest(manifest=prefix, artifact=artifact):
                     self.assertIn(f"--require-artifact {artifact}", body)
+
+    def test_every_unix_manifest_check_requires_the_screen_detector(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8").replace("\\\n", " ")
+        checks = [c for c in text.split("verify_published_manifest.py")[1:] if UNIX_TUI_MANIFEST.search(c.split("\n", 1)[0])]
+        self.assertGreaterEqual(len(checks), 5, "a cmux-tui Unix manifest check went missing")
+        for check in checks:
+            line = check.split("\n", 1)[0]
+            for artifact in SCREEN_DETECTOR:
+                with self.subTest(check=UNIX_TUI_MANIFEST.search(line).group(0), artifact=artifact):
+                    self.assertIn(f"--require-artifact {artifact}", line)
 
     def test_a_manifest_without_acpmux_fails_the_check(self) -> None:
         spec = importlib.util.spec_from_file_location("verify_published_manifest", VERIFY_SCRIPT)

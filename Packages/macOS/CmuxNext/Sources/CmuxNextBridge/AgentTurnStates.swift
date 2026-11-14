@@ -22,6 +22,16 @@ public nonisolated enum AgentTurnState: Hashable, Sendable {
     /// count as seen.
     case done
 
+    /// Whether a chat works, as acpmux says (Leo, 2026-11-14: "if it's working then you can try to optimize
+    /// but thats it"): its turn runs or waits on the person (a permission or a question), or a subagent or
+    /// background command it started still runs. Only a chat that does none of these is idle, and only an
+    /// idle chat that is not drawn gives back its page (HiddenChatPages).
+    public static func isWorking(_ state: AgentTurnState?, detail: AgentChatDetail?) -> Bool {
+        if state == .working || state == .needsInput { return true }
+        guard let detail else { return false }
+        return detail.subagentsRunning > 0 || detail.commandsRunning > 0
+    }
+
     /// The state of one `_acpmux/watch` / `session_changed` session summary,
     /// read from its `indicator`; nil when acpmux shows no dot.
     public static func of(summary: [String: Any]) -> AgentTurnState? {
@@ -66,11 +76,14 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
     public var subagentsRunning = 0
     public var subagentNames: [String] = []
     public var commandsRunning = 0
+    /// The chat carries acpmux's `archived` tag (one not past its `expires_at`): a hidden page of it
+    /// gives back its memory at once (HiddenChatPages).
+    public var archived = false
 
     public init(model: String? = nil, turnStartedAtMs: UInt64? = nil, prompt: String? = nil,
                 laneState: String? = nil, laneSinceMs: UInt64? = nil, cwd: String? = nil,
                 contextTokens: Int? = nil, contextWindow: Int? = nil, costUsd24h: Double? = nil, promptIsNotice: Bool = false,
-                subagentsRunning: Int = 0, subagentNames: [String] = [], commandsRunning: Int = 0) {
+                subagentsRunning: Int = 0, subagentNames: [String] = [], commandsRunning: Int = 0, archived: Bool = false) {
         self.model = model
         self.turnStartedAtMs = turnStartedAtMs
         self.prompt = prompt
@@ -84,6 +97,21 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
         self.subagentsRunning = subagentsRunning
         self.subagentNames = subagentNames
         self.commandsRunning = commandsRunning
+        self.archived = archived
+    }
+
+    /// Whether a summary's `tags` hold an `archived` tag in force: a value (`"1"`, `"true"`), or a tag
+    /// object whose `expires_at` (Unix ms) has not passed.
+    public static func archived(_ summary: [String: Any], nowMs: Double = Date().timeIntervalSince1970 * 1000) -> Bool {
+        switch (summary["tags"] as? [String: Any])?["archived"] {
+        case let value as String: return !value.isEmpty && value != "false"
+        case let value as NSNumber: return value.boolValue
+        case let tag as [String: Any]:
+            guard tag["value"] != nil else { return false }
+            guard let expires = (tag["expires_at"] as? NSNumber)?.doubleValue else { return true }
+            return expires > nowMs
+        default: return false
+        }
     }
 
     /// A summary's detail; nil when it names none of them.
@@ -112,7 +140,8 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
                                      promptIsNotice: turn?["notice"] as? Bool == true,
                                      subagentsRunning: count(summary["subagentsRunning"]),
                                      subagentNames: (summary["subagentNames"] as? [Any] ?? []).compactMap(text),
-                                     commandsRunning: count(summary["commandsRunning"]))
+                                     commandsRunning: count(summary["commandsRunning"]),
+                                     archived: archived(summary))
         return detail == AgentChatDetail() ? nil : detail
     }
 
@@ -135,6 +164,38 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
             if let id = summary["sessionId"] as? String, let detail = of(summary: summary) { details[id] = detail }
         }
         return details
+    }
+}
+
+/// One acpmux peer's row of a session on this Mac's acpmux (`peer`): the peer, whether the row
+/// went stale (the peer dropped: its state is the last one seen) and the state that row says.
+/// Session ids are each daemon's own, so two peers' rows can share one: each keeps its own state.
+public nonisolated struct AgentPeerRow: Hashable, Sendable {
+    public var name: String
+    public var stale: Bool
+    public var state: AgentTurnState?
+
+    public init(name: String, stale: Bool, state: AgentTurnState? = nil) {
+        self.name = name
+        self.stale = stale
+        self.state = state
+    }
+
+    /// The peer row of a session summary; nil for this Mac's own session. `peer` names the peer
+    /// of a push whose summary does not repeat it.
+    public static func of(summary: [String: Any], peer: String? = nil) -> AgentPeerRow? {
+        (summary["peer"] as? String ?? peer).map {
+            AgentPeerRow(name: $0, stale: summary["stale"] as? Bool == true, state: AgentTurnState.of(summary: summary))
+        }
+    }
+
+    /// Every peer row of a watch result, by session id, then by peer.
+    public static func rows(_ result: [String: Any]) -> [String: [String: AgentPeerRow]] {
+        var rows: [String: [String: AgentPeerRow]] = [:]
+        for summary in (result["sessions"] as? [Any] ?? []).compactMap({ $0 as? [String: Any] }) {
+            if let id = summary["sessionId"] as? String, let row = of(summary: summary) { rows[id, default: [:]][row.name] = row }
+        }
+        return rows
     }
 }
 
@@ -293,6 +354,9 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
     /// Nothing is known any more (the watch connection closed).
     public mutating func clear() { states = [:] }
 
+    /// Lays a later page of the same watch result over this one.
+    public mutating func merge(_ later: AgentTurnStates) { states.merge(later.states) { $1 } }
+
     public subscript(session: String) -> AgentTurnState? { states[session] }
 
     /// Every session's state.
@@ -317,6 +381,8 @@ public final class AgentTurnStateStore {
     @Observable @MainActor
     final class Session {
         var state: AgentTurnState?
+        /// Each acpmux peer's row of this session id (chats of other machines), by peer.
+        var peers: [String: AgentPeerRow] = [:]
         /// The last message (expanded sidebar rows, cx-13w3.1).
         var lastMessage: String?
         var muted = false
@@ -362,7 +428,8 @@ public final class AgentTurnStateStore {
     /// notification does: acpmux reads a turn that ends in a shown chat at once (cx-n8ou).
     @ObservationIgnored public var onTurnEnded: ((String) -> Void)?
     /// Also told when a session's running turn ends, with its folder (`cwd`, when known): the diff
-    /// viewer precomputes that repository's diff before anyone clicks (DiffPageRuntime+Warm.swift).
+    /// viewer precomputes that repository's diff once someone can see the chat, before anyone clicks
+    /// (DiffPageRuntime+Warm.swift; a chat nobody sees owes it until it shows, `AgentPaneOwedWork`).
     @ObservationIgnored public var turnEndedObservers: [(_ session: String, _ folder: String?) -> Void] = []
 
     public init() {}
@@ -399,7 +466,7 @@ public final class AgentTurnStateStore {
     /// `recordsTimeline` false (the watch closing) notes no moment: nothing happened to the chat.
     public func apply(session: String, sessionName: String? = nil, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?,
                       generatedTitle: String? = nil, detail: AgentChatDetail?, recordsTimeline: Bool = true,
-                      source: String = AgentTurnStateStore.localSource) {
+                      source: String = AgentTurnStateStore.localSource, peer: AgentPeerRow? = nil) {
         let held = record(session)
         held.source = source
         if recordsTimeline, held.state == .working, state != .working {
@@ -420,19 +487,28 @@ public final class AgentTurnStateStore {
         if record.generatedTitle != generatedTitle { record.generatedTitle = generatedTitle }
         if record.sessionName != sessionName { record.sessionName = sessionName }
         if record.detail != detail { record.detail = detail }
+        if let peer, record.peers[peer.name] != peer { record.peers[peer.name] = peer }
     }
 
     /// Replaces every session of `source`'s watch with its page's; writes only what changed.
-    /// Sessions another watch wrote stay as they are.
+    /// Sessions another watch wrote stay as they are, and so do the `keeping` ones and the
+    /// `keepingPeers` rows (by session id, then peer): a change pushed while the page's later
+    /// parts were read is newer than the page. Every other peer row of such a session is the page's.
     public func replace(states: AgentTurnStates, lastMessages: [String: String], muted: Set<String>,
                         titles: [String: String], generatedTitles: [String: String] = [:], sessionNames: [String: String] = [:], details: [String: AgentChatDetail],
-                        source: String = AgentTurnStateStore.localSource) {
+                        source: String = AgentTurnStateStore.localSource, peers: [String: [String: AgentPeerRow]] = [:], keeping: Set<String> = [],
+                        keepingPeers: [String: Set<String>] = [:]) {
         let own = sessions.compactMap { $0.value.source == source ? $0.key : nil }
         let ids = Set(own).union(states.bySession.keys).union(lastMessages.keys).union(muted)
-            .union(titles.keys).union(generatedTitles.keys).union(sessionNames.keys).union(details.keys)
-        for id in ids {
-            apply(session: id, sessionName: sessionNames[id], state: states[id], lastMessage: lastMessages[id], muted: muted.contains(id),
-                  title: titles[id], generatedTitle: generatedTitles[id], detail: details[id], source: source)
+            .union(titles.keys).union(generatedTitles.keys).union(sessionNames.keys).union(details.keys).union(peers.keys)
+        for id in ids.union(keepingPeers.keys) {
+            if !keeping.contains(id), keepingPeers[id] == nil {
+                apply(session: id, sessionName: sessionNames[id], state: states[id], lastMessage: lastMessages[id], muted: muted.contains(id),
+                      title: titles[id], generatedTitle: generatedTitles[id], detail: details[id], source: source)
+            }
+            var rows = peers[id] ?? [:]
+            for name in keepingPeers[id] ?? [] { rows[name] = record(id).peers[name] }
+            if record(id).peers != rows { record(id).peers = rows }
         }
     }
 
@@ -453,16 +529,39 @@ public final class AgentTurnStateStore {
         for (id, record) in sessions where record.source == source {
             apply(session: id, sessionName: record.sessionName, state: nil, lastMessage: nil, muted: false, title: record.title,
                   generatedTitle: record.generatedTitle, detail: nil, recordsTimeline: false, source: source)
+            if !record.peers.isEmpty { record.peers = [:] }
         }
+    }
+
+    /// Peer `peer` purged its session `session`: its row goes (another peer's row of that id stays).
+    public func removePeerRow(_ peer: String, session: String) {
+        guard let record = sessions[session], record.peers[peer] != nil else { return }
+        record.peers[peer] = nil
     }
 
     // MARK: Reads
 
+    /// Each acpmux peer's row of session id `session` (chats of other machines), by peer.
+    public func peerRows(_ session: String) -> [String: AgentPeerRow] { sessions[session]?.peers ?? [:] }
+
     /// The turn state of the session an agent chat tab shows.
     public func state(for ref: AgentSessionRef) -> AgentTurnState? { local(ref)?.state }
 
+    /// Whether the chat `ref` shows runs a turn now: by this Mac's (or a mirrored acpmux's) state, else, for a chat of
+    /// another machine, by the row this Mac's acpmux has of it from the acpmux peer `isChatMachine` says is the chat's
+    /// machine, when that row is live (a stale row's state is only the last one seen). Another peer's row of the same
+    /// session id is another daemon's session.
+    public func isWorking(_ ref: AgentSessionRef, isChatMachine: (_ peer: String) -> Bool) -> Bool {
+        if let record = local(ref) { return record.state == .working }
+        guard let session = ref.session else { return false }
+        return record(session).peers.values.contains { $0.state == .working && !$0.stale && isChatMachine($0.name) }
+    }
+
     /// The last message of the session an agent chat tab shows.
     public func lastMessage(for ref: AgentSessionRef) -> String? { local(ref)?.lastMessage }
+    /// The last message of `session` as any watch wrote it, this Mac's or an acpmux peer's chat (the
+    /// records are keyed by session id): the Chief pet's chat (Show in Mini) may run on a peer.
+    public func lastMessage(session: String) -> String? { sessions[session]?.lastMessage }
 
     /// The recent moments of the chat an agent chat tab shows (u3320); empty off this Mac.
     public func timeline(for ref: AgentSessionRef) -> AgentTimeline {

@@ -258,12 +258,17 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     assert_eq!(info["toolsMutable"], json!(false), "{info}");
     let cmux_servers = vec![
         row("mcp:cmux-cua", "cmux", "cmux", true, false),
+        row("mcp:cmux-sessions", "cmux", "cmux", true, false),
         row("mcp:cmux-subsessions", "cmux", "cmux", true, false),
         row("mcp:cmux-forum", "cmux", "cmux", true, false),
         row("mcp:acpmux", "cmux", "cmux", true, false),
         row("mcp:cmux", "cmux", "cmux", true, false),
     ];
-    assert_eq!(rows(&info["tools"]), cmux_servers, "{info}");
+    // cmux-cua needs no machine consent here, or control granted: the authority is the OS
+    // account's own `~/.acpmux/machine-consent` (passwd home, not the hermetic HOME), so state
+    // another process left there removes it. Named in the failure (full-suite red of 2026-11-08).
+    let consent = local.call("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(rows(&info["tools"]), cmux_servers, "machine consent {consent:?}: {info}");
     let sessions = local.call("_acpmux/sessions", json!({})).await.unwrap();
     let summary = sessions["sessions"]
         .as_array()
@@ -336,6 +341,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         rows(&info["tools"]),
         vec![
             row("mcp:cmux-cua", "cmux", "cmux", true, true),
+            row("mcp:cmux-sessions", "cmux", "cmux", true, true),
             row("mcp:cmux-subsessions", "cmux", "cmux", true, true),
             row("mcp:cmux-forum", "cmux", "cmux", true, true),
             row("mcp:acpmux", "cmux", "cmux", true, true),
@@ -346,6 +352,8 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
             row("skill:cmux:cmux-live", "cmux", "cmux", true, false),
             row("skill:cmux:acpmux", "cmux", "cmux", true, false),
             row("skill:cmux:cmux-chat", "cmux", "cmux", true, false),
+            // No cmux-sudo: it is listed only with the cmux-secrets server
+            // (#39122), and this test runs without ACPMUX_SECRET_TOOLS.
             row("mcp:github", "mcp", "claude", true, true),
             row("mcp:linear", "mcp", "claude", false, false),
             row("mcp:claude.ai Foo  (Beta)", "mcp", "claude", true, true),

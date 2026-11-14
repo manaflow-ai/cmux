@@ -1,4 +1,5 @@
 import CmuxNextSettings
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import CmuxUpdater
 import Foundation
@@ -45,7 +46,7 @@ import Testing
     /// A test feed's URL has no `/nightly-next/` path, but Sparkle's `allowedChannels` reads the
     /// baked feed, so the probe filters by the baked cmux-next feed's ring too.
     @MainActor @Test func probeOfATestFeedFiltersByTheBakedFeedsRing() async throws {
-        let defaults = try #require(UserDefaults(suiteName: "UpdateRingProbeTests.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "UpdateRingProbeTests.\(UUID().uuidString)"))
         let updater = UpdaterService(identity: Self.identity, policy: ManagedUpdatePolicy { false },
                                      prober: UpdateProber(fetcher: StaticFeed(xml: Self.feed), architecture: .arm64),
                                      defaults: defaults, enableSparkle: false, recordsUpdates: false)

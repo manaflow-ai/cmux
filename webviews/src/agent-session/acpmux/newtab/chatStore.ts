@@ -246,7 +246,7 @@ export function markMockPage(mock = true): void {
 
 /// Whether a page lists the shared chats: a New Tab page (`page`, its context) of this Mac's daemon
 /// (before its handshake no origin is named, and another machine's context turns the store off with
-/// `privateChatLists`, as Debug Settings `newTab.privateChatLists` does), whose daemon is not down: a
+/// `privateChatLists`), whose daemon is not down: a
 /// down daemon shows that, not chats the page cannot open. An older acpmux names no origin
 /// (`unknown`) and may be another machine's, as `publishable` reads it.
 export function sharesChatList(
@@ -259,8 +259,7 @@ export function sharesChatList(
 }
 
 /// `sharedSessions` as a hook: the page re-renders when it or another page publishes. `enabled`
-/// false (not a New Tab page, a chat on another machine, or Debug Settings
-/// `newTab.privateChatLists`) lists the page's own chats and does not listen.
+/// false (not a New Tab page, or a chat on another machine) lists the page's own chats and does not listen.
 export function useSharedSessions(own: Sessions, enabled = true): Sessions {
   const stored = useSyncExternalStore(enabled ? subscribe : unsubscribed, value, value);
   if (!enabled) return own;

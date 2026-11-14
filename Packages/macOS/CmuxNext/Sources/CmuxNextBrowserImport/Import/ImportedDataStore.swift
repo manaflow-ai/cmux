@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Imported data on disk: one JSON file per source profile under
@@ -6,7 +7,7 @@ public import Foundation
 /// import of the same source replaces its file, so nothing is duplicated.
 /// An actor: every read and write happens off the main thread.
 public actor ImportedDataStore {
-    public let directory: URL
+    public nonisolated let directory: URL
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -41,6 +42,8 @@ public actor ImportedDataStore {
         var batch = batch
         if let earlier = sources().first(where: { $0.sourceKey == batch.source.sourceKey }) {
             batch.source = batch.source.fences(adding: earlier)
+            // A re-import that brought no cookies (bookmarks only, or none written) keeps the cookies' sync.
+            if batch.source.syncedCookieFile == nil { batch.source.syncedCookieFile = earlier.syncedCookieFile }
         }
         batch.history = batch.history.filter(batch.source.keeps)
         let file = batchFile(batch.source)
@@ -105,6 +108,18 @@ public actor ImportedDataStore {
         sources().filter { $0.syncedHistoryFile != nil }
     }
 
+    /// Keep cookies in sync's sources: those whose cookie database is watched.
+    public func cookieSyncedSources() -> [ImportSourceRecord] {
+        sources().filter { $0.syncedCookieFile != nil }
+    }
+
+    /// Stops keeping one source's cookies in sync (its profile is gone, or its key was refused).
+    public func stopCookieSync(sourceKey: String) throws {
+        var records = sources()
+        for index in records.indices where records[index].sourceKey == sourceKey { records[index].syncedCookieFile = nil }
+        try encoder.encode(records).blockingWrite(to: sourcesFile, options: .atomic)
+    }
+
     /// Keep in Sync: replaces one source's saved pages with a fresh read
     /// (less any its fences cover) and returns its record and the pages
     /// that are new or changed since the last read; nil when the source is
@@ -141,6 +156,10 @@ public actor ImportedDataStore {
         let removed = batches(profile: profile)
         try? FileManager.default.removeItem(at: directory.appending(path: profile, directoryHint: .isDirectory))
         try stopSync(profile: profile)
+        // Its cookies stop coming over too: a removed import is not brought back by a change in the browser.
+        for record in sources() where record.targetProfileID == profile && record.syncedCookieFile != nil {
+            try stopCookieSync(sourceKey: record.sourceKey)
+        }
         return removed
     }
 

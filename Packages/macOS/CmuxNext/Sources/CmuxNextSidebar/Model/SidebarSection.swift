@@ -15,17 +15,22 @@ public nonisolated struct SidebarCustomSection: Hashable, Sendable {
     public var id: String
     public var title: String?
     public var showsTitle: Bool
+    /// The document band that owns this section. Projection customization
+    /// reorders only inside this band, preserving fixed app/sidebar regions.
+    public var region: SidebarRegion
 
-    public init(id: String, title: String? = nil, showsTitle: Bool = false) {
+    public init(id: String, title: String? = nil, showsTitle: Bool = false, region: SidebarRegion = .middle) {
         self.id = id
         self.title = title
         self.showsTitle = showsTitle
+        self.region = region
     }
 }
 
 /// Machine metadata for a machine section header.
 public nonisolated struct SidebarMachine: Hashable, Sendable {
-    public nonisolated enum Kind: Hashable, Sendable {
+    /// Raw values are the `sidebar_bridge` rules' words.
+    public nonisolated enum Kind: String, Hashable, Sendable {
         case local
         case cloud
         case ssh
@@ -33,7 +38,8 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         case server
     }
 
-    public nonisolated enum Status: Hashable, Sendable {
+    /// Raw values are the `sidebar_bridge` rules' words.
+    public nonisolated enum Status: String, Hashable, Sendable {
         case connected
         case connecting
         /// The link to the machine dropped (sleep, a network drop or

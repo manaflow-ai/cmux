@@ -8,7 +8,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, Weak};
 use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::Router;
 use axum::extract::connect_info::{ConnectInfo, Connected};
@@ -23,6 +23,9 @@ use cmux_remote_protocol::{FrameFlags, Lane, SessionId};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, RwLock, Semaphore, mpsc, oneshot, watch};
 use tokio::task::JoinSet;
+// The daemon's deadlines (resume lease, pending link groups) are tokio's, as the timers that
+// end them are, so they hold on a paused or test clock too.
+use tokio::time::Instant;
 
 use crate::connection::{ConnectionError, LinkRejection, send_link_ready, send_link_rejection};
 use crate::crypto::{
@@ -38,7 +41,7 @@ use crate::observability::{ConnectionState, ServerConnectionSnapshot};
 use crate::provider::AxumWebSocketLink;
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 #[cfg(unix)]
-use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup};
+use crate::unix_socket::{OwnedUnixListener, UnixSocketCleanup};
 use cmux_tui_core::net_keepalive::enable_tcp_keepalive;
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
@@ -335,7 +338,7 @@ impl ServerConnection {
         *self.generation.borrow()
     }
 
-    pub(crate) fn service_authority(&self) -> &ServiceAuthority {
+    pub fn service_authority(&self) -> &ServiceAuthority {
         &self.service_authority
     }
 
@@ -834,7 +837,7 @@ impl RemoteDaemon {
                 drop(approval);
                 accepted
             }
-            AuthKind::Carrier | AuthKind::Enrolled => tokio::time::timeout(
+            AuthKind::Carrier | AuthKind::Enrolled | AuthKind::Grant => tokio::time::timeout(
                 AUTHORIZATION_TIMEOUT,
                 authorize_secure_link(verified, &*self.auth),
             )
@@ -990,6 +993,14 @@ impl RemoteDaemon {
         let mut pending = state.pending.remove(&pending_key).expect("pending entry exists");
         drop(pending.expiry_task.take());
         drop(state);
+        // Every lane is in: the grant that formed this group admits nothing
+        // more, also once this session closes.
+        self.auth.seal_grant_link_group(
+            &key.device_id,
+            key.session,
+            accepted.generation,
+            accepted.connection_attempt,
+        );
         let mut lane_bindings =
             pending.routes.iter().map(|route| route.lanes.clone()).collect::<Vec<_>>();
         lane_bindings
@@ -1146,7 +1157,7 @@ impl RemoteDaemon {
         let daemon = Arc::downgrade(self);
         let connection = Arc::downgrade(&connection);
         let task = tokio::spawn(async move {
-            tokio::time::sleep_until(deadline.into()).await;
+            tokio::time::sleep_until(deadline).await;
             let (Some(_daemon), Some(connection)) = (daemon.upgrade(), connection.upgrade()) else {
                 return;
             };
@@ -1165,7 +1176,7 @@ impl RemoteDaemon {
     ) -> PendingLinkExpiryTask {
         let daemon = Arc::downgrade(self);
         let task = tokio::spawn(async move {
-            tokio::time::sleep_until((created_at + PENDING_LINK_TTL).into()).await;
+            tokio::time::sleep_until(created_at + PENDING_LINK_TTL).await;
             let Some(daemon) = daemon.upgrade() else {
                 return;
             };
@@ -1593,7 +1604,7 @@ pub async fn serve_unix_with_shutdown(
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let permits = Arc::new(Semaphore::new(MAX_UNIX_CONNECTIONS));
     let task = tokio::spawn(async move {
-        let mut accept_backoff = UnixAcceptBackoff::new();
+        let mut accept_backoff = crate::unix_socket::accept_backoff();
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -1609,7 +1620,7 @@ pub async fn serve_unix_with_shutdown(
                             accepted
                         }
                         Err(error) => {
-                            let Some(delay) = accept_backoff.retry_delay(&error) else {
+                            let Some(delay) = cmux_tui_core::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
                                 if let Some(owner_shutdown) = &owner_shutdown {
                                     let _ = owner_shutdown.send(true);
                                 }

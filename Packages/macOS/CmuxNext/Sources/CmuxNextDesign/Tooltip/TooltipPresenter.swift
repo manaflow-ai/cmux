@@ -33,8 +33,8 @@ public final class TooltipPresenter {
                                                        warmFor: HoverIntentTiming.standard.tooltipWarm)
     /// The timing to use instead of the tunables' (tests).
     var timing: HoverIntentTiming?
-    /// The tooltip the pointer rests on, shown or waiting for its delay.
-    private weak var candidate: TooltipTracker?
+    /// The tooltip the pointer rests on, shown or waiting for its delay (read by tests).
+    private(set) weak var candidate: TooltipTracker?
     /// A scroll is under way: rows pass under the pointer, and none shows its tooltip.
     private var scrolling = false
     private(set) lazy var panel = TooltipPanel()
@@ -55,6 +55,12 @@ public final class TooltipPresenter {
     /// The pointer entered a tooltip's view or region.
     func enter(_ tracker: TooltipTracker) {
         if !inside.contains(where: { $0 === tracker }) { inside.append(tracker) }
+        resolve()
+    }
+
+    /// Its view went from clear to drawn: with the pointer already inside, it takes part in the pick now.
+    func drawn(_ tracker: TooltipTracker) {
+        guard inside.contains(where: { $0 === tracker }) else { return }
         resolve()
     }
 
@@ -108,7 +114,7 @@ public final class TooltipPresenter {
         // (not an ancestor's instead, as pages do). AppKit can report a view's visible rect past
         // its bounds, so its area is entered far from the view (the sidebar's bottom item, over the
         // whole sidebar): only those whose view is under the pointer compete, when it is known.
-        let target = Self.underPointer(inside).max { $0.depth < $1.depth }.flatMap { $0.repeatsVisibleLabel ? nil : $0 }
+        let target = Self.pick(inside)
         candidate = target
         if target != nil { watch() }
         let timing = self.timing ?? .current
@@ -152,7 +158,7 @@ public final class TooltipPresenter {
 
     /// Shows `current`: fading in when `fade` (the first of a warm group), else at once.
     private func show(fade: Bool = false) {
-        guard let tracker = current, let view = tracker.view, let window = view.window,
+        guard let tracker = current, let view = tracker.view, let window = view.window, !Self.isClear(view),
               let text = tracker.text, let anchor = tracker.screenRect else { return }
         let center = NSPoint(x: anchor.midX, y: anchor.midY)
         let screen = NSScreen.screens.first { $0.frame.contains(center) } ?? window.screen ?? NSScreen.main
@@ -199,8 +205,27 @@ public final class TooltipPresenter {
         return under.isEmpty ? trackers : under
     }
 
+    /// The deepest tooltip under the pointer whose view draws; nil when its control's label already names it. A clear
+    /// view's area takes no part (`isClear`): a hover control cleared by paint over a row must not hide the row's own
+    /// tooltip under it, as a hidden one did not.
+    static func pick(_ trackers: [TooltipTracker]) -> TooltipTracker? {
+        let drawn = trackers.filter { $0.view.map { !isClear($0) } ?? false }
+        return underPointer(drawn).max { $0.depth < $1.depth }.flatMap { $0.repeatsVisibleLabel ? nil : $0 }
+    }
+
+    /// The view or an ancestor draws nothing (opacity 0): a hover control cleared by paint (the sidebar row's x and ⋮,
+    /// HOVER COMMIT) keeps its tracking area, but shows no tooltip while it is clear, as a hidden one showed none.
+    static func isClear(_ view: NSView) -> Bool {
+        var next: NSView? = view
+        while let current = next {
+            if current.alphaValue == 0 { return true }
+            next = current.superview
+        }
+        return false
+    }
+
     static func stillShows(_ tracker: TooltipTracker) -> Bool {
-        guard let view = tracker.view, let window = view.window, window.isVisible, !view.isHiddenOrHasHiddenAncestor,
+        guard let view = tracker.view, let window = view.window, window.isVisible, !view.isHiddenOrHasHiddenAncestor, !isClear(view),
               WindowPlacement.noActivate || NSApp.isActive, let anchor = tracker.screenRect,
               let pointer = PointerHover.pointer(in: window) else { return false }
         // `PointerHover`: the real pointer, or DEBUG's synthesized one (a recording on a headless host).

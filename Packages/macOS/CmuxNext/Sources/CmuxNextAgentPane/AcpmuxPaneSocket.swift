@@ -1,5 +1,6 @@
 import Foundation
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// The URLSession WebSocket behind ``AgentPaneTransport``. Its callbacks run on its own serial
 /// queue; the queues are guarded by one Mutex that is never held across IO.
@@ -28,6 +29,10 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var raw: [String] = []
         var rawBytes = 0
         var processing = false
+        /// Stream notifications left out since the page fell a full queue behind
+        /// (``AcpmuxPaneShedding``); nil while none is. `shedEnding`: its end is queued.
+        var shed: Int?
+        var shedEnding = false
         var questionNotificationQueued = false
         var signaled = false
         var outstanding = 0
@@ -47,6 +52,24 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         /// A full flush waits: it goes even to a pane nobody can see (``pageWaits``).
         func backlogged(_ limits: AgentPaneTransport.Limits) -> Bool {
             inbox.count >= limits.maximumFramesPerFlush || inboxBytes >= limits.maximumBytesPerFlush
+        }
+
+        /// The page is a full queue behind with `bytes` more: stream notifications are shed.
+        func full(_ limits: AgentPaneTransport.Limits, adding bytes: Int) -> Bool {
+            raw.count + inbox.count >= limits.maximumQueuedFrames
+                || rawBytes + inboxBytes + bytes > limits.maximumQueuedBytes
+        }
+
+        /// Past the ceiling with `bytes` more: even a reply no longer queues.
+        func pastCeiling(_ limits: AgentPaneTransport.Limits, adding bytes: Int) -> Bool {
+            raw.count + inbox.count >= limits.ceilingQueuedFrames
+                || rawBytes + inboxBytes + bytes > limits.ceilingQueuedBytes
+        }
+
+        /// Caught up enough to end a shed episode: a quarter of the queue or less waits.
+        func caughtUp(_ limits: AgentPaneTransport.Limits) -> Bool {
+            raw.count + inbox.count <= limits.maximumQueuedFrames / 4
+                && rawBytes + inboxBytes <= limits.maximumQueuedBytes / 4
         }
     }
 
@@ -83,6 +106,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private let signal: @Sendable () -> Void
     private let state = Mutex(State())
     let statusRead = AcpmuxStatusReadSlot()
+    /// Ends an open the daemon never accepts after the transport's connect timeout (``start(timeout:)``).
+    private let openDeadline = DemandTimer(owner: "agent-pane-socket-open")
     /// Checks the daemon's frames in passes, in order, while the receive loop goes on.
     private let inbound = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.inbound", qos: .userInitiated)
 
@@ -109,8 +134,14 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         queue.maxConcurrentOperationCount = 1
         queue.qualityOfService = .userInitiated
         let session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: queue)
+        defer { openDeadline.cancel() }
         var request = request
-        request.timeoutInterval = timeout
+        // A URLSession task's timeout is also how long it waits between frames, open or not: the
+        // connect timeout here (10 s) ended a quiet chat's socket after 10 s without a frame, the
+        // page lost its connection and rebuilt the chat (Leo, 2026-11-12: "WHY IS IT STILL NOT FIXED
+        // YET"). An open socket waits as long as the chat is quiet; the connect timeout bounds only
+        // the open (``openDeadline``), and a daemon gone silent is the page's liveness check's call.
+        request.timeoutInterval = Self.quietSocketLimit
         let task = session.webSocketTask(with: request)
         task.maximumMessageSize = AcpmuxPaneMethods.maximumFrameBytes
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
@@ -126,8 +157,24 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                 continuation.resume(throwing: AgentPaneTransportError.closed)
             } else {
                 task.resume()
+                openDeadline.schedule(after: .seconds(timeout)) { [weak self] in self?.openTimedOut() }
             }
         }
+    }
+
+    /// How long an open socket may go without a frame before URLSession ends it: a day, so a quiet
+    /// chat keeps its connection.
+    static let quietSocketLimit: TimeInterval = 24 * 60 * 60
+
+    /// The open is still unanswered at its deadline: it fails as a refused connect does.
+    private func openTimedOut() {
+        let task = state.withLock { state -> URLSessionWebSocketTask? in
+            state.opened || state.closed != nil ? nil : state.task
+        }
+        guard let task else { return }
+        AgentPaneTransport.logger.error("agent pane transport open timed out connection=\(self.connection, privacy: .public)")
+        task.cancel(with: .goingAway, reason: nil)
+        daemonClosed(code: 1006, reason: "connect timed out")
     }
 
     /// Opens the wire; its frames take the same inbound path as the WebSocket's.
@@ -155,7 +202,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             case .success(.string(let text)): self.arrived(text)
             case .success(.data(let data)): self.arrived(String(decoding: data, as: UTF8.self))
             case .success: break
-            case .failure: return self.daemonClosed(code: 1006, reason: "")
+            case .failure(let error): return self.socketFailed(error)
             }
             self.receive(task)
         }
@@ -166,23 +213,79 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// A host read uses the daemon reply path, including its bounds, ids and reply filtering.
     func receiveLocalReply(_ text: String) { arrived(text) }
 
+    /// A daemon frame for the page. A page a full queue behind loses stream notifications until it
+    /// caught up, then reads what it missed (``AcpmuxPaneShedding``); replies and requests still
+    /// queue, and only past the ceiling does the connection close.
     private func arrived(_ frame: String) {
         let received = Self.nativeUTF8(frame)
         let bytes = received.utf8.count
-        let (start, overflow) = state.withLock { state -> (Bool, Bool) in
-            guard state.closed == nil else { return (false, false) }
-            if state.raw.count + state.inbox.count >= limits.maximumQueuedFrames
-                || state.rawBytes + state.inboxBytes + bytes > limits.maximumQueuedBytes {
-                return (false, true)
-            }
-            state.raw.append(received)
-            state.rawBytes += bytes
-            guard !state.processing else { return (false, false) }
-            state.processing = true
-            return (true, false)
+        // The plain path: nothing shed and room left, one lock and no scan.
+        let decided = state.withLock { state -> Bool? in
+            guard state.closed == nil else { return false }
+            if state.shed != nil || state.full(limits, adding: bytes) { return nil }
+            return admit(received, bytes: bytes, into: &state)
         }
-        if overflow { close(code: 1008, reason: "inbound overflow", error: .inboundOverflow) }
-        if start { inbound.async { [self] in process() } }
+        if let start = decided {
+            if start { inbound.async { [self] in process() } }
+            return
+        }
+        let sheddable = AcpmuxPaneShedding.sheddable(received)
+        enum Outcome { case queued(start: Bool), shed(first: Bool), overflow, gone }
+        let outcome = state.withLock { state -> Outcome in
+            guard state.closed == nil else { return .gone }
+            if sheddable, state.shed != nil || state.full(limits, adding: bytes) {
+                let first = state.shed == nil
+                state.shed = (state.shed ?? 0) + 1
+                return .shed(first: first)
+            }
+            if state.pastCeiling(limits, adding: bytes) { return .overflow }
+            return .queued(start: admit(received, bytes: bytes, into: &state))
+        }
+        switch outcome {
+        case .queued(let start): if start { inbound.async { [self] in process() } }
+        case .shed(let first):
+            if first {
+                AgentPaneTransport.logger.notice("agent pane transport shedding stream notifications: the page is a full queue behind connection=\(self.connection, privacy: .public)")
+            }
+            // Ends once the page caught up (``take(maximumFrames:maximumBytes:)``); a page that
+            // drained while this frame was scanned is caught up already.
+            endSheddingIfCaughtUp()
+        case .overflow: close(code: 1008, reason: "inbound overflow", error: .inboundOverflow)
+        case .gone: break
+        }
+    }
+
+    /// Appends a frame for the next pass; true when a pass must start.
+    private func admit(_ text: String, bytes: Int, into state: inout State) -> Bool {
+        state.raw.append(text)
+        state.rawBytes += bytes
+        guard !state.processing else { return false }
+        state.processing = true
+        return true
+    }
+
+    /// Queues the end of a shed episode once the page caught up: on the inbound queue, after the
+    /// pass over frames that came before it, so the page reads what it missed from where they end.
+    private func endSheddingIfCaughtUp() {
+        let queue = state.withLock { state -> Bool in
+            guard state.closed == nil, state.shed != nil, !state.shedEnding, state.caughtUp(limits) else { return false }
+            state.shedEnding = true
+            return true
+        }
+        if queue { inbound.async { [self] in endShedding() } }
+    }
+
+    private func endShedding() {
+        let dropped = state.withLock { state -> Int? in
+            state.shedEnding = false
+            guard state.closed == nil, let shed = state.shed else { return nil }
+            state.shed = nil
+            return shed
+        }
+        guard let dropped else { return }
+        AgentPaneTransport.logger.notice("agent pane transport shed stream notifications dropped=\(dropped, privacy: .public) connection=\(self.connection, privacy: .public); the page reads them again")
+        // Awaited: a hidden page gets it too, so its chat is whole when it is shown.
+        enqueue([AcpmuxPaneShedding.lagMarker(dropped: dropped)], awaited: 1)
     }
 
     /// The frame as native UTF-8. URLSessionWebSocketTask hands a text frame over as a bridged
@@ -384,6 +487,10 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
 
+    /// Tests: returns once every inbound pass queued so far ran (frames checked and queued for the
+    /// page, a shed episode's end). Off the main thread only.
+    func waitForInboundPasses() { inbound.blockingSync {} }
+
     var queuedFrames: Int { state.withLock { $0.inbox.count } }
 
     /// Queues a frame the host made (a refusal) as if the daemon had sent it.
@@ -409,7 +516,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// Up to `maximumFrames` frames and `maximumBytes` bytes (at least one frame), and the close
     /// once every frame before it was taken. Dropped queues on an overflow close are not kept.
     func take(maximumFrames: Int, maximumBytes: Int) -> Batch {
-        state.withLock { state in
+        let batch = state.withLock { state -> Batch in
             var count = 0
             var bytes = 0
             while count < min(maximumFrames, state.inbox.count) {
@@ -432,6 +539,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             if !more { state.signaled = false }
             return Batch(frames: frames, closed: closed, more: more)
         }
+        if batch.closed == nil { endSheddingIfCaughtUp() }
+        return batch
     }
 
     // MARK: Outbound
@@ -551,6 +660,16 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
-        daemonClosed(code: 1006, reason: "")
+        guard let error else { return daemonClosed(code: 1006, reason: "") }
+        socketFailed(error)
+    }
+
+    /// The socket's IO failed: the page hears why in the close's reason (the page counts its lost
+    /// connections by it), and the log keeps it, where before every failure was a bare 1006.
+    private func socketFailed(_ error: any Error) {
+        let failure = error as NSError
+        let reason = "\(failure.domain) \(failure.code)"
+        AgentPaneTransport.logger.notice("agent pane transport socket failed connection=\(self.connection, privacy: .public) error=\(reason, privacy: .public)")
+        daemonClosed(code: 1006, reason: reason)
     }
 }

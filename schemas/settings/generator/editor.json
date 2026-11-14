@@ -1,0 +1,15 @@
+{
+  "source": "schemas/settings/source/editor.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Editor.generated.swift",
+  "type": "EditorSettingsSchema",
+  "joined": "descriptors",
+  "lists": {
+    "editorFont": ["fontRows", "EditorSettingsSchema"],
+    "editorText": ["textRows", "EditorSettingsSchema"],
+    "editorDisplay": ["displayRows", "EditorSettingsSchema"],
+    "editorCursor": ["cursorRows", "EditorSettingsSchema"],
+    "editorEditing": ["editingRows", "EditorSettingsSchema"],
+    "editorSaving": ["savingRows", "EditorSettingsSchema"],
+    "editorDefaults": ["defaultsRows", "EditorSettingsSchema"]
+  }
+}

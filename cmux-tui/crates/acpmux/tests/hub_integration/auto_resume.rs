@@ -9,6 +9,9 @@ mod agent_revive;
 #[path = "auto_resume_capacity.rs"]
 mod capacity;
 
+#[path = "auto_resume_context.rs"]
+mod context;
+
 #[path = "auto_resume_limits.rs"]
 mod limits;
 

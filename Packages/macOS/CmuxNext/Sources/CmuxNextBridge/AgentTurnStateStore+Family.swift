@@ -44,10 +44,10 @@ extension AgentTurnStateStore {
         }
     }
 
-    /// Replaces the links of every session of `source`'s watch with its page's.
-    public func replaceStartedBy(_ links: [String: String], source: String = AgentTurnStateStore.localSource) {
+    /// Replaces the links of every session of `source`'s watch with its page's, but the `keeping` ones.
+    public func replaceStartedBy(_ links: [String: String], source: String = AgentTurnStateStore.localSource, keeping: Set<String> = []) {
         let own = sessions.compactMap { $0.value.source == source && $0.value.startedBy != nil ? $0.key : nil }
-        for id in Set(own).union(links.keys) { setStartedBy(links[id], session: id, source: source) }
+        for id in Set(own).union(links.keys) where !keeping.contains(id) { setStartedBy(links[id], session: id, source: source) }
     }
 
     // MARK: Reads

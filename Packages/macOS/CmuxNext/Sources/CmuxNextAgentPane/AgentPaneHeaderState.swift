@@ -17,28 +17,33 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     /// reads the toggle unless given, so a watch that builds the state observes it. The page reads it as `inspector` (``json``), a wire name kept so a page and an
     /// app from either side of the rename still agree.
     public var sessionInfo: Bool
-    /// The header's Browser opens the chat's page and Preview is no button of its own (Debug Settings
-    /// `agentChat.browserOpensPreview`, on by default), read like `sessionInfo`.
-    public var browserOpensPreview: Bool
+    /// Which top-right controls show (Debug Settings `agentChat.headerControls`), read like `sessionInfo`;
+    /// the page's header/headerTrio.ts applies it.
+    public var headerControls: AgentPaneHeaderControls
+    /// How the header's icons move (Debug Settings `agentChat.headerMotion`, ``AgentPaneHeaderMotion``), read like `sessionInfo`.
+    public var headerMotion: AgentPaneHeaderMotion
     /// Rises with every change the App sees: a `pane.tabState` reply that reaches the page after a
     /// newer push (two channels) is older, and the page keeps the newer state.
     public var version = 0
 
     public init(pinned: Bool = false, sideTabs: Bool = false, lit: [String] = [], floatingChat: Bool = false,
-                sessionInfo: Bool? = nil, browserOpensPreview: Bool? = nil) {
+                sessionInfo: Bool? = nil, headerControls: AgentPaneHeaderControls? = nil,
+                headerMotion: AgentPaneHeaderMotion? = nil) {
         self.pinned = pinned
         self.sideTabs = sideTabs
         self.lit = lit
         self.floatingChat = floatingChat
         self.sessionInfo = sessionInfo ?? AgentPaneTunables.sessionInfo.value
-        self.browserOpensPreview = browserOpensPreview ?? AgentPaneTunables.browserOpensPreview.value
+        self.headerControls = headerControls ?? AgentPaneTunables.headerControls.value
+        self.headerMotion = headerMotion ?? AgentPaneTunables.headerMotion.value
     }
 
     /// Whether the header shows the same thing, whatever the versions.
     public func shows(_ other: AgentPaneHeaderState) -> Bool {
         pinned == other.pinned && sideTabs == other.sideTabs && lit == other.lit && floatingChat == other.floatingChat
             && pullRequest == other.pullRequest && sessionInfo == other.sessionInfo
-            && browserOpensPreview == other.browserOpensPreview
+            && headerControls == other.headerControls
+            && headerMotion == other.headerMotion
     }
 
     var reply: [String: Any] { json.foundationObject as? [String: Any] ?? [:] }
@@ -46,7 +51,8 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     /// `pullRequest` is always there, `null` when there is none, so the page drops a chip it kept.
     var json: JSONValue {
         ["pinned": .bool(pinned), "sideTabs": .bool(sideTabs), "lit": .array(lit.map(JSONValue.string)), "floatingChat": .bool(floatingChat),
-         "inspector": .bool(sessionInfo), "browserOpensPreview": .bool(browserOpensPreview), "version": JSONValue(version),
+         "inspector": .bool(sessionInfo), "headerControls": .string(headerControls.rawValue),
+         "headerMotion": .string(headerMotion.rawValue), "version": JSONValue(version),
          "pullRequest": pullRequest?.json ?? .null]
     }
 }

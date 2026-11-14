@@ -1,5 +1,7 @@
 import CMUXAuthCore
 import CmuxAuthRuntime
+import CmuxNextDaemon
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextCloud
@@ -15,7 +17,7 @@ struct CloudSignedDEVAuthPersistenceTests {
             selection.authNamespace = "production-fixture"
             selection.legacyStorage = true
             selection.authStorageNamespace = nil
-            configuration.runtimeSelection = selection
+            configuration = configuration.selecting(selection)
         }
         configuration.isProductionAuth = true
         configuration.stackProjectID = "production-fixture"
@@ -51,6 +53,9 @@ struct CloudSignedDEVAuthPersistenceTests {
         let historicalDirectory = home.appendingPathComponent("Library/Application Support/cmux/com.cmuxterm.app.debug.next/fixture")
         let historical = FileStackTokenStore(directory: historicalDirectory)
         await historical.setTokens(accessToken: "existing-development-access", refreshToken: "existing-development-refresh")
+        // The upgrade's launch moves the store out of classic's folder before Cloud reads it.
+        ClassicFolderItemsMove(applicationSupport: home.appendingPathComponent("Library/Application Support"))
+            .moveBundleItems(bundleID: "com.cmuxterm.app.debug.next")
         let upgraded = FileStackTokenStore(directory: development.credentialsDirectory(homeDirectory: home))
         #expect(await upgraded.getStoredAccessToken() == "existing-development-access")
         #expect(await upgraded.getStoredRefreshToken() == "existing-development-refresh")
@@ -58,7 +63,7 @@ struct CloudSignedDEVAuthPersistenceTests {
         var selection = try #require(switched.runtimeSelection)
         selection.legacyStorage = false
         selection.authNamespace = "explicit-backend-switch"
-        switched.runtimeSelection = selection
+        switched = switched.selecting(selection)
         let isolated = FileStackTokenStore(directory: switched.credentialsDirectory(homeDirectory: home))
         #expect(await isolated.getStoredAccessToken() == nil)
         #expect(await isolated.getStoredRefreshToken() == nil)
@@ -68,7 +73,7 @@ struct CloudSignedDEVAuthPersistenceTests {
 
     @MainActor @Test func productionIdentityDoesNotPrimeDevelopmentAndDevelopmentIdentitySurvivesRelaunch() throws {
         let name = "CloudSignedDEVAuth-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: name))
+        let defaults = try #require(UserDefaults(testSuiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
         try saveIdentity(project: previousProduction, defaults: defaults, user: "production-user", team: "production-team")
 

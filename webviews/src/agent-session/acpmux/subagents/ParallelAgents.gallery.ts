@@ -37,18 +37,19 @@ const REPORT = [
   "**Fix:** reuse the first upload's artifact in `publish`.",
 ].join("\n");
 
+// What ended lingers in the hat only for its grace (trayLinger.ts): these ended just now.
 const FOUR: Subagent[] = [
   agent("cache", "Measure the build cache", 9, { action: "Read warm-sources.json" }),
   agent("signing", "Time the signing step", 9, {
     state: "completed",
-    endedAt: minutesAgo(1.5),
+    endedAt: minutesAgo(0.2),
     lastMessage: "Started the notarization run; I'll report when it settles.",
     reaction: { turn: "bg-signing", weight: "silent", interim: true },
   }),
-  agent("publish", "Check the publish step", 9, { state: "completed", endedAt: minutesAgo(3), result: REPORT }),
+  agent("publish", "Check the publish step", 9, { state: "completed", endedAt: minutesAgo(0.3), result: REPORT }),
   agent("compile", "Profile the Release compile", 9, {
     state: "failed",
-    endedAt: minutesAgo(5),
+    endedAt: minutesAgo(0.4),
     retryable: true,
     error: "Agent terminated early due to an API error. The request timed out after 600s.",
   }),
@@ -91,7 +92,7 @@ export default agentPaneEntry({
   },
   variants: {
     "four-agents": {
-      note: "The pick. Two run (one stopped to wait on its own background work), one finished, one failed: each line is one row, its title, what it did last muted after it, then its state, time and Stop in their columns. The failed line leads, so the list's cap never hides it; the ended ones leave their quiet lines in the transcript.",
+      note: "The pick. Two run (one stopped to wait on its own background work), one finished, one failed: each line is one row, its title, what it did last muted after it, then its state, time and Stop in their columns. The failed one leaves the hat at once (its failed line stays in the transcript); the ended ones leave their quiet lines in the transcript.",
       play: expanded,
       snapshot: scene(FOUR),
     },

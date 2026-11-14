@@ -90,3 +90,35 @@ fn usage_is_localized_and_names_the_export_form() {
         assert!(messages.usage.ends_with('\n'), "{locale}");
     }
 }
+
+/// `cmux login` and `cmux logout` are `vm sign-in` and `vm sign-out` (the app's Cloud verbs),
+/// after the same global options; nothing else is rewritten.
+#[test]
+fn login_and_logout_are_the_apps_sign_in_verbs() {
+    let alias = |words: &[&str]| account_alias(&args(words));
+    assert_eq!(alias(&["login"]), Some(args(&["vm", "sign-in"])));
+    assert_eq!(alias(&["--json", "logout"]), Some(args(&["--json", "vm", "sign-out"])));
+    assert_eq!(
+        alias(&["--socket", "/s", "login", "--json"]),
+        Some(args(&["--socket", "/s", "vm", "sign-in", "--json"]))
+    );
+    assert_eq!(alias(&["cloud", "sign-in"]), None);
+    assert_eq!(alias(&["vm", "sign-in"]), None);
+    assert_eq!(alias(&["codex", "login"]), None);
+    assert_eq!(alias(&["chat", "--", "login"]), None);
+    assert_eq!(alias(&[]), None);
+}
+
+/// `whoami` names the user and team from `auth.token`, and never the token itself.
+#[test]
+fn whoami_names_the_user_and_team_never_the_token() {
+    let answer = json!({"access_token": "tok-secret", "team": "team_1", "user": "user_1"});
+    let found = identity(Some(&answer));
+    assert_eq!(found, json!({"signed_in": true, "user": "user_1", "team": "team_1"}));
+    assert!(!found.to_string().contains("tok-secret"));
+    let line = identity_line(&found);
+    assert!(line.contains("user_1") && line.contains("team_1"), "{line}");
+    let no_team = identity(None);
+    assert_eq!(no_team["team"], Value::Null);
+    assert!(identity_line(&no_team).contains("no team"));
+}

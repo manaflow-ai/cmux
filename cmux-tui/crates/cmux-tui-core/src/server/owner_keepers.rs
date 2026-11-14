@@ -48,9 +48,9 @@
 //! apps supervisor's count; the terminal count (a registry read) runs only
 //! when none of those keeps the owner. All of it runs on the watch thread.
 //!
-//! The headless owner starts the watch (cmux-tui `headless.rs`) unless
-//! `CMUX_TUI_OWNER_KEEPERS=0`, the stage's switch, which is deleted when the
-//! stage has passed dogfood (R-LIFECYCLE ORPHANS turned it on by default).
+//! The headless owner of an app session always starts the watch (cmux-tui
+//! `headless.rs`). The stage's switch `CMUX_TUI_OWNER_KEEPERS` is deleted
+//! (R-LIFECYCLE ORPHANS turned it on by default; PERF FLAGS removed the off path).
 
 use super::*;
 use crate::event_bus::MuxEventReceiver;

@@ -4,7 +4,7 @@ import CmuxNextDesign
 
 /// DEBUG ONLY: Debug > Chief Teleport Playground. Every location chip variant
 /// (``ChiefTeleportChipStyle``) in every state (on This Mac, in cmux Cloud, on a Mac mini, moving,
-/// verifying, failed, rolled back), in the app's appearance (light or dark), each a live chip whose click opens its real
+/// verifying, failed, rolled back, a move from the CLI, forked to cmux Cloud), with the chat row's text, in the app's appearance (light or dark), each a live chip whose click opens its real
 /// Teleport menu (picks do nothing here). Beside the grid, the menu of the state picked above, as
 /// text, so a still capture shows it too. The labels are DEV-only English; the chips' own words are
 /// the product's localized strings.
@@ -19,7 +19,20 @@ public final class ChiefTeleportPlayground: NSObject, NSWindowDelegate {
         var phase: ChiefTeleportPhase
         /// The header's wording for a host Home cannot open ("Chief is on …").
         var saysAway = false
+        /// A move the home's hold says runs (from the CLI, the MCP tool or the Chief).
+        var moving: ChiefMoveHold?
+        /// A fork in cmux Cloud.
+        var fork: ChiefForkRecord?
+
+        @MainActor func model() -> ChiefTeleportModel {
+            ChiefTeleportModel(showing: location, phase: phase, destinations: ChiefTeleportPlayground.destinations,
+                               movedAt: location == .thisMac ? nil : ChiefTeleportPlayground.sampleTime,
+                               moving: moving, fork: fork)
+        }
     }
+
+    /// 4:02 PM today, the samples' move and fork time.
+    static let sampleTime = Calendar.current.date(bySettingHour: 16, minute: 2, second: 0, of: Date())
 
     static let samples: [Sample] = [
         Sample(title: "On This Mac", location: .thisMac, phase: .idle),
@@ -30,6 +43,9 @@ public final class ChiefTeleportPlayground: NSObject, NSWindowDelegate {
         Sample(title: "Verifying", location: .cloud, phase: .verifying("cmux Cloud")),
         Sample(title: "Failed", location: .thisMac, phase: .failed("Mac mini", reason: "ssh: connect to host cmux-mini: timed out")),
         Sample(title: "Rolled back", location: .thisMac, phase: .rolledBack),
+        Sample(title: "Moving (from the CLI)", location: .thisMac, phase: .idle, moving: ChiefMoveHold(pid: 1, to: .cloud)),
+        Sample(title: "Forked to Cloud", location: .thisMac, phase: .idle,
+               fork: ChiefForkRecord(name: "Chief fork", chief: "agent_fork", at: sampleTime)),
     ]
 
     static let destinations: [ChiefTeleportDestination] = [
@@ -102,7 +118,7 @@ public final class ChiefTeleportPlayground: NSObject, NSWindowDelegate {
         for sample in Self.samples {
             var row: [NSView] = [label(sample.title, ink: .secondary)]
             for style in ChiefTeleportChipStyle.allCases {
-                let model = ChiefTeleportModel(showing: sample.location, phase: sample.phase, destinations: Self.destinations)
+                let model = sample.model()
                 // Picks do nothing here: the model's default actions are empty.
                 let chip = ChiefTeleportChip(model: model, style: style)
                 chip.saysAway = sample.saysAway
@@ -136,9 +152,11 @@ public final class ChiefTeleportPlayground: NSObject, NSWindowDelegate {
     private func showMenuPreview() {
         let index = max(0, statePicker.indexOfSelectedItem)
         let sample = Self.samples[min(index, Self.samples.count - 1)]
-        let model = ChiefTeleportModel(showing: sample.location, phase: sample.phase, destinations: Self.destinations)
+        let model = sample.model()
         let menu = ChiefTeleportMenuBuilder(model: model).makeMenu()
         for view in menuPreview.arrangedSubviews { view.removeFromSuperview() }
+        // The Chief conversation's row for this state, as Home shows it under the newest message.
+        menuPreview.addArrangedSubview(label("Chat row: " + (model.notice() ?? "(none)"), ink: .secondary))
         for item in menu.items {
             let text = item.isSeparatorItem ? "――――――――" : (item.state == .on ? "✓ " : "   ") + item.title
             let enabled = item.isEnabled && item.action != nil

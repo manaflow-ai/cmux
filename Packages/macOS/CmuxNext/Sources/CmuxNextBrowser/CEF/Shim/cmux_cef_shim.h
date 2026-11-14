@@ -442,6 +442,9 @@ CMUX_SHIM_EXPORT void cmux_shim_set_focus_request_handler(cmux_shim_focus_reques
 // the key goes on to Chromium.
 CMUX_SHIM_EXPORT void cmux_shim_set_unhandled_key_handler(cmux_shim_key_fn handler);
 CMUX_SHIM_EXPORT void cmux_shim_set_zoom_level(int browser_id, double level);
+// CefBrowserHost::SetAudioMuted: 1 mutes every sound of the page (media, Web Audio, every
+// frame and process; Chrome's Mute site), 0 unmutes it. Kept across navigations.
+CMUX_SHIM_EXPORT void cmux_shim_set_audio_muted(int browser_id, int muted);
 // CefBrowserHost::SetAccessibilityState: 1 builds the page's accessibility tree (an assistive
 // client asked for the app's), 0 turns it off.
 CMUX_SHIM_EXPORT void cmux_shim_set_accessibility(int browser_id, int enabled);

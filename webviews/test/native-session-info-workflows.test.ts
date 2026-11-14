@@ -1,7 +1,7 @@
 // l10n-allow-file: deterministic workflow names and failure messages in behavioral fixtures.
 import { expect, test } from "bun:test";
 import { translate } from "../src/agent-session/acpmux/i18n";
-import { compactTokens } from "../src/agent-session/acpmux/conversation/CompactionNote";
+import { compactTokens } from "../src/agent-session/acpmux/conversation/compactionNoteModel";
 import { NativeInfoActions } from "../src/agent-session/acpmux/session-info/native/model";
 import {
   reconcileNativeWorkflowPhases,
@@ -99,7 +99,14 @@ test("agent rows preserve failure reason, model, queued time, and transcript bri
   const rows = model(input, actions).rows;
   const writer = rows.find((row) => row.id === "workflowAgent:work/failed")!;
   const editor = rows.find((row) => row.id === "workflowAgent:work/queued")!;
-  expect(writer.detail).toBe("Model: Opus 5.5 · medium");
+  // The workflow names its model and effort once in its head; a row names its own only where it differs.
+  expect(writer.detail).toBeUndefined();
+  expect(rows.find((row) => row.id === "workflow:work")?.subtitle ?? "").toContain("Opus 5.5 · medium");
+  const other = model(
+    { ...input, workflows: [fixture([failed, queued, { ...failed, id: "sonnet", model: "claude-sonnet-5-5" }])] },
+    new NativeInfoActions(),
+  ).rows.find((row) => row.id === "workflowAgent:work/sonnet")!;
+  expect(other.detail).toBe("Model: Sonnet 5.5 · medium");
   expect(writer.subtitle).toBe(failed.error);
   expect(writer.trailing).toContain("12s");
   expect(writer.symbol).toBe("xmark");

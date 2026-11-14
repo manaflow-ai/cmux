@@ -41,7 +41,7 @@ extension AgentPaneGitPullRequest {
 
     /// The user's default merge method for the repository (`merge`, `squash` or `rebase`); `merge`
     /// when gh can't say.
-    @concurrent private static func method(gh: String, in folder: String, url: String) async -> String {
+    @concurrent static func method(gh: String, in folder: String, url: String) async -> String {
         let parts = URL(string: url)?.path.split(separator: "/").map(String.init) ?? []
         guard let host = URL(string: url)?.host, parts.count >= 2 else { return "merge" }
         let view = await AgentPaneGitProcess.output(["repo", "view", "\(host)/\(parts[0])/\(parts[1])", "--json", "viewerDefaultMergeMethod"],

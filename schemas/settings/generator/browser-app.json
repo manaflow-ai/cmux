@@ -1,0 +1,13 @@
+{
+  "source": "schemas/settings/source/browser-app.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+BrowserApp.generated.swift",
+  "type": "BrowserAppSettingsSchema",
+  "joined": "descriptors",
+  "lists": {
+    "toolbar": ["toolbar", "BrowserAppSettingsSchema"],
+    "addressBar": ["addressBar", "BrowserAppSettingsSchema"],
+    "columns": ["columns", "BrowserAppSettingsSchema"],
+    "window": ["window", "BrowserAppSettingsSchema"],
+    "sidebar": ["sidebar", "BrowserAppSettingsSchema"]
+  }
+}

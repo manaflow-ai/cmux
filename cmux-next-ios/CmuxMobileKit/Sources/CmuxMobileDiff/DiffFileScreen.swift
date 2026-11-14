@@ -113,7 +113,7 @@ public struct DiffFileScreen: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button(Self.searchTitle, systemImage: "magnifyingglass") {
-                    withAnimation(.cmuxMobileSnap) { searching = true }
+                    withAnimation(.cmuxMobileSnap.unlessReduceMotion) { searching = true }
                     queryFocused = true
                 }
                 .disabled(isViewed)
@@ -138,7 +138,7 @@ public struct DiffFileScreen: View {
             ToolbarSpacer(.flexible, placement: .bottomBar)
             ToolbarItem(placement: .bottomBar) {
                 Button {
-                    withAnimation(.cmuxMobileSmooth) { state.toggleViewed(file) }
+                    withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { state.toggleViewed(file) }
                 } label: {
                     // The same name as the header's check ("Viewed"), so the copy above matches it.
                     Label(isViewed ? "Viewed" : "Mark Viewed", systemImage: isViewed ? "checkmark.circle.fill" : "checkmark.circle")
@@ -156,11 +156,11 @@ public struct DiffFileScreen: View {
     private func runDemoCommand() {
         switch DemoDirector.shared.command {
         case .diffSetSplit(let split)?:
-            withAnimation(.cmuxMobileSmooth) { state.layout = split ? .split : .unified }
+            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { state.layout = split ? .split : .unified }
         case .diffExpandFirst?:
             if let range = renderer.model?.rows.firstCollapsed { expand(range) }
         case .diffMarkViewed?:
-            withAnimation(.cmuxMobileSmooth) { state.toggleViewed(file) }
+            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { state.toggleViewed(file) }
         case .navigateBack?:
             dismiss()
         default:
@@ -242,7 +242,7 @@ public struct DiffFileScreen: View {
                 .frame(width: 44, height: 44)
                 .disabled(matches.isEmpty)
             Button("Done") {
-                withAnimation(.cmuxMobileSnap) { searching = false }
+                withAnimation(.cmuxMobileSnap.unlessReduceMotion) { searching = false }
                 query = ""
                 queryFocused = false
             }
@@ -260,7 +260,7 @@ public struct DiffFileScreen: View {
     private func move(_ delta: Int) {
         let next = index + delta
         guard files.indices.contains(next) else { return }
-        withAnimation(.cmuxMobileSnap) { fileID = files[next].id }
+        withAnimation(.cmuxMobileSnap.unlessReduceMotion) { fileID = files[next].id }
     }
 
     /// The file header: badge, path (the folder truncates, never the file name), counts,
@@ -287,7 +287,7 @@ public struct DiffFileScreen: View {
         let controls = HStack(spacing: 0) {
             DiffCounts(additions: file.additions, deletions: file.deletions)
                 .padding(.trailing, 4)
-            ViewedToggle(isViewed: isViewed) { withAnimation(.cmuxMobileSmooth) { state.toggleViewed(file) } }
+            ViewedToggle(isViewed: isViewed) { withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { state.toggleViewed(file) } }
             Menu {
                 if openFile.isAvailable, file.status != .deleted {
                     Button("Open File", systemImage: "doc.text.magnifyingglass") { openFile(file.path) }
@@ -328,7 +328,7 @@ public struct DiffFileScreen: View {
 
     private func expand(_ range: ClosedRange<Int>) {
         let chunk: ClosedRange<Int> = range.count > 40 ? range.lowerBound...range.lowerBound + 19 : range
-        withAnimation(.cmuxMobileSmooth) {
+        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
             expanded[file.id, default: []].append(chunk)
         }
     }

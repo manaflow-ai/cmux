@@ -26,19 +26,7 @@ struct AppWindowImage {
     /// - Throws: ``WindowScreenshotFailure`` when the window server gives no image.
     func capture(_ window: NSWindow) async throws -> CGImage {
         let base = try await window.screenshotImage(includeChild: WindowOverlayHost.isPageWindow)
-        var layers: [WindowImageLayer] = []
-        for (page, rect) in DebugWindowSnapshot.chromiumPages(in: window, services: services) {
-            // A page that cannot give its image keeps the window server's
-            // pixels there (its background without the grant).
-            guard let image = try? await page.snapshot() else { continue }
-            let holes = page.pageWindowHoles.map { page.contentView.convert($0, to: nil) }
-            layers.append(.page(image, rect, holes: holes, clip: WindowImageClip(page.pageWindowClip)))
-        }
-        // React pages on the Chromium engine (the agent page, Settings) draw the same way.
-        for (page, rect) in PageRegistry.shownChromiumPages(in: window) {
-            guard let image = await page.chromiumImage() else { continue }
-            layers.append(.page(image, rect, holes: page.chromiumWindowHoles, clip: WindowImageClip(page.chromiumWindowClip))) // a chat leaves its pane's tabs uncovered
-        }
+        var layers = await Self.pageLayers(in: window, services: services).layers
         // The panel and floating-window captures run off the main actor too; main reads only their window numbers.
         if let panels = await window.childWindowsImage(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
             layers.append(.window(panels))
@@ -46,6 +34,28 @@ struct AppWindowImage {
         if let floating = await window.floatingWindowsImage() { layers.append(.window(floating.image)) }
         // The full-resolution redraw runs off the main actor.
         return await WindowImageLayer.compositedOffMain(base: base, windowSize: window.frame.size, layers: layers) ?? base
+    }
+
+    /// Chromium's own image of each Chromium page shown in `window` (browser tabs, then the app's React pages),
+    /// as layers over its page area; a page that gives none (its renderer waits in an alert, a confirm, a prompt
+    /// or Leave site) shows the not-captured stripes there, never the window server's blank pixels (a black page,
+    /// while the screen shows the page behind the dialog). A page asking Leave site is not asked: no image comes.
+    /// - Returns: The layers, how many pages there are, and how many gave no image.
+    static func pageLayers(in window: NSWindow, services: AppServices) async -> (layers: [WindowImageLayer], pages: Int, failed: Int) {
+        var layers: [WindowImageLayer] = [], pages = 0, failed = 0
+        for (page, rect) in DebugWindowSnapshot.chromiumPages(in: window, services: services) {
+            let image = page.pendingPrompts.contains { $0.kind.isBeforeUnload } ? nil : try? await page.snapshot()
+            pages += 1; if image == nil { failed += 1 }
+            let holes = page.pageWindowHoles.map { page.contentView.convert($0, to: nil) }
+            layers += WindowImageLayer.chromiumPage(image, rect, holes: holes, clip: page.pageWindowClip, devTools: await page.dockedDevToolsPicture())
+        }
+        // React pages on the Chromium engine (the agent page, Settings) draw the same way.
+        for (page, rect) in PageRegistry.shownChromiumPages(in: window) {
+            let image = await page.chromiumImage()
+            pages += 1; if image == nil { failed += 1 }
+            layers += WindowImageLayer.chromiumPage(image, rect, holes: page.chromiumWindowHoles, clip: page.chromiumWindowClip, devTools: await page.chromiumDevTools()) // a chat leaves its pane's tabs uncovered
+        }
+        return (layers, pages, failed)
     }
 
     /// The window for an agent or a script, with every browser page and chat masked
@@ -65,7 +75,7 @@ struct AppWindowImage {
             var layers: [WindowImageLayer] = []
             for (page, rect) in PageRegistry.shownChromiumPages(in: window) where !ScreenshotMask.isCovered(page, rules: .app) {
                 guard let image = await page.chromiumImage() else { continue }
-                layers.append(.page(image, rect, holes: page.chromiumWindowHoles, clip: WindowImageClip(page.chromiumWindowClip))) // a chat leaves its pane's tabs uncovered
+                layers += WindowImageLayer.chromiumPage(image, rect, holes: page.chromiumWindowHoles, clip: page.chromiumWindowClip, devTools: await page.chromiumDevTools()) // a chat leaves its pane's tabs uncovered
             }
             // The last reading follows the last await, so nothing changes before the paint.
             sampler.stop()
@@ -118,7 +128,7 @@ extension ScreenshotMask.Rules {
 extension ScreenshotMask {
     /// The app pages a capture shows: they hold no secret, chat or browsing data, and nothing an
     /// agent cannot read another way (files, diffs, keys, the changelog). Every other app page
-    /// (Settings with its key fields, Passwords, History, Home Channels, the agent page, Agent
+    /// (Settings with its key fields, Passwords, History, Home Channels, Home Messages, the agent page, Agent
     /// Activity's screen frames, the Chief's pages) is masked.
     static let shownAppPages: Set<String> = [
         "cmux.keybindings", "cmux.changelog", "cmux.icon-picker", "cmux.apps", "cmux.diff", "cmux.markdown", "cmux.editor",

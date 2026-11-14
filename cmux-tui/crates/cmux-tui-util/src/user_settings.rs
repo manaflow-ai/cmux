@@ -57,7 +57,9 @@ pub fn path_from(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
 /// and default as the app's `NewWorkspacePlacement`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NewWorkspacePlacement {
-    /// First, below the home workspace's row, above every group.
+    /// First, below the home workspace's row, above every group. The default
+    /// (Lawrence 2026-11-12: "by default all new workspaces should go to the
+    /// top"), for every client and creator.
     #[default]
     Top,
     /// Right after the session's active workspace, in its group (`Top`
@@ -94,6 +96,7 @@ impl NewWorkspacePlacement {
             return Self::default();
         };
         match document.pointer("/workspaces/newPlacement").and_then(Value::as_str) {
+            Some("top") => Self::Top,
             Some("afterCurrent") => Self::AfterCurrent,
             Some("bottom") => Self::Bottom,
             _ => Self::default(),
@@ -195,6 +198,56 @@ pub fn resume_agents() -> bool {
             .unwrap_or(false),
         Ok(_) => false,
         Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+    }
+}
+
+/// Settings' Ultra Connection Mode (`remote.ultra`) for the WireGuard
+/// tunnels this Mac starts (Cloud, `wg hub`, the terminal client).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UltraConnection {
+    /// No repair data.
+    Off,
+    /// The default: no extra data on a clean link; repair data within
+    /// about one round trip once packets are lost (cmux-wg `UltraChoice::Auto`).
+    #[default]
+    Auto,
+    /// Repair data on every connection, about 2-3x the bytes
+    /// (cmux-wg `UltraMode::SETTING`).
+    Always,
+}
+
+/// [`UltraConnection`] of a settings file: `remote.ultra` (`"off"`,
+/// `"auto"`, `"always"`); without it, the retired toggle `remote.ultraMode`
+/// set to `true` is Always. Anything else, and a file that does not parse,
+/// is the default, Auto.
+pub fn ultra_from_config_text(text: &str) -> UltraConnection {
+    let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else {
+        return UltraConnection::default();
+    };
+    match document.pointer("/remote/ultra").and_then(Value::as_str) {
+        Some("off") => UltraConnection::Off,
+        Some("always") => UltraConnection::Always,
+        Some("auto") => UltraConnection::Auto,
+        _ if document.pointer("/remote/ultraMode").and_then(Value::as_bool) == Some(true) => {
+            UltraConnection::Always
+        }
+        _ => UltraConnection::default(),
+    }
+}
+
+/// [`ultra_from_config_text`] of the settings file, read when a tunnel
+/// starts (a change applies to the next connection with no reload); Auto
+/// without a file, and always Auto in unit tests.
+pub fn ultra() -> UltraConnection {
+    if cfg!(test) {
+        return UltraConnection::default();
+    }
+    let path = config_path();
+    match std::fs::metadata(&path) {
+        Ok(metadata) if metadata.is_file() => std::fs::read_to_string(&path)
+            .map(|text| ultra_from_config_text(&text))
+            .unwrap_or_default(),
+        _ => UltraConnection::default(),
     }
 }
 
@@ -303,9 +356,34 @@ mod tests {
     }
 
     #[test]
+    fn ultra_is_auto_unless_the_file_says_otherwise() {
+        use super::UltraConnection::{Always, Auto, Off};
+        use super::ultra_from_config_text as ultra;
+        assert_eq!(ultra(""), Auto);
+        assert_eq!(ultra("{}"), Auto);
+        assert_eq!(ultra(r#"{"remote": {"endSharingOnQuit": true}}"#), Auto);
+        assert_eq!(ultra(r#"{"remote": {"ultra": "off"}}"#), Off);
+        assert_eq!(ultra(r#"{"remote": {"ultra": "always"}}"#), Always);
+        assert_eq!(
+            ultra("{\n  // lossy hotel Wi-Fi\n  \"remote\": {\"ultra\": \"always\",},\n}"),
+            Always
+        );
+        assert_eq!(ultra(r#"{"remote": {"ultra": "auto", "ultraMode": true}}"#), Auto);
+        assert_eq!(ultra(r#"{"remote": {"ultraMode": true}}"#), Always, "the retired toggle on");
+        assert_eq!(ultra(r#"{"remote": {"ultraMode": false}}"#), Auto, "and off: Auto");
+        assert_eq!(ultra(r#"{"remote": {"ultra": true}}"#), Auto, "not a choice");
+        assert_eq!(ultra("{not json"), Auto);
+        assert_eq!(super::ultra(), Auto, "unit tests never read the developer's file");
+    }
+
+    #[test]
     fn new_placement_reads_cmux_json_with_the_app_default() {
         assert_eq!(Placement::from_config_text(""), Placement::Top);
         assert_eq!(Placement::from_config_text("{}"), Placement::Top);
+        assert_eq!(
+            Placement::from_config_text(r#"{"workspaces": {"newPlacement": "top"}}"#),
+            Placement::Top
+        );
         assert_eq!(
             Placement::from_config_text(
                 "{\n  // order\n  \"workspaces\": {\"newPlacement\": \"bottom\",},\n}"

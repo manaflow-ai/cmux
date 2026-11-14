@@ -45,8 +45,8 @@ final class GlobalHotKeyService {
         registry: ActionRegistry,
         registrar: any GlobalHotKeyRegistrar = CarbonHotKeyRegistrar(),
         layout: @escaping @MainActor () -> KeyCodeLayout = KeyCodeLayout.current,
-        showHideEnabled: @escaping @MainActor () -> Bool = { CmuxConfigSnapshot.globalHotKeyFallback },
-        startAgentEnabled: @escaping @MainActor () -> Bool = { CmuxConfigSnapshot.startAgentGlobalHotKeyFallback }
+        showHideEnabled: @escaping @MainActor () -> Bool = { CmuxConfigSnapshot.globalHotKeyDefault },
+        startAgentEnabled: @escaping @MainActor () -> Bool = { CmuxConfigSnapshot.startAgentGlobalHotKeyDefault }
     ) {
         self.registry = registry
         self.registrar = registrar

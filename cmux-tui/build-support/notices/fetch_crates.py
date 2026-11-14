@@ -2,7 +2,7 @@
 # Copyright 2026 Manaflow, Inc.
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Fill a CARGO_HOME-shaped source cache for one or more Cargo.lock files,
-without cargo (Python 3.11+ standard library and git).
+without cargo (Python 3.11.4+ standard library and git).
 
   fetch_crates.py --lock A/Cargo.lock [--lock B/Cargo.lock ...] --cache DIR
 
@@ -27,6 +27,7 @@ import subprocess
 import sys
 import tarfile
 import time
+import python_floor  # noqa: F401  first: one clear line under a python3 older than 3.11.4
 import tomllib
 import urllib.error
 import urllib.request

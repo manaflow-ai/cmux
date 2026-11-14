@@ -1,0 +1,40 @@
+{
+  "$comment": "HAND-EDITED source of Machines > Machine Colors (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it; its docstring is the row format (tabs.json's $comment repeats it, plus choices_from and \"swift_case\": null). Lists: SettingsSchema.all concatenates them, so rows keep the export's order; schemas/settings/settings-schema.json must not change when rows move here.",
+  "lists": [
+    {
+      "name": "machineColors",
+      "section": "machines",
+      "group": {
+        "key": "settings.group.machineColors",
+        "text": "Machine Colors"
+      },
+      "rows": [
+        {
+          "key": "appearance.machineColors",
+          "note": "Drawn by the Machines card (a color per machine), not as a map editor.",
+          "title": {
+            "key": "settings.machines.colors",
+            "text": "Machine Color"
+          },
+          "help": {
+            "key": "settings.machines.colors.help",
+            "text": "The color of each machine's sidebar rows and tab badges, by machine name: \"#RRGGBB\", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name."
+          },
+          "kind": "string_map",
+          "swift_owner": "MachineColorsSetting",
+          "default": {},
+          "keywords": [
+            "machine",
+            "computer",
+            "server",
+            "ssh",
+            "cloud",
+            "color",
+            "colour",
+            "identity"
+          ]
+        }
+      ]
+    }
+  ]
+}

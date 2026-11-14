@@ -145,8 +145,8 @@ final class ChiefPetBubbleView: NSView {
 }
 
 /// One notice: a glass capsule with the title in bold and one muted line under it, no status
-/// glyph, as the references draw it. The glass is the toasts' neutral glass (``FloatingGlassStyle/toast``):
-/// a gray veil and rim over the glass, so the text reads over any page behind it while the capsule stays
+/// glyph, as the references draw it. The glass is the toasts' glass (``FloatingGlassStyle/toast``):
+/// a veil in the theme's tint and a rim over the glass, so the text reads over any page behind it while the capsule stays
 /// glass. Bare glass let a web page's headline show through the notice, and glass is never made opaque
 /// to fix that (Leo 2026-10-20: "I hate opaque").
 final class ChiefPetCapsule: NSView {

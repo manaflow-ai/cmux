@@ -33,6 +33,9 @@ extension AppServices {
         cache.setWarmBudget(budget)
         // Critical keeps only what shows, the parked workspaces too.
         if level == .critical { windows.controllers.forEach { $0.releaseParked() } }
+        daemon.store.reservationPaused = level != .normal // the next Cmd-N's reservation goes until normal (views, store, page)
+        windows.controllers.forEach { level == .normal ? $0.reservedContent.fill() : $0.reservedContent.drop() }
+        if level != .normal { agentTabs.releaseReservedWorkspace(on: daemon.store, .pressure) }
         workspaceHibernation.pressureDidChange(level)
     }
 }

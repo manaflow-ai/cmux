@@ -35,6 +35,33 @@ struct PaletteMenuVocabularyTests {
         }
     }
 
+    /// A setting's on/off row is named by the setting, with its state shown beside it ("Focus Ring  On"),
+    /// not by the verb (Leo 2026-11-07, "just unify"): no Settings action that flips a state without
+    /// asking for anything reads "Toggle …". The Debug-menu ones keep the verb, which their menu item needs.
+    @Test func settingTogglesAreNamedByTheirSetting() {
+        let renamed: [ActionID: String] = [
+            "focusRing.toggle": "Focus Ring",
+            "focusRing.singlePane.toggle": "Focus Ring for a Single Pane",
+            "appearance.paneBorder.toggle": "Pane Borders",
+            "appearance.paneBorderWidth.toggle": "Thick Pane Borders",
+            "appearance.paneCorners.toggle": "Rounded Pane Corners",
+            "appearance.panePadding.toggle": "Pane Padding",
+            "appearance.animations.toggle": "All Animations",
+            "appearance.animations.newTab.toggle": "New Tab Animations",
+            "layout.toggleStripScrollbar": "Column Scroll Bar",
+            "notifications.toggleBanners": "Notification Banners",
+            "palette.toggleMatchTerminalBackground": "Match Terminal Background",
+        ]
+        let byID = Dictionary(ActionCatalog.all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for (id, title) in renamed {
+            #expect(byID[id]?.title == title, "\(id) reads \(byID[id]?.title ?? "nothing")")
+        }
+        for descriptor in ActionCatalog.all where descriptor.category == .settings && descriptor.isPaletteVisible && !descriptor.isDebugOnly
+            && !descriptor.arguments.contains(where: \.isRequired) {
+            #expect(!descriptor.title.hasPrefix("Toggle "), "\(descriptor.id) \(descriptor.title): name the setting, not the verb")
+        }
+    }
+
     /// Palette titles are menu titles, so they follow the macOS title style: the ellipsis is one
     /// character ("…", never "..."), and every word is capitalized except a short article,
     /// conjunction or preposition inside the title ("Move Tab to Workspace…"). The first and last
@@ -126,8 +153,7 @@ struct PaletteMenuVocabularyTests {
 
     /// One name per command: no two palette or menu bar actions share a name unless one is a
     /// declared duplicate of the other (`ActionDescriptor.paletteDuplicates`), and a duplicate
-    /// carries its canonical action's name. Two different commands that read alike ("Show Feed"
-    /// for the right sidebar's mode and for the feed panel) fail here.
+    /// carries its canonical action's name. Two different commands that read alike fail here.
     @Test func everyNameBelongsToOneCommand() throws {
         func key(_ title: String) -> String {
             (title.hasSuffix("…") ? String(title.dropLast()) : title).lowercased()

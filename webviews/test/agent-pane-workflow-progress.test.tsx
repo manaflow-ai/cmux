@@ -2,6 +2,7 @@
 // Workflow progress traverses the real App memo boundary; unchanged siblings stay untouched.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "cmux-agent://pane/index.html",
@@ -53,12 +54,8 @@ const { createRoot } = await import("react-dom/client");
 const fixtures = await import("../src/gallery/fixtures/acpmux");
 const { AcpmuxApp } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const { configureSubagentTray } = await import("../src/agent-session/acpmux/subagents/runningTray");
@@ -79,6 +76,8 @@ const mountApp = async (root: { render(node: unknown): void }) => {
 const { AgentProgressStore, markAgentProgressSource } =
   await import("../src/agent-session/acpmux/subagents/agentProgressSource");
 const { SubagentFold } = await import("../src/agent-session/acpmux/subagents/subagentFold");
+const { bindSessionInfoPane, setSessionInfoOpen } =
+  await import("../src/agent-session/acpmux/session-info/sessionInfoState");
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 const agents: Subagent[] = ["workflow-a", "workflow-b"].map((id) => ({
   id,
@@ -187,6 +186,10 @@ for (const producer of [false, true])
     }
   });
 
+/// A workflow's progress: on its line, or, for a lone item, on the folded hat's header (SubagentTray.tsx
+/// LoneProgress), where the line is not drawn until the hat opens.
+const PROGRESS = ".acpmux-agent-line__progress, .acpmux-running-tray__stats";
+
 test("bridge repopulates progress when switching sessions", async () => {
   configureSubagentTray(true);
   (dom.window as unknown as { webkit: unknown }).webkit = {
@@ -209,9 +212,9 @@ test("bridge repopulates progress when switching sessions", async () => {
     const second = { ...agents[0]!, id: "workflow-session-b", tokens: 84_000, agents: { started: 3, done: 2 } };
     await mountApp(root);
     await act(async () => receive(snapshot([first], [], "gallery-session-a")));
-    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("1/3 agents");
+    expect(dom.window.document.querySelector(PROGRESS)?.textContent).toBe("1/3 agents");
     await act(async () => receive(snapshot([second], [], "gallery-session-b")));
-    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("2/3 agents");
+    expect(dom.window.document.querySelector(PROGRESS)?.textContent).toBe("2/3 agents");
   } finally {
     await act(async () => root.unmount());
   }
@@ -240,7 +243,7 @@ test("versioned bridge snapshots retain progress when an unrelated snapshot omit
     ...snapshot(items, changed),
     subagentStructureVersion: 1,
   });
-  const progress = () => dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent;
+  const progress = () => dom.window.document.querySelector(PROGRESS)?.textContent;
   try {
     await mountApp(root);
     await act(async () => receive(versioned([first])));
@@ -276,9 +279,9 @@ test("compatibility snapshots without a progress delta refresh the row from its 
     const updated = { ...first, tokens: 84_000, agents: { started: 3, done: 2 } };
     await mountApp(root);
     await act(async () => receive(snapshot([first], [], "compatibility-session")));
-    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("1/3 agents");
+    expect(dom.window.document.querySelector(PROGRESS)?.textContent).toBe("1/3 agents");
     await act(async () => receive(snapshot([updated], [], "compatibility-session")));
-    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("2/3 agents");
+    expect(dom.window.document.querySelector(PROGRESS)?.textContent).toBe("2/3 agents");
   } finally {
     await act(async () => root.unmount());
   }
@@ -408,6 +411,11 @@ for (const surface of ["tray", "inspector"] as const)
     const root = createRoot(dom.window.document.getElementById("root")!);
     const container = () =>
       dom.window.document.querySelector(surface === "tray" ? ".acpmux-running-tray" : "aside.acpmux-session-info");
+    // Session Info starts closed in a new chat: opened before the chat binds, it is this chat's.
+    if (surface === "inspector") {
+      bindSessionInfoPane(undefined);
+      setSessionInfoOpen(true);
+    }
     try {
       await mountApp(root);
       await act(async () => receive(publish()));

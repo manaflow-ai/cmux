@@ -11,6 +11,7 @@ import { installChipHost } from "./chips";
 import { resetSummaryCards } from "../../agent-session/acpmux/summary/cardState";
 import { setChatDisplay } from "../../agent-session/acpmux/chatDisplay";
 import { prepareMockTransport } from "../../agent-session/acpmux/mockTransport";
+import { savedComposerLook, setComposerLook } from "../../agent-session/acpmux/composerLook";
 
 type Message = { id?: string; method?: string; params?: Record<string, unknown> };
 
@@ -33,6 +34,9 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   globalThis.__cmuxPaneStrings = strings as never;
   installChipHost(state.chipHost);
   resetSummaryCards();
+  // The variant's look, else the viewer's saved one (the default when none is saved): a browser test
+  // stages a look in localStorage (`cmux.composer.look`) before the page loads, as the app keeps it.
+  setComposerLook(state.composerLook ?? savedComposerLook(), { remember: false });
   // Only the gallery's mock daemon reads these. Clear them between staged variants, so one
   // capture's negative auth cannot leak into the next fixture.
   Object.assign(globalThis, {
@@ -157,7 +161,8 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       default: {
         const staged = stageUpload(message);
         if (staged !== undefined) return answer(staged);
-        const value = state.native?.[message.method ?? ""] ?? null;
+        const fixture = state.native?.[message.method ?? ""];
+        const value = (typeof fixture === "function" ? fixture(message.params) : fixture) ?? null;
         // `{ nativeError: {code, userMessage?} }` answers as the app's refusal of the call.
         if (value && typeof value === "object" && "nativeError" in value)
           return { ok: false, error: (value as { nativeError: unknown }).nativeError };
@@ -189,6 +194,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   // Before the pane's scripts run, as AgentPaneTunables.documentScript sets them in the app.
   for (const [name, value] of Object.entries(state.documentAttributes ?? {}))
     document.documentElement.setAttribute(`data-${name}`, value);
+  if (state.experiments) globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, ...state.experiments };
   // The desktop layer first (the pane's mount.tsx imports it): it inserts desktop.css and the liquid
   // glass (ui/glass/glass.css) on their own, and the pane's sheet, which holds them in the shipped
   // order ahead of the pane's own sheets, must come after so a surface's rules outrank `.ui-glass`
@@ -199,7 +205,10 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   // Mock pages need their daemon before mounting: the ready reply schedules the fixture
   // snapshot, which must not paint while the mock transport's chunk is still loading.
   if (state.ready?.transport === "mock") prepareMockTransport(await import("../../agent-session/acpmux/mock"));
-  const { mountAcpmux } = await import("../../agent-session/acpmux/mount");
+  // Opened before the chat binds: the first chat's own choice (a new pane starts with it closed).
+  if (state.sessionInfoOpen)
+    (await import("../../agent-session/acpmux/session-info/sessionInfoState")).setSessionInfoOpen(true);
+  const { mountAcpmux } = await import("../../agent-session/acpmux/mountModel");
   // Static chat previews already have their final snapshot. Do not first mount an empty shell
   // and simulate a network delivery of data we hold. Scenes specifying a handshake, New Tab
   // context or a delayed host still exercise the normal asynchronous startup.
@@ -208,7 +217,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       ? { snapshot: structuredClone(snapshot), machineName: "This Mac", workflowLabs: state.workflowLabs }
       : undefined;
   if (initialChat) {
-    const { applyPaneTheme, applyPaneThemeCSS } = await import("../../agent-session/acpmux/App");
+    const { applyPaneTheme, applyPaneThemeCSS } = await import("../../agent-session/acpmux/paneTheme");
     const { setSessionStatus } = await import("../../agent-session/acpmux/sessionStatus");
     applyPaneTheme({ ...context.agentTheme, ...state.theme });
     applyPaneThemeCSS(agentPaneFontCSS(context.env.fontFamily, context.env.fontSize));

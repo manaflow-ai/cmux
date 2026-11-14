@@ -1,31 +1,24 @@
-// A sent prompt's way to the agent (plans/cmux-next/composer-delivery-DESIGN.md): a clock beside its
-// bubble while it is on its way (only after a second, so a fast send shows nothing); once it got
-// there the bubble's read check (UserBubble.tsx) says so. Prompts that did not get there say why in
-// one card per cause (sendFailure.ts), under the last of them: one plain sentence, the fix when
-// there is one (Trust folder), Retry, Edit, Remove and Details: the hop it stopped at, the
-// refuser's own words and code, each hop's time and the ids, and Copy debug info.
-import { createContext, useContext, useEffect, useState } from "react";
-import type { AcpmuxRow, PromptDelivery } from "../model";
+// A sent prompt's way to the agent (plans/cmux-next/composer-delivery-DESIGN.md). One state per row,
+// said in one place: while the prompt is on its way (after a second, so a fast send shows nothing)
+// its footer's time slot says so ("Sending", "Queued, sends when the current turn ends", "Sending
+// when ready") with a clock, and the footer stays shown; once acpmux took it the slot is its time
+// again and the bubble's read check (UserBubble.tsx) says how far it got. Nothing else on the row
+// speaks to delivery meanwhile: before, a "Still sending" label beside a bubble whose footer already
+// said "just now", and a free "Not sent yet" line under it, said two things at once (Leo,
+// 2026-11-11: "what's up with this still sending thing? ... it already, like, shows that it's sent.
+// So this is incongruous."). Prompts that did not get there say why in one card per cause
+// (sendFailure.ts), under the last of them: one plain sentence, the fix when there is one (Trust
+// folder), Retry, Edit, Remove and Details: the hop it stopped at, the refuser's own words and
+// code, each hop's time and the ids, and Copy debug info.
+import { useContext, useEffect, useState } from "react";
+import { PROMPT_PENDING_AFTER_MS, type AcpmuxRow, type PromptDelivery } from "../model";
 import { useT, type StringKey } from "../i18n";
-import { isTrustCause, retryHelps, sendCause, type FailedRun } from "../sendFailure";
+import { isTrustCause, retryHelps, sendCause } from "../sendFailure";
 import { copyText } from "./clipboard";
 import { Clock } from "./icons";
 import { useTranscriptReadOnly } from "./readOnly";
-
-/// What the failure cards read from the chat (App.tsx): the runs of failed prompts, and the
-/// folder's trust for a trust failure. Without it each failed prompt has its own card.
-export type FailedSends = {
-  runs: ReadonlyMap<string, FailedRun>;
-  /// Why the folder's trust holds prompts now (its question is open, or Not now stands): a trust
-  /// failure's Retry would be refused the same way, so it waits and says why.
-  trustBlock?: StringKey;
-  /// Trust the chat's folder, when the folder is not trusted and this pane may answer for it.
-  trustFolder?: () => void;
-};
-export const FailedSendsContext = createContext<FailedSends | undefined>(undefined);
-
-/// How long a send stays unmarked before its clock shows.
-const CLOCK_AFTER_MS = 1000;
+import { FailedSendsContext, deliveryDebugText } from "./promptDeliveryModel";
+const PENDING_AFTER_MS = PROMPT_PENDING_AFTER_MS;
 
 const HOP_LABEL = {
   connection: "prompt.delivery.hop.connection",
@@ -33,58 +26,38 @@ const HOP_LABEL = {
   agent: "prompt.delivery.hop.agent",
 } as const satisfies Record<NonNullable<PromptDelivery["hop"]>, StringKey>;
 
-/// The clock beside a prompt that is still on its way.
-export function DeliveryMark({ delivery }: { delivery: PromptDelivery }) {
-  const t = useT();
-  const sending = delivery.state === "sending";
-  const [late, setLate] = useState(() => Date.now() - delivery.sentAt >= CLOCK_AFTER_MS);
-  useEffect(() => {
-    if (!sending || late) return;
-    const timer = setTimeout(() => setLate(true), Math.max(0, CLOCK_AFTER_MS - (Date.now() - delivery.sentAt)));
-    return () => clearTimeout(timer);
-  }, [sending, late, delivery.sentAt]);
-  if (!sending || (!late && !delivery.slow)) return null;
-  const label = t(delivery.slow ? "prompt.delivery.stillSending" : "prompt.delivery.sending");
-  // The clock alone names itself in a tooltip; once the send is slow its words show, and no tooltip.
-  if (!delivery.slow)
-    return (
-      <output
-        className="cv-user__status cv-user__delivery"
-        data-delivery={delivery.state}
-        aria-label={label}
-        title={label}
-      >
-        <Clock size={12} />
-      </output>
-    );
-  return (
-    <output className="cv-user__status cv-user__delivery" data-delivery={delivery.state} aria-label={label}>
-      <Clock size={12} />
-      <span>{label}</span>
-    </output>
-  );
+/// What a prompt still on its way says: the one sentence its footer shows. `queued`: it waits
+/// behind the running turn (a steer, or a prompt acpmux holds for the turn's end).
+export function pendingLabel(delivery: PromptDelivery, queued: boolean): StringKey {
+  if (delivery.waitingForHost) return "prompt.delivery.whenReady";
+  return queued ? "prompt.delivery.queued" : "prompt.delivery.sending";
 }
 
-/// The debug text Copy debug info puts on the clipboard: plain lines, for a bug report.
-export function deliveryDebugText(row: Pick<AcpmuxRow, "id" | "text">, delivery: PromptDelivery): string {
-  const at = (ms: number | undefined) => (ms === undefined ? "-" : new Date(ms).toISOString());
-  const after = (ms: number | undefined) => (ms === undefined ? "-" : `${ms - delivery.sentAt} ms`);
-  return [
-    `state: ${delivery.state}`,
-    `hop: ${delivery.hop ?? "-"}`,
-    `code: ${delivery.code ?? "-"}`,
-    `reason: ${delivery.reason ?? "-"}`,
-    `error: ${delivery.error ?? "-"}`,
-    `sent: ${at(delivery.sentAt)}`,
-    `accepted: ${at(delivery.acceptedAt)} (${after(delivery.acceptedAt)})`,
-    `read: ${at(delivery.readAt)} (${after(delivery.readAt)})`,
-    `failed: ${at(delivery.failedAt)} (${after(delivery.failedAt)})`,
-    `session: ${delivery.sessionId}`,
-    `prompt: ${delivery.promptId}`,
-    `row: ${row.id}`,
-    `connection: ${delivery.connection ?? "local"}`,
-    `characters: ${row.text?.length ?? 0}`,
-  ].join("\n");
+/// Whether `delivery` shows as pending now: on its way, and either past its first second or held
+/// for the host (whose words show at once). Re-renders once when the second passes.
+export function usePendingShown(delivery: PromptDelivery | undefined): boolean {
+  const sending = delivery?.state === "sending";
+  const sentAt = delivery?.sentAt ?? 0;
+  const [late, setLate] = useState(() => Date.now() - sentAt >= PENDING_AFTER_MS);
+  useEffect(() => {
+    if (!sending || late) return;
+    const timer = setTimeout(() => setLate(true), Math.max(0, PENDING_AFTER_MS - (Date.now() - sentAt)));
+    return () => clearTimeout(timer);
+  }, [sending, late, sentAt]);
+  return sending && (late || delivery?.waitingForHost === true);
+}
+
+/// The footer's time slot while the prompt is on its way: a clock and its one sentence, in the
+/// slot the age takes once it lands, so the row moves nothing when it does.
+export function PendingDelivery({ delivery, queued }: { delivery: PromptDelivery; queued: boolean }) {
+  const t = useT();
+  const label = t(pendingLabel(delivery, queued));
+  return (
+    <output className="cv-user__time cv-user__pending-state" data-delivery={delivery.state} aria-label={label}>
+      <Clock size={12} />
+      <span className="cv-user__pending-words">{label}</span>
+    </output>
+  );
 }
 
 /// Under the last prompt of a run that did not get there for one cause: why, and how to recover

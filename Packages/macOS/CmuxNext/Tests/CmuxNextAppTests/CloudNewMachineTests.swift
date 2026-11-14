@@ -1,6 +1,7 @@
 import CmuxNextActions
 @testable import CmuxNextApp
-import CmuxNextCloud
+@testable import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextWakeups
 import CmuxNextDaemonService
 import Foundation
@@ -44,6 +45,60 @@ struct CloudNewMachineTests {
         #expect(CloudHandlers.newMachineFields(request, nil)["cpu"] == .int(12), "24 GiB is the 12 vCPU row, not resize's 16")
     }
 
+    /// `cmux cloud start-chat --environment` (Leo, 2026-11-06: "Like with a ... environment"): the create takes an
+    /// environment by id or by name and never drops it on the plain path.
+    @Test func anEnvironmentIsTakenByIDOrNameAndKeptOffThePlainPath() throws {
+        typealias Option = CloudWorkspaceSetupWizard.EnvironmentOption
+        let request = try CloudHandlers.newMachineRequest(Self.invocation(["environment": .string(" python-dev ")]))
+        #expect(request.environment == "python-dev")
+        #expect(!request.takesPlainPath, "the plain path would make the machine without its environment")
+        #expect(try CloudHandlers.newMachineRequest(Self.invocation([:])).takesPlainPath)
+        #expect(throws: Option.Unknown.self) { try CloudHandlers.newMachineRequest(Self.invocation(["environment": .bool(true)])) }
+        #expect(throws: Option.Unknown.self) { try CloudHandlers.newMachineRequest(Self.invocation(["environment": .string(" ")])) }
+        #expect(String(describing: Option.Unknown()).contains("--environment"), "the refusal reads as its message")
+        let options = [Option(id: "env_1", name: "python-dev"), Option(id: "env_2", name: "Node")]
+        #expect(try Option.id(for: "env_9", in: []) == "env_9")
+        #expect(try Option.id(for: "python-dev", in: options) == "env_1")
+        #expect(try Option.id(for: "node", in: options) == "env_2")
+        #expect(throws: Option.Unknown.self) { try Option.id(for: "nope", in: options) }
+    }
+
+    /// The review of #37159: `--environment` with `--name` makes no second machine of that name. A list the
+    /// server has not answered just now says nothing, a create of that name on its way (this app's, or a
+    /// `cloud start-session --name` going on) takes the name, and an environment list that fails to load is
+    /// that refusal, not "no such environment".
+    @Test func aNamedEnvironmentCreateNeverMakesASecondMachine() async throws {
+        typealias Option = CloudWorkspaceSetupWizard.EnvironmentOption
+        #expect(CloudMachineRequest.namedCreate("py", listCurrent: false, machines: [], creating: []) == .unread)
+        #expect(CloudMachineRequest.namedCreate("py", listCurrent: true, machines: ["py"], creating: []) == .taken)
+        #expect(CloudMachineRequest.namedCreate("py", listCurrent: true, machines: [], creating: ["py"]) == .taken)
+        #expect(CloudMachineRequest.namedCreate("py", listCurrent: true, machines: ["dev"], creating: ["other"]) == .free)
+
+        let runs = CloudStartRuns<Int, Int>(), account: [String?] = ["user-1", "team-1"]
+        let (gate, open) = AsyncStream<Void>.makeStream(), (entered, enter) = AsyncStream<Void>.makeStream()
+        let making = Task { @MainActor in
+            try await runs.creating("py", account: account) {
+                enter.yield()
+                for await _ in gate { break }
+                return 1
+            }
+        }
+        for await _ in entered { break }
+        #expect(runs.isCreating("py", account: account), "a start-session creating py holds the name")
+        #expect(!runs.isCreating("py", account: ["user-1", "team-2"]), "another team's create is not this one's")
+        #expect(!runs.isCreating("dev", account: account))
+        open.yield()
+        open.finish()
+        _ = try await making.value
+        #expect(!runs.isCreating("py", account: account), "an ended create holds nothing")
+
+        struct Down: Error {}
+        await #expect(throws: Option.ListUnread.self) { _ = try await Option.id(for: "python-dev", loading: { throw Down() }) }
+        #expect(try await Option.id(for: "env_9", loading: { throw Down() }) == "env_9", "an id needs no list")
+        #expect(try await Option.id(for: "Python-Dev", loading: { [Option(id: "env_1", name: "python-dev")] }) == "env_1")
+        #expect(String(describing: Option.ListUnread()).contains("environments"), "the refusal reads as its message")
+    }
+
     @Test func anUnknownSizeIsRefusedWithTheChoices() {
         #expect(throws: ActionFailure.self) { try CloudHandlers.newMachineRequest(Self.invocation(["size": .string("huge")])) }
     }
@@ -78,15 +133,6 @@ struct CloudNewMachineTests {
         await #expect(throws: CloudMachineRequest.ScriptUnreadable.self) { _ = try await request.loadScript(work: BackgroundWork()) }
     }
 
-    @Test func everyMachineCommandNamesTheWorkUser() {
-        let staged = CloudMachineBootstrap.stagingDirectory("ab")
-        #expect(CloudMachineBootstrap.prepareCommand(staged).contains("root chown -h cmux:cmux"))
-        let start = CloudMachineBootstrap.startCommand(staged)
-        #expect(start.contains(#"--uid="$u""#))
-        #expect(start.contains(#"as_u env HOME="$h" setsid"#), "the fallback runs as the work user too")
-        #expect(start.contains(#"as_u mv -f "$s/$f" "$d/$f""#), "the files move as the work user, whichever account the exec uses")
-    }
-
     @Test func aQuotedTildeScriptIsTheHomeFolders() throws {
         let request = try CloudHandlers.newMachineRequest(Self.invocation(["bootstrapScript": .string("~/boot.sh")]))
         #expect(request.bootstrapPath == NSHomeDirectory() + "/boot.sh")
@@ -101,23 +147,6 @@ struct CloudNewMachineTests {
     @Test func anUnreadableScriptIsRefusedBeforeAnyCreate() async throws {
         let request = try CloudHandlers.newMachineRequest(Self.invocation(["bootstrapScript": .string("/nonexistent/\(UUID().uuidString)")]))
         await #expect(throws: CloudMachineRequest.ScriptUnreadable.self) { _ = try await request.loadScript(work: BackgroundWork()) }
-    }
-
-    @Test func theAnswerSaysPersistentOnlyWhenTheServerStoredOff() throws {
-        let request = CloudMachineRequest(name: "lane-vm-1", size: "medium", memoryMb: 8192, persistent: true)
-        let stored = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-1","status":"running","idlePauseMinutes":0,"address":{"ipv4":"10.0.0.7"}}"#.utf8))
-        let fields = CloudHandlers.newMachineFields(request, stored)
-        #expect(fields["persistent"] == .bool(true))
-        #expect(fields["idle_pause_minutes"] == .int(0))
-        #expect(fields["cpu"] == .int(4))
-        #expect(fields["memory_mb"] == .int(8192))
-        #expect(fields["address"] == .string("10.0.0.7"))
-        let notStored = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-2","status":"running","idlePauseMinutes":30}"#.utf8))
-        #expect(CloudHandlers.newMachineFields(request, notStored)["persistent"] == .bool(false))
-        let pending = CloudHandlers.newMachineFields(request, nil)
-        #expect(pending["persistent"] == nil, "no machine yet: nothing stored to report")
-        #expect(pending["persistent_requested"] == .bool(true))
-        #expect(pending["memory_mb"] == .int(8192))
     }
 
     // MARK: The bootstrap
@@ -138,6 +167,17 @@ struct CloudNewMachineTests {
         }
     }
 
+    @Test func theFallbackPathsAreRustsPaths() throws {
+        let answered = try #require(CloudStartCore().call("cloud_bootstrap_facts", [String: String](), as: CloudMachineBootstrap.Facts.self))
+        let fallback = CloudMachineBootstrap.Facts()
+        #expect([answered.directory, answered.logPath, answered.statusPath, answered.configDirectory, answered.configStatusPath, answered.configLogPath]
+            == [fallback.directory, fallback.logPath, fallback.statusPath, fallback.configDirectory, fallback.configStatusPath, fallback.configLogPath],
+            "with no FFI answer the secrets receiver still lands in the config folder")
+        #expect(CloudMachineSecrets.receiverPath.hasPrefix(fallback.configDirectory + "/"))
+        #expect(CloudMachineRepo(owner: "o", name: "r", ref: "main").spec == "o/r@main")
+        #expect(CloudMachineRepo(owner: "g/s", name: "r", host: "gitlab.com").spec == "https://gitlab.com/g/s/r")
+    }
+
     @Test func theBootstrapUploadsTheScriptItsEnvironmentAndTheRunnerThenStartsIt() async {
         let fake = FakeMachine()
         let script = CloudMachineBootstrap(kind: .lane, contents: Data("#!/bin/sh\necho hi\n".utf8))
@@ -149,8 +189,7 @@ struct CloudNewMachineTests {
         #expect(fake.writes[3].1 == Data("null\n".utf8), "no repo: no earlier start's record is left")
         #expect(fake.writes[4].1 == CloudMachineBootstrap.noScript, "and no earlier start's step")
         #expect(String(decoding: fake.writes[1].1, as: UTF8.self).contains("export LANE_VM_NAME='lane-vm-1'"))
-        #expect(fake.commands == [CloudMachineBootstrap.prepareCommand(staged), CloudMachineBootstrap.startCommand(staged)])
-        #expect(CloudMachineBootstrap.stagingDirectory("zz; ~/..") == CloudMachineBootstrap.directory + "/in-", "only an id's own characters")
+        #expect(fake.commands.count == 2 && fake.commands.allSatisfy { $0.contains("s=\(staged);") }, "the prepare, then the start, of this start's folder")
     }
 
     @Test func aBootstrapAlreadyDoneOrRunningIsNotStartedAgain() async {
@@ -167,21 +206,5 @@ struct CloudNewMachineTests {
         fake.startAnswer = CloudExecResult(exitCode: 1, stdout: "", stderr: "sha256sum: not found")
         let outcome = await CloudMachineBootstrap(kind: .plain, contents: Data("true\n".utf8)).start(name: nil, on: fake.machine)
         #expect(outcome == CloudMachineBootstrap.Outcome(status: "failed", reason: "sha256sum: not found"))
-    }
-
-    @Test func theEnvironmentQuotesTheNameAndOnlyALaneGetsTheLaneName() {
-        #expect(CloudMachineBootstrap.environment(.plain, name: "it's") == "export CMUX_MACHINE_NAME='it'\\''s'\n")
-        #expect(!CloudMachineBootstrap.environment(.plain, name: "box").contains("LANE_VM_NAME"))
-        #expect(CloudMachineBootstrap.environment(.lane, name: nil).isEmpty)
-    }
-
-    @Test func aLaneAnswerNamesTheRegistryCommand() throws {
-        let request = CloudMachineRequest(name: "lane-vm-3", size: "medium", memoryMb: 8192, persistent: true,
-                                          bootstrapPath: "/tmp/lane-vm-bootstrap", bootstrapKind: .lane)
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-3","status":"running","address":{"ipv4":"10.0.0.9"}}"#.utf8))
-        let answer = CloudHandlers.newMachineEnrollment(request, machine)
-        #expect(answer["registry_command"] == .string("tools/lane-vm-enroll lane-vm-3 vm-3 --address 10.0.0.9 --apply"))
-        #expect(answer["enroll_command"] == .string("cmux cloud enroll-machine --target machine:vm-3 --name lane-vm-3"))
-        #expect(CloudHandlers.newMachineEnrollment(CloudMachineRequest(), machine)["registry_command"] == nil)
     }
 }

@@ -779,6 +779,23 @@ impl acpmux::store::Store for UnmarkedStore {
     ) -> anyhow::Result<()> {
         self.0.scan(id, after, visit)
     }
+    // The journal's durability, stop and shutdown seal go to the store underneath: a wrapper
+    // that kept the trait's defaults would never hand the journal's lock to the next open.
+    fn flush(&self) -> anyhow::Result<()> {
+        self.0.flush()
+    }
+    fn wait_durable(&self, timeout: std::time::Duration) -> anyhow::Result<bool> {
+        self.0.wait_durable(timeout)
+    }
+    fn durability(&self) -> Option<acpmux::store::Durability> {
+        self.0.durability()
+    }
+    fn stop_reason(&self) -> Option<tokio::sync::watch::Receiver<Option<String>>> {
+        self.0.stop_reason()
+    }
+    fn seal(&self) {
+        self.0.seal()
+    }
 }
 
 /// A link guest's queued prompt that an older writer recorded unmarked still waits for the

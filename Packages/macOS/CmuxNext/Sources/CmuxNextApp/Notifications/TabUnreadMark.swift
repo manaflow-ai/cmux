@@ -53,6 +53,8 @@ enum TabUnreadMark {
             guard marked else { return }
             throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.tabMarkUnread.rawValue))
         }
+        // A read: shown now and kept while the daemon is down or restoring; only its refusal rolls it back.
+        guard marked else { return daemon.clearMarkedUnread(of: tab, resource: resource) }
         // Shown now; the record's echo confirms it, a refused write rolls it back.
         tab.expectMarkedUnread(marked)
         daemon.send("tab.update", onFailure: { _ in tab.dropExpectedMarkedUnread(marked) }) {
@@ -68,9 +70,7 @@ enum TabUnreadMark {
             throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.tabAttentionRequestID.rawValue))
         }
         guard let resource = tab.resourceID, let request = tab.expectAttentionClear() else { return }
-        daemon.send("tab.update", onFailure: { _ in tab.dropExpectedAttentionClear(request) }) {
-            try await $0.state.updateTabRecord(resource, attentionRequestID: request.requestID)
-        }
+        daemon.clearAttention(request, of: tab, resource: resource)
     }
 
     /// The ids of `viewed` tabs that `previous` did not hold: the tabs that came

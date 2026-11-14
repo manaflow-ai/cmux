@@ -85,7 +85,8 @@ test("a provider row says whose login it uses and its plan; each account shows w
   expect(rows[0]!.querySelector("[data-account-default]")?.textContent).toBe("Default");
   expect(rows[0]!.querySelector('[data-account-action="default"]')).toBeNull();
   expect(rows[0]!.querySelector('[data-account-action="remove"]')).toBeNull();
-  expect(rows[1]!.querySelector('[data-account-action="default"]')).not.toBeNull();
+  // A disabled account offers no Make Default: new chats would run on an account turned off.
+  expect(rows[1]!.querySelector('[data-account-action="default"]')).toBeNull();
   expect(rows[1]!.querySelector('[data-account-action="remove"]')).not.toBeNull();
   // Signed in: Sign Out, not Sign In.
   expect(rows[1]!.querySelector('[data-account-action="signOut"]')).not.toBeNull();
@@ -184,6 +185,11 @@ test("Claude's Add account takes an API key by its reference, with the name type
   expect(added.querySelector("[data-account-auth]")?.textContent).toBe("Authenticated · API key");
   expect(added.querySelector("[data-account-folder]")).toBeNull();
   expect(added.querySelector('[data-account-action="signOut"]')).toBeNull();
+  // Its Remove question speaks of the key, not a login folder it does not have.
+  await act(async () => added.querySelector<HTMLButtonElement>('[data-account-action="remove"]')!.click());
+  const ask = claude().querySelector<HTMLElement>('[data-account="claude-2"] [data-account-remove-confirm]')!;
+  expect(ask.textContent).toContain("The API key stays where it is stored.");
+  expect(ask.textContent).not.toContain("login folder");
   page.unmount();
 });
 
@@ -194,6 +200,9 @@ test("Make Default, Rename, Sign Out and Remove each ask the host for their acco
     await act(async () => row().querySelector<HTMLButtonElement>(`[data-account-action="${action}"]`)!.click());
     await settle();
   };
+  // Turned on for routing, it may be the default.
+  await act(async () => row().querySelector<HTMLElement>('[role="switch"]')!.click());
+  await settle();
   await press("default");
   expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountDefault", account: "codex-2" });
   expect(row().querySelector("[data-account-default]")).not.toBeNull();
@@ -207,9 +216,59 @@ test("Make Default, Rename, Sign Out and Remove each ask the host for their acco
   expect(row().querySelector(".harness-account-name")?.textContent).toContain("Work");
   await press("signOut");
   expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountSignOut", account: "codex-2" });
+  // Remove asks first, in the row; only the confirm sends it.
+  const runs = page.provider.harnessRuns.length;
   await press("remove");
+  expect(page.provider.harnessRuns.length).toBe(runs);
+  expect(row().querySelector("[data-account-remove-confirm]")?.textContent).toContain("Remove “Work” from cmux?");
+  expect(row().querySelector("[data-account-remove-confirm]")?.textContent).toContain("login folder stays");
+  await press("confirmRemove");
   expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountRemove", account: "codex-2" });
   expect(card(page.container).querySelector('[data-account="codex-2"]')).toBeNull();
+  page.unmount();
+});
+
+test("Remove's confirm cancels with Cancel or Escape and sends nothing", async () => {
+  const page = await withAccounts();
+  const row = () => card(page.container).querySelector<HTMLElement>('[data-account="codex-2"]')!;
+  const confirm = () => row().querySelector<HTMLElement>("[data-account-remove-confirm]");
+  const runs = page.provider.harnessRuns.length;
+  await act(async () => row().querySelector<HTMLButtonElement>('[data-account-action="remove"]')!.click());
+  expect(confirm()?.getAttribute("role")).toBe("alertdialog");
+  // Remove gives way to the question while it is open.
+  expect(row().querySelector('[data-account-action="remove"]')).toBeNull();
+  await act(async () => row().querySelector<HTMLButtonElement>('[data-account-action="cancelRemove"]')!.click());
+  expect(confirm()).toBeNull();
+  // Opening it again puts focus on Cancel, and Escape there closes it.
+  await act(async () => row().querySelector<HTMLButtonElement>('[data-account-action="remove"]')!.click());
+  const cancel = row().querySelector<HTMLButtonElement>('[data-account-action="cancelRemove"]')!;
+  expect(document.activeElement).toBe(cancel);
+  await act(async () => {
+    cancel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  expect(confirm()).toBeNull();
+  await settle();
+  expect(page.provider.harnessRuns.length).toBe(runs);
+  expect(row()).not.toBeNull();
+  page.unmount();
+});
+
+test("a signed-out account shows no usage, even one read before its sign-out", async () => {
+  const usage = { windows: [{ id: "session", usedPercent: 50, windowMins: 300 }], plan: "plus" };
+  const page = await withAccounts({
+    accounts: accounts.map((account) => (account.id === "codex-2" ? { ...account, usage, signedIn: false } : account)),
+  });
+  expect(card(page.container).querySelector('[data-account="codex-2"] [data-account-usage]')).toBeNull();
+  page.unmount();
+});
+
+test("coming back to Settings asks the host to read back an account's sign-in or sign-out", async () => {
+  const page = await withAccounts();
+  await act(async () => {
+    window.dispatchEvent(new Event("focus"));
+  });
+  await settle();
+  expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "focus" });
   page.unmount();
 });
 

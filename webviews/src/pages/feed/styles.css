@@ -1,0 +1,1333 @@
+/* The Feed page; the shared base (colors, menu) is shared/pageBase.css. Inks are the design roles
+   (--ds-color-*): no accent colour anywhere but the theme's own, attention only for what needs the
+   person. Rows have fixed heights (66 with a detail line, 48 without, group titles 30), so a long
+   list measures no text while it scrolls. */
+
+/* The right sidebar section has no ground of its own: the sidebar's shows through. */
+:root[data-feed-surface="sidebar"] {
+  background: transparent;
+}
+
+/* The Feed's fixed geometry (FeedRowsView, FeedListPane, FeedInboxHeader): rows and bars never
+   measure their text. */
+:root {
+  --feed-row: 66px;
+  --feed-row-short: 48px;
+  --feed-group: 30px;
+  --feed-bar: 38px;
+  --feed-tabs: 43px;
+  --feed-triage: 40px;
+  --feed-dot: 6px;
+  --feed-badge: 16px;
+  --feed-needs-row: 40px;
+}
+
+.feed-page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 0;
+  color: var(--ds-color-fg);
+}
+
+.feed-page[data-view="needs-you"] {
+  height: auto;
+  padding: 4px;
+}
+
+.feed-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* MARK: - Banner, empty state */
+
+.feed-banner {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  color: var(--ds-color-muted);
+  background: color-mix(in srgb, var(--ds-color-attention) 8%, transparent);
+}
+
+.feed-banner-dot {
+  flex: none;
+  width: var(--feed-dot);
+  height: var(--feed-dot);
+  border-radius: 999px;
+  background: var(--ds-color-attention);
+}
+
+.feed-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  min-height: 0;
+  color: var(--ds-color-faint);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  text-align: center;
+}
+
+/* MARK: - Glyphs and small pieces */
+
+.feed-icon {
+  flex: none;
+  display: block;
+}
+
+.feed-glyph {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--ds-color-muted);
+}
+
+.feed-glyph[data-tone="attention"] {
+  color: var(--ds-color-attention);
+}
+
+.feed-glyph[data-tone="primary"] {
+  color: var(--ds-color-fg);
+}
+
+.feed-glyph[data-tone="tertiary"] {
+  color: var(--ds-color-faint);
+}
+
+.feed-dot {
+  width: var(--feed-dot);
+  height: var(--feed-dot);
+  border-radius: 999px;
+  background: transparent;
+}
+
+.feed-dot[data-visible] {
+  background: var(--ds-color-fg);
+}
+
+.feed-poster {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  color: var(--ds-color-faint);
+}
+
+.feed-poster-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.feed-local {
+  display: inline-flex;
+  color: var(--ds-color-faint);
+}
+
+/* MARK: - Rows */
+
+.feed-lines {
+  outline: none;
+}
+
+.feed-lines-virtual {
+  outline: none;
+}
+
+.feed-row {
+  display: grid;
+  grid-template-columns: 8px 16px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "dot glyph headline time"
+    ". . detail detail"
+    ". . meta meta";
+  grid-template-rows: var(--text-body--line-height) auto auto;
+  align-content: center;
+  column-gap: 8px;
+  height: var(--feed-row-short);
+  margin: 0 4px;
+  padding: 0 12px 0 8px;
+  border-radius: var(--ds-radius-md);
+  cursor: default;
+  outline: none;
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--feed-row-short);
+}
+
+.feed-row[data-detail] {
+  height: var(--feed-row);
+  contain-intrinsic-size: auto var(--feed-row);
+}
+
+.feed-row:hover {
+  background: var(--ds-color-hover);
+}
+
+.feed-row.selected {
+  background: var(--ds-color-selection);
+}
+
+/* The row's one cell lays its parts on the row's grid. */
+.feed-row-cell,
+.feed-group-cell {
+  display: contents;
+}
+
+.feed-row.pending {
+  opacity: 0.55;
+}
+
+.feed-row .feed-dot {
+  grid-area: dot;
+  align-self: center;
+}
+
+.feed-row .feed-glyph {
+  grid-area: glyph;
+  align-self: center;
+}
+
+.feed-row-headline {
+  grid-area: headline;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  color: var(--ds-color-muted);
+}
+
+.feed-row:is([data-unread], [data-open]) .feed-row-headline {
+  color: var(--ds-color-fg);
+}
+
+.feed-row[data-unread] .feed-row-headline {
+  font-weight: var(--weight-emphasis, 600);
+}
+
+.feed-row-time {
+  grid-area: time;
+  align-self: center;
+  max-width: 64px;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  color: var(--ds-color-faint);
+}
+
+.feed-row-detail {
+  grid-area: detail;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--ds-color-muted);
+}
+
+.feed-row-detail.code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.feed-row-meta {
+  grid-area: meta;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  color: var(--ds-color-faint);
+}
+
+.feed-row-meta-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.feed-group-header {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: var(--feed-group);
+  padding: 0 16px 4px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+.feed-group-title {
+  font-weight: var(--weight-emphasis, 600);
+  color: var(--ds-color-muted);
+}
+
+.feed-group-count {
+  color: var(--ds-color-faint);
+}
+
+/* MARK: - Buttons, fields, chips */
+
+.feed-answer-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.feed-reply-row {
+  flex-wrap: nowrap;
+}
+
+.feed-field {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--ds-radius-control, 6px);
+  background: var(--ds-color-hover);
+  color: var(--ds-color-fg);
+  font-size: var(--text-detail);
+  outline: none;
+  user-select: text;
+}
+
+.feed-field::placeholder {
+  color: var(--ds-color-faint);
+}
+
+.feed-field:focus-visible {
+  box-shadow: 0 0 0 var(--cmux-focus-ring-width, 2px) var(--ds-color-focus);
+}
+
+.feed-other {
+  flex: none;
+  width: 100%;
+  max-width: 260px;
+}
+
+.feed-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.feed-chip {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-control, 6px);
+  background: transparent;
+  color: var(--ds-color-muted);
+  font-size: var(--text-detail);
+  cursor: default;
+}
+
+.feed-chip:hover:not(:disabled) {
+  background: var(--ds-color-hover);
+}
+
+.feed-chip[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--ds-color-selection);
+  color: var(--ds-color-fg);
+  font-weight: var(--weight-emphasis, 600);
+}
+
+.feed-chip:disabled {
+  opacity: 0.45;
+}
+
+.feed-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--ds-radius-control, 6px);
+  background: transparent;
+  color: var(--ds-color-muted);
+  font-size: var(--text-caption);
+  cursor: default;
+}
+
+.feed-scope:hover:not(:disabled) {
+  background: var(--ds-color-hover);
+}
+
+.feed-closed {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  color: var(--ds-color-faint);
+}
+
+.feed-choice,
+.feed-question {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.feed-choice-question {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.feed-choice-text {
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--ds-color-muted);
+}
+
+/* MARK: - Prompt summary */
+
+.feed-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.feed-body {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--ds-color-muted);
+}
+
+.feed-body.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.feed-prompt-text {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+
+.feed-code {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-color-hover);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.feed-code-text {
+  font: inherit;
+  font-size: var(--text-detail);
+  /* A command shows its own line breaks and spacing: collapsed, a second line reads as the first one's arguments. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.feed-code-caption {
+  font-size: var(--text-caption);
+  color: var(--ds-color-faint);
+}
+
+.feed-diff {
+  overflow: hidden;
+  border-radius: var(--ds-radius-md);
+  background: color-mix(in srgb, var(--ds-color-hover) 60%, transparent);
+}
+
+.feed-diff-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--ds-color-separator);
+  font-size: var(--text-caption);
+  color: var(--ds-color-muted);
+}
+
+.feed-diff-lines {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  user-select: text;
+}
+
+.feed-diff-line {
+  padding: 0 8px;
+  overflow: hidden;
+  white-space: pre;
+  text-overflow: ellipsis;
+  color: var(--ds-color-muted);
+}
+
+.feed-diff-line[data-tone="meta"] {
+  color: var(--ds-color-faint);
+}
+
+.feed-diff-line[data-tone="added"] {
+  color: var(--ds-color-success);
+  background: color-mix(in srgb, var(--ds-color-success) 8%, transparent);
+}
+
+.feed-diff-line[data-tone="removed"] {
+  color: var(--ds-color-danger);
+  background: color-mix(in srgb, var(--ds-color-danger) 8%, transparent);
+}
+
+.feed-origin {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.feed-origin-host {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: var(--text-detail);
+  font-weight: var(--weight-emphasis, 600);
+}
+
+.feed-origin-reason {
+  font-size: var(--text-detail);
+  color: var(--ds-color-muted);
+}
+
+.feed-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-caption);
+  color: var(--ds-color-muted);
+}
+
+.feed-checklist li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* MARK: - Request cards (list, Needs you cards) */
+
+.feed-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--ds-color-separator);
+}
+
+.feed-card:hover {
+  background: color-mix(in srgb, var(--ds-color-hover) 50%, transparent);
+}
+
+.feed-card.pending {
+  opacity: 0.55;
+}
+
+.feed-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.feed-card-head .feed-glyph {
+}
+
+.feed-card-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.feed-card-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: var(--weight-emphasis, 600);
+}
+
+.feed-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-inline-start: 24px;
+}
+
+/* MARK: - List (the right sidebar) */
+
+.feed-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.feed-list-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: var(--feed-bar);
+  padding: 0 12px 0 16px;
+}
+
+.feed-list-title {
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: var(--weight-emphasis, 600);
+}
+
+/* The badge keeps its place while it is zero, so the title never moves when it comes and goes. */
+.feed-badge {
+  min-width: var(--feed-badge);
+  height: var(--feed-badge);
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--ds-color-hover);
+  color: var(--ds-color-muted);
+  font-size: var(--text-caption);
+  line-height: var(--feed-badge);
+  font-weight: var(--weight-emphasis, 600);
+  text-align: center;
+}
+
+.feed-badge[data-hidden] {
+  visibility: hidden;
+}
+
+.feed-list-mark {
+  margin-inline-start: auto;
+}
+
+.feed-list-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+/* MARK: - Inbox */
+
+.feed-inbox {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.feed-inbox[data-tab="reports"] {
+  flex-direction: column;
+}
+
+.feed-inbox-column {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 330px;
+  min-height: 0;
+  border-inline-end: 1px solid var(--ds-color-separator);
+}
+
+.feed-inbox-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0 8px;
+}
+
+.feed-inbox-list > .feed-lines {
+  min-height: 100%;
+}
+
+.feed-inbox-list .feed-lines-virtual {
+  height: 100%;
+}
+
+.feed-inbox-detail {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 360px;
+  min-height: 0;
+}
+
+/* Compact: a narrower column and one line of detail fewer per row. */
+.feed-inbox[data-density="compact"] .feed-inbox-column {
+  width: 300px;
+}
+
+/* Stacked: the list over the detail, for a narrow tab. */
+.feed-inbox[data-density="stacked"] {
+  flex-direction: column;
+}
+
+.feed-inbox[data-density="stacked"] .feed-inbox-column {
+  width: auto;
+  height: 45%;
+  border-inline-end: 0;
+  border-bottom: 1px solid var(--ds-color-separator);
+}
+
+.feed-inbox[data-density="stacked"] .feed-inbox-detail {
+  min-width: 0;
+}
+
+/* A pane narrower than the column and the detail side by side (330 + 360 px) stacks them
+   whatever the density, so the detail and its answers (a report and its reply) stay in view. */
+@media (max-width: 690px) {
+  .feed-inbox {
+    flex-direction: column;
+  }
+
+  .feed-inbox .feed-inbox-column {
+    width: auto;
+    height: 45%;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--ds-color-separator);
+  }
+
+  .feed-inbox .feed-inbox-detail {
+    min-width: 0;
+  }
+
+  .feed-reports {
+    flex-direction: column;
+  }
+
+  .feed-reports-column {
+    flex: 0 0 45%;
+    min-width: 0;
+    max-width: none;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--ds-color-separator);
+  }
+}
+
+.feed-inbox-header {
+  flex: none;
+}
+
+.feed-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--feed-tabs);
+  padding: 0 8px;
+  border-bottom: 1px solid var(--ds-color-separator);
+}
+
+.feed-tab-list {
+  display: flex;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The tab strip never runs under Add connection: a narrow column keeps the selected tab's name
+   and only the icons of the others and of Add connection (their names stay tooltips and
+   labels); a name that still does not fit ends in an ellipsis. */
+.feed-tab-list > * {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+
+.feed-tab {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.feed-tab-label,
+.feed-add-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.feed-add {
+  flex: none;
+}
+
+.feed-tabs {
+  container-type: inline-size;
+}
+
+@container (max-width: 400px) {
+  .feed-add-label,
+  .feed-tab:not([data-active]) .feed-tab-label {
+    display: none;
+  }
+}
+
+.feed-tab,
+.feed-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--ds-radius-control, 6px);
+  background: transparent;
+  color: var(--ds-color-muted);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+  cursor: default;
+}
+
+.feed-tab:hover,
+.feed-add:hover {
+  background: var(--ds-color-hover);
+}
+
+.feed-tab[data-active] {
+  background: var(--ds-color-selection);
+  color: var(--ds-color-fg);
+  font-weight: var(--weight-emphasis, 600);
+}
+
+.feed-triage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--feed-triage);
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--ds-color-separator);
+  color: var(--ds-color-muted);
+}
+
+.feed-triage-search {
+  color: var(--ds-color-faint);
+}
+
+.feed-filter {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-size: var(--text-detail);
+  outline: none;
+  user-select: text;
+}
+
+.feed-filter::placeholder {
+  color: var(--ds-color-faint);
+}
+
+/* MARK: - Detail */
+
+.feed-detail {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.feed-detail-toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  height: var(--feed-bar);
+  padding: 0 12px;
+  border-bottom: 1px solid var(--ds-color-separator);
+}
+
+.feed-detail-scroll {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.feed-inbox[data-density="compact"] .feed-detail-scroll {
+  padding: 16px;
+}
+
+.feed-detail-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.feed-detail-head .feed-glyph {
+  margin-top: 4px;
+}
+
+.feed-detail-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.feed-detail-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: var(--weight-emphasis, 600);
+  user-select: text;
+}
+
+.feed-thread {
+  display: flex;
+  flex-direction: column;
+  padding-top: 8px;
+  border-top: 1px solid var(--ds-color-separator);
+}
+
+.feed-thread .feed-row {
+  margin: 0;
+}
+
+.feed-github {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.feed-github-title {
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: var(--weight-emphasis, 600);
+}
+
+.feed-github-ref {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: var(--text-caption);
+  color: var(--ds-color-muted);
+}
+
+.feed-github-body {
+  margin: 0;
+  font-size: var(--text-detail);
+  color: var(--ds-color-muted);
+}
+
+.feed-github-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.feed-github-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-caption);
+  color: var(--ds-color-muted);
+}
+
+.feed-github-line[data-failed] {
+  color: var(--ds-color-danger);
+}
+
+.feed-github-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--ds-radius-lg, 8px);
+  background: var(--ds-color-elevated);
+}
+
+.feed-github-actions-title {
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis, 600);
+  color: var(--ds-color-muted);
+}
+
+.feed-github-error {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-caption);
+  color: var(--ds-color-danger);
+}
+
+/* MARK: - Reports basket */
+
+.feed-reports {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.feed-reports-column {
+  display: flex;
+  flex: 0 1 380px;
+  flex-direction: column;
+  min-width: 340px;
+  max-width: 420px;
+  min-height: 0;
+  border-inline-end: 1px solid var(--ds-color-separator);
+}
+
+.feed-reports-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--ds-color-separator);
+}
+
+.feed-reports-title {
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: var(--weight-emphasis, 600);
+}
+
+.feed-reports-subtitle {
+  font-size: var(--text-caption);
+  color: var(--ds-color-faint);
+}
+
+.feed-reports-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.feed-reports-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  color: var(--ds-color-muted);
+}
+
+.feed-reports-empty-hint {
+  font-size: var(--text-caption);
+  color: var(--ds-color-faint);
+}
+
+.feed-report-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  color: var(--ds-color-muted);
+  text-align: start;
+  cursor: default;
+}
+
+.feed-report-row:hover {
+  background: var(--ds-color-hover);
+}
+
+.feed-report-row.selected {
+  background: var(--ds-color-selection);
+}
+
+.feed-report-row .feed-icon {
+}
+
+.feed-report-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.feed-report-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.feed-report-sender {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-detail);
+  font-weight: var(--weight-emphasis, 600);
+  color: var(--ds-color-fg);
+}
+
+.feed-report-time {
+  flex: none;
+  font-size: var(--text-caption);
+  color: var(--ds-color-faint);
+}
+
+.feed-report-body {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+.feed-reports-side {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.feed-reports-pick {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  color: var(--ds-color-faint);
+}
+
+.feed-report-detail {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.feed-report-detail-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border-bottom: 1px solid var(--ds-color-separator);
+}
+
+.feed-report-detail-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: var(--weight-emphasis, 600);
+}
+
+.feed-report-detail-from {
+  font-size: var(--text-caption);
+  color: var(--ds-color-faint);
+}
+
+.feed-report-detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  border-bottom: 1px solid var(--ds-color-separator);
+}
+
+.feed-report-detail-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.feed-report-not-sent {
+  margin: 0;
+  padding: 8px 16px 0;
+  font-size: var(--text-caption);
+  color: var(--ds-color-danger);
+}
+
+.feed-report-reply {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+}
+
+/* The reply grows with its text, one line to four. */
+.feed-report-field {
+  height: auto;
+  min-height: 28px;
+  max-height: calc(4 * var(--text-detail--line-height) + 8px);
+  padding: 4px 8px;
+  resize: none;
+  field-sizing: content;
+  font-family: inherit;
+  line-height: var(--text-detail--line-height);
+}
+
+/* MARK: - Needs you (Home's pinned section) */
+
+.feed-needs {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border-radius: var(--ds-radius-xl, 12px);
+  background: var(--ds-color-elevated);
+  box-shadow: var(--elevation-1);
+}
+
+:root:not([data-borders="none"]) .feed-needs {
+  outline: 1px solid var(--ds-color-separator);
+  outline-offset: -1px;
+}
+
+.feed-needs-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  font-size: var(--text-caption);
+}
+
+.feed-needs-title {
+  font-weight: var(--weight-emphasis, 600);
+  color: var(--ds-color-muted);
+}
+
+.feed-needs-count {
+  color: var(--ds-color-faint);
+}
+
+.feed-needs-more {
+  margin-inline-start: auto;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--ds-radius-sm, 4px);
+  background: transparent;
+  color: var(--ds-color-muted);
+  font-size: var(--text-caption);
+  cursor: default;
+}
+
+.feed-needs-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--feed-needs-row);
+}
+
+.feed-needs-row.pending {
+  opacity: 0.55;
+}
+
+.feed-needs-opener {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  cursor: default;
+}
+
+.feed-needs-opener:hover {
+  background: var(--ds-color-hover);
+}
+
+.feed-needs[data-style="bar"] .feed-needs-opener {
+  min-height: var(--feed-needs-row);
+}
+
+.feed-needs-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.feed-needs-headline {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: var(--weight-emphasis, 600);
+}
+
+.feed-needs-meta {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  color: var(--ds-color-faint);
+}
+
+.feed-needs-meta.secondary {
+  color: var(--ds-color-muted);
+}
+
+.feed-needs-answers {
+  flex: none;
+  padding-inline-end: 4px;
+}
+
+.feed-needs .feed-card {
+  border-bottom: 0;
+  border-radius: var(--ds-radius-md);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed-row,
+  .feed-card {
+    transition: none;
+  }
+}

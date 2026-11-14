@@ -14,6 +14,7 @@ const state = {
   sideSessions: true,
   session: true,
   isSideSession: false,
+  sideFork: undefined as "unavailable" | "nothingYet" | undefined,
   targets: [{ id: "codex", name: "Codex" }],
 };
 const refusal = (text: string, overrides: Partial<typeof state> = {}) => {
@@ -30,9 +31,10 @@ test("owned commands are recognized independently of menu availability, even wit
 });
 
 test("disabled and malformed commands return reasons rather than dispatching", () => {
-  expect(refusal("/side", { forkable: false })).toBe("composer.cmuxSideUnavailable");
   expect(refusal("/side", { sideAvailable: false })).toBe("composer.cmuxSideUnavailable");
-  expect(refusal("/side question")).toBe("composer.cmuxSideUnavailable");
+  expect(refusal("/side question", { sideAvailable: false })).toBe("composer.cmuxSideUnavailable");
+  expect(refusal("/side", { sideFork: "unavailable" })).toBe("composer.cmuxForkBusy");
+  expect(refusal("/side", { sideFork: "nothingYet" })).toBe("notice.forkNothingYet");
   expect(refusal("/fork", { forkable: false })).toBe("composer.cmuxForkBusy");
   expect(refusal("/continue codex", { canContinue: false })).toBe("composer.cmuxContinueBusy");
   expect(refusal("/status", { summary: false })).toBe("composer.cmuxStatusUnavailable");
@@ -41,6 +43,12 @@ test("disabled and malformed commands return reasons rather than dispatching", (
   expect(refusal("/btw")).toBe("composer.cmuxBtwQuestion");
   expect(refusal("/continue nope")).toBe("composer.cmuxContinueUnknown");
   expect(refusal("/btw question", { session: false })).toBe("composer.cmuxUnavailable");
+});
+
+test("/side takes a prompt for the side chat and works while the chat's turn runs (#38042)", () => {
+  // A working chat is not `forkable` (that is /fork's rule); /side forks it as it is now.
+  expect(refusal("/side", { forkable: false })).toBeUndefined();
+  expect(refusal("/side sketch a second approach", { forkable: false })).toBeUndefined();
 });
 
 test("valid commands retain their actions", () => {

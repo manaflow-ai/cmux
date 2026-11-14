@@ -73,6 +73,8 @@ public final class GatedHomeSource: HomeSource, @unchecked Sendable {
     public func agentSessions(_ peers: [String], of conversation: ConversationID) async -> [HomeAgentSessionRef] {
         await inner.agentSessions(peers, of: conversation)
     }
+
+    public func agentStarts() async -> AsyncStream<Set<String>> { await inner.agentStarts() }
     public func search(_ query: String, limit: Int) async throws -> [HomeSearchHit] { try await inner.search(query, limit: limit) }
     public func resolve(_ contact: ContactAddress) async throws -> ContactResolution { try await inner.resolve(contact) }
     public func upload(_ file: AttachmentUpload) async throws -> AttachmentRef { try await inner.upload(file) }

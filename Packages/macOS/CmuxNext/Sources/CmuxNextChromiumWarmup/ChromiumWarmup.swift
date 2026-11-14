@@ -120,6 +120,8 @@ public final class ChromiumWarmup {
         // Whenever no spare window is ready (taken, or a tab started Chromium itself), the next
         // idle moment makes one, so a new Chromium tab joins a live window (CEFSpareWindow, PL-cef-tab).
         engine.onSpareWindowNeeded = { [weak self] in self?.spareNeeded() }
+        // The page the person waits for arrived: a spare that waited for it is made at the next idle moment.
+        engine.onPagesArrived = { [weak self] in self?.pagesSettled() }
         launchTimer.schedule(after: policy.launchPreloadDelay) { @MainActor [weak self] in
             guard let self, !stopped else { return }
             // While new browser tabs open in Chromium, any browser tab is a Chromium tab: start it
@@ -170,8 +172,10 @@ public final class ChromiumWarmup {
         waitForIdle { [weak self] in
             guard let self else { return }
             // A page being made builds its own window: the spare waits until the pages settle
-            // (`pagesSettled`) instead of racing that window (os-smoke 2026-10-18).
-            if pagesPending() {
+            // (`pagesSettled`) instead of racing that window (os-smoke 2026-10-18). So does a page the
+            // person waits for (`CEFEngine.pagesArriving`): a window built or a spare page made in its
+            // load held its first paint for seconds under load (Leo 2026-11-05).
+            if pagesPending() || engine.pagesArriving {
                 spareWaitsForPages = true
                 return
             }
@@ -179,8 +183,8 @@ public final class ChromiumWarmup {
         }
     }
 
-    /// No Chromium page is being made any more (the cache's pending set emptied): a spare that
-    /// waited for that is made at the next idle moment.
+    /// No Chromium page is being made any more (the cache's pending set emptied), or the page the
+    /// person waited for arrived: a spare that waited for that is made at the next idle moment.
     public func pagesSettled() {
         guard spareWaitsForPages else { return }
         spareWaitsForPages = false

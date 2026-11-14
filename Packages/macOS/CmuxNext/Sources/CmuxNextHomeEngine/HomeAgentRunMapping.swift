@@ -14,13 +14,14 @@ nonisolated enum HomeAgentRunMapping {
             if let spawned = spawned(step) {
                 // A spawn is the Chief's first message to each agent it started: its task (with the `Title:` line
                 // the agent's pill and chat are named by; user 2026-11-04, msg 21664).
-                return spawned.map { peer, task in
+                return spawned.map { peer, task, queued in
                     HomeAgentRun.Message(id: "\(step.id):\(peer)", sequence: step.seq ?? 0, revision: step.rev ?? 0, peer: peer,
-                                         outgoing: true, text: task, date: date, sender: step.tool?.input?.sender)
+                                         outgoing: true, text: task, date: date, sender: step.tool?.input?.sender, queued: queued)
                 }
             }
             let peer: String, text: String, outgoing: Bool
             var sender: String?
+            var queued = false
             if step.kind == "tool", let tool = step.tool,
                (["tell", "optchat.tell", "mcp__optchat__tell"].contains(tool.name) || tool.input?.isTellEnvelope == true),
                let id = tool.input?.id, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -35,6 +36,8 @@ nonisolated enum HomeAgentRunMapping {
                 }
                 (peer, text, outgoing) = (id, body, true)
                 sender = tool.input?.sender
+                // A tell to an agent still in the Chief's queue waits with it (optchat-chief: "outcome: queued.").
+                queued = reason == "outcome: queued" || reason.hasPrefix("outcome: queued.")
             } else if step.kind == "note", step.id.hasPrefix("report:"), let body = step.text,
                       body.hasPrefix("["), let end = body.range(of: "] ") {
                 peer = String(body.dropFirst().prefix(upTo: end.lowerBound))
@@ -44,24 +47,28 @@ nonisolated enum HomeAgentRunMapping {
                 return []
             }
             return [HomeAgentRun.Message(id: step.id, sequence: step.seq ?? 0, revision: step.rev ?? 0,
-                                         peer: peer, outgoing: outgoing, text: text, date: date, sender: sender)]
+                                         peer: peer, outgoing: outgoing, text: text, date: date, sender: sender,
+                                         queued: queued)]
         })
     }
 
-    /// A finished `spawn` step's agents and their tasks: its answer has one `- a<N>: …` line per task, in task order,
-    /// whether it started, was queued or failed (optchat-chief subagents.rs). Nil for any other step, a spawn with
+    /// A finished `spawn` step's agents, their tasks and whether each waits in the Chief's queue: its answer has one
+    /// `- a<N>: …` line per task, in task order, whether it started, was queued (`- a<N>: queued (…)`) or failed
+    /// (optchat-chief subagents.rs). Nil for any other step, a spawn with
     /// no answer yet, or an answer whose lines name a different count of agents than it had tasks (a wrong name is
     /// worse than none).
-    private static func spawned(_ step: ConversationRunRows.Step) -> [(peer: String, task: String)]? {
+    private static func spawned(_ step: ConversationRunRows.Step) -> [(peer: String, task: String, queued: Bool)]? {
         guard step.kind == "tool", let tool = step.tool, let tasks = tool.input?.tasks, !tasks.isEmpty,
               ["spawn", "optchat.spawn", "mcp__optchat__spawn"].contains(tool.name) || tool.input?.isSpawnEnvelope == true,
               let output = tool.output else { return nil }
-        let ids = output.split(separator: "\n").compactMap { line -> String? in
+        let ids = output.split(separator: "\n").compactMap { line -> (id: String, queued: Bool)? in
             guard line.hasPrefix("- a"), let colon = line.firstIndex(of: ":") else { return nil }
             let id = line[line.index(line.startIndex, offsetBy: 2)..<colon]
-            return id.count > 1 && id.dropFirst().allSatisfy { $0.isASCII && $0.isNumber } ? String(id) : nil
+            guard id.count > 1, id.dropFirst().allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+            let outcome = line[line.index(after: colon)...].drop { $0 == " " }
+            return (String(id), outcome == "queued" || outcome.hasPrefix("queued ") || outcome.hasPrefix("queued("))
         }
         guard ids.count == tasks.count else { return nil }
-        return Array(zip(ids, tasks))
+        return zip(ids, tasks).map { ($0.id, $1, $0.queued) }
     }
 }

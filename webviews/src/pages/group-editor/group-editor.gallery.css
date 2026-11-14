@@ -1,0 +1,14 @@
+/* The gallery's stand-in for the native bubble: the glass card the app draws behind the page, at
+   the bubble's width (Metrics.space6 * 15). */
+.group-editor-gallery {
+  display: flex;
+  justify-content: center;
+  padding: var(--ds-space-5);
+}
+
+.group-editor-gallery-card {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-tint), transparent);
+  --glass-backdrop: var(--ds-glass-menu-blur);
+  width: calc(240px * var(--cmux-interface-scale, 1));
+  border-radius: var(--ds-radius-popup);
+}

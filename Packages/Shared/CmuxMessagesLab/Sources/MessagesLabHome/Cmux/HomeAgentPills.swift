@@ -93,8 +93,11 @@ struct HomeAgentPills {
     }
 
     /// The agent whose pill holds `point` (row coordinates), or nil.
-    func peer(at point: CGPoint) -> String? {
-        pills.first { $0.rect.insetBy(dx: -2, dy: -2).contains(point) }?.peer
+    func peer(at point: CGPoint) -> String? { pill(at: point)?.peer }
+
+    /// The pill that holds `point` (row coordinates), or nil.
+    func pill(at point: CGPoint) -> Pill? {
+        pills.first { $0.rect.insetBy(dx: -2, dy: -2).contains(point) }
     }
 
     func draw(_ ctx: CGContext, origin: CGPoint) {
@@ -138,6 +141,7 @@ struct HomeAgentPills {
                 let status = switch pill.state {
                 case "reported": "Reported · \(pill.peer)"
                 case "stopped": "Stopped without a report · \(pill.peer)"
+                case "queued": "Queued · \(pill.peer)"
                 default: "Working · \(pill.peer)"
                 }
                 let sub = NSAttributedString(string: status, attributes: [.font: HomeFonts.system(ofSize: 12, weight: .regular), .foregroundColor: muted])
@@ -184,7 +188,8 @@ private func chevron(_ ctx: CGContext, center c: CGPoint, color: NSColor) {
     ctx.restoreGState()
 }
 
-/// The status icon: a check (reported), a cross (stopped), else a spinner arc (working).
+/// The status icon: a check (reported), a cross (stopped), a clock (queued: waiting for a free slot, not started),
+/// else a spinner arc (working).
 private func icon(_ ctx: CGContext, state: String, center c: CGPoint, size: CGFloat, color: NSColor) {
     let r = size / 2 - 1.5
     ctx.saveGState()
@@ -204,6 +209,13 @@ private func icon(_ ctx: CGContext, state: String, center c: CGPoint, size: CGFl
         let k = r * 0.38
         ctx.move(to: CGPoint(x: c.x - k, y: c.y - k)); ctx.addLine(to: CGPoint(x: c.x + k, y: c.y + k))
         ctx.move(to: CGPoint(x: c.x + k, y: c.y - k)); ctx.addLine(to: CGPoint(x: c.x - k, y: c.y + k))
+        ctx.strokePath()
+    case "queued":
+        // A still clock, not the turning arc: nothing runs yet (user 2026-11-05: a queued agent said Working).
+        ctx.strokeEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
+        ctx.move(to: CGPoint(x: c.x, y: c.y - r * 0.55))
+        ctx.addLine(to: CGPoint(x: c.x, y: c.y))
+        ctx.addLine(to: CGPoint(x: c.x + r * 0.42, y: c.y + r * 0.3))
         ctx.strokePath()
     default:
         ctx.setStrokeColor(color.withAlphaComponent(0.25).cgColor)

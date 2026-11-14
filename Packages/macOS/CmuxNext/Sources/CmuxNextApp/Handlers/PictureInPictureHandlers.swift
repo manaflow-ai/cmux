@@ -3,6 +3,7 @@ import CmuxNextBrowser
 import CmuxNextNowPlaying
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextWindowRules
 
 /// Picture in Picture for a browser tab's video, in either engine: the
 /// tab's menu, the palette, a key bound to it, the media card's menu, the CLI
@@ -41,22 +42,16 @@ enum PictureInPictureHandlers {
                 Task { [weak registry] in if let why = await work.value { registry?.refuse(why) } }
             }
         })
-        // A tab's menu offers it on a page that plays (or played) a video; the media card's menu
-        // (no target) while the card shows a tab's video.
-        ActionTargetVisibility.hide(actionID, in: registry) { invocation in
-            guard enabled() else { return true }
-            guard let target = invocation.target else { return card(cache)?.canPictureInPicture != true }
-            return target.kind == .tab && cache.existingBrowser(target.id)?.tab.state.media?.isVideo != true
+        // A tab's menu offers it on a page with a video, the card's while it shows one; a floating one reads Exit (`browser::pip_row`).
+        let row: @MainActor (ActionInvocation) -> WindowRules.PipRow? = { invocation in
+            let (target, shown) = (invocation.target, invocation.target == nil ? card(cache) : nil)
+            let media = target.flatMap { $0.kind == .tab ? cache.existingBrowser($0.id)?.tab.state.media : nil }
+            return WindowRules().pipRow(.init(enabled: enabled(), target: target.map { $0.kind == .tab ? "tab" : "other" } ?? "card",
+                                              video: media?.isVideo ?? shown?.canPictureInPicture ?? false,
+                                              floating: media?.isPictureInPicture ?? shown?.isPictureInPicture ?? false))
         }
-        // On a floating video the row reads as what it does.
-        ActionTargetTitles.set(actionID, in: registry) { invocation in
-            guard let target = invocation.target else {
-                return card(cache)?.isPictureInPicture == true ? PictureInPictureStrings.exit : nil
-            }
-            guard target.kind == .tab,
-                  cache.existingBrowser(target.id)?.tab.state.media?.isPictureInPicture == true else { return nil }
-            return PictureInPictureStrings.exit
-        }
+        ActionTargetVisibility.hide(actionID, in: registry) { row($0)?.hidden ?? true }
+        ActionTargetTitles.set(actionID, in: registry) { row($0)?.exit == true ? PictureInPictureStrings.exit : nil }
     }
 
     /// `media.pictureInPicture.enabled`: cmux offers Picture in Picture (on when Settings are not loaded).
@@ -79,19 +74,26 @@ enum PictureInPictureHandlers {
     /// workspace); else the focused tab's, whose script may still find a
     /// video that never played.
     private static func page(_ ctx: AppActionContext, _ invocation: ActionInvocation) -> (any BrowserTab)? {
-        let cache = ctx.services.cache
-        if invocation.target?.kind == .tab || invocation["tab"]?.targetValue != nil {
+        let cache = ctx.services.cache, naming = invocation.target?.kind == .tab || invocation["tab"]?.targetValue != nil
+        var named: (any BrowserTab)?
+        if naming {
             guard let (tab, _) = ctx.daemonTab(invocation) else { return nil }
-            return cache.existingBrowser(tab.id)?.tab ?? ctx.refuse(PictureInPictureStrings.needsPage)
+            named = cache.existingBrowser(tab.id)?.tab
         }
+        // The card's tab by its page's tab id (a moved or adopted page keeps another key); runs only on this action.
         let shown = cache.pageRequests.sidebarNowPlaying.shownTab.flatMap { playing in
             cache.browsers.values.first(where: { $0.tab.id == playing })?.tab
         }.flatMap { $0.state.media?.isVideo == true ? $0 : nil }
-        if invocation[cardArgument]?.boolValue == true { return shown ?? ctx.refuse(PictureInPictureStrings.noVideo) }
-        let selected = ctx.services.windows.active?.focusedPane?.stripModel.selectedID
-        let focused = selected.flatMap { cache.existingBrowser($0.rawValue)?.tab }
-        if let focused, focused.state.media?.isVideo == true { return focused }
-        return shown ?? focused ?? ctx.refuse(PictureInPictureStrings.noVideo)
+        let focused = ctx.services.windows.active?.focusedPane?.stripModel.selectedID.flatMap { cache.existingBrowser($0.rawValue)?.tab }
+        let facts = WindowRules.PipFacts(named: naming, namedPage: named != nil, card: invocation[cardArgument]?.boolValue == true,
+                                         shownVideo: shown != nil, focused: focused != nil, focusedVideo: focused?.state.media?.isVideo == true)
+        switch WindowRules().pipPage(facts) { // cmux-window-rules `browser::pip_page`
+        case .named?: return named
+        case .shown?: return shown
+        case .focused?: return focused
+        case .needsPage?: return ctx.refuse(PictureInPictureStrings.needsPage)
+        case .noVideo?, nil: return ctx.refuse(PictureInPictureStrings.noVideo)
+        }
     }
 }
 

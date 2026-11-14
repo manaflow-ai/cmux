@@ -91,6 +91,19 @@ impl NewFolders {
         self.state.lock_or_recover().stop = true;
         self.wake.notify_all();
     }
+
+    /// The seal's last checkpoint succeeded (`Inner::last_checkpoint`): it synced `sessions/`
+    /// after every folder noted here was made (a save made after the seal is refused), so each
+    /// is durable, and the gate passes their records once the journal's are. The journal's
+    /// writer then ends at the handover; without this, a reply held for such a folder would be
+    /// dropped with its connection.
+    pub(super) fn synced_at_seal(&self) {
+        let mut state = self.state.lock_or_recover();
+        state.unsynced.clear();
+        if let Some(durable) = self.durable.upgrade() {
+            state.publish(&durable);
+        }
+    }
 }
 
 impl Inner {

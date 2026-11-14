@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { bakeOptionsFromArgv, layerFlags } from "../scripts/cmux-vm-image/bake";
+import { acpmuxLoginEnvRefreshCommand, bakeOptionsFromArgv, layerFlags } from "../scripts/cmux-vm-image/bake";
 import { DEFAULT_LOCK_PATH } from "../scripts/cmux-vm-image/lock";
 import {
   agentProgramsText,
@@ -248,6 +248,19 @@ describe("baked npm cache", () => {
     // The guest runs steps with /bin/sh (dash): no bash-only options.
     expect(cmd).not.toContain("pipefail");
     expect(cmd).toContain("rm -rf /tmp/cmux-npm-prefill /home/cmux/.npm/_cacache");
+  });
+
+  test("clean.py drops acpmux's login-shell cache, so a clone reads its own login shell", () => {
+    const clean = readFileSync(path.join(repoRoot, "images/cmux-vm/guest/clean.py"), "utf8");
+    expect(clean).toContain('"/home/cmux/.acpmux/login-env.json"');
+  });
+
+  test("the bake restarts acpmux after the model plane, so the snapshot's daemon read the final login shell", () => {
+    const cmd = acpmuxLoginEnvRefreshCommand();
+    const bake = readFileSync(path.join(repoRoot, "web/scripts/cmux-vm-image/bake.ts"), "utf8");
+    expect(bake.indexOf('"acpmux-login-env"')).toBeGreaterThan(bake.indexOf('"model-plane-env"'));
+    expect(cmd.indexOf('rm -f "$cache"')).toBeLessThan(cmd.indexOf("systemctl --user restart acpmux.service"));
+    expect(cmd).toContain('grep -q OPENAI_API_KEY "$cache"');
   });
 
   test("clean.py keeps the work user's npm cache content and nothing else under ~/.npm", () => {

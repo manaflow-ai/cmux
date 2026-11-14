@@ -6,8 +6,14 @@ import CmuxNextCompat
 /// The terminals' last frames, saved at quit and drawn over each terminal at launch until its live
 /// content draws (launch-speed-first: "the first frame is never blank"). A terminal pane is held
 /// clear for launch until its first live frame (`LaunchSettle`): about 150 ms on a capture mini
-/// with the daemon running, seconds when it starts cold. One JPEG per tab, named with its scale, as
-/// the agent pages' last pages are (`AgentPaneLaunchImages`); each is handed out once per launch. The
+/// with the daemon running, seconds when it starts cold. One image per tab, named with its scale, as
+/// the agent pages' last pages are (`AgentPaneLaunchImages`); each is handed out once per launch. A frame with
+/// clear pixels (a see-through window, where the terminal draws no background of its own;
+/// `CGImage.showsClearPixels`) is a PNG that keeps them, so the pane's glass shows through it as through the live
+/// terminal; a JPEG has no alpha and painted them one opaque color (white) until the live frame drew (Leo,
+/// 2026-11-07: "why did the background task become a white background?"). An opaque frame stays a JPEG. Either
+/// keeps the one name a frame always had (`<key>@<scale>x.jpg`; the read tells the formats apart by their bytes), so
+/// a key never has two files and a keeper write racing the quit's save replaces one file, as before. The
 /// launch reads and decodes every frame off the main thread from its start (``prefetch(on:keep:mark:markAt:)``, in
 /// the app's `main` before `NSApplication.run`): a pane shows its frame at once when the read has ended
 /// (``LaunchRead``: no main-actor hop), never waiting for it; one shown before then stays held clear, as with
@@ -448,9 +454,9 @@ public final class TerminalLaunchFrames {
 
     /// Replaces the saved frames with `images` (by tab key, at their point size); the files of the keys in `keeping`
     /// stay as they are (terminals on screen with no new frame).
-    func save(images: [String: NSImage], keeping: Set<String> = []) async {
+    func save(images: [String: NSImage], keeping: Set<String> = [], maximumBytes: Int = maximumBytes) async {
         guard let directory else { return }
-        // NSImage stays on the main actor; the JPEG encode and the writes run detached.
+        // NSImage stays on the main actor; the encode (and its choice of PNG or JPEG) and the writes run detached.
         var frames: [String: CGImage] = [:]
         var keeping = keeping
         for (key, image) in images where Self.isFileSafe(key) {
@@ -461,7 +467,7 @@ public final class TerminalLaunchFrames {
             }
             frames["\(key)@\(max(1, min(3, Int((CGFloat(frame.width) / image.size.width).rounded()))))x.jpg"] = frame
         }
-        await Task.detached { [keeping] in Self.write(frames, keeping: keeping, to: directory) }.value
+        await Task.detached { [keeping] in Self.write(frames, keeping: keeping, to: directory, maximumBytes: maximumBytes) }.value
     }
 
     /// Every saved frame in `directory`, decoded, with its point size and scale, by tab key (for each
@@ -483,19 +489,32 @@ public final class TerminalLaunchFrames {
         return frames
     }
 
-    private nonisolated static func write(_ frames: [String: CGImage], keeping: Set<String>, to directory: URL) {
+    private nonisolated static func write(_ frames: [String: CGImage], keeping: Set<String>, to directory: URL, maximumBytes: Int) {
         let manager = FileManager.default
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        var keeping = keeping
+        for (name, frame) in frames {
+            let url = directory.appending(path: name)
+            // A frame that is not written (it does not encode within the read's cap, or its write fails) keeps every
+            // file its key had, at any scale: the cleanup comes after the writes.
+            guard let data = encoded(frame, maximumBytes: maximumBytes), (try? data.write(to: url, options: [.atomic])) != nil else {
+                owner(of: name).map { _ = keeping.insert($0) }
+                continue
+            }
+            try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where frames[old] == nil {
             guard !keeping.contains(owner(of: old) ?? old) else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
         }
-        for (name, frame) in frames {
-            let url = directory.appending(path: name)
-            guard let data = NSBitmapImageRep(cgImage: frame).representation(using: .jpeg, properties: [.compressionFactor: 0.9]),
-                  (try? data.write(to: url, options: [.atomic])) != nil else { continue }
-            try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        }
+    }
+
+    /// The frame's file data: a PNG with clear pixels, else a JPEG; nil when it does not encode or is larger than the read
+    /// takes (`maximumBytes`), so a frame is never saved as a file the next launch refuses.
+    nonisolated static func encoded(_ frame: CGImage, maximumBytes: Int = maximumBytes) -> Data? {
+        guard let data = frame.pageImageData(png: frame.showsClearPixels, jpegQuality: jpegQuality), data.count <= maximumBytes
+        else { return nil }
+        return data
     }
 
     /// Writes one terminal's frame (the keeper), replacing the key's file at any scale; with `keeping`, also removes the
@@ -503,20 +522,23 @@ public final class TerminalLaunchFrames {
     /// is asked again after the encode and before the cleanup: a quit that stopped the keeper meanwhile writes every
     /// frame itself, so a write that started before it neither lands over those frames nor prunes them.
     nonisolated static func writeOne(_ frame: CGImage, key: String, scale: Int, to directory: URL, keeping: Set<String>?,
-                                     stillWanted: () -> Bool = { true }) {
+                                     maximumBytes: Int = maximumBytes, stillWanted: () -> Bool = { true }) {
         let manager = FileManager.checked
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let name = "\(key)@\(scale)x.jpg"
         let url = directory.appending(path: name)
-        if let data = NSBitmapImageRep(cgImage: frame).representation(using: .jpeg, properties: [.compressionFactor: 0.9]),
+        var saved = false
+        if let data = encoded(frame, maximumBytes: maximumBytes),
            stillWanted(),
            (try? data.blockingWrite(to: url, options: [.atomic])) != nil {
             try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            saved = true
         }
         guard stillWanted() else { return }
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old != name {
-            // Only saved frames: another write's file before its rename (the quit's, beside this one) is left alone.
-            guard let tab = owner(of: old), tab == key || keeping.map({ !$0.contains(tab) }) == true else { continue }
+            // Only saved frames: another write's file before its rename (the quit's, beside this one) is left alone. The
+            // key's frames at other scales go only once its new one is written.
+            guard let tab = owner(of: old), tab == key ? saved : keeping.map({ !$0.contains(tab) }) == true else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
         }
     }
@@ -528,6 +550,9 @@ public final class TerminalLaunchFrames {
             try? manager.removeItem(at: directory.appending(path: old))
         }
     }
+
+    /// The quality of a frame saved as a JPEG (an opaque frame).
+    nonisolated static let jpegQuality = 0.9
 
     /// The tab key of a saved frame (`<key>@<scale>x.jpg`, scale 1 to 3); nil for any other file, such as Foundation's
     /// atomic-write file beside one before its rename (`<key>@2x.jpg.sb-<id>`).

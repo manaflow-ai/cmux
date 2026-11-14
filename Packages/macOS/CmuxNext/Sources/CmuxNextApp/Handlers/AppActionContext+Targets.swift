@@ -5,6 +5,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextLayout
+import CmuxNextWindowRules
 import os
 
 // Strict target resolution and typed refusals for handlers. An explicit
@@ -124,10 +125,14 @@ extension AppActionContext {
     }
 
     func explicitTarget(_ invocation: ActionInvocation, kinds: Set<ActionTargetKind>) -> ActionTargetRef? {
-        for candidate in [invocation.target, invocation["tab"]?.targetValue, invocation["pane"]?.targetValue] {
-            if let candidate, kinds.contains(candidate.kind) { return candidate }
-        }
-        return nil
+        Self.explicitTarget([invocation.target, invocation["tab"]?.targetValue, invocation["pane"]?.targetValue], kinds: kinds)
+    }
+
+    /// The explicit target among `candidates` (the target, then arguments): the first of one of
+    /// `kinds` (cmux-window-rules `targets::explicit`).
+    nonisolated static func explicitTarget(_ candidates: [ActionTargetRef?], kinds: Set<ActionTargetKind>) -> ActionTargetRef? {
+        let refs = candidates.map { $0.map { WindowRules.TargetRef(kind: $0.kind.rawValue, id: $0.id) } }
+        return WindowRules().explicitTarget(refs, kinds: kinds.map(\.rawValue).sorted()).flatMap { candidates.indices.contains($0) ? candidates[$0] : nil }
     }
 
     var focusedContent: WorkspaceContentController? { services.windows.active?.content }

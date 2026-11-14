@@ -28,8 +28,8 @@
 #   directory has no such modules, so it is neither guarded nor retried.
 #
 # CMUX_NEXT_BROWSER_DATA_IMPORT=compiled-out compiles the browser-data import
-# out exactly as nightly.yml does for every nightly-next build (cx-f58x: Apple
-# notarizes cmux-next only without it): OTHER_SWIFT_FLAGS gains
+# out exactly as nightly.yml's compiled-out switch does (cx-f58x: Apple held
+# the import from 2026-10-09 to 2026-11-06): OTHER_SWIFT_FLAGS gains
 # -DCMUX_NO_PASSWORD_IMPORT -DCMUX_NO_BROWSER_DATA_IMPORT and
 # browser-sources.json is emptied for the build, then restored. Any other
 # value (the default) builds the import in. The caller proves the result with

@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "keybinding.error.invalidBinding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This shortcut can't be saved. Check its keys and its When clause."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر حفظ هذا الاختصار. تحقّق من مفاتيحه ومن شرط When."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova prečica se ne može sačuvati. Provjerite njene tipke i uslov When."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne genvej kan ikke gemmes. Tjek dens taster og dens When-betingelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Tastenkürzel kann nicht gespeichert werden. Prüfe seine Tasten und seine When-Bedingung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede guardar este atajo. Revisa sus teclas y su cláusula When."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d'enregistrer ce raccourci. Vérifiez ses touches et sa clause When."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile salvare questa scorciatoia. Controlla i tasti e la clausola When."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このショートカットは保存できません。キーと When 句を確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចរក្សាទុកផ្លូវកាត់នេះបានទេ។ សូមពិនិត្យគ្រាប់ចុច និងលក្ខខណ្ឌ When របស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 단축키를 저장할 수 없습니다. 키와 When 절을 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne snarveien kan ikke lagres. Sjekk tastene og When-betingelsen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można zapisać tego skrótu. Sprawdź jego klawisze i warunek When."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível salvar este atalho. Verifique as teclas e a cláusula When."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось сохранить это сочетание. Проверьте клавиши и условие When."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึกทางลัดนี้ไม่ได้ ตรวจสอบปุ่มและเงื่อนไข When ของทางลัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu kısayol kaydedilemiyor. Tuşlarını ve When koşulunu kontrol edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося зберегти це сполучення. Перевірте клавіші та умову When."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể lưu phím tắt này. Hãy kiểm tra các phím và mệnh đề When."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存此快捷键。请检查其按键和 When 条件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法儲存此快速鍵。請檢查其按鍵與 When 條件。"
+          }
+        }
+      }
+    },
     "keybinding.error.editingUnsupported": {
       "extractionState": "manual",
       "localizations": {

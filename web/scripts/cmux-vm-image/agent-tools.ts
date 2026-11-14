@@ -25,9 +25,9 @@
  *   writes that for the work user when the file does not exist (the machine has no app to
  *   ask). The Claude Code permission prompts and acpmux permission policies are unchanged.
  * - Desktop (role desktop): the person's view of the agent display is `cmux.rd/1` over the owner's
- *   Native link, service `desktop`. The boundary is the link's admission: the machine's link
- *   receiver (the session daemon's `__receive-vm`, which runs as the work user) admits only the
- *   owner's one-time link token for `desktop`, then connects RD_SOCKET; systemd starts RD_UNIT,
+ *   carrier, service `desktop`. The boundary is the carrier's admission: the machine's carrier
+ *   server (`cmux carrier serve`, which runs as the work user) admits only the owner's grant
+ *   for `desktop`, then connects RD_SOCKET; systemd starts RD_UNIT,
  *   the `cmux-rd` host on the agent display as its own system user RD_USER (no shell, no home,
  *   not in the work user's group, no sudo), which takes connections from the work user's uid only.
  *   On the machine the socket is not a boundary against the agent: the agent already reaches
@@ -381,6 +381,12 @@ export const RD_PEER_UID = DEVBOX_WORK_UID;
 export const RD_HOST_DIR = "/run/cmux-rd-host";
 /** The host's copy of the agent display's cookie (RD_USER 0600), made at each host start. */
 export const RD_XAUTHORITY = `${RD_HOST_DIR}/Xauthority-${AGENT_DISPLAY_NUMBER}`;
+/**
+ * The STUN server the cmux-rd host asks for its reflexive address when a session negotiates the
+ * UDP datagram link (cap link.udp, cmux-rd 0.2.3+). It resolves only then, so a host with no
+ * session holds no UDP socket; an unresolvable name leaves the link to host and relay candidates.
+ */
+export const RD_LINK_STUN = "stun.cloudflare.com:3478";
 /** StateDirectory: HOME and XDG_DATA_HOME of the host, where `cmux-rd openh264-install` puts Cisco's library. */
 export const RD_STATE_DIR = "/var/lib/cmux-rd";
 /** Written after the first successful `cmux-rd openh264-install`, so later starts skip the download. */
@@ -490,8 +496,8 @@ const RD_SANDBOX = [
 
 /**
  * `cmux-rd openh264-install` as RD_USER into its state dir, once (the marker): Cisco's binary,
- * downloaded over HTTPS from Cisco, never bundled. The only RD_USER unit that may open network
- * sockets; the host itself is AF_UNIX only.
+ * downloaded over HTTPS from Cisco, never bundled. The host itself opens no TCP socket, and UDP
+ * only for a session's datagram link (rdUnit).
  */
 export function rdOpenh264Unit(hostBin: string): string {
   return [
@@ -565,7 +571,7 @@ export function rdStartScript(
     `[ -S ${sq(x11)} ] || drain "display ${AGENT_DISPLAY} is not running"`,
     `[ -s ${sq(xauthority)} ] || drain "no copy of the display cookie at ${xauthority}"`,
     `[ -e ${sq(marker)} ] || drain "OpenH264 is not installed (${RD_OPENH264_UNIT} failed; the next connection tries again)"`,
-    `exec ${sq(hostBin)} host --listen-systemd --peer-uid ${RD_PEER_UID} --display ${AGENT_DISPLAY} --xauthority ${RD_XAUTHORITY} --codec openh264`,
+    `exec ${sq(hostBin)} host --listen-systemd --peer-uid ${RD_PEER_UID} --display ${AGENT_DISPLAY} --xauthority ${RD_XAUTHORITY} --codec openh264 --link-stun ${RD_LINK_STUN}`,
     "",
   ].join("\n");
 }
@@ -622,8 +628,11 @@ export function rdUnit(): string {
     `ExecStart=${RD_START_SCRIPT}`,
     ...RD_SANDBOX,
     "BindReadOnlyPaths=/tmp/.X11-unix",
-    // The activated socket and the X display are Unix sockets; the host opens nothing else.
-    "RestrictAddressFamilies=AF_UNIX",
+    // The activated socket and the X display are Unix sockets. AF_INET is the desktop's datagram
+    // link (cmuxterm-hq#7976): one ephemeral UDP socket per session the viewer offered a link for,
+    // reached only by that viewer's authenticated link, never a listening port; AF_NETLINK lists the
+    // interfaces for its host routes. Without them the host keeps every datagram on the stream.
+    "RestrictAddressFamilies=AF_UNIX AF_INET AF_NETLINK",
     "",
   ].join("\n");
 }

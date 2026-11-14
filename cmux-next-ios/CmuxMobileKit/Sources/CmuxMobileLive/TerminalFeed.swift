@@ -1,6 +1,7 @@
 import CmuxAgentQuestion
 import CmuxMobileFeed
 import CmuxMobileModel
+import CmuxMobileTransport
 import Foundation
 import OSLog
 
@@ -147,6 +148,10 @@ public final class TerminalFeed {
     private var macRead: Set<String> = []
     /// Tabs acknowledged from the phone, by the newest notification they covered.
     private var acked: [Int: Date] = [:]
+    /// The Feed items whose read is on its way to the Mac (`StickyRead`): kept across a new
+    /// connection to the same Mac, so the read goes on there and is never sent twice at once.
+    private var reading: Set<String> = []
+    var reads = StickyRead()
     /// Whether this connection's ledger has been read once (history merges, live inserts).
     private var hydrated = false
     /// The rows of this connection's first read: history, wherever they land.
@@ -301,9 +306,9 @@ public final class TerminalFeed {
     }
 
     /// The phone read these items (opened, swiped, marked): the Mac marks
-    /// their tabs read too, as its own panel does.
+    /// their tabs read too, as its own panel does, once its daemon answers.
     public func itemsChanged(_ items: [FeedItem]) {
-        guard let request, let connection, !macID.isEmpty else { return }
+        guard request != nil, connection != nil, !macID.isEmpty else { return }
         let byID = Dictionary(entries.map { (Self.itemID(macID: macID, entry: $0.id), $0) }, uniquingKeysWith: { first, _ in first })
         // The Mac reads a whole tab at once, so only the read of a tab's newest
         // event marks it: reading an older one must not hide a newer one there.
@@ -311,23 +316,66 @@ public final class TerminalFeed {
         for entry in entries where !isEcho(entry) {
             if let surface = entry.surface { newest[surface] = max(newest[surface] ?? entry.createdAt, entry.createdAt) }
         }
-        var surfaces: [Int: Date] = [:]
-        for item in items where item.opensTerminal && item.isRead {
+        var surfaces: [Int: Entry] = [:]
+        for item in items where item.opensTerminal && item.isRead && !reading.contains(item.id) {
             guard let entry = byID[item.id], !entry.acknowledged, let surface = entry.surface,
                   newest[surface] == entry.createdAt,
                   (acked[surface] ?? .distantPast) < entry.createdAt else { continue }
-            surfaces[surface] = entry.createdAt
+            surfaces[surface] = entry
         }
-        for (surface, newest) in surfaces {
-            acked[surface] = newest
-            Task {
-                do {
-                    _ = try WorkspaceSync.check(try await request("ack-tab-notifications", ["surface": surface], connection))
-                } catch {
-                    log.error("ack-tab-notifications \(surface, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+        for (surface, entry) in surfaces {
+            acked[surface] = entry.createdAt
+            read(entry, surface: surface)
+        }
+    }
+
+    /// Sends the read of `entry` (its tab's newest event) until the Mac answers it
+    /// (`StickyRead`): while the Mac's daemon is down or restarting the read stays, and it goes
+    /// on the connection to this Mac bound at each try, to the tab's surface the ledger gives then.
+    private func read(_ entry: Entry, surface: Int) {
+        let macID = macID
+        let itemID = Self.itemID(macID: macID, entry: entry.id)
+        reading.insert(itemID)
+        let reads = reads
+        // task-owner: one read the person made, sent again while the Mac is unanswered; ends on its
+        // answer, a refusal or the read no longer standing (`readStands`, which ends with this feed)
+        Task { [weak self] in
+            do {
+                let answered = try await reads.send(stands: { self?.readStands(entry.id, macID: macID) == true }) {
+                    guard let self, let request = self.request, let connection = self.connection else {
+                        throw LinkError(code: "no-link", message: "Not connected to the Mac")
+                    }
+                    // A new connection's ledger says first whether this row is still its tab's newest:
+                    // a notification that came meanwhile must not be acknowledged unseen.
+                    guard self.hydrated else { throw LinkError(code: "not-read", message: "The Mac's notifications are not read yet") }
+                    let surface = self.entries.first { $0.id == entry.id }?.surface ?? surface
+                    return try WorkspaceSync.check(try await request("ack-tab-notifications", ["surface": surface], connection))
                 }
+                if let self, self.macID == macID {
+                    if answered != nil {
+                        // Answered on a newer connection, which starts with no acks: this one counts there.
+                        self.acked[surface] = max(self.acked[surface] ?? .distantPast, entry.createdAt)
+                    } else if self.acked[surface] == entry.createdAt {
+                        // It stopped unsent (marked unread meanwhile): a later read of it goes again.
+                        self.acked[surface] = nil
+                    }
+                }
+            } catch {
+                log.error("ack-tab-notifications \(surface, privacy: .public) refused: \(String(describing: error), privacy: .public)")
             }
+            self?.reading.remove(itemID)
         }
+    }
+
+    /// Whether the person's read of ledger row `id` on `macID` still stands: the same Mac, its
+    /// Feed event still read here, and the Mac's ledger (once read on this connection) still
+    /// shows the row unread and as its tab's newest: a newer one shows, the person has not seen it.
+    private func readStands(_ id: String, macID: String) -> Bool {
+        guard macID == self.macID, store.item(id: Self.itemID(macID: macID, entry: id))?.isRead == true else { return false }
+        // A new connection reads the ledger again before it says anything (the try waits for it).
+        guard hydrated else { return true }
+        guard let entry = entries.first(where: { $0.id == id }), !entry.acknowledged, let surface = entry.surface else { return false }
+        return !entries.contains { $0.surface == surface && $0.createdAt > entry.createdAt && !isEcho($0) }
     }
 
     // MARK: Mapping

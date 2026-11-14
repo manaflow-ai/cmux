@@ -58,6 +58,10 @@ pub(in crate::cli) struct NewChat {
     pub cwd: Option<String>,
     /// A first prompt, the chat's own (as a person types it into New Agent Chat).
     pub prompt: Option<String>,
+    /// Files the first prompt carries (`--attach`, repeatable), as `acpmux send --attach`
+    /// sends them: any type and size, inline when they fit one message, else uploaded to the
+    /// chat first (`acpmux::attach::blocks_for`).
+    pub attach: Vec<String>,
     /// The new workspace goes first in the sidebar (below Home), whatever
     /// `workspaces.newPlacement` says (`--top`, #29875).
     pub top: bool,
@@ -65,7 +69,7 @@ pub(in crate::cli) struct NewChat {
 
 const NEW_USAGE: &str = "agents chat new [--workspace <ws>|--pane <pane>|--top] [--harness <h>] \
      [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] \
-     [--] [<prompt>]";
+     [--attach <file>]... [--] [<prompt>]";
 
 /// `chat new ...` (the words after `new`).
 pub(in crate::cli) fn parse_new(words: &[&str]) -> Result<NewChat, UsageError> {
@@ -115,6 +119,11 @@ pub(in crate::cli) fn parse_new(words: &[&str]) -> Result<NewChat, UsageError> {
         if value.is_empty() {
             return Err(UsageError::new(format!("agents chat new: {flag} needs a value")));
         }
+        if flag == "--attach" {
+            chat.attach.push(value.to_owned());
+            index += 1;
+            continue;
+        }
         let slot = match flag {
             "--workspace" => &mut chat.workspace,
             "--pane" => &mut chat.pane,
@@ -158,6 +167,11 @@ pub(in crate::cli) fn parse_new(words: &[&str]) -> Result<NewChat, UsageError> {
     {
         return Err(UsageError::new("agents chat new: --cwd must be an absolute folder"));
     }
+    if !chat.attach.is_empty() && chat.prompt.is_none() {
+        return Err(UsageError::new(
+            "agents chat new: --attach sends files with the first prompt; give one after --",
+        ));
+    }
     if let Some(prompt) = &chat.prompt {
         super::super::agent_message::read_body(super::super::agent_message::Body::Text(
             prompt.clone(),
@@ -165,6 +179,93 @@ pub(in crate::cli) fn parse_new(words: &[&str]) -> Result<NewChat, UsageError> {
         .map_err(|error| UsageError::new(format!("agents chat new: {}", error.0)))?;
     }
     Ok(chat)
+}
+
+/// The `--attach FILE` (or `--attach=FILE`) flags at the front of `words`, and the words after
+/// them: `chat send` and `continue` take them before the text.
+pub(in crate::cli) fn take_attach<'a, 'w>(
+    mut words: &'a [&'w str],
+    verb: &str,
+) -> Result<(Vec<String>, &'a [&'w str]), UsageError> {
+    let mut attach = Vec::new();
+    while let [flag, rest @ ..] = words {
+        let value = if *flag == "--attach" {
+            let [value, rest @ ..] = rest else {
+                return Err(UsageError::new(format!("{verb}: --attach needs a file")));
+            };
+            words = rest;
+            (*value).to_owned()
+        } else if let Some(value) = flag.strip_prefix("--attach=") {
+            words = rest;
+            value.to_owned()
+        } else {
+            break;
+        };
+        if value.is_empty() || value == "--" {
+            return Err(UsageError::new(format!("{verb}: --attach needs a file")));
+        }
+        attach.push(value);
+    }
+    Ok((attach, words))
+}
+
+/// Why `chat send --attach` does not run: an agent message (`agent_message.rs`) is text the
+/// cmux daemon stores and hands over under its policy, and carries no files yet.
+pub(in crate::cli) fn attach_send_unsupported() -> CallFailure {
+    CallFailure {
+        kind: FailureKind::NotRun,
+        error: json!({
+            "code": "chat.attach_send_unsupported",
+            "message": "a message to a running chat carries text only, so nothing was sent; \
+                start a chat with the files instead (`cmux agents chat new --attach FILE -- TEXT`, \
+                MCP agents_chat_new with attachments), or send the text and name the files' paths",
+            "details": {},
+            "retryable": false,
+        }),
+        idempotency_key: None,
+    }
+}
+
+/// The files `--attach` named, each checked before anything is created or sent: it exists, is a
+/// file and can be read. Relative paths are taken from the current folder. Any type and any size
+/// goes (`acpmux::attach`: Leo, 2026-10-26, files of any size and type), so neither is checked.
+pub(in crate::cli) fn checked_attachments(
+    paths: &[String],
+) -> Result<Vec<std::path::PathBuf>, CallFailure> {
+    paths
+        .iter()
+        .map(|given| {
+            let refused = |code: &str, why: String| CallFailure {
+                kind: FailureKind::NotRun,
+                error: json!({
+                    "code": code,
+                    "message": format!("cannot attach {given}: {why}; nothing was sent"),
+                    "details": {"path": given},
+                    "retryable": false,
+                }),
+                idempotency_key: None,
+            };
+            let path = std::path::absolute(given)
+                .map_err(|error| refused("attach.not_found", error.to_string()))?;
+            let meta = std::fs::metadata(&path).map_err(|error| match error.kind() {
+                std::io::ErrorKind::NotFound => refused(
+                    "attach.not_found",
+                    "no such file (check the path; relative paths start at the current folder)"
+                        .into(),
+                ),
+                _ => refused("attach.unreadable", error.to_string()),
+            })?;
+            if !meta.is_file() {
+                return Err(refused(
+                    "attach.not_a_file",
+                    "not a file (--attach takes a file; attach a folder's files one by one)".into(),
+                ));
+            }
+            std::fs::File::open(&path)
+                .map_err(|error| refused("attach.unreadable", error.to_string()))?;
+            Ok(path)
+        })
+        .collect()
 }
 
 fn not_run(code: &str, message: impl Into<String>) -> CallFailure {
@@ -294,6 +395,8 @@ pub(in crate::cli) fn new(
     chat: &NewChat,
     origin: &str,
 ) -> Result<Value, CallFailure> {
+    // Checked first: a file that is missing or unreadable creates no chat and sends nothing.
+    let attachments = checked_attachments(&chat.attach)?;
     // The app's own acpmux when the caller's is another one (a Chief turn): the chat is one
     // of the app's ordinary chats, as New Agent Chat makes, not a subagent of the caller's.
     let app_socket = chat::app_acpmux(global);
@@ -330,6 +433,11 @@ pub(in crate::cli) fn new(
             format!("acpmux answered no session: {created}"),
         ));
     }
+    // The chat `cmux chat send TEXT` and `chat wait|read last` mean next (last_chat.rs); an
+    // agent's own MCP calls are not the person's last chat.
+    if origin != "mcp" {
+        super::super::last_chat::remember(&session, None);
+    }
     let mut result = json!({
         "chat": session,
         "name": created.pointer("/_meta/acpmux/name").cloned().unwrap_or(Value::Null),
@@ -352,14 +460,42 @@ pub(in crate::cli) fn new(
     arguments.insert("session".into(), json!(session));
     params.insert("args".into(), Value::Object(arguments));
     params.insert("background".into(), json!(true));
+    // The first prompt goes in as the chat's own, as a person types it into New Agent Chat
+    // and presses Return (a chat this caller just started, as `cmux acp new PROMPT` does).
+    // It goes while the app opens the tab, not after: acpmux starts the agent when the prompt
+    // reaches it, so a cold start no longer waits behind the tab (goal local-instant-start).
+    // The tab shows the chat's history when it attaches, the prompt included.
+    let send_prompt = || {
+        chat.prompt.as_ref().map(|prompt| {
+            let id = uuid::Uuid::new_v4().to_string();
+            let sent = if attachments.is_empty() {
+                chat::acp::prompt(&session, prompt, &id, None, socket)
+            } else {
+                chat::acp::prompt_attached(&session, prompt, &id, &attachments, socket)
+            };
+            let mut answer = match sent {
+                Ok(_) => json!({"state": "accepted", "prompt_id": id}),
+                Err(error) => json!({"state": "failed", "prompt_id": id, "error": error}),
+            };
+            if !attachments.is_empty() {
+                answer.set("attachments", json!(attachments.len()));
+            }
+            answer
+        })
+    };
     // No key: a retry starts another chat, so it must not get the first one's tab.
-    match mcp::agent_app(
-        global,
-        "action.run",
-        Value::Object(params),
-        app::WAITING_RUN_TIMEOUT,
-        None,
-    ) {
+    let (opened, prompt) = std::thread::scope(|scope| {
+        let sending = scope.spawn(send_prompt);
+        let opened = mcp::agent_app(
+            global,
+            "action.run",
+            Value::Object(params),
+            app::WAITING_RUN_TIMEOUT,
+            None,
+        );
+        (opened, sending.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))
+    });
+    match opened {
         Ok(run) => {
             result.set("opened", json!(true));
             for field in ["tab", "pane", "workspace"] {
@@ -378,7 +514,13 @@ pub(in crate::cli) fn new(
         }
         Err(error) if new_workspace => {
             // No workspace has the chat's key, so no chat verb could ever reach it: it ends.
+            // Its prompt went beside the tab, so the agent may have started on it; the error
+            // carries the prompt's receipt so the caller sees it was sent.
             let _ = chat::acp::kill(&session, socket);
+            let mut error = error;
+            if let Some(prompt) = prompt {
+                error.set("prompt", prompt);
+            }
             return Err(CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None });
         }
         Err(error) => {
@@ -389,17 +531,8 @@ pub(in crate::cli) fn new(
         }
     }
 
-    // The first prompt goes in as the chat's own, as a person types it into New Agent Chat
-    // and presses Return (a chat this caller just started, as `cmux acp new PROMPT` does).
-    if let Some(prompt) = &chat.prompt {
-        let id = uuid::Uuid::new_v4().to_string();
-        result.set(
-            "prompt",
-            match chat::acp::prompt(&session, prompt, &id, None, socket) {
-                Ok(_) => json!({"state": "accepted", "prompt_id": id}),
-                Err(error) => json!({"state": "failed", "prompt_id": id, "error": error}),
-            },
-        );
+    if let Some(answer) = prompt {
+        result.set("prompt", answer);
     }
     Ok(json!({
         "schema_version": 1,
@@ -428,6 +561,8 @@ pub(in crate::cli) fn state(global: &GlobalArgs, target: &str) -> Result<Value, 
         ("policy", "policy"),
         ("cwd", "cwd"),
         ("pendingPermissions", "pending_permissions"),
+        // Other sessions' messages its Claude Code holds (acpmux `hub/native_messaging.rs`).
+        ("heldMessages", "held_messages"),
         ("queued", "queued"),
     ] {
         if let Some(value) = info.get(from).filter(|value| !value.is_null()) {
@@ -458,4 +593,31 @@ pub(in crate::cli) fn interrupt(
         "origin": origin,
         "result": {"chat": chat, "state": "cancel_requested"},
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_new, take_attach};
+
+    #[test]
+    fn attach_flags_come_before_the_text_and_repeat() {
+        let words = ["--attach", "a.png", "--attach=b.txt", "--", "look"];
+        let (attach, rest) = take_attach(&words, "agents chat send").unwrap();
+        assert_eq!(attach, ["a.png", "b.txt"]);
+        assert_eq!(rest, ["--", "look"]);
+        let (attach, rest) = take_attach(&["look"], "agents chat send").unwrap();
+        assert!(attach.is_empty());
+        assert_eq!(rest, ["look"]);
+        for bad in [&["--attach"][..], &["--attach="], &["--attach", "--"]] {
+            assert!(take_attach(bad, "agents chat send").is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn chat_new_takes_files_only_with_a_first_prompt() {
+        let chat = parse_new(&["--attach", "a.png", "--attach=b.txt", "--", "look"]).unwrap();
+        assert_eq!(chat.attach, ["a.png", "b.txt"]);
+        assert_eq!(chat.prompt.as_deref(), Some("look"));
+        assert!(parse_new(&["--attach", "a.png"]).is_err());
+    }
 }

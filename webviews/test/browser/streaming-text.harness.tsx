@@ -20,8 +20,9 @@ import { spans, untimedFrame } from "./streaming-text.clock";
 import { useState } from "react";
 import { FileRenderer, File as PierreFile } from "@pierre/diffs";
 import { createRoot } from "react-dom/client";
-import { saveSnapshot, VirtualTranscript } from "../../src/agent-session/acpmux/App";
-import { loadHighlightedCode } from "../../src/agent-session/acpmux/conversation/CodeBlock";
+import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
+import { saveSnapshot } from "../../src/agent-session/acpmux/snapshotCache";
+import { loadHighlightedCode } from "../../src/agent-session/acpmux/conversation/codeBlockModel";
 import { nextFrame } from "../../src/agent-session/acpmux/direct";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../../src/agent-session/acpmux/model";
 import { percentile, round2 } from "../../src/agent-session/acpmux/perf";
@@ -157,8 +158,8 @@ const PROMPT_ID = "live-user";
 const ANSWER_ID = "live-answer";
 const expanded = new Set<string>();
 let show: (rows: AcpmuxRow[], working: boolean) => void = () => {};
-/// Draw the running turn's live line under the reply (Debug `agentPane.debug.liveLineBelow`, on in
-/// the app), so the end of the turn swaps that line for the turn's footer as the app does.
+/// Draw the running turn's live line under the reply, as the app does, so the end of the turn swaps
+/// that line for the turn's footer. Off, the harness leaves the line out to measure the reply alone.
 let lineBelow = false;
 /// Turn off the followed view's eased steps (followGlide.ts) to measure the view that steps at once.
 let glide = true;
@@ -173,7 +174,7 @@ function Pane() {
         <div className="acpmux-stage">
           <header className="acpmux-header" />
           <VirtualTranscript
-            rows={turnView(state.rows, expanded, { working: state.working, lineBelow, liveRuns: lineBelow })}
+            rows={turnView(state.rows, expanded, { working: state.working }).filter((row) => lineBelow || !row.below)}
             sessionId="streaming-text"
             working={state.working}
             jumpButton

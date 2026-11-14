@@ -129,6 +129,7 @@ fn crash_run_with(seed: u64, kinds: &[Crash], faults: Faults) -> Result<(), Stri
         max_pending_bytes: 1 << 20,
         full_sync_interval: Duration::from_millis(rng.below(4)),
         stream_sync_delay: Duration::from_millis(rng.below(3)),
+        kept_sync_quiet: Duration::from_millis(1),
         retry_min: Duration::from_millis(1),
         retry_max: Duration::from_millis(2),
     };
@@ -245,7 +246,13 @@ fn appends(
                         // The append and the model's copy are one step, so the model never misses
                         // an LSN the journal took.
                         let mut model = model.lock().unwrap_or_else(|e| e.into_inner());
-                        let Ok(lsn) = journal.append(KIND, class, body.as_bytes()) else { break };
+                        // Every other stream record is a kept one (synced in idle time).
+                        let appended = if class == Class::Stream && index % 2 == 0 {
+                            journal.append_kept(KIND, body.as_bytes())
+                        } else {
+                            journal.append(KIND, class, body.as_bytes())
+                        };
+                        let Ok(lsn) = appended else { break };
                         model.insert(lsn, (class, body.into_bytes()));
                         lsn
                     };

@@ -12,7 +12,8 @@ import { JSDOM } from "jsdom";
 import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
-import { SessionInfo, useSessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
 import { resetSessionInfoState, setSessionInfoOpen } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import {
   backgroundCommands,
@@ -25,6 +26,7 @@ import { openPicker } from "../src/agent-session/acpmux/pickerOpeners";
 import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
 import type { SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -75,6 +77,7 @@ afterEach(async () => {
   root = undefined;
   resetSessionInfoState();
   setHeaderState({ inspector: false });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileRealtime
+import CmuxSpinner
 import SwiftUI
 
 /// Voice mode's strings beyond the call screen's (Resources/Localizable.xcstrings).
@@ -58,7 +59,7 @@ public struct AgentVoiceBar: View {
     @ViewBuilder private var indicator: some View {
         Group {
             if case .connecting = session.phase {
-                ProgressView().controlSize(.small)
+                CmuxSpinner().controlSize(.small)
             } else if let failure = session.failure {
                 Image(systemName: failure.symbol).foregroundStyle(.red)
             } else if session.isMuted {

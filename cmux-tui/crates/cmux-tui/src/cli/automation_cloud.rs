@@ -3,7 +3,7 @@
 //!
 //! The CLI holds no account token. Each verb is one `cloud.automation` call
 //! to the cmux app, which forwards the op to the API Worker as the signed-in
-//! user (`CloudAutomationRelay` in CmuxNextCloud). A Cloud automation's body
+//! user (`cmux cloud automation-relay`, rules in `cmux_cloud_wire::automation`). A Cloud automation's body
 //! is `{type: "chief", chief, conversation, prompt}`: each run puts the prompt
 //! in the person's default Cloud Chief's main conversation and starts a turn
 //! there, with every computer of the person asleep too. The free plan has one

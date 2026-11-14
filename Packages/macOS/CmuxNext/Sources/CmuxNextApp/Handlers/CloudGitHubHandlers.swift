@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextDaemonService
 import CmuxNextPages
 
 /// Set Up GitHub on This Machine (`cmux cloud setup-github --target machine:<id>`): the cmux GitHub
@@ -21,9 +22,7 @@ enum CloudGitHubHandlers {
             // The cmux GitHub App by default; the machine's own sign-in only when the App, the team's
             // connection or the machine's Cloud agent is not there.
             let setUp: @MainActor (CloudGitHubSetup.GitIdentity, CloudGitHubApp) async throws -> CloudGitHubSetup.Outcome = { identity, app in
-                let ran = try await cloud.api.exec(session.machineID, command: CloudGitHubSetup.command(identity, app: app == .ready),
-                                                   timeoutMs: CloudGitHubSetup.timeoutMs)
-                return CloudGitHubSetup.parse(exitCode: ran.exitCode, stdout: ran.stdout)
+                try await CloudGitHubSetup.run(identity, app: app == .ready, machine: session.machineID, on: cloud.machineAPI)
             }
             guard CloudHandlers.origin(of: invocation) == .user else {
                 // The caller is the confirmation: it named the machine. It reads the code from the
@@ -59,14 +58,15 @@ enum CloudGitHubHandlers {
 
     /// What Set Up will do: the App's helper, else the machine's own sign-in with the reason first.
     static func confirmBody(_ identity: CloudGitHubSetup.GitIdentity, app: CloudGitHubApp) -> String {
-        let named = identity.name != nil || identity.email != nil
-        let name = identity.name ?? "—", email = identity.email ?? "—"
-        guard app != .ready else {
-            return named ? CloudStrings.gitHubAppConfirmBody(name: name, email: email) : CloudStrings.gitHubAppConfirmNoIdentity
+        let check: String = switch app {
+        case .ready: "ready"
+        case .notConnected: "notConnected"
+        case .notConfigured: "notConfigured"
+        case .unknown: "unknown"
         }
-        let signIn = named ? CloudStrings.gitHubConfirmBody(name: name, email: email) : CloudStrings.gitHubConfirmNoIdentity
-        let reason = CloudGitHubSetup.reason(app).map(CloudStrings.gitHubFallback)
-        return [reason, signIn].compactMap { $0 }.joined(separator: " ")
+        let facts: [String: Any] = ["name": identity.name as Any, "email": identity.email as Any, "app": check]
+        let parts = CloudHandlerRules().ask("cloud_handler_github_confirm", facts.compacted)?["parts"] as? [Any] ?? []
+        return parts.map { CloudHandlerRules.text(CloudHandlerRules.decodeSaid($0)) }.joined(separator: " ")
     }
 
     /// GitHub's device page (a constant, never a URL the machine printed), in a cmux tab (`browser.openSignInPagesInCmux`).

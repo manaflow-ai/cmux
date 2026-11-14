@@ -95,6 +95,11 @@ public final class AgentShareInviteSheetModel {
             let shares = try await work.list()
             rows = AgentShareInvites.rows(of: session, in: shares)
             inviteLink = AgentShareInvites.inviteLink(of: session, in: shares)
+            // Copied does not outlive the link it confirmed.
+            if inviteLink == nil, copied {
+                copiedReset.cancel()
+                copied = false
+            }
         } catch {
             status = AgentShareStrings.failure(error).message
         }

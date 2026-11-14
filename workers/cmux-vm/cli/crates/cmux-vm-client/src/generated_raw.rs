@@ -1916,6 +1916,9 @@ pub mod types {
     ///`Conflict`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct Conflict {
+        ///mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again.
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub code: ::std::option::Option<ConflictCode>,
         #[serde(
             rename = "creationKey",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -1930,6 +1933,53 @@ pub mod types {
         pub pending_snapshot_id: ::std::option::Option<ConflictPendingSnapshotId>,
         #[serde(rename = "_tag")]
         pub tag: ConflictTag,
+    }
+    ///mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again.
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+    )]
+    pub enum ConflictCode {
+        #[serde(rename = "mesh.device.intent_revoked")]
+        MeshDeviceIntentRevoked,
+    }
+    impl ::std::fmt::Display for ConflictCode {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::MeshDeviceIntentRevoked => f.write_str("mesh.device.intent_revoked"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for ConflictCode {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "mesh.device.intent_revoked" => Ok(Self::MeshDeviceIntentRevoked),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for ConflictCode {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for ConflictCode {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
     }
     ///a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -3181,6 +3231,12 @@ pub mod types {
                 })
         }
     }
+    ///The intent is revoked: no enroll with it makes a device for 7 days, so an empty device list after this is final.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct DeviceIntentRevocation {
+        ///Whether this call deleted the intent's device (and its tunnel).
+        pub deleted: bool,
+    }
     ///`DeviceList`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct DeviceList {
@@ -3942,6 +3998,356 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for EnrollDeviceRequestWgPublicKey {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`EnrollMeshDeviceRequest`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct EnrollMeshDeviceRequest {
+        ///The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.
+        #[serde(rename = "installPublicKey")]
+        pub install_public_key: EnrollMeshDeviceRequestInstallPublicKey,
+        ///The caller's id for this enroll attempt (letters, digits and . _ : ~ -, at most 128 characters), unique per mesh. A repeat with the same intentId answers the device it made instead of 409. After POST /v1/meshes/{meshId}/device-intents/{intentId}/revoke (or the device's delete) the intent is revoked for 7 days: an enroll with it answers 409 with code mesh.device.intent_revoked and leaves nothing live. While an earlier enroll with it is running, or may have left a tunnel the provider has not confirmed deleted, an enroll with it answers 409 (retry).
+        #[serde(
+            rename = "intentId",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub intent_id: ::std::option::Option<EnrollMeshDeviceRequestIntentId>,
+        ///a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$
+        pub name: EnrollMeshDeviceRequestName,
+        ///16 random bytes, base64url without padding.
+        pub nonce: EnrollMeshDeviceRequestNonce,
+        ///ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.
+        pub signature: EnrollMeshDeviceRequestSignature,
+        #[serde(rename = "signedAt")]
+        pub signed_at: ::std::num::NonZeroU64,
+        ///The device's WireGuard public key, base64. The private key never leaves the device.
+        #[serde(rename = "wgPublicKey")]
+        pub wg_public_key: EnrollMeshDeviceRequestWgPublicKey,
+    }
+    ///The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct EnrollMeshDeviceRequestInstallPublicKey(::std::string::String);
+    impl ::std::ops::Deref for EnrollMeshDeviceRequestInstallPublicKey {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<EnrollMeshDeviceRequestInstallPublicKey> for ::std::string::String {
+        fn from(value: EnrollMeshDeviceRequestInstallPublicKey) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for EnrollMeshDeviceRequestInstallPublicKey {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^B[A-Za-z0-9+/]{86}=$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^B[A-Za-z0-9+/]{86}=$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for EnrollMeshDeviceRequestInstallPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for EnrollMeshDeviceRequestInstallPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for EnrollMeshDeviceRequestInstallPublicKey {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///The caller's id for this enroll attempt (letters, digits and . _ : ~ -, at most 128 characters), unique per mesh. A repeat with the same intentId answers the device it made instead of 409. After POST /v1/meshes/{meshId}/device-intents/{intentId}/revoke (or the device's delete) the intent is revoked for 7 days: an enroll with it answers 409 with code mesh.device.intent_revoked and leaves nothing live. While an earlier enroll with it is running, or may have left a tunnel the provider has not confirmed deleted, an enroll with it answers 409 (retry).
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct EnrollMeshDeviceRequestIntentId(::std::string::String);
+    impl ::std::ops::Deref for EnrollMeshDeviceRequestIntentId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<EnrollMeshDeviceRequestIntentId> for ::std::string::String {
+        fn from(value: EnrollMeshDeviceRequestIntentId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for EnrollMeshDeviceRequestIntentId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9._:~-]{1,128}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9._:~-]{1,128}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for EnrollMeshDeviceRequestIntentId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for EnrollMeshDeviceRequestIntentId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for EnrollMeshDeviceRequestIntentId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct EnrollMeshDeviceRequestName(::std::string::String);
+    impl ::std::ops::Deref for EnrollMeshDeviceRequestName {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<EnrollMeshDeviceRequestName> for ::std::string::String {
+        fn from(value: EnrollMeshDeviceRequestName) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for EnrollMeshDeviceRequestName {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for EnrollMeshDeviceRequestName {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for EnrollMeshDeviceRequestName {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for EnrollMeshDeviceRequestName {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///16 random bytes, base64url without padding.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct EnrollMeshDeviceRequestNonce(::std::string::String);
+    impl ::std::ops::Deref for EnrollMeshDeviceRequestNonce {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<EnrollMeshDeviceRequestNonce> for ::std::string::String {
+        fn from(value: EnrollMeshDeviceRequestNonce) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for EnrollMeshDeviceRequestNonce {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9_-]{22}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9_-]{22}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for EnrollMeshDeviceRequestNonce {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for EnrollMeshDeviceRequestNonce {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for EnrollMeshDeviceRequestNonce {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct EnrollMeshDeviceRequestSignature(::std::string::String);
+    impl ::std::ops::Deref for EnrollMeshDeviceRequestSignature {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<EnrollMeshDeviceRequestSignature> for ::std::string::String {
+        fn from(value: EnrollMeshDeviceRequestSignature) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for EnrollMeshDeviceRequestSignature {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9+/]{86}==$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9+/]{86}==$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for EnrollMeshDeviceRequestSignature {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for EnrollMeshDeviceRequestSignature {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for EnrollMeshDeviceRequestSignature {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///The device's WireGuard public key, base64. The private key never leaves the device.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct EnrollMeshDeviceRequestWgPublicKey(::std::string::String);
+    impl ::std::ops::Deref for EnrollMeshDeviceRequestWgPublicKey {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<EnrollMeshDeviceRequestWgPublicKey> for ::std::string::String {
+        fn from(value: EnrollMeshDeviceRequestWgPublicKey) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for EnrollMeshDeviceRequestWgPublicKey {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for EnrollMeshDeviceRequestWgPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for EnrollMeshDeviceRequestWgPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for EnrollMeshDeviceRequestWgPublicKey {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -7015,6 +7421,59 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for MeshPutMeshAclXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct MeshRevokeDeviceIntentXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshRevokeDeviceIntentXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshRevokeDeviceIntentXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshRevokeDeviceIntentXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshRevokeDeviceIntentXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshRevokeDeviceIntentXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshRevokeDeviceIntentXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshRevokeDeviceIntentXCmuxTeamId {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -13594,6 +14053,56 @@ pub mod types {
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct VmImageList {
         pub items: ::std::vec::Vec<VmImage>,
+        ///"configured": items are in the operator's configured order, the first being the image in use. Absent: the order carries no meaning.
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub order: ::std::option::Option<VmImageListOrder>,
+    }
+    ///"configured": items are in the operator's configured order, the first being the image in use. Absent: the order carries no meaning.
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+    )]
+    pub enum VmImageListOrder {
+        #[serde(rename = "configured")]
+        Configured,
+    }
+    impl ::std::fmt::Display for VmImageListOrder {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::Configured => f.write_str("configured"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for VmImageListOrder {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "configured" => Ok(Self::Configured),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmImageListOrder {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmImageListOrder {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
     }
     ///a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._-]*$
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -15765,6 +16274,59 @@ pub mod types {
     ///a string at most 128 character(s) long
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     #[serde(transparent)]
+    pub struct VmsRevokeVmPublicEgressXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for VmsRevokeVmPublicEgressXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<VmsRevokeVmPublicEgressXCmuxTeamId> for ::std::string::String {
+        fn from(value: VmsRevokeVmPublicEgressXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for VmsRevokeVmPublicEgressXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmsRevokeVmPublicEgressXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmsRevokeVmPublicEgressXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for VmsRevokeVmPublicEgressXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
     pub struct VmsStartVmXCmuxTeamId(::std::string::String);
     impl ::std::ops::Deref for VmsStartVmXCmuxTeamId {
         type Target = ::std::string::String;
@@ -17101,6 +17663,58 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
+    /**Revoke an enroll intent
+
+    Revoke an enroll intent. Requires the mesh:join scope. Writes a tombstone for the intentId and deletes the device it made, with its tunnel. Idempotent. An enroll with this intentId that has not committed refuses with 409 mesh.device.intent_revoked and removes what it created. A 200 is final: no device of the intent is live or can become live, and no enroll with it can commit. A tunnel its provider create makes after the 200 (a create the provider processes late) backs no device and is deleted by the service's tunnel sweep within minutes; the caller has nothing more to do. A 503 (an enroll that may still be creating its tunnel, or a tunnel delete that failed) means retry the revoke until it answers 200. The tombstone lasts 7 days. Only the principal that used the intent or a tenant admin carrying its labels may revoke it, and a key limited to resources only if every device the intent's enrolls made is in its list; anyone else gets 404 and nothing is written. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `POST` request to `/v1/meshes/{meshId}/device-intents/{intentId}/revoke`
+
+    Arguments:
+    - `mesh_id`
+    - `intent_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn mesh_revoke_device_intent<'a>(
+        &'a self,
+        mesh_id: &'a str,
+        intent_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshRevokeDeviceIntentXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/meshes/{}/device-intents/{}/revoke",
+            self.baseurl,
+            encode_path(&mesh_id.to_string()),
+            encode_path(&intent_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.post(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_revoke_device_intent",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
     /**List a mesh's devices
 
     List a mesh's devices. Requires the mesh:read scope. A tenant admin sees every device; any other principal only the devices it enrolled. Experiment: answers 404 unless the mesh experiment is enabled for the team.
@@ -17166,7 +17780,7 @@ impl Client {
         mesh_id: &'a str,
         idempotency_key: Option<&'a types::MeshEnrollDeviceIdempotencyKey>,
         x_cmux_team_id: Option<&'a types::MeshEnrollDeviceXCmuxTeamId>,
-        body: &'a types::EnrollDeviceRequest,
+        body: &'a types::EnrollMeshDeviceRequest,
     ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
         let url = format!(
             "{}/v1/meshes/{}/devices",
@@ -19627,7 +20241,7 @@ impl Client {
     }
     /**Allow a VM's public egress
 
-    Allow a VM's public egress. Requires the vm:network scope. Lets an existing VM reach the public Internet, as a create with initialNetwork.publicEgress does: one rule whose source is exactly this VM, deleted with the VM. Idempotent: a VM that already has such a rule gets no second one. It never turns egress off and never changes HTTPS proxies or shared-network rules. For a VM created private (a copy that resumes another VM's memory, say) that must join the Internet only once its guest is ready. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+    Allow a VM's public egress. Requires the vm:network scope. Lets an existing VM reach the public Internet, as a create with initialNetwork.publicEgress does: one rule whose source is exactly this VM, deleted with the VM. Idempotent: a VM that already has such a rule gets no second one. It never turns egress off (revokeVmPublicEgress does) and never changes HTTPS proxies or shared-network rules. For a VM created private (a copy that resumes another VM's memory, say) that must join the Internet only once its guest is ready. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
 
     Sends a `PUT` request to `/v1/vms/{vmId}/public-egress`
 
@@ -19657,6 +20271,54 @@ impl Client {
         let mut request = self.client.put(url).headers(header_map).build()?;
         let info = OperationInfo {
             operation_id: "vms_allow_vm_public_egress",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Revoke a VM's public egress
+
+    Revoke a VM's public egress. Requires the vm:network scope. Stops an existing VM reaching the public Internet, live: deletes every rule whose source is exactly this VM (or a create's inline rule) and whose destination is the whole public Internet, then reads the rules again and answers 503 unless none is left. Idempotent: a VM without such a rule changes nothing. It never deletes a narrower rule, an HTTPS proxy (the VM keeps those) or a shared-network rule. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+
+    Sends a `DELETE` request to `/v1/vms/{vmId}/public-egress`
+
+    Arguments:
+    - `vm_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn vms_revoke_vm_public_egress<'a>(
+        &'a self,
+        vm_id: &'a str,
+        x_cmux_team_id: Option<&'a types::VmsRevokeVmPublicEgressXCmuxTeamId>,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/public-egress",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.delete(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "vms_revoke_vm_public_egress",
         };
         self.pre(&mut request, &info).await?;
         let result = self.exec(request, &info).await;

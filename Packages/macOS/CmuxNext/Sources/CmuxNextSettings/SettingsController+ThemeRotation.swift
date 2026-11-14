@@ -13,6 +13,6 @@ extension SettingsController {
         let lastDay = defaults.string(forKey: Self.themeRotationDayKey)
         guard let next = ThemeFavoritesSetting().rotated(root, today: today, lastDay: lastDay) else { return }
         defaults.set(today, forKey: Self.themeRotationDayKey)
-        Task { try? await setSetting(at: AppThemeSetting().configPath, to: .string(next), by: .user) }
+        Task { try? await setSetting(at: AppThemeSetting.configPath, to: .string(next), by: .user) }
     }
 }

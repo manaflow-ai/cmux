@@ -10,7 +10,11 @@ DMG_PATH="$1"
 TAG="$2"
 OUT_PATH="${3:-appcast.xml}"
 
-if [[ -z "${SPARKLE_PRIVATE_KEY:-}" ]]; then
+# SPARKLE_PREBUILD_ONLY_DIR: build only the delta files (BinaryDelta, no key), into that directory, under
+# the names generate_appcast reuses, and stop before any key or appcast. A later keyed run gets them
+# through SPARKLE_PREBUILT_DELTAS_DIR and signs (nightly.yml build-nightly-deltas, generate-nightly-deltas).
+PREBUILD_ONLY_DIR="${SPARKLE_PREBUILD_ONLY_DIR:-}"
+if [[ -z "$PREBUILD_ONLY_DIR" && -z "${SPARKLE_PRIVATE_KEY:-}" ]]; then
   echo "SPARKLE_PRIVATE_KEY is required (exported from Sparkle generate_keys)." >&2
   exit 1
 fi
@@ -19,7 +23,7 @@ fi
 #   SPARKLE_MINIMUM_SYSTEM_VERSION="$(scripts/ci/appcast_minimum_system_version.py floor "$APP")"
 # The new item must carry it as sparkle:minimumSystemVersion, or Sparkle would
 # offer a macOS 26 build (cmux-next) to macOS 14/15. Required: fail closed.
-if [[ -z "${SPARKLE_MINIMUM_SYSTEM_VERSION:-}" ]]; then
+if [[ -z "$PREBUILD_ONLY_DIR" && -z "${SPARKLE_MINIMUM_SYSTEM_VERSION:-}" ]]; then
   echo "SPARKLE_MINIMUM_SYSTEM_VERSION is required (scripts/ci/appcast_minimum_system_version.py floor <app>)." >&2
   exit 1
 fi
@@ -43,14 +47,27 @@ trap cleanup EXIT
 # in every nightly variant job. SPARKLE_TOOLS_DIR points at an existing tools
 # directory (tests); other versions still build from source.
 SPARKLE_281_TARBALL_SHA256="5cddb7695674ef7704268f38eccaee80e3accbf19e61c1689efff5b6116d85be"
+# The release asset id of Sparkle-2.8.1.tar.xz, for the API fallback.
+SPARKLE_281_ASSET_ID="316680272"
 if [[ -n "${SPARKLE_TOOLS_DIR:-}" ]]; then
   tools_dir="$SPARKLE_TOOLS_DIR"
 elif [[ "$SPARKLE_VERSION" == "2.8.1" ]]; then
   echo "Downloading Sparkle ${SPARKLE_VERSION} tools..."
   tarball="$work_dir/Sparkle-${SPARKLE_VERSION}.tar.xz"
-  curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
-    --connect-timeout 15 --max-time 300 -o "$tarball" \
-    "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"
+  # github.com's release download path answered 504 for over an hour on
+  # 2026-11-08 (nightly runs 42462657834, 42464844265) while the API's asset
+  # endpoint served the same file. Over HTTP/2 that 504 is curl exit 56, which
+  # plain --retry never retries, so retry every error, then fall back to the
+  # asset endpoint. The checksum below checks whichever answered.
+  sparkle_download() {
+    curl --fail --silent --show-error --location --retry 4 --retry-delay 10 --retry-max-time 90 --retry-all-errors \
+      --connect-timeout 15 --max-time 300 -o "$tarball" "$@"
+  }
+  if ! sparkle_download "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"; then
+    echo "Sparkle release download failed; trying the GitHub API asset endpoint" >&2
+    sparkle_download -H "Accept: application/octet-stream" \
+      "https://api.github.com/repos/sparkle-project/Sparkle/releases/assets/${SPARKLE_281_ASSET_ID}"
+  fi
   actual_sha="$(shasum -a 256 "$tarball" | awk '{print $1}')"
   if [[ "$actual_sha" != "$SPARKLE_281_TARBALL_SHA256" ]]; then
     echo "Sparkle ${SPARKLE_VERSION} tarball checksum mismatch: $actual_sha" >&2
@@ -91,6 +108,32 @@ fi
 archives_dir="$work_dir/archives"
 mkdir -p "$archives_dir"
 cp "$DMG_PATH" "$archives_dir/$(basename "$DMG_PATH")"
+
+if [[ -n "$PREBUILD_ONLY_DIR" ]]; then
+  if [[ ! -x "$binary_delta" ]]; then
+    echo "BinaryDelta binary not found at $binary_delta" >&2
+    exit 1
+  fi
+  mkdir -p "$PREBUILD_ONLY_DIR"
+  previous_count=0
+  for previous in "${SPARKLE_PREVIOUS_ARCHIVES_DIR:-/nonexistent}"/*.dmg; do
+    [[ -f "$previous" ]] || continue
+    cp -p "$previous" "$archives_dir/$(basename "$previous")"
+    previous_count=$((previous_count + 1))
+  done
+  if [[ "$previous_count" -gt 0 ]]; then
+    "$(dirname "$0")/prebuild_sparkle_deltas.sh" \
+      "$binary_delta" "$archives_dir" "$archives_dir/$(basename "$DMG_PATH")" "${SPARKLE_MAXIMUM_DELTAS:-2}"
+  fi
+  shopt -s nullglob
+  built=("$archives_dir"/*.delta)
+  shopt -u nullglob
+  if [[ "${#built[@]}" -gt 0 ]]; then
+    mv "${built[@]}" "$PREBUILD_ONLY_DIR/"
+  fi
+  echo "prebuild-only: ${#built[@]} delta(s) from $previous_count earlier build(s) in $PREBUILD_ONLY_DIR"
+  exit 0
+fi
 
 # The feed must be signed by the key the shipped app trusts. generate_appcast
 # silently skips signing when the private key's public key is not the
@@ -153,9 +196,23 @@ if [[ -n "${SPARKLE_PREVIOUS_ARCHIVES_DIR:-}" ]]; then
   if [[ "$previous_count" -gt 0 ]]; then
     delta_args=(--maximum-deltas "${SPARKLE_MAXIMUM_DELTAS:-2}")
     # generate_appcast builds deltas one after another and reuses delta files
-    # that already exist, so build them concurrently first.
-    "$(dirname "$0")/prebuild_sparkle_deltas.sh" \
-      "$binary_delta" "$archives_dir" "$archives_dir/$(basename "$DMG_PATH")" "${SPARKLE_MAXIMUM_DELTAS:-2}"
+    # that already exist, so build them concurrently first. Deltas a keyless run
+    # already built (SPARKLE_PREBUILT_DELTAS_DIR) are put in place instead, and
+    # generate_appcast builds any that are missing itself. A delta is only bytes
+    # to sign: Sparkle applies it on the Mac, checks the result against the new
+    # tree's hash and requires the patched app to pass the same code signing.
+    prebuilt=0
+    for delta in "${SPARKLE_PREBUILT_DELTAS_DIR:-/nonexistent}"/*.delta; do
+      [[ -f "$delta" ]] || continue
+      cp -p "$delta" "$archives_dir/$(basename "$delta")"
+      prebuilt=$((prebuilt + 1))
+    done
+    if [[ "$prebuilt" -gt 0 ]]; then
+      echo "Reusing $prebuilt prebuilt delta(s) from $SPARKLE_PREBUILT_DELTAS_DIR"
+    else
+      "$(dirname "$0")/prebuild_sparkle_deltas.sh" \
+        "$binary_delta" "$archives_dir" "$archives_dir/$(basename "$DMG_PATH")" "${SPARKLE_MAXIMUM_DELTAS:-2}"
+    fi
   fi
 fi
 

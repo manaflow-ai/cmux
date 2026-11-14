@@ -14,6 +14,7 @@ final class InternalPageTabStore {
     private var providers: [InternalPageID: any InternalPageProvider] = [:]
     private let tabsByPane = ObservedMap<String, [String]>()
     @ObservationIgnored private var views: [String: InternalPageView] = [:]
+    @ObservationIgnored let pictures = PageTabPictures()  // the tabs' hover-card pictures
     /// The main window each tab opened in, for its provider's theme scope.
     @ObservationIgnored private var windows: [String: WindowController] = [:]
     /// The daemon tree each pane with page tabs belongs to; watched so the
@@ -43,15 +44,6 @@ final class InternalPageTabStore {
     @ObservationIgnored private var storeTabStores: [String: DaemonStore] = [:]
     /// Store page tabs a live tree has listed; gone from it, they closed.
     @ObservationIgnored private var seenLive: Set<String> = []
-
-    /// The pages only Labs (`labs.previewFeatures`) shows: the App Store. What's New
-    /// (`.changelog`) is not one: an update's "See What's New" opens it with Labs off
-    /// (user 13935, Leo 2026-10-29: "why does See What's New not open the What's New tab").
-    static func isPreviewPage(_ page: String?) -> Bool {
-        page == InternalPageID.appStore.rawValue
-    }
-
-    static func isPreviewPage(_ page: InternalPageID) -> Bool { isPreviewPage(page.rawValue) }
 
     /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
     func keepsRoutes(_ daemon: DaemonService) -> Bool {
@@ -135,8 +127,6 @@ final class InternalPageTabStore {
 
     /// The tab's view, made on first show.
     func view(for key: String) -> InternalPageView? {
-        if let page = LocalPageTab.page(of: key), Self.isPreviewPage(page),
-           windows[key]?.services.settings?.snapshot.previewFeatures != true { return nil }
         if let view = views[key] { return view }
         guard tabsByPane.entries.contains(where: { $0.value.contains(key) }), let page = LocalPageTab.page(of: key),
               let provider = providers[page] else { return nil }
@@ -150,6 +140,13 @@ final class InternalPageTabStore {
     /// `key`'s view: an app-only page tab's, or a store page tab's by its id.
     /// The provider key of store page tab `id`, nil for any other tab.
     func storeKey(of id: String) -> String? { storeKeys[id] }
+
+    /// A machine-qualified action must name the store that owns this provider, not a
+    /// different store which happens to contain the same daemon tab id.
+    func storeKey(of id: String, in store: DaemonStore) -> String? {
+        guard storeTabStores[id] === store else { return nil }
+        return storeKeys[id]
+    }
 
     func existingView(_ key: String) -> InternalPageView? { views[key] ?? storeKeys[key].flatMap { views[$0] } }
 
@@ -179,8 +176,6 @@ final class InternalPageTabStore {
     func view(forStoreTab tab: TabModel, page: InternalPageID? = nil, in store: DaemonStore, local: Bool = false,
               window: WindowController?) -> InternalPageView? {
         guard let page = page ?? tab.page.map(InternalPageID.init(rawValue:)) else { return nil }
-        if Self.isPreviewPage(page),
-           window?.services.settings?.snapshot.previewFeatures != true { return nil }
         if let key = storeKeys[tab.id], let view = views[key] {
             // The tab moved to another window: the same view shows there, and its window follows.
             if let window { windows[key] = window }
@@ -378,6 +373,7 @@ final class InternalPageTabStore {
     private func forget(_ key: String) {
         views.removeValue(forKey: key)?.removeFromSuperviewDetachingSubviews() // never a page leaving its hierarchy in a dealloc
         windows[key] = nil
+        pictures.forget(key)
         if let page = LocalPageTab.page(of: key) { providers[page]?.tabClosed(key) }
     }
 

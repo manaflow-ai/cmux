@@ -51,7 +51,7 @@ import Testing
         // display a short bounded settle before treating capture as unavailable.
         for _ in 0..<10 {
             CATransaction.flush()
-            if probe.compositedSnapshotWithOverlays() != nil { return true }
+            if await probe.compositedImageWithOverlays() != nil { return true }
             try? await Task.sleep(for: .milliseconds(50))
         }
         // Explicit display runs must still exercise the capture and report a real failure.
@@ -75,7 +75,7 @@ import Testing
         let deadline = ContinuousClock.now + .seconds(5)
         var last: (image: CGImage, floating: Int)?
         repeat {
-            last = window.compositedSnapshotWithOverlays()
+            last = await window.compositedImageWithOverlays().map { (image: $0.image, floating: $0.floating) }
             if let last, done(last) { return last }
             try await Task.sleep(for: .milliseconds(50))
         } while ContinuousClock.now < deadline

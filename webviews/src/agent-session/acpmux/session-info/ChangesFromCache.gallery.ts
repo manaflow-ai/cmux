@@ -97,6 +97,7 @@ export default agentPaneEntry({
       note: "Every pull request the chat opened, merged or named has its title, state, lines, comments and failing checks from the App's cache; the issue it names (billing #9) has no row.",
       snapshot,
       native,
+      sessionInfoOpen: true,
       chipHost,
       play: settled,
     },

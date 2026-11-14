@@ -45,8 +45,6 @@ struct TerminalFrameOwnerMainThreadTests {
         defer { reader.removeFromSuperlayer() }
 
         sampler.enter("switch on and resizes")
-        let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
-        try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
         let offMainBefore = fixture.offMainPresents
         // Three resizes, each followed by 2 s of wall-clock time with output every few milliseconds (frames at the
         // shown size, which go off main once the presenter reported the landing's commit), and the reader in every
@@ -117,7 +115,6 @@ struct TerminalFrameOwnerMainThreadTests {
             TunableStore.shared.activate(file: nil)
             TunableStore.shared.register(TerminalDragTunables.all)
             // The switch starts off (the pre-m19 default the films used); ``close()`` resets it.
-            TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(false))
             drew = WindowDrawPolicy.drawsWhenOccluded
             WindowDrawPolicy.drawsWhenOccluded = true
             session = TerminalSession(io: io)
@@ -146,7 +143,6 @@ struct TerminalFrameOwnerMainThreadTests {
             io.finish()
             window.close()
             WindowDrawPolicy.drawsWhenOccluded = drew
-            TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, nil)
         }
 
         /// Ghostty's frames of this surface that went to the screen off the main thread.

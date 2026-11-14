@@ -122,7 +122,4 @@ public nonisolated struct StatusIndicatorSettings: Hashable, Sendable {
         self.color = color
         self.honoredStyleSources = honoredStyleSources
     }
-
-    public static let scaleRange: ClosedRange<CGFloat> = 0.5...1.5
-    public static let thicknessRange: ClosedRange<CGFloat> = 0.5...4
 }

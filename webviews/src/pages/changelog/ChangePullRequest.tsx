@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { setChipHost } from "../../agent-session/acpmux/chips/host";
 import { LinkHoverCard } from "../../agent-session/acpmux/chips/LinkHoverCard";
-import { pullRequestRef } from "../../agent-session/acpmux/chips/PullRequestCard";
+import { pullRequestRef } from "../../agent-session/acpmux/chips/pullRequestCardModel";
 import { useHoverCard } from "../../agent-session/acpmux/chips/useHoverCard";
 import { GitHubMark } from "../../agent-session/acpmux/conversation/icons";
 import type { PageClient } from "../shared/pageClient";
@@ -17,13 +17,22 @@ import "../../agent-session/acpmux/previewCard/previewCard.css";
 
 const REPO = "manaflow-ai/cmux";
 
-const pullURL = (pr: number) => `https://github.com/${REPO}/pull/${pr}`;
+export const pullURL = (pr: number) => `https://github.com/${REPO}/pull/${pr}`;
 
 function pullRequest(urlOrNumber: number | string): { href: string; repo: string; number: number } | undefined {
   // Host-provided notes need the same runtime validation as the shared card, even when
   // they did not pass through the publishing schema. Numeric legacy references do too.
   const ref = pullRequestRef(typeof urlOrNumber === "number" ? pullURL(urlOrNumber) : urlOrNumber);
-  return ref && { href: ref.url, repo: ref.repo, number: ref.number };
+  // Only the public repository's pull requests link: a change made in a private repository keeps
+  // its title, with no link, name or number (Leo 2026-11-07: "since we have some in private?").
+  if (!ref || ref.repo.toLowerCase() !== REPO) return undefined;
+  return { href: ref.url, repo: ref.repo, number: ref.number };
+}
+
+/** The number of `pr` (a number or a pull request URL) when it is a pull request of the public
+    manaflow-ai/cmux, else undefined. */
+export function publicPullNumber(pr: number | string | undefined): number | undefined {
+  return pr === undefined ? undefined : pullRequest(pr)?.number;
 }
 
 /// The card asks the host what it knows about the pull request (`pr.inspect`), which browsers it

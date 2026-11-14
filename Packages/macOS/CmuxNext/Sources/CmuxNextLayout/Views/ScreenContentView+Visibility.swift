@@ -23,7 +23,7 @@ extension ScreenContentView {
             // (an agent, the CLI, a new pane) leaves none (`LayoutModel.focusRingEarned`).
             && context.model.focusRingEarned
         let dim = style.inactiveDim(dimsInactive: dimsInactive)
-        // The flash is the ring's: Toggle Focus Ring off (`focusRing.enabled`) turns it off too.
+        // The flash is the ring's: Focus Ring off (`focusRing.enabled`) turns it off too.
         let flashes = Self.requestsFocusFlash(enabled: FocusIndicatorTunables.flashOnMove.value && style.focusRing.enabled,
                                               multiple: multiple,
                                               source: context.model.lastFocusSource, animated: flashAnimated ?? animated)
@@ -60,7 +60,8 @@ extension ScreenContentView {
 
     /// Panes whose displayed frame intersects the viewport.
     func visiblePanes() -> Set<PaneID> {
-        var result: Set<PaneID> = []
+        // A held snap's departed panes still show until it does (`ScreenContentView+SnapFrame`).
+        var result = Set(frameInput.snapDeparted)
         let uncovered = uncoveredRect
         for (pane, frame) in paneFrames {
             // A strip pane wholly under a docked column is hidden.

@@ -1,8 +1,8 @@
 import CmuxNextActions
+import CmuxNextChecklist
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import Foundation
-import CmuxNextTasks
 
 /// The one change a checklist action makes (`workspace-checklist-v1`). Every entrypoint (palette,
 /// workspace menu, Cmd-Return, the Todo page, `cmux action run`) reads its action and arguments
@@ -64,7 +64,7 @@ struct WorkspaceChecklistEdit: Equatable {
         }
     }
 
-    /// The item an action acts on: the `item` argument, else the current item.
+    /// The item an action acts on: the `item` argument, else the current item (none: a quiet no-op, Leo 2026-11-12).
     static func target(_ invocation: ActionInvocation, items: [WorkspaceChecklistItem]) throws -> WorkspaceChecklistItem {
         if let id = invocation["item"]?.stringValue, !id.isEmpty {
             guard let item = items.first(where: { $0.id == id }) else {
@@ -73,7 +73,7 @@ struct WorkspaceChecklistEdit: Equatable {
             return item
         }
         guard let item = items.first(where: { $0.state == .inProgress }) ?? items.first(where: { $0.state == .todo }) else {
-            throw ActionFailure.invalidTarget(WorkspaceChecklistStrings.noItem)
+            throw ActionFailure.noTarget(WorkspaceChecklistStrings.noItem)
         }
         return item
     }

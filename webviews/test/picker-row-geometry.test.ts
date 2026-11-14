@@ -35,6 +35,25 @@ await requireBrowserLane("picker-row-geometry.test.ts", async () => {
     // project selectin". Do not work in a project (checked), New project and app-icon projects.
     { ...project, name: "agent chat project picker, app icons", variant: "open-app-icons" },
     { ...project, name: "agent chat project picker, lane worktrees", variant: "lane-worktrees" },
+    // The composer's folder menu (Leo, 2026-11-06: "it's just folder"): the actions under the folders
+    // carry their glyph in the badge column, so every label starts in one column.
+    {
+      name: "composer folder menu",
+      entry: "agent-pane.composer-context",
+      variant: "folder-one-concept",
+      // The gallery frame may or may not have run the variant's play; click only a closed trigger.
+      open: async (page) => {
+        const trigger = page.getByRole("button", { name: /^Folder/ });
+        if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+        await page.locator(".acpmux-folder-popover .acpmux-location-action").first().waitFor();
+      },
+      menu: ".acpmux-folder-popover",
+      row: '[role="option"]',
+      icon: ".acpmux-project-badge, .acpmux-location-action-icon",
+      title: ".acpmux-menu-label",
+      section: ".ui-combobox-pinned, .ui-combobox-scroll",
+      level: "fail",
+    },
     {
       name: "environment picker",
       entry: "agent-pane.composer-context",

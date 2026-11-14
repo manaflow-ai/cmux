@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
-/// Options that take no value (`--listen-systemd`); each is stored as `"1"`.
-const FLAGS: &[&str] = &["listen-systemd"];
+/// Options that take no value (`--listen-systemd`, `--no-udp-link`); each is stored as `"1"`.
+const FLAGS: &[&str] = &["listen-systemd", "no-udp-link"];
 
 pub struct Opts {
     map: HashMap<String, String>,

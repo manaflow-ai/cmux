@@ -8,8 +8,20 @@
 //! keep-layout. The user asked, so any end of the terminal's last
 //! incarnation qualifies, no backoff applies, and the supervisor's attempt
 //! count starts over (`supervisor.rs`). The restart runs the L2 worker
-//! (`run_terminal_respawn`): the same terminal id gets a new shell and
-//! incarnation in its tabs, below the previous screen and the marker line.
+//! (`spawn_respawn_worker`), so it takes a turn in the respawn gate and a
+//! failed launch is tried again (`retry.rs`). The restore of a session (the
+//! tabs kept with no `on_show`: their terminal ran an agent session, or
+//! the kept row does not say) waits in the gate's line, a terminal of the
+//! daemon's active workspace first; any other restart is taken as one the
+//! person asked for and does not wait for that line. The request does not
+//! say who sent it, so two cases are on the wrong side today: a script's
+//! `cmux tab restart` of a dead tab that is not such a kept tab goes first
+//! too, and a kept agent tab that the person restarts by hand, or
+//! that a frontend starts at the first show of its workspace (a protected
+//! folder), waits in the line unless its workspace is the active one. The
+//! same terminal id gets a
+//! new shell and incarnation in its tabs, below the previous screen and the
+//! marker line.
 //! The tab id, placement, name, pin and group stay. A restarted keep-layout
 //! tab starts in its recorded directory and stops being kept
 //! (`tab-restart-kept-layout-v1`).
@@ -60,18 +72,21 @@ impl fmt::Display for TabRestartError {
 
 impl std::error::Error for TabRestartError {}
 
-/// An accepted restart: the worker runs; the tree shows the tab
-/// restarting, then running (or dead again when the launch fails).
+/// An accepted restart: the worker has its place in line; the tree shows the
+/// tab restarting, then running (or dead again when its launch tries fail).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TabRestart {
     /// The public terminal id (`term_…`), the same before and after.
     pub(crate) terminal: String,
-    pub(crate) previous_incarnation: String,
+    /// None when the terminal's last respawn launch failed after its row
+    /// reopened: no incarnation was left to replace.
+    pub(crate) previous_incarnation: Option<String>,
 }
 
 impl Mux {
     /// Restart the dead terminal of the tab at `surface` under the same
-    /// terminal id. Returns once the worker started.
+    /// terminal id. Returns once the worker has its place in the respawn
+    /// gate's line.
     #[cfg(unix)]
     pub(crate) fn restart_dead_tab(
         self: &Arc<Self>,
@@ -80,12 +95,20 @@ impl Mux {
         if let Some(recovered) = self.recover_failed_link_tab(surface) {
             return Ok(recovered);
         }
-        let plan = self.plan_user_restart(surface)?;
+        let mut plan = self.plan_user_restart(surface)?;
+        // A frontend restores a session with one `restart-tab` per tab kept
+        // with no `on_show` (the terminals that ran an agent): those take
+        // their turns in line. Any other restart is taken as one the person
+        // waits for (Restart Shell Here, the first show of a parked tab's
+        // workspace; a script's `cmux tab restart` too, the request does
+        // not tell them apart): it goes before each restore start that has
+        // not begun, in a hidden workspace too.
+        plan.asked = !plan.kept.iter().any(|kept| !kept.on_show);
         let accepted = TabRestart {
             terminal: plan.public_id.as_str().to_string(),
             previous_incarnation: plan.old_incarnation.clone(),
         };
-        Self::spawn_user_restart(Arc::clone(self), plan);
+        Self::spawn_respawn_worker(Arc::clone(self), plan);
         Ok(accepted)
     }
 
@@ -96,25 +119,8 @@ impl Mux {
     #[cfg(unix)]
     pub(in crate::mux) fn start_user_restart(&self, plan: RespawnPlan) {
         match self.exit_settles.owner() {
-            Some(mux) => Self::spawn_user_restart(mux, plan),
+            Some(mux) => Self::spawn_respawn_worker(mux, plan),
             None => self.abandon_terminal_respawn(&plan.terminal_id),
-        }
-    }
-
-    /// The restart worker of an accepted plan.
-    #[cfg(unix)]
-    fn spawn_user_restart(mux: Arc<Self>, plan: RespawnPlan) {
-        let terminal_id = plan.terminal_id.clone();
-        let name = format!("terminal-restart-{terminal_id}");
-        let worker = Arc::clone(&mux);
-        let spawned = std::thread::Builder::new().name(name).spawn(move || {
-            worker.run_terminal_respawn(plan);
-        });
-        if let Err(error) = spawned {
-            eprintln!("cmux-tui: no thread to restart terminal {terminal_id}: {error}");
-            // The plan marked it respawning: take the mark back, so the tab
-            // shows its end and nothing waits on a restart that never runs.
-            mux.abandon_terminal_respawn(&terminal_id);
         }
     }
 
@@ -145,7 +151,7 @@ impl Mux {
         let identity = runtime.terminal_host_identity()?;
         runtime.recover_failed_host_link().then(|| TabRestart {
             terminal: public_id.as_str().to_string(),
-            previous_incarnation: identity.incarnation,
+            previous_incarnation: Some(identity.incarnation),
         })
     }
 
@@ -196,7 +202,10 @@ impl Mux {
             return Err(TabRestartError::NotDead.into());
         }
         let recorded = TerminalEnd::from_receipt(record.exit.as_ref()).exit().clone();
-        let old_incarnation = record.incarnation.ok_or(TabRestartError::Unavailable)?;
+        // A respawn whose launch failed after its row reopened (no free PTY
+        // after a reboot) left the row exited with no incarnation. It is
+        // dead all the same, and the person asked: restart it.
+        let old_incarnation = record.incarnation;
         let placements = state.placements_of_content(&content).to_vec();
         // Keep-layout tabs (`kept_tabs`, `tab-restart-kept-layout-v1`): the
         // shell starts in the restarted tab's kept directory, and the worker
@@ -241,6 +250,7 @@ impl Mux {
         Ok(RespawnPlan {
             terminal_id,
             public_id,
+            screen_incarnation: old_incarnation.clone(),
             old_incarnation,
             cause: USER_RESTART_CAUSE.to_string(),
             slot: surface,
@@ -249,7 +259,9 @@ impl Mux {
             delay: Duration::ZERO,
             recorded,
             user_restart: true,
+            asked: false,
             kept,
+            failed_launches: 0,
         })
     }
 }

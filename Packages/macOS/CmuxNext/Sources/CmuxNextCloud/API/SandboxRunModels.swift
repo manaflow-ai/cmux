@@ -1,6 +1,7 @@
 public import Foundation
 
-/// A sandboxed Run this app handed off (hq#3367), as the follower keeps it across a relaunch.
+/// A task this app handed off (a sandboxed Run, hq#3367, or a hand-off), as the follower keeps it across a
+/// relaunch. Plain data: the rules that change it are Rust's (cmux-cloud-tasks `model` and `follower`).
 public nonisolated struct SandboxRunRecord: Codable, Hashable, Sendable {
     public var id: String
     /// The task as the person wrote it.
@@ -17,10 +18,10 @@ public nonisolated struct SandboxRunRecord: Codable, Hashable, Sendable {
     /// The notices already told (``CloudTaskNotice/key``, newest last, bounded): each is told once.
     public var told: [String]?
     /// When the task last changed (its cursor moved, or a hand-off's listing showed its last change);
-    /// ``SandboxRunFollower/Source/maximumAge`` counts from here (nil: from ``started``).
+    /// the source's maximum age counts from here (nil: from ``started``).
     public var changed: Date?
     /// Its current turn runs (a hand-off `starting` or `running`), as last read: not given up for
-    /// ``SandboxRunFollower/Source/maximumAge`` since it changed, only for that long without an answer.
+    /// the source's maximum age since it changed, only for that long without an answer.
     public var running: Bool?
     /// The acpmux host of a hand-off's chat, when this app made it (nil: unknown).
     public var host: String?
@@ -32,23 +33,9 @@ public nonisolated struct SandboxRunRecord: Codable, Hashable, Sendable {
     }
 }
 
-/// One wait's answer, as a ``SandboxRunFollower/Source`` reads it.
-public nonisolated enum CloudTaskRead: Sendable {
-    /// Still going; the next wait passes `cursor`. A `notice` is told once per its key. `running`:
-    /// its current turn runs, so it is not given up for age (``SandboxRunRecord/running``).
-    case going(cursor: Int?, notice: CloudTaskNotice?, Data, running: Bool = false)
-    /// A Run's end: told by the follower's rules (``SandboxRunFollower/noteCancel(_:)``).
-    case ended(SandboxRunEnd.Outcome, Data)
-    /// It will not change again (a hand-off closed): its `notice`, if not told yet, is told, then
-    /// the follow ends without telling more.
-    case closed(notice: CloudTaskNotice?, Data)
-    /// No answer of the source's shape: never an end.
-    case unreadable
-}
-
 /// Something to tell about a task that goes on (a hand-off's turn done, failed or waiting for
 /// the person): told once per `key`, so the same state read again tells nothing.
-public nonisolated struct CloudTaskNotice: Hashable, Sendable {
+public nonisolated struct CloudTaskNotice: Hashable, Sendable, Decodable {
     /// What makes it the same notice (a hand-off's turn and status, `"2:done"`).
     public var key: String
     public var outcome: SandboxRunEnd.Outcome
@@ -56,7 +43,7 @@ public nonisolated struct CloudTaskNotice: Hashable, Sendable {
     public init(key: String, outcome: SandboxRunEnd.Outcome) { (self.key, self.outcome) = (key, outcome) }
 }
 
-/// A Run that ended here, kept across a relaunch for ``SandboxRunFollower/keptEnded``: a late
+/// A Run that ended here, kept across a relaunch for a week: a late
 /// ``SandboxRunFollower/follow(_:)`` never tells it again, and its banner's click still finds its card.
 public nonisolated struct SandboxRunEnded: Codable, Hashable, Sendable {
     public var record: SandboxRunRecord

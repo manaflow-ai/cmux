@@ -6,7 +6,7 @@ public import CmuxNextDesign
 /// Supplying tools directly enables native rendering only here; no ChromeTunables value is set.
 @MainActor
 public final class DebugNativeRowToolsFixtureView: NSView, DebugNativeRowToolsOverlay {
-    private let backdrop = NSVisualEffectView()
+    private let backdrop = NSVisualEffectView() // glass-level-allow: a Debug fixture's window backdrop, never shipped
     private weak var activeMenu: NSMenu?
     private weak var previousResponder: NSResponder?
     /// The real toolbar used by the synthetic pane.
@@ -28,13 +28,6 @@ public final class DebugNativeRowToolsFixtureView: NSView, DebugNativeRowToolsOv
         addSubview(backdrop)
         addSubview(toolbar)
         toolbar.nativeMenuPresentationObserver = { [weak self] menu in self?.activeMenu = menu }
-        toolbar.moreMenu = { [weak self, weak toolbar] in
-            let menu = NSMenu()
-            menu.autoenablesItems = false
-            toolbar?.nativeOverflowItems().forEach { menu.addItem($0) }
-            self?.activeMenu = menu
-            return menu
-        }
         // Fixture actions are inert: no chat mutation, destructive command, or browser launch.
         toolbar.onNativeTool = { _, _ in }
         toolbar.reveal.setPointerInside(true)
@@ -57,7 +50,7 @@ public final class DebugNativeRowToolsFixtureView: NSView, DebugNativeRowToolsOv
     public func configure(tools: [PaneTabRowTool], width: CGFloat) {
         cancelPendingMenu()
         rowWidth = width
-        toolbar.show(more: !tools.isEmpty, lit: false, nativeItems: tools)
+        toolbar.show(nativeItems: tools)
         needsLayout = true
         layoutSubtreeIfNeeded()
         toolbar.reveal.setPointerInside(true)

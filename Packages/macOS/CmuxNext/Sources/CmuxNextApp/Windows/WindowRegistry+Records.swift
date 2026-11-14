@@ -71,6 +71,7 @@ extension WindowRegistry {
         // The workspaces shown side by side (`sidebar.multiView`), those the window still lists.
         let shown = state?.viewSet?.pruned(keeping: window.workspaceIDs.contains)
         record.multiView = shown.flatMap { $0.ids.count > 1 && $0.contains(selected ?? "") ? $0.record : nil }
+        record.chiefPanel = state?.chiefPanel.record
         // The docked workspaces (`window.dockedWorkspaces`), those the window still lists.
         if var docks = state?.docks, LayoutTunables.dockedWorkspaces.value {
             docks.prune(keeping: window.workspaceIDs.contains)

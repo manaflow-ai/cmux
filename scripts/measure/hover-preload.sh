@@ -5,18 +5,22 @@
 #       missed refreshes and main-thread busy ms per frame, each pointer move's main-thread ms;
 #   (b) time to content after a select, cold and after a 150 ms rest on the row (--trials each);
 #   (c) the woken pages hibernate again after the 30 s grace, and the footprint before, woken and after.
-# OFF is the base build, never a setting (there is no switch that turns hover preload off), built first in this
-# checkout so the head build after it reuses the warm DerivedData. ON is this checkout. The base is either
+# Hover preload is the setting browser.wakeTabsOnHover (off by default, #37124). Every OFF arm launches with the
+# setting off and every ON arm with it on. With no base given, OFF and ON are this checkout's app (one build, the
+# setting is the only difference): the A/B for hover preload itself. With a base, OFF is the base build with the
+# setting off, built first in this checkout so the head build after it reuses the warm DerivedData, and ON is this
+# checkout with the setting on: the A/B for a change to the hover path. The base is either
 #   --base-revert=<sha>: this checkout with commit <sha> reverted (uncommitted), so OFF and ON differ only in that
-#                        change (hover preload landed as a8442a2b089bca34318c6e47b3767cba09f24cb6, #36637); or
-#   --base-ref=<sha>:    that commit (it must carry this bench's debug socket methods).
+#                        change and the setting; or
+#   --base-ref=<sha>:    that commit (it must carry this bench's debug socket methods). A base before 1ff2637da6f
+#                        (#37124) has no setting: there preload is on whenever browser.keepNeighborTabsAwake > 0; the script warns.
 # Runs alone on the worker because it launches an app:
 #   cmux-ci run --class exclusive --label measure --measurement --script scripts/measure/hover-preload.sh --ref <sha> \
-#     --arg=--base-revert=a8442a2b089bca34318c6e47b3767cba09f24cb6 [--arg=--arms=OFF,ON,OFF,ON] [--arg=--engine=chromium]
+#     [--arg=--arms=OFF,ON,OFF,ON] [--arg=--base-ref=<sha>] [--arg=--engine=chromium]
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-# --arms=OFF,ON,OFF,ON (the default with a base; ON alone without) runs the bench once per arm, in that order, on
-# this mini: OFF launches the base build, ON this checkout's.
+# --arms=OFF,ON,OFF,ON (the default) runs the bench once per arm, in that order, on
+# this mini: OFF launches the base build (or this one) with the setting off, ON this checkout's with it on.
 tag="hoverpre"
 out="$(mktemp -d)"
 head_sha="$(git rev-parse HEAD)"
@@ -28,18 +32,13 @@ for arg in "$@"; do
     --arms=*) arms="${arg#--arms=}" ;;
     --base-ref=*) base_ref="${arg#--base-ref=}" ;;
     --base-revert=*) base_revert="${arg#--base-revert=}" ;;
+    # Each arm sets --wake-on-hover itself; the bench takes the last one, so a passed one would make every arm alike.
+    --wake-on-hover*) echo "hover-preload: do not pass --wake-on-hover; OFF arms run with it 0, ON arms with it 1" >&2; exit 2 ;;
     *) bench_args+=("$arg") ;;
   esac
 done
 set -- ${bench_args[@]+"${bench_args[@]}"}
-if [[ -z "$arms" ]]; then
-  arms="ON"
-  [[ -n "$base_ref$base_revert" ]] && arms="OFF,ON,OFF,ON"
-fi
-if [[ ",$arms," == *",OFF,"* && -z "$base_ref$base_revert" ]]; then
-  echo "hover-preload: an OFF arm needs --base-revert or --base-ref (the base build, not a setting)" >&2
-  exit 2
-fi
+[[ -z "$arms" ]] && arms="OFF,ON,OFF,ON"
 
 # Builds the checked-out commit as tag $1 and prints its app path. A step's checkout has empty submodules: reload.sh
 # needs Ghostty's headers and ghostty-next for the bundled cmux-tui.
@@ -57,6 +56,16 @@ build() {
   printf '%s\n' "$app"
 }
 
+# Warns when the checked-out base (with any uncommitted revert) has no browser.wakeTabsOnHover setting (before
+# 1ff2637da6f): there its OFF arm still preloads whenever browser.keepNeighborTabsAwake > 0.
+check_base_setting() {
+  if ! git grep -q wakeTabsOnHover -- Packages/macOS/CmuxNext/Sources/CmuxNextSettings 2>/dev/null; then
+    echo "hover-preload: WARNING: the base ($base_desc) has no browser.wakeTabsOnHover setting (it predates 1ff2637da6f):" \
+      "its OFF arm preloads whenever browser.keepNeighborTabsAwake > 0, so OFF vs ON may compare ON with ON" >&2
+    base_desc="$base_desc, no wakeTabsOnHover setting"
+  fi
+}
+
 # Puts the checkout back at the head commit with no local change (after a base build).
 restore_head() {
   git reset --quiet --hard "$head_sha"
@@ -66,8 +75,10 @@ restore_head() {
 base_app="" base_desc=""
 if [[ -n "$base_revert" ]]; then
   # A shallow step checkout may lack the commit or its parent; reverting needs both trees.
+  depth=()  # --depth only in a checkout that is already shallow, so a full clone stays full
+  [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 2)
   { git cat-file -e "$base_revert^{commit}" && git cat-file -e "$base_revert^^{commit}"; } 2>/dev/null \
-    || git fetch --quiet --depth 2 origin "$base_revert"
+    || git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$base_revert" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$base_revert"
   if ! git revert --no-commit "$base_revert" >"$out/revert.log" 2>&1; then
     cat "$out/revert.log" >&2
     echo "hover-preload: $base_revert does not revert cleanly at $head_sha; use --base-ref" >&2
@@ -76,29 +87,36 @@ if [[ -n "$base_revert" ]]; then
     exit 1
   fi
   base_desc="head minus $base_revert"
+  check_base_setting
   base_app="$(build hoverbase)" || { restore_head; exit 1; }
   restore_head
 elif [[ -n "$base_ref" ]]; then
-  git cat-file -e "$base_ref^{commit}" 2>/dev/null || git fetch --quiet origin "$base_ref"
+  git cat-file -e "$base_ref^{commit}" 2>/dev/null || git fetch --quiet origin "$base_ref" 2>/dev/null || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$base_ref"
   git -c advice.detachedHead=false checkout --quiet --detach "$base_ref"
   base_desc="base $(git rev-parse HEAD)"
+  check_base_setting
   base_app="$(build hoverbase)" || { restore_head; exit 1; }
   restore_head
 fi
 [[ -n "$base_app" ]] && echo "hover-preload: OFF app built ($base_desc)"
 app="$(build "$tag")"
-echo "hover-preload: ref $head_sha"
+echo "hover-preload: ref $head_sha host $(hostname -s) macOS $(sw_vers -productVersion 2>/dev/null || echo ?)"
 # A fleet step has no LaunchServices session: run the app binary itself (bench_memory.launch).
 IFS=, read -r -a arm_list <<<"$arms"
 index=0 failed=0
 for arm in "${arm_list[@]}"; do
   index=$((index + 1))
   label="$(tr '[:upper:]' '[:lower:]' <<<"$arm")"
-  arm_app="$app"
-  [[ "$label" == off ]] && arm_app="$base_app"
-  echo "hover-preload: arm $index/${#arm_list[@]} $label ($([[ "$label" == off ]] && echo "$base_desc" || echo "head $head_sha"))"
+  arm_app="$app" wake=1 desc="head $head_sha, browser.wakeTabsOnHover on"
+  if [[ "$label" == off ]]; then
+    # OFF is preload off on whichever build it runs: a base build launched with the setting on would make
+    # "base vs ON" an ON vs ON comparison.
+    wake=0 desc="head $head_sha, browser.wakeTabsOnHover off"
+    if [[ -n "$base_app" ]]; then arm_app="$base_app" desc="$base_desc, browser.wakeTabsOnHover off"; fi
+  fi
+  echo "hover-preload: arm $index/${#arm_list[@]} $label ($desc)"
   # One arm that fails does not stop the others (each launches its own app); the step fails at the end.
   CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/bench_hover_preload.py --app "$arm_app" --label "$label" \
-    --out "$PWD/hover-preload-$index-$label.json" "$@" || { echo "hover-preload: arm $index ($label) failed" >&2; failed=1; }
+    --wake-on-hover="$wake" --out "$PWD/hover-preload-$index-$label.json" "$@" || { echo "hover-preload: arm $index ($label) failed" >&2; failed=1; }
 done
 exit "$failed"

@@ -8,7 +8,8 @@
 ///   "hibernationExclusions": ["mail.google.com", "*.example.com"],
 ///   "hibernatePinnedTabs": false,
 ///   "freezeHiddenTabs": 30,          // "off" | seconds (number)
-///   "keepNeighborTabsAwake": 1       // 0...3 tabs on each side of the shown tab
+///   "keepNeighborTabsAwake": 1,      // 0...3 tabs on each side of the shown tab
+///   "wakeTabsOnHover": false         // a rest on a tab or a workspace row wakes its pages
 /// }
 /// ```
 ///
@@ -27,6 +28,8 @@
 /// `keepNeighborTabsAwake` keeps that many tabs on each side of each pane's
 /// shown tab (wrapping, as Ctrl-Tab does) unfrozen and loaded, so a switch to
 /// a nearby tab is instant; memory pressure and Low Power Mode reduce it to 0.
+/// `wakeTabsOnHover` (off by default) wakes the pages a click would show once the pointer rests
+/// on a tab or a workspace row (plans/cmux-next/hover-preload-DESIGN.md).
 public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
     public enum Mode: Sendable, Hashable {
         case off
@@ -49,25 +52,25 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
     /// tabs (unless `includesPinnedTabs`) and exclusions stay awake.
     public var freezeSeconds: Double?
 
-    /// Seconds hidden before a page freezes by default: long enough for a
-    /// quick switch back, short against the ~1 Hz wakeups of each hidden renderer.
-    public static let defaultFreezeSeconds: Double = 30
     /// Tabs on each side of each pane's shown tab that stay awake (0 turns it off).
     public var neighborRadius: Int
-    /// One tab on each side by default: Ctrl-Tab, Cmd-Shift-[ ] and the next click are warm.
-    public static let defaultNeighborRadius = 1
+    /// The whole numbers `browser.keepNeighborTabsAwake` accepts (`neighborRadiusRange`).
+    public static let neighborRadii = Int(neighborRadiusRange.lowerBound)...Int(neighborRadiusRange.upperBound)
     /// Hidden pages are discarded on their own (the timeout, memory pressure). False unless
     /// cmux.json sets `browser.hibernation`: a discarded page reloads when it wakes, so by
     /// default hidden pages only freeze, which keeps their state.
     public var discardsAutomatically: Bool
-    /// The values `browser.keepNeighborTabsAwake` accepts.
-    public static let neighborRadiusRange = 0...3
+    /// A rest on a tab or a workspace row wakes the pages its click would show (hover preload).
+    public var wakesOnHover: Bool
 
-    public init(mode: Mode, exclusions: [String] = [], includesPinnedTabs: Bool = false,
-                freezeSeconds: Double? = BrowserHibernationSetting.defaultFreezeSeconds,
-                neighborRadius: Int = BrowserHibernationSetting.defaultNeighborRadius,
-                discardsAutomatically: Bool = true) {
+    /// The defaults are schemas/settings/source/browser.json's (SettingsSchema+Browser.generated.swift).
+    public init(mode: Mode, exclusions: [String] = BrowserHibernationSetting.exclusionsDefault,
+                includesPinnedTabs: Bool = BrowserHibernationSetting.includesPinnedTabsDefault,
+                freezeSeconds: Double? = BrowserHibernationSetting.freezeSecondsDefault,
+                neighborRadius: Int = Int(BrowserHibernationSetting.neighborRadiusDefault),
+                discardsAutomatically: Bool = true, wakesOnHover: Bool = BrowserHibernationSetting.wakesOnHoverDefault) {
         self.mode = mode
+        self.wakesOnHover = wakesOnHover
         self.discardsAutomatically = discardsAutomatically
         self.exclusions = exclusions
         self.includesPinnedTabs = includesPinnedTabs
@@ -75,11 +78,8 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
         self.neighborRadius = neighborRadius
     }
 
-    public static let configPath = ["browser", "hibernation"]
     /// No `browser.hibernation` in cmux.json: hidden pages freeze and are never discarded on their own.
     public static let fallback = BrowserHibernationSetting(mode: .moderate, discardsAutomatically: false)
-    public static let neighborRadiusPath = ["browser", "keepNeighborTabsAwake"]
-    public static let exclusionsPath = ["browser", "hibernationExclusions"]
 
     public var isEnabled: Bool { mode != .off }
 
@@ -166,11 +166,18 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
             }
         }
         if let value = browser["keepNeighborTabsAwake"] {
-            if let number = value.doubleValue, number == number.rounded(), neighborRadiusRange.contains(Int(exactly: number) ?? -1) {
-                setting.neighborRadius = Int(exactly: number) ?? defaultNeighborRadius
+            if let number = value.doubleValue, number == number.rounded(), neighborRadiusRange.contains(number), let radius = Int(exactly: number) {
+                setting.neighborRadius = radius
             } else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "browser.keepNeighborTabsAwake",
                                                       message: "expected a whole number from 0 to 3"))
+            }
+        }
+        if let value = browser["wakeTabsOnHover"] {
+            if let flag = value.boolValue {
+                setting.wakesOnHover = flag
+            } else {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "browser.wakeTabsOnHover", message: "expected true or false"))
             }
         }
         return (setting, diagnostics)

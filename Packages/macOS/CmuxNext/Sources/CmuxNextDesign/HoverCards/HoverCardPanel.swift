@@ -59,6 +59,8 @@ final class HoverCardPanel: NSPanel {
     /// The window's clear band around the card: the shadow band plus the slide's room.
     static var windowMargin: CGFloat { PopupStyle.standard.shadowMargin + travel }
     private(set) weak var body: NSView?
+    /// Hears the pointer in the window's clear band (``HoverCardPanel/pointerMovedInBand()``).
+    let bandTracker = HoverCardBandTracker()
     /// The body's edges pinned to the card (the card fits its body), and its fitted size, held
     /// while a morph lays the card out larger (`HoverCardPanel+Morph.swift`).
     var edgeConstraints: [NSLayoutConstraint] = []
@@ -107,6 +109,9 @@ final class HoverCardPanel: NSPanel {
         let host = adoptPopupStyle(card: glass)
         host.travelMargin = Self.travel
         host.cornerRadius = Self.cornerRadius
+        bandTracker.panel = self
+        host.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+                                            owner: bandTracker))
         ignoresMouseEvents = true
         isReleasedWhenClosed = false
         // A no-activate test run is never active; its cards must still show.
@@ -158,7 +163,7 @@ final class HoverCardPanel: NSPanel {
     /// and at rest in this frame; the coordinator has already waited for the dwell.
     func present(body newBody: NSView, anchor: CGRect, placement: HoverCardPlacement, parent: NSWindow,
                  themeAnchor: NSView?, sliding: Bool, interactive: Bool = false, cornerRadius: CGFloat? = nil,
-                 applyTheme: @escaping () -> Void) {
+                 entrance: HoverCardEntrance = .slide, applyTheme: @escaping () -> Void) {
         let wasDismissing = isDismissing
         let wasOnScreen = isVisible && parentWindowRef === parent
         // Where the card is on screen before this show: a visible card (shown, or fading out
@@ -255,8 +260,10 @@ final class HoverCardPanel: NSPanel {
             orderFront(nil)
         } else {
             // A first show: from clear, the card fades in while it moves the last few points
-            // away from its target (`HoverCardMotion`, shared with the update card).
-            Self.motion.enter(self, placement: restingPlacement, leading: isLeading)
+            // away from its target (`HoverCardMotion`, shared with the update card), fades in
+            // where it rests, or grows out of its target (`grow()`; a plain fade when motion is off).
+            Self.motion.enter(self, placement: restingPlacement, leading: isLeading, slides: entrance == .slide)
+            if entrance == .morph { grow() }
         }
     }
 
@@ -327,10 +334,14 @@ final class HoverCardPanel: NSPanel {
     }
 
     /// The body's size changed (a resources row appeared).
-    func refit() {
+    func refit(animated: Bool = false) {
         guard isShowingCard else { return }
+        // What is drawn now, read before a morph in flight lays its card out at rest (as `present` does).
+        let previous = animated ? presentedCardFrame : nil
         finishMorph()
         place()
+        // The same morph a retarget to another size runs: the mask grows or folds about the fixed corner.
+        if let previous { _ = morph(from: previous) }
     }
 
     func place() {

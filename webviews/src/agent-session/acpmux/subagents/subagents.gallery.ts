@@ -12,7 +12,7 @@
 // passes the message on, where the chat's composer would be.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
-import { minutesAgo } from "../../../gallery/clock";
+import { minutesAgo, recentRun } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 
@@ -35,8 +35,8 @@ function agent(
     name,
     task: name,
     state,
-    startedAt: minutesAgo(minutes),
-    ...(state !== "running" && { endedAt: minutesAgo(minutes - ran) }),
+    // What ended lingers in the hat only for its grace (trayLinger.ts): it ended just now.
+    ...(state === "running" ? { startedAt: minutesAgo(minutes) } : recentRun(minutes, ran)),
     ...rest,
   };
 }
@@ -387,6 +387,17 @@ export default agentPaneEntry({
       height: 640,
       snapshot: NESTED_MIXED,
       play: openChild("Test coverage"),
+    },
+    "child-group": {
+      note: "Test coverage spawned Unit tests and Integration tests. Its children use a plain contiguous list with direct chat navigation.",
+      height: 760,
+      snapshot: NESTED_MIXED,
+      play: async (ctx) => {
+        await openChild("Test coverage")(ctx);
+        if (ctx.find({ selector: ".cv-subagents" }).getAttribute("aria-expanded") !== "true")
+          await ctx.click({ selector: ".cv-subagents" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-subagent").length === 2);
+      },
     },
     "child-nested": {
       note: "A nested group in the child view opened, then its finished subagent: the pill names its parent.",

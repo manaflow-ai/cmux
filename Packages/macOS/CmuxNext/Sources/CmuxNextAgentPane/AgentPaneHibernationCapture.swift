@@ -24,6 +24,7 @@ public struct AgentPaneHibernationCapture {
     }
 
     /// Reads restorable state and holds a usable cover when the page's engine can draw it.
+    /// What the page says it cannot hand back keeps it (``AgentPaneWakeState/keepReason(_:hasHandshake:)``).
     public func capture(
         key: String, images: AgentPaneLaunchImages, requiresFrame: Bool,
         wake: @MainActor (AgentPaneView) async -> AgentPaneWakeState?,

@@ -37,7 +37,7 @@ struct HomeNarrowSidebarTests {
     private func page(listWidth: CGFloat) throws -> Page {
         _ = NSApplication.shared
         let suite = "cmux.tests.narrowSidebar.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         let content = NSView()
         let split = HomeSidebarSplitView(sidebar: home, content: content, widths: HomeSidebarWidth(defaults: defaults))

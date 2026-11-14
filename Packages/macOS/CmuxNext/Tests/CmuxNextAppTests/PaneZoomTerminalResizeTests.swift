@@ -196,6 +196,8 @@ struct PaneZoomTerminalResizeTests {
         let probe = try screen.probe("p4")
         let before = probe.reports.count
         screen.zoom("p4")
+        // The snap shows at the next frame tick, its terminal drawn at the new size (#37330): one frame.
+        _ = screen.root.advanceFrame(1.0 / 120)
         #expect(probe.reports.count - before == 1, "Reduce Motion zoom did not report its grid at once")
         #expect(probe.reports.last == probe.grid)
     }

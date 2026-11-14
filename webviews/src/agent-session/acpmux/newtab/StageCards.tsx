@@ -56,7 +56,7 @@ export function EnvironmentCard({
           <span className="nt-stage-icon" aria-hidden="true">
             <Icon name="folder" size={14} />
           </span>
-          <span className="nt-stage-text">{t("composer.noProject")}</span>
+          <span className="nt-stage-text">{t("project.noFolder")}</span>
           <span className="nt-stage-check" aria-hidden="true">
             ✓
           </span>
@@ -71,7 +71,7 @@ export function EnvironmentCard({
           <span className="nt-stage-icon" aria-hidden="true">
             <Icon name="folder" size={14} />
           </span>
-          <span className="nt-stage-text">{t("project.browse")}</span>
+          <span className="nt-stage-text">{t("composer.addFolder")}</span>
         </button>
       )}
       {!current && !noProject && local.length === 0 && (
@@ -81,7 +81,7 @@ export function EnvironmentCard({
           <span className="nt-stage-icon" aria-hidden="true">
             <Icon name="folder" size={14} />
           </span>
-          <span className="nt-stage-text">{t("composer.noProject")}</span>
+          <span className="nt-stage-text">{t("project.noFolder")}</span>
         </button>
       )}
       {others.map((project) => (

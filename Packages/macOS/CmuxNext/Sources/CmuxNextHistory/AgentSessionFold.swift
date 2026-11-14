@@ -34,7 +34,23 @@ public nonisolated struct AgentSessionFold: Hashable, Sendable, Codable {
         sessions.values.sorted { ($0.lastActivityAt, $0.sessionID) > ($1.lastActivityAt, $1.sessionID) }
     }
 
+    /// The daemon's coalesced activity row: each stamp moves a known session's last activity
+    /// forward. It never makes a session and never changes when one started or ended.
+    private mutating func apply(activity stamps: [AgentJournalRecord.Payload.Normalized.ActivityStamp]) {
+        for stamp in stamps {
+            guard let provider = stamp.adapter, let sessionID = stamp.agentSessionID,
+                  let text = stamp.observedAtMs, let ms = Int64(text),
+                  var session = sessions["\(provider)/\(sessionID)"] else { continue }
+            session.lastActivityAt = max(session.lastActivityAt, Date(timeIntervalSince1970: TimeInterval(ms) / 1000))
+            sessions["\(provider)/\(sessionID)"] = session
+        }
+    }
+
     private mutating func apply(_ record: AgentJournalRecord) {
+        if record.kind.hasPrefix("agent."), let stamps = record.payload?.normalized?.activity {
+            apply(activity: stamps)
+            return
+        }
         guard record.kind.hasPrefix("agent."),
               let normalized = record.payload?.normalized,
               let sessionID = normalized.agentSessionID ?? normalized.rootAgentSessionID, !sessionID.isEmpty else { return }

@@ -120,6 +120,10 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
         let link = model.inviteLink
         if linkLabel.stringValue != (link ?? "") { linkLabel.stringValue = link ?? "" }
         linkRow.alphaValue = link == nil ? 0 : 1
+        // The row stays laid out with no link (the card keeps its size), so VoiceOver must skip it too.
+        for view in [linkRow, linkLabel, copyButton] as [NSView] where view.isAccessibilityHidden() != (link == nil) {
+            view.setAccessibilityHidden(link == nil)
+        }
         copyButton.isEnabled = link != nil
         let copyTitle = model.copied ? model.copiedTitle : model.copyLinkTitle
         if copyButton.button.title != copyTitle { copyButton.retitle(copyTitle) }

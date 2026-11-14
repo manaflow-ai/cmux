@@ -87,8 +87,11 @@ import Testing
             return Variant(id: id, summary: summary, style: style)
         }
         return [
-            v("V1", "two lines: place · state · time, frosted (default)") { _ in },
-            v("V2", "V1 on the glass") { $0.material = .glass },
+            v("V1", "two lines, a row with no detail one row tall, glass (default)") { _ in },
+            v("V2", "V1 frosted (the sidebar card before 2026-11-06)") { $0.material = .frosted },
+            v("V2b", "V1 with every row two lines tall (the gaps Leo saw 2026-11-06)") {
+                $0.uniformRowHeight = true; $0.material = .frosted
+            },
             v("V3", "two lines: kind · place · branch, time column") { $0.detail = [.kind, .place, .branch]; $0.trailing = .time },
             v("V4", "one line: title then place, time column, 6 rows") {
                 $0.twoLines = false; $0.detail = [.place]; $0.trailing = .time; $0.rowLimit = 6

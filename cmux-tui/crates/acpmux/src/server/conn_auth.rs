@@ -15,6 +15,10 @@
 //!   (`local_app.rs`) or peer token (`peer_auth.rs`) raises it. A paired
 //!   machine's credential (`crate::pairing`) stands in for the listener
 //!   token: [`ConnAuth::Device`] or [`ConnAuth::ReadOnlyDevice`].
+//! - the Cloud carrier socket (`carrier.rs`): the VM's session host bridges the
+//!   carrier's acpmux service to it and names the person the carrier grant
+//!   names, as the owner ([`ConnAuth::CarrierOwner`]) or a teammate
+//!   ([`ConnAuth::CarrierTeam`]).
 //!
 //! [`ConnAuth::None`] is the value of any connection no proof was checked
 //! for. It gets no sessions and no data: every request is refused and no
@@ -42,6 +46,12 @@ pub enum ConnAuth {
     /// A paired machine's `read-only` credential: served as Web, and every
     /// request goes through the read-only gate (`pairing::read_only`).
     ReadOnlyDevice,
+    /// The Cloud carrier socket, for the VM's owner (`carrier.rs`). Served as
+    /// Peer, with every right [`ConnAuth::PeerToken`] has.
+    CarrierOwner,
+    /// The Cloud carrier socket, for a teammate of the VM's team (`carrier.rs`).
+    /// Served as Web, and every request goes through the teammate matrix.
+    CarrierTeam,
 }
 
 impl ConnAuth {
@@ -60,7 +70,16 @@ impl ConnAuth {
             ConnAuth::PeerToken => "peerToken",
             ConnAuth::Device => "device",
             ConnAuth::ReadOnlyDevice => "readOnlyDevice",
+            ConnAuth::CarrierOwner => "carrierOwner",
+            ConnAuth::CarrierTeam => "carrierTeam",
         }
+    }
+
+    /// The owner's own acpmux daemon on another machine, by its link's proof: this launch's
+    /// peer token, or the Cloud carrier socket naming the VM's owner (`carrier.rs`), which
+    /// gets the same rules. A paired machine's credential (`Device`) is not.
+    pub fn peer_daemon(self) -> bool {
+        matches!(self, ConnAuth::PeerToken | ConnAuth::CarrierOwner)
     }
 
     /// The proof a transport's checks give `origin`: the daemon socket's

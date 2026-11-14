@@ -1213,8 +1213,116 @@
             }
           }
         },
-        "description": "Allow a VM's public egress. Requires the vm:network scope. Lets an existing VM reach the public Internet, as a create with initialNetwork.publicEgress does: one rule whose source is exactly this VM, deleted with the VM. Idempotent: a VM that already has such a rule gets no second one. It never turns egress off and never changes HTTPS proxies or shared-network rules. For a VM created private (a copy that resumes another VM's memory, say) that must join the Internet only once its guest is ready. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "description": "Allow a VM's public egress. Requires the vm:network scope. Lets an existing VM reach the public Internet, as a create with initialNetwork.publicEgress does: one rule whose source is exactly this VM, deleted with the VM. Idempotent: a VM that already has such a rule gets no second one. It never turns egress off (revokeVmPublicEgress does) and never changes HTTPS proxies or shared-network rules. For a VM created private (a copy that resumes another VM's memory, say) that must join the Internet only once its guest is ready. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
         "summary": "Allow a VM's public egress"
+      },
+      "delete": {
+        "tags": [
+          "vms"
+        ],
+        "operationId": "vms.revokeVmPublicEgress",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VmPublicEgress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VmPublicEgress"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Revoke a VM's public egress. Requires the vm:network scope. Stops an existing VM reaching the public Internet, live: deletes every rule whose source is exactly this VM (or a create's inline rule) and whose destination is the whole public Internet, then reads the rules again and answers 503 unless none is left. Idempotent: a VM without such a rule changes nothing. It never deletes a narrower rule, an HTTPS proxy (the VM keeps those) or a shared-network rule. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Revoke a VM's public egress"
       }
     },
     "/v1/vms/{vmId}": {
@@ -6742,7 +6850,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/EnrollDeviceRequest"
+                "$ref": "#/components/schemas/EnrollMeshDeviceRequest"
               }
             }
           },
@@ -7077,6 +7185,134 @@
         },
         "description": "Remove a device and its tunnel. Requires the mesh:join scope. Access ends within a second. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
         "summary": "Remove a device and its tunnel"
+      }
+    },
+    "/v1/meshes/{meshId}/device-intents/{intentId}/revoke": {
+      "post": {
+        "tags": [
+          "mesh"
+        ],
+        "operationId": "mesh.revokeDeviceIntent",
+        "parameters": [
+          {
+            "name": "meshId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "intentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The intent is revoked: no enroll with it makes a device for 7 days, so an empty device list after this is final.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceIntentRevocation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Revoke an enroll intent. Requires the mesh:join scope. Writes a tombstone for the intentId and deletes the device it made, with its tunnel. Idempotent. An enroll with this intentId that has not committed refuses with 409 mesh.device.intent_revoked and removes what it created. A 200 is final: no device of the intent is live or can become live, and no enroll with it can commit. A tunnel its provider create makes after the 200 (a create the provider processes late) backs no device and is deleted by the service's tunnel sweep within minutes; the caller has nothing more to do. A 503 (an enroll that may still be creating its tunnel, or a tunnel delete that failed) means retry the revoke until it answers 200. The tombstone lasts 7 days. Only the principal that used the intent or a tenant admin carrying its labels may revoke it, and a key limited to resources only if every device the intent's enrolls made is in its list; anyone else gets 404 and nothing is written. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "summary": "Revoke an enroll intent"
       }
     },
     "/v1/devices/{deviceId}/peers": {
@@ -10742,6 +10978,13 @@
           "message": {
             "type": "string"
           },
+          "code": {
+            "type": "string",
+            "enum": [
+              "mesh.device.intent_revoked"
+            ],
+            "description": "mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again."
+          },
           "creationKey": {
             "$ref": "#/components/schemas/VmCreationKey"
           },
@@ -10784,6 +11027,13 @@
           "items"
         ],
         "properties": {
+          "order": {
+            "type": "string",
+            "enum": [
+              "configured"
+            ],
+            "description": "\"configured\": items are in the operator's configured order, the first being the image in use. Absent: the order carries no meaning."
+          },
           "items": {
             "type": "array",
             "items": {
@@ -12773,7 +13023,7 @@
         },
         "additionalProperties": false
       },
-      "EnrollDeviceRequest": {
+      "EnrollMeshDeviceRequest": {
         "type": "object",
         "required": [
           "name",
@@ -12814,10 +13064,14 @@
             "type": "string",
             "description": "ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.",
             "pattern": "^[A-Za-z0-9+/]{86}==$"
+          },
+          "intentId": {
+            "type": "string",
+            "description": "The caller's id for this enroll attempt (letters, digits and . _ : ~ -, at most 128 characters), unique per mesh. A repeat with the same intentId answers the device it made instead of 409. After POST /v1/meshes/{meshId}/device-intents/{intentId}/revoke (or the device's delete) the intent is revoked for 7 days: an enroll with it answers 409 with code mesh.device.intent_revoked and leaves nothing live. While an earlier enroll with it is running, or may have left a tunnel the provider has not confirmed deleted, an enroll with it answers 409 (retry).",
+            "pattern": "^[A-Za-z0-9._:~-]{1,128}$"
           }
         },
-        "additionalProperties": false,
-        "description": "Signed by the device's install key over the cmux-mesh-v1 message (workers/cmux-vm/src/mesh/signed-request.ts); a stale (more than 120 s off), forged or tampered request is 403, a replayed one 409."
+        "additionalProperties": false
       },
       "DeviceEnrollment": {
         "type": "object",
@@ -12972,6 +13226,20 @@
           }
         },
         "additionalProperties": false
+      },
+      "DeviceIntentRevocation": {
+        "type": "object",
+        "required": [
+          "deleted"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "boolean",
+            "description": "Whether this call deleted the intent's device (and its tunnel)."
+          }
+        },
+        "additionalProperties": false,
+        "description": "The intent is revoked: no enroll with it makes a device for 7 days, so an empty device list after this is final."
       },
       "PeerMap": {
         "type": "object",
@@ -13785,6 +14053,52 @@
         },
         "additionalProperties": false,
         "description": "An approved server-only invitation, valid for 10 minutes. Only its hash is stored. The reserved device id supports signed policy recovery after a lost enrollment response."
+      },
+      "EnrollDeviceRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "wgPublicKey",
+          "installPublicKey",
+          "signedAt",
+          "nonce",
+          "signature"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$"
+          },
+          "wgPublicKey": {
+            "type": "string",
+            "description": "The device's WireGuard public key, base64. The private key never leaves the device.",
+            "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+          },
+          "installPublicKey": {
+            "type": "string",
+            "description": "The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.",
+            "pattern": "^B[A-Za-z0-9+/]{86}=$"
+          },
+          "signedAt": {
+            "$ref": "#/components/schemas/Int",
+            "description": "When the device signed, in unix milliseconds; accepted within 120 s of the server's clock.",
+            "title": "positive",
+            "exclusiveMinimum": 0
+          },
+          "nonce": {
+            "type": "string",
+            "description": "16 random bytes, base64url without padding.",
+            "pattern": "^[A-Za-z0-9_-]{22}$"
+          },
+          "signature": {
+            "type": "string",
+            "description": "ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.",
+            "pattern": "^[A-Za-z0-9+/]{86}==$"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Signed by the device's install key over the cmux-mesh-v1 message (workers/cmux-vm/src/mesh/signed-request.ts); a stale (more than 120 s off), forged or tampered request is 403, a replayed one 409."
       },
       "OverlayServer": {
         "type": "object",

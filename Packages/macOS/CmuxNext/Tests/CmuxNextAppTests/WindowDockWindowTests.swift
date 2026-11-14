@@ -10,13 +10,12 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// The Chief window dock (user 2026-11-05: "when i click it from chief, it will bring me to workspace, but with the
-/// chief still on the left … the chief UI part does not change at all, so if i have typed stuff, the typed stuff
-/// is still there, if i have scrolled in chief ui, im still scrolled there"), and the window dock it is one of: any
-/// pane moves in, the Home Chief pane's no-tab-bar mode per dock, and its Cmd-Shift-P actions.
+/// The window dock (user 2026-11-05): a docked workspace keeps its view across stage switches, any pane moves in,
+/// the Home Chief pane's no-tab-bar mode per dock, and its Cmd-Shift-P actions. The Chief itself docks as the Chief
+/// panel instead (user 2026-11-06, `ChiefPanelWindowTests`).
 ///
-/// A real window with four workspaces `k0`...`k3`; `k0` plays Home (one pane, one tab: the Chief's), and holds a
-/// draft (a text view with a selection) and a scrolled view, as the Chief's message box and transcript do.
+/// A real window with four workspaces `k0`...`k3`; `k0` has one pane with one tab, and holds a draft (a text view
+/// with a selection) and a scrolled view.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct WindowDockWindowTests {
     typealias Fixture = SidebarMultiViewWindowTests.Fixture
@@ -74,12 +73,12 @@ struct WindowDockWindowTests {
         }
     }
 
-    // MARK: - A link from the Chief
+    // MARK: - A docked workspace
 
-    /// A link clicked in the Chief shows its workspace on the stage with the Chief docked left: the same view, its
-    /// draft, selection and scroll kept. Then switching the stage (sidebar picks) never touches the dock's view: not
-    /// hidden, not moved, not re-mapped.
-    @Test func aLinkFromTheChiefDocksItAndStageSwitchesNeverTouchItsView() async throws {
+    /// A docked workspace keeps its view while the stage switches (sidebar picks): the same view, its draft,
+    /// selection and scroll kept, not hidden, not moved, not re-mapped. (Home never docks as a workspace: its Chief
+    /// docks as the Chief panel, `ChiefPanelWindowTests`.)
+    @Test func aDockedWorkspaceKeepsItsViewAcrossStageSwitches() async throws {
         try await Self.withDocks {
             let f = try await Fixture(keys: Self.keys, tree: Self.tree())
             defer { f.close() }
@@ -88,16 +87,16 @@ struct WindowDockWindowTests {
             let view = chief.contentView
             let state = ChiefState(in: view)
 
-            f.controller.armChiefDock(home: "k0", edge: .left)
-            f.services.windows.show(workspaceID: "k1", in: f.state) // the link's jump
+            f.controller.dockWorkspace("k0", at: .left)
+            f.services.windows.show(workspaceID: "k1", in: f.state, from: .thisWindow)
             f.frame()
-            #expect(f.state.docks.dock(at: .left)?.workspace == "k0", "the Chief did not dock left")
+            #expect(f.state.docks.dock(at: .left)?.workspace == "k0", "k0 did not dock left")
             #expect(f.state.workspaceID == "k1" && f.shown == ["k0", "k1"], "shown \(f.shown)")
             let left = try #require(f.windowFrame("k0")), right = try #require(f.windowFrame("k1"))
-            #expect(left.maxX <= right.minX, "the Chief is not on the left: \(left) \(right)")
-            #expect(f.controller.parked["k0"] === chief, "the Chief's content was replaced")
+            #expect(left.maxX <= right.minX, "the dock is not on the left: \(left) \(right)")
+            #expect(f.controller.parked["k0"] === chief, "the docked content was replaced")
             #expect(chief.contentView === view)
-            state.expectKept(in: view, "after the link")
+            state.expectKept(in: view, "after the dock")
 
             let dockFrame = view.frame
             let runs = chief.panes.values.map(\.debugSnapshotRuns)
@@ -109,13 +108,13 @@ struct WindowDockWindowTests {
                 #expect(view.frame == dockFrame, "after \(id): the dock moved")
                 state.expectKept(in: view, "after \(id)")
             }
-            #expect(chief.panes.values.map(\.debugSnapshotRuns) == runs, "a stage switch re-mapped the docked Chief's panes")
+            #expect(chief.panes.values.map(\.debugSnapshotRuns) == runs, "a stage switch re-mapped the docked panes")
             #expect(f.state.docks.all.map(\.workspace) == ["k0"], "the sidebar picks changed the dock")
         }
     }
 
-    /// Without a link from the Chief, a sidebar pick replaces Home as before: nothing docks.
-    @Test func aSidebarPickFromHomeDocksNothing() async throws {
+    /// A sidebar pick replaces the shown workspace as before: nothing docks.
+    @Test func aSidebarPickDocksNothing() async throws {
         try await Self.withDocks {
             let f = try await Fixture(keys: Self.keys, tree: Self.tree())
             defer { f.close() }
@@ -126,38 +125,48 @@ struct WindowDockWindowTests {
         }
     }
 
-    /// A link that showed nothing in time (refused, or opened in another window) leaves the arm to lapse: a later
-    /// sidebar pick does not dock Home.
-    @Test func aLapsedArmDocksNothing() async throws {
-        try await Self.withDocks {
-            let f = try await Fixture(keys: Self.keys, tree: Self.tree())
-            defer { f.close() }
-            f.controller.armChiefDock(home: "k0", edge: .left, now: ContinuousClock.now - .seconds(60))
-            f.services.windows.show(workspaceID: "k1", in: f.state, from: .thisWindow)
-            f.frame()
-            #expect(f.state.docks.isEmpty)
-            #expect(f.controller.chiefDockOnLeave == nil, "the show did not take the arm")
-        }
+    // MARK: - A relaunch (cmux#37365)
+
+    /// `tree()` with `k0` as the store's Home (`kind` "home"), as the frame reads it.
+    static func homeTree() -> DaemonTree {
+        var tree = tree()
+        tree.workspaces[0].kind = "home"
+        return tree
     }
 
-    /// `home.chiefDock.edge` bottom: the Chief docks under the stage.
-    @Test func theChiefDocksAtTheSettingsEdge() async throws {
+    /// A Chief an older build docked (by a link, or by Cmd-I) comes back undocked after a relaunch: Home never docks
+    /// (user 2026-11-06), and the window shows no Chief until the person asks. A dock the person made of another
+    /// workspace stays.
+    @Test(arguments: [false, true]) func aRelaunchShowsNoChiefAnOlderBuildDocked(byLink: Bool) async throws {
         try await Self.withDocks {
-            let f = try await Fixture(keys: Self.keys, tree: Self.tree())
-            defer { f.close() }
-            f.controller.armChiefDock(home: "k0", edge: .bottom)
-            f.services.windows.show(workspaceID: "k2", in: f.state)
+            let f = try await Fixture(keys: Self.keys, tree: Self.homeTree())
+            f.services.windows.show(workspaceID: "k1", in: f.state)
             f.frame()
-            #expect(f.state.docks.dock(at: .bottom)?.workspace == "k0")
-            let top = try #require(f.windowFrame("k2")), bottom = try #require(f.windowFrame("k0"))
-            #expect(bottom.maxY <= top.minY, "the Chief is not under the stage: \(top) \(bottom)") // window y runs up
+            f.controller.dockWorkspace("k2", at: .bottom) // Dock Workspace Bottom: the person's choice
+            f.frame()
+            try #require(f.state.docks.dock(at: .bottom)?.workspace == "k2")
+            let record = try #require(f.services.windows.registry.value.record(f.state.id, state: f.state, order: 0))
+            var json = try #require(String(data: try JSONEncoder().encode(record), encoding: .utf8))
+            // An older build's record: Home docked at the left beside k2's dock.
+            let home = #"{"edge":"left","workspace_key":"k0","mode":"docked","extent_permille":300,"hidden":false"# +
+                (byLink ? #","by_link":true}"# : "}")
+            json = json.replacingOccurrences(of: #""docks":["#, with: #""docks":["# + home + ",")
+            try #require(json.contains(#""workspace_key":"k0""#), "the test did not write the old dock: \(json)")
+            f.close()
+
+            let again = try await Fixture(keys: Self.keys, record: json, tree: Self.homeTree())
+            defer { again.close() }
+            again.frame()
+            #expect(!again.state.docks.isDocked("k0"), "the relaunch kept the Chief docked: \(again.state.docks.all.map(\.workspace))")
+            #expect(!again.controller.frameChiefPanelShown, "the relaunch showed the Chief")
+            #expect(again.state.docks.dock(at: .bottom)?.workspace == "k2", "the relaunch dropped a dock the person made")
         }
     }
 
     // MARK: - Cmd-Shift-P actions
 
-    /// Show or Hide Dock Tab Bar gives the dock the Home Chief pane's mode (one tab: no bar), per dock; Move Dock to
-    /// Right moves it; Show or Hide Dock hides and shows it; Focus Dock focuses its workspace. Each runs through the
+    /// Show/Hide Dock Tab Bar gives the dock the Home Chief pane's mode (one tab: no bar), per dock; Move Dock to
+    /// Right moves it; Show/Hide Dock hides and shows it; Focus Dock focuses its workspace. Each runs through the
     /// registry, the path of the palette, the keyboard, the CLI and MCP.
     @Test func thePaletteActionsDriveTheDock() async throws {
         try await Self.withDocks {
@@ -166,7 +175,7 @@ struct WindowDockWindowTests {
             AppActions.bind(f.services)
             let registry = f.services.registry
             @MainActor func run(_ id: ActionID) -> Bool { registry.perform(id, invocation: ActionInvocation(origin: .user)) }
-            f.controller.openChiefDock("k0", edge: .left)
+            f.controller.dockWorkspace("k0", at: .left)
             f.services.windows.show(workspaceID: "k1", in: f.state, from: .thisWindow)
             f.frame()
             try #require(f.state.docks.dock(at: .left)?.workspace == "k0" && f.shown == ["k0", "k1"], "shown \(f.shown)")
@@ -188,7 +197,7 @@ struct WindowDockWindowTests {
 
             #expect(run("window.toggleDock"))
             f.frame()
-            #expect(f.shown == ["k1"], "Show or Hide Dock did not hide it: \(f.shown)")
+            #expect(f.shown == ["k1"], "Show/Hide Dock did not hide it: \(f.shown)")
             #expect(run("window.toggleDock"))
             f.frame()
             #expect(f.shown == ["k0", "k1"])
@@ -223,7 +232,7 @@ struct WindowDockWindowTests {
             let f = try await Fixture(keys: Self.keys, tree: Self.tree())
             defer { f.close() }
             AppActions.bind(f.services)
-            f.controller.openChiefDock("k0", edge: .left)
+            f.controller.dockWorkspace("k0", at: .left)
             f.services.windows.show(workspaceID: "k2", in: f.state, from: .thisWindow)
             f.frame()
             let moving = f.tabs("k2")
@@ -258,7 +267,7 @@ struct WindowDockWindowTests {
         try await Self.withDocks {
             let f = try await Fixture(keys: Self.keys, tree: Self.tree())
             defer { f.close() }
-            f.controller.openChiefDock("k0", edge: .left)
+            f.controller.dockWorkspace("k0", at: .left)
             f.services.windows.show(workspaceID: "k1", in: f.state, from: .thisWindow)
             f.frame()
             let dockView = try #require(f.controller.parked["k0"]?.contentView)

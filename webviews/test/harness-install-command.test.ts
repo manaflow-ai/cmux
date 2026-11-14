@@ -16,7 +16,7 @@ afterEach(() => {
 /// Runs `command` with only stub programs on PATH (`npm` too when `withNpm`); each stub appends
 /// its name, arguments and the env it cares about to a log. `curl` prints a script, the pipe's
 /// reader (`bash` or `sh`) records it.
-function run(command: string, withNpm: boolean): { code: number; log: string[] } {
+function run(command: string, withNpm: boolean, curlExit = 0): { code: number; log: string[] } {
   const dir = mkdtempSync(join(tmpdir(), "harness-install-"));
   dirs.push(dir);
   const log = join(dir, "log");
@@ -25,10 +25,20 @@ function run(command: string, withNpm: boolean): { code: number; log: string[] }
     writeFileSync(join(dir, name), `#!/bin/sh\n${body}\n`);
     chmodSync(join(dir, name), 0o755);
   };
-  stub("curl", `echo "curl $*" >> "${log}"; echo 'echo installer'`);
+  const curlScript = curlExit
+    ? `echo "curl: simulated download failure" >&2; exit ${curlExit}`
+    : "echo 'echo installer'";
+  stub("curl", `echo "curl $*" >> "${log}"; ${curlScript}`);
+  stub("brew", `echo "brew $*" >> "${log}"`);
+  stub("cargo", `echo "cargo $*" >> "${log}"`);
   // Only builtins: PATH holds nothing but these stubs.
   stub("bash", `IFS= read -r script; echo "bash <$script>" >> "${log}"`);
-  stub("sh", `IFS= read -r script; echo "sh <$script> CODEX_NON_INTERACTIVE=$CODEX_NON_INTERACTIVE" >> "${log}"`);
+  // Keep the expected log stable even when the parent test runner exports the
+  // Codex installer flag. Only the Codex command intentionally sets it.
+  stub(
+    "sh",
+    `IFS= read -r script; if [ -n "$CODEX_NON_INTERACTIVE" ]; then echo "sh <$script> CODEX_NON_INTERACTIVE=$CODEX_NON_INTERACTIVE" >> "${log}"; else echo "sh <$script>" >> "${log}"; fi`,
+  );
   if (withNpm) stub("npm", `echo "npm $*" >> "${log}"`);
   const result = Bun.spawnSync(["/bin/sh", "-c", command], { env: { PATH: dir, HOME: dir } });
   return {
@@ -51,10 +61,34 @@ test("without npm, Install runs each vendor's own installer", () => {
     code: 0,
     log: ["curl -fsSL https://opencode.ai/install", "bash <echo installer>"],
   });
+  expect(run(INSTALL_COMMANDS.gemini!, false)).toEqual({
+    code: 0,
+    log: ["brew install gemini-cli"],
+  });
+  // Muse uses its existing setup/docs action; it has no second install command
+  // that could duplicate the provider's official setup flow.
+  expect(INSTALL_COMMANDS.muse).toBeUndefined();
+});
+
+// The script reader succeeds with an empty input; a failed curl must still fail Install.
+test("without npm, offline and HTTP failures are reported by every vendor installer", () => {
+  for (const harness of ["claude", "codex", "opencode"] as const) {
+    for (const curlExit of [6, 22]) {
+      const result = run(INSTALL_COMMANDS[harness]!, false, curlExit);
+      expect(result.code).toBe(curlExit);
+      expect(result.log.some((line) => line.startsWith("curl -fsSL "))).toBe(true);
+    }
+  }
 });
 
 test("with npm, Install keeps npm, and never also runs a vendor installer", () => {
   expect(run(INSTALL_COMMANDS.claude!, true)).toEqual({ code: 0, log: ["npm install -g @anthropic-ai/claude-code"] });
   expect(run(INSTALL_COMMANDS.codex!, true)).toEqual({ code: 0, log: ["npm install -g @openai/codex"] });
   expect(run(INSTALL_COMMANDS.opencode!, true)).toEqual({ code: 0, log: ["npm install -g opencode-ai"] });
+  // Gemini keeps npm when it is available; Muse uses its setup/docs action.
+  expect(run(INSTALL_COMMANDS.gemini!, true)).toEqual({
+    code: 0,
+    log: ["npm install -g @google/gemini-cli"],
+  });
+  expect(INSTALL_COMMANDS.muse).toBeUndefined();
 });

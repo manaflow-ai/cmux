@@ -1,41 +1,29 @@
 // A Claude workflow's card in the transcript, where it started (Labs `workflowLabs`; the row is
-// subagents/runningTray.ts `WORKFLOW_CARD`): its name, state, progress, current phase and latest
-// line, live while it runs. A click opens Session Info's Background tasks, which lists its phases
+// subagents/runningTray.ts `WORKFLOW_CARD`): its name, state, every phase that runs now, what is
+// done and running (a fraction only once no agent can still spawn), one clock, and a latest line in
+// words (summary/workflowView.ts), live while it runs. A click opens Session Info's Background tasks, which lists its phases
 // and agents (session-info/WorkflowTasks.tsx). Its height is fixed, so a clock or latest line never
 // moves the transcript.
 import { useMemo, useSyncExternalStore } from "react";
 import { formatDuration } from "../conversation/turns";
-import { useT } from "../i18n";
+import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { useNow } from "../subagents/SubagentGroup";
+import { useNow } from "../subagents/subagentGroupModel";
 import type { Subagent } from "../subagents/subagentFold";
 import type { WorkflowAgent } from "./workflow";
-import { tally, workflowOf } from "./foldWorkflows";
+import { modelName, tally, workflowOf } from "./foldWorkflows";
+import { cardCount, cardLine, listNames, runningPhases, workflowModel } from "./workflowView";
 import "./WorkflowCard.css";
 import "./workflowDots.css";
-
-type WorkflowCardOpener = (id: string, opener?: HTMLElement) => void;
-let opener: WorkflowCardOpener | undefined;
-let sideTabOpener: WorkflowCardOpener | undefined;
-const listeners = new Set<() => void>();
-export function configureWorkflowCardOpen(open: WorkflowCardOpener | undefined): void {
-  if (open === opener) return;
-  opener = open;
-  for (const listener of listeners) listener();
-}
+import { opener, sideTabOpener, listeners } from "./workflowCardModel";
+import { Clock } from "../../../ui/Typography";
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => void listeners.delete(listener);
 };
 const current = () => opener;
 
-/// Opens the same workflow in the chat's full-height side tab; absent when the Labs surface is off.
-export function configureWorkflowCardSideTab(open: WorkflowCardOpener | undefined): void {
-  if (open === sideTabOpener) return;
-  sideTabOpener = open;
-  for (const listener of listeners) listener();
-}
 const currentSideTab = () => sideTabOpener;
 
 export type WorkflowCardPresentation = "selected" | "compact" | "phases";
@@ -63,16 +51,6 @@ const localizedState = (t: ReturnType<typeof useT>, state: WorkflowAgent["state"
 const ROW_ICON = rowIconSize(12);
 const compactTokens = (value: number) =>
   new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
-const latestAgentLine = (node: Subagent, agent: WorkflowAgent | undefined): string | undefined => {
-  if (!agent) return undefined;
-  const summaryAgent = agent as WorkflowAgent & { lastMessage?: string };
-  const raw =
-    agent.index === undefined || !(node.workflowAgents instanceof Map)
-      ? undefined
-      : node.workflowAgents.get(agent.index);
-  return summaryAgent.lastMessage ?? raw?.result ?? agent.doing;
-};
-
 export function WorkflowCard({
   node,
   presentation = "selected",
@@ -81,28 +59,39 @@ export function WorkflowCard({
   presentation?: WorkflowCardPresentation;
 }) {
   const t = useT();
+  const language = usePaneLanguage();
   const open = useSyncExternalStore(subscribe, current, current);
   const openSideTab = useSyncExternalStore(subscribe, currentSideTab, currentSideTab);
   const workflow = useMemo(() => workflowOf(node, ""), [node]);
   const counts = tally(workflow.agents);
   const running = workflow.state === "running" && counts.running > 0;
+  // The card's one clock: the workflow's elapsed time (Leo's screenshot had a second, an agent's,
+  // that disagreed with it).
   const now = useNow(running);
   const elapsed = workflow.elapsedMs ?? (workflow.startedAt !== undefined ? Math.max(0, now - workflow.startedAt) : 0);
-  const reportedTotal = (workflow.counts?.started ?? 0) + (workflow.counts?.queued ?? 0);
-  const total = Math.max(counts.total, reportedTotal);
-  const done = Math.min(total, Math.max(counts.done, workflow.counts?.done ?? 0));
+  const count = cardCount(workflow);
+  // The bar's scale: every agent known or reported started or queued, never only the ones seen.
+  const total = count.total;
+  const done = count.done;
   const progress = total > 0 ? Math.min(1, done / total) : 0;
-  const activeAgents = workflow.agents.filter((agent) => agent.state === "running" || agent.state === "paused");
-  const focusAgent = activeAgents.at(-1) ?? workflow.agents.at(-1);
-  const currentPhase =
-    workflow.phases.find((phase) => phase.state === "running") ??
-    (focusAgent ? workflow.phases.find((phase) => phase.agentIds.includes(focusAgent.id)) : undefined);
-  const focusElapsed = focusAgent
-    ? (focusAgent.elapsedMs ??
-      (focusAgent.startedAt !== undefined ? Math.max(0, now - focusAgent.startedAt) : undefined))
-    : undefined;
-  const latest = latestAgentLine(node, focusAgent);
+  // Every phase that runs now: two can run at once.
+  const phases = runningPhases(workflow);
+  const phaseNames = phases.map((phase) => phase.name).filter(Boolean);
+  const latest = cardLine(workflow);
+  const model = workflowModel(workflow.agents);
   const tokens = workflow.tokens ?? workflow.projectedTokens;
+  // While agents may still spawn, a fraction would read as the total: say what is done and running.
+  const countText =
+    count.kind === "progress"
+      ? [
+          count.done > 0 ? t("summary.subagents.done", { n: count.done }) : undefined,
+          count.running > 0 ? t("summary.subagents.running", { n: count.running }) : undefined,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : total > 0
+        ? `${done}/${total}`
+        : "";
   return (
     <div className="acpmux-workflow-card-wrap">
       <button
@@ -119,13 +108,12 @@ export function WorkflowCard({
         </span>
         <span className="acpmux-workflow-card__meta">
           <span>{localizedState(t, workflow.state)}</span>
-          {currentPhase?.name && <span>{currentPhase.name}</span>}
-          {total > 0 && (
-            <span>
-              {done}/{total}
-            </span>
+          {/* The selected card names its running phases on its last row, where they have room. */}
+          {presentation !== "selected" && phaseNames.length > 0 && (
+            <span className="acpmux-workflow-card__running">{listNames(phaseNames, language)}</span>
           )}
-          <span>{formatDuration(elapsed)}</span>
+          {countText && <span>{countText}</span>}
+          <Clock text={formatDuration(elapsed)} />
           {tokens !== undefined && <span>{t("subagents.tokens", { n: tokens, tokens: compactTokens(tokens) })}</span>}
         </span>
         {presentation === "compact" ? (
@@ -141,15 +129,22 @@ export function WorkflowCard({
             <span style={{ transform: `scaleX(${progress})` }} />
           </span>
         ) : presentation === "phases" ? (
-          <span className="acpmux-workflow-card__phases" aria-label={currentPhase?.name}>
+          <span className="acpmux-workflow-card__phases" aria-label={listNames(phaseNames, language)}>
             {workflow.phases.map((phase) => (
               <span key={phase.id} data-state={phase.state} title={phase.name} />
             ))}
           </span>
         ) : (
           <>
-            <span className="acpmux-workflow-card__latest" title={latest}>
-              {latest ?? ""}
+            <span
+              className="acpmux-workflow-card__latest"
+              title={latest ? `${latest.agent}: ${latest.line}` : undefined}
+            >
+              {latest && (
+                <>
+                  <span className="acpmux-workflow-card__agent">{latest.agent}</span> {latest.line}
+                </>
+              )}
             </span>
             <span
               className="acpmux-workflow-card__progress"
@@ -162,9 +157,12 @@ export function WorkflowCard({
             >
               <span style={{ transform: `scaleX(${progress})` }} />
             </span>
+            {/* Every phase that runs now, then the workflow's model. */}
             <span className="acpmux-workflow-card__focus">
-              {focusAgent?.model && <span>{focusAgent.model}</span>}
-              {focusElapsed !== undefined && <span>{formatDuration(focusElapsed)}</span>}
+              {phaseNames.length > 0 && (
+                <span className="acpmux-workflow-card__running">{listNames(phaseNames, language)}</span>
+              )}
+              {model && <span>{modelName(model)}</span>}
             </span>
           </>
         )}

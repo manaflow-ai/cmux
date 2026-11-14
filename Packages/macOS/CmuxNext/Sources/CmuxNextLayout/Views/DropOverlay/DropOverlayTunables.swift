@@ -132,7 +132,7 @@ public nonisolated enum LayoutTunables {
     /// Opt-in motion prototypes; this changes presentation only and requires pane animations to be enabled.
     public static let paneMotionVariant = Tunable<PaneMotionVariant>.choice(
         "motion.pane.variant", .springs, "Pane close and expand",
-        help: "Compare current pane close/expand movement with a faster crisp preset or a small soft landing bump. Enable Pane Animations first. Pane chrome resizes live on every frame; Reduce Motion still snaps.",
+        help: "Compare current pane close/expand movement with a faster crisp preset. Enable Pane Animations first. Pane chrome resizes live on every frame; Reduce Motion still snaps.",
         default: .standard, code: "LayoutTunables.paneMotionVariant")
     public static let prototypeDockEdge = Tunable<LayoutPrototypeDockEdge>.choice(
         "layout.prototype.dockEdge", .panes, "Prototype dock edge", help: "Frame prototype: the edge the right docked column sits on.",
@@ -154,7 +154,7 @@ public nonisolated enum LayoutTunables {
     /// no window record gets docks.
     public static let dockedWorkspaces = Tunable<Bool>.toggle(
         "window.dockedWorkspaces", .sidebar, "Window docks (docked workspaces)",
-        help: "Dock a whole workspace to a window edge: it stays while the sidebar switches the workspace in the middle. The Chief window dock (Cmd-I) is one. Palette: Open Chief Dock, Move Pane to Dock, Dock Workspace Left, Toggle Bottom Dock, Float Docked Workspace.",
+        help: "Dock a whole workspace to a window edge: it stays while the sidebar switches the workspace in the middle. Home never docks: Dock Workspace on Home docks the Chief panel. Palette: Show/Hide Chief, Move Pane to Dock, Dock Workspace Left, Toggle Bottom Dock, Float Docked Workspace.",
         default: true, code: "LayoutTunables.dockedWorkspaces")
 
     public static var all: [TunableDescriptor] {

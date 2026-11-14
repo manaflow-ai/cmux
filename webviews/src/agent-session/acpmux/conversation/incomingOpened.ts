@@ -16,3 +16,17 @@ export function setMessageOpened(sessionId: string | undefined, rowId: string, o
   if (open) opened.add(key(sessionId, rowId));
   else opened.delete(key(sessionId, rowId));
 }
+
+/// Opens (or closes) every message of a digest with the digest itself: a group's head shows what
+/// each of its messages said, not one more row to open per message (Leo, 2026-11-05: "we don't seem
+/// to be able to click it at the top level, which is no bueno. Like all of these things, we need to
+/// be able to see them here"). `memberIds` are the rows (or inbox thread keys) its lines open by.
+export function setDigestOpened(
+  sessionId: string | undefined,
+  rowId: string,
+  memberIds: Iterable<string>,
+  open: boolean,
+): void {
+  setMessageOpened(sessionId, rowId, open);
+  for (const id of memberIds) setMessageOpened(sessionId, id, open);
+}

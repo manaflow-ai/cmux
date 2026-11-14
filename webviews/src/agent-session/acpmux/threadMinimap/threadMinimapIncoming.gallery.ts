@@ -31,11 +31,13 @@ const rows = Array.from({ length: 16 }, (_, index) => [
   summary(299.6 - index * 2, { status: "completed" }),
 ]).flat();
 const INCOMING_TICK = '[data-tick="7"][data-incoming]';
-/// The looks compared for other sessions' ticks, all in one column (one x, one width): none (shipped),
-/// a subtle tint at rest, or a tint only while the pointer is on the rail. Drawn by a style tag so the
+/// The looks compared for other sessions' ticks, all in one column (one x, one width): none (shipped:
+/// every resting tick at one weight, so the ticks read evenly spaced), a faint step at rest, the
+/// 25% tint at rest (shipped until 2026-11-06), or a tint only while the pointer is on the rail. Drawn by a style tag so the
 /// shipped CSS keeps one look; each state sets its own and clears the others'.
 const LOOKS = {
   none: "",
+  faint: ".acpmux-minimap__tick[data-incoming][data-tone='rest'] .acpmux-minimap__bar { opacity: 0.32; }",
   tint: ".acpmux-minimap__tick[data-incoming][data-tone='rest'] .acpmux-minimap__bar { opacity: 0.25; }",
   "hover-only":
     ".acpmux-minimap__rail[data-hovering] .acpmux-minimap__tick[data-incoming]:not([data-tone='active']) .acpmux-minimap__bar { opacity: 0.2; }",
@@ -63,7 +65,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap"],
   variants: {
     states: {
-      note: "Shipped look, at rest mid-thread: every third prompt is another session's message; every tick shares one column, one x and one width. Other sessions' ticks draw a step dimmer at rest (incoming.experiment.ts; runs of them fold, threadMinimapIncomingFold.gallery.ts).",
+      note: "Shipped look, at rest mid-thread: every third prompt is another session's message; every tick shares one column, one x and one width. At rest other sessions' ticks draw at the person's weight, so every tick is one pitch from the next and none reads as a gap (incoming.experiment.ts; runs of them fold, threadMinimapIncomingFold.gallery.ts).",
       snapshot: chat(rows, { title: "Messages from other sessions at rest" }),
       play: async (ctx) => {
         look(ctx.document, "none");
@@ -81,8 +83,17 @@ export default agentPaneEntry({
         await ctx.hover({ selector: INCOMING_TICK });
       },
     },
+    "faint-at-rest": {
+      note: "Compared, not shipped (incoming.experiment.ts `folded-faint`): one column, other sessions' ticks a small step dimmer at rest (32% against 40%). Still reads as a lighter beat in the rhythm.",
+      snapshot: chat(rows, { title: "Other sessions a faint step dimmer at rest" }),
+      play: async (ctx) => {
+        look(ctx.document, "faint");
+        if (!ctx.document.querySelector('[data-tick="8"]')) return;
+        await midThread(ctx);
+      },
+    },
     "tint-at-rest": {
-      note: "Now the shipped look (incoming.experiment.ts `secondary` and `folded-secondary`): one column, other sessions' ticks a step dimmer at rest (25% against 40%).",
+      note: "Compared, shipped until 2026-11-06 (incoming.experiment.ts `secondary` and `folded-secondary`): one column, other sessions' ticks a step dimmer at rest (25% against 40%). On a dark rail they read as gaps, so the ticks look unevenly spaced.",
       snapshot: chat(rows, { title: "Other sessions tinted at rest" }),
       play: async (ctx) => {
         look(ctx.document, "tint");

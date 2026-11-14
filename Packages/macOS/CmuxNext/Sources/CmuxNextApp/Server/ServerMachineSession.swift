@@ -49,10 +49,10 @@ final class ServerMachineSession {
             let link = binary.map { SSHMachineSession(host: host, binary: $0, paths: paths, environment: environment, machineID: reach.machineID,
                                                       mainWork: mainWork) }
             self.link = link
-            daemon = link?.daemon ?? DaemonService(machineID: reach.machineID, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+            daemon = link?.daemon ?? DaemonService(machineID: reach.machineID, echoesPlacementShift: true, mainWork: mainWork)
         case .unix, .overlay:
             link = nil
-            daemon = DaemonService(machineID: reach.machineID, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+            daemon = DaemonService(machineID: reach.machineID, echoesPlacementShift: true, mainWork: mainWork)
         }
         emptyWorkspaces = link?.emptyWorkspaces ?? EmptyWorkspaceRepair(daemon: daemon)
     }

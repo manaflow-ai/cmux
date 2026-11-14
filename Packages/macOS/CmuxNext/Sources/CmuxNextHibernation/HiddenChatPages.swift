@@ -24,8 +24,11 @@ package protocol HiddenChatPagesHost: AnyObject {
     func pagePinned(_ key: String) -> Bool
     /// The acpmux turn watch is up: without it no chat's turn is known.
     func pageTurnsKnown() -> Bool
-    /// The chat's turn runs or waits on the person.
+    /// The chat is working (acpmux's facts): its turn runs or waits on the person (a permission or a
+    /// question), or a subagent or background command it started still runs.
     func pageTurnBusy(_ key: String) -> Bool
+    /// The chat is archived (acpmux's `archived` tag): its hidden page goes at once, when nothing keeps it.
+    func pageArchived(_ key: String) -> Bool
     /// The App's own reasons a hidden page may be let go (this Mac's chat with a session, no New Tab page,
     /// no shell command run in it, a page that shows no crash notice); `onScreen` also asks it is out of its window.
     func pageMayRelease(_ key: String, onScreen: Bool) -> Bool
@@ -51,14 +54,26 @@ package protocol HiddenChatPagesHost: AnyObject {
 /// The hidden agent chat pages' clocks and what they decide (cx-x15rz): when a hidden page freezes,
 /// thaws or is let go. The App performs it (`AgentPageHibernation`).
 ///
-/// Untouched local New Tabs beyond the shared warm-page cap go after `minimumHidden` seconds.
-/// Chat pages go only once `browser.hibernation` is explicit, when hidden past the
-/// browser pages' threshold (`browser.hibernation` and memory pressure, as `HibernationPlanner` sets it),
-/// or when its workspace hibernates. It stays when its tab is pinned (unless the setting includes pinned
-/// tabs), its chat's turn runs or waits on the person, or the App keeps it (``HiddenChatPagesHost/pageMayRelease(_:onScreen:)``).
+/// A chat that is not drawn and is proven idle gives back its page (Leo, 2026-11-14: "obviously if
+/// something isn't drawn/is completely proven idle then dont bother taking memory... but if it's working
+/// then you can try to optimize but thats it"; "archived chats (ok well THOSE should defo release ram)").
+/// Always on, with no setting (Lawrence, #38022: a perf change lands on, the switch deleted):
+/// - an archived chat's hidden page goes at once;
+/// - another hidden chat's page goes once it has been hidden ``idleRelease`` seconds (``idleReleaseUnderWarning``
+///   under warning memory pressure, ``minimumHidden`` under critical), or sooner when `browser.hibernation`
+///   lets chats go sooner, or when its workspace hibernates; the least recently seen first.
+///
+/// Proven idle: the turn watch is up and the chat's turn neither runs nor waits on the person, and no
+/// subagent or background command of it runs (``HiddenChatPagesHost/pageTurnBusy(_:)``). A working chat
+/// keeps its page; so do a pinned tab (unless `browser.hibernation` includes pinned tabs) and what the App
+/// keeps (``HiddenChatPagesHost/pageMayRelease(_:onScreen:)``). A page that says it holds what it cannot hand
+/// back (an unsaved send or edit, prompts for a trust answer) stays and is asked again. The draft, chips,
+/// shell text and scroll place are handed back to the page built when the chat shows again.
 /// A page waits at least ``minimumHidden`` even under critical pressure, so the composer's last keystrokes
-/// reach acpmux. Events only, no polling: a page hides or shows, the setting or the pressure changes, and
-/// one deadline for the next page to come due.
+/// reach acpmux. Events only, no polling: a page hides or shows, a turn or the archive tag changes, the
+/// setting or the pressure changes, and one deadline for the next page to come due. Untouched local New
+/// Tabs beyond the shared warm-page cap go after `minimumHidden` seconds and follow `browser.hibernation`
+/// alone, as browser tabs do.
 ///
 /// Long before that, a hidden chat's Chromium page freezes after `browser.freezeHiddenTabs` seconds (30 by
 /// default), as a hidden browser tab does: its renderer runs no script, timers or frames, and it keeps
@@ -74,10 +89,22 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     package static var onScreenRecheck: Double { 1 }
     /// How soon a due page its release kept (it held prompts, or said nothing in time) is asked again.
     package static var keptRecheck: Double { 15 }
+    /// How long a hidden, idle chat keeps its page at normal memory pressure: a look at another tab and
+    /// back keeps it (a rebuilt page costs ~100 ms to its first content), anything longer gives it back.
+    package static var idleRelease: Double { 60 }
+    /// The same under warning memory pressure.
+    package static var idleReleaseUnderWarning: Double { 30 }
+    /// This planner's idle wait at normal pressure, ``idleRelease`` (tests of the freeze alone set it past their clock).
+    package var idleWait: Double = HiddenChatPages<Host>.idleRelease
 
     /// The App's side; it owns this planner (weak: no cycle).
     private weak var host: Host?
     private var turnObservation: Task<Void, Never>?
+    /// The turn store `followTurns` follows, and the pages whose turns it observes now.
+    private var turns: AgentTurnStateStore?
+    private var turnKeys: Set<String> = []
+    /// Replans run (tests: a turn of a chat that is not hidden replans nothing).
+    package private(set) var replans = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.hibernation")
     package private(set) var setting: BrowserHibernationSetting = .fallback
     package private(set) var pressure: MemoryPressureLevel = .normal
@@ -130,19 +157,52 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     // A generic main-actor class's isolated deinit crashes the Release optimizer (#23050); nothing to clean up.
     nonisolated deinit {}
 
-    /// Re-plan only when the watched turns change; no per-page observers or polling.
+    /// Re-plan only when the watch or the turn of a hidden or frozen page changes, never for another chat's turn:
+    /// one agent's step in a shown chat replanned every hidden page (O(hidden) filters and a sort per event).
     package func followTurns(_ turns: AgentTurnStateStore) {
+        self.turns = turns
+        observeTurns(of: [], replanFirst: true)
+    }
+
+    /// Observes the turns of the pages a replan reads (`keys`): the watch and each one's busy state, nothing else.
+    /// `replanFirst`: the observation's first value replans too (a new follow); a change of `keys` comes from a replan.
+    private func observeTurns(of keys: Set<String>, replanFirst: Bool) {
+        guard let turns else { return }
+        turnKeys = keys
         turnObservation?.cancel()
+        let read: @MainActor @Sendable () -> TurnsRead = { [weak self] in
+            TurnsRead(watching: turns.watching, busy: keys.filter { self?.host?.pageTurnBusy($0) == true },
+                      archived: keys.filter { self?.host?.pageArchived($0) == true })
+        }
+        // What the replan that armed this saw, read now: a turn that changes before the stream's first value
+        // (it starts on a later turn) differs from it and replans, so no change between the two is lost.
+        let seen: TurnsRead? = replanFirst ? nil : read()
         turnObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (turns.stateRevision, turns.watching) }) {
+            var last = seen
+            for await now in ObservationStream(read) where now != last {
+                last = now
                 self?.replan()
             }
         }
     }
 
+    /// The turn facts a replan reads: whether the watch is up, which observed pages' chats work, and which are archived.
+    private struct TurnsRead: Equatable, Sendable {
+        var watching: Bool
+        var busy: Set<String>
+        var archived: Set<String>
+    }
+
+    /// Follows the turns of the pages hidden or frozen now, when they changed since the last observation.
+    private func followHiddenTurns() {
+        let keys = Set(hiddenAt.keys).union(frozenPages.keys)
+        if keys != turnKeys { observeTurns(of: keys, replanFirst: false) }
+    }
+
     package func stop() {
         turnObservation?.cancel()
         turnObservation = nil
+        turns = nil
         deadline.cancel()
         freezeDeadline.cancel()
         for key in Array(frozenPages.keys) { thaw(key) }
@@ -152,6 +212,26 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
         guard setting != self.setting || pressure != self.pressure else { return }
         (self.setting, self.pressure) = (setting, pressure)
         replan()
+    }
+
+    /// Seconds a hidden idle chat keeps its page: ``idleRelease``, ``idleReleaseUnderWarning`` under warning
+    /// pressure, at once under critical (floored at ``minimumHidden`` by the caller).
+    private var idleThreshold: Double {
+        switch pressure {
+        case .normal: return idleWait
+        case .warning: return min(idleWait, Self.idleReleaseUnderWarning)
+        case .critical: return 0
+        }
+    }
+
+    /// The browser setting's own wait for a chat that it lets go on its own (auto discard), nil when it does not.
+    private var settingThreshold: Double? {
+        setting.isEnabled && setting.discardsAutomatically ? HibernationPlanner.threshold(setting, pressure: pressure) : nil
+    }
+
+    /// Tab `key` is a hidden untouched New Tab beyond the warm-page cap (it follows `browser.hibernation` alone).
+    private func isExcessNewTab(_ key: String) -> Bool {
+        excessNewTabs.contains(key) && host?.pageIsUntouchedNewTab(key) == true
     }
 
     /// Compares every page with whether its tab draws now, and reports the ones that changed.
@@ -198,6 +278,8 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
 
     /// Releases every page that is due and arms one deadline for the next.
     package func replan() {
+        replans += 1
+        defer { followHiddenTurns() }
         guard let host, let pages = host.hibernationPages() else { return }
         hiddenAt = hiddenAt.filter { host.hibernationPage($0.key) != nil }
         shown = shown.filter { host.hibernationPage($0) != nil }
@@ -208,15 +290,14 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
         awakeSince = awakeSince.filter { livePages.contains($0.key) }
         startUnseenClocks(pages)
         replanFreeze()
-        guard setting.isEnabled else {
-            deadline.cancel()
-            return
-        }
-        let chatThreshold = HibernationPlanner.threshold(setting, pressure: pressure).map { max($0, Self.minimumHidden) }
+        // A hidden idle chat's wait: its own, or the setting's when that lets chats go sooner on its own.
+        let chatThreshold = max(min(settingThreshold ?? idleThreshold, idleThreshold), Self.minimumHidden)
         let current = host.pageClock()
         retryAt = retryAt.filter { hiddenAt[$0.key] != nil }
         var next: Double?
-        for (key, at) in hiddenAt where !releasing.contains(key) && keepsPage(key, onScreen: false) == nil {
+        // The least recently seen first: under pressure the oldest hidden chat goes before the others.
+        for (key, at) in hiddenAt.sorted(by: { $0.value < $1.value })
+        where !releasing.contains(key) && keepsPage(key, onScreen: false) == nil {
             // Its release kept it a moment ago: it is asked again once its recheck comes.
             if let retry = retryAt[key] {
                 let wait = (retry - current).seconds
@@ -226,9 +307,11 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
                 }
                 retryAt[key] = nil
             }
-            let threshold = excessNewTabs.contains(key) && host.pageIsUntouchedNewTab(key) ? Self.minimumHidden : chatThreshold
-            guard let threshold else { continue }
-            let remaining = workspaceDue.contains(key) ? 0 : threshold - (current - at).seconds
+            let newTab = excessNewTabs.contains(key) && host.pageIsUntouchedNewTab(key)
+            let threshold = newTab ? Self.minimumHidden : chatThreshold
+            // Its workspace hibernates, or the chat is archived: due now.
+            let dueNow = workspaceDue.contains(key) || (!newTab && host.pageArchived(key))
+            let remaining = dueNow ? 0 : threshold - (current - at).seconds
             if remaining > 0 {
                 next = min(next ?? remaining, remaining)
             } else if keepsPage(key) == nil {
@@ -251,29 +334,37 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     /// Why tab `key`'s hidden page stays, or nil when it can go. `onScreen: false` leaves out
     /// whether its view is still in a window (planning a deadline: the pane takes it out after the hide).
     package func keepsPage(_ key: String, onScreen: Bool = true) -> HibernationPlanner.Exemption? {
-        if !setting.isEnabled { return .disabled }
+        // Chats always go once hidden and idle; an untouched New Tab beyond the cap follows `browser.hibernation`.
+        if !setting.isEnabled, isExcessNewTab(key) { return .disabled }
         if heldAwake { return .keepsState }
-        let forWorkspace = workspaceDue.contains(key)
-        if !setting.discardsAutomatically, !forWorkspace,
-           !excessNewTabs.contains(key) || host?.pageIsUntouchedNewTab(key) != true { return .keepsState }
         guard let host, host.pageMayRelease(key, onScreen: onScreen) else { return .unsupported }
         if host.pagePinned(key), !setting.includesPinnedTabs { return .pinned }
         // No watch, no known turn: a chat that looks idle may be working.
         if !host.pageTurnsKnown() { return .agentTurnsUnknown }
+        // Working (its turn, a permission or question, a subagent or background command): it keeps its page.
         if host.pageTurnBusy(key) { return .agentBusy }
         return nil
     }
 
     /// A release of tab `key`'s page starts (``HiddenChatPagesHost/releasePage(_:)``): nil when one already
     /// runs. The page thaws first (it answers what it holds and draws its frame: a frozen page runs no
-    /// script). Returns how long it was hidden and whether its workspace hibernates, for the log.
-    package func beginRelease(_ key: String) -> (hiddenFor: Int, forWorkspace: Bool, cause: String)? {
+    /// script). Returns how long it was hidden, whether its workspace hibernates, the cause for the log, and
+    /// whether it needs a first frame to go (a release `browser.hibernation` asks for, short of discarding on its own).
+    package func beginRelease(_ key: String) -> (hiddenFor: Int, forWorkspace: Bool, cause: String, requiresFrame: Bool)? {
         guard let host, releasing.insert(key).inserted else { return nil }
         thaw(key)
-        let hiddenFor = hiddenAt[key].map { Int((host.pageClock() - $0).seconds) } ?? 0
+        let hidden = hiddenAt[key].map { (host.pageClock() - $0).seconds } ?? 0
+        let hiddenFor = Int(hidden)
         let forWorkspace = workspaceDue.contains(key)
-        let cause = forWorkspace ? "workspace-idle hidden=\(hiddenFor)s" : pressure == .normal ? "timeout hidden=\(hiddenFor)s" : "memory-pressure=\(pressure.rawValue) hidden=\(hiddenFor)s"
-        return (hiddenFor, forWorkspace, cause)
+        let newTab = isExcessNewTab(key)
+        let archived = !newTab && host.pageArchived(key)
+        let bySetting = settingThreshold.map { hidden >= max($0, Self.minimumHidden) } ?? false
+        // The idle release (or the archive) made it due, not `browser.hibernation`: no first frame is needed.
+        let byIdle = !forWorkspace && !bySetting && !newTab
+        let requiresFrame = !forWorkspace && !byIdle && !setting.discardsAutomatically
+        var cause = forWorkspace ? "workspace-idle hidden=\(hiddenFor)s" : pressure == .normal ? "timeout hidden=\(hiddenFor)s" : "memory-pressure=\(pressure.rawValue) hidden=\(hiddenFor)s"
+        if byIdle { cause = (archived ? "archived-chat " : "idle-chat ") + cause }
+        return (hiddenFor, forWorkspace, cause, requiresFrame)
     }
 
     /// The release of tab `key` asked the page what it holds; it no longer counts as running.
@@ -310,7 +401,10 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
         guard let host, host.hibernationPage(key) != nil else { return .disabled }
         workspaceDue.insert(key)
         if hiddenAt[key] == nil { hiddenAt[key] = host.pageClock() }
-        if let kept = keepsPage(key) { return kept }
+        if let kept = keepsPage(key) {
+            followHiddenTurns() // its turn's end lets it go
+            return kept
+        }
         host.releasePage(key)
         return nil
     }

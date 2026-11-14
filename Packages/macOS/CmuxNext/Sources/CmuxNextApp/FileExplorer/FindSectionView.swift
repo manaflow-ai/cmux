@@ -27,7 +27,7 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
         self.model = model
         self.rootFolder = rootFolder
         self.effects = effects
-        super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
+        super.init(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
         build()
         observation = Task { [weak self] in
             guard let model = self?.model else { return }

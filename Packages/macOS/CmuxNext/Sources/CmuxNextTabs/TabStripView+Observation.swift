@@ -22,10 +22,15 @@ extension TabStripView {
     func startObservingTokens() {
         guard tokenObservationTask == nil else { return }
         tokenObservationTask = Task { [weak self] in
-            let changes = ObservationStream { TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.tabTitle.pointSize) }
+            let changes = ObservationStream {
+                TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.tabTitle.pointSize, trailingButtons: TabTunables.trailingButtons.value,
+                              groupLook: GroupChipGlass.current)
+            }
             for await snapshot in changes {
                 guard let self else { return }
-                if snapshot.metrics != self.metrics || snapshot.titleFont != self.tabTitleFontSize {
+                // The chips repaint in place: the look never changes their size.
+                for chip in self.groups.chips.values { chip.look = snapshot.groupLook }
+                if snapshot.metrics != self.metrics || snapshot.titleFont != self.tabTitleFontSize || snapshot.trailingButtons != self.trailingButtons {
                     self.applyTokens(animated: true)
                 }
             }

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextDaemon
 import Foundation
 
 /// Keeps every open New Tab page's open tabs and workspaces current (Leo 2026-10-11: after rapid
@@ -10,44 +11,37 @@ import Foundation
 /// (``AgentPaneView/refreshNewTabPlaces(tabs:workspaces:)``), as seen from its own window. A
 /// refresh lists every place, the tab the page was opened beside included.
 ///
-/// Cheap while idle: with no New Tab page open it observes only the pages' ids. With one open, a
-/// change compares a plain key (ids, titles, addresses, folders), and the rows, favicons
-/// included, are built only when that key changed.
+/// Cheap while idle: with no New Tab page open it observes only the pages' ids. With one open, each
+/// workspace's plain key (ids, titles, addresses, folders) is its own item (``ObservedItemsFeed``), and the rows,
+/// favicons included, are built only when a key changed.
 @MainActor
 enum NewTabPlacesFeed {
     static func wire(_ tabs: AgentTabStore, services: AppServices) {
-        Task { [weak tabs, weak services] in
-            var last: [String] = []
-            let keys = ObservationStream { [weak tabs, weak services] in
-                guard let tabs, let services, !tabs.pageTabs.ids.isEmpty else { return [String]() }
-                return key(services)
-            }
-            for await key in keys where key != last {
-                guard let tabs, let services else { return }
-                // The first page to open read its places itself.
-                let opened = last.isEmpty
-                last = key
-                if key.isEmpty || opened { continue }
-                push(tabs, services: services)
-            }
-        }
+        ObservedItemsFeed<WorkspaceModel, [String]>(
+            list: { [weak tabs, weak services] in
+                guard let tabs, let services, !tabs.pageTabs.ids.isEmpty else { return nil }
+                return services.machines.allWorkspaces.map(\.0)
+            },
+            // By object: two machines' workspaces may share an id (`handle:<n>` without the registry).
+            id: { "\(ObjectIdentifier($0))" }, item: { workspace in key(workspace) },
+            changed: { [weak tabs, weak services] in
+                if let tabs, let services { push(tabs, services: services) }
+            }).start()
     }
 
-    /// Everything the bar's rows are made of, as plain text: a change here is a change of rows.
-    private static func key(_ services: AppServices) -> [String] {
-        services.machines.allWorkspaces.flatMap { workspace, _ in
-            ["\(workspace.id)\t\(workspace.displayName)"] + workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { tab in
-                [tab.id, "\(tab.kind)", tab.displayTitle, tab.url ?? "", tab.cwd ?? "", tab.agentSession?.session ?? ""]
-                    .joined(separator: "\t")
-            }
+    /// Everything one workspace's bar rows are made of, as plain text: a change here is a change of rows.
+    private static func key(_ workspace: WorkspaceModel) -> [String] {
+        ["\(workspace.id)\t\(workspace.displayName)"] + workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { tab in
+            [tab.id, "\(tab.kind)", tab.displayTitle, tab.url ?? "", tab.cwd ?? "", tab.agentSession?.session ?? ""]
+                .joined(separator: "\t")
         }
     }
 
     private static func push(_ tabs: AgentTabStore, services: AppServices) {
-        for key in tabs.newTabPages.keys {
-            guard let view = tabs.views[key] else { continue }
+        for entry in tabs.newTabPages.entries {
+            guard let view = tabs.views[entry.key] else { continue }
             let window = view.window.flatMap { services.windows.owner(of: $0) } ?? services.windows.active
-            let places = NewTabPage.places(services, excluding: key, current: window?.state.workspaceID)
+            let places = NewTabPage.places(services, excluding: entry.key.key, current: window?.state.workspaceID)
             view.refreshNewTabPlaces(tabs: places.tabs, workspaces: places.workspaces)
         }
     }

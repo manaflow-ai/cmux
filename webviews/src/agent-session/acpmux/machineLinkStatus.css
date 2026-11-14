@@ -1,0 +1,129 @@
+/* The chat's machine link in the composer's quiet row (MachineLinkStatus.tsx). It stands after the
+   mode chip and takes the row's free middle (the auto margin the mode chip has without it), so the
+   model chip and the ring keep their place at the row's end whatever it says. The dot keeps one
+   6 px box; the spinner turns centred on it, so connected, reconnecting and offline swap in place.
+   The words fade in and out; a narrow row cuts them at the end before it moves another control. */
+/* Doubled class: `.acpmux-composer-bar > :not(.acpmux-chips)` (composerLocation.css) sets every other
+   row item to flex: none, which would keep a long machine name from shrinking and push the row's
+   own controls into their smaller forms or out of the row. */
+.acpmux-composer-foot.acpmux-composer-foot > .acpmux-machine-link {
+  order: -1;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-inline-end: auto;
+}
+.acpmux-composer-foot:has(> .acpmux-machine-link) .acpmux-access {
+  margin-inline-end: 0;
+}
+.acpmux-machine-link {
+  /* The env strip's live dot (composerLocation.css --acpmux-env-live-size) and its gap to the words. */
+  --acpmux-machine-link-dot: 6px;
+  --acpmux-machine-link-gap: 6px;
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  min-height: var(--grid-composer-quiet-row-height, 28px);
+  padding-inline: var(--acpmux-row-inset, 8px);
+  color: var(--agent-muted);
+  font-size: var(--text-control);
+  line-height: 16px;
+  white-space: nowrap;
+}
+.acpmux-machine-link-mark {
+  position: relative;
+  flex: none;
+  margin-inline-end: var(--acpmux-machine-link-gap);
+  width: var(--acpmux-machine-link-dot);
+  height: var(--acpmux-machine-link-dot);
+}
+.acpmux-machine-link-dot {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--agent-success, var(--acpmux-add, currentColor));
+  transition:
+    background-color var(--agent-motion-out, 120ms) var(--agent-ease-out, ease-out),
+    opacity var(--agent-motion-out, 120ms) var(--agent-ease-out, ease-out);
+}
+.acpmux-machine-link[data-link="connecting"] .acpmux-machine-link-dot {
+  opacity: 0;
+}
+.acpmux-machine-link[data-link="offline"] .acpmux-machine-link-dot {
+  background: var(--agent-danger, currentColor);
+}
+.acpmux-machine-link-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+}
+.acpmux-machine-link-fold {
+  display: grid;
+  grid-template-columns: 0fr;
+  min-width: 0;
+  opacity: 0;
+  /* Folded, it takes no pointer and no keyboard; it turns hidden once its fade-out ends. */
+  visibility: hidden;
+  transition:
+    grid-template-columns var(--agent-motion-out, 120ms) var(--agent-ease-out, ease-out),
+    opacity var(--agent-motion-out, 120ms) var(--agent-ease-out, ease-out),
+    visibility 0s linear var(--agent-motion-out, 120ms);
+}
+.acpmux-machine-link[data-said] .acpmux-machine-link-fold {
+  grid-template-columns: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+.acpmux-machine-link-words {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--acpmux-machine-link-gap);
+  min-width: 0;
+  overflow: hidden;
+}
+.acpmux-machine-link-said {
+  display: inline-flex;
+  gap: var(--acpmux-machine-link-gap);
+  min-width: 0;
+  overflow: hidden;
+}
+.acpmux-machine-link-state {
+  flex: none;
+}
+.acpmux-machine-link-name {
+  color: var(--agent-soft, var(--agent-text));
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acpmux-machine-link[data-link="offline"] .acpmux-machine-link-state {
+  color: var(--agent-danger, var(--agent-muted));
+}
+/* Reconnect is a text button in the row's ink, with the row's own small-radius hover fill: never a pill. */
+.acpmux-machine-link-reconnect {
+  flex: none;
+  margin: 0;
+  padding: 0 var(--acpmux-machine-link-gap);
+  border: 0;
+  border-radius: var(--ds-radius-control, 6px);
+  background: none;
+  color: var(--agent-text);
+  font: inherit;
+  cursor: default;
+}
+.acpmux-machine-link-reconnect:disabled {
+  color: var(--agent-muted);
+}
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-machine-link-reconnect:not(:disabled):hover {
+    background: var(--acpmux-pill-open, color-mix(in srgb, var(--agent-text) 10%, transparent));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-machine-link-dot,
+  .acpmux-machine-link-fold {
+    transition: none;
+  }
+}

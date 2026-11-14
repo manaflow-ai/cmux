@@ -69,6 +69,23 @@ impl Client {
         value["result"].clone()
     }
 
+    /// Proves this connection is the person's, as the app's pane does (`hub/person.rs`).
+    async fn prove_person(&mut self, hub: &Arc<Hub>) {
+        const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        hub.person.install_spawn_key(KEY).unwrap();
+        let init = self.call("initialize", json!({"protocolVersion": 1})).await;
+        let challenge = &init["_meta"]["acpmux"]["personChallenge"];
+        let proof = acpmux::hub::person::person_proof(
+            KEY,
+            acpmux::hub::person::TRANSPORT_UNIX,
+            challenge["nonce"].as_str().unwrap(),
+            challenge["connection"].as_str().unwrap(),
+        )
+        .unwrap();
+        let proved = self.call("_acpmux/person_prove", json!({"proof": proof})).await;
+        assert_eq!(proved["person"], json!(true), "{proved}");
+    }
+
     async fn new_session(&mut self, cwd: &Path) -> String {
         let new = json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});
         let created = self.call("session/new", new).await;
@@ -181,13 +198,96 @@ async fn a_hidden_attach_keeps_the_hold_and_a_persons_prompt_lifts_it() {
         "a hidden attach started an agent in a protected folder"
     );
 
+    // A unix client proves no person: even the owner's own terminal send, recorded as theirs,
+    // lifts nothing (`PromptOptions::unproven_owner`): only the proven person's prompt does.
+    c.send("session/prompt", prompt(&held, "p-unproven", "from a shell")).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        !c.ran(&held, "p-held").await,
+        "an unproven prompt started an agent in a protected folder"
+    );
+
     // A prompt the person sends there runs, after what waited in the queue.
-    c.send("session/prompt", prompt(&held, "p-new", "after")).await;
+    let mut person = Client::open(&hub);
+    person.prove_person(&hub).await;
+    person.send("session/prompt", prompt(&held, "p-new", "after")).await;
     c.wait_ran(&held, "p-held").await;
     c.wait_ran(&held, "p-new").await;
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&guarded);
+}
+
+/// `_acpmux/info` names a daemon start's hold for a person (`personHold`: the folder and why), so
+/// `session resume` and NOW say why a queue does not drain; opening the chat ends it.
+#[tokio::test]
+async fn info_names_the_hold_for_a_person_until_the_chat_is_opened() {
+    let dir = std::env::temp_dir().join(format!("acpmux-protected-info-{}", uuid::Uuid::now_v7()));
+    let (plain, guarded) = folders(&dir);
+    let store = dir.join("store");
+    std::fs::create_dir_all(&store).unwrap();
+    let hub = durable_hub(&store);
+    let mut c = Client::open(&hub);
+    let open = c.new_session(&plain).await;
+    let held = c.new_session(&guarded).await;
+    c.busy_with_queued(&held, "p-held").await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = durable_hub(&store);
+    hub.resume_queues();
+    let mut c = Client::open(&hub);
+    let info = c.call("_acpmux/info", json!({"sessionId": held})).await;
+    let hold = &info["personHold"];
+    assert_eq!(hold["folder"], json!(guarded), "{info}");
+    let reason = hold["reason"].as_str().unwrap_or_default();
+    assert!(reason.contains("privacy-protected"), "{reason}");
+    let plain_info = c.call("_acpmux/info", json!({"sessionId": open})).await;
+    assert!(plain_info.get("personHold").is_none(), "{plain_info}");
+
+    c.call("_acpmux/attach", json!({"sessionId": held, "visible": true})).await;
+    c.wait_ran(&held, "p-held").await;
+    let info = c.call("_acpmux/info", json!({"sessionId": held})).await;
+    assert!(info.get("personHold").is_none(), "{info}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&guarded);
+}
+
+/// A fleet machine runs every chat in its home folder, and no person opens them there. Off macOS
+/// no privacy prompt guards that folder, so a restart goes on with what its chats queued: before,
+/// an update's restart left every such queue waiting for a person who never came (Codex lanes held
+/// 14, 7, 4, 2, 1 and 1 prompts that `session resume` called not held). On macOS it still waits.
+#[tokio::test]
+async fn a_restart_resumes_a_queue_in_the_home_folder_off_macos_only() {
+    let dir = std::env::temp_dir().join(format!("acpmux-protected-home-{}", uuid::Uuid::now_v7()));
+    let home = dirs::home_dir().expect("a home folder");
+    assert!(acpmux::protected_folders::unasked_refusal(&home).is_some(), "HOME {}", home.display());
+    let store = dir.join("store");
+    std::fs::create_dir_all(&store).unwrap();
+    let hub = durable_hub(&store);
+    let mut c = Client::open(&hub);
+    let chat = c.new_session(&home).await;
+    c.busy_with_queued(&chat, "p-home").await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = durable_hub(&store);
+    hub.resume_queues();
+    let mut c = Client::open(&hub);
+    if cfg!(target_os = "macos") {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(
+            !c.ran(&chat, "p-home").await,
+            "a restart started an agent in the Mac's home folder"
+        );
+        c.call("_acpmux/attach", json!({"sessionId": chat, "visible": true})).await;
+    }
+    c.wait_ran(&chat, "p-home").await;
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// The test process's own folders (its HOME, Cargo's target tmp where it keeps them) are ordinary

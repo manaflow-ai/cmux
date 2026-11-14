@@ -24,6 +24,32 @@ nonisolated enum VerticalTabTunables {
         default: 0.3, range: 0...2, step: 0.05, unit: .seconds, code: "VerticalTabTunables.hoverExpandDelay")
 
     static var all: [TunableDescriptor] {
-        [expandedWidth, collapsedWidth, rowSpacing, groupLineWidth].map(\.descriptor) + [hoverExpandDelay.descriptor]
+        [expandedWidth, collapsedWidth, rowSpacing, groupLineWidth].map(\.descriptor)
+            + [hoverExpandDelay.descriptor, VerticalNoColorGroupLook.tunable.descriptor]
     }
+}
+
+/// How a tab group with no color still reads as a group in the vertical tab list (`tabs.vertical.noColorGroup`), as the
+/// sidebar's `sidebar.noColorGroup` does. Leo 2026-11-05: "if you're gonna allow the no color option ... you might as
+/// well have it be at least slightly distinguishing from, like, literally depicting it as if it were unhovered."
+nonisolated enum VerticalNoColorGroupLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// One neutral pane (the theme's `sidebarStep`) behind the header and its tabs, with the `group` role's rim.
+    case rimmed
+    /// The pane alone, no rim.
+    case pane
+    /// Nothing: the header and tabs draw as plain rows (the look before).
+    case plain
+
+    var tunableTitle: String {
+        switch self {
+        case .rimmed: "Pane with a rim"
+        case .pane: "Faint pane"
+        case .plain: "Plain rows"
+        }
+    }
+
+    static let tunable = Tunable<VerticalNoColorGroupLook>.choice(
+        "tabs.vertical.noColorGroup", .tabs, "Vertical group with no color",
+        help: "How a tab group with no color reads as a group in the vertical tab list: a faint neutral pane behind its header and tabs, or plain rows.",
+        default: .rimmed, code: "VerticalNoColorGroupLook.tunable")
 }

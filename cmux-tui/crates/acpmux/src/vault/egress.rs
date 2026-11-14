@@ -204,11 +204,11 @@ fn write_trust(
     ca_pem: &str,
     inherited: &dyn Fn(&str) -> Option<String>,
 ) -> std::io::Result<(PathBuf, Option<PathBuf>)> {
-    std::fs::create_dir_all(dir)?;
+    crate::home_fs::create_dirs(dir)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        crate::home_fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
     }
     let read = |path: &str| std::fs::read_to_string(path).ok().filter(|t| t.contains("-----BEGIN"));
     let joined = |base: Option<String>| {
@@ -219,7 +219,7 @@ fn write_trust(
         text.push_str(ca_pem);
         text
     };
-    std::fs::write(dir.join("ca.pem"), ca_pem)?;
+    crate::home_fs::write(dir.join("ca.pem"), ca_pem)?;
     let node_ca = dir.join("node-extra-ca.pem");
     let node_base = inherited("NODE_EXTRA_CA_CERTS").and_then(|p| read(&p));
     replace(&node_ca, &joined(node_base))?;
@@ -240,8 +240,8 @@ fn write_trust(
 /// Write by rename, so a running agent never reads half a bundle.
 fn replace(path: &Path, text: &str) -> std::io::Result<()> {
     let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, text)?;
-    std::fs::rename(&tmp, path)
+    crate::home_fs::write(&tmp, text)?;
+    crate::home_fs::rename(&tmp, path)
 }
 
 /// The secrets the proxy serves now (at most [`POLICY_TTL`] old): the

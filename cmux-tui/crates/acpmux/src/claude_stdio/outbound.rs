@@ -126,6 +126,7 @@ impl Translator {
                         self.compacting.store(false, Ordering::SeqCst);
                         self.turn_output.store(false, Ordering::SeqCst);
                         *self.prompt_echo.lock().await = Some(uuid);
+                        self.prompt_queued.store(false, Ordering::SeqCst);
                         self.cancelled.store(false, Ordering::SeqCst);
                         self.step_stopped.store(false, Ordering::SeqCst);
                         let mut pending = self.pending.lock().await;
@@ -320,6 +321,9 @@ impl Translator {
                             json!({"type": "control_request", "request_id": format!("bg-{}", id), "request": request}),
                         ])
                     }
+                    FOREGROUND_WORK => {
+                        Outbound::Reply(Message::ok(id.clone(), self.foreground_work().await))
+                    }
                     MCP_RECONNECT => {
                         let server = p.get("server").and_then(Value::as_str).unwrap_or("");
                         if server.is_empty() {
@@ -442,6 +446,10 @@ impl Translator {
                 }
             }
             Message::Response { id, result, error } => {
+                // The hub answered the policy gate about a tool call (`policy_gate.rs`).
+                if let Some(reply) = self.gate_answer(id, result.as_ref(), error.is_some()).await {
+                    return Outbound::Lines(vec![reply]);
+                }
                 // The hub answered a permission request we raised.
                 // The request and its form (an elicitation's) are taken under
                 // the request map's lock, as a withdrawal takes them
@@ -565,11 +573,16 @@ pub(super) fn initialize_request(suggestions: bool) -> Value {
         "supportedDialogKinds": ["ask_user_question", "exit_plan_mode", "permission"],
         "perTaskStopAffordance": true,
     });
+    // The policy gate is its own matcher: its own timeout, and a failure blocks the call
+    // (`policy_gate.rs`).
     #[cfg(unix)]
     request.set(
         "hooks",
         json!({"PreToolUse": [{
             "matcher": "*", "hookCallbackIds": [super::hook_callback::SYNC_CALLBACK], "timeout": 90
+        }, {
+            "matcher": "*", "hookCallbackIds": [super::policy_gate::GATE_CALLBACK],
+            "timeout": super::policy_gate::GATE_TIMEOUT_S, "onFailure": "block"
         }]}),
     );
     if suggestions {

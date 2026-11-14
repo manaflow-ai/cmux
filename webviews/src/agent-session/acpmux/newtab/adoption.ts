@@ -5,29 +5,86 @@
 // another context) gets every key.
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
-import { newTabHost, type NewTabHost } from "../NewTabPage";
+import { newTabHost, type NewTabHost } from "../newTabModel";
 import { EMPTY_OMNIBAR, omnibarActions, omnibarContext } from "../omnibar";
-import { parseWeather } from "./ambient";
+import { revealedSubagent } from "../subagents/subagentPanes";
+import { keepHandedTail } from "../tailCache";
 
 export const NEW_TAB_ADOPT_EVENT = "acpmux-newtab-adopt";
 /// The host's open tabs and workspaces changed while the page shows (AgentPaneView.refreshNewTabPlaces).
 export const NEW_TAB_PLACES_EVENT = "acpmux-newtab-places";
-/// The weather widget's reading arrived or changed while the page shows (AgentPaneView.refreshNewTabWeather).
-export const NEW_TAB_WEATHER_EVENT = "acpmux-newtab-weather";
 
 /// A tab opening an existing chat adopted this prewarmed page (AgentPaneView.adoptSession): the
 /// page leaves its New Tab screen and switches to that chat in place.
 export const SESSION_ADOPT_EVENT = "acpmux-session-adopt";
 
-/// The chat a session adopt event names, and the turn its open asks to show (a subagent's pane).
-export type SessionAdoption = { sessionId: string; revealTurn?: string };
+/// The chat a session adopt event names, the turn its open asks to show (a subagent's pane), the
+/// chat's tail the app host kept, when it holds one (read as `chat.tail.get`'s answer is, tailCache.ts),
+/// and where the reader left the chat in this tab (`chat.scrollAnchor.get`'s answer): a place, or null
+/// for none kept (the chat opens at its latest message). Absent: the host did not say, so the page
+/// asks (an older host, one with no place store).
+export type SessionAdoption = {
+  sessionId: string;
+  revealTurn?: string;
+  tail?: unknown;
+  scrollAnchor?: { rowId: string; offset: number } | null;
+};
+
+/// The place an adopt event carries: a place, null for none kept, undefined when it says nothing usable.
+function adoptedPlace(value: unknown): { rowId: string; offset: number } | null | undefined {
+  if (value === null) return null;
+  if (typeof value !== "object" || value === undefined) return undefined;
+  const { rowId, offset } = value as { rowId?: unknown; offset?: unknown };
+  return typeof rowId === "string" && rowId && typeof offset === "number" && Number.isFinite(offset)
+    ? { rowId, offset }
+    : undefined;
+}
 
 /// The adoption an event's detail names; undefined when it names no session.
 export function sessionAdoption(detail: unknown): SessionAdoption | undefined {
   if (typeof detail !== "object" || detail === null) return undefined;
-  const { sessionId, revealTurn } = detail as { sessionId?: unknown; revealTurn?: unknown };
+  const { sessionId, revealTurn, tail, scrollAnchor } = detail as {
+    sessionId?: unknown;
+    revealTurn?: unknown;
+    tail?: unknown;
+    scrollAnchor?: unknown;
+  };
   if (typeof sessionId !== "string" || !sessionId) return undefined;
-  return typeof revealTurn === "string" && revealTurn ? { sessionId, revealTurn } : { sessionId };
+  const place = adoptedPlace(scrollAnchor);
+  return {
+    sessionId,
+    ...(typeof revealTurn === "string" && revealTurn ? { revealTurn } : {}),
+    ...(typeof tail === "object" && tail !== null && !Array.isArray(tail) ? { tail } : {}),
+    ...(place !== undefined ? { scrollAnchor: place } : {}),
+  };
+}
+
+/// Keeps the tail an adopt event carries for its chat, so the switch that follows draws the chat
+/// from it in the event's own turn, with no host round trip (`chat.tail.get` is raced against
+/// 250 ms, which a busy main thread loses, and the pane then stayed empty until acpmux's attach
+/// answered). True when it kept one; a page that read the chat itself keeps its own.
+export function keepAdoptedTail(adoption: SessionAdoption): boolean {
+  return adoption.tail !== undefined && keepHandedTail(adoption.sessionId, adoption.tail);
+}
+
+/// What an adoption does before its switch. A subagent's pane shows the subagent from its first
+/// frame (`revealsFirst`: the reveal runs before the switch, not after acpmux's attach, so the page
+/// never draws the chat's rows first) and reads no reading place of the chat, which it does not show
+/// (`readsAnchor`: `chat.scrollAnchor.get` is a host round trip the switch would wait on). Any other
+/// adoption reads where the reader left the chat, then shows its turn once the chat opened; an adopt
+/// event that carries the place (`scrollAnchor`, the host's AgentPaneView.adoptSession) asks nothing,
+/// so the switch runs in the event's own turn, as the tail it carries lets it draw there.
+export function adoptionPlan(adoption: SessionAdoption): { readsAnchor: boolean; revealsFirst: boolean } {
+  const subagent = adoption.revealTurn !== undefined && revealedSubagent(adoption.revealTurn) !== undefined;
+  return { readsAnchor: !subagent && adoption.scrollAnchor === undefined, revealsFirst: subagent };
+}
+
+/// The place an adoption opens its chat at without asking the host: the one its event carried (none
+/// kept: undefined, the latest message). Only when `adoptionPlan` reads no anchor.
+export function carriedAnchor(
+  adoption: SessionAdoption,
+): ({ rowId: string; offset: number } & { sessionId: string }) | undefined {
+  return adoption.scrollAnchor ? { sessionId: adoption.sessionId, ...adoption.scrollAnchor } : undefined;
 }
 
 /// Calls `onAdopt` with each session adopt event, rendered inside the event: the page's next
@@ -186,25 +243,5 @@ export function useNewTabPlaces(
     };
     window.addEventListener(NEW_TAB_PLACES_EVENT, handle);
     return () => window.removeEventListener(NEW_TAB_PLACES_EVENT, handle);
-  }, [update]);
-}
-
-/// Takes each weather event's reading into the shown page, in place (no remount): a page opened
-/// before the first reading, or with an old one, shows the refreshed reading when it arrives. A
-/// detail that is not a reading (null: the widget turned off) takes the reading away.
-export function useNewTabWeather(
-  update: (apply: (host: NewTabHost | undefined) => NewTabHost | undefined) => void,
-): void {
-  useEffect(() => {
-    const handle = (event: Event) => {
-      const weather = parseWeather((event as CustomEvent).detail);
-      update((host) => {
-        if (!host) return host;
-        const { weather: _old, ...rest } = host;
-        return weather ? { ...rest, weather } : rest;
-      });
-    };
-    window.addEventListener(NEW_TAB_WEATHER_EVENT, handle);
-    return () => window.removeEventListener(NEW_TAB_WEATHER_EVENT, handle);
   }, [update]);
 }

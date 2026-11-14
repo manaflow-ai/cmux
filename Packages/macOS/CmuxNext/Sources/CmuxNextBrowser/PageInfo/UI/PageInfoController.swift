@@ -34,6 +34,8 @@ public final class PageInfoController {
     private var pageHadFocus = false
     /// Card size for the rendered page.
     private var cardSize = CGSize.zero
+    /// Each site's last cookie summary: the Cookies page opens on it while the engine reads again.
+    var siteDataMemory = PageInfoSiteDataMemory()
     var windows = PageInfoWindows()
 
     init(tab: @escaping () -> (any BrowserTab)?, anchor: @escaping () -> NSView?) {
@@ -110,7 +112,8 @@ public final class PageInfoController {
             pageHadFocus = Self.pageHasFocus(tab, in: window)
             model.site = site
             model.needsReload = false
-            model.siteData = nil
+            // A site read before opens on its last counts, not on Loading; this opening's read replaces them.
+            model.siteData = siteDataMemory.last(for: site)
             model.certificates = nil
             startObserving()
             loadAsyncData()
@@ -184,7 +187,8 @@ public final class PageInfoController {
 
     // MARK: Keyboard
 
-    /// Escape closes; Up and Down move between rows like Tab.
+    /// Escape closes; Up and Down move between rows like Tab; the leading arrow (Left, Right in a
+    /// right-to-left layout) goes back from a subpage.
     private func handleKey(_ event: NSEvent) -> Bool {
         switch event.keyCode {
         case 53:
@@ -196,11 +200,16 @@ public final class PageInfoController {
         case 126:
             panel?.selectPreviousKeyView(nil)
             return true
-        case 123 where model.page != .main:
+        case Self.backKey(rightToLeft: NSApp.userInterfaceLayoutDirection == .rightToLeft) where model.page != .main:
             send(.show(.main))
             return true
         default:
             return false
         }
+    }
+
+    /// The arrow key that goes back from a subpage: the one that points at the back button.
+    static func backKey(rightToLeft: Bool) -> UInt16 {
+        rightToLeft ? 124 : 123
     }
 }

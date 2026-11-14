@@ -12,10 +12,7 @@ enum DebugWorkspaceSwitch {
     static let timer = SwitchFrameTimer(owner: "debug.workspace_switch")
     /// The window whose switch is timed now (a switch is keyed by its window's state).
     static func began(_ owner: AnyObject) {
-        guard timer.isRecording else { return }
-        let event = NSApp.currentEvent
-        let input = event.flatMap { [.leftMouseDown, .leftMouseUp, .keyDown].contains($0.type) ? $0.timestamp : nil }
-        timer.began(ObjectIdentifier(owner), inputTimestamp: input)
+        if timer.isRecording { timer.began(ObjectIdentifier(owner), handling: NSApp.currentEvent) }
     }
 
     static func mark(_ owner: AnyObject, _ stage: StaticString) {
@@ -26,7 +23,7 @@ enum DebugWorkspaceSwitch {
         if timer.isRecording { timer.setKind(ObjectIdentifier(owner), kind) }
     }
 
-    static func shown(_ owner: AnyObject, in window: NSWindow?) {
-        if timer.isRecording { timer.shown(ObjectIdentifier(owner), in: window) }
+    static func shown(_ owner: AnyObject, in window: NSWindow?, pages: @autoclosure () -> [String: Double] = [:]) { // pages: read only while recording
+        if timer.isRecording { timer.shown(ObjectIdentifier(owner), in: window, extra: pages()) }
     }
 }

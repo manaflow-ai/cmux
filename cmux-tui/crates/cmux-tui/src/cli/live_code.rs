@@ -22,6 +22,7 @@ use serde_json::{Value, json};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 /// How long an apply or undo waits for the app's answer by default.
+// timeout: a silent app fails the command (the request stays placed); the caller can set the wait.
 const DEFAULT_WAIT: Duration = Duration::from_secs(20);
 
 #[derive(Debug, PartialEq, Eq)]

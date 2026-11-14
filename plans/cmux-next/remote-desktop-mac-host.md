@@ -34,7 +34,8 @@ behavior change (`src/x11.rs`).
 1. **Capture.** One `SCStream` per session on one display (`--display main` or an index, left
    to right). Pixel format `420v` (NV12, video range), so the hardware encoder needs no color
    conversion. Size: the display's native pixels, fitted to 3840x2160 (H.264 level 5.2 at 60
-   fps), even. `minimumFrameInterval` is 1 / `--max-fps`. The cursor is drawn into the frames.
+   fps), even. `minimumFrameInterval` is 1 / `--max-fps`, which defaults to the display's refresh rate (60 when it
+   reads 0). The cursor is drawn into the frames.
    The queue depth is 4: the session holds the newest frame (so a recovery keyframe needs no new
    capture), and the encoder reads another.
 2. **Damage.** ScreenCaptureKit sends a frame only when the display changed. Each frame's status

@@ -129,6 +129,28 @@ pub(super) fn run_avatar_if_requested(args: &[String]) -> Option<i32> {
     (scope == "avatar").then(|| avatar::run(&global, rest))
 }
 
+/// A `cmux chief` usage error: the `--json` envelope under `--json`, else
+/// the usage and then the error, so the last line says what was wrong and
+/// what to run (docs/cli-conventions.md in cmuxterm-hq). Exit 2.
+pub(super) fn usage_failure(global: &GlobalArgs, error: &str, usage: &str) -> i32 {
+    match global.output {
+        OutputMode::Json | OutputMode::JsonLines => super::wire::print_local_error(
+            &serde_json::json!({
+                "code": "usage.invalid",
+                "message": format!("{error}; run `cmux chief --help` for its usage"),
+                "details": {},
+                "retryable": false,
+            }),
+            global.output,
+            2,
+        ),
+        OutputMode::Human | OutputMode::Quiet => {
+            eprintln!("{usage}\n\ncmux: {error}; run `cmux chief --help` for its usage");
+            2
+        }
+    }
+}
+
 pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut parsed =
         Args { history: 20, timeout_secs: Some(DEFAULT_TIMEOUT_SECS), ..Args::default() };
@@ -166,8 +188,13 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             | "--reactions-can-wake"
             | "--classifier-harness"
             | "--classifier-model"
-            | "--classifier-prompt" => {
-                let key = flag.trim_start_matches("--").replace('-', "_");
+            | "--classifier-prompt"
+            | "--mode" => {
+                // `--mode`: the Chief turns' permission mode (cmux#37392).
+                let key = match flag {
+                    "--mode" => "permission_mode".to_owned(),
+                    _ => flag.trim_start_matches("--").replace('-', "_"),
+                };
                 let value = value()?;
                 match &mut parsed.control {
                     Some(control::Control::Engine(changes)) => changes.push((key, value)),
@@ -180,10 +207,7 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             "--class" => parsed.class = Some(value()?),
             "--thread" => parsed.thread = Some(value()?),
             "--timeout" => {
-                let text = value()?;
-                let secs: u64 =
-                    text.parse().map_err(|_| format!("--timeout takes seconds, not {text}"))?;
-                parsed.timeout_secs = (secs > 0).then_some(secs);
+                parsed.timeout_secs = crate::cli::chat_send::timeout_secs(&value()?)?;
             }
             "--chief-home" => parsed.chief_home = Some(value()?.into()),
             "--chief" | "--to" => {
@@ -249,10 +273,7 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     }
     let args = match parse_args(args) {
         Ok(args) => args,
-        Err(error) => {
-            eprintln!("cmux: {error}\n\n{}", m.usage);
-            return 2;
-        }
+        Err(error) => return usage_failure(&global, &error, m.usage),
     };
     if args.help {
         println!("{}", m.usage);

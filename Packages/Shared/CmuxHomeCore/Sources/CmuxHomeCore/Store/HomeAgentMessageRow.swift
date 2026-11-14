@@ -44,6 +44,9 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
 
     /// Where an agent of a fold stands, from its newest message in the fold.
     public enum PeerState: Hashable, Sendable {
+        /// The Chief's message to it is the newest and it waits in the Chief's queue for a free slot
+        /// (its spawn answer said `queued`, or the newest tell did): it has not started.
+        case queued
         /// The Chief's message to it is the newest: it is working on it.
         case told
         /// Its report is the newest.
@@ -67,6 +70,9 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
     /// For an agents row: whether each agent, in the order of its `peers`, has a report newer than the one
     /// the person last opened (its unread dot). Empty for other rows.
     public var peerUnread: [Bool] = []
+    /// For a message row: true when it is the Chief's message to an agent that waits in the Chief's queue
+    /// (``HomeAgentRun/Message/queued``), so its pill says Queued, not Working. False for other rows.
+    public var queued = false
 
     /// About how many characters a title keeps before it is cut at a word edge (the pill clips the rest).
     public static let titleLength = 32

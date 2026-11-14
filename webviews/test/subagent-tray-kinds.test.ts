@@ -58,6 +58,9 @@ await requireBrowserLane("subagent-tray-kinds.test.ts", async () => {
           for (const animation of document.getAnimations())
             if (Number.isFinite(animation.effect?.getComputedTiming().endTime as number)) animation.finish();
         });
+        // Opening hands the header's words over (trayMotion.tsx Tick `slide`): the leaving words go
+        // once their animation's end lands, a turn after it finishes.
+        await page.waitForFunction(() => !document.querySelector(".acpmux-running-tray__title .acpmux-tick__out"));
         const geometry = await page.evaluate(() => {
           const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
           const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list")!;

@@ -209,7 +209,7 @@ async fn an_idle_chat_runs_its_first_work_and_wakes_for_a_blocker_only() {
     assert_eq!(ids, ["a-1", "b-1", "f-1"]);
     let text = notices[0]["text"].as_str().unwrap();
     assert!(
-        text.contains("\n- [blocker] 1 new in #12 from lane-d: blocked on #12"),
+        text.contains("\n- [blocker] 1 new in #12 (self-declared, unauthenticated) from lane-d (self-declared, unauthenticated): blocked on #12"),
         "blockers first: {text}"
     );
     for answer in answered.values() {
@@ -268,7 +268,9 @@ async fn a_queued_prompt_never_waits_behind_agent_messages() {
     assert_ne!(notices[0]["steer"], true, "no steer: {all:?}");
     assert_eq!(all[at("p-me")]["text"], text.as_str(), "the person's words as written");
     assert_eq!(carried(&notices[0]).len(), 5);
-    assert!(notices[0]["text"].as_str().unwrap().contains("5 new in #9 from lane-a"));
+    assert!(notices[0]["text"].as_str().unwrap().contains(
+        "5 new in #9 (self-declared, unauthenticated) from lane-a (self-declared, unauthenticated)"
+    ));
     for answer in answered.values() {
         assert_eq!(answer["stopReason"], "end_turn", "{answer}");
         assert_eq!(answer["_meta"]["acpmux"]["turnId"], notices[0]["turnId"], "{answer}");
@@ -573,8 +575,13 @@ async fn threads_are_read_whole_and_answered_into_the_senders_inbox() {
     }
     let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
     let rows = threads["threads"].as_array().unwrap();
-    let keys: Vec<&str> = rows.iter().map(|t| t["threadId"].as_str().unwrap()).collect();
-    assert_eq!(keys, ["topic:plan", "from:lane-a/pr:27133", "pr:27133"], "{threads}");
+    let keys: Vec<String> =
+        rows.iter().map(|t| t["threadId"].as_str().unwrap().to_owned()).collect();
+    assert_eq!(
+        keys,
+        vec!["topic:plan".to_owned(), "from:lane-a/pr:27133".to_owned(), "pr:27133".to_owned()],
+        "{threads}"
+    );
     assert_eq!(rows[0]["from"], json!(["lane-a"]));
     assert_eq!(rows[0]["unread"], 1);
     assert_eq!(rows[0]["class"], "action");
@@ -679,7 +686,7 @@ async fn a_closed_chat_answers_and_refuses_senders_and_keeps_its_threads() {
     .expect("the waiting sender was never answered");
     assert!(line.is_some(), "a closed chat answers its waiting sender with an error");
     let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(threads["threads"][0]["threadId"], "from:lane-b/pr:5", "{threads}");
+    assert_eq!(threads["threads"][0]["threadId"], "declared:lane-b/pr:5", "{threads}");
 }
 
 /// A review box (`review_box.rs`) has no inbox: another agent's message to its running review

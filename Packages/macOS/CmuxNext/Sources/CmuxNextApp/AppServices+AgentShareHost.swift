@@ -3,8 +3,8 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
-import CmuxNextFeed
 import CmuxNextWakeups
+import CmuxNextFeedClient
 
 // Share with Guest (design chat-multiplayer.md 6): one-line forwards to the App's owners.
 extension AppServices: AgentShareHost {
@@ -16,10 +16,13 @@ extension AppServices: AgentShareHost {
     func shareIsOnThisMac(_ tab: TabModel) -> Bool { machines.local.store.tab(idOrResource: tab.id) === tab }
     var shareLocalConnection: DaemonConnection? { machines.local.connection }
     func shareOwnerToken(api: URL?) async -> String? { await cloud.shareOwnerToken(api: api) }
+    func shareLinkOpener() async -> (connection: DaemonConnection?, token: String?) { (await machines.local.connectionOnceStarted(), await cloud.auth.restoredAccessToken()) }
     func shareCopy(_ text: String) { AppActionContext(services: self).copy(text) }
     func shareNotice(_ message: String) { BrowserFileImport.toast(self, id: "agent-share", message) }
     func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool { await AgentShareConsentSheet.ask(ask, feed: feed) }
     func shareShowInvites(_ model: AgentShareInviteSheetModel) { AgentShareInviteSheetPresenter.present(model, services: self) }
+    func shareOpenSettings(route: String) { try? settingsWindow.show(section: nil, route: route) }
+    func shareTitle(of tab: TabModel) -> String { TabTitleResolver(services: self).title(tab) }
 }
 
 /// The owner's consent sheet for a guest link a run they did not start asks for (#30263): a cmux
@@ -69,8 +72,7 @@ enum AgentShareConsentSheet {
                 let deadline = ContinuousClock.now + limit
                 guard let item = await request.open(feedRequest(ask), key: "share-consent:\(UUID().uuidString)",
                                                     expiresInMs: Int(limit.components.seconds) * 1000) else { return }
-                await feed.waitClosed(item, until: deadline)
-                switch feed.model.item(item).flatMap(FeedPendingConfirm.confirmed) {
+                switch await feed.waitClosed(item, until: deadline).flatMap(FeedPendingConfirm.confirmed) {
                 case false?: center.dismiss(id)
                 case true?: NSApp.activate()
                 case nil: break

@@ -39,52 +39,50 @@ public final class NavigationPaletteProvider: PaletteProvider {
     static let paneBias = -4
     static let tabBias = -2
 
-    /// The rows of `entries` (pure; the tests call it). The most recently
-    /// used tabs and panes get a recency boost that shrinks by rank, as in
-    /// Search Tabs, so of two equal matches the recent one goes first.
+    /// The rows of `entries` (pure; the tests call it). Recently used tabs and panes get the
+    /// recency bias (``PaletteRecencyPrior``: decaying with time, plus a place boost among the
+    /// recent), so of two equal or near matches the recent one goes first; the tab or pane the
+    /// person is on gets none.
     @MainActor
-    static func items(_ entries: [PaletteNavigationEntry], source: (any PaletteNavigationSource)?) -> [PaletteItem] {
-        let recency = recencyRanks(entries)
-        return distinctTitles(entries).map { entry in
-            let boost = recency[entry.itemID].map { max(0, TabSearchPlan.recencyBoost - TabSearchPlan.recencyStep * $0) } ?? 0
-            return item(entry, recencyBoost: boost + PaletteSidebarPrior().bias(rank: entry.sidebarRank), source: source)
+    static func items(_ entries: [PaletteNavigationEntry], source: (any PaletteNavigationSource)?, now: Date = Date()) -> [PaletteItem] {
+        let shown = distinctTitles(entries)
+        let recency = PaletteRecencyPrior().biases(shown.compactMap { entry in
+            entry.isCurrent ? nil : entry.lastUsed.map { (id: entry.itemID, lastUsed: $0) }
+        }, now: now)
+        return shown.map { entry in
+            item(entry, recencyBoost: (recency[entry.itemID] ?? 0) + PaletteSidebarPrior().bias(rank: entry.sidebarRank), source: source)
         }
     }
 
-    /// `entries` with each tab that only repeats its workspace's name (an untitled agent chat reads
-    /// as its workspace) titled by its kind instead, numbered when its workspace holds several of
-    /// that kind: "Agent Chat 1", "Agent Chat 2". The workspace's own row already reads that name,
-    /// and its subtitle still does (Leo 2026-11-03: "some of these are way too duplicated").
+    /// `entries` without the repeats of a workspace's name: a tab that alone repeats its workspace's
+    /// name is that workspace (its row already reads that name, and a default-named workspace reads
+    /// as its front tab), so it has no row of its own (Lawrence 2026-11-07: Cmd-P listed "cmux-tui"
+    /// as a workspace and again as its terminal). Several tabs that repeat it (untitled agent chats)
+    /// stay, titled by their kind, numbered when the workspace holds several of that kind: "Agent
+    /// Chat 1", "Agent Chat 2" (Leo 2026-11-03: "some of these are way too duplicated").
     static func distinctTitles(_ entries: [PaletteNavigationEntry]) -> [PaletteNavigationEntry] {
-        func repeats(_ entry: PaletteNavigationEntry) -> (key: String, kind: PaletteNavigationEntry.TabKind)? {
+        func repeats(_ entry: PaletteNavigationEntry) -> (workspace: String, kind: PaletteNavigationEntry.TabKind)? {
             guard case .tab(let kind) = entry.kind, let workspace = entry.workspaceTitle,
-                  folded(entry.title) == folded(workspace), !workspace.isEmpty else { return nil }
-            return ("\(entry.workspaceID ?? workspace)\u{1F}\(kind.rawValue)", kind)
+                  PaletteWorkspace.repeatsName(entry.title, of: workspace) else { return nil }
+            return (entry.workspaceID ?? workspace, kind)
         }
-        var counts: [String: Int] = [:]
-        for entry in entries { if let key = repeats(entry)?.key { counts[key, default: 0] += 1 } }
+        var perWorkspace: [String: Int] = [:], perKind: [String: Int] = [:]
+        for entry in entries {
+            guard let (workspace, kind) = repeats(entry) else { continue }
+            perWorkspace[workspace, default: 0] += 1
+            perKind["\(workspace)\u{1F}\(kind.rawValue)", default: 0] += 1
+        }
         var seen: [String: Int] = [:]
-        return entries.map { entry in
-            guard let (key, kind) = repeats(entry) else { return entry }
+        return entries.compactMap { entry in
+            guard let (workspace, kind) = repeats(entry) else { return entry }
+            if perWorkspace[workspace] == 1 { return nil }
+            let key = "\(workspace)\u{1F}\(kind.rawValue)"
             seen[key, default: 0] += 1
             var titled = entry
-            titled.title = (counts[key] ?? 0) > 1 ? PaletteStrings.numberedKind(kindLabel(kind), seen[key] ?? 1) : kindLabel(kind)
+            titled.title = (perKind[key] ?? 0) > 1 ? PaletteStrings.numberedKind(kindLabel(kind), seen[key] ?? 1) : kindLabel(kind)
             titled.keywords.append(entry.title)
             return titled
         }
-    }
-
-    private static func folded(_ title: String) -> String {
-        title.trimmingCharacters(in: .whitespacesAndNewlines).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
-    }
-
-    /// Rank by last use, newest first, of the entries that were ever used.
-    static func recencyRanks(_ entries: [PaletteNavigationEntry]) -> [String: Int] {
-        let used = entries.compactMap { entry in entry.lastUsed.map { (entry.itemID, $0) } }
-            .sorted { $0.1 > $1.1 }
-        var ranks: [String: Int] = [:]
-        for (rank, pair) in used.enumerated() where ranks[pair.0] == nil { ranks[pair.0] = rank }
-        return ranks
     }
 
     @MainActor
@@ -121,7 +119,10 @@ public final class NavigationPaletteProvider: PaletteProvider {
                 keywords: [PaletteStrings.tabKeyword, entry.url, entry.cwd, entry.agent].compactMap { $0 } + sessionWords(entry.sessionID)
                     + entry.keywords,
                 primary: open, secondary: copySession(entry.sessionID), frecencyKey: entry.itemID, rankBias: tabBias + recencyBoost)
-            item.actionRefs = [PaletteActionRef("tab.focus", target: ActionTargetRef(kind: .tab, id: entry.id), title: open.title)]
+            // Close Tab as on the plain tab list's rows, which Cmd-Shift-P listed before it took these (`palette.run`).
+            let target = ActionTargetRef(kind: .tab, id: entry.id)
+            item.actionRefs = [PaletteActionRef("tab.focus", target: target, title: open.title),
+                               PaletteActionRef("closeTab", target: target, title: PaletteStrings.closeTab, isDestructive: true)]
         }
         return item
     }

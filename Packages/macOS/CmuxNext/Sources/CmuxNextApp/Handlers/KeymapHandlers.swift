@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextSettings
+import CmuxNextWindowRules
 
 /// Base Keymap… (`settings base-keymap`): switches cmux.json's shortcuts to
 /// a preset (cmux, iTerm2, Terminal.app, tmux with its `ctrl+b` chords), as
@@ -40,13 +41,11 @@ enum KeymapHandlers {
     @MainActor private static func toast(_ plan: ShortcutKeymapPlan, registry: ActionRegistry, in window: NSWindow?,
                                          undo: @escaping @MainActor () -> Void) {
         guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
-        var parts = [KeymapStrings.title(presetName(plan.preset, registry))]
-        if plan.isEmpty { parts.append(KeymapStrings.noChanges) }
-        if plan.preset == .iTerm2, plan.changes.contains(where: { $0.actionID == "selectSurfaceByNumber" }) {
-            parts.append(KeymapStrings.iTerm2Numbers)
-        }
-        let toast = CmuxToast(id: toastID, message: parts.joined(separator: " "), action: plan.isEmpty ? nil : .undo(),
-                              duration: .seconds(plan.isEmpty ? 6 : 10))
+        // What it says is Rust's (cmux-window-rules `appearance::keymap_toast`).
+        guard let says = WindowRules().keymapToast(preset: plan.preset.rawValue, changed: plan.changes.map(\.actionID)) else { return }
+        let parts = says.lines.map { ["noChanges": KeymapStrings.noChanges, "iTerm2Numbers": KeymapStrings.iTerm2Numbers][$0] ?? KeymapStrings.title(presetName(plan.preset, registry)) }
+        let toast = CmuxToast(id: toastID, message: parts.joined(separator: " "), action: says.undo ? .undo() : nil,
+                              duration: .seconds(says.seconds))
         let handle = CmuxToastCenter.shared.show(toast, in: window)
         handle.onAction = undo
     }

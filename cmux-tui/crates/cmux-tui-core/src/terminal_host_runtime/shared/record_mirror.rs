@@ -14,8 +14,9 @@
 //! replaced, so a later move always wins), keeping the record's data barrier
 //! so a power cut never leaves a torn record, and syncs each directory once
 //! per batch. It writes a record only while the file still holds the same
-//! terminal incarnation: a host that was replaced meanwhile (rehost, respawn)
-//! wrote its own record, which a stale mirror must not overwrite. The thread
+//! terminal incarnation and host process (pid and start nonce): a host that
+//! was replaced meanwhile (rehost, respawn) wrote its own record, which a
+//! stale mirror must not overwrite. The thread
 //! starts on first use and sleeps on a condition variable when nothing is
 //! queued.
 
@@ -78,9 +79,53 @@ fn run() {
     }
 }
 
-/// Whether the record at `path` is still `record`'s terminal incarnation.
+/// Whether the record at `path` is still `record`'s host: the same terminal
+/// incarnation served by the same host process. A rehost keeps the
+/// incarnation and changes the host pid and process-start nonce, so a write
+/// queued for the replaced host must not land on its replacement's record.
 fn still_this_incarnation(path: &Path, record: &TerminalHostRecord) -> bool {
     let Ok(bytes) = std::fs::read(path) else { return false };
     let Ok(current) = serde_json::from_slice::<TerminalHostRecord>(&bytes) else { return false };
-    current.terminal_id == record.terminal_id && current.incarnation == record.incarnation
+    current.terminal_id == record.terminal_id
+        && current.incarnation == record.incarnation
+        && current.host_start_nonce == record.host_start_nonce
+        && current.host_pid == record.host_pid
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(nonce: &str, pid: u32, workspace: &str) -> TerminalHostRecord {
+        TerminalHostRecord {
+            record_version: 4,
+            terminal_id: "00000000000040008000000000000b01".into(),
+            incarnation: "00000000000040008000000000000b02".into(),
+            host_pid: pid,
+            host_start_nonce: nonce.into(),
+            workspace_key: workspace.into(),
+            ..Default::default()
+        }
+    }
+
+    /// A rehost keeps the terminal id and the incarnation (the shell is the
+    /// same run) and changes the host pid and nonce. A mirror write queued
+    /// for the replaced host must not overwrite the replacement's record:
+    /// the next start would find the dead host's nonce, end the live
+    /// terminal, and remove the replacement's endpoint.
+    #[test]
+    fn a_queued_write_of_a_replaced_host_keeps_the_replacements_record() {
+        let dir = std::env::temp_dir()
+            .join(format!("cmux-record-mirror-{}", crate::workspace_registry::new_uuid_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("00000000000040008000000000000b01.json");
+        let replacement = record("bb", 222, "workspace-one");
+        std::fs::write(&path, serde_json::to_vec(&replacement).unwrap()).unwrap();
+        assert!(
+            !still_this_incarnation(&path, &record("aa", 111, "workspace-two")),
+            "a write for the replaced host would overwrite its replacement's record"
+        );
+        assert!(still_this_incarnation(&path, &record("bb", 222, "workspace-two")));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

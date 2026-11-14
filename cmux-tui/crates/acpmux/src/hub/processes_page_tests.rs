@@ -95,3 +95,42 @@ fn one_oversized_command_yields_a_stop_capable_stub() {
     assert!(result.to_string().len() < 1_000);
     assert!(result["nextCursor"].is_null());
 }
+
+/// An unpaged list of a long history (the 34 MB `_acpmux/process/list` refused on 2026-11-11)
+/// is one reply's worth: the newest that fit, in the order they started, with how many older
+/// ones it left out; and only those rows have their output file's size read.
+#[test]
+fn an_unpaged_list_past_one_reply_keeps_the_newest_that_fit() {
+    let processes: Vec<Process> = (0..20_000).map(|i| make(i, "build ".repeat(300))).collect();
+    let read = std::cell::Cell::new(0_usize);
+    let length = |_: &str| {
+        read.set(read.get() + 1);
+        0
+    };
+    let mut processes = processes;
+    for p in &mut processes {
+        p.output_file = Some("/nonexistent".into());
+    }
+    let reply = process_window_values(processes, PROCESS_PAGE_BUDGET, length);
+    let bytes = reply.to_string().len();
+    assert!(bytes <= PROCESS_PAGE_BUDGET, "{bytes} bytes");
+    assert!(bytes <= crate::rpc::REPLY_PAGE_BYTES, "{bytes} bytes");
+    let rows = reply["processes"].as_array().unwrap();
+    assert!(rows.len() > 100, "{} rows", rows.len());
+    assert_eq!(rows.last().unwrap()["id"], "session/task-19999", "the newest is kept");
+    let first: usize =
+        rows[0]["taskId"].as_str().unwrap().trim_start_matches("task-").parse().unwrap();
+    assert_eq!(first + rows.len(), 20_000, "a contiguous newest window, oldest first");
+    assert_eq!(reply["omitted"], 20_000 - rows.len());
+    // The rows kept, and the one that did not fit.
+    assert_eq!(read.get(), rows.len() + 1);
+}
+
+/// One that fits is the whole list, as before, and says nothing was left out.
+#[test]
+fn an_unpaged_list_that_fits_is_whole() {
+    let processes: Vec<Process> = (0..3).map(|i| make(i, format!("command-{i}"))).collect();
+    let full = process_values(processes.clone(), output_len);
+    let reply = process_window_values(processes, PROCESS_PAGE_BUDGET, output_len);
+    assert_eq!(reply, json!({"processes": full}));
+}

@@ -34,6 +34,9 @@ public final class FrameClient {
     /// Ends the client's work at its final state in one go (``FrameScheduler`` calls it for an
     /// animation in a window out of sight). Nil: the client is dropped with no more ticks.
     let settleNow: (@MainActor () -> Void)?
+    /// Told when its window closed and the scheduler let the client go with no tick (``FrameScheduler/invalidate()``):
+    /// a one-tick wait ends its work then instead of waiting for a frame that never comes.
+    let droppedNow: (@MainActor () -> Void)?
     private let resolve: @MainActor () -> FrameScheduler
     private weak var scheduler: FrameScheduler?
     public private(set) var isActive = false
@@ -41,12 +44,15 @@ public final class FrameClient {
     /// `onFrame` returns true to keep ticking. The client ticks on the
     /// scheduler `resolve` returns when it activates.
     /// `settle` ends the work at its final state in one go when its window goes out of sight (nil:
-    /// the client just stops; its owner activates it again when needed).
+    /// the client just stops; its owner activates it again when needed). `dropped` runs when its window closes while it
+    /// is active.
     public init(owner: String, isAnimation: Bool = true, scheduler resolve: @escaping @MainActor () -> FrameScheduler,
-                settle: (@MainActor () -> Void)? = nil, onFrame: @escaping @MainActor (FrameTick) -> Bool) {
+                settle: (@MainActor () -> Void)? = nil, dropped: (@MainActor () -> Void)? = nil,
+                onFrame: @escaping @MainActor (FrameTick) -> Bool) {
         self.owner = owner
         self.isAnimation = isAnimation
         self.settleNow = settle
+        self.droppedNow = dropped
         self.workClass = .frame
         self.resolve = resolve
         self.onFrame = onFrame
@@ -63,6 +69,7 @@ public final class FrameClient {
         self.owner = owner
         self.isAnimation = false
         self.settleNow = nil
+        self.droppedNow = nil
         self.workClass = workClass.workClass
         let frames = work.frames, budget = work.budget
         self.resolve = { frames }

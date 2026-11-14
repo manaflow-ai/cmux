@@ -10,7 +10,7 @@ nonisolated extension RefusalStrings {
         text("handlers.refusal.workspaceNotDocked", "This workspace is not docked.")
     }
 
-    /// A window-dock action (Move Dock to Left, Show or Hide Dock, Focus Dock…) in a window with no dock.
+    /// A window-dock action (Move Dock to Left, Show/Hide Dock, Focus Dock…) in a window with no dock.
     public static var windowHasNoDock: String {
         text("handlers.refusal.windowHasNoDock", "This window has no dock. Press Cmd-I to dock the Chief, or move a pane to the dock.")
     }
@@ -30,7 +30,12 @@ nonisolated extension RefusalStrings {
         text("handlers.refusal.dockWorkspaceGone", "The dock's workspace is gone.")
     }
 
-    /// Open Chief Dock while this window has no Home to dock (classic Home, or Home not ready).
+    /// Undock Chief while this window's Chief panel is not docked.
+    public static var chiefNotDocked: String {
+        text("handlers.refusal.chiefNotDocked", "The Chief is not docked.")
+    }
+
+    /// Show/Hide Chief while this window has no Home to show the Chief from (classic Home, or Home not ready).
     public static var chiefDockUnavailable: String {
         text("handlers.refusal.chiefDockUnavailable", "The Chief can't dock yet. Open Home first.")
     }

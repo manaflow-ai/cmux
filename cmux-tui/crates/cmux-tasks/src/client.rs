@@ -4,6 +4,7 @@
 
 use std::io::{self, BufRead, BufReader, Write};
 
+use cmux_tasks_core::Origin;
 use cmux_tasks_core::ids::Principal;
 use serde_json::Value;
 
@@ -26,6 +27,16 @@ pub enum Conn {
         engine: Box<Engine>,
         actor: Principal,
     },
+}
+
+#[cfg(unix)]
+impl Conn {
+    /// A connection on an already open owner socket, sending no hello (the
+    /// owner stamps it as the machine's person): reads and writes share the
+    /// one socket, so a read timeout set on `stream` bounds every reply.
+    pub fn from_socket(stream: std::os::unix::net::UnixStream) -> io::Result<Self> {
+        Ok(Conn::Socket { reader: BufReader::new(stream.try_clone()?), writer: stream, next_id: 0 })
+    }
 }
 
 fn unreachable(message: impl Into<String>) -> ErrorBody {
@@ -120,9 +131,23 @@ impl Conn {
         params: Value,
         key: Option<String>,
     ) -> Result<(Value, u64), ErrorBody> {
+        self.call_with_origin(op, params, key, None, CALL_DEADLINE)
+    }
+
+    /// One request with an `origin` (a relay that knows the person acted,
+    /// such as the daemon's Tasks page link) and the reply `deadline` on a
+    /// socket; returns the reply and the settled sequence.
+    pub fn call_with_origin(
+        &mut self,
+        op: &str,
+        params: Value,
+        key: Option<String>,
+        origin: Option<Origin>,
+        deadline: std::time::Duration,
+    ) -> Result<(Value, u64), ErrorBody> {
         match self {
             Conn::InProcess { engine, actor } => {
-                let request = Request { id: 1, op: op.to_owned(), params, key, origin: None };
+                let request = Request { id: 1, op: op.to_owned(), params, key, origin };
                 let outcome = engine.handle(actor, request).map_err(|e| {
                     ErrorBody::new(ErrorCode::Internal, format!("log write failed: {e}"))
                 })?;
@@ -132,8 +157,8 @@ impl Conn {
             Conn::Socket { next_id, .. } => {
                 *next_id += 1;
                 let id = *next_id;
-                self.set_deadline(CALL_DEADLINE);
-                let request = Request { id, op: op.to_owned(), params, key, origin: None };
+                self.set_deadline(deadline);
+                let request = Request { id, op: op.to_owned(), params, key, origin };
                 let value = serde_json::to_value(&request)
                     .map_err(|e| ErrorBody::new(ErrorCode::Internal, e.to_string()))?;
                 self.send_line(&value).map_err(|e| unreachable(e.to_string()))?;
@@ -156,5 +181,33 @@ impl Conn {
                 }
             }
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod from_socket_tests {
+    use super::Conn;
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+
+    #[test]
+    fn from_socket_sends_a_request_and_reads_its_reply_on_one_socket() {
+        let (ours, owner) = UnixStream::pair().unwrap();
+        let mut conn = Conn::from_socket(ours).unwrap();
+        assert!(!conn.is_in_process());
+        let fake_owner = std::thread::spawn(move || {
+            let mut lines = BufReader::new(owner.try_clone().unwrap()).lines();
+            let request: serde_json::Value =
+                serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+            assert_eq!(request["op"], "task.get");
+            assert_eq!(request["id"], 1);
+            let mut owner = owner;
+            writeln!(owner, r#"{{"id":1,"ok":{{"hello":true}}}}"#).unwrap();
+            writeln!(owner, r#"{{"settled":{{"id":1,"tx":"t","seq":7}}}}"#).unwrap();
+        });
+        let (reply, seq) = conn.call("task.get", serde_json::json!({}), None).unwrap();
+        fake_owner.join().unwrap();
+        assert_eq!(reply, serde_json::json!({"hello": true}));
+        assert_eq!(seq, 7);
     }
 }

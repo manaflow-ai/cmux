@@ -162,24 +162,33 @@ fn a_failed_turn_notifies_its_tab() {
     assert!(failed["title"].as_str().unwrap().ends_with("failed"), "{failed}");
 }
 
+/// A page that shows the chat stays shown while cmux is behind another app, so a turn that ends
+/// there still posts, once: the app reads it on sight when its person can see it (the app active).
 #[test]
-fn a_turn_that_ends_while_a_pane_shows_the_chat_posts_nothing() {
+fn a_turn_that_ends_while_a_pane_shows_the_chat_posts_once() {
     let daemon = machine("notice-shown");
     let (surface, session) = chat(&daemon);
     let (other_surface, other_session) = chat(&daemon);
+    // A hidden chat's notice first: the daemon follows acpmux before the shown turn starts.
+    let mut other = Acpmux::connect(&daemon, &other_session);
+    other.prompt(&other_session, "hello there");
+    notice(&daemon, other_surface, |row| row["acknowledged"] == false);
+
     let mut acpmux = Acpmux::connect(&daemon, &session);
     acpmux.call("_acpmux/view", json!({"sessionId": session, "visible": true}));
     acpmux.prompt(&session, "hello while shown");
+    let done = notice(&daemon, surface, |row| {
+        row["title"].as_str().is_some_and(|t| t.ends_with("finished"))
+    });
+    assert!(done["body"].as_str().unwrap().contains("hello while shown"), "{done}");
 
-    // acpmux tells the daemon of every chat in order on one watch, so once
-    // the other chat's later turn notified, the shown chat's turn was passed over.
-    Acpmux::connect(&daemon, &other_session).prompt(&other_session, "hello there");
-    notice(&daemon, other_surface, |row| row["acknowledged"] == false);
-    assert_eq!(
-        notices(&daemon, surface),
-        Vec::<Value>::new(),
-        "a turn the person watched notified"
-    );
+    // Another hidden turn after it: the shown chat posted nothing more meanwhile.
+    other.prompt(&other_session, "hello again");
+    notice(&daemon, other_surface, |row| {
+        row["body"].as_str().is_some_and(|b| b.contains("hello again"))
+    });
+    let shown = notices(&daemon, surface);
+    assert_eq!(shown.len(), 1, "one notice for the turn: {shown:?}");
 }
 
 #[test]

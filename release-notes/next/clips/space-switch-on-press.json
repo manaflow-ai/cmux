@@ -1,0 +1,15 @@
+{
+  "caption": "Switch spaces in the sidebar and the next space's workspaces show at once, with no slide.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "A second workspace", "cmux": ["--json", "workspace", "create", "--name", "Notes"], "wait": 1.5},
+    {"title": "A second space", "cmux": ["room", "create", "--name", "Work"], "wait": 2},
+    {"title": "Back to the first space", "cmux": ["action", "run", "space.previous"], "wait": 1.5},
+    {"title": "Next Space", "cmux": ["action", "run", "space.next"], "wait": 1.2, "clip": true},
+    {"title": "Previous Space", "cmux": ["action", "run", "space.previous"], "wait": 1.2, "clip": true},
+    {"title": "Next Space again", "cmux": ["action", "run", "space.next"], "wait": 1.2, "clip": true},
+    {"title": "End", "wait": 0.3}
+  ],
+  "crop": [0, 0, 0.3, 1]
+}

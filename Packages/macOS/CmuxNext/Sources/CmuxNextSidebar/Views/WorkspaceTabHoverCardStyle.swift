@@ -57,20 +57,26 @@ struct WorkspaceTabHoverCardStyle: Hashable, Sendable {
     /// Tabs listed under a muted kind label (terminals, agents, pages), each group in its tabs' order.
     var groupsByKind = false
     var header: Header = .plain
-    var material: Material = .frosted
+    /// The shared hover card glass, like every other hover card (Leo 2026-11-06: "when you hover on the
+    /// left, there's no glass"); `.frosted` stays as a gallery variant.
+    var material: Material = .glass
     /// How many tabs show before "Show N more".
     var rowLimit = 4
     /// The state word in its status color (needs input orange, error red).
     var tintsState = false
+    /// Every tab row two lines tall, a row with no detail line too (the card before Leo 2026-11-06: "you got
+    /// all these empty things"). Off: a row with no detail line is one row tall, so it leaves no empty line.
+    var uniformRowHeight = false
 
     /// The shipped card: compact two-line rows (icon, title, one muted line: command · place · model ·
-    /// state · machine · time, each when the tab has it) on one text column, on the frosted glass.
+    /// state · machine · time, each when the tab has it) on one text column, on the shared glass. A tab
+    /// with no fact for that line is one row tall.
     static let standard = WorkspaceTabHoverCardStyle()
 
     /// A row's height at the sidebar's density and text size (``SidebarHoverCardMetrics``): one row, and the detail
-    /// text added for a two-line row (24 and 34 pt at compact and the default text).
-    @MainActor var rowHeight: CGFloat {
+    /// text added for a two-line row that has a detail line (24 and 34 pt at compact and the default text).
+    @MainActor func rowHeight(hasDetail: Bool) -> CGFloat {
         let card = SidebarRowTokens.current.hoverCard
-        return twoLines ? card.tabRowHeightTwoLines : card.tabRowHeight
+        return twoLines && (hasDetail || uniformRowHeight) ? card.tabRowHeightTwoLines : card.tabRowHeight
     }
 }

@@ -352,3 +352,41 @@ fn incremental_projection_matches_full_rebuild_under_mixed_mutations() {
     seed(&mux, 20, &fresh);
     assert_store_matches_full_projection(&mux);
 }
+
+/// The daemon's own selection after a close (the active tab the CLI and every
+/// client start from) is Chrome's positional rule: the tab after the closed
+/// one, else the one before it; an unselected close keeps it (cmux-focus-core
+/// `close_focus::tab`; Lawrence 2026-11-09: "ensure our cmd w behavior
+/// matches chrome").
+#[test]
+fn tab_close_like_chrome_in_the_daemon() {
+    let mux = mux();
+    let key = workspace(&mux, 1);
+    let tabs: Vec<SurfaceId> = (1..=5).map(|n| seed(&mux, n, &key)).collect();
+    let pane = mux.with_state(|state| state.pane_of(tabs[0])).expect("seeded pane");
+    assert_eq!(
+        mux.with_state(|state| state.panes.get(&pane).map(|pane| pane.tabs.clone())),
+        Some(tabs.clone()),
+        "the seeded terminals are one strip, in order"
+    );
+    let select = |surface: SurfaceId| {
+        let mut state = mux.state.lock().unwrap();
+        let pane = state.panes.get_mut(&pane).expect("pane");
+        pane.active_tab = pane.tabs.iter().position(|tab| *tab == surface).expect("tab");
+    };
+    let close = |surface: SurfaceId| {
+        mux.close_tabs(vec![surface], false, &WorkspaceMutation::daemon_local("tab-close-test"))
+            .unwrap();
+        mux.with_state(|state| state.panes.get(&pane).and_then(|pane| pane.active_surface()))
+    };
+    // 1 2 3 4 5.
+    select(tabs[2]);
+    assert_eq!(close(tabs[2]), Some(tabs[3]), "the tab after the closed one");
+    assert_eq!(close(tabs[0]), Some(tabs[3]), "an unselected close keeps the selection");
+    // 2 4 5.
+    select(tabs[4]);
+    assert_eq!(close(tabs[4]), Some(tabs[3]), "the last tab: the one before it");
+    // 2 4.
+    select(tabs[1]);
+    assert_eq!(close(tabs[1]), Some(tabs[3]), "the first tab: the one after it");
+}

@@ -22,6 +22,8 @@ public actor ImportHistorySync {
     private let delay: Duration
     private let limit: Int
     private let deliver: Deliver
+    /// Imported cookies' sync, matched to the store with the history watches (after an import or a removal).
+    public nonisolated let cookies: ImportCookieSync?
     private var watches: [String: HistoryFileWatch] = [:]
     private var timers: [String: DemandTimer] = [:]
     /// Each watched database's files (size and change time) at its last read.
@@ -33,7 +35,8 @@ public actor ImportHistorySync {
 
     /// `grants`: the folder grants reads need (nil: folders are read directly).
     public init(store: ImportedDataStore, grants: BrowserFolderGrants?, delay: Duration = .seconds(20),
-                limit: Int = ImportPlan.defaultHistoryLimit, deliver: @escaping Deliver) {
+                limit: Int = ImportPlan.defaultHistoryLimit, cookies: ImportCookieSync? = nil, deliver: @escaping Deliver) {
+        self.cookies = cookies
         self.store = store
         self.grants = grants
         self.delay = delay
@@ -47,6 +50,7 @@ public actor ImportHistorySync {
     /// Watches every synced source of the store: new ones start (and read
     /// once), ones no longer synced stop.
     public func reconcile() async {
+        await cookies?.reconcile()
         guard !isPaused else { return endAll() }
         let records = await store.syncedSources()
         // Paused while the store answered: watch nothing.

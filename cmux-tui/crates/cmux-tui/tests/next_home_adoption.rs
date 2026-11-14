@@ -408,7 +408,7 @@ fn a_post_update_chat_that_only_its_journal_holds_is_adopted_whole() {
     fs::create_dir_all(&new).unwrap();
     let id = "01a10000-0000-7000-8000-0000000000e1";
     {
-        let config = acpmux::config::StoreConfig { journal: true, ..Default::default() };
+        let config = acpmux::config::StoreConfig::default();
         let store = acpmux::store::open(&config, &new).unwrap();
         let meta: acpmux::store::SessionMeta = serde_json::from_value(serde_json::json!({
             "schema": acpmux::store::META_SCHEMA, "id": id, "name": "journal-only",

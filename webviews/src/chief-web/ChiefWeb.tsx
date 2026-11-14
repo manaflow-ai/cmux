@@ -1,3 +1,4 @@
+import { toggleTurnFold } from "../agent-session/acpmux/conversation/turns";
 import "../agent-session/guest/guest.css";
 import "./chief-web.css";
 import {
@@ -10,7 +11,8 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { VirtualTranscript, readOnlyRegistry } from "../agent-session/acpmux/App";
+import { VirtualTranscript } from "../agent-session/acpmux/App";
+import { readOnlyRegistry } from "../agent-session/acpmux/rows/registry";
 import { GuestActionsBoundary } from "../agent-session/acpmux/conversation/GuestActionsBoundary";
 import { Spinner } from "../agent-session/acpmux/conversation/icons";
 import { ArrowUpIcon } from "../agent-session/acpmux/ComposerPickers";
@@ -262,13 +264,7 @@ function ChiefChat({
               rows={rows}
               sessionId={`chief-web:${identity.mainConversationId}`}
               expanded={expanded}
-              onToggleActivity={(id) =>
-                setExpanded((open) => {
-                  const next = new Set(open);
-                  if (!next.delete(id)) next.add(id);
-                  return next;
-                })
-              }
+              onToggleActivity={(id, covers) => setExpanded((open) => toggleTurnFold([], open, id, covers))}
               working={working}
               registry={chiefRegistry}
               readOnly

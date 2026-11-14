@@ -27,18 +27,18 @@ impl PendingBells {
         })
     }
 
-    /// Emit one `Bell` event per counted bell, and mark the terminal's tab for
-    /// attention like a notification (at most once per cooldown). Call without
-    /// the terminal or geometry lock held.
+    /// Emit one `Bell` event for the bells counted since the last publish (one
+    /// read), and mark the terminal's tab for attention like a notification (at
+    /// most once per cooldown). A read full of BEL bytes is one event: each
+    /// event takes `Mux::state` and a slot in every subscriber's mailbox. Call
+    /// without the terminal or geometry lock held.
     pub(super) fn publish(&self, mux: &Weak<Mux>, surface: SurfaceId) {
         let rung = self.rung.swap(0, Ordering::AcqRel);
         if rung == 0 {
             return;
         }
         if let Some(mux) = mux.upgrade() {
-            for _ in 0..rung {
-                mux.emit_terminal_bell(surface);
-            }
+            mux.emit_terminal_bell(surface);
             // The mark is a durable notification: the terminal publisher
             // commits it, not the reader (#35413).
             if self.notification_due(Instant::now()) {
@@ -58,5 +58,33 @@ impl PendingBells {
         }
         *notified_at = Some(now);
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One read that holds thousands of BEL bytes is one `Bell` event, not one per byte: each
+    /// event takes `Mux::state` and fills every subscriber's mailbox.
+    #[test]
+    fn a_read_with_many_bells_publishes_one_bell_event() {
+        let mux = Mux::new_for_test("bells", SurfaceOptions::default());
+        let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let events = mux.subscribe();
+        let bells = PendingBells::default();
+        let mut ring = bells.callback();
+        for _ in 0..10_000 {
+            ring();
+        }
+        bells.publish(&Arc::downgrade(&mux), source.id);
+        assert!(!events.overflowed(), "one read of bells closed the subscriber");
+        let mut published = 0;
+        while let Ok(event) = events.try_recv() {
+            if matches!(event, MuxEvent::Bell(surface) if surface == source.id) {
+                published += 1;
+            }
+        }
+        assert_eq!(published, 1);
     }
 }

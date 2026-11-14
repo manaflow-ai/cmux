@@ -22,15 +22,17 @@ use tokio::task::JoinSet;
 
 use crate::daemon::RemoteDaemon;
 use crate::identity::{EnrollmentRelayAccess, IdentityError};
-use crate::unix_socket::{
-    OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup, UnixSocketError,
-};
+use crate::unix_socket::{OwnedUnixListener, UnixSocketCleanup, UnixSocketError};
 
 const MAX_ADMIN_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_ADMIN_CONNECTIONS: usize = 32;
 const ADMIN_IO_TIMEOUT: Duration = Duration::from_secs(5);
 
+mod link;
 mod mux_binding;
+pub use link::{
+    LINK_AWAIT_LIMIT, LinkStatus, link_admin_socket, serve_link_admin, serve_link_cell_admin,
+};
 pub use mux_binding::{MuxBinding, verify_mux_binding};
 
 /// Failure to authenticate the process on the other end of a Unix socket.
@@ -112,6 +114,13 @@ pub enum AdminRequest {
     Shutdown,
     ShutdownLifecycle {
         lifecycle_id: String,
+    },
+    /// The link's state. Served only by a link's own socket ([`serve_link_admin`]).
+    LinkState,
+    /// Wait until the link is connected or `within_ms` passes; the answer is the state, `down`
+    /// with the reason past the deadline. Served only by a link's own socket.
+    AwaitReady {
+        within_ms: u64,
     },
 }
 
@@ -236,7 +245,7 @@ pub async fn serve_admin_with_mux_binding(
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let permits = Arc::new(Semaphore::new(MAX_ADMIN_CONNECTIONS));
     let task = tokio::spawn(async move {
-        let mut accept_backoff = UnixAcceptBackoff::new();
+        let mut accept_backoff = crate::unix_socket::accept_backoff();
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -252,7 +261,7 @@ pub async fn serve_admin_with_mux_binding(
                             accepted
                         }
                         Err(error) => {
-                            let Some(delay) = accept_backoff.retry_delay(&error) else {
+                            let Some(delay) = cmux_tui_core::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
                                 if let Some(owner_shutdown) = &owner_shutdown {
                                     let _ = owner_shutdown.send(true);
                                 }
@@ -613,11 +622,14 @@ async fn call_admin_over_stream(
     // daemon's one-response close and return ENOTCONN on macOS.
     let mut reader = BufReader::new(stream);
     let mut response = Vec::new();
-    let size = timeout_admin_io(
-        "reading admin response",
+    let size = tokio::time::timeout(
+        link::response_timeout(request),
         read_bounded_admin_message(&mut reader, &mut response),
     )
-    .await?;
+    .await
+    .map_err(|_| {
+        AdminError::Io(io::Error::new(io::ErrorKind::TimedOut, "timed out reading admin response"))
+    })??;
     if size == 0 {
         return Err(AdminError::Protocol("daemon closed the admin connection".into()));
     }
@@ -769,6 +781,9 @@ async fn dispatch(
         AdminRequest::Shutdown => request_shutdown(lifecycle_id, None, owner_shutdown),
         AdminRequest::ShutdownLifecycle { lifecycle_id: requested_lifecycle_id } => {
             request_shutdown(lifecycle_id, Some(&requested_lifecycle_id), owner_shutdown)
+        }
+        AdminRequest::LinkState | AdminRequest::AwaitReady { .. } => {
+            Err(IdentityError::Invalid("link requests are served by a link's own socket".into()))
         }
     };
     match result {

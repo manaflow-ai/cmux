@@ -158,6 +158,11 @@ public protocol HomeSource: Sendable {
     /// cannot place is left out; unsupported owners return none.
     func agentSessions(_ peers: [String], of conversation: ConversationID) async -> [HomeAgentSessionRef]
 
+    /// The Chief's agents that have a session now (its acpmux's subagent sessions, by Chief id `a<n>`): the
+    /// current set when iteration starts, then each change. An agent queued behind the cap starts with no
+    /// word in the chat, so this is how ``HomeStore/agentsStarted(_:)`` learns it. Unsupported owners finish at once.
+    func agentStarts() async -> AsyncStream<Set<String>>
+
     /// Asks the owner of `conversation` for its live run snapshot (`run.live`),
     /// which arrives as a `.live(.snapshot)` event: on open and after a missed frame.
     func requestLive(of conversation: ConversationID) async
@@ -183,6 +188,9 @@ extension HomeSource {
 
     /// Default: an owner that cannot say where its agents run.
     public func agentSessions(_ peers: [String], of conversation: ConversationID) async -> [HomeAgentSessionRef] { [] }
+
+    /// Default: an owner that cannot see its agents start.
+    public func agentStarts() async -> AsyncStream<Set<String>> { AsyncStream { $0.finish() } }
 
     /// Default: an owner without run reads.
     public func liveRunRows(of conversation: ConversationID, run: String, author: ParticipantID) async -> [HomeLiveRunSnapshot.Step]? {

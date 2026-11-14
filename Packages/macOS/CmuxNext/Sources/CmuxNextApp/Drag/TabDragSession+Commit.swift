@@ -182,7 +182,7 @@ extension TabDragSession {
     func openTornOff(workspace key: WorkspaceKey, frame: CGRect, drag: Drag) -> WindowController? {
         let incognito = drag.source.window.map { services.windows.isIncognito(window: $0.state.id) } ?? false
         // Option files it away: the new window opens behind, never key.
-        return services.windows.openWindow(workspaces: [key.rawValue], frame: frame, incognito: incognito, behind: drag.filesAway)
+        return services.windows.openWindow(workspaces: [key.rawValue], frame: frame, incognito: incognito, behind: drag.filesAway).map { WindowOwnSpace.give($0.state.id, in: services.windows); return $0 }
     }
 
     // MARK: Lookup

@@ -144,13 +144,15 @@ public struct CloudWorkspaceSetupWizard {
     /// Cloud path only (the classic path has none and its answers never name one).
     /// `sizes`: the plan's machine sizes (``SizeOption/options(limits:machines:)``), offered with the
     /// smallest selected; none shows no size choice and the plan picks it. `autosized`: the chat sizes
-    /// its own repository's machine, offered first.
+    /// its own repository's machine, offered first. `selectedEnvironment`: one of `environments` the
+    /// dialog starts on (the composer's Environment chip); one not listed starts where it would.
     public func choosePlan(availability: CredentialAvailability,
                            scopeIsCurrent: () -> Bool,
                            supportsRepository: Bool = true,
                            suggested: CloudMachineRepo? = nil,
                            environments: [EnvironmentOption] = [],
                            supportsEnvironments: Bool = false,
+                           selectedEnvironment: String? = nil,
                            sizes: [SizeOption] = [],
                            autosized: Bool = false,
                            present: (CmuxDialogSpec) async -> CmuxDialogAnswer) async throws -> Plan? {
@@ -158,7 +160,7 @@ public struct CloudWorkspaceSetupWizard {
         let answer = await present(Self.setupDialogSpec(availability: availability, source: suggestion == nil ? .empty : .repository,
                                                         repository: suggestion?.spec ?? "", supportsRepository: supportsRepository,
                                                         environments: environments, supportsEnvironments: supportsEnvironments,
-                                                        sizes: sizes, autosized: autosized))
+                                                        selectedEnvironment: selectedEnvironment, sizes: sizes, autosized: autosized))
         guard scopeIsCurrent(), answer.button == "create", !answer.isDismissal,
               let choice = answer.text(Field.source) else { return nil }
         var plan: Plan
@@ -189,6 +191,7 @@ public struct CloudWorkspaceSetupWizard {
     public static func setupDialogSpec(availability: CredentialAvailability = .available,
                                 source: Source = .empty, repository: String = "", supportsRepository: Bool = true,
                                 environments: [EnvironmentOption] = [], supportsEnvironments: Bool = false,
+                                selectedEnvironment: String? = nil,
                                 sizes: [SizeOption] = [], autosized: Bool = false) -> CmuxDialogSpec {
         var options = [
             CmuxDialogOption(label: CloudWorkspaceSetupWizardStrings.emptyChoice, value: Source.empty.rawValue),
@@ -204,7 +207,8 @@ public struct CloudWorkspaceSetupWizard {
             summary = supportsRepository ? CloudWorkspaceSetupWizardStrings.setupSummary : CloudWorkspaceSetupWizardStrings.emptyOnlySummary
         }
         let usable = (source == .repository && !supportsRepository) || source == .environment || (source == .newEnvironment && !supportsEnvironments) ? Source.empty : source
-        fields.append(.choice(id: Field.source, label: CloudWorkspaceSetupWizardStrings.sourceLabel, options: options, selected: usable.rawValue))
+        let preselected = supportsEnvironments ? selectedEnvironment.flatMap { id in environments.contains { $0.id == id } ? environmentPrefix + id : nil } : nil
+        fields.append(.choice(id: Field.source, label: CloudWorkspaceSetupWizardStrings.sourceLabel, options: options, selected: preselected ?? usable.rawValue))
         fields.append(.text(Field.repository, initial: repository, label: supportsEnvironments && !supportsRepository ? CloudWorkspaceSetupWizardStrings.newEnvironmentRepositoryLabel : CloudWorkspaceSetupWizardStrings.repositoryLabel,
                             placeholder: CloudWorkspaceSetupWizardStrings.repositoryPlaceholder))
         if supportsEnvironments {

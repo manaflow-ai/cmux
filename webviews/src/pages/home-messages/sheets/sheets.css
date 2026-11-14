@@ -1,0 +1,353 @@
+/* The Messages sheets and New Message (home-messages/sheets). The sheet frame is the channels
+   page's lg-form; this file adds the sheets' own rows. Lines that come and go (the status line,
+   the seat line) keep their place, so nothing moves when they change. */
+
+.hm-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  min-width: 0;
+}
+.hm-sheet-body {
+  margin: 0;
+  color: var(--page-text);
+}
+.hm-sheet-caption {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--page-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.hm-sheet-note {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--page-text);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.hm-sheet-header {
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+  color: var(--page-text);
+}
+.hm-sheet-title {
+  margin: 0;
+  font-weight: var(--weight-emphasis);
+  color: var(--page-text);
+}
+.hm-sheet-label {
+  flex: 1;
+  color: var(--page-text);
+}
+.hm-sheet-pending {
+  white-space: pre-line;
+}
+.hm-sheet-empty {
+  margin: 0;
+  color: var(--page-text-2);
+}
+/* One caption line, kept while empty. */
+.hm-sheet-status {
+  min-height: var(--text-caption--line-height);
+  margin: 0;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  color: var(--page-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.hm-sheet-tag {
+  flex: none;
+  font-size: var(--text-caption);
+  color: var(--page-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.hm-sheet-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+}
+.hm-sheet-row.end {
+  justify-content: flex-end;
+}
+.hm-sheet-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+}
+.hm-sheet-start {
+  align-self: flex-start;
+}
+/* Leave Group… sits at the leading edge of the actions, Done at the trailing one. */
+.hm-sheet-leading {
+  margin-inline-end: auto;
+}
+
+/* ---------- Message Requests ---------- */
+.hm-requests {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-4);
+}
+.hm-request {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  /* Off-screen requests skip layout and paint. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+}
+.hm-request-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+}
+.hm-request-name {
+  font-weight: var(--weight-emphasis);
+  color: var(--page-text);
+}
+.hm-request-line {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--page-text);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.hm-request-buttons {
+  display: flex;
+  gap: var(--ds-space-2);
+  margin-top: var(--ds-space-1);
+}
+
+/* ---------- Group info ---------- */
+.hm-members {
+  max-height: 200px;
+}
+.hm-addable {
+  max-height: 160px;
+}
+.hm-member,
+.hm-addable-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  min-width: 0;
+}
+.hm-member-name {
+  overflow: hidden;
+  color: var(--page-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hm-member-name.chosen {
+  font-weight: var(--weight-emphasis);
+}
+.hm-member-remove {
+  margin-inline-start: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--hc-danger);
+  font: inherit;
+  font-size: var(--text-caption);
+  cursor: default;
+}
+
+/* ---------- New Message ---------- */
+.hm-new-message {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.hm-new-message-head {
+  position: relative;
+  z-index: var(--layer-raised);
+  flex: none;
+}
+.hm-new-message-notice {
+  margin: 0;
+  padding: var(--ds-space-2) var(--ds-space-4) 0;
+  font-size: var(--text-caption);
+  color: var(--hc-danger);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.hm-new-message-body {
+  flex: 1;
+  min-height: 0;
+}
+.hm-to-wrap {
+  position: relative;
+}
+.hm-to {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-height: 32px;
+  padding: var(--ds-space-1) var(--ds-space-4);
+  border-bottom: 1px solid var(--page-separator);
+  background: var(--page-bg, transparent);
+}
+.hm-to-label {
+  margin-inline-end: var(--ds-space-1);
+  color: var(--page-text-2);
+}
+.hm-to-input {
+  flex: 1 0 120px;
+  min-width: 120px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--page-text);
+  font: inherit;
+  outline: none;
+}
+.hm-to-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--page-text-2);
+  cursor: default;
+}
+.hm-to-add:hover {
+  background: var(--page-hover);
+}
+.hm-token {
+  max-width: 240px;
+  height: 24px;
+  padding: 0 var(--ds-space-2);
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--hc-accent) 16%, transparent);
+  color: var(--hc-accent);
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+}
+.hm-token[data-selected] {
+  background: color-mix(in srgb, var(--hc-accent) 36%, transparent);
+}
+.hm-token[data-invalid] {
+  background: color-mix(in srgb, var(--hc-danger) 16%, transparent);
+  color: var(--hc-danger);
+}
+.hm-token[data-invalid][data-selected] {
+  background: color-mix(in srgb, var(--hc-danger) 36%, transparent);
+}
+.hm-to[data-token-style="outline"] .hm-token {
+  border-color: color-mix(in srgb, var(--hc-accent) 50%, transparent);
+  background: transparent;
+}
+.hm-to[data-token-style="outline"] .hm-token[data-invalid] {
+  border-color: color-mix(in srgb, var(--hc-danger) 50%, transparent);
+}
+.hm-to[data-token-style="outline"] .hm-token[data-selected] {
+  background: color-mix(in srgb, var(--hc-accent) 16%, transparent);
+}
+.hm-to[data-token-style="text"] .hm-token {
+  padding: 0;
+  border-radius: 4px;
+  background: transparent;
+}
+.hm-to[data-token-style="text"] .hm-token:not(:last-of-type)::after {
+  content: ",";
+}
+.hm-to[data-token-style="text"] .hm-token[data-selected] {
+  background: color-mix(in srgb, var(--hc-accent) 16%, transparent);
+}
+
+/* The list floats over the content under the field: choosing people never moves the page. */
+.hm-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  inset-inline: var(--ds-space-2);
+  padding: var(--ds-space-1) 0;
+  border-radius: 12px;
+  background: var(--surface-popup);
+  box-shadow: var(--ui-popup-shadow);
+  overflow: hidden;
+}
+.hm-suggestions-list.ui-listbox {
+  max-height: 396px;
+  padding: 0;
+  overflow-y: auto;
+  outline: none;
+}
+/* The list's row metrics are Messages' (HomeRecipientSuggestionsView: 44 pt rows, 26 pt
+   section headers); RecipientField.tsx windows the list with the same numbers. */
+.hm-suggestions {
+  --hm-suggestion-row: 44px;
+  --hm-suggestion-header: 26px;
+}
+.hm-suggestion-row {
+  height: var(--hm-suggestion-row);
+  padding: 0;
+}
+.hm-suggestion-row[data-kind="header"] {
+  height: var(--hm-suggestion-header);
+}
+.hm-suggestion-row[data-highlighted] {
+  background: var(--page-hover);
+}
+.hm-suggestions-empty {
+  margin: 0;
+  padding: var(--ds-space-3) var(--ds-space-4);
+  font-size: var(--text-caption);
+  color: var(--page-text-2);
+}
+.hm-suggestion-header {
+  display: flex;
+  height: 100%;
+  box-sizing: border-box;
+  align-items: flex-end;
+  padding: 0 var(--ds-space-4) var(--ds-space-1);
+  font-size: var(--text-caption);
+  color: var(--page-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.hm-suggestion {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  gap: var(--ds-space-3);
+  padding: 0 var(--ds-space-4);
+  cursor: default;
+}
+.hm-suggestion-lead {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--page-text-2);
+}
+.hm-suggestion-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.hm-suggestion-name,
+.hm-suggestion-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hm-suggestion-name {
+  color: var(--page-text);
+}
+.hm-suggestion-line {
+  font-size: var(--text-caption);
+  color: var(--page-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
+}

@@ -71,6 +71,15 @@ impl State {
 }
 
 impl Mux {
+    /// The runtime id of the in-process terminal whose host id is `host`
+    /// (W5-P: a terminal selector takes a host id, and the host index holds
+    /// hosted terminals only).
+    pub(crate) fn in_process_terminal_by_host(&self, host: &str) -> Option<SurfaceId> {
+        let reserved =
+            self.reserved_in_process_terminals.lock().unwrap_or_else(PoisonError::into_inner);
+        reserved.iter().find(|(_, identity)| identity.terminal_id == host).map(|(id, _)| *id)
+    }
+
     /// The catalog owner of host terminal `terminal_id`; two owners with that
     /// identity are `duplicate_terminal_id`.
     pub(super) fn catalog_terminal_by_host(

@@ -1,5 +1,6 @@
 import { memo } from "react";
-import { RenderToolCard, canRender } from "../conversation/RenderCard";
+import { RenderToolCard } from "../conversation/RenderCard";
+import { canRender } from "../conversation/renderCardModel";
 import { type RowProps } from "./rowProps";
 
 /// An ended turn's render call, live (conversation/RenderCard.tsx).

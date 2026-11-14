@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextHome
+import CmuxNextHomeModel
 @testable import CmuxNextHomeEngine
 import Testing
 

@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from pathlib import PurePosixPath
 from typing import Any
 
-from codegen.ir import SdkIR
+from codegen.ir import SdkIR, admits_json_null
 from codegen.naming import pascal_case, snake_case
 from codegen.writer import Emitter
 
@@ -821,6 +821,16 @@ class CppEmitter:
                 ]
             )
         else:
+            if admits_json_null(self.ir.document["types"], expression):
+                # Opaque JSON decodes a null as a value, so a field that is
+                # not nullable rejects it here with the typed decode error.
+                lines.extend(
+                    [
+                        f"        if (field_{member}->is_null()) {{",
+                        f'            return make_error(ErrorCode::decode, "field \'{wire_name}\' must not be null");',
+                        "        }",
+                    ]
+                )
             lines.extend(
                 [
                     f"        auto decoded = decode_value<{base}>(*field_{member});",

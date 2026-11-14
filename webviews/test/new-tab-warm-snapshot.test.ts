@@ -2,7 +2,7 @@
 // of this Mac listed last, so the next page's first frame lists them (Leo 2026-10-19: the recent
 // chats flickered as a new workspace opened). The page lists them until its own list arrives.
 import { afterEach, expect, jest, test } from "bun:test";
-import { newTabHost } from "../src/agent-session/acpmux/NewTabPage";
+import { newTabHost } from "../src/agent-session/acpmux/newTabModel";
 import { deviceChats, setDeviceChats } from "../src/agent-session/acpmux/newtab/deviceChats";
 import {
   publishWarmNewTab,

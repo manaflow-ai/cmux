@@ -19,6 +19,7 @@ import Testing
         let services = AppServices(environment: AppEnvironment.current([:]))
         // The launch, before its restore ended (the launch snapshot's window, `restoreWhenLoaded`).
         services.windows.registry.isLaunching = true
+        services.windows.launchWindowID = "restored-in-place"
         let controller = services.windows.makeController(for: WindowRegistry.Window(id: "restored-in-place"))
         defer { controller.teardown(); controller.window?.close() }
         #expect(controller.window?.animationBehavior == NSWindow.AnimationBehavior.none,

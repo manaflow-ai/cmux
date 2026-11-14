@@ -589,6 +589,17 @@ pub async fn run(
     }
 }
 
+/// The watch (id 2), its first page only: the rest comes by its `nextCursor`
+/// (`notify_waiting.rs` `next_page`). Asked whole, one Mac's list was 24.8 MB in one frame,
+/// past this socket's frame limit, so the watch failed and was asked again about every
+/// minute for hours (2026-11-06).
+fn watch_request() -> Value {
+    json!({"jsonrpc":"2.0","id":2,"method":"_acpmux/watch","params":{"enabled":true,"limit":WATCH_PAGE_ROWS}})
+}
+
+/// The sessions of the watch's first page.
+const WATCH_PAGE_ROWS: u64 = 200;
+
 async fn watch_once(
     reporter: &Reporter,
     acpmux: &AcpmuxTarget,
@@ -599,7 +610,7 @@ async fn watch_once(
     let (mut sink, mut source) = socket.split();
     let requests = [
         json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientInfo":{"name":"cmux-mobile-host-push","version":"1"},"clientCapabilities":{}}}),
-        json!({"jsonrpc":"2.0","id":2,"method":"_acpmux/watch","params":{"enabled":true}}),
+        watch_request(),
     ];
     for request in requests {
         sink.send(Message::Text(request.to_string().into())).await.map_err(|e| e.to_string())?;
@@ -685,6 +696,16 @@ mod tests {
     use tokio::net::TcpListener;
     use tokio::sync::watch;
     use tokio::time::{Duration, timeout};
+
+    /// The push watch never asks acpmux for its whole list in one reply: a first page, the rest
+    /// by its cursor.
+    #[test]
+    fn the_watch_asks_for_its_first_page_only() {
+        let request = watch_request();
+        assert_eq!(request["method"], "_acpmux/watch");
+        assert_eq!(request["params"]["enabled"], true);
+        assert_eq!(request["params"]["limit"], WATCH_PAGE_ROWS);
+    }
 
     fn watch() -> Value {
         json!({"sessions":[

@@ -7,6 +7,7 @@ import CmuxNextScreenshots
 import CmuxNextTerminal
 import CmuxNextTerminalFind
 import CmuxNextCompat
+import CmuxNextWindowRules
 
 // Find (the terminal's find bar over Ghostty search, the browser's find bar, the chat's) and input
 // sent through the daemon.
@@ -106,7 +107,7 @@ extension TerminalHandlers {
                 guard let url = await latestScreenshot() else {
                     return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noScreenshot)
                 }
-                let text = shellQuoted(url.path)
+                guard let text = shellQuoted(url.path) else { return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noScreenshot) }
                 return await daemon.failure("send") { try await $0.send(surface, text: text, paste: true) }
             }
         })
@@ -132,8 +133,9 @@ extension TerminalHandlers {
         return await ScreenshotFolderReader().newestPicture(in: folder)
     }
 
-    static func shellQuoted(_ path: String) -> String {
-        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    /// `path` as one shell word (Rust's `tabs::panes::shell_quoted`); nil when the FFI does not answer.
+    nonisolated static func shellQuoted(_ path: String) -> String? {
+        WindowRules().shellQuoted(path)
     }
 
     /// Opens `directory` in Finder, or in `app` (a bundle id, app name, or path).

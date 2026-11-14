@@ -13,18 +13,44 @@
 # In a VM (scripts/measure/cu-driver-bench.sh suite=input-ab) the copy is not a git checkout:
 # CU_DRIVER_EVAL_ROOT and CU_DRIVER_EVAL_REV name the tree and its commit, and CU_DRIVER_EVAL_GRANT
 # names a command that is given every executable the A/B runs, before the grants are checked.
+# bench=preflight|run (with a model route, cu-driver-bench.sh suite=bench-v2) runs Cua Driver Bench v2
+# with the drivers instead of the A/B (bench_v2.py): condition=background|foreground, reps= runs per
+# task, tasks=A,B, waive=REGEX[;REGEX] for preflight checks that only fit the bench's own builds.
+# arena=run (cu-driver-bench.sh suite=arena) runs the computer-use arena instead (arena/README.md):
+# arms=a,b engines (each built or fetched as its PR or release runs it; engines=DIR holds the ones
+# build-engines.sh built), harness=claude:MODEL,codex:MODEL, arena_tasks=a,b, reps= runs per task.
+# arena=latency (cu-driver-bench.sh suite=latency) assembles the same arms and runs the per-call
+# latency bench on them instead (../cu-bench/README.md), reps= rounds, no model.
 set -uo pipefail
-reps=3 drivers="cmux-cua,cua-driver-0.38.0" electron=1
+reps=3 drivers="cmux-cua,cua-driver-0.38.0" electron=1 bench="" condition=background tasks="" waive=""
+arena="" arms="" harness="" arena_tasks="" engines="" arena_budget=0
 for arg in "$@"; do
   case "$arg" in
     reps=*) reps="${arg#reps=}" ;;
     drivers=*) drivers="${arg#drivers=}" ;;
     electron=*) electron="${arg#electron=}" ;;
+    bench=*) bench="${arg#bench=}" ;;
+    condition=*) condition="${arg#condition=}" ;;
+    tasks=*) tasks="${arg#tasks=}" ;;
+    waive=*) waive="${arg#waive=}" ;;
+    arena=*) arena="${arg#arena=}" ;;
+    arms=*) arms="${arg#arms=}" ;;
+    harness=*) harness="${arg#harness=}" ;;
+    arena_tasks=*) arena_tasks="${arg#arena_tasks=}" ;;
+    engines=*) engines="${arg#engines=}" ;;
+    arena_budget=*) arena_budget="${arg#arena_budget=}" ;;
     *) echo "cu-driver-eval.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
 [[ "$reps" =~ ^[1-9][0-9]?$ ]] || { echo "cu-driver-eval.sh: reps= is 1..99" >&2; exit 2; }
 [[ "$drivers" =~ ^[a-z0-9.,-]*$ ]] || { echo "cu-driver-eval.sh: drivers= is a comma list of names" >&2; exit 2; }
+[[ -z "$bench" || "$bench" == preflight || "$bench" == run ]] || { echo "cu-driver-eval.sh: bench= is preflight or run" >&2; exit 2; }
+[[ "$condition" == background || "$condition" == foreground ]] || { echo "cu-driver-eval.sh: condition= is background or foreground" >&2; exit 2; }
+[[ "$tasks" =~ ^[A-Z0-9,-]*$ ]] || { echo "cu-driver-eval.sh: tasks= is a comma list of task ids" >&2; exit 2; }
+[[ -z "$arena" || "$arena" == run || "$arena" == latency ]] || { echo "cu-driver-eval.sh: arena= is run or latency" >&2; exit 2; }
+[[ "$arms" =~ ^[a-z0-9.,-]*$ && "$arena_tasks" =~ ^[a-z0-9,-]*$ ]] || { echo "cu-driver-eval.sh: arms= and arena_tasks= are comma lists of names" >&2; exit 2; }
+[[ "$arena_budget" =~ ^-?[0-9]+$ ]] || { echo "cu-driver-eval.sh: arena_budget= is seconds" >&2; exit 2; }
+[[ "$harness" =~ ^[a-z0-9.,:-]*$ ]] || { echo "cu-driver-eval.sh: harness= is a comma list of claude:MODEL or codex:MODEL" >&2; exit 2; }
 root="${CU_DRIVER_EVAL_ROOT:-$(git rev-parse --show-toplevel)}"
 cd "$root"
 here="$root/scripts/measure/cu-driver-eval"
@@ -87,6 +113,7 @@ echo "CU-DRIVER-EVAL-SCREEN $screen"
 echo "CU-DRIVER-EVAL-STAGE downloads"
 driver_args=()
 driver_bins=()
+driver_pairs=()
 names=()
 [[ -n "$drivers" ]] && IFS=',' read -r -a names <<<"$drivers"
 for name in ${names[@]+"${names[@]}"}; do
@@ -167,6 +194,7 @@ PLIST
   [[ "$name" == cmux-cua ]] || codesign -v "$binary" 2>/dev/null || codesign -s - -f "$binary" >/dev/null 2>&1
   driver_args+=(--driver "$label=$binary")
   driver_bins+=("$binary")
+  driver_pairs+=("$label=$binary")
 done
 electron_args=()
 if [[ "$electron" == 1 ]]; then
@@ -177,6 +205,74 @@ if [[ "$electron" == 1 ]]; then
   else
     echo "CU-DRIVER-EVAL-ERROR electron: could not fetch; the electron target is skipped" | tee -a "$out/input-ab/download-errors.txt"
   fi
+fi
+
+bench_args=()
+if [[ -n "$bench" ]]; then
+  # Cua Driver Bench v2 from its pinned source (pins.json bench_v2), with a Python new enough for it,
+  # ffmpeg for its recordings, BenchLab built from that source, and each driver's own skill.
+  echo "CU-DRIVER-EVAL-STAGE bench-v2 setup"
+  bench_dir="$work/bench"
+  mkdir -p "$bench_dir/src" "$bench_dir/build" "$bench_dir/skills" "$out/bench-v2"
+  bench_fail() { finish "bench v2: $1"; exit 4; }
+  file=$(fetch python "$(pin bench_v2 python url)" "$(pin bench_v2 python sha256)") || bench_fail "could not fetch the pinned Python"
+  tar -xzf "$file" -C "$bench_dir" || bench_fail "could not unpack Python"
+  bench_python="$bench_dir/python/bin/python3.12"
+  codesign -v "$bench_python" 2>/dev/null || codesign -s - -f "$bench_python" >/dev/null 2>&1
+  # The bench looks for ffmpeg on PATH and then in /opt/homebrew/bin, which the route stage made.
+  sudo -n mkdir -p /opt/homebrew/bin && sudo -n chown "$(id -un)" /opt/homebrew/bin
+  for tool in ffmpeg ffprobe; do
+    file=$(fetch "$tool" "$(pin bench_v2 "$tool" url)" "$(pin bench_v2 "$tool" sha256)") || bench_fail "could not fetch $tool"
+    ditto -x -k "$file" /opt/homebrew/bin || bench_fail "could not unpack $tool"
+    codesign -v "/opt/homebrew/bin/$tool" 2>/dev/null || codesign -s - -f "/opt/homebrew/bin/$tool" >/dev/null 2>&1
+  done
+  commit=$(pin bench_v2 source commit) subdir=$(pin bench_v2 source path)
+  file=$(fetch bench-source "$(pin bench_v2 source url)" "$(pin bench_v2 source sha256)") || bench_fail "could not fetch the bench source"
+  tar -xzf "$file" -C "$bench_dir/src" --strip-components 3 "cua-$commit/$subdir" || bench_fail "could not unpack the bench source"
+  macos_bench="$bench_dir/src/automated-eval/macos_bench"
+  bash "$macos_bench/swift/build.sh" "$bench_dir/build" >"$out/bench-v2/build.log" 2>&1 || bench_fail "BenchLab did not build (bench-v2/build.log)"
+  driver_bins+=("$bench_python" /opt/homebrew/bin/ffmpeg "$bench_dir/build/BenchLab.app/Contents/MacOS/BenchLab"
+    "$bench_dir/build/BenchSentinel.app/Contents/MacOS/BenchSentinel")
+  for pair in ${driver_pairs[@]+"${driver_pairs[@]}"}; do
+    label=${pair%%=*} binary=${pair#*=}
+    if [[ "$label" == cmux-cua-* ]]; then
+      # cmux's own skill for its computer use tools, from this tree.
+      bench_args+=(--driver "$label=$binary" --skills "$label=$root/skills/cmux-cua")
+    else
+      # The release's app, which the bench drives and macOS grants, and the release's skills.
+      version=${label#cua-driver-}
+      app_binary="$(dirname "$binary")/CuaDriver.app/Contents/MacOS/cua-driver"
+      [[ -x "$app_binary" ]] || bench_fail "no CuaDriver.app in the $label release"
+      # The release signs its app; keep that signature when it verifies, else sign the bundle ad hoc
+      # (an unsigned arm64 executable does not run), and stop if it still does not verify.
+      app_bundle="$(dirname "$binary")/CuaDriver.app"
+      codesign -v "$app_bundle" 2>/dev/null || codesign --force --deep -s - "$app_bundle" >/dev/null 2>&1
+      codesign -v "$app_bundle" 2>/dev/null || bench_fail "the $label CuaDriver.app does not verify"
+      [[ "$(pin bench_v2 cua_driver_skills version)" == "$version" ]] || bench_fail "no skills pinned for $label"
+      file=$(fetch skills "$(pin bench_v2 cua_driver_skills url)" "$(pin bench_v2 cua_driver_skills sha256)") || bench_fail "could not fetch the $label skills"
+      tar -xzf "$file" -C "$bench_dir/skills" || bench_fail "could not unpack the $label skills"
+      bench_args+=(--driver "$label=$app_binary" --skills "$label=$bench_dir/skills/cua-driver-rs-v$version-skills")
+      driver_bins+=("$app_binary")
+    fi
+  done
+  [[ ${#bench_args[@]} -gt 0 ]] || bench_fail "no driver to run"
+fi
+
+if [[ -n "$arena" ]]; then
+  # The arena's apps and engines (arena/prepare.py), and the Cua Driver release's skill for its arm.
+  echo "CU-DRIVER-EVAL-STAGE arena setup"
+  mkdir -p "$out/arena" "$work/arena"
+  skills_dir="$work/arena/cua-skills"
+  if [[ ",$arms," == *,cua-driver-* ]] && file=$(fetch skills "$(pin bench_v2 cua_driver_skills url)" "$(pin bench_v2 cua_driver_skills sha256)"); then
+    mkdir -p "$skills_dir" && tar -xzf "$file" -C "$skills_dir"
+  fi
+  prepare_args=()
+  for pair in ${driver_pairs[@]+"${driver_pairs[@]}"}; do prepare_args+=(--driver "$pair"); done
+  python3 -I "$here/arena/prepare.py" --work "$work/arena" --engines "${engines:-$root/engines}" --arms "$arms" \
+    --skills "$skills_dir" ${prepare_args[@]+"${prepare_args[@]}"} 2>&1 | tee "$out/arena/prepare.log"
+  [[ -s "$work/arena/arms.json" ]] || { finish "the arena's setup wrote no arms.json (arena/prepare.log)"; exit 4; }
+  cp "$work/arena/arms.json" "$out/arena/arms.json"
+  while IFS= read -r path; do [[ -n "$path" ]] && driver_bins+=("$path"); done <"$work/arena/grant.txt"
 fi
 
 grant() {
@@ -208,6 +304,44 @@ if ! granted; then
   [[ -n "${CU_DRIVER_EVAL_GRANT:-}" ]] && $CU_DRIVER_EVAL_GRANT --diagnose >"$out/tcc-diagnose.txt" 2>&1 && cat "$out/tcc-diagnose.txt"
   finish "the step's processes lack Accessibility or event posting on this worker ($grants)"
   exit 3
+fi
+
+if [[ "$arena" == latency ]]; then
+  echo "CU-DRIVER-EVAL-STAGE latency"
+  budget_args=()
+  (( arena_budget > 0 )) && budget_args=(--budget "$arena_budget")
+  python3 -I "$here/../cu-bench/cu_bench.py" run --arms "$work/arena/arms.json" --out "$out/cu-bench" --rounds "$reps" \
+    ${budget_args[@]+"${budget_args[@]}"}
+  status=$?
+  finish
+  exit "$status"
+fi
+
+if [[ -n "$arena" ]]; then
+  echo "CU-DRIVER-EVAL-STAGE arena"
+  harness_args=()
+  IFS=',' read -r -a harnesses <<<"$harness"
+  for h in ${harnesses[@]+"${harnesses[@]}"}; do [[ -n "$h" ]] && harness_args+=(--harness "$h"); done
+  [[ ${#harness_args[@]} -gt 0 ]] || { finish "arena: no harness= given"; exit 4; }
+  PATH="/opt/homebrew/bin:$PATH" python3 -I "$here/arena/arena.py" run --arms "$work/arena/arms.json" "${harness_args[@]}" \
+    --app "$work/arena/Arena.app" --probe "$work/arena/bin/arena-probe" --out "$out/arena" --reps "$reps" \
+    --budget "$arena_budget" ${arena_tasks:+--tasks "$arena_tasks"}
+  status=$?
+  finish
+  exit "$status"
+fi
+
+if [[ -n "$bench" ]]; then
+  echo "CU-DRIVER-EVAL-STAGE bench-v2 $bench"
+  waive_args=()
+  IFS=';' read -r -a waivers <<<"$waive"
+  for regex in ${waivers[@]+"${waivers[@]}"}; do [[ -n "$regex" ]] && waive_args+=(--waive "$regex"); done
+  "$bench_python" -I "$here/bench_v2.py" --bench "$macos_bench" --work "$bench_dir/work" --build-dir "$bench_dir/build" \
+    --out "$out/bench-v2" "${bench_args[@]}" ${waive_args[@]+"${waive_args[@]}"} --mode "$bench" --condition "$condition" \
+    --runs "$reps" ${tasks:+--tasks "$tasks"}
+  status=$?
+  finish
+  exit "$status"
 fi
 
 echo "CU-DRIVER-EVAL-STAGE input-ab"

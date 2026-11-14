@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import { ComposerBox } from "../ComposerBox";
+import type { MarkdownFieldHandle } from "../MarkdownField";
 import { ArrowUpIcon } from "../ComposerPickers";
 import {
   draftMessage,
@@ -19,25 +20,13 @@ import {
   subscribeSubagentDraft,
   type Draft,
 } from "./subagentDrafts";
-
-/// The prompt after a send failed: the failed message comes back whole, never dropped and never
-/// mixed with what was typed since (a timed-out send leaves no failed row in the chat to recover it
-/// from). Into an empty prompt it comes back as it was typed, chips and all; over a newer draft, its
-/// whole text (pasted chips in their places, `message`) goes above that draft, whose own chips stay
-/// its own.
-export function afterFailedSend(
-  current: Draft,
-  sent: { typed: string; held: ComposerAttachment[]; message: string },
-): Draft {
-  if (!current.text && current.attachments.length === 0) return { text: sent.typed, attachments: sent.held };
-  return { text: `${sent.message}\n\n${current.text}`, attachments: current.attachments };
-}
-
+import { afterFailedSend } from "./subagentComposerModel";
 export function SubagentComposer({
   subagent,
   chat,
   draftKey,
   onSend,
+  quoteRef,
 }: {
   /// The subagent the prompt is for, as the pane names it.
   subagent: string;
@@ -49,6 +38,9 @@ export function SubagentComposer({
   /// Sends the typed message; unset while the chat takes no prompts (not connected, View Only).
   /// It resolves when the chat kept a refused message itself (its failed row), never put back here.
   onSend?: (message: string) => Promise<unknown>;
+  /// Quote in Reply's target while this composer shows (App.tsx `chat.quoteReply`): the quote goes
+  /// after this subagent's draft, as the chat's composer puts it after its own.
+  quoteRef?: { current: { quoteReply(markdown: string): void } | null };
 }) {
   const t = useT();
   // The kept draft (subagentDrafts.ts): opening the chat ("Subagent of") or another subagent
@@ -92,6 +84,22 @@ export function SubagentComposer({
       keep({ text: textRef.current, attachments: next });
       return next;
     });
+  const field = useRef<MarkdownFieldHandle | null>(null);
+  useEffect(() => {
+    if (!quoteRef) return;
+    const handle = {
+      quoteReply(markdown: string) {
+        if (field.current?.quoteReply(markdown)) return;
+        setText((typed) => (typed ? `${typed}\n\n${markdown}` : markdown));
+        field.current?.focus();
+      },
+    };
+    quoteRef.current = handle;
+    return () => {
+      if (quoteRef.current === handle) quoteRef.current = null;
+    };
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- setText reads refs; the handle lives as long as this composer
+  }, [quoteRef]);
   const draft = () => draftMessage({ text, attachments: attachmentsRef.current });
   const ready = Boolean(onSend) && (text.trim().length > 0 || attachments.length > 0);
   const submit = () => {
@@ -136,7 +144,16 @@ export function SubagentComposer({
             "aria-label": t("subagents.messagePlaceholder", { name: subagent }),
           },
           onChange: (markdown) => setText(markdown),
+          // A quote taken while the editor was still being made, when this composer goes first: it
+          // stays this subagent's, after its kept draft, for the next composer that shows it.
+          onUnplacedQuotes: (quotes) => {
+            const kept = subagentDraft(draftKey);
+            keep({ ...kept, text: [kept.text, ...quotes].filter(Boolean).join("\n\n") });
+          },
           onSubmit: () => submit(),
+        }}
+        fieldRef={(handle) => {
+          field.current = handle;
         }}
         attachments={attachments}
         setAttachments={(update) => setAttachments((current) => update(current))}

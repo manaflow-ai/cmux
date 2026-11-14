@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextSettings
 
 /// `debug.pane_chrome`: per pane of each window, the frames that must line
@@ -31,9 +32,8 @@ enum DebugPaneChrome {
                     firstCell = CGPoint(x: hostRect.minX + origin.x, y: hostRect.minY + origin.y)
                 }
                 var fields: [String: JSONValue] = [
-                    "pane": .string(ring.pane),
-                    "cell": rect(cell),
-                    "strip": rect(strip),
+                    "pane": .string(ring.pane), "cell": rect(cell),
+                    "strip": rect(strip), "strip_under_page": .array(view.stripView.chromiumPageCover.map { rect(topLeft($0)) }),
                     "border": rect(border), "pill": pill.map(rect) ?? .null,
                     "first_cell": firstCell.map { .array([.number(Double($0.x)), .number(Double($0.y))]) } ?? .null,
                     // The tab bar (cx-soza): hidden now, the pane's own choice, the palette row's title.
@@ -51,7 +51,8 @@ enum DebugPaneChrome {
                     fields["gap_below"] = .number(Double(border.minY - pill.maxY))
                     fields["pill_left_minus_border_left"] = .number(Double(pill.minX - border.minX))
                 }
-                // The tab bar's trailing controls (`tabs.toolbarButtons` + "…"): frame, reveal, buttons and "…"'s rows.
+                // The tab bar's trailing controls (`tabs.toolbarButtons`): frame, reveal, buttons, and the tab bar's
+                // right-click rows (which hold what the removed "…" offered).
                 if let toolbar = view.toolbar?.view {
                     func rows(_ menu: NSMenu?) -> [JSONValue] {
                         (menu?.items ?? []).map { item in
@@ -61,8 +62,8 @@ enum DebugPaneChrome {
                     }
                     fields["toolbar"] = .object([
                         "frame": rect(topLeft(toolbar.convert(toolbar.bounds, to: nil))), "revealed": .bool(toolbar.reveal.isRevealed),
-                        "more_alpha": .number(Double(toolbar.moreButton.alphaValue)),
-                        "buttons": .array(toolbar.buttons.map { .string($0.accessibilityLabel() ?? "") }), "more_menu": .array(rows(toolbar.moreMenu?())),
+                        "buttons": .array(toolbar.buttons.map { .string($0.accessibilityLabel() ?? "") }),
+                        "tab_bar_menu": .array(rows(pane.contextMenu(for: .emptyStrip))),
                     ])
                 }
                 if let firstCell {

@@ -154,6 +154,6 @@ struct CloudAskDialogsTests {
         #expect(CloudAgentStartSetting().delegated(in: ["cloud": ["agentsStartWithoutAsking": true]]))
         #expect(!CloudAgentStartSetting().delegated(in: ["cloud": ["agentsStartWithoutAsking": false]]))
         #expect(CloudAgentStartSetting().delegated(in: ["cloud": ["agentsStartWithoutAsking": "yes"]]))
-        #expect(SettingsSchema.all.first { $0.path == CloudAgentStartSetting.path }?.defaultValue == .bool(true))
+        #expect(SettingsSchema.all.first { $0.path == CloudAgentStartSetting.configPath }?.defaultValue == .bool(true))
     }
 }

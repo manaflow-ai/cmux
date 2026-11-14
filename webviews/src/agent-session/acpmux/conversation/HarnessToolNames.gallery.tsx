@@ -10,7 +10,8 @@ import { componentEntry, type ComponentVariant } from "../../../gallery/format";
 import { HARNESS_FIXTURE_CWD, harnessItems, type FixtureHarness } from "../toolNamesFixture";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { ToolRow } from "./ToolRow";
-import { TranscriptDisclosureProvider, resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 const HARNESSES: Record<FixtureHarness, string> = {
   claude: "Claude Code",

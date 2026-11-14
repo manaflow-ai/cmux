@@ -418,6 +418,7 @@ mod tests {
             state: State::Running,
             activities: Default::default(),
             outcome: None,
+            caller_subagent: None,
         }
     }
 

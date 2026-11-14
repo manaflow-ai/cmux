@@ -230,9 +230,8 @@ final class SSHService {
         // recovery sheet copy the previous attempt while the link is working.
         session.lastError = nil
         switch session.linkStatus.reconnectStep(daemonConnected: session.daemon.startup == .connected, daemonFailed: session.daemonFailure != nil,
-                                                retriesSpent: session.retriesSpent) {
+                                                daemonDown: session.daemonDown, daemonEstablished: session.daemon.connection != nil) {
         case .connect: session.connect()
-        case .restart: session.restart()
         case .reconnectDaemon: session.reconnectDaemon()
         case .wake: session.wake(.user)
         case .newAttempt:
@@ -358,14 +357,14 @@ final class SSHService {
         if status == .connected {
             session.lastError = nil
             // task-owner: one update check per connect; it installs only an older remote build
-            Task { await updateIfOlder(session) }
+            Task { await updateIfOlder(session); session.staticInstallStaged = await RemoteStaticInstallStager(installer: installer).stageIfOlder(session.host, link: session.link, binary: binary, environment: Self.environment, off: policyDisabled) }
         }
     }
 
     /// cx-3r9mt: on connect, an older remote build (`cmux-tui remote update-need`) gets this app's
     /// build, daemons handed over; any other answer or a failure leaves the machine as it was.
     func updateIfOlder(_ session: SSHMachineSession) async {
-        guard !policyDisabled, let binary, case .installed? = await session.link.lastReport?.binary,
+        guard !policyDisabled, let binary, case .installed? = await session.link.probedReport(await Self.environment())?.binary,
               let commit = await BundledCmuxTUI.commit(binary: binary) else { return }
         let tried = session.machineID + "|" + commit
         guard autoUpdated.mayTry(tried), !installing.contains(session.machineID),

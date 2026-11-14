@@ -34,7 +34,9 @@ struct SplitMotion {
         guard abs(travel) > 0.5 else { return }
         let fraction = velocity / travel
         guard fraction > 0 else { return }
-        // A fling faster than the spring could start (10 travels a second) is capped there.
+        // A fling faster than 10 travels a second is capped there. That is under the limit of every pane token (omega,
+        // 20 a second or more at speed normal), so no edge starts faster than it can stop on its place; the frames
+        // apply that limit at each step whatever a caller wrote (`SpringParameters.admitted`).
         let rate = min(fraction, 10)
         if let edges {
             for (key, frame) in panes where moved?.contains(key) ?? true {
@@ -94,10 +96,12 @@ extension SplitMotion {
     /// pane that is still moving sideways (a column growing in, then split down) starts under that pane, at its shown
     /// x and width and with its velocity, not at its column's rest (RESIZE VIDEOS O1: 31 pt off for 12 frames). Only
     /// that pane: a neighbour whose edge is on the same line follows its own motion.
-    static func ride(_ frame: inout AnimatedFrame, panes: [PaneID: AnimatedFrame], skipping: Set<PaneID>, giver: PaneID? = nil) {
+    /// `slides`: the pane enters at its final width (``PaneArrival/slides``): it rides the edge as a sliver would.
+    static func ride(_ frame: inout AnimatedFrame, panes: [PaneID: AnimatedFrame], skipping: Set<PaneID>, giver: PaneID? = nil,
+                     slides: Bool = false) {
         let seed = frame.rect
         let horizontal: Bool
-        if seed.width == 0 { horizontal = true } else if seed.height == 0 { horizontal = false } else { return }
+        if seed.width == 0 || slides { horizontal = true } else if seed.height == 0 { horizontal = false } else { return }
         let reach: CGFloat = 16
         var best: (distance: CGFloat, shift: CGFloat, velocity: CGFloat)?
         func consider(_ distance: CGFloat, _ shift: CGFloat, _ velocity: CGFloat) {

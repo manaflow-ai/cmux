@@ -40,6 +40,7 @@ CHECKS = (
     "check:effect-cleanup",
     "check:browser-lanes",
     "check:fixed-waits",
+    "check:whole-list-rows",
     "check:design-tokens",
     "check:ui-review",
     "typecheck",

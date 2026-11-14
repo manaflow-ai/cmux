@@ -1,3 +1,7 @@
+//! An owner-only Unix listener: the path's directory is checked, the path
+//! is leased, a stale socket is replaced, the socket is 0600, and the path
+//! is removed only while it still names the bound socket.
+
 use std::fmt;
 use std::fs;
 use std::io;
@@ -6,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use cmux_tui_core::backoff::Backoff;
 use tokio::net::UnixListener;
 
 use crate::owner_lock::{OwnerFileLock, sibling_lock_path};
@@ -15,45 +20,15 @@ const SOCKET_PROBE_TIMEOUT: Duration = Duration::from_millis(250);
 const ACCEPT_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(10);
 const ACCEPT_RETRY_MAX_DELAY: Duration = Duration::from_millis(250);
 
-pub(crate) struct UnixAcceptBackoff {
-    next_delay: Duration,
+/// The spacing of a listener's `accept` retries
+/// ([`cmux_tui_core::backoff::accept_retry_delay`]): 10 ms doubling to 250 ms.
+pub fn accept_backoff() -> Backoff {
+    Backoff::new(ACCEPT_RETRY_INITIAL_DELAY, ACCEPT_RETRY_MAX_DELAY).with_jitter(0.0)
 }
 
-impl UnixAcceptBackoff {
-    pub(crate) fn new() -> Self {
-        Self { next_delay: ACCEPT_RETRY_INITIAL_DELAY }
-    }
-
-    pub(crate) fn retry_delay(&mut self, error: &io::Error) -> Option<Duration> {
-        if !retryable_accept_error(error) {
-            return None;
-        }
-        let delay = self.next_delay;
-        self.next_delay = self.next_delay.saturating_mul(2).min(ACCEPT_RETRY_MAX_DELAY);
-        Some(delay)
-    }
-
-    pub(crate) fn reset(&mut self) {
-        self.next_delay = ACCEPT_RETRY_INITIAL_DELAY;
-    }
-}
-
-fn retryable_accept_error(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::Interrupted
-            | io::ErrorKind::WouldBlock
-            | io::ErrorKind::ConnectionAborted
-            | io::ErrorKind::ConnectionReset
-            | io::ErrorKind::TimedOut
-    ) || matches!(
-        error.raw_os_error(),
-        Some(libc::EMFILE) | Some(libc::ENFILE) | Some(libc::ENOBUFS) | Some(libc::ENOMEM)
-    )
-}
-
+/// Why a listener could not be bound.
 #[derive(Debug)]
-pub(crate) enum UnixSocketError {
+pub enum UnixSocketError {
     Io(io::Error),
     Protocol(String),
 }
@@ -83,7 +58,7 @@ impl std::error::Error for UnixSocketError {
 /// dropped before its accept task is polled remove the pathname synchronously,
 /// while the listener's own drop remains a safe idempotent fallback.
 #[derive(Debug)]
-pub(crate) struct UnixSocketCleanup {
+pub struct UnixSocketCleanup {
     path: PathBuf,
     device: u64,
     inode: u64,
@@ -110,7 +85,7 @@ impl UnixSocketCleanup {
         &self.path
     }
 
-    pub(crate) fn unlink(&self) -> io::Result<()> {
+    pub fn unlink(&self) -> io::Result<()> {
         self.unlink_inner(false)
     }
 
@@ -157,13 +132,13 @@ impl UnixSocketCleanup {
 }
 
 #[derive(Debug)]
-pub(crate) struct OwnedUnixListener {
+pub struct OwnedUnixListener {
     listener: UnixListener,
     cleanup: UnixSocketCleanupGuard,
 }
 
 impl OwnedUnixListener {
-    pub(crate) async fn bind(path: PathBuf) -> Result<Self, UnixSocketError> {
+    pub async fn bind(path: PathBuf) -> Result<Self, UnixSocketError> {
         let parent = path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
@@ -237,11 +212,11 @@ impl OwnedUnixListener {
         Ok(lease)
     }
 
-    pub(crate) fn listener(&self) -> &UnixListener {
+    pub fn listener(&self) -> &UnixListener {
         &self.listener
     }
 
-    pub(crate) fn cleanup(&self) -> Arc<UnixSocketCleanup> {
+    pub fn cleanup(&self) -> Arc<UnixSocketCleanup> {
         Arc::clone(&self.cleanup.0)
     }
 }

@@ -4,6 +4,7 @@ import Foundation
 nonisolated extension RefusalStrings {
     public static func noOpenTabGroup(_ id: String) -> String { text("handlers.refusal.tabGroupGone", "That tab group is no longer open.") }
     public static var tabNotInGroup: String { text("handlers.refusal.tabNotInGroup", "the tab is not in a group") }
+    public static var noTabGroupToJoin: String { text("handlers.refusal.noTabGroupToJoin", "There is no other tab group to add this tab to.") }
     public static var pinnedCannotGroup: String { text("handlers.refusal.pinnedCannotGroup", "pinned tabs cannot be grouped") }
     public static var tabsInDifferentPanes: String { text("handlers.refusal.tabsInDifferentPanes", "the tabs are in different panes") }
     public static var groupArgumentRequired: String { text("handlers.refusal.groupArgumentRequired", "a group argument is required") }

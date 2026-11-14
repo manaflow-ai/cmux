@@ -33,13 +33,9 @@ def _guard_router():
     guard_dir = str(ROOT / "scripts/ci")
     if guard_dir not in sys.path:
         sys.path.insert(0, guard_dir)
-    router_path = ROOT / "scripts/ci/detect_linux_guard_changes.py"
-    router_spec = importlib.util.spec_from_file_location(
-        "detect_linux_guard_changes", router_path
-    )
-    router = importlib.util.module_from_spec(router_spec)
-    router_spec.loader.exec_module(router)
-    return router
+    # Imported by name (guard_dir is on sys.path): the one module object other tests patch.
+    import detect_linux_guard_changes
+    return detect_linux_guard_changes
 
 
 def _groups_for_path(path):

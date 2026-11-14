@@ -9,7 +9,7 @@
 //!
 //! This is a strict allowlist that fails closed: a script passes only when every command in it
 //! is a known reader with no option that writes or runs another program. Anything the
-//! tokenizer cannot read plainly (an expansion, a redirection, a subshell, a background job,
+//! tokenizer cannot read plainly (a variable, a redirection, a subshell, a background job,
 //! an unterminated quote) refuses, and a refusal only means the person is asked as before.
 //! `permissions.rs` answers a pass with allow_once only, never a persistent grant.
 //!
@@ -18,7 +18,10 @@
 //! `post-index-change` hook. So a script with git passes only when the repository it reads, and
 //! every submodule checked out in it, names none (`repository_runs_nothing`). `cd` asks:
 //! Claude Code's shell keeps the directory for its next command, whose git reads would then
-//! look at a repository this never checked.
+//! look at a repository this never checked. A merge driver (`merge.<name>.driver`) passes: a
+//! read never merges, and `--remerge-diff`, which does, asks. A partial clone's promisor remote
+//! passes: a read may fetch an object the clone left out, as `git fetch` would (W5-L, review in
+//! the cmux checkout).
 //!
 //! The commands run with the harness's environment, not the daemon's, so they are judged in it
 //! (`permissions.rs` passes `login_env::effective_for` of the env its agent was started with:
@@ -30,6 +33,14 @@
 //!
 //! An allowed git read may still write git's own bookkeeping, as it does when the person runs
 //! it: `git status` refreshes the index's stat data. Nothing the agent chooses reaches it.
+//!
+//! A command substitution (`$(...)` or backticks, quoted or not) passes when its own script
+//! does, judged the same way (nesting up to `SUBST_DEPTH`). Its output is text the script
+//! does not show, so where it lands matters too: the argument of a `PLAIN` command takes any
+//! output, and any other command takes only a `git rev-parse` or `git merge-base` with plain
+//! revision arguments, which prints object names or echoes one of those arguments back
+//! (`substituted`). An output that is an option (`git diff $(git log --format=--output=x)`)
+//! never reaches a command that reads its options. `$((...))`, `<(...)` and `>(...)` ask.
 //!
 //! What is trusted: the launch environment and the person's own files it points at (`$HOME`'s
 //! shell startup files, `~/.gitconfig`). The agent changes those only by writing, which asks.
@@ -211,11 +222,14 @@ pub(crate) fn request_is_read_only(request: &Value, session_cwd: &Path, env: &En
         },
         _ => return false,
     };
+    // A subagent's command carries acpmux's own mark line, which sets one variable and runs
+    // nothing (`bg_hook.rs` `subagent_mark`): what it reads is the rest.
+    let script = crate::bg_hook::without_subagent_mark(script);
     if !env_runs_nothing(env) || !path_is_absolute(env) || !shells_are_system(env) {
         return false;
     }
     let found = |name: &str| BUILTINS.contains(&name) || resolve(name, env).is_some();
-    let Some(git_dirs) = git_dirs(script, &found) else { return false };
+    let Some(git_dirs) = git_dirs(script, &found, 0) else { return false };
     if git_dirs.is_empty() {
         return true;
     }
@@ -235,29 +249,157 @@ pub(crate) fn request_is_read_only(request: &Value, session_cwd: &Path, env: &En
 /// the allowlist. Its bare names still need `resolve`, and its git reads `repository_runs_nothing`.
 #[cfg(test)]
 pub(crate) fn is_read_only(script: &str) -> bool {
-    git_dirs(script, &|_| true).is_some()
+    git_dirs(script, &|_| true, 0).is_some()
 }
 
 /// The `-C` directory of each git command in `script` (None: git's own directory), when every
 /// command passes the allowlist and `found` passes each bare command name; None otherwise.
-fn git_dirs(script: &str, found: &dyn Fn(&str) -> bool) -> Option<Vec<Option<String>>> {
-    let segments = segments(script)?;
+/// The scripts of its command substitutions count as its own commands; `depth` is how deep
+/// `script` itself sits in them.
+fn git_dirs(script: &str, found: &dyn Fn(&str) -> bool, depth: u8) -> Option<Vec<Option<String>>> {
+    let (segments, substitutions) = segments(script, depth)?;
     if segments.iter().all(Vec::is_empty) {
         return None;
     }
     let mut git = Vec::new();
     for s in &segments {
         if let Some(first) = s.first()
-            && !first.contains('/')
-            && !found(first)
+            && (first.contains([SUBSTITUTED, OPAQUE]) || (!first.contains('/') && !found(first)))
         {
+            return None;
+        }
+        // An output only a `PLAIN` command may take whole, and one that would be an option or
+        // a glob's prefix nowhere.
+        let plain = s.first().and_then(|f| command_name(f)).is_some_and(|n| PLAIN.contains(&n));
+        if s.iter().any(|w| {
+            (w.contains(OPAQUE) && !plain)
+                || (w.contains([SUBSTITUTED, OPAQUE])
+                    && (w.starts_with('-') || w.ends_with(GLOBBED)))
+        }) {
             return None;
         }
         if let Reads::Git(dir) = segment_ok(s)? {
             git.push(dir);
         }
     }
+    for inner in &substitutions {
+        git.extend(git_dirs(inner, found, depth + 1)?);
+    }
     Some(git)
+}
+
+/// How deep command substitutions may nest: `$(a $(b $(c)))` is 3.
+const SUBST_DEPTH: u8 = 3;
+
+/// Stands in a word for the output of a substitution `substituted` reads as object names,
+/// followed by the arguments it may echo instead, so the checks that look inside a word (a
+/// signature format) see them. The script refuses control characters, so none of its own
+/// words holds one.
+const SUBSTITUTED: char = '\u{1}';
+
+/// Stands in a word for the output of any other substitution: text only a `PLAIN` command
+/// takes as an argument.
+const OPAQUE: char = '\u{2}';
+
+/// What the output of substitution `body` (at `depth`) stands as in a word: `SUBSTITUTED` and
+/// the arguments it may echo when it is a single `git rev-parse` or `git merge-base` whose
+/// arguments are only revisions (no option, glob or blank), else `OPAQUE`. None when `body`
+/// sits too deep or does not read plainly; whether its commands only read is `git_dirs`'s call.
+fn substituted(body: &str, depth: u8) -> Option<String> {
+    if depth > SUBST_DEPTH {
+        return None;
+    }
+    let (segments, _) = segments(body, depth)?;
+    let mut commands = segments.iter().filter(|s| !s.is_empty());
+    let (Some(words), None) = (commands.next(), commands.next()) else {
+        return Some(OPAQUE.to_string());
+    };
+    let names = match words.as_slice() {
+        [git, sub, args @ ..] if command_name(git) == Some("git") => match sub.as_str() {
+            // `git rev-parse` prints an argument it cannot resolve as it is.
+            "rev-parse" => args.iter().all(|a| {
+                matches!(a.as_str(), "--verify" | "-q" | "--quiet" | "--short")
+                    || a.strip_prefix("--short=")
+                        .is_some_and(|n| n.chars().all(|c| c.is_ascii_digit()))
+                    || is_revision(a)
+            }),
+            "merge-base" => args.iter().all(|a| {
+                matches!(a.as_str(), "--all" | "--octopus" | "--independent" | "--fork-point")
+                    || is_revision(a)
+            }),
+            _ => false,
+        },
+        _ => false,
+    };
+    if !names {
+        return Some(OPAQUE.to_string());
+    }
+    let echoed = words.iter().skip(2).filter(|a| is_revision(a));
+    Some(std::iter::once(SUBSTITUTED.to_string()).chain(echoed.cloned()).collect())
+}
+
+/// A word `git rev-parse` may print back that is one plain word: no option, glob or blank.
+/// A nested substitution in it is already one of these, or `OPAQUE`.
+fn is_revision(word: &str) -> bool {
+    !word.is_empty()
+        && !word.starts_with('-')
+        && !word.contains(OPAQUE)
+        && !word.contains(|c: char| c.is_whitespace() || matches!(c, '*' | '?' | '[' | GLOBBED))
+}
+
+/// The script of a `$(...)` whose `$(` `chars` has just passed, up to its closing `)`. None
+/// when it is unterminated, arithmetic (`$((`), or holds something whose end this cannot
+/// find the way the shell does (a comment, a backtick).
+fn substitution_body(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<String> {
+    if chars.peek() == Some(&'(') {
+        return None;
+    }
+    let mut body = String::new();
+    let mut open = 0u32;
+    loop {
+        let c = chars.next()?;
+        match c {
+            ')' if open == 0 => return Some(body),
+            '(' => open += 1,
+            ')' => open -= 1,
+            '#' | '`' => return None,
+            '\\' => {
+                body.push(c);
+                body.push(chars.next()?);
+                continue;
+            }
+            '\'' | '"' => {
+                body.push(c);
+                loop {
+                    let q = chars.next()?;
+                    body.push(q);
+                    if q == c {
+                        break;
+                    }
+                    if c == '"' && q == '\\' {
+                        body.push(chars.next()?);
+                    }
+                }
+                continue;
+            }
+            _ => {}
+        }
+        body.push(c);
+    }
+}
+
+/// The script of a backtick substitution whose opening backtick `chars` has just passed, up
+/// to the next one. None when it is unterminated or holds a backslash, which the shell reads
+/// differently inside backticks.
+fn backtick_body(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<String> {
+    let mut body = String::new();
+    loop {
+        match chars.next()? {
+            '`' => return Some(body),
+            '\\' => return None,
+            c => body.push(c),
+        }
+    }
 }
 
 /// Ends a word that holds an unquoted glob: the shell expands it after this has read it, so a
@@ -282,10 +424,25 @@ enum Reads {
     Git(Option<String>),
 }
 
-/// The words of each command in `script`, split at `;`, `&&`, `||`, `|` and newlines. None
-/// for anything this does not read plainly.
-fn segments(script: &str) -> Option<Vec<Vec<String>>> {
+/// The words of each command in `script`, split at `;`, `&&`, `||`, `|` and newlines, and the
+/// scripts of its command substitutions (`depth` deep already), each standing in its word as
+/// `substituted` says. None for anything this does not read plainly.
+fn segments(script: &str, depth: u8) -> Option<(Vec<Vec<String>>, Vec<String>)> {
     let mut segs = vec![Vec::new()];
+    let mut substitutions = Vec::new();
+    // The body of the substitution `chars` is at (after `$` or a backtick), and what stands
+    // for its output.
+    let mut substitute = |chars: &mut std::iter::Peekable<std::str::Chars<'_>>, tick: bool| {
+        let body = if tick {
+            backtick_body(chars)?
+        } else {
+            chars.next_if_eq(&'(')?;
+            substitution_body(chars)?
+        };
+        let stands = substituted(&body, depth + 1)?;
+        substitutions.push(body);
+        Some(stands)
+    };
     let mut word = String::new();
     let mut in_word = false;
     let mut globbed = false;
@@ -318,7 +475,8 @@ fn segments(script: &str) -> Option<Vec<Vec<String>>> {
                 loop {
                     match chars.next()? {
                         '"' => break,
-                        '$' | '`' => return None,
+                        '$' => word.push_str(&substitute(&mut chars, false)?),
+                        '`' => word.push_str(&substitute(&mut chars, true)?),
                         '\\' => match chars.next()? {
                             // An escaped `$` is refused too: cmux-codex-acp's unwrap of a
                             // double-quoted `bash -lc "..."` leaves its escapes in place.
@@ -342,7 +500,11 @@ fn segments(script: &str) -> Option<Vec<Vec<String>>> {
                     word.push(ch);
                 }
             },
-            '$' | '`' | '>' | '<' | '(' | ')' | '{' | '}' => return None,
+            '$' | '`' => {
+                in_word = true;
+                word.push_str(&substitute(&mut chars, c == '`')?);
+            }
+            '>' | '<' | '(' | ')' | '{' | '}' => return None,
             // A glob could expand to a file named like an option (`--pre=sh`): one passes only
             // after a literal prefix that is not an option.
             '*' | '?' | '[' => {
@@ -380,7 +542,7 @@ fn segments(script: &str) -> Option<Vec<Vec<String>>> {
         }
     }
     end(&mut segs, &mut word, &mut in_word, &mut globbed);
-    Some(segs)
+    Some((segs, substitutions))
 }
 
 /// The name a command word runs: itself, or the basename of a path in a trusted directory.
@@ -474,9 +636,60 @@ fn segment_ok(words: &[String]) -> Option<Reads> {
                 || a.starts_with("-fprint")
                 || matches!(a, "-delete" | "-fls")
         }),
+        "sed" => sed_prints_only(args),
         _ => false,
     };
     ok.then_some(Reads::Plain)
+}
+
+/// `sed -n` that only prints lines by number (`sed -n '1,40p' f`, `-e '$p'`): a reviewer's way
+/// to read part of a file. Any other sed command can write (`w`, `s///w`) or run one (`e`), and
+/// `-i` edits in place, so anything else asks; GNU sed reads an option after the files too.
+pub(crate) fn sed_prints_only(args: &[String]) -> bool {
+    let mut quiet = false;
+    let mut scripts: Vec<&str> = Vec::new();
+    let mut i = 0;
+    while let Some(a) = args.get(i) {
+        match a.as_str() {
+            "-n" | "--quiet" | "--silent" => quiet = true,
+            "-E" | "-r" | "--regexp-extended" => {}
+            // A cluster of those (`-En`).
+            a if a.len() > 2
+                && !a.starts_with("--")
+                && a.strip_prefix('-').is_some_and(|f| f.chars().all(|c| "nEr".contains(c))) =>
+            {
+                quiet |= a.contains('n');
+            }
+            "-e" => {
+                i += 1;
+                let Some(script) = args.get(i) else { return false };
+                scripts.push(script);
+            }
+            a if a.starts_with('-') => return false,
+            _ => break,
+        }
+        i += 1;
+    }
+    let mut rest = args.get(i..).unwrap_or_default().iter();
+    if scripts.is_empty() {
+        let Some(script) = rest.next() else { return false };
+        scripts.push(script);
+    }
+    if rest.any(|a| a.starts_with('-')) {
+        return false;
+    }
+    let address = |a: &str| a == "$" || (!a.is_empty() && a.bytes().all(|b| b.is_ascii_digit()));
+    let prints = |command: &str| {
+        let Some(range) = command.trim().strip_suffix('p') else { return false };
+        let range = range.trim();
+        range.is_empty()
+            || match range.split_once(',') {
+                Some((from, to)) => address(from.trim()) && address(to.trim()),
+                None => address(range),
+            }
+    };
+    quiet
+        && scripts.iter().all(|s| s.split([';', '\n']).filter(|c| !c.trim().is_empty()).all(prints))
 }
 
 /// A git read: its `-C` directory (at most one) when the rest passes.
@@ -502,7 +715,10 @@ fn git_ok(args: &[String]) -> Option<Option<String>> {
         };
         // The shell expands a glob or a leading `~` in the directory; the probe would read
         // another one.
-        if named.contains(['*', '?', '[']) || named.starts_with('~') || dir.replace(named).is_some()
+        // So would a substitution's output.
+        if named.contains(['*', '?', '[', SUBSTITUTED, OPAQUE])
+            || named.starts_with('~')
+            || dir.replace(named).is_some()
         {
             return None;
         }
@@ -530,6 +746,10 @@ fn git_read_ok(args: &[String]) -> bool {
             // Runs smudge filters (git-lfs can fetch) and textconv drivers.
             || long_is(a, "--filters")
             || long_is(a, "--textconv")
+            // Merges again to show a merge commit, which runs the repository's merge drivers.
+            || long_is(a, "--remerge-diff")
+            // `--diff-merges=remerge` (or `r`); any other value shows no remerge, but asks too.
+            || a.starts_with("--diff-merges")
     };
     if rest.iter().any(writes) {
         return false;
@@ -766,9 +986,17 @@ fn key_runs_nothing(key: &str, value: &str) -> bool {
                 | "excludesfile"
         ),
         ("extensions", None) => matches!(name, "worktreeconfig" | "objectformat" | "refstorage"),
+        // A partial clone's promisor (`promisor`, `partialclonefilter`): a read that needs an
+        // object the clone left out fetches it from that remote's `url`, as `git fetch` does with
+        // the person's credentials, and stores it with git's own objects. The transport runs no
+        // program the repository names: `uploadpack`, `core.sshCommand`, `credential.helper` and
+        // `protocol.*` here still ask. W5-L: the cmux checkout is a partial clone, and a review
+        // chat could not run `git diff` in it.
         ("remote", Some(_)) => matches!(
             name,
             "url"
+                | "promisor"
+                | "partialclonefilter"
                 | "pushurl"
                 | "fetch"
                 | "push"
@@ -809,6 +1037,9 @@ fn key_runs_nothing(key: &str, value: &str) -> bool {
         ),
         ("log", None) => matches!(name, "decorate" | "date" | "follow" | "abbrevcommit"),
         ("merge", None) => matches!(name, "conflictstyle" | "ff"),
+        // A merge driver runs only when git merges file contents (merge, rebase, cherry-pick, a
+        // stash apply, a remerge diff, which asks: `git_read_ok`), never in an allowed read.
+        ("merge", Some(_)) => matches!(name, "name" | "driver" | "recursive"),
         ("rebase", None) => matches!(name, "autosquash" | "autostash" | "updaterefs"),
         ("rerere", None) => matches!(name, "enabled" | "autoupdate"),
         _ => false,
@@ -816,504 +1047,5 @@ fn key_runs_nothing(key: &str, value: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn reads_pass() {
-        for script in [
-            "rg -n foo src",
-            "pwd; git rev-parse HEAD; git status --short",
-            "git -C /x diff --stat",
-            "git log --oneline -5 | head",
-            "rg 'a$' x",
-            "git branch --show-current",
-            "/usr/bin/rg foo",
-            "git --no-pager -C/x log -1",
-            "ls src/*.rs",
-            "[ -f x ] && cat x",
-            "git config --get user.name",
-            "git remote -v",
-            "git tag -l 'v1*'",
-            "git log --format='%h %s' -1",
-            "ls src/*.rs | head",
-            "git status # ; rm -rf x",
-            "git log --oneline | uniq -c",
-            "echo \"a b\" 'c'",
-            "date +%s",
-            "date -u",
-            "diff -u a b",
-            "test -f x",
-            "rg -n foo",
-            "git log --oneline --stat -1",
-            "git grep -no needle",
-        ] {
-            assert!(is_read_only(script), "{script}");
-        }
-    }
-
-    #[test]
-    fn anything_else_refuses() {
-        for script in [
-            "rg foo > out",
-            "git status; rm -rf x",
-            "git -c core.pager=sh status",
-            "find . -delete",
-            "rg --pre sh foo",
-            "echo $(id)",
-            "echo `id`",
-            "FOO=1 git diff",
-            "git push",
-            "git branch newbranch",
-            "sed -i s/a/b/ f",
-            "cat x &",
-            "git config user.name x",
-            "sort -o f x",
-            "echo 'unterminated",
-            "echo \"$HOME\"",
-            "echo \\$HOME",
-            "cat <<EOF",
-            "(ls)",
-            "{ ls; }",
-            "rg foo *",
-            "rg foo -- '--'*",
-            "./rg foo",
-            "/tmp/x/rg foo",
-            "git",
-            "git --git-dir=x status",
-            "git diff --output=f",
-            "git diff --ext-diff",
-            "git grep -Ovi foo",
-            "git stash",
-            "git stash push",
-            "git reflog expire --all",
-            "git remote add x y",
-            "git config --unset x",
-            "git config set user.name x",
-            "git tag v1",
-            "find . -exec rm {} ;",
-            "find . -fprint f",
-            "sort -uo f x",
-            "uniq a b",
-            "uniq -- in -out",
-            "date -s 2020-01-01",
-            "hostname evil",
-            "xargs rm",
-            "bash -c ls",
-            "",
-            "ls |& cat",
-            "printf -v PATH /tmp/evil; rg secret",
-            "printf -vPATH . ; rg x",
-            "cd /tmp && ls -la",
-            "git -C a -C b status",
-            // Codex review at 066066a8.
-            "uniq -- in*",
-            "uniq in*",
-            "printf '%s\\n' a",
-            "printf '%n' PATH; ls",
-            "test -v 'BASH_VERSINFO[$(touch marker)0]'",
-            "[ -v 'a[$(id)]' ]",
-            "sort --out=result input",
-            "sort --compress=x a",
-            "file --comp -m magic",
-            "git grep -nOsh needle -- payload.sh",
-            "git diff --out=f",
-            "git diff --ext",
-            "rg -z needle file.gz",
-            "rg -nz needle",
-            "rg --search-z needle",
-            "git log --show-signature -1",
-            "git log --show-sig -1",
-            "git log --format=%G? -1",
-            // Codex review at 84851587.
-            "git log --format='%+G?' -1",
-            "git log --format=%-GS -1",
-            "git log '--format=% GK' -1",
-            "git for-each-ref --format %* refs/heads/main",
-            "git for-each-ref --format=ab* refs/heads",
-            "git log src/*.rs",
-            "git show --pretty=format:%GS",
-            "diff --paginate a b",
-            "diff -ul a b",
-            "pwd\rx",
-            "pwd\u{0b}x",
-            "date 102612002026",
-            // Codex review at 630c4878.
-            "git diff -o /tmp/out",
-            "git log -po x",
-            "sort -T /tmp x",
-            "sort --temporary-directory=/tmp x",
-            "sort --temp=/tmp x",
-            // Codex review at 01e0b5a9.
-            "git for-each-ref --sort=signature:grade refs/heads",
-            "git for-each-ref --format='%(*signature:grade)' refs/tags",
-            "git branch --sort=signature:grade --list",
-            "sort -S 1K x",
-            "sort -u x | uniq -c",
-            // Codex review at a29dca90.
-            "git -C repo[1] status",
-            "git -C 'repo[1]' status",
-            "git -C ~/x status",
-            "git -C~ status",
-            "git status --help",
-            "git cat-file --filters HEAD:asset.bin",
-            "git show --textconv HEAD:x",
-            "git log --hel",
-            "git for-each-ref --format='%(signature:grade)' refs/heads/main",
-            "file -S -z payload.lrz",
-            "file x",
-            "tree -a",
-            "/usr/bin/uniq /dev/null -out",
-            "uniq -c -- -in",
-            "uniq -f 1 x",
-            "date -f '-%Y%m%d%H%M' -- -202610261200",
-            "date -d now",
-            "rg --hostname-bin=sh foo",
-            "rg --hostname-b sh foo",
-        ] {
-            assert!(!is_read_only(script), "{script}");
-        }
-    }
-
-    /// A new repository in a fresh directory, with `config` set in its local config.
-    fn repo(config: &[(&str, &str)]) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("acpmux-readonly-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        git(&dir, &["init", "-q"]);
-        for (key, value) in config {
-            git(&dir, &["config", key, value]);
-        }
-        dir
-    }
-
-    fn git(dir: &Path, args: &[&str]) {
-        let status = Command::new("git").arg("-C").arg(dir).args(args).status().unwrap();
-        assert!(status.success(), "git {args:?}");
-    }
-
-    /// Only the system directories on PATH, and nothing else set.
-    fn system_env() -> Env {
-        Env::from([("PATH".to_owned(), TRUSTED_DIRS.join(":"))])
-    }
-
-    fn execute(command: Value) -> Value {
-        json!({"toolCall": {"kind": "execute", "rawInput": {"command": command}}})
-    }
-
-    #[test]
-    fn request_needs_an_execute_with_a_command() {
-        let dir = repo(&[]);
-        let req = |kind: &str, command: Value| json!({"toolCall": {"kind": kind, "rawInput": {"command": command}}});
-        let reads = |r: &Value| request_is_read_only(r, &dir, &system_env());
-        assert!(reads(&req("execute", json!("git status"))));
-        assert!(reads(&req("execute", json!(["/bin/bash", "-lc", "git status"]))));
-        assert!(reads(&req("execute", json!(["zsh", "-c", "pwd"]))));
-        assert!(!reads(&req("execute", json!(["git", "status"]))));
-        assert!(!reads(&req("execute", json!(["bash", "-lc", "git push"]))));
-        assert!(!reads(&req("execute", json!(["python", "-c", "ls"]))));
-        assert!(!reads(&req("edit", json!("git status"))));
-        assert!(!reads(&json!({"toolCall": {"kind": "execute"}})));
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    /// Codex review of #24155: a repository's config or hooks can make `git status` or
-    /// `git diff` run a program, so those asks stay with the person.
-    #[test]
-    fn a_repository_that_names_a_program_asks() {
-        for config in [
-            &[("core.fsmonitor", "/tmp/x")][..],
-            &[("diff.x.textconv", "cat")],
-            &[("diff.external", "cat")],
-            &[("diff.x.command", "cat")],
-            &[("filter.x.clean", "cat")],
-            &[("filter.x.process", "cat")],
-            &[("log.showsignature", "true"), ("gpg.program", "/tmp/x")],
-            &[("core.pager", "/tmp/x")],
-            &[("core.sshcommand", "/tmp/x")],
-            &[("credential.helper", "!/tmp/x")],
-            &[("include.path", "/tmp/x")],
-            &[("remote.origin.uploadpack", "/tmp/x")],
-            // A lazy fetch writes objects and runs the transport.
-            &[("remote.origin.promisor", "true")],
-            // A signature sort key verifies with gpg (`git branch`).
-            &[("branch.sort", "signature:grade")],
-        ] {
-            let dir = repo(config);
-            assert!(
-                !request_is_read_only(&execute(json!("git status")), &dir, &system_env()),
-                "{config:?}"
-            );
-            assert!(
-                !request_is_read_only(&execute(json!("git diff")), &dir, &system_env()),
-                "{config:?}"
-            );
-            assert!(
-                request_is_read_only(&execute(json!("pwd")), &dir, &system_env()),
-                "{config:?}"
-            );
-            std::fs::remove_dir_all(dir).unwrap();
-        }
-        let dir = repo(&[("core.fsmonitor", "true")]);
-        assert!(!request_is_read_only(&execute(json!("git status")), &dir, &system_env()));
-        std::fs::remove_dir_all(dir).unwrap();
-        let dir = repo(&[
-            ("core.fsmonitor", "false"),
-            ("remote.origin.url", "/x"),
-            ("branch.sort", "-committerdate"),
-        ]);
-        assert!(request_is_read_only(&execute(json!("git status")), &dir, &system_env()));
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn an_index_hook_asks() {
-        // The repository's own hooks directory, whatever the person's global core.hooksPath.
-        let dir = repo(&[("core.hooksPath", ".git/hooks")]);
-        let hook = dir.join(".git/hooks/post-index-change");
-        std::fs::write(&hook, "#!/bin/sh\n").unwrap();
-        assert!(!request_is_read_only(&execute(json!("git status")), &dir, &system_env()));
-        std::fs::remove_file(&hook).unwrap();
-        // Through core.hooksPath too, and only that hook counts.
-        std::fs::create_dir(dir.join("hooks")).unwrap();
-        std::fs::write(dir.join("hooks/pre-commit"), "#!/bin/sh\n").unwrap();
-        git(&dir, &["config", "core.hooksPath", "hooks"]);
-        assert!(request_is_read_only(&execute(json!("git status")), &dir, &system_env()));
-        std::fs::write(dir.join("hooks/post-index-change"), "#!/bin/sh\n").unwrap();
-        assert!(!request_is_read_only(&execute(json!("git status")), &dir, &system_env()));
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    /// `git status` reads checked-out submodules with their own config.
-    #[test]
-    fn a_submodule_that_names_a_program_asks() {
-        let dir = repo(&[]);
-        let sub = dir.join("sub");
-        std::fs::create_dir(&sub).unwrap();
-        git(&sub, &["init", "-q"]);
-        git(
-            &sub,
-            &[
-                "-c",
-                "user.name=t",
-                "-c",
-                "user.email=t@t",
-                "commit",
-                "-q",
-                "--allow-empty",
-                "-m",
-                "x",
-            ],
-        );
-        let head =
-            Command::new("git").arg("-C").arg(&sub).args(["rev-parse", "HEAD"]).output().unwrap();
-        let head = String::from_utf8(head.stdout).unwrap();
-        git(
-            &dir,
-            &["update-index", "--add", "--cacheinfo", &format!("160000,{},sub", head.trim())],
-        );
-        assert!(request_is_read_only(&execute(json!("git status")), &dir, &system_env()));
-        git(&sub, &["config", "diff.x.textconv", "cat"]);
-        assert!(!request_is_read_only(&execute(json!("git status")), &dir, &system_env()));
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    /// The directory checked is the one git reads: `-C`, then the request's own cwd, then the
-    /// session's.
-    #[test]
-    fn the_checked_repository_is_the_one_git_reads() {
-        let clean = repo(&[]);
-        let hostile = repo(&[("core.fsmonitor", "/tmp/x")]);
-        let at = |command: &str, raw_cwd: Option<&Path>| {
-            let mut r = execute(json!(command));
-            if let Some(d) = raw_cwd {
-                r["toolCall"]["rawInput"]["cwd"] = json!(d);
-            }
-            request_is_read_only(&r, &clean, &system_env())
-        };
-        assert!(at("git status", None));
-        assert!(!at(&format!("git -C {} status", hostile.display()), None));
-        assert!(!at(&format!("git status; git -C{} log", hostile.display()), None));
-        assert!(!at("git status", Some(&hostile)));
-        assert!(at("pwd", Some(&hostile)));
-        // Outside any repository, git reads ask.
-        let plain = std::env::temp_dir().join(format!("acpmux-readonly-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir(&plain).unwrap();
-        assert!(!at("git status", Some(&plain)));
-        for d in [clean, hostile, plain] {
-            std::fs::remove_dir_all(d).unwrap();
-        }
-    }
-
-    /// The library search path cargo sets for its tests, on each OS (`LD_LIBRARY_PATH` on Linux,
-    /// `DYLD_FALLBACK_LIBRARY_PATH` on macOS), only finds libraries already on disk: a git read
-    /// under either still runs without asking. On macOS every git read under approve-reads asked
-    /// (full-suite macOS job ac2ca38ed60bef1405523e24,
-    /// `permission_groups::approve_reads_runs_read_only_shell_commands_without_asking`). Every
-    /// other loader variable still asks.
-    #[cfg(unix)]
-    #[test]
-    fn a_library_search_path_lets_a_git_read_run_on_each_os() {
-        let dir = repo(&[]);
-        let reads =
-            |command: &str, env: &Env| request_is_read_only(&execute(json!(command)), &dir, env);
-        for key in ["LD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH"] {
-            let mut env = system_env();
-            env.insert(key.to_owned(), "/tmp/x".to_owned());
-            assert!(reads("git status", &env), "{key}");
-        }
-        for key in ["DYLD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_FRAMEWORK_PATH"] {
-            let mut env = system_env();
-            env.insert(key.to_owned(), "/tmp/x".to_owned());
-            assert!(!reads("git status", &env), "{key}");
-        }
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    /// Codex review of #24155 at 7e312f83: the command runs with the harness's PATH and env, so
-    /// a bare `ls` found first in another directory, or an env that points git at a program,
-    /// asks.
-    #[cfg(unix)]
-    #[test]
-    fn the_harness_environment_decides() {
-        let dir = repo(&[]);
-        let tools = std::env::temp_dir().join(format!("acpmux-tools-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir(&tools).unwrap();
-        let with_path = |first: &Path| {
-            Env::from([(
-                "PATH".to_owned(),
-                format!("{}:{}", first.display(), TRUSTED_DIRS.join(":")),
-            )])
-        };
-        let reads =
-            |command: &str, env: &Env| request_is_read_only(&execute(json!(command)), &dir, env);
-        assert!(reads("ls", &with_path(&tools)));
-        assert!(reads("pwd", &Env::new()), "a builtin needs no PATH");
-        assert!(!reads("ls", &Env::new()), "no PATH finds no ls");
-        // A relative PATH entry is searched from the command's directory, not the daemon's.
-        for path in [".:/usr/bin:/bin", ":/usr/bin:/bin", "/usr/bin:bin:/bin"] {
-            let env = Env::from([("PATH".to_owned(), path.to_owned())]);
-            assert!(!reads("ls", &env), "{path}");
-            assert!(!reads("pwd", &env), "{path}");
-        }
-        // The shell itself: an agent bash found first on PATH, or a $SHELL outside the system
-        // directories, asks even for a builtin.
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let fake = tools.join("bash");
-            std::fs::write(&fake, "#!/bin/sh\n").unwrap();
-            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-            assert!(!reads("pwd", &with_path(&tools)));
-            std::fs::remove_file(&fake).unwrap();
-        }
-        let mut shell = system_env();
-        shell.insert("SHELL".to_owned(), tools.join("zsh").display().to_string());
-        assert!(!reads("pwd", &shell));
-        shell.insert("SHELL".to_owned(), "/bin/sh".to_owned());
-        assert!(reads("pwd", &shell));
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let fake = tools.join("ls");
-            std::fs::write(&fake, "#!/bin/sh\n").unwrap();
-            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
-        assert!(!reads("ls", &with_path(&tools)));
-        assert!(!reads("git status; ls", &with_path(&tools)));
-        assert!(reads("/bin/ls", &with_path(&tools)) || !Path::new("/bin/ls").exists());
-        for key in [
-            "GIT_EXTERNAL_DIFF",
-            "GIT_CONFIG_COUNT",
-            "GIT_DIR",
-            "LD_PRELOAD",
-            "BASH_ENV",
-            "PAGER",
-            "RIPGREP_CONFIG_PATH",
-            "BASH_FUNC_pwd%%",
-            "BASH_FUNC_git()",
-            "ZDOTDIR",
-            "LD_DEBUG_OUTPUT",
-            "LD_PROFILE",
-            "DYLD_PRINT_TO_FILE",
-            "MALLOC_TRACE",
-            "MANPAGER",
-        ] {
-            let mut env = system_env();
-            env.insert(key.to_owned(), "/tmp/x".to_owned());
-            assert!(!reads("git diff", &env), "{key}");
-            assert!(!reads("pwd", &env), "{key}");
-        }
-        let mut env = system_env();
-        env.insert("GIT_TERMINAL_PROMPT".to_owned(), "0".to_owned());
-        assert!(reads("git diff", &env));
-        for d in [dir, tools] {
-            std::fs::remove_dir_all(d).unwrap();
-        }
-    }
-
-    /// The person's global config is read too: a key there that makes a read run a program asks.
-    #[test]
-    fn a_global_config_that_names_a_program_asks() {
-        let dir = repo(&[]);
-        let home = std::env::temp_dir().join(format!("acpmux-home-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir(&home).unwrap();
-        let mut env = system_env();
-        env.insert("HOME".to_owned(), home.display().to_string());
-        env.insert("XDG_CONFIG_HOME".to_owned(), home.join(".config").display().to_string());
-        let reads = |command: &str| request_is_read_only(&execute(json!(command)), &dir, &env);
-        for config in [
-            "[diff]\n\texternal = /tmp/hook\n",
-            "[diff \"x\"]\n\ttextconv = /tmp/hook\n",
-            "[filter \"x\"]\n\tclean = /tmp/hook\n",
-            "[core]\n\tfsmonitor = /tmp/hook\n",
-            "[log]\n\tshowSignature = true\n",
-            "[help]\n\tformat = man\n[man]\n\tviewer = probe\n[man \"probe\"]\n\tcmd = touch /tmp/marker\n",
-            "[core]\n\tpager = touch /tmp/marker\n",
-            "[pager]\n\tlog = touch /tmp/marker\n",
-            "[pretty]\n\tverify = format:%G?\n",
-            "[pretty]\n\tverify = format:%+G?\n",
-            "[format]\n\tpretty = format:%G?\n",
-            "[lfs]\n\tstandalonetransferagent = probe\n",
-            "[interactive]\n\tdiffFilter = /tmp/hook\n",
-            "[tag]\n\tsort = signature:grade\n",
-        ] {
-            std::fs::write(home.join(".gitconfig"), config).unwrap();
-            assert!(!reads("git diff"), "{config}");
-            assert!(reads("pwd"), "{config}");
-        }
-        // The person's own settings that no read runs still pass: aliases, an editor, credential
-        // and signing helpers (no read talks to a remote or checks a signature), includes (their
-        // keys are listed and checked too).
-        let identity = home.join("identity.gitconfig");
-        std::fs::write(&identity, "[user]\n\tname = t\n").unwrap();
-        std::fs::write(
-            home.join(".gitconfig"),
-            format!(
-                "[alias]\n\tst = status\n[core]\n\teditor = vim\n[credential]\n\thelper = osxkeychain\n\
-                 [gpg]\n\tformat = ssh\n[commit]\n\tgpgsign = true\n[safe]\n\tdirectory = *\n\
-                 [include]\n\tpath = {}\n",
-                identity.display()
-            ),
-        )
-        .unwrap();
-        assert!(reads("git diff"));
-        // An included file is checked like the file that includes it.
-        std::fs::write(&identity, "[diff]\n\texternal = /tmp/hook\n").unwrap();
-        assert!(!reads("git diff"));
-        // git-lfs's own filter lines pass when git-lfs is a system program; its settings ask.
-        let lfs = "[filter \"lfs\"]\n\tclean = git-lfs clean -- %f\n\tprocess = git-lfs filter-process\n\trequired = true\n";
-        std::fs::write(home.join(".gitconfig"), lfs).unwrap();
-        assert_eq!(reads("git diff"), resolve("git-lfs", &env).is_some());
-        std::fs::write(
-            home.join(".gitconfig"),
-            format!("{lfs}[lfs]\n\tstandalonetransferagent = probe\n"),
-        )
-        .unwrap();
-        assert!(!reads("git diff"));
-        std::fs::write(home.join(".gitconfig"), "[filter \"lfs\"]\n\tclean = /tmp/hook %f\n")
-            .unwrap();
-        assert!(!reads("git diff"));
-        for d in [dir, home] {
-            std::fs::remove_dir_all(d).unwrap();
-        }
-    }
-}
+#[path = "shell_readonly_tests.rs"]
+mod tests;

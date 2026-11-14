@@ -12,7 +12,7 @@ struct CloudMachineTeamMetadataTests {
             "id": "vm-team", "provider": "freestyle", "status": "running",
             creatorKey: "user-a",
         ])
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: data)
+        let machine = try CloudMachine.classic(data)
         #expect(machine.createdBy == "user-a")
     }
 
@@ -26,7 +26,7 @@ struct CloudMachineTeamMetadataTests {
           {"id":"vm-c","provider":"freestyle","status":"running","createdBy":null}
         ]
         """#.utf8)
-        let vms = try JSONDecoder().decode([CloudMachine].self, from: data)
+        let vms = try JSONDecoder().decode([JSONValue].self, from: data).map { try CloudMachineRules().read("machine_classic", $0, as: CloudMachine.self, context: "machine") }
         #expect(vms.map(\.createdBy) == ["user-a", "user-b", nil])
         #expect(vms.map(\.id) == ["vm-a", "vm-b", "vm-c"])
     }
@@ -37,13 +37,13 @@ struct CloudMachineTeamMetadataTests {
         #"{"id":"vm-new","provider":"freestyle","status":"running","createdBy":{"userId":"user-a","displayName":null}}"#,
     ])
     func decodesClassicCreateAndDetailCreatorObjects(json: String) throws {
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: Data(json.utf8))
+        let machine = try CloudMachine.classic(Data(json.utf8))
         #expect(machine.createdBy == "user-a")
     }
 
     @Test func explicitNullCreatorMetadataStaysAbsent() throws {
         let data = Data(#"{"id":"vm-old","createdByUserId":null,"createdBy":null}"#.utf8)
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: data)
+        let machine = try CloudMachine.classic(data)
         #expect(machine.createdBy == nil)
     }
 
@@ -52,8 +52,8 @@ struct CloudMachineTeamMetadataTests {
         #"{"id":"vm-bad","createdBy":{"userId":42,"displayName":null}}"#,
     ])
     func malformedFieldsStillFailDecoding(json: String) {
-        #expect(throws: DecodingError.self) {
-            try JSONDecoder().decode(CloudMachine.self, from: Data(json.utf8))
+        #expect(throws: CloudAPIError.self) {
+            try CloudMachine.classic(Data(json.utf8))
         }
     }
 
@@ -68,7 +68,7 @@ struct CloudMachineTeamMetadataTests {
 
     @Test func legacyResponsesKeepMetadataAbsent() throws {
         let data = Data(#"{"id":"vm-old","provider":"freestyle","status":"running"}"#.utf8)
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: data)
+        let machine = try CloudMachine.classic(data)
         #expect(machine.createdBy == nil)
         let next = try #require(CloudMachine(next: .object(["id": .string("vm-old"), "status": .string("running")])))
         #expect(next.createdBy == nil)

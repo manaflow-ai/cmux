@@ -5,11 +5,17 @@
 //   node scripts/hot-reload-proof.mjs [--audit] [out dir]
 // --audit also touches every component file the pane loaded and reports which ones hot-swap
 // and which ones reload the page (a reload drops the draft and the scroll position).
+// --replay=BASE..HEAD saves a real change instead: the copy starts with BASE's version of every
+// webviews file the commits change, then each file is saved as HEAD has it, one at a time (new
+// files first, then edits, the ones that drop an export after the ones that don't, so importers
+// change before what they imported goes, then deletions), with a draft typed and the transcript shown, and each
+// save is reported as hot-applied or reloaded. It skips the probes and the audit.
 // The edits go to a copy of this checkout in a temporary directory, never to the checkout itself:
 // a save you make while it runs is never touched. The copy is deleted before the script exits.
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { chromium } from "playwright";
@@ -17,16 +23,10 @@ import { chromium } from "playwright";
 const ownWebviews = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // What the pane's dev server reads from the repository: webviews and the files outside it that
 // its runtime imports.
-const SOURCES = [
-  "webviews",
-  "config",
-  "schemas",
-  "web/data",
-  "Resources/markdown-viewer",
-  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts",
-];
+const SOURCES = ["webviews", "config", "schemas", "web/data", "Resources/markdown-viewer"];
 const args = process.argv.slice(2);
-const audit = args.includes("--audit");
+const replay = args.find((arg) => arg.startsWith("--replay="))?.slice("--replay=".length);
+const audit = args.includes("--audit") && !replay;
 const out = path.resolve(args.find((arg) => !arg.startsWith("--")) ?? path.join(ownWebviews, "dist/hot-reload-proof"));
 const pane = "src/agent-session/acpmux";
 const DRAFT = "laying track while the train moves";
@@ -90,6 +90,42 @@ try {
       filter: (from) => !skip.has(from),
     });
   await fs.symlink(path.join(ownWebviews, "node_modules"), path.join(webviews, "node_modules"), "dir");
+  // --replay: each changed file with HEAD's text (undefined: HEAD deletes it); the copy gets BASE's.
+  const saves = [];
+  if (replay) {
+    const [base, head] = replay.split("..");
+    const git = (...gitArgs) => execFileSync("git", ["-C", root, ...gitArgs], { encoding: "utf8", maxBuffer: 1 << 28 });
+    const exported = (text) =>
+      new Set([
+        ...[
+          ...text.matchAll(/^export\s+(?:async\s+)?(?:const|let|function|class|type|interface|enum)\s+([\w$]+)/gm),
+        ].map((match) => match[1]),
+        ...[...text.matchAll(/^export\s+(?:type\s+)?\{([^}]*)\}/gm)].flatMap((match) =>
+          match[1].split(",").map((name) =>
+            name
+              .trim()
+              .split(/\s+as\s+/)
+              .pop(),
+          ),
+        ),
+      ]);
+    const changed = git("diff", "--name-status", "--no-renames", base, head, "--", "webviews")
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => line.split("\t"));
+    for (const [status, file] of changed) {
+      const before = status === "A" ? undefined : git("show", `${base}:${file}`);
+      const text = status === "D" ? undefined : git("show", `${head}:${file}`);
+      const inCopy = path.join(scratch, file);
+      if (before === undefined) await fs.rm(inCopy, { force: true });
+      else await fs.writeFile(inCopy, before);
+      const drops =
+        before !== undefined && text !== undefined && [...exported(before)].some((name) => !exported(text).has(name));
+      saves.push({ status, file, text, rank: status === "A" ? 0 : status === "D" ? 3 : drops ? 2 : 1 });
+    }
+    saves.sort((a, b) => a.rank - b.rank);
+  }
   server = await createServer({
     configFile: path.join(webviews, "vite.config.ts"),
     root: webviews,
@@ -180,7 +216,7 @@ try {
   // Each edit gets its own turn (about 3.5 s of scripted stream), started just before the save
   // and with the next message typed, so every edit lands mid-turn however long the one before took.
   let n = 0;
-  for (const probe of PROBES) {
+  for (const probe of replay ? [] : PROBES) {
     n += 1;
     const prompt = `${PROMPT} (${n})`;
     await editor().waitFor({ timeout: 60_000 });
@@ -268,20 +304,96 @@ try {
     for (const row of auditRows.filter((row) => !row.hot)) console.log(`  reloads the page: ${row.file}`);
   }
 
-  const report = { port, live, audit: auditRows, pageErrors: errors, vite };
+  const replayRows = [];
+  for (const save of saves) {
+    // A save that broke the page (a build error) leaves no composer: load it again to go on.
+    if (
+      !(await editor()
+        .waitFor({ timeout: 10_000 })
+        .then(() => true)
+        .catch(() => false))
+    ) {
+      await page.reload();
+      await editor().waitFor({ timeout: 60_000 });
+    }
+    // A reload before this save took the draft and the transcript: lay them down again.
+    if (!(await inPage((prompt) => document.body.innerText.includes(prompt), PROMPT))) {
+      await editor().click();
+      await page.keyboard.type(PROMPT);
+      await page.keyboard.press("Enter");
+      await page.getByText(PROMPT).first().waitFor();
+    }
+    if (
+      !(await inPage((draft) => (document.querySelector(".ProseMirror")?.textContent ?? "").includes(draft), DRAFT))
+    ) {
+      await editor().click();
+      await page.keyboard.type(DRAFT);
+    }
+    await inPage(() => (window.__hotReloadProbe = "same page"));
+    const reloadsAtWrite = reloads;
+    const errorsAtWrite = errors.length;
+    const viteBefore = vite.length;
+    const absolute = path.join(scratch, save.file);
+    if (save.text === undefined) await fs.rm(absolute, { force: true });
+    else {
+      await fs.mkdir(path.dirname(absolute), { recursive: true });
+      await fs.writeFile(absolute, save.text);
+    }
+    await settle();
+    const broke = !(await editor()
+      .waitFor({ timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false));
+    const now = await inPage(
+      ({ draft, prompt }) => ({
+        samePage: window.__hotReloadProbe === "same page",
+        draftKept: (document.querySelector(".ProseMirror")?.textContent ?? "").includes(draft),
+        transcriptKept: document.body.innerText.includes(prompt),
+      }),
+      { draft: DRAFT, prompt: PROMPT },
+    );
+    replayRows.push({
+      ...save,
+      text: undefined,
+      broke,
+      // A file the page never loaded (a test, a script) can't show anything: reported, not counted.
+      loaded: (server.moduleGraph.getModulesByFile(absolute)?.size ?? 0) > 0,
+      reloaded: reloads > reloadsAtWrite,
+      ...now,
+      pageErrors: errors.slice(errorsAtWrite),
+      vite: vite.slice(viteBefore),
+    });
+  }
+  for (const row of replayRows)
+    console.log(
+      `replay ${row.status} ${row.file}: ${row.broke ? "broke the page" : !row.loaded && !row.reloaded ? "not in the page" : row.reloaded || !row.samePage ? "reloaded the page" : "hot-applied"}, ` +
+        `draft kept ${row.draftKept}, transcript kept ${row.transcriptKept}` +
+        (row.pageErrors.length ? `, page errors: ${row.pageErrors.join(" | ")}` : "") +
+        (row.vite.some((line) => line.includes("Could not Fast Refresh"))
+          ? `\n    ${row.vite.filter((line) => line.includes("Could not Fast Refresh")).join("\n    ")}`
+          : ""),
+    );
+  if (replay) {
+    const counted = replayRows.filter((row) => row.loaded || row.reloaded);
+    const hot = counted.filter((row) => !row.broke && !row.reloaded && row.samePage);
+    console.log(`replay ${replay}: ${hot.length} of ${counted.length} saves the page loads hot-applied`);
+  }
+
+  const report = { port, live, audit: auditRows, replay: replayRows, pageErrors: errors, vite };
   await fs.writeFile(path.join(out, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
   console.log(out);
-  const ok =
-    results.every(
-      (row) =>
-        row.midTurn &&
-        row.shown &&
-        !row.reloaded &&
-        row.samePage &&
-        row.draftKept &&
-        row.transcriptKept &&
-        row.turnFinished,
-    ) && errors.length === 0;
+  const ok = replay
+    ? replayRows.every((row) => !row.broke && !row.reloaded && row.samePage && row.draftKept && row.transcriptKept)
+    : results.every(
+        (row) =>
+          row.midTurn &&
+          row.shown &&
+          !row.reloaded &&
+          row.samePage &&
+          row.draftKept &&
+          row.transcriptKept &&
+          row.turnFinished,
+      ) && errors.length === 0;
   process.exitCode = ok ? 0 : 1;
 } finally {
   await browser?.close();

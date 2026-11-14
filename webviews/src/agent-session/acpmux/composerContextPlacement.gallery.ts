@@ -5,12 +5,13 @@
 // it's up, down if it's down. and stop making them take up so much space." Both pickers head the
 // composer in the chat pane and on New Tab, and a menu opens on the side away from the
 // conversation: down from a composer at the window's foot (the chat is above it), up from one high
-// on the page (New Tab, where the chats are under it). Each play fails when a menu opens toward the
-// conversation or leaves the window (composer-location-away.test.ts).
+// on the page (New Tab, where the chats are under it). A side too short for the menu sends it to
+// the other side: a menu never covers its own control (Lucas 2026-11-07), so a second press on the
+// control still closes it. Each play fails when a menu opens on the wrong side, covers its control
+// or leaves the window (composer-location-away.test.ts).
 import { agentPaneEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
 import { CWD, manySessions, noChat } from "../../gallery/fixtures/acpmux";
-import { setComposerLook } from "./composerLook";
 
 const PEERS = {
   peers: ["gpu-box", "build-mini", "eval box"],
@@ -45,27 +46,31 @@ const nextFrames = (ctx: PlayContext) =>
 
 /// Claude look, the strip drawn.
 const claudeLook = async (ctx: PlayContext) => {
-  setComposerLook("claude", { remember: false });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-context"));
 };
 
 const MENU = ".acpmux-location-menu[data-side], .acpmux-env-popover[data-side]";
 
 /// Opens the named location control (Folder, or the Computer / Environment control) and checks
-/// the menu opened away from the conversation and stays in the window.
+/// the menu opened on the expected side, clear of its control, and stays in the window.
 function opensAway(control: "Folder" | "Computer", expected: "top" | "bottom") {
   return async (ctx: PlayContext) => {
-    setComposerLook("claude", { remember: false });
     await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-context"));
     await ctx.click({ role: "button", name: control === "Folder" ? "Folder" : /^(Computer|Environment)/ });
     await ctx.waitFor(() => ctx.document.querySelector(MENU));
+    const trigger = ctx.document.querySelector('[aria-expanded="true"]');
     await nextFrames(ctx);
     const view = ctx.document.defaultView!;
     const popup = ctx.document.querySelector(MENU)!;
     const box = popup.getBoundingClientRect();
     const side = popup.getAttribute("data-side");
     const text = `side ${side}, popup ${Math.round(box.top)}-${Math.round(box.bottom)}, viewport ${view.innerHeight}`;
-    if (side !== expected) throw new Error(`the ${control} menu should open ${expected}, away from the chat: ${text}`);
+    if (side !== expected) throw new Error(`the ${control} menu should open ${expected}: ${text}`);
+    const own = trigger?.getBoundingClientRect();
+    if (own && box.bottom > own.top + 1 && box.top < own.bottom - 1)
+      throw new Error(
+        `the ${control} menu covers its control (${Math.round(own.top)}-${Math.round(own.bottom)}): ${text}`,
+      );
     if (box.top < 0 || box.bottom > view.innerHeight + 1)
       throw new Error(`the ${control} menu left the window: ${text}`);
   };
@@ -89,20 +94,23 @@ export default agentPaneEntry({
   },
   variants: {
     "chat-folder": {
-      note: `${NOTE} A new chat's composer sits at the pane's foot, so the folder menu opens down over the composer.`,
+      composerLook: "claude",
+      note: `${NOTE} A new chat's composer sits at the pane's foot, too close to the window's edge for the menu under its control, so the folder menu opens up instead of covering the control.`,
       ready: { newSession: true, cwd: CWD },
       snapshot: newChat(),
       native: { "cloudMachine.list": CLOUD_LIST },
-      play: opensAway("Folder", "bottom"),
+      play: opensAway("Folder", "top"),
     },
     "chat-computer": {
-      note: `${NOTE} The machine menu of a new chat opens down too, with the account's Cloud machines and their stage.`,
+      composerLook: "claude",
+      note: `${NOTE} The machine menu of a new chat opens up too, clear of its control, with the account's Cloud machines and their stage.`,
       ready: { newSession: true, cwd: CWD },
       snapshot: newChat(),
       native: { "cloudMachine.list": CLOUD_LIST },
-      play: opensAway("Computer", "bottom"),
+      play: opensAway("Computer", "top"),
     },
     "newtab-folder": {
+      composerLook: "claude",
       note: `${NOTE} New Tab's composer sits high on the page with the chats under it, so the folder menu opens up.`,
       height: 720,
       ready: newTab(),
@@ -111,6 +119,7 @@ export default agentPaneEntry({
       play: opensAway("Folder", "top"),
     },
     "newtab-computer": {
+      composerLook: "claude",
       note: `${NOTE} New Tab's machine menu opens up as well.`,
       height: 720,
       ready: newTab(),
@@ -122,6 +131,7 @@ export default agentPaneEntry({
     // the app sets as <html data-top-strip>). Picked: the default, plain text over the box, the
     // least height and no second surface; the others stay a Debug choice.
     "strip-plain-text": {
+      composerLook: "claude",
       note: "Picked: folder and machine as plain text a few px over the box, side by side, content-sized.",
       height: 360,
       ready: newTab(),
@@ -129,6 +139,7 @@ export default agentPaneEntry({
       play: claudeLook,
     },
     "strip-bump": {
+      composerLook: "claude",
       note: "Alternate (Debug): the strip as a bump of the box's fill over its top edge, a hairline round it.",
       height: 360,
       ready: newTab(),
@@ -137,6 +148,7 @@ export default agentPaneEntry({
       play: claudeLook,
     },
     "strip-tray": {
+      composerLook: "claude",
       note: "Alternate (Debug): a filled tray tucked under the box's top edge.",
       height: 360,
       ready: newTab(),
@@ -145,6 +157,7 @@ export default agentPaneEntry({
       play: claudeLook,
     },
     "strip-plus-edge": {
+      composerLook: "claude",
       note: "Alternate (Debug): plain text whose first icon stands on the + glyph's edge, not on the quiet row's icon column.",
       height: 360,
       ready: newTab(),

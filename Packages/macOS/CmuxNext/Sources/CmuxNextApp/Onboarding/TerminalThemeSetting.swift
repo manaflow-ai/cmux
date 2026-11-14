@@ -17,8 +17,8 @@ import Observation
 /// pictures here, the one place both are applied.
 @MainActor
 final class TerminalThemeSetting {
-    static let path = AppThemeSetting().configPath
-    static let fontSizePath = TerminalFontSetting().sizePath
+    static let path = AppThemeSetting.configPath
+    static let fontSizePath = TerminalFontSetting.sizePath
 
     private struct State: Equatable {
         var theme: String?
@@ -88,9 +88,9 @@ final class TerminalThemeSetting {
         // The theme, its edits, the window background, the backdrop art and the tuning follow
         // `applied`, so a theme picker's, the Opacity, Hue or Saturation slider's or the background
         // picker's live preview repaints the window; the rest follows the loaded
-        // settings, so a font size slider's preview never reloads Ghostty per tick. A background step
-        // repaints at once and reloads Ghostty after the steps stop (`apply`).
-        take(settings.snapshot, theme: settings.applied.appTheme, edits: settings.applied.themeEdits,
+        // settings (a Theme File's preview included: `lookFollowed`), so a font size slider's preview never
+        // reloads Ghostty per tick. A background step repaints at once and reloads Ghostty after the steps stop (`apply`).
+        take(settings.lookFollowed, theme: settings.applied.appTheme, edits: settings.applied.themeEdits,
              background: settings.applied.windowBackground, art: settings.applied.backdropSelection,
              shuffle: BackdropSelectionSetting.shuffle(settings.applied.root), tuning: settings.applied.windowTuning,
              reduced: settings.applied.reducedBackgrounds)
@@ -105,7 +105,7 @@ final class TerminalThemeSetting {
         }
         observation = Task { [weak self] in
             for await (snapshot, theme, edits, background, art, shuffle, tuning, reduced) in ObservationStream({
-                (settings.snapshot, settings.applied.appTheme, settings.applied.themeEdits, settings.applied.windowBackground,
+                (settings.lookFollowed, settings.applied.appTheme, settings.applied.themeEdits, settings.applied.windowBackground,
                  settings.applied.backdropSelection, BackdropSelectionSetting.shuffle(settings.applied.root), settings.applied.windowTuning,
                  settings.applied.reducedBackgrounds)
             }) {

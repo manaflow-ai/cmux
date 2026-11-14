@@ -271,15 +271,16 @@ async fn deny_all_and_deny_rules_still_deny_in_full_access() {
     let session = hub.resolve(&id).unwrap();
     assert_eq!(hub.session_summary(&session)["preview"], "chose no");
     assert_eq!(hub.session_summary(&session)["currentModeId"], "bypassPermissions");
-    // Deny-all, the person's explicit choice, denies the guard too (it also moves the chat to its
-    // asking mode, `policy_mode.rs`; a request on its way meanwhile is denied all the same).
+    // Deny-all, the person's explicit choice, on a chat in Full access whose harness has no mode
+    // `policy_mode.rs` moves it to: its agent cannot keep the policy, so it is stopped and the
+    // chat does not run again under it (lead, 2026-11-08: a policy that does not hold never
+    // runs). Nothing it asked was approved in Full access.
     let id = chat_in(&mut c, "bypassPermissions").await;
     c.request(method::MUX_SET_POLICY, json!({"sessionId": id, "policy": "deny-all"}))
         .await
         .unwrap();
-    c.request(method::SESSION_PROMPT, guard(&id)).await.unwrap();
-    let session = hub.resolve(&id).unwrap();
-    assert_eq!(hub.session_summary(&session)["preview"], "chose no");
+    let err = c.request(method::SESSION_PROMPT, guard(&id)).await.unwrap_err();
+    assert!(err.contains("cannot be enforced"), "{err}");
     assert!(
         autos(&hub, &id).iter().all(|a| a.get("fullAccess").is_none()),
         "{:?}",

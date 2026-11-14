@@ -1,0 +1,41 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/pr-list",
+  "name": { "en": "PR List" },
+  "version": "1.0.0",
+  "description": { "en": "An example extension: your pull requests and the ones waiting for your review, live in a sidebar section, built on cmux.watch(\"github.pulls\")." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "arrow.triangle.pull" },
+  "categories": ["sidebar", "git"],
+  "keywords": ["github", "pull requests", "review", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "catalog": "catalog.json",
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderPullRequests",
+      "title": { "en": "Pull Requests" },
+      "symbol": "arrow.triangle.pull",
+      "options": { "defaultRegion": "top", "maxRows": 12 }
+    }
+  },
+  "scopes": {
+    "integration:github:read": "Read your pull requests through your connected GitHub account, without seeing its token.",
+    "actions:run": "Open a pull request in a browser tab when you click it."
+  },
+  "optionalScopes": {
+    "net:api.github.com": "Without a connected account, read the public pull requests of the GitHub login in Settings."
+  },
+  "settings": {
+    "type": "object",
+    "properties": {
+      "login": { "type": "string", "title": "GitHub login (public fallback)", "default": "" },
+      "showDrafts": { "type": "boolean", "title": "Show drafts", "default": true }
+    }
+  },
+  "activation": ["onInterface:cmux.section/1", "onOp:local.pr_list.refresh"],
+  "files": ["dist/", "catalog.json"]
+}

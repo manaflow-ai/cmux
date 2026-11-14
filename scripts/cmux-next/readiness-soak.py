@@ -299,7 +299,9 @@ class Soak:
                      os.path.join(support, bundle),
                      os.path.join(support, "cmux-next", bundle),
                      os.path.join(support, "cmux", bundle),
+                     os.path.join(support, "cmux-next", f"managed-status.{bundle}.json"),
                      os.path.join(support, "cmux", f"managed-status.{bundle}.json"),
+                     os.path.join(support, "cmux-next", "tags", tag),
                      os.path.join(support, "cmux", "tags", tag),
                      os.path.expanduser(f"~/.cmux/chief/isolated/{tag}")):
             if os.path.isdir(path) and not os.path.islink(path):

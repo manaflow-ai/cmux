@@ -45,13 +45,11 @@ fn closing_a_view_preserves_terminal_side_tables_until_explicit_close() {
 
     mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
     assert!(settled(&mux).list_agents(None, None).is_empty());
-    assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
+    // The explicit close tombstones the terminal, and the tombstone ends its agent record.
+    assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
     assert_eq!(
-        crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1
+        crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"],
+        serde_json::json!([])
     );
     assert!(mux.surface_notification(first.id).is_none());
     assert!(mux.surface(first.id).is_none());

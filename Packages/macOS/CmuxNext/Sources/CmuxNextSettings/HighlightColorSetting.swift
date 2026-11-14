@@ -6,16 +6,14 @@ import Foundation
 /// read the terminal's selection color (`ThemeTokens.textSelection`), follow it. Unset (the
 /// default) keeps the theme's own. The Home chat's Messages bubbles keep their own highlight.
 public nonisolated struct HighlightColorSetting: Sendable {
-    public let configPath = ["appearance", "highlightColor"]
-
     public init() {}
 
     /// `#rrggbb`, lowercased; nil when unset. A bad value is nil plus a diagnostic. `#RRGGBBAA`
     /// (the Settings color well can write one) drops the alpha: Ghostty's selection is opaque.
     func parse(_ root: JSONValue) -> (String?, SettingsDiagnostic?) {
-        guard let value = root.value(at: configPath) else { return (nil, nil) }
+        guard let value = root.value(at: Self.configPath) else { return (nil, nil) }
         if let text = value.stringValue, let color = Self.color(text) { return (color, nil) }
-        return (nil, SettingsDiagnostic(kind: .invalidValue, path: configPath.joined(separator: "."),
+        return (nil, SettingsDiagnostic(kind: .invalidValue, path: Self.configPath.joined(separator: "."),
                                         message: "expected \"#RRGGBB\""))
     }
 

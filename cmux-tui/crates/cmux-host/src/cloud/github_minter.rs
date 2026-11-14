@@ -50,6 +50,8 @@ pub enum Ask {
     GithubRepos(Result<super::github_repos::ReposAsk, String>),
     /// Which GitHub account is connected (`github_status.rs`): no token.
     GithubStatus(Result<(), String>),
+    /// The session host's relay Register ticket (`carrier_ticket.rs`).
+    CarrierTicket(Result<(), String>),
     Handoff(Result<HandoffReport, String>),
 }
 
@@ -90,11 +92,11 @@ impl Stop {
         *self.lock() = true;
     }
 
-    fn is_set(&self) -> bool {
+    pub(super) fn is_set(&self) -> bool {
         *self.lock()
     }
 
-    fn lock(&self) -> MutexGuard<'_, bool> {
+    pub(super) fn lock(&self) -> MutexGuard<'_, bool> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
@@ -180,6 +182,9 @@ fn run<H: Http>(
                         Ask::Github(ask) => answer(client.as_deref_mut(), ask, now(), log),
                         Ask::GithubRepos(ask) => answer_repos(client.as_deref_mut(), ask, now()),
                         Ask::GithubStatus(ask) => answer_status(client.as_deref_mut(), ask, now()),
+                        Ask::CarrierTicket(ask) => {
+                            answer_carrier(client.as_deref_mut(), ask, now())
+                        }
                         Ask::Handoff(report) => {
                             answer_report(client.as_deref_mut(), report, now(), log)
                         }
@@ -250,6 +255,21 @@ pub fn answer_status<H: Http>(
         return github::refusal("vm.unbound", "Reconnect this machine to cmux Cloud, then retry.");
     };
     client.github_status(now_wall_ms)
+}
+
+/// A relay Register ticket, asked off the agent poll loop like the status.
+pub fn answer_carrier<H: Http>(
+    client: Option<&mut CloudClient<H>>,
+    ask: Result<(), String>,
+    now_wall_ms: u64,
+) -> Value {
+    if let Err(why) = ask {
+        return github::refusal("request.invalid", &why);
+    }
+    let Some(client) = client else {
+        return github::refusal("vm.unbound", "this machine is not bound to cmux Cloud yet");
+    };
+    client.carrier_ticket(now_wall_ms)
 }
 
 /// The reply for one hand-off report: a refusal before a bind or for a

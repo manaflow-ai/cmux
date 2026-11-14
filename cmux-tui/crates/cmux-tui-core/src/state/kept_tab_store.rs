@@ -51,6 +51,40 @@ pub(crate) struct KeptTab {
     /// Started on its workspace's first show, not at connect (see
     /// [`KeptTabRecord::on_show`]).
     pub on_show: bool,
+    /// The newest command its shell finished before the tab was kept.
+    pub last_command: Option<LastCommand>,
+}
+
+/// The newest command a kept tab's shell finished (OSC 133), for its
+/// restored marker line: about 100 bytes plus the command line, which
+/// `shell_history::clean_command` already cut to 1 KiB.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct LastCommand {
+    pub command: String,
+    /// None when the shell reported no status (a prompt without `D`).
+    pub exit_code: Option<i32>,
+    pub started_at_ms: u64,
+    pub ended_at_ms: u64,
+}
+
+impl LastCommand {
+    /// The kept form of `finished`; none without a command line.
+    pub(crate) fn from_finished(finished: &crate::shell_history::FinishedCommand) -> Option<Self> {
+        Some(Self {
+            command: finished.command.clone()?,
+            exit_code: finished.exit_code,
+            started_at_ms: finished.started_at_ms,
+            ended_at_ms: finished.started_at_ms.saturating_add(finished.duration_ms),
+        })
+    }
+
+    fn to_column(&self) -> Option<String> {
+        serde_json::to_string(self).ok()
+    }
+
+    fn from_column(column: Option<String>) -> Option<Self> {
+        column.and_then(|json| serde_json::from_str(&json).ok())
+    }
 }
 
 /// Longest accepted directory, in bytes.
@@ -82,6 +116,10 @@ pub(crate) fn create_kept_tab_schema(transaction: &Transaction<'_>) -> anyhow::R
             "ALTER TABLE kept_tabs ADD COLUMN on_show INTEGER NOT NULL DEFAULT 0;",
         )?;
     }
+    // Additive: a [`LastCommand`] as JSON; an older build leaves it null.
+    if !columns.iter().any(|column| column == "last_command_json") {
+        transaction.execute_batch("ALTER TABLE kept_tabs ADD COLUMN last_command_json TEXT;")?;
+    }
     Ok(())
 }
 
@@ -109,12 +147,25 @@ pub(crate) fn read_kept_tabs(
 /// The `extra.relaunch` of one tab: `{cwd}` for a kept tab (with
 /// `on_show: true` for a parked one), else null.
 pub(crate) fn relaunch_value(connection: &Connection, tab_id: &str) -> anyhow::Result<Value> {
-    let row = connection
-        .query_row("SELECT cwd, on_show FROM kept_tabs WHERE tab_id = ?1", [tab_id], |row| {
-            Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)? != 0))
-        })
-        .optional()?;
+    let row = super::values::query_row_cached(
+        connection,
+        "SELECT cwd, on_show FROM kept_tabs WHERE tab_id = ?1",
+        [tab_id],
+        |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)? != 0)),
+    )
+    .optional()?;
     Ok(row.map_or(Value::Null, |(cwd, on_show)| relaunch_json(cwd.as_deref(), on_show)))
+}
+
+/// [`relaunch_value`] of each kept tab, by tab id, for a list of the
+/// session's tabs: the table is read one time, not one time for each tab.
+pub(crate) fn relaunch_values(connection: &Connection) -> anyhow::Result<HashMap<String, Value>> {
+    let mut statement = connection.prepare("SELECT tab_id, cwd, on_show FROM kept_tabs")?;
+    let rows = statement.query_map([], |row| {
+        let (cwd, on_show) = (row.get::<_, Option<String>>(1)?, row.get::<_, i64>(2)? != 0);
+        Ok((row.get::<_, String>(0)?, relaunch_json(cwd.as_deref(), on_show)))
+    })?;
+    Ok(rows.collect::<Result<HashMap<_, _>, _>>()?)
 }
 
 /// `{cwd}`, with `on_show: true` for a tab parked by `park-tabs`.
@@ -159,11 +210,19 @@ pub(crate) fn write_kept_tabs(
          )",
         [],
     )?;
-    for KeptTab { tab_id, cwd, title, on_show } in tabs {
+    for KeptTab { tab_id, cwd, title, on_show, last_command } in tabs {
         transaction.execute(
-            "INSERT INTO kept_tabs(tab_id, cwd, title, on_show) VALUES(?1, ?2, ?3, ?4)
-             ON CONFLICT(tab_id) DO UPDATE SET cwd = excluded.cwd, title = excluded.title, on_show = excluded.on_show",
-            params![tab_id, cwd, title, i64::from(*on_show)],
+            "INSERT INTO kept_tabs(tab_id, cwd, title, on_show, last_command_json)
+             VALUES(?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(tab_id) DO UPDATE SET cwd = excluded.cwd, title = excluded.title,
+               on_show = excluded.on_show, last_command_json = excluded.last_command_json",
+            params![
+                tab_id,
+                cwd,
+                title,
+                i64::from(*on_show),
+                last_command.as_ref().and_then(LastCommand::to_column)
+            ],
         )?;
     }
     if !tabs.is_empty() {
@@ -217,8 +276,9 @@ impl WorkspaceRegistry {
     /// the registry lock, `terminal_respawn/manual.rs`).
     pub(crate) fn kept_tabs_of(&self, tab_ids: &[String]) -> anyhow::Result<Vec<KeptTab>> {
         let db = self.connection.get();
-        let mut statement =
-            db.prepare("SELECT cwd, title, on_show FROM kept_tabs WHERE tab_id = ?1")?;
+        let mut statement = db.prepare(
+            "SELECT cwd, title, on_show, last_command_json FROM kept_tabs WHERE tab_id = ?1",
+        )?;
         let mut rows = Vec::new();
         for tab_id in tab_ids {
             let row = statement
@@ -228,6 +288,7 @@ impl WorkspaceRegistry {
                         cwd: row.get(0)?,
                         title: row.get(1)?,
                         on_show: row.get::<_, i64>(2)? != 0,
+                        last_command: LastCommand::from_column(row.get(3)?),
                     })
                 })
                 .optional()?;

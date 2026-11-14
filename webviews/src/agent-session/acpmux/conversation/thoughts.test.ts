@@ -85,3 +85,41 @@ test("keeps a thought that may still stream: the last one of a working chat or a
   expect(done[0]!.items).toEqual([call]);
   expect(done[0]!.version).not.toBe(withoutQuietThoughts([streaming], true)[0]!.version);
 });
+
+test("a snapshot after the last shapes as a fresh read of it would, live or not", () => {
+  // Seeded, so a failure replays. The client's snapshots keep their unchanged rows' objects and
+  // change at the tail; each step here is checked against a copy of every row, which no cache knows.
+  let seed = 11;
+  const random = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+  let made = 0;
+  const any = (): AcpmuxRow => {
+    made += 1;
+    const pick = random();
+    return pick < 0.3
+      ? step(`q${made}`, [thought("Hmm.", 0, 200)])
+      : pick < 0.6
+        ? step(`k${made}`, [thought(LONG, 0, 5_000), call])
+        : pick < 0.8
+          ? step(`m${made}`, [thought("", 0, 0), call])
+          : { ...reply, id: `r${made}` };
+  };
+  const shape = (rows: AcpmuxRow[]) => rows.map((row) => [row.id, row.items?.length ?? 0]);
+  let rows = Array.from({ length: 30 }, any);
+  for (let step = 0; step < 300; step += 1) {
+    const next = rows.slice();
+    const pick = random();
+    if (pick < 0.5) next.push(any());
+    else if (pick < 0.85) next[next.length - 1 - Math.floor(random() * 2)] = any();
+    else next[Math.floor(random() * next.length)] = any();
+    const live = random() < 0.5;
+    expect(shape(withoutQuietThoughts(next, live))).toEqual(
+      shape(
+        withoutQuietThoughts(
+          next.map((row) => ({ ...row })),
+          live,
+        ),
+      ),
+    );
+    rows = next;
+  }
+});

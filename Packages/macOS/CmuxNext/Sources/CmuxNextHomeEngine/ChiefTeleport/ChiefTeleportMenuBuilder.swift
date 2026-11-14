@@ -1,8 +1,8 @@
 import AppKit
 
 /// Turns a ``ChiefTeleportMenu`` into the `NSMenu` the location chip pops up: a title, the
-/// destinations (the current one checked), Roll Back while the home is moved, and the running or
-/// last move's line. A pick calls the model's ``ChiefTeleportModel/onMove`` or
+/// destinations (the current one checked), Roll Back while the home is moved, the running or
+/// last move's line, and the fork in cmux Cloud when there is one. A pick calls the model's ``ChiefTeleportModel/onMove`` or
 /// ``ChiefTeleportModel/onRollback`` (the app's `chief.moveTo` and `chief.moveRollback`).
 @MainActor
 final class ChiefTeleportMenuBuilder: NSObject {
@@ -37,10 +37,14 @@ final class ChiefTeleportMenuBuilder: NSObject {
             item.setAccessibilityIdentifier("cmux.home.chief.teleport.rollback")
             menu.addItem(item)
         }
-        if let status = Self.statusLine(model.phase) {
-            menu.addItem(.separator())
-            let item = NSMenuItem(title: status, action: nil, keyEquivalent: "")
+        let status = Self.statusLine(model.shownPhase)
+        let fork = model.marks.fork.map { ChiefTeleportStrings.forkLine($0.name) }
+        if status != nil || fork != nil { menu.addItem(.separator()) }
+        for (line, id) in [(status, "status"), (fork, "fork")] {
+            guard let line else { continue }
+            let item = NSMenuItem(title: line, action: nil, keyEquivalent: "")
             item.isEnabled = false
+            item.setAccessibilityIdentifier("cmux.home.chief.teleport.\(id)")
             menu.addItem(item)
         }
         return menu

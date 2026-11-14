@@ -468,12 +468,13 @@ impl WorkspaceRegistry {
             Some(_) => return Ok(()),
             None => None,
         };
+        // Each agent hook reports its session again: only a different record is written.
         self.connection.get().execute(
             "UPDATE terminal_relaunch SET agent_json = ?2, updated_at_ms = ?3
              WHERE terminal_id = (
                SELECT terminal_id FROM resource_terminals
                WHERE public_id = ?1 AND deleted_revision IS NULL
-             )",
+             ) AND agent_json IS NOT ?2",
             params![terminal_public_id, agent, now_ms()?],
         )?;
         Ok(())

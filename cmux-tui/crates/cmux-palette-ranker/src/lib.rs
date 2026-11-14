@@ -3,11 +3,11 @@
 //! One implementation of the palette's match tiers, typo correction, user
 //! aliases and pins, learned picks and frecency, so every host (the macOS
 //! app over the C ABI in [`ffi`], browser pages and other frontends) ranks a
-//! query the same way. It is a 1:1 port of the TypeScript ranker
-//! (`webviews/src/palette/ranker.ts`): the same scores, the same order and
-//! the same JSON request and response shapes. The checked-in corpus
-//! (`tests/corpus/`) holds that ranker's answers and the behavior test
-//! replays it through the C ABI.
+//! query the same way. It began as a 1:1 port of the TypeScript ranker it
+//! replaced (deleted since): the same scores, the same order and the same
+//! JSON request and response shapes. The checked-in corpus (`tests/corpus/`)
+//! holds that ranker's answers and the behavior test replays it through the
+//! C ABI.
 //!
 //! Known differences, all on input the app never sends or for the better:
 //! lowercasing here uses no locale, where JavaScriptCore's
@@ -139,6 +139,25 @@ pub struct RankRequest {
     pub pinned_section_index: Option<i64>,
     pub row_limit: Option<i64>,
     pub highlight_limit: Option<i64>,
+    /// Whether a typed query also ranks one-edit typos: absent, only when the strict pass found
+    /// fewer than [`TYPO_PASS_THRESHOLD`] rows at the substring tier or better; false never; true
+    /// always. A host that ranks one catalog in several requests (each within a size cap) ranks
+    /// them all strictly, sums their [`RankAnswer::strict_matches`], and ranks them again with
+    /// true when that sum is below the threshold, so they decide the pass as one request would.
+    /// (Rust only: the TypeScript ranker has no such field.)
+    pub typo_pass: Option<bool>,
+}
+
+/// The typo pass runs only when the strict pass found fewer rows than this at the substring tier
+/// or better (see [`RankRequest::typo_pass`]).
+pub const TYPO_PASS_THRESHOLD: usize = 3;
+
+/// One request's answer and the count a host needs to merge several requests' answers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RankAnswer {
+    pub sections: Vec<RankedSection>,
+    /// Rows the strict pass matched at the substring tier or better (0 for the empty query).
+    pub strict_matches: usize,
 }
 
 /// One ranked row by entry index.
@@ -227,11 +246,12 @@ impl Ranker {
             (None, None) => None,
         };
         if let Some(entries) = request.entries.as_deref() {
-            return Ok(rank_entries(request, entries, None, store));
+            return Ok(rank_entries(request, entries, None, store).sections);
         }
         match &self.installed {
             Some(installed) if Some(installed.version) == request.version => {
-                Ok(rank_entries(request, &installed.entries, Some(&installed.prepared), store))
+                Ok(rank_entries(request, &installed.entries, Some(&installed.prepared), store)
+                    .sections)
             }
             _ => Err(RankError::NotInstalled(request.version)),
         }
@@ -243,9 +263,12 @@ fn rank_entries(
     entries: &[Entry],
     prepared: Option<&rank::Prepared>,
     store: Option<&Frecency>,
-) -> Vec<RankedSection> {
+) -> RankAnswer {
     if request.operation == "rankEmpty" {
-        return rank::rank_empty(request, entries, store);
+        return RankAnswer {
+            sections: rank::rank_empty(request, entries, store),
+            strict_matches: 0,
+        };
     }
     match prepared {
         Some(prepared) => rank::rank(request, entries, prepared, store),
@@ -255,6 +278,11 @@ fn rank_entries(
 
 /// Ranks a request that carries its own entries and history.
 pub fn rank_request(request: &RankRequest) -> Vec<RankedSection> {
+    rank_request_answer(request).sections
+}
+
+/// [`rank_request`] with the strict match count.
+pub fn rank_request_answer(request: &RankRequest) -> RankAnswer {
     rank_entries(
         request,
         request.entries.as_deref().unwrap_or_default(),

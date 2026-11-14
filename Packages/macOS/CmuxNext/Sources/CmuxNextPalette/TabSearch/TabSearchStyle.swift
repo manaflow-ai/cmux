@@ -29,12 +29,12 @@ public nonisolated enum PaletteTunables {
         help: "Prototype layout of Search Tabs. Applies the next time it opens.",
         default: .recent, code: "PaletteTunables.tabSearchStyle")
 
-    /// How an on/off command's row shows its current state (Lawrence 2026-11-03). Applies the next
-    /// time the palette opens.
+    /// How a row that flips a state shows it now (Lawrence 2026-11-03; one treatment for command and
+    /// Settings rows, Leo 2026-11-07). Applies the next time the palette opens.
     public static let toggleStyle = Tunable<PaletteToggleStyle>.choice(
-        "palette.toggleStyle", .palette, "On/off command state",
-        help: "How a palette row of an on/off command (Toggle Left Sidebar, Toggle Word Wrap) shows whether it is on now. Applies the next time the palette opens.",
-        default: .trailingSwitch, code: "PaletteTunables.toggleStyle")
+        "palette.toggleStyle", .palette, "On/off row state",
+        help: "How a palette row that flips a state (Focus Ring, Left Sidebar, a Settings switch) shows whether it is on now. Applies the next time the palette opens.",
+        default: .stateWord, code: "PaletteTunables.toggleStyle")
 
     public static var all: [TunableDescriptor] { [tabSearchStyle.descriptor, toggleStyle.descriptor] + scopeDescriptors }
 }

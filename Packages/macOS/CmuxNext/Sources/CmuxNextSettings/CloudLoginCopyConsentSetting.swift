@@ -10,8 +10,7 @@
 /// answer is written here; Settings > Machines turns it off (taken back) or on again. Only the
 /// person sets it: agents are refused (privacy). DEV and NIGHTLY builds copy the login without it.
 public nonisolated struct CloudLoginCopyConsentSetting: Sendable {
-    public static let path = ["cloud", "useMyClaudeLoginOnMyCloudMachines"]
-    public static let key = path.joined(separator: ".")
+    public static let key = configPath.joined(separator: ".")
 
     public init() {}
 
@@ -20,25 +19,12 @@ public nonisolated struct CloudLoginCopyConsentSetting: Sendable {
     /// a team policy, `defaults write`) is no whatever its value, since an organization or a
     /// script never consents for the person; an effective `false` is no too.
     public func consent(file: JSONValue, effective: JSONValue, managed: Bool) -> Bool? {
-        Self.consent(at: Self.path, file: file, effective: effective, managed: managed)
+        Self.consent(at: Self.configPath, file: file, effective: effective, managed: managed)
     }
 
     /// The rule every login consent key shares (``CloudCodexSignInConsentSetting`` too).
     static func consent(at path: [String], file: JSONValue, effective: JSONValue, managed: Bool) -> Bool? {
         if managed || effective.value(at: path)?.boolValue == false { return false }
         return file.value(at: path)?.boolValue
-    }
-
-    static var descriptors: [SettingDescriptor] {
-        [
-            SettingDescriptor(
-                path, section: .machines, group: SettingsText.keyed("settings.group.cloudWorkspaces", "Cloud Workspaces"),
-                title: SettingsText.keyed("settings.cloud.useMyClaudeLogin", "Use My Claude Login on My Own Cloud Machines"),
-                help: SettingsText.keyed("settings.cloud.useMyClaudeLogin.help",
-                                         "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead."),
-                kind: .toggle, default: .bool(false),
-                keywords: ["cloud", "claude", "login", "sign in", "token", "credential", "machine", "consent", "copy"]
-            ),
-        ]
     }
 }

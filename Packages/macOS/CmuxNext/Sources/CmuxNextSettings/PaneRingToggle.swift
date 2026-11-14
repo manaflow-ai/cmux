@@ -1,6 +1,6 @@
 public import CmuxNextDesign
 
-/// Toggle Focus Ring (`focusRing.toggle`, `cmux settings toggle-focus-ring`) covers every pane
+/// Focus Ring (`focusRing.toggle`, `cmux settings toggle-focus-ring`) covers every pane
 /// ring: the focus ring and the unread ring on a terminal or an agent chat
 /// (`notifications.attention.terminals`, `.agentChats`). The person sees one ring on a pane and
 /// asks for it to go (Leo 2026-11-06: "WHY DOESN'T THE COMMAND PALETTE TOGGLE FOR FOCUS RINGS

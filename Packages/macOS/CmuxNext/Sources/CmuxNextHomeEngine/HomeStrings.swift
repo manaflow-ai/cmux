@@ -93,6 +93,18 @@ public nonisolated enum HomeStrings {
                               defaultValue: "**Press `%@` to go anywhere.** It jumps to any open workspace, tab or agent, so it's the first shortcut to learn.",
                               table: "Home", bundle: .module), keys)
     }
+    /// A chord in the welcome's shortcut list, as Markdown: `` `⌘J` then `S` ``.
+    static func chiefWelcomeChord(_ first: String, _ second: String) -> String {
+        String(format: String(localized: "home.chief.welcome.chord", defaultValue: "`%1$@` then `%2$@`",
+                              table: "Home", bundle: .module), first, second)
+    }
+    /// The welcome's Start Agent from Any App line while its system-wide key is off, as Markdown: its
+    /// `keys` (already a code span), its `title`, and the `link` that turns the key on.
+    static func chiefWelcomeAnyApp(_ keys: String, _ title: String, link: String) -> String {
+        String(format: String(localized: "home.chief.welcome.anyApp",
+                              defaultValue: "%1$@ %2$@ (off until you [turn it on](%3$@))",
+                              table: "Home", bundle: .module), keys, title, link)
+    }
     /// The heading over the welcome's other shortcuts.
     static var chiefWelcomeShortcuts: String {
         String(localized: "home.chief.welcome.shortcuts", defaultValue: "More shortcuts:", table: "Home", bundle: .module)

@@ -37,6 +37,12 @@
 //!   domain, then the daemon run, the Mac's id, the session, the policy and a challenge nonce
 //!   this daemon issued. It counts once, for that one chat's `_acpmux/set_policy`, never a
 //!   default, a rule or a mode; a decision signature never counts as one, nor one as a decision.
+//! - A Mac's paired phones (`approvers.rs`) are enrolled the same way, by `host enroll` on that
+//!   Mac, under ids `phone:<12 hex of SHA-256 of the Mac's device id>:<phone id>`, so a phone
+//!   that Mac pairs may allow a prompt of this daemon that reached it through the Mac. Such an
+//!   id signs only decisions, never a policy raise: on its own Mac a phone raises no policy.
+//!   The next `host enroll` or `machine doctor --fix` on the Mac removes a phone it no longer
+//!   pairs; `host approvals rm ID` here removes one at once.
 //! - The app on this machine gives its own public key with
 //!   `_acpmux/mac_approver_set {id, publicKey, name}` (the person only, memory
 //!   only), so `acpmux host enroll` here knows which key to enroll on a peer.
@@ -190,6 +196,11 @@ impl MacApprovers {
         let (Some(id), Some(signature)) = (field("approver"), field("signature")) else {
             return false;
         };
+        // A Mac's paired phone enrolled here allows one prompt at a time, as on its own Mac,
+        // where no phone raises a policy.
+        if id.starts_with(super::approvers::PEER_PHONE) {
+            return false;
+        }
         let Some(signature) = super::approvers::unhex(signature).filter(|s| s.len() == 64) else {
             return false;
         };
@@ -340,7 +351,10 @@ pub fn may_allow(request: &Value, option: &str, answers: Option<&Value>) -> bool
     }
     let answers = answers.filter(|a| !a.is_null());
     match answers {
-        None => super::permission_groups::plain_tool_ask(request),
+        None => {
+            super::permission_groups::plain_tool_ask(request)
+                || super::permissions::external::is_external(request)
+        }
         Some(_) => super::questions::needs_person(request),
     }
 }

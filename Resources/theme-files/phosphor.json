@@ -1,0 +1,29 @@
+// Phosphor: a green-screen terminal look. Green on black everywhere, no wallpaper, no borders, a
+// braille spinner for work. Copy it to ~/.config/cmux/themes/phosphor.json (yours wins over this
+// one), edit and save: the running app repaints at once, no relaunch.
+{
+  "name": "Phosphor",
+  "description": "Green on black everywhere, bare chrome, a braille spinner.",
+
+  // The terminal theme, and its own colors.
+  "appearance.theme": "Green Phosphor CRT",
+  "colors": { "background": "#0b0f0b", "foreground": "#33ff33", "selection": "#0a3a0a", "accent": "#33ff33" },
+  "appearance.accent": "green",
+
+  // No picture, no glass, no edges: the screen is the whole window.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.borders": "none",
+  "appearance.chromeStyle": "bare",
+
+  // The sidebar is the same black, its sections split by lines.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#050805",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "sidebar.sectionLook": "lines",
+  "appearance.statusIndicator.style": "braille",
+
+  "appearance.density": "compact",
+  "terminal.fontFamily": "Menlo",
+  "terminal.fontSize": 13
+}

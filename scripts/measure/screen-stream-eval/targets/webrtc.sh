@@ -71,6 +71,7 @@ stop_watch() {
 
 case "$verb" in
   build)
+    [[ -z "${EVAL_PREBUILT:-}" ]] || { echo "webrtc: no prebuilt= mode (its host runs from its build folder)" >&2; exit 1; }
     swift build -c release --package-path "$package" --product cmux-vnc-host
     # Run in place: it loads WebRTC.framework from beside it (@rpath), which a copy of it would not find.
     printf '#!/bin/sh\nexec "%s/cmux-vnc-host" "$@"\n' "$(swift build -c release --package-path "$package" --show-bin-path)" \

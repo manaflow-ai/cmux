@@ -1,0 +1,13 @@
+{
+  "caption": "The workspace hover card fits its tabs, says a workspace's name once, and stays a moment after you leave its row.",
+  "frameInterval": 0.25,
+  "crop": [0, 0, 0.45, 0.7],
+  "steps": [
+    {"title": "Launch", "wait": 3},
+    {"title": "Before: the name above a tab that repeats it", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.hoverCards.workspaceTitle", "value": "always"}}, "wait": 0.5},
+    {"title": "The sidebar's hover cards", "rpc": {"method": "debug.hover_cards", "params": {"gallery": "sidebar"}}, "wait": 1.5, "clip": true},
+    {"title": "After: the tab row is the name", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.hoverCards.workspaceTitle", "value": "unlessRepeated"}}, "wait": 0.5},
+    {"title": "The sidebar's hover cards again", "rpc": {"method": "debug.hover_cards", "params": {"gallery": "sidebar"}}, "wait": 1.5, "clip": true},
+    {"title": "End", "rpc": {"method": "debug.hover_cards", "params": {"gallery": "none"}}, "wait": 0.3}
+  ]
+}

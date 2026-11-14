@@ -7,9 +7,6 @@ public nonisolated enum LoneChatTabSetting {
 }
 
 nonisolated extension LoneChatTabSetting {
-    public static let configPath = ["tabs", "hideLoneChatTab"]
-    public static let fallback = false
-
     /// A missing key is the default with no diagnostic; a bad value is the default plus a diagnostic.
     static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
         guard let value = root.value(at: configPath) else { return (fallback, nil) }

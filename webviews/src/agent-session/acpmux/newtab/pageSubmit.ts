@@ -2,7 +2,7 @@
 // browser tab is the host's to make, so it opens at once, also before acpmux answered the
 // handshake; only a chat waits for acpmux (cx-hnpxh). A slow handshake used to hold a terminal's
 // Return, and its refusal then vanished with nothing on the page.
-import type { NewTabChat, TabKind } from "../NewTabPage";
+import type { NewTabChat, TabKind } from "../newTabModel";
 import type { ComposerAttachment } from "../attachments";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;

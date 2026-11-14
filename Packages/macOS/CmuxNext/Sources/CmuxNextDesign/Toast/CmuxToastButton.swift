@@ -1,12 +1,23 @@
 public import AppKit
 
-/// A toast's action (Undo, Reopen, Details) or close button: a clear text button in
-/// the primary text color, or a small xmark, on the toast's own surface,
+/// A toast's action (Undo, Reopen, Details), Don't Show Again or close button: a clear text button
+/// in the primary text color (Don't Show Again in the secondary one, lit under the pointer: it is the
+/// quiet choice), or a small xmark, on the toast's own surface,
 /// with the shared hover fill only under the pointer. No second capsule, no
 /// accent color.
 @MainActor
 public final class CmuxToastButton: ClickableButton {
-    public enum Style { case action, close }
+    public enum Style {
+        case action
+        /// Don't Show Again: a text button in the secondary text color, regular weight.
+        case quiet
+        case close
+        /// A primary action filled with the theme's accent (``CmuxToastStyle/filledAction``).
+        case filled
+    }
+
+    /// Whether the button is the accent-filled primary action.
+    public var isFilled: Bool { style == .filled }
 
     /// Horizontal padding of the action title inside its hover fill.
     static let titlePadding: CGFloat = 6
@@ -33,7 +44,7 @@ public final class CmuxToastButton: ClickableButton {
     static let chevronGap: CGFloat = 4
     /// The fill the button shows now (tests): nil when it shows none.
     var shownFill: NSColor? { ChromeHover.fillColor(hover.state) }
-    private lazy var hover = ChromeHover(self, cornerRadius: Metrics.itemCornerRadius, behindContent: true)
+    private lazy var hover = ChromeHover(self, cornerRadius: Metrics.buttonCornerRadius, behindContent: true)
 
     init(style: Style, title: String, target: AnyObject?, action: Selector?) {
         self.style = style
@@ -47,7 +58,7 @@ public final class CmuxToastButton: ClickableButton {
         self.action = action
         setAccessibilityLabel(title)
         switch style {
-        case .action:
+        case .action, .quiet, .filled:
             heightAnchor.constraint(equalToConstant: Self.closeSide + 2).isActive = true
         case .close:
             let config = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
@@ -68,13 +79,13 @@ public final class CmuxToastButton: ClickableButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     public override var intrinsicContentSize: NSSize {
-        guard style == .action else { return NSSize(width: Self.closeSide, height: Self.closeSide) }
+        guard style != .close else { return NSSize(width: Self.closeSide, height: Self.closeSide) }
         let text = attributedTitle.size()
         let chevron = image.map { ceil($0.size.width) + Self.chevronGap } ?? 0
         // Never narrower than the cell needs to draw the whole title: the cell's own insets clipped a title sized
         // to its text alone to "Restart cmux-tui…" (Leo, 2026-11-03).
         let drawn = cell.map { ceil($0.cellSize.width) } ?? 0
-        return NSSize(width: max(ceil(text.width) + chevron + Self.titlePadding * 2, drawn), height: Self.closeSide + 2)
+        return NSSize(width: max(ceil(text.width) + chevron + Self.titlePadding * (style == .filled ? 3 : 2), drawn), height: Self.closeSide + 2)
     }
 
     /// The frame is the alignment rect: the toast's row centres the frames, so Details (22 pt) and
@@ -95,8 +106,25 @@ public final class CmuxToastButton: ClickableButton {
                     .foregroundColor: color,
                 ])
                 contentTintColor = color
+            case .quiet:
+                let color = Palette.toastText(hover.state.hovering || hover.state.pressed ? .primary : .secondary)
+                attributedTitle = NSAttributedString(string: plainTitle, attributes: [.font: Typography.body, .foregroundColor: color])
+                contentTintColor = color
             case .close:
                 contentTintColor = Palette.toastText(hover.state.hovering || hover.state.pressed ? .primary : .secondary)
+            case .filled:
+                // The accent fill, a little deeper under the pointer and pressed; the title on it in the
+                // theme's on-accent ink.
+                wantsLayer = true
+                layer?.cornerRadius = Metrics.buttonCornerRadius
+                let fill = Palette.accentFill
+                let lit = hover.state.pressed ? fill.blended(withFraction: 0.2, of: .black) : hover.state.hovering ? fill.blended(withFraction: 0.1, of: .black) : fill
+                layer?.backgroundColor = (lit ?? fill).cgColor
+                attributedTitle = NSAttributedString(string: plainTitle, attributes: [
+                    .font: Typography.bodyEmphasized,
+                    .foregroundColor: Palette.onAccent,
+                ])
+                contentTintColor = Palette.onAccent
             }
         }
     }
@@ -104,7 +132,7 @@ public final class CmuxToastButton: ClickableButton {
     /// Shows `title` (Details while off, Hide Details while on): VoiceOver reads it and the button
     /// sizes to it.
     func setTitle(_ title: String) {
-        guard style == .action, title != plainTitle else { return }
+        guard style == .action || style == .filled, title != plainTitle else { return }
         plainTitle = title
         setAccessibilityLabel(title)
         applyStyle()

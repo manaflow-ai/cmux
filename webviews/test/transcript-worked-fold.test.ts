@@ -6,7 +6,7 @@
 // notes (or that stopped mid-tool) has no answer.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnView, turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
+import { turnView, turnViewFrom, toggleTurnFold } from "../src/agent-session/acpmux/conversation/turns";
 import { isVisiblyEmptyMessage } from "../src/agent-session/acpmux/conversation/visibleMessage";
 import { layoutConversation } from "../src/agent-session/acpmux/model";
 
@@ -20,7 +20,8 @@ const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRo
 });
 const tool = (id: string, kind = "read") =>
   row(id, "activity", { items: [{ kind: "tool", text: "", tool: { id, title: id, kind, status: "completed" } }] });
-const text = (id: string) => row(id, "assistant", { text: id });
+// Progress fixtures contain actual narration, rather than an id that could be a short answer.
+const text = (id: string) => row(id, "assistant", { text: id.startsWith("interim") ? "Let me check the files." : id });
 /// A reply longer than a short interim note (turns.ts SHORT_NOTE_CHARS).
 const reply = (id: string) =>
   row(id, "assistant", {
@@ -106,12 +107,16 @@ test("an invisible failed prompt keeps its delivery recovery row", () => {
   expect(turnView([failed, summary("failed")], new Set()).map((entry) => entry.id)).toContain("failed-prompt");
 });
 
-test("a turn stopped mid-tool folds its work under the stop line", () => {
-  const rows = [row("u", "user"), text("interim"), tool("build"), summary("cancelled")];
-  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "turnSummary:end"]);
+test.each(["cancelled", "interrupted"])("a %s turn keeps its work open until the reader closes it", (status) => {
+  const rows = [row("u", "user"), text("interim"), tool("build"), summary(status)];
+  const opened = ["user:u", "worked:worked-u", "assistant:interim", "activity:build", "turnSummary:end"];
+  expect(drawn(rows)).toEqual(opened);
+  const closed = toggleTurnFold(rows, new Set(), "worked-u");
+  expect(drawn(rows, closed)).toEqual(["user:u", "worked:worked-u", "turnSummary:end"]);
+  expect(drawn(rows, toggleTurnFold(rows, closed, "worked-u"))).toEqual(opened);
 });
 
-test("a turn that edited and then ran a tool in one step folds its interim text", () => {
+test("a stopped turn keeps interim text open while its edit card stays outside a manual fold", () => {
   const step = row("step", "activity", {
     items: [
       { kind: "tool", text: "", tool: { id: "patch", title: "patch", kind: "edit", status: "completed" } },
@@ -121,7 +126,10 @@ test("a turn that edited and then ran a tool in one step folds its interim text"
   const rows = [row("u", "user"), text("interim"), step, summary("cancelled")];
   const shaped = drawn(rows);
   expect(shaped.slice(0, 2)).toEqual(["user:u", "worked:worked-u"]);
-  expect(shaped).not.toContain("assistant:interim");
+  expect(shaped).toContain("assistant:interim");
+  const closed = drawn(rows, toggleTurnFold(rows, new Set(), "worked-u"));
+  expect(closed).not.toContain("assistant:interim");
+  expect(closed.filter((entry) => entry === "activity:step")).toHaveLength(1);
 });
 
 test("an edit after the answer still joins the turn's edit card, and the answer stays open", () => {
@@ -194,11 +202,14 @@ test("the last reply stays open when short notes and tools come after it", () =>
     summary(),
   ];
   const open = drawn(rows, new Set(["worked-u"]));
+  // Commentary remains between the runs it separates when the reader opens the work.
   expect(open.filter((entry) => entry.startsWith("activity:"))).toEqual([
     "activity:read",
     "activity:grep",
     "activity:test",
   ]);
+  expect(open.indexOf("assistant:checking one more thing")).toBeGreaterThan(open.indexOf("activity:grep"));
+  expect(open.indexOf("assistant:checking one more thing")).toBeLessThan(open.indexOf("activity:test"));
   expect(open.slice(-2)).toEqual(["assistant:answer", "turnSummary:end"]);
   expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:answer", "turnSummary:end"]);
 });

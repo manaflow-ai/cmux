@@ -16,7 +16,6 @@ import {
 } from "../services/billing/plans";
 import {
   PLAN_MACHINE_MEMORY_MB,
-  PAID_MAX_ACTIVE_VMS_DEFAULT,
   vmResourceReservationForCreate,
   VM_DISK_MB_DEFAULT,
 } from "../services/vms/entitlements";
@@ -103,7 +102,6 @@ describe("VM defaults and pricing copy", () => {
   const memoryGb = PLAN_MACHINE_MEMORY_MB / 1024;
   const startingDiskGb = VM_DISK_MB_DEFAULT / 1024;
   test("VM creation defaults are separate from advertised plan limits", () => {
-    expect(PAID_MAX_ACTIVE_VMS_DEFAULT).toBe(5);
     expect(memoryGb).toBe(8);
     expect(startingDiskGb).toBe(32);
   });
@@ -138,48 +136,51 @@ describe("VM defaults and pricing copy", () => {
     })).toEqual({ vcpus: 1, memoryMb: 4096, diskMb: 65536 });
   });
 
-  // These are the advertised plan limits: a machine count, one vCPU and
-  // memory pool shared by those machines, and the largest single machine.
-  // Keep cards, comparison rows, FAQs, and native strings on the same policy.
-  for (const [locale, messages, label] of [
-    ["en", enMessages, "Cloud VM resources"],
-    ["ja", jaMessages, "Cloud VM リソース"],
+  // Paid plans have no machine count (Leo, 2026-11-10: "you can have arbitrarily many VMs and we just build
+  // based off of that kind of thing"): machines are metered beyond the included usage and the spending cap is
+  // the stop. The copy names sizes, never a count or a per-seat count, and adds no dollar numbers.
+  const RETIRED_COUNT = /(?:^|\D)5 (?:Cloud VMs|VMs|machines)|up to 5|最大 ?5 ?台|5 per paid seat|per paid seat|シートごと/i;
+  for (const [locale, messages, savedLabel, resourcesLabel, noCap] of [
+    ["en", enMessages, "Saved Cloud VMs, including paused machines", "Cloud VM resources", "No cap"],
+    ["ja", jaMessages, "保存済み Cloud VM 数（一時停止中を含む）", "Cloud VM リソース", "上限なし"],
   ] as const) {
-    test(`${locale} pricing advertises up to 5 VMs sharing 20 vCPUs and 40 GB RAM`, () => {
-      const features = messages.pricing.pro.features.join("\n");
-      expect(features).toMatch(/(?:^|\D)5(?:\D|$)/);
-      const row = messages.pricing.compare.rows.find(row => row.label === label);
-      expect(row).toBeDefined();
-      const faq = messages.pricing.faq.items.map(item => item.a).join("\n");
-      for (const copy of [features, row!.pro, row!.team, faq]) {
-        expect(copy).toContain("20 vCPU");
-        expect(copy).toContain("40 GB RAM");
+    test(`${locale} pricing gives paid plans no machine count and says use past the included amount is metered`, () => {
+      for (const plan of ["pro", "max", "team"] as const) {
+        expect(messages.pricing[plan].features.join("\n")).not.toMatch(RETIRED_COUNT);
       }
-      expect(row!.max).toContain("80 vCPU");
-      expect(row!.max).toContain("160 GB RAM");
-      expect(features).toContain("24 GB / 12 vCPU");
-      expect(features).toContain("32 GB / 16 vCPU");
-      expect(faq).toContain("24 GB / 12 vCPU");
-      expect(faq).toContain("32 GB / 16 vCPU");
+      expect(JSON.stringify(messages.dashboard.billing)).not.toMatch(RETIRED_COUNT);
+      const faq = messages.pricing.faq.items.map(item => item.a).join("\n");
+      expect(faq).not.toMatch(RETIRED_COUNT);
+      const saved = messages.pricing.compare.rows.find(row => row.label === savedLabel);
+      expect(saved).toBeDefined();
+      expect([saved!.pro, saved!.max, saved!.team]).toEqual([noCap, noCap, noCap]);
+      // Plus is sold as one saved machine and keeps it; Free has none.
+      expect(saved!.go).toBe("1");
+      expect(saved!.free).toBe("false");
+      const resources = messages.pricing.compare.rows.find(row => row.label === resourcesLabel);
+      expect(resources).toBeDefined();
+      for (const copy of [resources!.pro, resources!.max, resources!.team]) expect(copy).not.toMatch(/\d/);
+      const features = messages.pricing.pro.features.join("\n");
+      for (const copy of [features, faq]) {
+        expect(copy).toContain("24 GB / 12 vCPU");
+        expect(copy).toContain("32 GB / 16 vCPU");
+      }
       // The retired per-VM limits and shared-pool numbers must not come back.
-      // 24/32 GB and 12/16 vCPU are current Max offerings and are expected in
-      // the plan ladder copy.
-      expect(JSON.stringify(messages.pricing)).not.toMatch(/per VM|VM あたり|4 vCPU|8 GB RAM|50 Cloud VMs|6 vCPUs shared/);
+      expect(JSON.stringify(messages.pricing)).not.toMatch(/per VM|VM あたり|4 vCPU|8 GB RAM|50 Cloud VMs|6 vCPUs shared|20 vCPUs and 40 GB|80 vCPUs and 160 GB/);
       expect(JSON.stringify(messages.dashboard.billing)).not.toMatch(/per VM|VM あたり|(?:^|\D)4 vCPU/);
     });
   }
 
-  for (const [locale, messages, largestLabel, faqQuestion, poolSentence] of [
-    ["en", enMessages, "Largest Cloud VM", "What does Max add?", "Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool."],
-    ["ja", jaMessages, "最大の Cloud VM", "Max では何が追加されますか?", "VM は 1 つのプールからリソースを使います。大きな VM 1 台でも、小さな VM 5 台でも動かせます。一時停止中の VM はプールを使いません。"],
+  for (const [locale, messages, largestLabel, faqQuestion] of [
+    ["en", enMessages, "Largest Cloud VM", "What does Max add?"],
+    ["ja", jaMessages, "最大の Cloud VM", "Max では何が追加されますか?"],
   ] as const) {
-    test(`${locale} Max copy sells up to 5 VMs sharing 80 vCPUs and 160 GB RAM`, () => {
+    test(`${locale} Max copy sells the larger sizes, not a machine count`, () => {
       const features = messages.pricing.max.features.join("\n");
-      expect(features).toContain("80 vCPU");
-      expect(features).toContain("160 GB");
-      expect(features).toMatch(/(?:^|\D)5(?:\D|$)/);
-      expect(messages.dashboard.billing.max.upsell).toContain("80 vCPU");
-      expect(messages.dashboard.billing.max.upsell).toContain("160 GB");
+      expect(features).toContain("64 GB / 32 vCPU");
+      expect(features).not.toMatch(RETIRED_COUNT);
+      expect(messages.dashboard.billing.max.upsell).toContain("64 GB RAM / 32 vCPU");
+      expect(messages.dashboard.billing.max.upsell).toContain("$200");
       const row = messages.pricing.compare.rows.find(row => row.label === largestLabel);
       expect(row).toBeDefined();
       expect(row!.max).toContain("64 GB RAM");
@@ -196,26 +197,22 @@ describe("VM defaults and pricing copy", () => {
       const faq = messages.pricing.faq.items.find(item => item.q === faqQuestion);
       expect(faq).toBeDefined();
       expect(faq!.a).toContain("$200");
-      expect(faq!.a).toContain("80 vCPU");
-      expect(faq!.a).toContain("160 GB");
-      expect(faq!.a).toContain("20 vCPU");
-      expect(faq!.a).toContain("40 GB");
       expect(faq!.a).toContain("24 GB / 12 vCPU");
       expect(faq!.a).toContain("32 GB / 16 vCPU");
-      expect(faq!.a).toContain(poolSentence);
+      expect(faq!.a).not.toMatch(RETIRED_COUNT);
       const billingFaq = messages.pricing.faq.items.map(item => item.a).join("\n");
       expect(billingFaq).toContain("$200");
     });
   }
 
-  test("fallback locales inherit the pooled resource wording", async () => {
+  test("fallback locales inherit the no-count wording", async () => {
     for (const locale of locales) {
       if (locale === "en" || locale === "ja") continue;
       const messages = await loadMessages(locale) as unknown as typeof enMessages;
       const proCopy = messages.pricing.pro.features.join("\n");
       const maxCopy = messages.pricing.max.features.join("\n");
-      expect(proCopy).toMatch(/20 vCPU(?:s)?[^\n]*40 GB/);
-      expect(maxCopy).toMatch(/80 vCPU(?:s)?[^\n]*160 GB/);
+      expect(proCopy).not.toMatch(RETIRED_COUNT);
+      expect(maxCopy).not.toMatch(RETIRED_COUNT);
       expect(proCopy).toContain("12 vCPU");
       expect(proCopy).toContain("16 vCPU");
       expect(maxCopy).toContain("12 vCPU");
@@ -228,8 +225,9 @@ describe("VM defaults and pricing copy", () => {
     for (const locale of locales) {
       const messages = await loadMessages(locale) as unknown as typeof enMessages;
       const picker = messages.dashboard.billing.picker.features;
-      for (const quantity of ["5", "20", "40"]) expect(picker.pro.join("\n")).toContain(quantity);
-      for (const quantity of ["5", "80", "160"]) expect(picker.max.join("\n")).toContain(quantity);
+      for (const plan of [picker.pro, picker.max, picker.team]) expect(plan.join("\n")).not.toMatch(/(?:^|\D)5(?:\D|$)/);
+      for (const quantity of ["16", "8 vCPU"]) expect(picker.pro.join("\n")).toContain(quantity);
+      for (const quantity of ["64", "32 vCPU"]) expect(picker.max.join("\n")).toContain(quantity);
       expect(JSON.stringify(picker)).not.toMatch(/(?:^|\D)(?:4 vCPU|8 GB RAM)/);
       const sizeError = messages.docs.cloudTroubleshooting.fixSize;
       expect(sizeError).toContain("16");

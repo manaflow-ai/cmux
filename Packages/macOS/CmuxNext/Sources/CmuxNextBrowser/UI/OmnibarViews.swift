@@ -93,7 +93,7 @@ final class OmnibarPillView: NSView {
             if let glass {
                 glass.style = style
             } else {
-                let panel = GlassPanelView(style: style, cornerRadius: 0)
+                let panel = GlassPanelView(style: style, cornerRadius: 0) // glass-level-allow: the omnibar's material and tint are the browser.omnibar look setting (OmnibarGlass), not a fixed level
                 panel.translatesAutoresizingMaskIntoConstraints = false
                 addSubview(panel, positioned: .below, relativeTo: nil)
                 NSLayoutConstraint.activate([
@@ -127,7 +127,10 @@ final class OmnibarPillView: NSView {
     }
 
     private func applyShape() {
-        let radius = look.resolvedCornerRadius(barHeight: bounds.height > 0 ? bounds.height : OmnibarStyle.barHeight)
+        // Open, the pill is the card's top: it takes the card's corner, so its fill does not square off the card's
+        // rounder top corners (`OmnibarStyle.cardCornerRadius`).
+        let radius = state == .card ? OmnibarStyle.cardCornerRadius
+            : look.resolvedCornerRadius(barHeight: bounds.height > 0 ? bounds.height : OmnibarStyle.barHeight)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer?.cornerRadius = radius

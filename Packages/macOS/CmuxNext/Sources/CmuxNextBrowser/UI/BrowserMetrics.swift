@@ -10,7 +10,7 @@ enum BrowserMetrics {
     static var toolbarHeight: CGFloat { max(Metrics.tabStripHeight, Metrics.controlHeight + Metrics.space2) }
     /// Omnibox capsule and toolbar buttons (24 pt compact).
     static var controlHeight: CGFloat { Metrics.controlHeight }
-    static var controlCornerRadius: CGFloat { Metrics.itemCornerRadius }
+    static var controlCornerRadius: CGFloat { Metrics.buttonCornerRadius }
     /// SF Symbol point size inside controls.
     static var symbolPointSize: CGFloat { Metrics.smallIconSize }
     /// Leading glyph box in the omnibox and suggestion rows.

@@ -62,7 +62,10 @@ struct RapidWorkspaceCreateTests {
         let session = "cn-race-\(UUID().uuidString.prefix(8).lowercased())"
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
-            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+            // The daemon reads `workspaces.newPlacement` from the file a test writes for the app (`root/cmux.json`), so
+            // both place by one value; with none written both take the default.
+            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color",
+                            "CMUX_NEXT_CONFIG_FILE": root.appendingPathComponent("cmux.json").path] })
         if !preseedWorkspaceNames.isEmpty {
             let owner = try await launcher.ensure()
             let seed = DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: sessionEvents),
@@ -134,6 +137,9 @@ struct RapidWorkspaceCreateTests {
     @Test func twentyCmdNWithClosesInBetweenKeepEveryWorkspaceInPressOrder() async throws {
         let launched = try await Self.launch()
         let services = launched.services
+        // Press order is one end's order (`top`): under the default `afterCurrent` each new row goes below the row a
+        // close selected, which is not press order.
+        try await CmdNTopInGroupFramesTests.placeAtTop(launched)
         let store = services.daemon.store
         let window = try #require(services.windows.active?.state.id)
         let before = Set(store.workspaces.map(\.id))
@@ -190,7 +196,7 @@ struct RapidWorkspaceCreateTests {
         #expect(store.workspaces.count == expected)
         #expect(created.allSatisfy { members.contains($0.id) }, "not in the sidebar: \(created.filter { !members.contains($0.id) }.map(\.name))")
         #expect(presses.count == created.count, "unnamed or duplicate workspaces: \(created.map(\.name))")
-        // Press order: each new workspace lands at the same end (top or bottom, by the setting).
+        // Press order: each new workspace lands at the same end (top).
         #expect(presses == presses.sorted() || presses == presses.sorted(by: >), "sidebar order by press: \(presses)")
         #expect(failures.isEmpty, "failed: \(failures)")
         #expect(refusals.isEmpty, "notices: \(refusals)")
@@ -332,7 +338,7 @@ struct RapidWorkspaceCreateTests {
     @Test func fiveQuickCmdNDrawEachNewRowFirstInEveryFrameAboveUnreadRows() async throws {
         let launched = try await Self.launch()
         let services = launched.services
-        // `top` named explicitly (the app's default is afterCurrent since #23014; Lawrence asked for the top).
+        // `top` named explicitly (the default is afterCurrent; Lawrence asked for the top).
         let url = launched.root.appendingPathComponent("cmux.json")
         try Data(#"{"workspaces":{"newPlacement":"top"}}"#.utf8).write(to: url)
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,

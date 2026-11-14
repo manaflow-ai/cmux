@@ -64,6 +64,12 @@ import Testing
                                              charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
     }
 
+    /// The view in `view` that takes the keyboard (the dialog's page), or `view` itself.
+    private static func keyTaker(in view: NSView) -> NSView? {
+        if view.acceptsFirstResponder { return view }
+        return view.subviews.lazy.compactMap(keyTaker(in:)).first
+    }
+
     /// The router's decision for `event` in `window`, as `CmuxApplication.sendEvent` and `debug.key` run it.
     private static func dispatch(_ event: NSEvent, in window: NSWindow, _ f: Fixture) -> Bool {
         f.router.dispatchingSynthetic(event) { f.router.interceptKeyDown(event, in: window) }
@@ -105,9 +111,11 @@ import Testing
         // A Command chord is the menu's and the app's (Cmd-W, Cmd-Q), as before.
         #expect(!Self.dispatch(try Self.key("x", code: 7, modifiers: .command, in: f.window), in: f.window, f))
         // The dialog's own window, with the keyboard in the dialog: AppKit delivers the key to its controls.
-        let dialog = try #require(CmuxDialogCenter.shared.view(id))
+        // The dialog's view is the overlay page that draws it; the keyboard is in the page.
+        let dialog = try #require(CmuxDialogCenter.shared.dialog(id)?.view, "the dialog has no view on screen")
         let dialogWindow = try #require(dialog.window)
-        dialogWindow.makeFirstResponder(dialog)
+        let page = try #require(Self.keyTaker(in: dialog), "the dialog's view takes no keyboard")
+        #expect(dialogWindow.makeFirstResponder(page))
         #expect(!Self.dispatch(try Self.key("\r", code: 36, in: dialogWindow), in: dialogWindow, f),
                 "the router took a key the dialog has the keyboard for")
         // Another view of the window has the keyboard: the tab's dialog does not block it.

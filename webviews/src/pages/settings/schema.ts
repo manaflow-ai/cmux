@@ -57,6 +57,8 @@ export type SchemaRow = {
   url_key?: string;
   default: unknown;
   default_label: LocalizedText | null;
+  /** What a list row's empty field shows; null or absent shows none (a host list: its host example). */
+  placeholder?: LocalizedText | null;
   keywords: string[];
   agent_settable: boolean;
   kept_on_reset_all: boolean;

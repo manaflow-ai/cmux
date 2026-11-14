@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextWindowRules
 
 /// Icon changes as undo steps (RECOVERABLE-BY-DEFAULT, the same as pins in
 /// PINNED-ITEMS-END-TO-END P4): a user's set or remove on any object with an
@@ -32,9 +33,10 @@ struct IconHistory {
     /// Changes the icon of object `id` from `previous` to `icon` (nil removes it).
     func change(_ id: String, from previous: String?, to icon: String?, origin: ActionOrigin) throws {
         guard try apply(id, icon.map { .set($0) } ?? .clear) else { return }
-        guard origin == .user, previous != icon else { return }
-        // The undo is the inverse change, which offers the redo the same way.
-        offerUndo(icon == nil ? messages.remove : messages.set) { [self] in
+        // A person's change that changed something offers its inverse (Rust's `tabs::icon_undo`), which
+        // offers the redo the same way.
+        guard let undo = WindowRules().iconUndo(user: origin == .user, previous: previous, icon: icon) else { return }
+        offerUndo(undo == "remove" ? messages.remove : messages.set) { [self] in
             try? change(id, from: icon, to: previous, origin: .user)
         }
     }

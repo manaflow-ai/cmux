@@ -373,9 +373,14 @@ def grown(base: dict, allow: dict, tracked=lambda prefix: True) -> list[str]:
 
     An include dropped because the code under it was deleted (``tracked`` finds no file) is not a shrink."""
     out = []
-    old = base.get("files", {})
-    for rel, entry in sorted(allow.get("files", {}).items()):
+    old, now = base.get("files", {}), allow.get("files", {})
+    for rel, entry in sorted(now.items()):
         was = old.get(rel, {}).get("count", 0)
+        # Debt that moved with its code (Swift to Rust): the reason names the old file, which had
+        # at least this count at the base and is gone now, so the total debt does not rise.
+        moved = re.search(r"moved from (\S+?)[,;)]?(?:\s|$)", str(entry.get("reason", "")))
+        if moved and moved.group(1) not in now and moved.group(1) != rel:
+            was += old.get(moved.group(1), {}).get("count", 0)
         if entry.get("count", 0) > was and not str(entry.get("reason", "")).startswith(GROWABLE):
             out.append(f"{rel}: allowlist {was} -> {entry.get('count')} since the base: a new cap is not debt "
                        f"(remove it, or give a reason starting \"platform:\" or \"safe:\" that names why)")
@@ -542,6 +547,12 @@ class Matcher(unittest.TestCase):
         self.assertEqual(len(grown(base, now({}, include=()))), 1)  # the send path shrank
         self.assertEqual(grown(base, now({}, include=()), tracked=lambda prefix: False), [])  # its code was deleted
         self.assertEqual(len(grown(base, now({}, exclude=("a/x",)))), 1)
+        moved = {"a/z.rs": {"count": 2, "reason": "debt: pre-existing; moved from a/x.rs with its rules"}}
+        self.assertEqual(grown(base, now(moved)), [], "debt that moved with its code is not new")
+        self.assertEqual(len(grown(base, now(moved | {"a/x.rs": base["files"]["a/x.rs"]}))), 1,
+                         "a move whose old entry stays counts the debt twice")
+        self.assertEqual(len(grown(base, now({"a/z.rs": {"count": 3, "reason": "debt: moved from a/x.rs"}}))), 1,
+                         "a move does not grow the count")
 
 
 if __name__ == "__main__":

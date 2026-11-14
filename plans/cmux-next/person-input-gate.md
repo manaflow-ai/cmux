@@ -13,6 +13,11 @@ drives the Mac through (Screen Sharing, Universal Control, the Accessibility Key
 key another process posts (CGEventPost: a computer-use driver, a script) is not, so a Send an agent
 clicks comes back "Not sent: it needs your own key press or click."
 
+Uploads of files the person pasted, dropped or chose (`chat.upload`, the first `chat.upload.begin`
+of a batch) need the same gesture, from a credit of their own (`consumeUpload`). One Enter pays for
+the send and for the upload of a file pasted just before it, which begins only after the host says
+where the paste's files are (Leo, 2026-11-06). Posted input never gives that credit.
+
 ## "Computer use can act as me"
 
 Leo, 2026-11-02: "imo you guys ought to be able to do a true send type thing... and also wouldn't

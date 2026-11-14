@@ -14,6 +14,14 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_env = importlib.util.spec_from_file_location(
+    "git_fixture_env",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_fixture_env.py"),
+)
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
+_git_fixture_env.loader.exec_module(git_fixture_env)
+
 HERE = Path(__file__).resolve().parent
 SCRIPT = HERE.parent / "check-package-dependency-lists.py"
 SPEC = importlib.util.spec_from_file_location("check_package_dependency_lists", SCRIPT)
@@ -88,6 +96,80 @@ class CheckTests(unittest.TestCase):
             result = subprocess.run([sys.executable, str(SCRIPT), "--fix", str(path)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(path.read_text(encoding="utf-8"), manifest('"CmuxNextFeed",', '"CmuxNextTabs",'))
+
+
+class UnmarkedListTests(unittest.TestCase):
+    """Every list of more than one entry is one per line (2026-11-07: 25 conflicted base merges of Package.swift in a
+    week, each on a one-line `dependencies: [...]` that two pull requests both appended to)."""
+
+    PACKAGE = (
+        "let package = Package(\n"
+        "    targets: [\n"
+        "        .target(\n"
+        '            name: "CmuxNextHome",\n'
+        "            // Why Home needs these.\n"
+        '            dependencies: ["CmuxNextWakeups", "CmuxNextCompat", .product(name: "A", package: "A"), "CmuxNextWakeups"],\n'
+        "        ),\n"
+        "        .target(\n"
+        '            name: "CmuxNextFeed",\n'
+        "            dependencies: [\n"
+        '                "CmuxNextTabs", "CmuxNextDaemon", // the timeline\n'
+        "                // Actions' ids.\n"
+        '                "CmuxNextActions",\n'
+        "            ],\n"
+        "        ),\n"
+        "        .target(\n"
+        '            name: "CmuxNextTabs",\n'
+        '            dependencies: ["CmuxNextCompat"],\n'
+        "        ),\n"
+        '        .testTarget(name: "CmuxNextTabsTests", dependencies: ["CmuxNextTabs", "CmuxNextCompat"]),\n'
+        "    ]\n"
+        ")\n")
+
+    def problems(self, text: str) -> list[str]:
+        with unittest.mock.patch.object(lint, "REQUIRED", ()):  # the fixture has no CmuxNextAppTests
+            return lint.check(text, fix=False)[0]
+
+    def test_an_unmarked_list_of_several_entries_fails(self):
+        problems = self.problems(self.PACKAGE)
+        self.assertTrue(any(p.startswith("CmuxNextHome: its dependencies list has more than one entry") for p in problems))
+        self.assertTrue(any(p.startswith("CmuxNextFeed: its dependencies list has more than one entry") for p in problems))
+        # One entry may stay inline; a one-line target call cannot be laid out by line and is left alone.
+        self.assertFalse(any(p.startswith(("CmuxNextTabs:", "CmuxNextTabsTests:")) for p in problems), problems)
+
+    def test_fix_lays_it_out_sorted_with_its_comments_and_one_copy_of_a_duplicate(self):
+        fixed = lint.check(self.PACKAGE, fix=True)[1]
+        self.assertIn(
+            "            // Why Home needs these.\n"
+            f"            dependencies: [ {lint.MARKER}\n"
+            '                "CmuxNextCompat",\n'
+            '                "CmuxNextWakeups",\n'
+            '                .product(name: "A", package: "A"),\n'
+            "            ],\n", fixed)
+        self.assertIn(
+            f"            dependencies: [ {lint.MARKER}\n"
+            "                // Actions' ids.\n"
+            '                "CmuxNextActions",\n'
+            "                // the timeline\n"
+            '                "CmuxNextDaemon",\n'
+            '                "CmuxNextTabs",\n'
+            "            ],\n", fixed)
+        self.assertIn('            dependencies: ["CmuxNextCompat"],\n', fixed)
+        self.assertEqual(self.problems(fixed), [])
+        before = {name: declared for name, (_, declared, _) in lint.manifest_targets(self.PACKAGE).items()}
+        after = {name: declared for name, (_, declared, _) in lint.manifest_targets(fixed).items()}
+        self.assertEqual(before, after)
+
+    def test_two_additions_to_a_laid_out_list_merge_by_line(self):
+        fixed = lint.check(self.PACKAGE, fix=True)[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = [Path(tmp, name) for name in ("ours", "base", "theirs")]
+            paths[0].write_text(fixed.replace('"CmuxNextCompat",\n', '"CmuxNextBrowser",\n                "CmuxNextCompat",\n', 1))
+            paths[1].write_text(fixed)
+            paths[2].write_text(fixed.replace('"CmuxNextWakeups",\n', '"CmuxNextWakeups",\n                "CmuxNextZoom",\n', 1))
+            merged = subprocess.run(["git", "merge-file", "-p", *map(str, paths)], capture_output=True, text=True)
+        self.assertEqual(merged.returncode, 0, merged.stdout)
+        self.assertEqual(self.problems(merged.stdout), [])
 
 
 class ImportTests(unittest.TestCase):
@@ -490,16 +572,17 @@ class HealTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.repo = self.root / "repo"
         self.origin = self.root / "origin.git"
-        self.env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        self.env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         self.env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e", GIT_COMMITTER_NAME="t",
                         GIT_COMMITTER_EMAIL="t@e", GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
-        subprocess.run(["git", "init", "-q", "--bare", "-b", "feat-cmux-next", str(self.origin)], check=True,
-                       env=self.env)
+        git_fixture_env.init_repo(self.origin, "--bare", "-b", "feat-cmux-next", env=self.env)
         self.git("init", "-q", "-b", "feat-cmux-next", cwd=self.root, target=str(self.repo))
         self.git("remote", "add", "origin", str(self.origin))
         package = self.repo / heal.MANIFEST
         package.parent.mkdir(parents=True)
-        package.write_text(FIX_MANIFEST.replace("MARKER_PLACEHOLDER", lint.MARKER), encoding="utf-8")
+        # The base is green: its lists of more than one entry already one per line.
+        package.write_text(lint.check(FIX_MANIFEST.replace("MARKER_PLACEHOLDER", lint.MARKER), fix=True)[1],
+                           encoding="utf-8")
         self.write("Tests/CmuxNextHomeEngineTests/Old.swift", "import CmuxNextHomeEngine\n")
         self.write("Sources/CmuxNextCompat/A.swift", "import Foundation\n")
         self.git("add", "-A")
@@ -562,6 +645,22 @@ class HealTests(unittest.TestCase):
         changed = self.git("diff", "--name-only").split()
         self.assertEqual(changed, [heal.MANIFEST], "only Package.swift changes")
         self.assertEqual(lint.missing_imports(manifest, (self.repo / heal.MANIFEST).parent), [])
+
+    def test_an_import_added_to_a_one_entry_list_is_declared_one_per_line(self):
+        # Review of 930b45df: the entry made an inline `["CmuxNextCompat", "CmuxNextDaemon"]`, which the check after
+        # the repair refused, so no fix pull request was planned.
+        self.write("Sources/CmuxNextHome/A.swift", "import CmuxNextCompat\nimport CmuxNextDaemon\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "home: read the daemon")
+
+        result, _ = self.plan()
+
+        self.assertEqual(result["fixable"], "true", result)
+        manifest = (self.repo / heal.MANIFEST).read_text()
+        self.assertIn(f'dependencies: [ {lint.MARKER}\n                "CmuxNextCompat",\n                "CmuxNextDaemon",\n',
+                      manifest)
+        with unittest.mock.patch.object(lint, "IMPORT_BASELINE", frozenset()):
+            self.assertEqual(lint.check(manifest, fix=False)[0], [])
 
     def test_a_stale_baseline_line_beside_a_fixable_import_opens_nothing(self):
         # Review of 8e00c8ba: the check after the repair counted only "does not declare" problems, so a stale

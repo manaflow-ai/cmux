@@ -125,11 +125,12 @@ mod sidebar_order {
 
     #[test]
     fn workspace_list_answers_the_sidebar_order_to_every_caller() {
-        // The default placement (new workspaces on top), whatever the
-        // developer's own settings file says.
+        // `top` (new workspaces first), whatever the developer's own settings
+        // file says: the default `afterCurrent` puts each after the active one.
         let dir = unique_temp_dir("ws-list-order-config");
         fs::create_dir_all(&dir).unwrap();
         let settings = dir.join("cmux.json");
+        fs::write(&settings, r#"{"workspaces": {"newPlacement": "top"}}"#).unwrap();
         let settings = settings.to_str().unwrap();
         let server = HeadlessServer::start_with_options(
             "ws-list-order",

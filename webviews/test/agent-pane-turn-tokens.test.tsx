@@ -1,24 +1,20 @@
 // l10n-allow-file: test fixture prompts and tool titles, not shipped UI.
-// The running turn's line says what the turn has spent so far, as Claude desktop's does: the
-// time, then this turn's generated output ("Working for 5m 54s · 2.1M out"). Claude Code reports
-// each model call's prompt and output usage as it lands, and acpmux marks those records as one
-// call's (`usage_update` with `_meta.acpmux.call`, claude_stdio/inbound.rs), so the turn's line
-// adds only output tokens since its `turn_started`. Every other usage record is the context a
-// harness holds: Claude Code's result repeats its last call's (for the context ring), and other
+// Turn usage stays available as data while the running line shows elapsed time alone.
+// Claude Code reports each model call's prompt and output usage as it lands, and acpmux marks
+// those records as one call's (`usage_update` with `_meta.acpmux.call`, claude_stdio/inbound.rs),
+// so the turn's usage accumulator adds only output tokens since its `turn_started`. Every other
+// usage record is the context a harness holds: Claude Code's result repeats its last call's (for the context ring), and other
 // harnesses, whatever their family, report only that. None of those adds up. A chat attached after
-// its turn started has not seen every call; it shows the time alone, even once older pages load.
+// its turn started has not seen every call; its accumulated usage stays unknown even once older pages load.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ContextCardBody } from "../src/agent-session/acpmux/ContextCard";
-import {
-  WorkingCountsContext,
-  WorkingFor,
-  workingTokens,
-  type WorkingCounts,
-} from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingCountsContext, type WorkingCounts } from "../src/agent-session/acpmux/conversation/workingForModel";
+import { workingTokens } from "../src/agent-session/acpmux/conversation/turnTokensModel";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000e7";
 const START = Date.UTC(2026, 9, 20, 9, 0, 0);
@@ -614,7 +610,8 @@ test("a usage record's reported setup reaches the context summary while the tool
   }
 });
 
-const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START };
+// The line under the work (`below`); "Working for" over the work says only the turn's time.
+const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START, below: true };
 const counts = (extra: Partial<WorkingCounts> = {}): WorkingCounts => ({
   agents: 0,
   commands: 0,
@@ -634,14 +631,16 @@ const drawn = (row: AcpmuxRow, value: WorkingCounts) =>
     .replace(/\s+/g, " ")
     .trim();
 
-test("the line reads the time, then the turn's output, after the working dots", () => {
-  expect(drawn(status, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s · 2.1M out");
-  expect(drawn({ ...status, doing: "bun test" }, counts({ tokens: 840_000 }))).toBe("bun test 5m 54s · 840K out");
+test("the line keeps elapsed time and background work counts without token amounts", () => {
+  expect(drawn(status, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s");
+  expect(drawn({ ...status, doing: "bun test" }, counts({ tokens: 840_000 }))).toBe("bun test 5m 54s");
   // Before the first call reports, or with no token data, the time stands alone.
   expect(drawn(status, counts())).toBe("Working for 5m 54s");
   expect(drawn(status, counts({ tokens: 0 }))).toBe("Working for 5m 54s");
-  // The background counts follow the tokens.
-  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe("Working for 5m 54s · 2.1M out · 2 subagents");
+  // Background work counts remain even when usage data is present.
+  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe("Working for 5m 54s · 2 subagents");
+  // Over the work, as the Codex app's "Working for 32s": the time alone.
+  expect(drawn({ ...status, below: undefined }, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s");
 });
 
 test("tokens are compact in the pane's language", () => {
@@ -670,6 +669,65 @@ test("usage carries acpmux's cache expiry to the card, and a finished compaction
     daemon.push(record([["in", "compaction", update({ sessionUpdate: "compaction", state: "completed" })]], 4));
     await until(() => snapshot().summary.usage.cacheExpiresAt === undefined, "the compaction");
     expect(snapshot().summary.usage).toEqual({ used: 300_000, size: 400_000 });
+  } finally {
+    client.close();
+  }
+});
+
+// A Codex turn an older acpmux recorded: its input whole, the cache's reads in it, and no
+// `inputExcludesCache` mark. The summary row reads it by the chat's harness (tokenSplit.ts), so its
+// hover says 314.9K uncached, not 3.3M; the same turn recorded now, marked, reads the same.
+test("a Codex chat's older and marked turn_results count their cached input once", async () => {
+  const turn = (seq: number, result: Record<string, unknown>) =>
+    record(
+      [
+        prompt("fix the build"),
+        started,
+        ["mux", "turn_result", { status: "completed", outputTokens: 4_017, cacheReadTokens: 3_021_696, ...result }],
+      ],
+      seq,
+    );
+  const daemon = fakeDaemon(
+    [...turn(1, { inputTokens: 3_336_595 }), ...turn(4, { inputTokens: 314_899, inputExcludesCache: true })],
+    { harness: "codex", family: "codex" },
+  );
+  const { client, snapshot } = await connect(daemon);
+  try {
+    const summaries = () => snapshot().rows.filter((row: AcpmuxRow) => row.kind === "turnSummary");
+    await until(() => summaries().length === 2, "both turns' ends");
+    const split = { output: 4_017, input: 314_899, cacheRead: 3_021_696, cacheWrite: 0 };
+    expect(summaries().map((row: AcpmuxRow) => row.tokens)).toEqual([split, split]);
+  } finally {
+    client.close();
+  }
+});
+
+// Claude Code behind the built-in `cmux` router profile (claude-stdio, family `claude`): an older
+// acpmux's unmarked record had its fresh input alone, as every Claude Code record did.
+test("a cmux router chat's older turn_result keeps its fresh input", async () => {
+  const daemon = fakeDaemon(
+    record([
+      prompt("fix the build"),
+      started,
+      [
+        "mux",
+        "turn_result",
+        {
+          status: "completed",
+          outputTokens: 23_702,
+          inputTokens: 112,
+          cacheReadTokens: 4_530_027,
+          cacheWriteTokens: 124_616,
+        },
+      ],
+    ]),
+    { harness: "cmux", family: "claude" },
+  );
+  const { client, snapshot } = await connect(daemon);
+  try {
+    const summary = () => snapshot().rows.find((row: AcpmuxRow) => row.kind === "turnSummary");
+    await until(() => summary() !== undefined, "the turn's end");
+    expect(summary()?.tokens).toEqual({ output: 23_702, input: 112, cacheRead: 4_530_027, cacheWrite: 124_616 });
   } finally {
     client.close();
   }

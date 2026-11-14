@@ -78,11 +78,9 @@ struct HiddenScreenMotionTests {
         layout.root.advanceFrame(1.0 / 120)
         try #require(layout.isMoving("a"), "the split on the shown screen did not spring")
 
+        // The switch hides screen a in its own turn, with its split still on its way.
         layout.model.selectScreen("b")
         layout.root.syncWithModel()
-        // The switch's fade ends: screen a hides with its split still on its way.
-        layout.root.screenFrames["a"]?.snap()
-        layout.root.applyScreenFrames()
         try #require(layout.root.screenViews["a"]?.isHidden == true, "screen a did not hide")
         #expect(!layout.isMoving("a"), "a screen that hid mid-spring stays frozen mid-motion")
         for pane in ["a-p1", "a-p2", "a-p3"] as [PaneID] {

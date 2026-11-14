@@ -103,15 +103,26 @@ import Testing
         }
     }
 
-    /// cmux-next items carry sparkle:channel cmux-next. Only the cmux-next feed allows it, so
-    /// main's NIGHTLY, RC and stable updaters ignore such items even if they fetched them.
+    /// cmux-next items carry a cmux-next ring tag (`cmux-next`, `cmux-next-stable`, ...). Only the
+    /// cmux-next feed allows them, so main's NIGHTLY, RC and stable updaters ignore such items even
+    /// if they fetched them. On its default Nightly ring the cmux-next feed takes the Nightly tag and
+    /// the slower Stable ring's (``UpdateRing/acceptedSparkleChannels``: a faster ring always gets
+    /// at least what a slower one gets, #22781).
     @Test func onlyTheNightlyNextFeedAllowsTheCmuxNextSparkleChannel() {
         let resolver = UpdateFeedResolver()
-        #expect(resolver.resolve(infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast.xml")
-            .channel.allowedSparkleChannels == ["cmux-next"])
+        let next = resolver.resolve(infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast.xml").channel
+        #expect(next.allowedSparkleChannels == ["cmux-next", "cmux-next-stable"])
+        #expect(next.allowedSparkleChannels.contains(UpdateFeedResolver.Channel.nightlyNextSparkleChannel))
+        #expect(next.allowedSparkleChannels(ring: .stable) == ["cmux-next-stable"])
+        #expect(next.allowedSparkleChannels(ring: .dev)
+            == ["cmux-next-stable", "cmux-next", "cmux-next-canary", "cmux-next-dev"])
         for feed in ["https://files.cmux.com/nightly/appcast.xml", "https://files.cmux.com/rc/appcast.xml",
                      "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"] {
-            #expect(resolver.resolve(infoFeedURL: feed).channel.allowedSparkleChannels.isEmpty, "\(feed)")
+            let channel = resolver.resolve(infoFeedURL: feed).channel
+            #expect(channel.allowedSparkleChannels.isEmpty, "\(feed)")
+            for ring in UpdateRing.allCases {
+                #expect(channel.allowedSparkleChannels(ring: ring).isEmpty, "\(feed) \(ring)")
+            }
         }
         #expect(resolver.resolve(infoFeedURL: nil).channel.allowedSparkleChannels.isEmpty)
     }

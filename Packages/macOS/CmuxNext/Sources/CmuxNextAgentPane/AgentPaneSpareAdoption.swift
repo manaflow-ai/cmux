@@ -1,3 +1,4 @@
+import CmuxNextDesignTokens
 import CmuxNextWakeups
 public import Foundation
 
@@ -54,7 +55,7 @@ extension AgentPaneModel {
     /// (``AgentPaneSpareReadiness``, with this Mac's power and thermal state read now).
     public var servesExistingChat: Bool {
         AgentPaneSpareReadiness(handshake: hasHandshake, painted: hasPainted, clientReady: clientReady,
-                                lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
+                                lowPower: LowPowerMode.system.isEnabled,
                                 thermal: ProcessInfo.processInfo.thermalState).servesChat
     }
 
@@ -131,4 +132,8 @@ public nonisolated enum AgentPaneSpareRefill: Sendable {
     /// still attaching that chat. A new page's load on the main thread would land in that open,
     /// and in the next clicks of someone going down the sidebar.
     case whenQuiet
+    /// After the frame commit and the settle, with no open to wait for: idle work took it (the next Cmd-N's
+    /// reserved workspace), and its page shows nowhere until that key. Mounted hidden, it draws no frame, so a
+    /// wait for its next frame would hold the refill until the idle-input backstop, which typing pushes back.
+    case idle
 }

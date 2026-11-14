@@ -41,7 +41,8 @@ public final class ClosingWorkspaces {
     public func end(_ id: String, refused: Bool, reason: String? = nil, in window: NSWindow?) {
         ids.remove(id)
         guard refused, let window else { return }
-        CmuxToastCenter.shared.show(CmuxToast(id: "workspace-close-refused", message: reason ?? Strings.closeRefused), in: window)
+        // The refusal toast's own id: a tab close refused in the same moment (RefusedCloseNotice) replaces it.
+        CmuxToastCenter.shared.show(CmuxToast(id: CmuxToast.refusalID, message: reason ?? Strings.closeRefused), in: window)
     }
 
     /// `members` without the closing workspaces, unless that leaves none.

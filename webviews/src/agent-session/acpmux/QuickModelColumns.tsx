@@ -5,7 +5,9 @@
 // family's account with the family's mark at its corner, and a click opens a card that switches it.
 // A click applies at once and the menu stays open; Return closes it. Left and Right move between
 // the columns, Up and Down within one.
-import React, { Fragment, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { HarnessUpdatesSection } from "./HarnessUpdates";
+import React, { Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Spinner } from "./conversation/icons";
 import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -13,17 +15,35 @@ import { DrivenList, DrivenRow, InlineCard } from "../../ui/DrivenList";
 import { isMousePress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
 import { AddAccountDialog } from "./AddAccountDialog";
-import { SearchIcon, reasoningChoices, type Choice } from "./ComposerPickers";
+import { SearchIcon } from "./ComposerPickers";
+import { reasoningChoices, type Choice } from "./composerPickerModel";
 import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
 import { OnNewTab } from "./newTabComposer";
 import { isModelRouterKind } from "./routerKinds";
 import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import { useChatAccounts, type ChatAccount } from "./chatAccounts";
+import { QuickModelMenu, StarIcon, UsedMark } from "./QuickModelMenu";
+import { CHAT_COLUMN } from "./modelPickerLayout";
 import {
-  QuickModelMenu,
-  StarIcon,
+  effortColumnWidth,
+  type EffortLabel,
+  fitMenuHeight,
+  MODEL_MENU_MIN_HEIGHT,
+  MODEL_MENU_MIN_WIDTH,
+  menuNameFont,
+  nameLineWidth,
+  naturalMenuWidth,
+  setModelMenuHeight,
+  setModelMenuWidth,
+  type TuneShape,
+  tuneMetrics,
+  useModelMenuHeight,
+  useModelMenuWidth,
+} from "./modelMenuWidth";
+import {
   familyTabs,
+  heldTab,
   initialOf,
   leadRoute,
   runsOffers,
@@ -34,7 +54,7 @@ import {
   type QuickFamily,
   type QuickMenu,
   type QuickModel,
-} from "./QuickModelMenu";
+} from "./quickModelMenuModel";
 import "./quickModelColumns.css";
 
 type Column = 0 | 1 | 2;
@@ -171,6 +191,9 @@ function rowPackedToEnd(chip: HTMLElement): boolean {
   return false;
 }
 
+/// The rows the menu's default height has room for (fitMenuHeight): six levels and Fast.
+const DEFAULT_TUNE_SHAPE: TuneShape = { rows: 6, captions: 0, fast: true };
+
 function Columns({
   open,
   onOpenChange,
@@ -252,7 +275,7 @@ function Columns({
     }),
     [trigger],
   );
-  const { families, current, effort, fast, auth, search } = menu;
+  const { families, current, effort, fast, auth, search, setup } = menu;
   const account = menu.ownModel ? undefined : menu.account;
   const accounts = useAccountList(open, account);
   const [addingAccount, setAddingAccount] = useState(false);
@@ -282,6 +305,8 @@ function Columns({
   };
   // The last level picked here, on any model: the next model clicked carries it.
   const [chosenLevel, setChosenLevel] = useState<string>();
+  // The query a level or Fast was picked by hand under: that pick, not the query's named level, shows.
+  const [handPickedUnder, setHandPickedUnder] = useState<string>();
   const [seen, setSeen] = useState({ effort: effort?.current, fast: fast?.checked });
   if (seen.effort !== effort?.current || seen.fast !== fast?.checked) {
     setSeen({ effort: effort?.current, fast: fast?.checked });
@@ -306,6 +331,8 @@ function Columns({
   // the edge away from the chip stays put. The floor is the largest it has been since it opened; the
   // observer goes with the frame, which unmounts as the menu closes.
   const sizeHold = useRef<ResizeObserver | null>(null);
+  const popupRef = useRef<HTMLElement | null>(null);
+  const [popupNode, setPopupNode] = useState<HTMLElement | null>(null);
   // The columns' fades follow their scroll, their size (the menu grows, the window shrinks) and their
   // rows (a tab or a search changes them). The observers go with the body as the menu closes.
   const fadeWatch = useRef<(() => void) | null>(null);
@@ -313,7 +340,7 @@ function Columns({
     fadeWatch.current?.();
     fadeWatch.current = null;
     if (!body || typeof ResizeObserver === "undefined" || typeof MutationObserver === "undefined") return;
-    const lists = [...body.querySelectorAll<HTMLElement>(":scope > .acpmux-cols-list")];
+    const lists = [...body.querySelectorAll<HTMLElement>(".acpmux-cols-list, .acpmux-cols-tune-scroll")];
     const all = () => lists.forEach(markFades);
     const sized = new ResizeObserver(all);
     const rows = new MutationObserver(all);
@@ -331,15 +358,17 @@ function Columns({
     sizeHold.current?.disconnect();
     sizeHold.current = null;
     const popup = frame?.parentElement;
+    popupRef.current = popup ?? null;
+    // The portal mounts after the open render's effects ran: measure and size it now.
+    setPopupNode(popup ?? null);
     if (!frame || !popup || typeof ResizeObserver === "undefined") return;
-    let width = 0;
+    // The width is set (the longest name of every tab, or the person's own, modelMenuWidth.ts), so
+    // only the height is held here.
     let height = 0;
     const observer = new ResizeObserver(() => {
+      // A height of the person's own (heightOf) or a drag in progress sets it: nothing to hold.
+      if (frame.style.height) return;
       const box = frame.getBoundingClientRect();
-      if (box.width > width) {
-        width = box.width;
-        popup.style.minWidth = `min(${width}px, var(--available-width, calc(100vw - 24px)))`;
-      }
       if (box.height > height) {
         height = box.height;
         // Never past the frame's own cap: min-height beats max-height.
@@ -350,7 +379,75 @@ function Columns({
     sizeHold.current = observer;
   }, []);
   const modelsList = useRef<HTMLDivElement | null>(null);
+  // The list as state too: the popup draws it after `open` turns true, so an effect keyed on `open`
+  // alone ran before it existed and never watched its width (the star sat on the check in a narrowed
+  // menu, Lucas 2026-11-11).
+  const [modelsListElement, setModelsListElement] = useState<HTMLDivElement | null>(null);
+  const holdModelsList = useCallback((element: HTMLDivElement | null) => {
+    modelsList.current = element;
+    setModelsListElement(element);
+  }, []);
   const railList = useRef<HTMLDivElement | null>(null);
+  // The menu's width: the person's own (a drag on its edge), else as wide as the longest model name
+  // of every tab, so it never changes width from tab to tab; a narrower menu wraps a longer name.
+  const ownWidth = useModelMenuWidth();
+  const [natural, setNatural] = useState<{ key: string; width: number; effort?: number; height?: number }>();
+  // A drag in progress owns the width: a render meanwhile (a streaming reply) never resets it.
+  const dragging = useRef(false);
+  const widthOf = useCallback(
+    (popup: HTMLElement | null | undefined) => {
+      if (!popup || dragging.current) return;
+      const available = "var(--available-width, calc(100vw - 24px))";
+      const column = popup.ownerDocument.querySelector(CHAT_COLUMN)?.getBoundingClientRect();
+      const room = column ? `min(${Math.max(0, column.width - 10)}px, ${available})` : available;
+      popup.style.minWidth = `min(${ownWidth ? `${MODEL_MENU_MIN_WIDTH}px` : "var(--acpmux-cols-min-width)"}, ${room})`;
+      if (ownWidth) {
+        // A width the person dragged to is theirs, from the drag's floor up to the window.
+        popup.style.width = `min(${ownWidth}px, ${room})`;
+        popup.style.maxWidth = room;
+        return;
+      }
+      // The default: the longest name's width in em of the menu's type, so it grows with interface
+      // scale and chrome text size as the names do. The stylesheet's floor (28.5em) and cap (40em)
+      // still hold; a name longer than the cap wraps under it.
+      popup.style.width = natural ? `min(${natural.width}em, ${room})` : "";
+      popup.style.maxWidth = `min(40em, ${room})`;
+    },
+    [ownWidth, natural],
+  );
+  // The menu's height: the person's own (a drag on its edge away from the chip), else as tall as its
+  // rows up to the stylesheet's cap. Either way never past the room the popup has.
+  const ownHeight = useModelMenuHeight();
+  const heightOf = useCallback(
+    (popup: HTMLElement | null | undefined) => {
+      const frame = popup?.querySelector<HTMLElement>(":scope > .acpmux-cols-frame");
+      if (!frame || dragging.current) return;
+      if (ownHeight) {
+        const size = `min(${ownHeight}px, var(--available-height, ${ownHeight}px))`;
+        delete frame.dataset.fitHeight;
+        frame.style.minHeight = "";
+        frame.style.height = size;
+        frame.style.maxHeight = size;
+        return;
+      }
+      // The default: the tallest effort column whole, from the search row to Fast (fitMenuHeight),
+      // never past the room; before it is measured, the stylesheet's cap.
+      if (natural?.height) {
+        const size = `min(${natural.height}px, var(--available-height, ${natural.height}px))`;
+        // The measured default, also readable where the style's min() is not (a test, an inspector).
+        frame.dataset.fitHeight = String(natural.height);
+        frame.style.minHeight = "";
+        frame.style.height = size;
+        frame.style.maxHeight = size;
+        return;
+      }
+      delete frame.dataset.fitHeight;
+      frame.style.height = "";
+      frame.style.maxHeight = "";
+    },
+    [ownHeight, natural],
+  );
+  useLayoutEffect(() => heightOf(popupRef.current), [heightOf, popupNode]);
 
   // The Starred tab is always the rail's first, also before anything is starred.
   const starredText = t("picker.starred");
@@ -361,27 +458,105 @@ function Columns({
         : [{ id: STARRED_TAB, name: starredText, starred: true, models: [], more: [] }, ...families.list],
     [families.list, starredText],
   );
+  // Every model name the models column can show the person (each tab's models and its Legacy ones; not
+  // the providers, which the effort column lists): the default width fits the widest (Lucas 2026-11-11:
+  // "the size of the widest model name available to the user"), measured as the menu opens.
+  const names = useMemo(
+    () => [
+      ...new Set(
+        list.flatMap((family) =>
+          // A tag ("New") draws after the name, a gap away: it is measured with it.
+          [...family.models, ...family.more].map((model) => (model.tag ? `${model.name}  ${model.tag}` : model.name)),
+        ),
+      ),
+    ],
+    [list],
+  );
+  // A face that loads after the menu opened (the UI font, a fallback first) changes every name's
+  // width: the canvas measured the fallback. Each finished font load measures again, so the default
+  // width never depends on whether the face was ready when the menu opened.
+  const [fontLoads, setFontLoads] = useState(0);
+  useEffect(() => {
+    const fonts = open ? popupNode?.ownerDocument.fonts : undefined;
+    if (!fonts) return;
+    const loaded = () => setFontLoads((count) => count + 1);
+    fonts.addEventListener("loadingdone", loaded);
+    let live = true;
+    if (fonts.status !== "loaded") void fonts.ready.then(() => live && loaded());
+    return () => {
+      live = false;
+      fonts.removeEventListener("loadingdone", loaded);
+    };
+  }, [open, popupNode]);
+  const namesKey = `${names.join("\u0000")}\u0001${fontLoads}`;
+  // Every row the effort column can show, for every model of every tab (its catalog levels, Ultracode
+  // where its harness offers it, the running chat's levels, its providers, Fast): the column takes the
+  // widest once, so it never moves as the highlight goes from model to model (effortColumnWidth).
+  const effortLabels = useMemo(() => {
+    const texts = new Set<string>();
+    const providers = new Set<string>();
+    for (const choice of effort?.levels ?? []) if (!isDefaultChoice(choice)) texts.add(choice.name);
+    let anyFast = !!fast;
+    for (const family of list)
+      for (const model of [...family.models, ...family.more]) {
+        if (model.canFast) anyFast = true;
+        if (model.efforts?.length) {
+          const levels = reasoningChoices(
+            model.efforts.map((value) => ({ value })),
+            { efforts: model.efforts, ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}) },
+            t,
+          );
+          for (const choice of levels) texts.add(choice.name);
+          if (family.ultracode && model.efforts.includes("xhigh")) texts.add(t("effort.level.ultracode"));
+        }
+        if ((model.offers?.length ?? 0) > 1)
+          for (const offer of model.offers ?? []) providers.add(offer.provider ?? offer.name);
+      }
+    const labels: EffortLabel[] = [
+      ...[...texts].map((text) => ({ text, mark: "check" as const })),
+      ...[...providers].map((text) => ({ text, mark: "check" as const, provider: true })),
+      ...(anyFast ? [{ text: t("picker.chipFast"), mark: "switch" as const }] : []),
+    ];
+    return labels;
+  }, [list, effort?.levels, fast, t]);
+  const effortKey = effortLabels.map((label) => label.text).join("\u0000");
+  useLayoutEffect(() => {
+    widthOf(popupNode);
+    const column = popupNode?.ownerDocument.querySelector(CHAT_COLUMN);
+    if (!column || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => widthOf(popupNode));
+    observer.observe(column);
+    return () => observer.disconnect();
+  }, [widthOf, popupNode]);
   const shown = list.find((family) => family.id === tab);
   const tabs = useMemo(() => familyTabs(list), [list]);
   const shownTab = tabs.find((entry) => entry.routes.some((route) => route.id === tab));
-  const tabName = shownTab?.name ?? shown?.name ?? "";
   const found = useMemo(() => (query && search ? search.find(query) : undefined), [query, search]);
   const groups = useMemo(
     () => (found ? searchGroups(found, list, families.current) : undefined),
     [found, list, families],
   );
-  // Rows a search lists twice under one name (two routes of one model) also name their model id.
-  const twins = useMemo(() => twinRows(groups ?? []), [groups]);
   // The list: a search's matches under their family's name, else the tab's models, then its Legacy ones.
   const rows: QuickModel[] = groups
     ? groups.flatMap((group) => group.rows)
-    : shown && !shown.fork
+    : shown
       ? [...shown.models, ...shown.more]
       : [];
-  const legacyFrom = groups || !shown ? rows.length : shown.models.length;
+  // Rows listed twice under one name (two routes of one model, a search's or a tab's) show their
+  // model id under the name, so the variants read apart (Lawrence 2026-11-05).
+  // One pass over the listed rows; `rows` is rebuilt each render.
+  const twins = twinRows(groups ?? [{ id: "", name: "", rows }]);
   const isRunning = (model: QuickModel) =>
     model.family === families.current && (model.id === current || runsOffers(model, current));
   const runningIndex = rows.findIndex(isRunning);
+  // A started chat's pick of another harness's model, held for its next message (forkHold.ts): its
+  // row is the checked one, and its settings column shows the held effort and Fast.
+  const heldFor = families.held;
+  const isHeld = (model: QuickModel) =>
+    !!heldFor && model.family === heldFor.family && heldFor.id !== undefined && model.id === heldFor.id;
+  const heldIndex = heldFor ? rows.findIndex(isHeld) : -1;
+  // What a started chat ran carries the "used here" mark (UsedMark), also while another is held.
+  const used = families.used;
 
   // Reset as the menu opens, in render: the composer re-renders while it is open (a streaming
   // reply), and an effect on the families would throw away the tab and the typed filter.
@@ -389,7 +564,8 @@ function Columns({
   if (open !== wasOpen) {
     setWasOpen(open);
     if (open) {
-      const first = families.current ?? list.find((family) => !family.starred)?.id;
+      // A held pick of another harness opens on its tab: the menu shows what the next message runs.
+      const first = heldTab(families) ?? families.current ?? list.find((family) => !family.starred)?.id;
       setTab(first);
       setQuery("");
       setCol(1);
@@ -401,13 +577,21 @@ function Columns({
       setHeld(undefined);
       setPending(undefined);
       setChosenLevel(undefined);
+      setHandPickedUnder(undefined);
     }
   }
 
   // Until the arrows or the pointer move it, the running model's row is the one shown, else the
   // first one: the settings column always shows the model its rows apply to, never an empty column.
   const firstIndex = rows.findIndex((model) => !model.disabled);
-  const hl = modelHl >= 0 && modelHl < rows.length ? modelHl : runningIndex >= 0 ? runningIndex : firstIndex;
+  const hl =
+    modelHl >= 0 && modelHl < rows.length
+      ? modelHl
+      : heldIndex >= 0
+        ? heldIndex
+        : runningIndex >= 0
+          ? runningIndex
+          : firstIndex;
   // The chat's own tab with no row for the running model (its catalog has not loaded, or does not
   // list it) still shows the session's levels and Fast, as the list menu's Effort row did.
   const sessionRow: QuickModel | undefined =
@@ -416,17 +600,26 @@ function Columns({
       : undefined;
   const focus = hl >= 0 ? rows[hl] : sessionRow;
   const focusRuns = !!focus && isRunning(focus);
-  // The running model's levels are the session's (Ultracode included); another model's are its catalog's.
+  // The running model's levels are the session's (Ultracode included); another model's are its catalog's,
+  // with Ultracode last where its harness offers it on Extra High (QuickFamily.ultracode), so a model shown
+  // but not yet picked lists it too (Lucas 2026-11-11: it showed only once Opus was picked).
   const sessionLevels = effort?.levels.filter((choice) => !isDefaultChoice(choice)) ?? [];
+  const ultracodeFamilies = useMemo(
+    () => new Set(families.list.filter((family) => family.ultracode).map((family) => family.id)),
+    [families.list],
+  );
   const levelsOf = (model: QuickModel): Choice[] => {
     if (model.efforts?.length === 0) return [];
     if (isRunning(model)) return sessionLevels;
     if (!model.efforts) return [];
-    return reasoningChoices(
+    const levels = reasoningChoices(
       model.efforts.map((value) => ({ value })),
       { efforts: model.efforts, ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}) },
       t,
     );
+    return ultracodeFamilies.has(model.family) && levels.some((choice) => choice.id === "xhigh")
+      ? [...levels, { id: "ultracode", name: t("effort.level.ultracode") }]
+      : levels;
   };
   /// The level another model carries (Opus 5.5 on Extra High to Sonnet 5.5 on Extra High): the
   /// last one picked here, else the chat's, when that model has it, else the model's recommended
@@ -436,28 +629,75 @@ function Columns({
     if (!choices.length) return undefined;
     const has = (id: string | undefined) => !!id && choices.some((choice) => choice.id === id);
     const now = chosenLevel ?? held?.effort ?? effort?.current;
-    if (has(now)) return now;
-    if (now === "ultracode" && has("xhigh")) return "xhigh";
+    if (now === "ultracode") {
+      if (has("xhigh")) return "xhigh";
+    } else if (has(now)) return now;
     return model.defaultEffort ?? choices.find((choice) => choice.recommended)?.id;
   };
-  // Highest first, as a ladder.
-  const ladder = focus ? [...levelsOf(focus)].reverse() : [];
+  // Lowest first, top to bottom: Low up to Max, then Ultracode (Lucas 2026-11-12).
+  const ladder = focus ? levelsOf(focus) : [];
+  // The key holds the names' font too, so a density, Text Size or font change measures again on the
+  // next open; a web font still loading measures again once it is in (a fallback font's width stuck).
+  // The effort column is measured from one of its level rows: until one shows (a menu that opens on a
+  // model with no levels), the width is kept without it and measured again once a level row draws.
+  const tuneHasLevels = ladder.length > 0;
+  // The default height is one fixed height in every chat, whatever model is shown (Lucas 2026-11-12:
+  // "we should have a default fixed height"): the search row, room for six levels (Low, Medium, High,
+  // Extra High, Max and Ultracode, the ladder most models show) and Fast, measured from the drawn rows
+  // so it follows density and text size. A model with more levels scrolls them between the heading and
+  // Fast; providers scroll under the levels. A drag on the edge sets a height of the person's own.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const key = `${namesKey}\u0001${effortKey}\u0001${menuNameFont(modelsList.current)}`;
+    if (natural?.key === key) return;
+    const tune = modelsList.current
+      ?.closest(".acpmux-cols-body")
+      ?.querySelector<HTMLElement>(":scope > .acpmux-cols-tune");
+    const effortWidth = effortColumnWidth(effortLabels, tune);
+    const width = naturalMenuWidth(names, modelsList.current, effortWidth);
+    const metrics = tuneMetrics(tune);
+    const height = metrics ? fitMenuHeight(DEFAULT_TUNE_SHAPE, metrics) : undefined;
+    const settled = (effortWidth !== undefined && height !== undefined) || effortLabels.length === 0;
+    const menu = modelsList.current?.closest<HTMLElement>(".acpmux-cols");
+    const em = menu ? Number.parseFloat(getComputedStyle(menu).fontSize) : NaN;
+    // Kept in em of the menu's type (widthOf), not px; the effort column's fit stays in px.
+    if (width && em > 0)
+      setNatural({
+        key: settled ? key : `${key}\u0002`,
+        width: width / em,
+        ...(effortWidth ? { effort: effortWidth } : {}),
+        ...(height ? { height } : {}),
+      });
+  }, [open, names, namesKey, effortLabels, effortKey, natural?.key, popupNode, tuneHasLevels]);
   const keyOf = (model: QuickModel) => `${model.family}\u0000${model.id}`;
   const focusKey = focus ? keyOf(focus) : "";
   const mine = focusRuns && held?.key === focusKey ? held : undefined;
-  // The held pick when it is the shown model (or one of its providers).
+  // The held pick when it is the shown model (or one of its providers): one picked here, else the
+  // chat's pick of another harness's model held for its next message, with its effort and Fast.
   const picked =
     pending &&
     focus &&
     (keyOf(pending.model) === focusKey || focus.offers?.some((o) => keyOf(o) === keyOf(pending.model)))
       ? pending.model
-      : undefined;
+      : !pending && focus && heldFor && isHeld(focus)
+        ? {
+            ...focus,
+            ...(heldFor.effort ? { effort: heldFor.effort } : {}),
+            ...(heldFor.fast ? { fast: true } : {}),
+          }
+        : undefined;
+  // A search that names a level or Fast ("opus 5.5 medium fast", Lawrence 2026-11-10: "we should communicate
+  // this better (that medium is selected)"; "codex sol high", Leo: "it should highlight the path"): the
+  // highlighted row's settings column shows what Enter lands, the level checked and lit, Fast on.
+  const named =
+    query && focus && !picked && handPickedUnder !== query && (focus.effort || focus.fast) ? focus : undefined;
   const level =
     picked?.effort ??
+    named?.effort ??
     mine?.effort ??
     (focus ? (focusRuns ? effort?.current : (focus.effort ?? carriedLevel(focus))) : undefined);
   // A level shows a check when it is really chosen: the session's, or one picked here.
-  const levelChosen = focusRuns || !!picked?.effort;
+  const levelChosen = focusRuns || !!picked?.effort || !!named?.effort;
   const canLandEffort = focusRuns ? !!effort : menu.inlineEffort === true;
   const offers = focus?.offers && focus.offers.length > 1 ? focus.offers : [];
   const runningOffer = picked
@@ -466,14 +706,19 @@ function Columns({
   const fastShown = focus ? (focusRuns ? !!fast : !!focus.canFast) : false;
   const fastOn = picked
     ? !!picked.fast
-    : (mine?.fast ?? (focus ? (focusRuns ? !!fast?.checked : !!focus.fast) : false));
+    : named?.fast
+      ? true
+      : (mine?.fast ?? (focus ? (focusRuns ? !!fast?.checked : !!focus.fast) : false));
   // A model the harness cannot start takes no level, provider or Fast.
   const focusOff = !!focus?.disabled;
-  /// The row that shows the check: the held pick, else the running model.
+  /// The row that shows the check: the pick made here, else another harness's held model, else the
+  /// running model.
   const isChosen = (model: QuickModel) =>
     pending
       ? keyOf(model) === keyOf(pending.model) || !!model.offers?.some((o) => keyOf(o) === keyOf(pending.model))
-      : isRunning(model);
+      : heldFor
+        ? isHeld(model)
+        : isRunning(model);
   const tuneRows: TuneRow[] = [
     ...ladder.map((choice) => ({ kind: "level" as const, choice })),
     ...offers.map((offer) => ({ kind: "offer" as const, offer })),
@@ -484,6 +729,158 @@ function Columns({
   useRowInView(railList, tab);
 
   const close = () => finish(false, true);
+  /// A model row's star takes no room: under the pointer it shows at the row's end when the name and check leave
+  /// room for it, else it takes the check's place (or, on a row with no check, draws over the name's end) (Lucas
+  /// 2026-11-11: "instead of reserving space for the star ... replace the checkmark with the star on hover"). A name
+  /// the star would cover shows its tooltip at once, also when it is not cut ("instantly show the hidden name if the
+  /// star hides it"). Every row is measured as the rows or the column's width change, reads then writes, so the
+  /// marks are set before the pointer arrives.
+  const markStarRooms = useCallback((list: HTMLElement | null) => {
+    if (!list) return;
+    const marks = [...list.querySelectorAll<HTMLElement>(".acpmux-cols-row")].flatMap((row) => {
+      const star = row.querySelector<HTMLElement>(":scope > .acpmux-cols-star");
+      if (!star) return [];
+      const check = row.querySelector<HTMLElement>(":scope > .acpmux-cols-check");
+      const text = row.querySelector<HTMLElement>(":scope > :is(.acpmux-cols-name, .acpmux-cols-text)");
+      const name = text?.matches(".acpmux-cols-name") ? text : text?.querySelector<HTMLElement>(".acpmux-cols-name");
+      if (!text) return [{ row, name, cover: undefined }];
+      // From the name's own width, not where the row draws it: a check moved to the row's end
+      // (data-star-cover="check") must not change the answer, or a widened menu never brings it back.
+      const style = row.ownerDocument.defaultView?.getComputedStyle(row);
+      const end = row.getBoundingClientRect().right - Number.parseFloat(style?.paddingRight ?? "0");
+      const gap = Number.parseFloat(style?.columnGap ?? "0") || 0;
+      const mark = check?.firstElementChild?.getBoundingClientRect().width ?? 0;
+      // Every other mark in the row's flow between the name and the check (a "New" tag, the used mark).
+      const view = row.ownerDocument.defaultView;
+      let between = 0;
+      for (const child of row.children) {
+        if (child === text || child === check || child === star || !(child instanceof HTMLElement)) continue;
+        const childStyle = view?.getComputedStyle(child);
+        if (childStyle?.position === "absolute" || childStyle?.display === "none") continue;
+        between += gap + child.getBoundingClientRect().width;
+      }
+      // A check after the name keeps two gaps clear of the star, or the two read as one mark (Lucas
+      // 2026-11-11, a check touching the star: "we do not want to allow this"); short of that the check
+      // moves to the star's place and the star replaces it on hover.
+      const need =
+        text.getBoundingClientRect().left +
+        nameLineWidth(name ?? text) +
+        between +
+        (mark ? gap + mark + gap * 2 : 0) +
+        star.getBoundingClientRect().width;
+      const cover = need <= end ? undefined : mark ? "check" : "name";
+      return [{ row, name, cover }];
+    });
+    for (const { row, name, cover } of marks) {
+      if (cover) row.dataset.starCover = cover;
+      else delete row.dataset.starCover;
+      if (name) name.toggleAttribute("data-tooltip-force", cover === "name");
+    }
+  }, []);
+  const rowsKey = rows.map((model) => `${model.family}\u0000${model.id}`).join("\u0001");
+  useLayoutEffect(() => {
+    const list = modelsListElement;
+    if (!open || !list) return;
+    markStarRooms(list);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => markStarRooms(list));
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [open, modelsListElement, rowsKey, pending, current, markStarRooms]);
+  // Edge and corner drags share one frame update and pin the sides nearest the chip.
+  const startResize = (event: React.PointerEvent<HTMLDivElement>, axes: "width" | "height" | "both") => {
+    const popup = popupRef.current;
+    const positioner = popup?.parentElement;
+    const content = popup?.querySelector<HTMLElement>(":scope > .acpmux-cols-frame");
+    if (event.button !== 0 || !popup || !positioner || !content) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const horizontal = axes !== "height";
+    const vertical = axes !== "width";
+    const grip = event.currentTarget;
+    const doc = popup.ownerDocument;
+    const view = doc.defaultView;
+    const start = popup.getBoundingClientRect();
+    const startHeight = content.getBoundingClientRect().height;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const fromEnd = align === "end";
+    const fromTop = side === "top";
+    const bound = doc.querySelector(CHAT_COLUMN)?.getBoundingClientRect();
+    const left = (bound?.left ?? 0) + 5;
+    const right = (bound?.right ?? view?.innerWidth ?? start.right) - 5;
+    const mostWidth = Math.max(0, Math.floor(fromEnd ? start.right - left : right - start.left));
+    const leastWidth = Math.min(mostWidth, MODEL_MENU_MIN_WIDTH);
+    const bottom = (view?.innerHeight ?? start.bottom) - 5;
+    const mostHeight = Math.max(0, Math.floor(fromTop ? start.bottom - 5 : bottom - start.top));
+    const leastHeight = Math.min(mostHeight, MODEL_MENU_MIN_HEIGHT);
+    let width = start.width;
+    let height = startHeight;
+    const pin = () => {
+      const wantedX = fromEnd ? start.right - width : start.left;
+      const wantedY = vertical && fromTop ? start.bottom - popup.getBoundingClientRect().height : start.top;
+      const placed = positioner.getBoundingClientRect();
+      const x = horizontal ? Math.round((wantedX - placed.left) * 100) / 100 : 0;
+      const y = vertical ? Math.round((wantedY - placed.top) * 100) / 100 : 0;
+      popup.style.translate = x || y ? `${x}px ${y}px` : "";
+      return x === 0 && y === 0;
+    };
+    const placed = new MutationObserver(() => {
+      if (pin() && !dragging.current) placed.disconnect();
+    });
+    placed.observe(positioner, { attributes: true, attributeFilter: ["style"] });
+    grip.setPointerCapture?.(event.pointerId);
+    grip.dataset.dragging = "";
+    dragging.current = true;
+    let frame = 0;
+    let pointerX = startX;
+    let pointerY = startY;
+    const apply = () => {
+      frame = 0;
+      if (horizontal) {
+        const delta = (pointerX - startX) * (fromEnd ? -1 : 1);
+        width = Math.round(Math.min(mostWidth, Math.max(leastWidth, start.width + delta)));
+        popup.style.width = `${width}px`;
+        popup.style.minWidth = `min(${MODEL_MENU_MIN_WIDTH}px, ${mostWidth}px)`;
+        popup.style.maxWidth = `${mostWidth}px`;
+      }
+      if (vertical) {
+        const delta = (pointerY - startY) * (fromTop ? -1 : 1);
+        height = Math.round(Math.min(mostHeight, Math.max(leastHeight, startHeight + delta)));
+        content.style.minHeight = "";
+        content.style.height = `${height}px`;
+        content.style.maxHeight = `${height}px`;
+      }
+      pin();
+    };
+    const move = (next: PointerEvent) => {
+      pointerX = next.clientX;
+      pointerY = next.clientY;
+      if (!frame) frame = view?.requestAnimationFrame(apply) ?? 0;
+      if (!frame) apply();
+    };
+    const end = () => {
+      if (frame) view?.cancelAnimationFrame(frame);
+      apply();
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", end);
+      grip.removeEventListener("pointercancel", end);
+      delete grip.dataset.dragging;
+      dragging.current = false;
+      if (pin()) placed.disconnect();
+      if (horizontal) {
+        if (Math.abs(width - start.width) >= 1) setModelMenuWidth(width);
+        widthOf(popup);
+      }
+      if (vertical) {
+        if (Math.abs(height - startHeight) >= 1) setModelMenuHeight(height);
+        else heightOf(popup);
+      }
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", end);
+    grip.addEventListener("pointercancel", end);
+  };
   /// Lands `model` at once, with a level and Fast set exactly (never copied from a searched row); the
   /// menu stays open.
   const hold = (model: QuickModel, choice: { effort?: string; fast?: boolean }) => {
@@ -505,13 +902,17 @@ function Columns({
     if (!model || model.disabled) return;
     setModelHl(index);
     setTuneHl(0);
-    // The running model again: nothing to land, unless a search named a level or Fast for it.
-    if (isRunning(model) && !model.effort && !model.fast) setPending(undefined);
-    else hold(model, { effort: model.effort ?? inheritedLevel(model), fast: model.fast });
+    // The running model again: nothing to land, unless a search named a level or Fast for it. With
+    // another harness's model held, it is a pick again: it drops the hold.
+    if (isRunning(model) && !model.effort && !model.fast) {
+      setPending(undefined);
+      if (heldFor) menu.families.onPick(model);
+    } else hold(model, { effort: model.effort ?? inheritedLevel(model), fast: model.fast });
   };
   const pickLevel = (value: string) => {
     if (!focus || focusOff || !canLandEffort) return;
     setChosenLevel(value);
+    setHandPickedUnder(query);
     if (focusRuns && effort && !picked) {
       setHeld({ ...mine, key: focusKey, effort: value });
       effort.onPick(value);
@@ -519,6 +920,7 @@ function Columns({
   };
   const toggleFast = () => {
     if (!focus || focusOff) return;
+    setHandPickedUnder(query);
     const on = !fastOn;
     // A pick lands Fast only on (a combo never turns it off): off on a model that runs goes through
     // the session, also right after it was picked here.
@@ -549,7 +951,6 @@ function Columns({
     if (!entry) return;
     const family = leadRoute(entry, families.current);
     if (entry.routes.length === 1 && family.launch && !family.note) {
-      if (families.forkReady === false) return;
       close();
       families.onLaunch?.(family.id);
       return;
@@ -572,7 +973,6 @@ function Columns({
   };
   const showRoute = (route: QuickFamily) => {
     if (route.launch && !route.note) {
-      if (families.forkReady === false) return;
       close();
       families.onLaunch?.(route.id);
       return;
@@ -626,18 +1026,12 @@ function Columns({
       // A launch-only tab the arrows reached starts its harness on Return, as a click on it does.
       const launchOnly = shownTab?.routes.length === 1 && shown?.launch && !shown.note ? shown : undefined;
       if (launchOnly && (col === 0 || rows.length === 0)) {
-        if (families.forkReady === false) return;
         onOpenChange(false);
         families.onLaunch?.(launchOnly.id);
         return;
       }
       if (col === 2 && tuneKeys) runTune(tuneHl);
       else if (col === 1 && focus && !picked) pickModel(hl);
-      else if (col === 1 && !focus && !query && shown?.fork && families.forkReady) {
-        onOpenChange(false);
-        families.onFork?.(shown.id);
-        return;
-      }
       close();
       return;
     }
@@ -731,7 +1125,6 @@ function Columns({
             face: { id: route.id, name: route.name },
             name: route.name,
             ...(route.note ? { detail: route.note } : {}),
-            disabled: !!route.launch && families.forkReady === false,
             pick: () => showRoute(route),
           }))
       : []),
@@ -864,22 +1257,31 @@ function Columns({
         aria-disabled={model.disabled ? true : undefined}
         className="acpmux-cols-row"
         data-hl={index === hl ? "" : undefined}
-        // tooltip-allow: shows a clipped name in full, alongside its provider and harness.
-        title={[
-          model.name,
-          query ? model.harness : undefined,
-          model.hint ?? model.provider,
-          twins.has(model) ? model.id : undefined,
-        ]
-          .filter(Boolean)
-          .join(" · ")}
+        // The provider the row lands, for assistive tech: the tooltip names the model alone (Lucas 2026-11-11).
+        aria-description={model.hint ?? model.provider}
         onPick={() => {
           setCol(1);
           pickModel(index);
         }}
       >
-        <span className="acpmux-cols-name">{model.name}</span>
+        {/* The name's tooltip is the name alone, only while the row cuts it off (titleTooltips repeatsLabel), at
+            once (Lucas 2026-11-11: no provider or model id, and no wait). */}
+        {twins.has(model) ? (
+          <span className="acpmux-cols-text">
+            {/* tooltip-allow: a cut model name in full. */}
+            <span className="acpmux-cols-name" title={model.name} data-tooltip-instant="">
+              {model.name}
+            </span>
+            <span className="acpmux-cols-id">{model.id}</span>
+          </span>
+        ) : (
+          // tooltip-allow: a cut model name in full.
+          <span className="acpmux-cols-name" title={model.name} data-tooltip-instant="">
+            {model.name}
+          </span>
+        )}
         {model.tag && <span className="acpmux-cols-tag">{model.tag}</span>}
+        {used && isRunning(model) && <UsedMark look={used} />}
         {stars && (
           <button
             type="button"
@@ -904,31 +1306,26 @@ function Columns({
   };
 
   let before = 0;
-  const models = groups ? (
-    groups.map((group) => {
-      const start = before;
-      before += group.rows.length;
-      return (
-        <Fragment key={group.id}>
-          <div className="acpmux-cols-group">
-            <AgentMark agent={list.find((family) => family.id === group.rows[0]?.family)?.mark} size={12} />
-            {group.name}
-          </div>
-          {group.rows.map((model, offset) => modelRow(model, start + offset))}
-        </Fragment>
-      );
-    })
-  ) : (
-    <>
-      <div className="acpmux-cols-caption">{shown?.starred ? t("picker.starred") : tabName}</div>
-      {rows.map((model, index) => (
-        <Fragment key={`${model.family}\u0000${model.id}`}>
-          {index === legacyFrom && <div className="acpmux-cols-caption">{t("picker.legacyModels")}</div>}
-          {modelRow(model, index)}
-        </Fragment>
-      ))}
-    </>
-  );
+  const models = groups
+    ? groups.map((group) => {
+        const start = before;
+        before += group.rows.length;
+        return (
+          <Fragment key={group.id}>
+            <div className="acpmux-cols-group">
+              <AgentMark agent={list.find((family) => family.id === group.rows[0]?.family)?.mark} size={12} />
+              {group.name}
+              {group.note && <span className="acpmux-cols-group-note">{group.note}</span>}
+            </div>
+            {group.rows.map((model, offset) => modelRow(model, start + offset))}
+          </Fragment>
+        );
+      })
+    : // One plain list: no caption names the tab or its Legacy models, which follow its models
+      // (standup 2026-11-12: "we don't need labels"). The rail's selected tab names the harness.
+      rows.map((model, index) => (
+        <Fragment key={`${model.family}\u0000${model.id}`}>{modelRow(model, index)}</Fragment>
+      ));
 
   let tuneIndex = -1;
   const tuneRow = (
@@ -938,6 +1335,8 @@ function Columns({
     onClick: () => void,
     body: React.ReactNode,
     kind: "radio" | "switch" = "radio",
+    title?: string,
+    lit = false,
   ) => {
     tuneIndex += 1;
     const index = tuneIndex;
@@ -949,6 +1348,10 @@ function Columns({
         aria-disabled={disabled ? true : undefined}
         className="acpmux-cols-row"
         data-hl={col === 2 && index === tuneHl ? "" : undefined}
+        // The level or Fast a search named: Enter lands it (`named`).
+        data-named={lit ? "" : undefined}
+        // tooltip-allow: names the provider's route (its model id), which tells same-named models apart.
+        title={title}
         onPick={() => {
           if (disabled) return;
           setCol(2);
@@ -962,7 +1365,7 @@ function Columns({
     );
   };
 
-  const tabEmpty = !query && !!shown && !shown.fork && rows.length === 0;
+  const tabEmpty = !query && !!shown && rows.length === 0;
   return (
     <>
       <button
@@ -976,8 +1379,6 @@ function Columns({
         data-popup-open={open ? "" : undefined}
         aria-label={chip.label}
         title={chip.title}
-        aria-haspopup="dialog"
-        aria-expanded={open}
         {...press}
         // A mouse press never focuses the chip, as the list menu's button: a press that closes the
         // menu and lands a pick leaves the keyboard in the prompt the picker focused.
@@ -995,6 +1396,7 @@ function Columns({
         {children}
       </button>
       <Popover
+        id={press["aria-controls"]}
         open={open}
         onOpenChange={(next, details) => {
           // Escape first closes the account card, then clears a search, then closes the menu.
@@ -1019,6 +1421,38 @@ function Columns({
         initialFocus={field}
         finalFocus={false}
       >
+        {/* The outer edge, away from the chip it lines up with: a drag sets the menu's width for every
+            composer, a double-click goes back to the default (modelMenuWidth.ts). */}
+        {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- a pointer-only grip; the width also has its default */}
+        <div
+          className="acpmux-cols-resize"
+          data-edge={align === "end" ? "start" : "end"}
+          aria-hidden="true"
+          onPointerDown={(event) => startResize(event, "width")}
+          onDoubleClick={() => setModelMenuWidth(undefined)}
+        />
+        {/* The edge away from the chip, top or bottom: a drag sets the menu's height for every composer,
+            a double-click goes back to the default (modelMenuWidth.ts). */}
+        {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- a pointer-only grip; the height also has its default */}
+        <div
+          className="acpmux-cols-resize-y"
+          data-edge={side === "top" ? "top" : "bottom"}
+          aria-hidden="true"
+          onPointerDown={(event) => startResize(event, "height")}
+          onDoubleClick={() => setModelMenuHeight(undefined)}
+        />
+        {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- a pointer-only grip; both dimensions also have defaults */}
+        <div
+          className="acpmux-cols-resize-corner"
+          data-edge={align === "end" ? "start" : "end"}
+          data-side={side === "top" ? "top" : "bottom"}
+          aria-hidden="true"
+          onPointerDown={(event) => startResize(event, "both")}
+          onDoubleClick={() => {
+            setModelMenuWidth(undefined);
+            setModelMenuHeight(undefined);
+          }}
+        />
         {/* ui-allow: Up, Down, Left, Right and Return move through the columns, as in a column browser. */}
         {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- the field's keys bubble here: arrows move the columns */}
         <div
@@ -1030,300 +1464,368 @@ function Columns({
           onPointerDown={(event) => {
             const target = event.target as Element;
             if (profileOpen && !target.closest?.(".acpmux-cols-corner")) setProfileOpen(false);
-            if (target !== field.current && !target.classList?.contains("acpmux-cols-list")) event.preventDefault();
+            if (
+              target !== field.current &&
+              !target.classList?.contains("acpmux-cols-list") &&
+              !target.classList?.contains("acpmux-cols-tune-scroll")
+            )
+              event.preventDefault();
           }}
         >
-          <div className="acpmux-cols-search">
-            <span className="acpmux-cols-corner">
-              {avatarShown && (
-                <button
-                  type="button"
-                  className="acpmux-cols-profile"
-                  aria-haspopup="dialog"
-                  aria-expanded={profileOpen}
-                  aria-label={`${ownerName} · ${t("picker.account")}: ${faceName}`}
-                  title={`${ownerName} · ${faceName}`}
-                  onPointerDown={(event) => event.preventDefault()}
-                  onClick={() => setProfileOpen((was) => !was)}
-                >
-                  <Avatar face={face} size={24} {...(badge ? { badge } : {})} />
-                </button>
-              )}
-              {avatarBlank && (
-                <span className="acpmux-cols-profile" data-blank="" aria-hidden="true">
-                  <Avatar size={24} />
-                </span>
-              )}
-              {card}
-            </span>
-            <SearchIcon size={14} />
-            <input
-              ref={fieldRef}
-              type="search"
-              aria-label={t("picker.search")}
-              placeholder={t("picker.search")}
-              autoComplete="off"
-              spellCheck={false}
-              value={query}
-              aria-activedescendant={col === 1 && hl >= 0 ? `acpmux-cols-model-${hl}` : undefined}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setModelHl(event.target.value ? 0 : -1);
-                setCol(1);
-                setTuneHl(0);
-                setProfileOpen(false);
-              }}
-            />
-          </div>
-          <hr className="acpmux-cols-sep" />
-          {/* The chat's own readiness (an expired login, a route that needs sign-in, an unreachable
-              machine), whatever tab or search shows: the avatar is the account, not the readiness. */}
-          {auth && authNote && (
-            <>
-              <div className="acpmux-cols-auth">
-                <span>{authNote}</span>
-                {canSessionLogin(auth.verdict) && auth.onLogin && (
+          {/* The search row, its strips and the rail and models sit on the left; the effort column
+              runs the whole height on the right, up to the search row (standup 2026-11-12, as T3 Code
+              does it), so its Effort caption sits level with the search field. */}
+          <div
+            ref={bodyRef}
+            className="acpmux-cols-body"
+            style={
+              natural?.effort ? ({ "--acpmux-cols-tune-fit": `${natural.effort}px` } as React.CSSProperties) : undefined
+            }
+            data-tune-fit={natural?.effort}
+          >
+            <div className="acpmux-cols-search">
+              <span className="acpmux-cols-corner">
+                {avatarShown && (
                   <button
                     type="button"
-                    className="acpmux-cols-update-action"
-                    onClick={() => {
-                      close();
-                      auth.onLogin?.();
-                    }}
+                    className="acpmux-cols-profile"
+                    aria-haspopup="dialog"
+                    aria-expanded={profileOpen}
+                    aria-label={`${ownerName} · ${t("picker.account")}: ${faceName}`}
+                    title={`${ownerName} · ${faceName}`}
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={() => setProfileOpen((was) => !was)}
                   >
-                    {authLoginText(auth.verdict, t)}
+                    <Avatar face={face} size={24} {...(badge ? { badge } : {})} />
                   </button>
                 )}
-                {auth.onRefresh && (
-                  <button type="button" className="acpmux-cols-update-action" onClick={() => auth.onRefresh?.()}>
-                    {t("harnesses.checkAgain")}
-                  </button>
-                )}
-              </div>
-              <hr className="acpmux-cols-sep" />
-            </>
-          )}
-          <div ref={bodyRef} className="acpmux-cols-body">
-            <DrivenList
-              ref={railList}
-              kind="tablist"
-              label={t("picker.harness")}
-              className="acpmux-cols-list acpmux-cols-rail"
-              onScroll={(event) => markFades(event.currentTarget)}
-              data-col-focus={col === 0 && railKeys ? "" : undefined}
-            >
-              {tabs.map((entry, index) => {
-                const family = entry === shownTab && shown ? shown : leadRoute(entry, families.current);
-                const selected = !query && entry === shownTab;
-                return (
-                  <DrivenRow
-                    key={entry.key}
-                    kind="tab"
-                    aria-selected={selected}
-                    aria-label={entry.name}
-                    aria-disabled={
-                      entry.routes.every((route) => route.launch) && families.forkReady === false ? true : undefined
-                    }
-                    // tooltip-allow: the rail tab draws only the family's mark; the title names it.
-                    title={family.note ? `${entry.name} · ${family.note}` : entry.name}
-                    data-tooltip-side="left"
-                    className="acpmux-cols-tab"
-                    data-hl={selected ? "" : undefined}
-                    data-off={family.setUp ? "" : undefined}
-                    onPick={() => {
-                      setCol(1);
-                      showTab(index);
-                    }}
-                  >
-                    {family.starred ? (
-                      <StarIcon filled={selected} />
-                    ) : symbolOf(family) ? (
-                      <AgentMark agent={family.mark} size={16} />
-                    ) : (
-                      <span className="acpmux-cols-initial" aria-hidden="true">
-                        {initialOf(entry.name)}
-                      </span>
-                    )}
-                  </DrivenRow>
-                );
-              })}
-              {families.onAddHarness && (
-                <DrivenRow
-                  tabbable
-                  kind="button"
-                  className="acpmux-cols-tab acpmux-cols-tab-add"
-                  aria-label={t("modelPicker.addHarness")}
-                  title={t("modelPicker.addHarness")}
-                  data-tooltip-side="left"
-                  onPick={() => {
-                    close();
-                    families.onAddHarness?.();
-                  }}
-                >
-                  <PlusIcon />
-                </DrivenRow>
-              )}
-            </DrivenList>
-
-            <DrivenList
-              ref={modelsList}
-              kind="listbox"
-              label={t("picker.model")}
-              className="acpmux-cols-list"
-              data-cmux-card-scroll=""
-              data-cmux-scroll-only=""
-              onScroll={(event) => markFades(event.currentTarget)}
-              data-col-focus={col === 1 ? "" : undefined}
-            >
-              {!query && shown?.fork ? (
-                <>
-                  <div className="acpmux-cols-caption">{tabName}</div>
-                  <DrivenRow
-                    kind="button"
-                    className="acpmux-cols-row"
-                    data-hl=""
-                    aria-disabled={!families.forkReady ? true : undefined}
-                    onPick={() => {
-                      if (!families.forkReady) return;
-                      close();
-                      families.onFork?.(shown.id);
-                    }}
-                  >
-                    <span className="acpmux-cols-name">{t("picker.forkTo", { harness: shown.name })}</span>
-                  </DrivenRow>
-                </>
-              ) : (
-                models
-              )}
-              {query && rows.length === 0 && (
-                <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
-                  <span className="acpmux-cols-name">{t("picker.noMatches")}</span>
-                </div>
-              )}
-              {tabEmpty && (
-                <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
-                  <span className="acpmux-cols-name">
-                    {shown.note ?? (shown.starred ? t("picker.starredNone") : t("picker.noModelsYet"))}
+                {avatarBlank && (
+                  <span className="acpmux-cols-profile" data-blank="" aria-hidden="true">
+                    <Avatar size={24} />
                   </span>
-                </div>
-              )}
-              {!query && shown?.note && rows.length > 0 && shown.setUp && (
-                <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
-                  <span className="acpmux-cols-name">{shown.note}</span>
-                </div>
-              )}
-              {!query && shown?.note && shown.logIn && (
-                <DrivenRow
-                  kind="button"
-                  className="acpmux-cols-row"
-                  onPick={() => {
-                    close();
-                    shown.logIn?.();
-                  }}
-                >
-                  <span className="acpmux-cols-name">{t("harness.logIn")}</span>
-                </DrivenRow>
-              )}
-              {!query && shown?.note && shown.setUp && (
-                <DrivenRow
-                  kind="button"
-                  className="acpmux-cols-row"
-                  onPick={() => {
-                    close();
-                    shown.setUp?.();
-                  }}
-                >
-                  <span className="acpmux-cols-name">{t("harnesses.install")}</span>
-                </DrivenRow>
-              )}
-            </DrivenList>
-
-            <div
-              className="acpmux-cols-list acpmux-cols-tune"
-              data-cmux-card-scroll=""
-              data-cmux-scroll-only=""
-              onScroll={(event) => markFades(event.currentTarget)}
-              data-col-focus={col === 2 ? "" : undefined}
-              aria-label={t("effort.title")}
-            >
-              {/* The column always heads with Effort. A model with no levels says None, also one whose
-                  harness names its levels only once a chat runs it (OpenCode, before a chat). */}
-              <div className="acpmux-cols-caption">{t("effort.title")}</div>
-              {focus && (
+                )}
+                {card}
+              </span>
+              <SearchIcon size={14} />
+              <input
+                ref={fieldRef}
+                type="search"
+                aria-label={t("picker.search")}
+                placeholder={t("picker.search")}
+                autoComplete="off"
+                spellCheck={false}
+                value={query}
+                aria-activedescendant={col === 1 && hl >= 0 ? `acpmux-cols-model-${hl}` : undefined}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setModelHl(event.target.value ? 0 : -1);
+                  setCol(1);
+                  setTuneHl(0);
+                  setProfileOpen(false);
+                }}
+              />
+            </div>
+            <div className="acpmux-cols-strips">
+              <hr className="acpmux-cols-sep" />
+              {/* The chat's own readiness (an expired login, a route that needs sign-in, an unreachable
+              machine), whatever tab or search shows: the avatar is the account, not the readiness. */}
+              {auth && authNote && (
                 <>
-                  {ladder.length === 0 && (
-                    <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
-                      <span className="acpmux-cols-name">{t("picker.effortNone")}</span>
-                    </div>
-                  )}
-                  {ladder.map((choice) =>
-                    tuneRow(
-                      choice.id,
-                      levelChosen && choice.id === level,
-                      focusOff || !canLandEffort,
-                      () => pickLevel(choice.id),
-                      <>
-                        <span className="acpmux-cols-name">{choice.name}</span>
-                        <span className="acpmux-cols-check">{levelChosen && choice.id === level && <CheckIcon />}</span>
-                      </>,
-                    ),
-                  )}
-                  {offers.length > 0 && <div className="acpmux-cols-caption">{t("picker.provider")}</div>}
-                  {offers.map((offer) =>
-                    tuneRow(
-                      offer.id,
-                      offer === runningOffer,
-                      focusOff || !!offer.disabled,
-                      () => pickOffer(offer),
-                      <>
-                        <span className="acpmux-cols-name">{offer.provider}</span>
-                        <span className="acpmux-cols-check">{offer === runningOffer && <CheckIcon />}</span>
-                      </>,
-                    ),
-                  )}
-                  {fastShown && (
-                    <>
-                      <div className="acpmux-cols-gap" />
-                      {tuneRow(
-                        "fast",
-                        fastOn,
-                        focusOff,
-                        toggleFast,
-                        <>
-                          <span className="acpmux-cols-name">{t("picker.chipFast")}</span>
-                          <span className="acpmux-cols-switch" data-on={fastOn ? "" : undefined} aria-hidden="true" />
-                        </>,
-                        "switch",
+                  <div className="acpmux-cols-auth">
+                    <span>{authNote}</span>
+                    {canSessionLogin(auth.verdict) && auth.onLogin && (
+                      <button
+                        type="button"
+                        className="acpmux-cols-update-action"
+                        onClick={() => {
+                          close();
+                          auth.onLogin?.();
+                        }}
+                      >
+                        {authLoginText(auth.verdict, t)}
+                      </button>
+                    )}
+                    {auth.onRefresh && (
+                      <button type="button" className="acpmux-cols-update-action" onClick={() => auth.onRefresh?.()}>
+                        {t("harnesses.checkAgain")}
+                      </button>
+                    )}
+                  </div>
+                  <hr className="acpmux-cols-sep" />
+                </>
+              )}
+              {/* A picked model's harness being set up (harnessSetup.ts): installing, signing in or
+              starting, or why it could not, whatever tab or search shows. */}
+              {setup && (
+                <>
+                  <output className="acpmux-cols-setup" data-busy={setup.busy ? "" : undefined}>
+                    {setup.busy && <Spinner size={12} className="acpmux-cols-setup-spinner" loading />}
+                    <span className="acpmux-cols-setup-text">
+                      <span>{setup.text}</span>
+                      {setup.detail && (
+                        // tooltip-allow: the installer's last line can run long; the strip shows one line
+                        <span className="acpmux-cols-setup-detail" title={setup.detail}>
+                          {setup.detail}
+                        </span>
                       )}
-                    </>
-                  )}
+                    </span>
+                    {setup.actions.map((action) => (
+                      <button
+                        key={action.label}
+                        type="button"
+                        className="acpmux-cols-update-action"
+                        onClick={action.run}
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </output>
+                  <hr className="acpmux-cols-sep" />
                 </>
               )}
             </div>
-          </div>
-          {menu.update && (
-            <>
-              <hr className="acpmux-cols-sep" />
-              <div className="acpmux-cols-update">
-                <span>{menu.update.text}</span>
-                <button
-                  ref={updateAction}
-                  type="button"
-                  className="acpmux-cols-update-action"
-                  onKeyDown={(event) => {
-                    if (event.key !== "ArrowUp") return;
-                    event.preventDefault();
-                    field.current?.focus();
-                  }}
-                  onClick={() => {
-                    menu.update?.run();
-                    close();
-                  }}
-                >
-                  {t("harness.update")}
-                </button>
+            <div className="acpmux-cols-lists">
+              <DrivenList
+                ref={railList}
+                kind="tablist"
+                label={t("picker.harness")}
+                className="acpmux-cols-list acpmux-cols-rail"
+                onScroll={(event) => markFades(event.currentTarget)}
+                data-col-focus={col === 0 && railKeys ? "" : undefined}
+              >
+                {tabs.map((entry, index) => {
+                  const family = entry === shownTab && shown ? shown : leadRoute(entry, families.current);
+                  const selected = !query && entry === shownTab;
+                  // A started chat's own tab: the "used here" mark (UsedMark), drawn by the tab.
+                  const ownTab = !!used && entry.routes.some((route) => route.id === families.current);
+                  return (
+                    <DrivenRow
+                      key={entry.key}
+                      kind="tab"
+                      aria-selected={selected}
+                      aria-label={entry.name}
+                      // tooltip-allow: the rail tab draws only the family's mark; the title names it and
+                      // whether this chat ran it.
+                      title={[entry.name, family.note, ownTab ? t("picker.usedHere") : undefined]
+                        .filter(Boolean)
+                        .join(" · ")}
+                      data-used={ownTab ? used : undefined}
+                      data-tooltip-side="left"
+                      className="acpmux-cols-tab"
+                      data-hl={selected ? "" : undefined}
+                      data-off={family.setUp ? "" : undefined}
+                      onPick={() => {
+                        setCol(1);
+                        showTab(index);
+                      }}
+                    >
+                      {family.starred ? (
+                        <StarIcon filled={selected} />
+                      ) : symbolOf(family) ? (
+                        <AgentMark agent={family.mark} size={16} />
+                      ) : (
+                        <span className="acpmux-cols-initial" aria-hidden="true">
+                          {initialOf(entry.name)}
+                        </span>
+                      )}
+                      {ownTab && used !== "glyph" && <UsedMark look={used} />}
+                    </DrivenRow>
+                  );
+                })}
+                {families.onAddHarness && (
+                  <DrivenRow
+                    tabbable
+                    kind="button"
+                    className="acpmux-cols-tab acpmux-cols-tab-add"
+                    aria-label={t("modelPicker.addHarness")}
+                    title={t("modelPicker.addHarness")}
+                    data-tooltip-side="left"
+                    onPick={() => {
+                      close();
+                      families.onAddHarness?.();
+                    }}
+                  >
+                    <PlusIcon />
+                  </DrivenRow>
+                )}
+              </DrivenList>
+
+              <DrivenList
+                ref={holdModelsList}
+                kind="listbox"
+                label={t("picker.model")}
+                className="acpmux-cols-list"
+                data-cmux-card-scroll=""
+                data-cmux-scroll-only=""
+                onScroll={(event) => markFades(event.currentTarget)}
+                data-col-focus={col === 1 ? "" : undefined}
+              >
+                {models}
+                {query && rows.length === 0 && (
+                  <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
+                    <span className="acpmux-cols-name">{t("picker.noMatches")}</span>
+                  </div>
+                )}
+                {tabEmpty && (
+                  <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
+                    <span className="acpmux-cols-name">
+                      {shown.note ?? (shown.starred ? t("picker.starredNone") : t("picker.noModelsYet"))}
+                    </span>
+                  </div>
+                )}
+                {!query && shown?.note && rows.length > 0 && shown.setUp && (
+                  <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
+                    <span className="acpmux-cols-name">{shown.note}</span>
+                  </div>
+                )}
+                {!query && shown?.note && shown.logIn && (
+                  <DrivenRow
+                    kind="button"
+                    className="acpmux-cols-row"
+                    onPick={() => {
+                      close();
+                      shown.logIn?.();
+                    }}
+                  >
+                    <span className="acpmux-cols-name">{t("harness.logIn")}</span>
+                  </DrivenRow>
+                )}
+                {!query && shown?.note && shown.setUp && (
+                  <DrivenRow
+                    kind="button"
+                    className="acpmux-cols-row"
+                    onPick={() => {
+                      close();
+                      shown.setUp?.();
+                    }}
+                  >
+                    <span className="acpmux-cols-name">{t("harnesses.install")}</span>
+                  </DrivenRow>
+                )}
+              </DrivenList>
+            </div>
+
+            {/* The effort column always heads with Reasoning (Lucas 2026-11-12), in the search row: the line under that row
+                runs on under it (Lucas 2026-11-12), and its text starts where the levels' does. The
+                column's own label names it for assistive tech. */}
+            <div className="acpmux-cols-caption acpmux-cols-tune-head" aria-hidden="true">
+              {t("picker.reasoning")}
+            </div>
+            {/* The column's levels and providers scroll on their own, between the Reasoning heading and
+                Fast, which stays fixed at the column's bottom (Lucas 2026-11-12). */}
+            <div
+              className="acpmux-cols-list acpmux-cols-tune"
+              data-col-focus={col === 2 ? "" : undefined}
+              aria-label={t("picker.reasoning")}
+            >
+              <div
+                className="acpmux-cols-tune-scroll"
+                data-cmux-card-scroll=""
+                data-cmux-scroll-only=""
+                onScroll={(event) => markFades(event.currentTarget)}
+              >
+                {/* A model with no levels says None, also one whose harness names its levels only once a
+                  chat runs it (OpenCode, before a chat). */}
+                {focus && (
+                  <>
+                    {ladder.length === 0 && (
+                      <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
+                        <span className="acpmux-cols-name">{t("picker.effortNone")}</span>
+                      </div>
+                    )}
+                    {ladder.map((choice) =>
+                      tuneRow(
+                        choice.id,
+                        levelChosen && choice.id === level,
+                        focusOff || !canLandEffort,
+                        () => pickLevel(choice.id),
+                        <>
+                          <span className="acpmux-cols-name">{choice.name}</span>
+                          <span className="acpmux-cols-check">
+                            {levelChosen && choice.id === level && <CheckIcon />}
+                          </span>
+                        </>,
+                        "radio",
+                        undefined,
+                        !!named?.effort && choice.id === named.effort,
+                      ),
+                    )}
+                    {offers.length > 0 && <div className="acpmux-cols-caption">{t("picker.provider")}</div>}
+                    {offers.map((offer) =>
+                      tuneRow(
+                        offer.id,
+                        offer === runningOffer,
+                        focusOff || !!offer.disabled,
+                        () => pickOffer(offer),
+                        <>
+                          <span className="acpmux-cols-name acpmux-cols-provider">{offer.provider}</span>
+                          {used && offer.id === current && focus.family === families.current && (
+                            <UsedMark look={used} />
+                          )}
+                          <span className="acpmux-cols-check">{offer === runningOffer && <CheckIcon />}</span>
+                        </>,
+                        "radio",
+                        `${offer.provider} · ${offer.id}`,
+                      ),
+                    )}
+                  </>
+                )}
               </div>
-            </>
+              {focus && fastShown && (
+                <div className="acpmux-cols-tune-foot">
+                  {tuneRow(
+                    "fast",
+                    fastOn,
+                    focusOff,
+                    toggleFast,
+                    <>
+                      <span className="acpmux-cols-name">{t("picker.chipFast")}</span>
+                      <span className="acpmux-cols-switch" data-on={fastOn ? "" : undefined} aria-hidden="true" />
+                    </>,
+                    "switch",
+                    undefined,
+                    !!named?.fast,
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+          {menu.updates ? (
+            <HarnessUpdatesSection
+              updates={menu.updates}
+              onOwnUpdate={close}
+              firstAction={updateAction}
+              onFirstKeyDown={(event) => {
+                if (event.key !== "ArrowUp") return;
+                event.preventDefault();
+                field.current?.focus();
+              }}
+            />
+          ) : (
+            menu.update && (
+              <>
+                <hr className="acpmux-cols-sep" />
+                <div className="acpmux-cols-update">
+                  <span>{menu.update.text}</span>
+                  <button
+                    ref={updateAction}
+                    type="button"
+                    className="acpmux-cols-update-action"
+                    onKeyDown={(event) => {
+                      if (event.key !== "ArrowUp") return;
+                      event.preventDefault();
+                      field.current?.focus();
+                    }}
+                    onClick={() => {
+                      menu.update?.run();
+                      close();
+                    }}
+                  >
+                    {t("harness.update")}
+                  </button>
+                </div>
+              </>
+            )
           )}
         </div>
       </Popover>

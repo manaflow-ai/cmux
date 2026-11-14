@@ -21,6 +21,11 @@ path = "tests/test_cloud_display_catalog.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_cloud_golden_path_receipt.py"
+lane = "manual"
+reason = "Run by hand when scripts/cmux-next/cloud_golden_path_receipt.py changes: TMPDIR=/dev/shm python3 -m unittest tests/test_cloud_golden_path_receipt.py (fixtures only, no app, no machine; under 1 s). No new CI tests (CLAUDE.md, Verification)."
+
+[[test]]
 path = "tests/test_cloud_pair_proof.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Guardrails of scripts/ci/cmux_next_cloud_pair_proof.py, the fleet Cloud chat proof (#30473); run python3 tests/test_cloud_pair_proof.py yourself after changing that script (under 1 s, no build)."

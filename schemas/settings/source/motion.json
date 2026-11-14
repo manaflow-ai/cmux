@@ -1,0 +1,374 @@
+{
+  "$comment": "HAND-EDITED source of Appearance > Motion (plans/cmux-next/motion-DESIGN.md) (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it; its docstring is the row format (tabs.json's $comment repeats it, plus choices_from and \"swift_case\": null). Lists: SettingsSchema.all concatenates them, so rows keep the export's order; schemas/settings/settings-schema.json must not change when rows move here.",
+  "lists": [
+    {
+      "name": "motion",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.motion",
+        "text": "Motion"
+      },
+      "rows": [
+        {
+          "key": "ui.calm",
+          "title": {
+            "key": "settings.ui.calm",
+            "text": "Calm Mode"
+          },
+          "help": {
+            "key": "settings.ui.calm.help",
+            "text": "Calm: nothing slides, springs or spins, hover cards stay closed and the pointer leaves no highlight on tabs, rows and buttons. Still: Calm, and every animation is instant. Your other motion and hover card settings come back when it is off."
+          },
+          "kind": "choice",
+          "swift_owner": "CalmModeSetting",
+          "swift_enum": {
+            "name": "CalmMode",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "calm",
+              "title": {
+                "key": "settings.choice.calm",
+                "text": "Calm"
+              }
+            },
+            {
+              "value": "still",
+              "title": {
+                "key": "settings.choice.still",
+                "text": "Still"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "calm",
+            "quiet",
+            "focus",
+            "zen",
+            "reduce motion",
+            "reduced motion",
+            "hover",
+            "no hover",
+            "highlight",
+            "distraction",
+            "busy",
+            "noise",
+            "minimal",
+            "still"
+          ]
+        },
+        {
+          "key": "ui.animations.enabled",
+          "name": "enabled",
+          "title": {
+            "key": "settings.ui.animations.enabled",
+            "text": "Play Animations"
+          },
+          "help": {
+            "key": "settings.ui.animations.enabled.help",
+            "text": "Off turns every animation in cmux off: rows, tabs, panes, menus, cards, the agent cursor, spinners and cmux web pages change at once. On, the switches below choose area by area."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "MotionCategoriesSetting",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "motion",
+            "animation",
+            "animations",
+            "no animations",
+            "disable animations",
+            "reduce motion",
+            "instant"
+          ]
+        },
+        {
+          "key": "ui.animations.sidebar",
+          "name": "sidebar",
+          "title": {
+            "key": "settings.ui.animations.sidebar",
+            "text": "Animate the Sidebar"
+          },
+          "help": {
+            "key": "settings.ui.animations.sidebar.help",
+            "text": "Rows and groups slide when they reorder, open, close, pin or move to the top, and the sidebar slides when it shows or hides. Off: they change at once."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "MotionCategoriesSetting",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "motion",
+            "animation",
+            "sidebar",
+            "row",
+            "group",
+            "reorder",
+            "pin",
+            "move to top"
+          ]
+        },
+        {
+          "key": "ui.animations.tabs",
+          "name": "tabs",
+          "title": {
+            "key": "settings.ui.animations.tabs",
+            "text": "Animate Tabs"
+          },
+          "help": {
+            "key": "settings.ui.animations.tabs.help",
+            "text": "Tabs grow, shrink and slide when they open, close, reorder or collapse into a group. Off: the tab bar changes at once."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "MotionCategoriesSetting",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "motion",
+            "animation",
+            "tab",
+            "tab bar",
+            "reorder",
+            "group"
+          ]
+        },
+        {
+          "key": "ui.animations.panes",
+          "name": "panes",
+          "title": {
+            "key": "settings.ui.animations.panes",
+            "text": "Animate Panes and Windows"
+          },
+          "help": {
+            "key": "settings.ui.animations.panes.help",
+            "text": "Splits, closes, zooms, dividers, focus rings, drop zones and windows open, close and move with motion. Off: they change at once."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "MotionCategoriesSetting",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "motion",
+            "animation",
+            "pane",
+            "split",
+            "zoom",
+            "window",
+            "divider",
+            "focus ring"
+          ]
+        },
+        {
+          "key": "ui.animations.overlays",
+          "name": "overlays",
+          "title": {
+            "key": "settings.ui.animations.overlays",
+            "text": "Animate Menus and Cards"
+          },
+          "help": {
+            "key": "settings.ui.animations.overlays.help",
+            "text": "Menus, popovers, the command palette, sheets, toasts, notices, find bars and cards fade and slide in and out. Off: they show and hide at once."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "MotionCategoriesSetting",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "motion",
+            "animation",
+            "menu",
+            "popover",
+            "palette",
+            "toast",
+            "card",
+            "sheet",
+            "find bar"
+          ]
+        },
+        {
+          "key": "ui.animations.hoverCards",
+          "name": "hoverCards",
+          "title": {
+            "key": "settings.ui.animations.hoverCards",
+            "text": "Animate Hover Cards"
+          },
+          "help": {
+            "key": "settings.ui.animations.hoverCards.help",
+            "text": "Hover cards and tooltips fade and slide in. Off: they show and hide at once."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "MotionCategoriesSetting",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "motion",
+            "animation",
+            "hover card",
+            "tooltip",
+            "preview"
+          ]
+        },
+        {
+          "key": "ui.animations.home",
+          "name": "home",
+          "title": {
+            "key": "settings.ui.animations.home",
+            "text": "Animate Home and Chats"
+          },
+          "help": {
+            "key": "settings.ui.animations.home.help",
+            "text": "The Chief chat, its bubbles, the composer and the Home list move and fade. Off: they change at once."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "MotionCategoriesSetting",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "motion",
+            "animation",
+            "home",
+            "chief",
+            "chat",
+            "bubble",
+            "messages"
+          ]
+        },
+        {
+          "key": "ui.animations.cursor",
+          "name": "cursor",
+          "title": {
+            "key": "settings.ui.animations.cursor",
+            "text": "Animate the Agent Cursor"
+          },
+          "help": {
+            "key": "settings.ui.animations.cursor.help",
+            "text": "The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "MotionCategoriesSetting",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "motion",
+            "animation",
+            "cursor",
+            "agent",
+            "computer use",
+            "ripple"
+          ]
+        },
+        {
+          "key": "ui.animations.indicators",
+          "name": "indicators",
+          "title": {
+            "key": "settings.ui.animations.indicators",
+            "text": "Animate Spinners and Progress"
+          },
+          "help": {
+            "key": "settings.ui.animations.indicators.help",
+            "text": "Spinners turn, status dots pulse and attention flashes blink. Off: they show a still glyph."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "MotionCategoriesSetting",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "motion",
+            "animation",
+            "spinner",
+            "progress",
+            "pulse",
+            "flash",
+            "loading",
+            "status"
+          ]
+        },
+        {
+          "key": "ui.animations.feedback",
+          "name": "feedback",
+          "title": {
+            "key": "settings.ui.animations.feedback",
+            "text": "Animate Highlights and Colors"
+          },
+          "help": {
+            "key": "settings.ui.animations.feedback.help",
+            "text": "Hover and press highlights, focus fades and theme color changes ease in. Off: they change at once."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "MotionCategoriesSetting",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "motion",
+            "animation",
+            "hover",
+            "highlight",
+            "focus",
+            "color",
+            "theme",
+            "transition"
+          ]
+        },
+        {
+          "key": "ui.animations.web",
+          "name": "web",
+          "title": {
+            "key": "settings.ui.animations.web",
+            "text": "Animate cmux Web Pages"
+          },
+          "help": {
+            "key": "settings.ui.animations.web.help",
+            "text": "Transitions and animations in cmux's own pages, such as agent chats, New Tab and Markdown. Off: they end at once. Websites are not changed."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "MotionCategoriesSetting",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "motion",
+            "animation",
+            "web",
+            "page",
+            "css",
+            "transition",
+            "new tab",
+            "markdown",
+            "agent chat"
+          ]
+        }
+      ]
+    }
+  ]
+}

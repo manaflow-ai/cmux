@@ -200,6 +200,7 @@ private nonisolated final class Invocation: Sendable {
         // The group exists now, so a stop reaches git and cmux children too.
         guard let stdin else { return }
         do {
+            // concurrency-allow: in the stderr readability handler, on Foundation's pipe queue, never the main thread
             try stdin.write(contentsOf: request)
             try stdin.close()
         } catch {

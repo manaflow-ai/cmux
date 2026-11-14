@@ -88,7 +88,8 @@ impl HostedReader {
         let title = crate::terminal_title::read(&replacement);
         let pwd = replacement.pwd();
         let mut scroll_changed = None;
-        // A resize replays the same title: announce it only when it moved.
+        // A resize replays the same title: announce it only when what a tab
+        // shows of it moved.
         let mut title_moved = false;
         let generation = pty.with_terminal_stream_update(|term| {
             let before = terminal_scroll_position(term);
@@ -97,7 +98,8 @@ impl HostedReader {
             *geometry = next_geometry;
             pty.journal_geometry(next_geometry);
             title_moved =
-                std::mem::replace(&mut *pty.title.lock().unwrap(), title.clone()) != title;
+                crate::terminal_title::store(&mut pty.title.lock().unwrap(), title.clone())
+                    .is_some();
             pty.record_directory(pwd);
             *pty.kitty_graphics_limits.lock().unwrap() = kitty_state.limits;
             self.applied_color_overrides = colors;

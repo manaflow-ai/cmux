@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxHomeCore
 import CmuxNextDesign
+public import CmuxNextHomeModel
 
 /// "Message Requests" (plans/cmux-next/home-messaging-invites/DESIGN.md 2.3): invites from
 /// people the user has not talked to, each with Accept, Decline and Block. They made no sound

@@ -1,0 +1,228 @@
+name: First-user journey (iOS)
+run-name: >-
+  First-user journey (iOS) · ${{ inputs.ref || github.head_ref || github.ref_name }}
+
+# The NEXT iPhone app's first-user journey, walked on a freshly erased
+# simulator every night: sign-in, setup, pairing, Home and its tabs, a chat,
+# Settings and each of its pages, the Face ID lock, the error states and the
+# smallest and largest text sizes, every control tapped
+# (cmux-next-ios/UITests/FirstUserJourneyUITests.swift). The run's
+# results.json (the shared first-user-journey schema, surface "ios"),
+# summary.md, the screenshots of every red and a video of the whole run are
+# the `first-user-journey-ios` artifact, which the cmux quality report reads.
+# A red is a finding, not a failed job: the job fails only when the journey
+# could not run or no results came out.
+#
+# A schedule fires only from the default branch's copy of a workflow. That
+# copy (main) has no cmux-next-ios, so its scheduled run only dispatches this
+# workflow on feat-cmux-next, where the journey runs. It runs on no pull
+# request (the pull-request job budget in ci/steps.toml only goes down): try
+# a change with `gh workflow run first-user-journey-ios.yml --ref BRANCH`.
+on:
+  schedule:
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: App source to walk (branch, tag or SHA); empty is this ref
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: first-user-journey-ios-${{ inputs.ref || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  route:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      actions: write # the default branch's scheduled run starts feat-cmux-next's
+    outputs:
+      walk: ${{ steps.route.outputs.walk }}
+      runs_on: ${{ steps.pool.outputs.runs_on }}
+      retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
+    steps:
+      - name: Checkout pool helper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/ci/ios_runner_pool.py
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
+            scripts/ci/simple_pool_picker.py
+            scripts/ci/warm_distance.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      # The macOS pool the walk runs on (scripts/ci/ios_runner_pool.py, the
+      # one-simulator lane ios-screenshots.yml uses): an owned Mac with an
+      # iOS simulator when CI_IOS_OWNED allows, else MACOS_RUNNER_IOS; a
+      # re-run takes retry_runs_on.
+      - name: Pick the macOS pool
+        id: pool
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_IOS }}
+          IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+        run: |
+          set -euo pipefail
+          route="$(python3 scripts/ci/ios_runner_pool.py \
+            --lane screenshots \
+            --variable "$RUNNER_VARIABLE" \
+            --ios-owned "$IOS_OWNED" \
+            --owned "$POOL_OWNED" \
+            --owned-slots "$OWNED_SLOTS" \
+            --pr-xcode-app "$PR_XCODE_APP")"
+          echo "$route" >> "$GITHUB_OUTPUT"
+          echo "$route"
+      - id: route
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = schedule ] && [ "$REF" != refs/heads/feat-cmux-next ]; then
+            gh workflow run first-user-journey-ios.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next
+            echo "::notice::started the journey on feat-cmux-next"
+            echo "walk=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "walk=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  journey:
+    needs: route
+    if: needs.route.outputs.walk == 'true'
+    name: Walk the first-user journey (iPhone simulator)
+    # No secret in this job: the mock account (DEBUG) stands in for sign-in.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.route.outputs.retry_runs_on || needs.route.outputs.runs_on) }}
+    timeout-minutes: 75
+    steps:
+      - name: Result paths
+        run: |
+          echo "DERIVED=$RUNNER_TEMP/dd" >> "$GITHUB_ENV"
+          echo "RAW=$RUNNER_TEMP/raw" >> "$GITHUB_ENV"
+          echo "OUT=$RUNNER_TEMP/first-user-journey-ios" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/dd" "$RUNNER_TEMP/raw" "$RUNNER_TEMP/first-user-journey-ios"
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-next-ios/rust
+          key: first-user-journey-ios
+      - name: Build CmuxMobileLinkFFI.xcframework
+        env:
+          JOBS: "6"
+        run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
+      - name: Install xcodegen
+        run: |
+          set -euo pipefail
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
+      - name: Build the app and the journey for testing
+        working-directory: cmux-next-ios
+        run: |
+          set -euo pipefail
+          xcodegen generate -q
+          dest="$(python3 -I scripts/app_review_pick_simulator.py --family iphone --print-destination)"
+          # Debug: the mock account is DEBUG only. Sign in with Apple shows,
+          # as in the App Store configurations.
+          xcodebuild -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug \
+            -destination "$dest,arch=arm64" -derivedDataPath "$DERIVED" -enableCodeCoverage NO \
+            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+            CMUX_MOBILE_APPLE_SIGN_IN=YES \
+            build-for-testing 2>&1 | tee "$RAW/build.log" | { grep -E 'error:|BUILD' || true; }
+          test "${PIPESTATUS[0]}" -eq 0
+      - name: Walk the journey on a freshly erased iPhone
+        # The test caps itself at 30 min (FirstUserJourneyUITests.journeyBudget);
+        # The perl alarm below stops a hang (macOS has no `timeout`), and the steps after still report.
+        timeout-minutes: 45
+        run: |
+          # Never -e: a failing suite must still leave its log and screenshots
+          # for the report.
+          set +e
+          set -uo pipefail
+          xctestrun="$(find "$DERIVED/Build/Products" -name '*.xctestrun' | head -n 1)"
+          # The smallest current iPhone the image has, so layout breaks show
+          # first; the review gate covers the Pro Max and iPad.
+          runtime="$(xcrun simctl list runtimes available -j | python3 -I -c 'import json,sys; r=[x for x in json.load(sys.stdin)["runtimes"] if x.get("platform")=="iOS" and x.get("isAvailable")]; r.sort(key=lambda x: [int(p) for p in x["version"].split(".")]); print(r[-1]["identifier"] if r else "")')"
+          udid=""
+          for model in "iPhone 17e" "iPhone 16e" "iPhone 17" "iPhone 16"; do
+            type_id="$(xcrun simctl list devicetypes -j | python3 -I -c "import json,sys; t=[d['identifier'] for d in json.load(sys.stdin)['devicetypes'] if d['name']==sys.argv[1]]; print(t[0] if t else '')" "$model")"
+            [ -n "$type_id" ] && [ -n "$runtime" ] || continue
+            udid="$(xcrun simctl create "fuj-$GITHUB_RUN_ID" "$type_id" "$runtime" 2>/dev/null)" && { echo "device: $model ($udid)"; break; }
+          done
+          if [ -z "$udid" ]; then
+            udid="$(python3 -I cmux-next-ios/scripts/app_review_pick_simulator.py --family iphone --print-udid)"
+            echo "device: review gate's iPhone ($udid)"
+          fi
+          # A fresh install: nothing installed, no permission ever answered.
+          xcrun simctl shutdown "$udid" 2>/dev/null || true
+          xcrun simctl erase "$udid"
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          echo "SIM=$udid" >> "$GITHUB_ENV"
+          xcrun simctl io "$udid" recordVideo --codec h264 --force "$OUT/journey.mp4" > "$RAW/video.log" 2>&1 &
+          video=$!
+          perl -e 'alarm shift; exec @ARGV or die "exec: $!"' 2400 xcodebuild test-without-building -xctestrun "$xctestrun" \
+            -destination "id=$udid,arch=arm64" -resultBundlePath "$RAW/journey.xcresult" \
+            -only-testing:CmuxMobileAppUITests/FirstUserJourneyUITests \
+            -test-timeouts-enabled YES -maximum-test-execution-time-allowance 420 \
+            > "$RAW/journey.log" 2>&1
+          code=$?
+          # Our own recorder, by its PID: SIGINT finishes the file. A recorder that never started writing
+          # ignores it, so it gets 20 s, then KILL: an unbounded `wait` here hung the step to its limit.
+          kill -INT "$video" 2>/dev/null
+          for _ in $(seq 20); do kill -0 "$video" 2>/dev/null || break; sleep 1; done
+          kill -KILL "$video" 2>/dev/null
+          wait "$video" 2>/dev/null
+          echo "$code" > "$RAW/exit"
+          grep -E '^FUJ |Executed [0-9]+ tests|^Test Case .* failed' "$RAW/journey.log" | tail -n 200
+          mkdir -p "$RAW/attachments"
+          xcrun xcresulttool export attachments --path "$RAW/journey.xcresult" --output-path "$RAW/attachments" >/dev/null 2>&1 || true
+          exit 0
+      - name: Write results.json and summary.md
+        if: always()
+        env:
+          BUILD: ${{ inputs.ref || github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          code="$(cat "$RAW/exit" 2>/dev/null || echo 1)"
+          python3 -I cmux-next-ios/scripts/first_user_journey_report.py \
+            --log "$RAW/journey.log" --attachments "$RAW/attachments" --exit-code "$code" \
+            --build "$BUILD" --run-url "$RUN_URL" --out "$OUT"
+          cp "$RAW/journey.log" "$OUT/journey.log" 2>/dev/null || true
+          cat "$OUT/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload first-user-journey-ios
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: first-user-journey-ios
+          # results.json and summary.md at the artifact root.
+          path: ${{ env.OUT }}
+          if-no-files-found: error
+          retention-days: 3
+      - name: Remove the run's simulator
+        if: always()
+        run: |
+          # Only the device this run created (named fuj-<run id>).
+          udid="$(xcrun simctl list devices -j | python3 -I -c "import json,sys; print(next((d['udid'] for v in json.load(sys.stdin)['devices'].values() for d in v if d['name']==sys.argv[1]), ''))" "fuj-$GITHUB_RUN_ID")"
+          [ -n "$udid" ] && xcrun simctl delete "$udid" || true

@@ -9,7 +9,21 @@ import AppKit
     /// the band's sticky edges; otherwise `resolved` (nil keeps the last).
     static func gate(_ list: SidebarListView, _ drag: SidebarListDrag, card: CGRect, resolved: DropTarget??) -> DropTarget?? {
         guard case let .workspaces(ids) = drag.payload else { return resolved }
-        let hit = SidebarGroupBand.hit(y: card.midY, rows: list.displayed.rows, hidden: drag.hiddenKeys, dragged: ids,
+        // A side-by-side view is the active handoff path only while more than
+        // one workspace is on screen. Suppress only the generic onto target
+        // and the group band for that frame; ordinary reorder and existing
+        // group drops must keep their resolver target.
+        // The feature toggle alone is not enough: single-view grouping remains
+        // available while the side-by-side feature is enabled.
+        if SidebarTunables.multiViewOn && list.model.onScreen.count > 1 {
+            if case .some(.ontoWorkspace) = resolved {
+                // Suppressing grouping must leave the last reorder slot in place. A nil target
+                // makes displayLayout close that slot, so the release cancels and loses the move.
+                return drag.lastPosition.map { .some(.position($0)) } ?? .some(nil)
+            }
+            return resolved
+        }
+        let hit = SidebarGroupBand.hit(y: card.midY, layout: list.displayed, hidden: drag.hiddenKeys, dragged: ids,
                                        sections: list.model.sections)
         if let anchor = drag.band.update(hit) { return .some(.ontoWorkspace(anchor)) }
         return resolved
@@ -21,11 +35,12 @@ import AppKit
         registerUndo(list, ids, origin: origin, anchor: nil)
     }
 
-    /// Groups `ids` with `anchor`, at the anchor's row, as a named group with no color, with Cmd-Z.
+    /// Groups `ids` with `anchor`, at the anchor's row, as a named group in the palette's next color (`SidebarGroup.newTint`:
+    /// none under glass), with Cmd-Z.
     @discardableResult
     static func group(_ list: SidebarListView, _ ids: [WorkspaceID], onto anchor: WorkspaceID, origin: DropPosition?) -> GroupID {
         let group = GroupID.make(), sections = list.model.sections
-        list.model.send(.createGroup(group, name: SidebarGroup.named(""), color: .none,
+        list.model.send(.createGroup(group, name: SidebarGroup.named(""), color: SidebarGroup.newTint(in: sections),
                                      workspaces: [anchor] + ids, anchor: anchor))
         registerUndo(list, ids, origin: origin, anchor: anchor)
         return group

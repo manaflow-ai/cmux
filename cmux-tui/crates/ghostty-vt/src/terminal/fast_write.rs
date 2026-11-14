@@ -11,7 +11,6 @@ impl Terminal {
     /// running them one after another. While all of them are idle, a neutral
     /// run (see `byte_scan::neutral_run_end`) is skipped: it leaves every one
     /// idle and only clears the boundary tracker's pending bytes.
-    /// `mux2-wrapcheck` compares this with the reference path.
     pub(super) fn feed_trackers(&mut self, data: &[u8]) -> bool {
         let mut mouse_modes_may_have_changed = false;
         let mut at = 0;

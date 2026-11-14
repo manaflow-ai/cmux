@@ -1,6 +1,7 @@
 //! `cloud.machine.connect` answers the signed-in caller's `vm_kind` from the
 //! Worker's `connect_info` for that link (cmux-platform#89): `owner` only on
-//! the exact value, `team` otherwise, also from a Worker that predates it.
+//! the exact value, `team` for any other answer, also from a Worker that
+//! predates it, and `unknown` when no answer could be read (it grants nothing).
 //! The answer belongs to one link generation: a new link reads it fresh,
 //! never from an earlier link's cached read.
 
@@ -41,8 +42,38 @@ fn a_team_answer_is_team() {
 }
 
 #[test]
-fn a_worker_without_vm_kind_answers_team() {
-    assert_eq!(connect_answer(&["vm-get"])["vm_kind"], "team");
+fn a_worker_without_vm_kind_answers_unknown() {
+    assert_eq!(connect_answer(&["vm-get"])["vm_kind"], "unknown");
+}
+
+#[test]
+fn an_unknown_owner_answer_is_read_again_on_the_next_connect() {
+    let spawner = FakeSpawner::default();
+    let mut s = Server::with_attach(
+        FakeControlPlane::with(&["vm-get"]),
+        attach(&spawner, &FakeTransport::default()),
+    );
+    let first = connect(&mut s, "c-1");
+    assert_eq!(first["vm_kind"], "unknown");
+    let reads = s.control_plane().wire.count("cloud.machine.connect_info");
+    s.control_plane_mut().set_vm_kind(Some("owner"));
+    let next = connect(&mut s, "c-2");
+    assert_eq!(next["generation"], first["generation"], "the same link: {next}");
+    assert_eq!(next["vm_kind"], "owner", "{next}");
+    assert!(s.control_plane().wire.count("cloud.machine.connect_info") > reads, "read again");
+}
+
+#[test]
+fn a_vm_kind_that_is_neither_owner_nor_team_answers_unknown() {
+    for kind in ["Owner", "", "admin"] {
+        let spawner = FakeSpawner::default();
+        let mut s = Server::with_attach(
+            FakeControlPlane::with(&["vm-get"]),
+            attach(&spawner, &FakeTransport::default()),
+        );
+        s.control_plane_mut().set_vm_kind(Some(kind));
+        assert_eq!(connect(&mut s, "c-1")["vm_kind"], "unknown", "{kind:?}");
+    }
 }
 
 #[test]
@@ -109,8 +140,7 @@ fn a_link_that_exits_during_connect_info_cannot_return_or_cache_its_owner() {
     s.control_plane_mut().on_next_connect_info(move || exiting.exit("vm-alpha01", 1));
     let error = s
         .handle(
-            &Request::new("cloud.machine.connect", json!({ "machine": "vm-alpha01" }))
-                .key("c-2"),
+            &Request::new("cloud.machine.connect", json!({ "machine": "vm-alpha01" })).key("c-2"),
         )
         .expect_err("a carrier that exited during connect_info must not be returned");
     assert_eq!(error.code, "cmux.cloud.link_down");
@@ -225,7 +255,7 @@ fn a_sign_out_fails_the_connect_of_an_up_link_and_ends_it() {
 }
 
 #[test]
-fn an_unavailable_identity_read_answers_team_without_caching() {
+fn an_unavailable_identity_read_answers_unknown_without_caching() {
     let spawner = FakeSpawner::default();
     let mut s = Server::with_attach(
         FakeControlPlane::with(&["vm-get", "connect-info-owner"]),
@@ -236,6 +266,69 @@ fn an_unavailable_identity_read_answers_team_without_caching() {
     let reads = s.control_plane().wire.count("cloud.machine.connect_info");
     s.control_plane_mut().fail_session_unavailable();
     let second = connect(&mut s, "c-2");
-    assert_eq!(second["vm_kind"], "team");
+    assert_eq!(second["vm_kind"], "unknown", "an unread answer is not a teammate's: {second}");
     assert_eq!(s.control_plane().wire.count("cloud.machine.connect_info"), reads);
+}
+
+/// A transient owner read: the host's relay to Cloud gave no answer
+/// (`cmux.cloud.relay_unavailable`, the only transient answer of
+/// `connect_info`, which declares no provider code). On an up link whose
+/// owner answer must be read again it is `unknown`, never cached: the next
+/// connect reads the owner answer again.
+#[test]
+fn a_transient_owner_read_answers_unknown_and_is_read_again() {
+    let spawner = FakeSpawner::default();
+    let mut s = Server::with_attach(
+        FakeControlPlane::with(&["vm-get", "connect-info-owner"]),
+        attach(&spawner, &FakeTransport::default()),
+    );
+    let first = connect(&mut s, "c-1");
+    assert_eq!(first["vm_kind"], "owner");
+    let reads = s.control_plane().wire.count("cloud.machine.connect_info");
+    // Force an owner cache miss on the up carrier without restarting it.
+    s.control_plane_mut().set_team("team_t0000000000000000002");
+    s.control_plane_mut().set_connect_info_relay_down(true);
+    let unread = connect(&mut s, "c-2");
+    assert!(
+        matches!(
+            s.attach().supervisor().state("vm-alpha01"),
+            Some(cmux_cloud::link::LinkState::Up(_))
+        ),
+        "the owner read failed on an up link"
+    );
+    assert_eq!(unread["generation"], first["generation"], "the same link: {unread}");
+    assert_eq!(
+        s.control_plane().wire.count("cloud.machine.connect_info"),
+        reads + 1,
+        "the read reached owner_answer"
+    );
+    assert_eq!(unread["vm_kind"], "unknown", "{unread}");
+    s.control_plane_mut().set_connect_info_relay_down(false);
+    let next = connect(&mut s, "c-3");
+    assert_eq!(next["vm_kind"], "owner", "the unknown answer was not cached: {next}");
+}
+
+/// No such machine in this team, or no access to it: a typed refusal of
+/// the connect, never `unknown` and never the owner.
+#[test]
+fn absence_or_no_access_refuses_the_connect() {
+    for (code, expected) in [
+        ("cloud.machine.not_found", "cmux.cloud.not_found"),
+        ("auth.forbidden", "cmux.cloud.forbidden"),
+    ] {
+        let spawner = FakeSpawner::default();
+        let mut s = Server::with_attach(
+            FakeControlPlane::with(&["vm-get", "connect-info-owner"]),
+            attach(&spawner, &FakeTransport::default()),
+        );
+        assert_eq!(connect(&mut s, "c-1")["vm_kind"], "owner");
+        // The owner read of an up link: its cached answer is for another identity.
+        s.control_plane_mut().set_team("team_t0000000000000000002");
+        s.control_plane_mut().fail_connect_info(code);
+        let request =
+            Request::new("cloud.machine.connect", json!({ "machine": "vm-alpha01" })).key("c-2");
+        let refused =
+            s.handle(&request).expect_err("no carrier for a machine the caller can't reach");
+        assert_eq!(refused.code, expected, "{code}: {refused:?}");
+    }
 }

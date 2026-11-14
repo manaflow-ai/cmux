@@ -18,26 +18,21 @@ public nonisolated struct DaemonDiagnosticKnobs: Sendable, Equatable {
     /// instead of a host process per terminal; scripts/cmux-next/holder-dogfood.py, default off),
     /// the R-DAEMON-STATE stage switches (stage S1's input lane is on by default and `0` keeps its old
     /// path for one nightly; a switch is deleted with its old path when the stage passes;
-    /// handoff/rewrites/R-DAEMON-STATE/DESIGN.md section 3), and the R-LIFECYCLE keepers switch (`0`
-    /// keeps the app's daemon and Chief daemon running after the app left with nothing to keep them,
-    /// as before; default on; deleted when the stage has passed dogfood).
+    /// handoff/rewrites/R-DAEMON-STATE/DESIGN.md section 3). The R-LIFECYCLE keepers switch is deleted
+    /// (PERF FLAGS): the keepers rule always runs, so `CMUX_NEXT_TUI_OWNER_KEEPERS` passes nothing.
     public static let names: [(app: String, daemon: String)] = [
         ("CMUX_NEXT_TRACE_FLOWS", "CMUX_TRACE_FLOWS"),
         ("CMUX_NEXT_TUI_DEBUG_SPANS", "CMUX_TUI_DEBUG_SPANS"),
         ("CMUX_NEXT_TUI_TERMINAL_HOST_MODEL", "CMUX_TUI_TERMINAL_HOST_MODEL"),
         ("CMUX_NEXT_TUI_RDS_INPUT", inputLaneDaemonName),
-        ("CMUX_NEXT_TUI_OWNER_KEEPERS", ownerKeepersDaemonName),
     ]
-
-    /// The R-LIFECYCLE keepers switch under the daemon's name.
-    static let ownerKeepersDaemonName = "CMUX_TUI_OWNER_KEEPERS"
 
     /// The R-DAEMON-STATE stage S1 input lane switch under the daemon's name.
     static let inputLaneDaemonName = "CMUX_TUI_RDS_INPUT"
 
     /// The switches the Chief owner's launch passes on too (`DaemonLauncher.chiefEnvironment`): the Chief owner is
     /// a cmux-tui daemon that follows the same rules as the app's own, so each switch's off value must reach it.
-    static let chiefOwnerDaemonNames = [ownerKeepersDaemonName, inputLaneDaemonName]
+    static let chiefOwnerDaemonNames = [inputLaneDaemonName]
 
     /// The daemon variables to set, from the knobs present and non-empty in the app's environment.
     public let daemonEnvironment: [String: String]

@@ -34,7 +34,8 @@ describe("Cloud VM Pro gate", () => {
       NEXT_PUBLIC_STACK_PROJECT_ID: "454ecd03-1db2-4050-845e-4ce5b0cd9895",
     });
     expect(entitlements.planId).toBe(PRO_PLAN_ID);
-    expect(entitlements.maxActiveVms).toBeGreaterThan(0);
+    // Pro has no allowance, only the high abuse guard.
+    expect(entitlements.maxActiveVms).toBe(200);
   });
 
   test("isPaidVmPlan recognizes pro, team, and founders, not free", () => {

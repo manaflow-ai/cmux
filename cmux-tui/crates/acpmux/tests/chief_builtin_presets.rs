@@ -186,6 +186,7 @@ async fn a_chief_outside_the_app_installs_its_built_in_presets_without_env() {
         stored_env(&mut chief, compact).await,
         json!({
             "ACPMUX_AGENT_TOOLS": "0",
+            "CLAUDE_CODE_AUTO_MODE_SERVER": "0",
             "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
             "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS": "1",
             "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
@@ -214,6 +215,18 @@ async fn a_chief_outside_the_app_installs_its_built_in_presets_without_env() {
     let mux = d.dir.join("mux");
     assert_eq!(env["CODEX_HOME"], mux.join("optchat/turn-codex").display().to_string(), "{env}");
     assert_eq!(env["CODEX_PROMPT_CACHE_KEY"], format!("optchat-{id}-turn"), "{env}");
+    // Claude Code's auto mode is a Claude switch: none for codex.
+    assert!(env.get("CLAUDE_CODE_AUTO_MODE_SERVER").is_none(), "{env}");
+    // A Claude turn judges auto mode with Claude Code's local classifier: the
+    // server-side check left calls with no verdict and denied them all
+    // (https://github.com/manaflow-ai/cmux/issues/37356).
+    let claude_turn = &format!("optchat-chief-{id}");
+    let r = chief
+        .call("_acpmux/presets", json!({"name": claude_turn, "set": {"harness": "fclaude"}}))
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    let env = stored_env(&mut chief, claude_turn).await;
+    assert_eq!(env["CLAUDE_CODE_AUTO_MODE_SERVER"], "0", "{env}");
     let slot = &format!("optchat-compact-{id}-slot-0");
     let r =
         chief.call("_acpmux/presets", json!({"name": slot, "set": {"harness": "fcodex"}})).await;
@@ -240,6 +253,7 @@ async fn a_chief_outside_the_app_installs_its_built_in_presets_without_env() {
     assert_eq!(env["CMUX_MUX_SOCKET"], "/tmp/brain-daemon.sock", "{env}");
     assert_eq!(env["CMUX_CHIEF_OWNER_SOCKET"], "/tmp/brain-owner.sock", "{env}");
     assert_eq!(env["OPTCHAT_SUBAGENT"], "1", "{env}");
+    assert_eq!(env["CLAUDE_CODE_AUTO_MODE_SERVER"], "0", "{env}");
     // The daemon's own directory first: compared resolved, since its
     // `current_exe` resolves a symlinked target directory on Linux (the
     // Testbox's warm target disk) and keeps it on macOS.
@@ -507,7 +521,7 @@ async fn a_chief_turn_gets_cmux_and_folded_acpmux_tools() {
                 .unwrap();
             let names: Vec<_> = allowed["value"].as_str().unwrap().split(',').collect();
             assert_eq!(names, acpmux::agent_tools::CHIEF_TURN_TOOLS.split(',').collect::<Vec<_>>());
-            for tool in ["send", "ls", "last", "info", "inbox_read", "inbox_reply"] {
+            for tool in ["send", "send_status", "ls", "last", "info", "inbox_read", "inbox_reply"] {
                 assert!(names.contains(&format!("acpmux_{tool}").as_str()), "{names:?}");
             }
             assert!(!names.iter().any(|name| name.starts_with("acpmux_bg_")));

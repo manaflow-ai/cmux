@@ -15,7 +15,8 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { chromium, type Browser, type Page } from "playwright";
-import { SessionInfoPanel, type SessionInfoPlacement } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { SessionInfoPanel } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import type { SessionInfoPlacement } from "../src/agent-session/acpmux/session-info/sessionInfoModel";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("session-info-glass.test.tsx", async () => {
@@ -28,7 +29,8 @@ await requireBrowserLane("session-info-glass.test.tsx", async () => {
     return;
   }
   const src = path.resolve(import.meta.dir, "../src");
-  const css = ["ui/glass/glass.css", "agent-session/acpmux/session-info/sessionInfo.css"]
+  // desktop.css first, as every page loads it: it holds the glass levels the panel names.
+  const css = ["pages/shared/desktop.css", "ui/glass/glass.css", "agent-session/acpmux/session-info/sessionInfo.css"]
     .map((file) => readFileSync(path.join(src, file), "utf8"))
     .join("\n");
   // The block gap that holds the hairline is a grid token (#27570), which the page defines.

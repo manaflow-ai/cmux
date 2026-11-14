@@ -39,7 +39,9 @@ concurrency:
 
 jobs:
   rescue:
-    environment: ci-bot
+    environment:
+      name: ci-bot
+      deployment: false
     name: Rescue a hosted queue timeout
     permissions:
       # Read run/job metadata and request the guarded rerun.

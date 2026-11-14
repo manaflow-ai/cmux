@@ -11,16 +11,21 @@ import { Notice, type NoticeKind } from "./Notice";
 import { createNoticeQueue, NoticeStack } from "./NoticeStack";
 
 type Look = "card" | "line" | "header";
-type Props = { look: Look; only?: NoticeKind | "stack" };
+// The toast glass's veil (Leo 2026-11-07: "these toasts are still coloured unthemed"). Chosen and
+// live: `theme`, the theme's surface at the toast's veil opacity under the neutral rim. `gray` is
+// the neutral veil it replaced; `popover` the popovers' denser theme tint. Compare them under a
+// hued theme (the gallery's theme axis).
+type Tint = "theme" | "gray" | "popover";
+type Props = { look: Look; only?: NoticeKind | "stack"; tint?: Tint };
 
 const noop = () => undefined;
 
-function Kinds({ look, only }: Props) {
+function Kinds({ look, only, tint = "theme" }: Props) {
   const [askFirst, setAskFirst] = useState(false);
   const [answer, setAnswer] = useState("");
   const show = (kind: NoticeKind) => !only || only === kind;
   return (
-    <div className="ui-notice-gallery" data-look={look}>
+    <div className="ui-notice-gallery" data-look={look} data-tint={tint}>
       {show("toast") && (
         <Notice
           kind="toast"
@@ -85,7 +90,7 @@ function Kinds({ look, only }: Props) {
   );
 }
 
-function Stack({ look }: Props) {
+function Stack({ look, tint = "theme" }: Props) {
   const queue = useMemo(() => {
     const made = createNoticeQueue();
     made.show({ id: "a", message: "Archived 3 chats.", actions: [{ id: "undo", label: "Undo", onSelect: noop }] });
@@ -94,7 +99,7 @@ function Stack({ look }: Props) {
     return made;
   }, []);
   return (
-    <div className="ui-notice-gallery ui-notice-gallery-stage" data-look={look}>
+    <div className="ui-notice-gallery ui-notice-gallery-stage" data-look={look} data-tint={tint}>
       <NoticeStack queue={queue} dismissLabel="Dismiss" />
     </div>
   );
@@ -128,6 +133,18 @@ export default componentEntry<Props>({
     line: { props: { look: "line" }, note: "Option: Sonner's one-row toast; buttons beside the text." },
     header: { props: { look: "header" }, note: "Option: Codex's limit card with a title strip." },
     stack: { props: { look: "card", only: "stack" }, note: "Three toasts over a pane: newest at the bottom." },
+    "tint-theme": {
+      props: { look: "card", only: "stack", tint: "theme" },
+      note: "Shipped: the theme's surface at the toast veil's opacity, the neutral rim.",
+    },
+    "tint-gray": {
+      props: { look: "card", only: "stack", tint: "gray" },
+      note: "Before: the neutral gray veil in every theme.",
+    },
+    "tint-popover": {
+      props: { look: "card", only: "stack", tint: "popover" },
+      note: "Option: the popovers' theme tint (--ds-glass-popover-tint).",
+    },
     "ask-check": { props: { look: "card", only: "ask" }, play: checkAskFirst },
     "error-retry-first": { props: { look: "card", only: "error" }, play: retryLeads },
   },

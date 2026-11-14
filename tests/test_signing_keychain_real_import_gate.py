@@ -11,6 +11,7 @@ misses would let a change to it merge untested on macOS.
 """
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
@@ -18,6 +19,8 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 WORKFLOW = ROOT / ".github" / "workflows" / "signing-keychain-macos.yml"
 TEST = "tests/test_signing_keychain_real_import.sh"
 
@@ -60,9 +63,11 @@ def triggers() -> dict:
 
 class RealImportGateTests(unittest.TestCase):
     def test_plan_runs_on_linux(self) -> None:
-        runs_on = workflow()["jobs"]["real-import-plan"]["runs-on"]
-        self.assertIn("ubuntu", runs_on)
-        self.assertNotIn("macos", runs_on)
+        cells = workflow_jobs.runs_on_cells(workflow()["jobs"]["real-import-plan"])
+        self.assertTrue(cells, "a runs-on matrix nothing resolves, or no runs-on")
+        for runs_on in cells:
+            self.assertIn("ubuntu", runs_on)
+            self.assertNotIn("macos", runs_on)
 
     def test_real_import_waits_for_the_plan(self) -> None:
         job = workflow()["jobs"]["real-import"]

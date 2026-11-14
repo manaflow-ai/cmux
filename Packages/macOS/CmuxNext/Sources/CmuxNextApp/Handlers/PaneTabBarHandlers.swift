@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextLayout
+import CmuxNextWindowRules
 
 /// Hide Tab Bar / Show Tab Bar and New Horizontal Tab (cx-soza): a pane's own
 /// tab bar choice (``PaneTabBarChoices``, the only way a tab bar hides), and
@@ -45,17 +46,24 @@ enum PaneTabBarHandlers {
         }
     }
 
-    /// Why `controller` takes no new tab, or nil.
+    /// Why `controller` takes no new tab, or nil (Rust's `tabs::panes::tab_bar`).
     static func noTabBarReason(_ controller: PaneController) -> String? {
-        if controller.isPinnedDockPane { return RefusalStrings.chiefPaneHasNoTabBar }
-        return noToggleReason(controller)
+        reason(tabBar(controller)?.newTab)
     }
 
     /// Why `controller`'s tab bar cannot be shown or hidden, or nil: an app's pane has none, and
     /// neither has the Home Chief pane while it holds only Home.
     static func noToggleReason(_ controller: PaneController) -> String? {
-        if controller.isAppPane { return RefusalStrings.appPaneHasNoTabBar }
-        return controller.pinnedDockHidesTabBar ? RefusalStrings.chiefPaneHasNoTabBar : nil
+        reason(tabBar(controller)?.toggle)
+    }
+
+    private static func tabBar(_ controller: PaneController) -> WindowRules.TabBar? {
+        WindowRules().tabBar(appPane: controller.isAppPane, pinnedDock: controller.isPinnedDockPane,
+                             pinnedDockHidesTabBar: controller.pinnedDockHidesTabBar)
+    }
+
+    private static func reason(_ key: String?) -> String? {
+        key.flatMap { ["appPaneHasNoTabBar": RefusalStrings.appPaneHasNoTabBar, "chiefPaneHasNoTabBar": RefusalStrings.chiefPaneHasNoTabBar][$0] }
     }
 }
 

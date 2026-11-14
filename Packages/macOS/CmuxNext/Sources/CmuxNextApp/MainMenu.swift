@@ -8,14 +8,14 @@ import CmuxNextDesign
 /// standard responder-chain items so text fields (rename, omnibox) work;
 /// the Help menu is in MainMenu+Placements.swift.
 enum MainMenu {
-    static func make(registry: ActionRegistry, blocking: BlockingDetector) -> NSMenu {
+    static func make(registry: ActionRegistry) -> NSMenu {
         let mainMenu = NSMenu()
         // About (`about`: the standard panel with the build's credits) comes first, as in every Mac app.
         var app: [NSMenuItem] = registry.makeMenuItem(for: "about").map { [$0, .separator()] } ?? []
-        // Keep the app menu to the primary settings/update controls. Session-specific
-        // quit choices remain palette-searchable and are presented by the quit action.
-        let quitID: ActionID = "quit"
-        let placedElsewhere = Set([quitID, ActionID("about")].compactMap { registry.title(for: $0) })
+        // Keep the app menu to the primary settings/update controls. Quit (Cmd-Q) keeps the
+        // sessions running and never asks (Leo 2026-11-05); the two quits that end them sit under it.
+        let quitIDs: [ActionID] = ["quit", "quitEndSessions", "quitEndEverything"]
+        let placedElsewhere = Set((quitIDs + [ActionID("about")]).compactMap { registry.title(for: $0) })
         app += compactMainMenuItems(for: .app, registry: registry).filter { !placedElsewhere.contains($0.title) }
         app += [
             .separator(),
@@ -24,7 +24,7 @@ enum MainMenu {
             NSMenuItem(title: Strings.menuShowAll, action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""),
             .separator(),
         ]
-        app += [quitID].compactMap { registry.makeMenuItem(for: $0) }
+        app += quitIDs.compactMap { registry.makeMenuItem(for: $0) }
         mainMenu.addItem(submenu(Strings.appName, items: app))
         mainMenu.addItem(submenu(Strings.menuFile, items: compactMainMenuItems(for: .file, registry: registry)))
         mainMenu.addItem(submenu(Strings.menuEdit, items: [
@@ -54,21 +54,8 @@ enum MainMenu {
         ] + compactMainMenuItems(for: .window, registry: registry).filter { $0.title != zoomTitle })
         mainMenu.addItem(windowMenu)
         NSApp.windowsMenu = windowMenu.submenu
-        // Debug (DEV and NIGHTLY, `DevTools`): debug-only actions placed there.
-        var debug = DevTools.isEnabled ? registry.makeMainMenuItems(for: .debug) : []
-        if DevTools.isEnabled { debug += [.separator(), SidebarToggleIconMenu().makeItem(), StatusIconSetMenu().makeItem()] }
-        if !debug.isEmpty {
-            let debugItem = submenu(Strings.menuDebug, items: debug)
-            #if DEBUG
-            // Main-Thread Blocking (N): the call sites the blocking detector saw (threading-model.md).
-            if let debugMenu = debugItem.submenu {
-                BlockingCallsMenu(detector: blocking, resetItem: {
-                    registry.makeMenuItem(for: "debug.blockingCalls.reset")
-                }).attach(to: debugMenu)
-            }
-            #endif
-            mainMenu.addItem(debugItem)
-        }
+        // No Debug menu: debug-only actions are Command Palette rows, shown while Internal Developer Mode
+        // is on (`DebugActionGate`).
         // Help, last as on every Mac: macOS adds its search field to `NSApp.helpMenu`.
         let helpMenu = submenu(Strings.menuHelp, items: helpPlacements(registry))
         mainMenu.addItem(helpMenu)
@@ -80,7 +67,10 @@ enum MainMenu {
     /// remains available through the command palette. The allowlist is intentionally explicit so
     /// a new catalog placement cannot silently reintroduce menu overload.
     static let compactActionIDs: [ActionMainMenu: [ActionID]] = [
-        .app: ["about", "openSettings", "palette.checkForUpdates", "updates.installEarlierBuild", "keepMacAwake", "quit"],
+        .app: [
+            "about", "openSettings", "palette.checkForUpdates", "updates.installEarlierBuild", "keepMacAwake", "quit",
+            "quitEndSessions", "quitEndEverything",
+        ],
         .file: [
             "newTab", "newBrowserWorkspace", "newTab.default", "palette.newAgentChat", "palette.quickAgentChat",
             "openFolder", "file.open", "remote.connect", "device.add", "closeTab", "closeWorkspace", "closeWindow",
@@ -88,8 +78,8 @@ enum MainMenu {
         ],
         .view: [
             "browserBack", "browserForward", "browserReload", "browserStop", "browserHardReload",
-            "browserZoomIn", "browserZoomOut", "browserZoomReset", "toggleSidebar", "toggleRightSidebar",
-            "focusRightSidebar", "appearance.customize",
+            "browserZoomIn", "browserZoomOut", "browserZoomReset", "toggleSidebar",
+            "appearance.customize",
         ],
         .server: ["server.addServer", "server.showPanel"],
         .window: [
@@ -103,7 +93,7 @@ enum MainMenu {
     static var removedMainMenuActionIDs: Set<ActionID> {
         let kept = Set(compactActionIDs.values.flatMap { $0 })
         return Set(ActionCatalog.all.compactMap { descriptor in
-            guard descriptor.mainMenu != nil, !kept.contains(descriptor.id), !descriptor.isDebugOnly else { return nil }
+            guard descriptor.mainMenu != nil, !kept.contains(descriptor.id) else { return nil }
             return descriptor.id
         })
     }

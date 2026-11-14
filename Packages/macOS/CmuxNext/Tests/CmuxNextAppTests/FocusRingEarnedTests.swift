@@ -112,6 +112,57 @@ struct FocusRingEarnedTests {
         }
     }
 
+    /// A pointer move takes the ring away (ask-020e093fab: "any click, Escape or pointer move away
+    /// dismisses it"); a hand resting on the trackpad, a point or two, does not.
+    @Test func aPointerMoveClearsTheRing() throws {
+        try Self.withRing {
+            let w = Window()
+            defer { w.window.closeAfterTest() }
+            w.model.focus("p2", source: .keyboard)
+            w.root.handlePointerTravel(2)
+            #expect(w.ring("p2") == true, "a jitter of 2 points cleared the ring")
+            w.root.handlePointerTravel(12)
+            #expect(w.model.focusedPane == "p2")
+            #expect(w.ring("p2") == false, "the ring stayed after the pointer moved")
+            w.model.focus("p1", source: .keyboard)
+            w.root.handlePointerTravel(2)
+            #expect(w.ring("p1") == true, "travel before the ring was earned counted against the next one")
+            w.key(53) // Escape, with 2 points of travel counted
+            w.model.focus("p2", source: .keyboard)
+            #expect(w.ring("p2") == true)
+            w.root.handlePointerTravel(5)
+            #expect(w.ring("p2") == true, "travel from before Escape counted against the next ring")
+            w.model.focus("p1", source: .keyboard) // the ring moves by key while it is earned
+            #expect(w.ring("p1") == true) // the view takes the move (syncs) before the pointer moves
+            w.root.handlePointerTravel(5)
+            #expect(w.ring("p1") == true, "travel on the previous pane counted against the ring's new pane")
+        }
+    }
+
+    /// A Chromium page is a child window: its pointer moves reach only the event monitor, and they
+    /// clear the ring too; an unrelated window's do not.
+    @Test func aPointerMoveInAPagesChildWindowClearsTheRing() throws {
+        try Self.withRing {
+            let w = Window()
+            let child = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
+                                 backing: .buffered, defer: false)
+            let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
+                                 backing: .buffered, defer: false)
+            w.window.addChildWindow(child, ordered: .above)
+            defer {
+                w.window.removeChildWindow(child)
+                child.closeAfterTest()
+                other.closeAfterTest()
+                w.window.closeAfterTest()
+            }
+            w.model.focus("p2", source: .keyboard)
+            w.root.handleMonitoredPointerMove(20, from: other)
+            #expect(w.ring("p2") == true, "a move in an unrelated window cleared the ring")
+            w.root.handleMonitoredPointerMove(20, from: child)
+            #expect(w.ring("p2") == false, "a move over a page's child window left the ring")
+        }
+    }
+
     /// A Chromium page's keys come from its child window: Escape there clears the ring too, and
     /// Escape in an unrelated window does not.
     @Test func escapeInAPagesChildWindowClearsTheRing() throws {

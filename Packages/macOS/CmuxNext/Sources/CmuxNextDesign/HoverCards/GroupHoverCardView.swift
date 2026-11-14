@@ -5,7 +5,7 @@ public import AppKit
 /// instance is reused for every group card of its source; the app's one `HoverCardPanel` hosts it.
 @MainActor
 public final class GroupHoverCardView: NSView {
-    private static var padding: CGFloat { Metrics.space4 }
+    private static var padding: CGFloat { HoverCardStyle.shared.padding }
     static var cardWidth: CGFloat { 280 }
     static var minCardWidth: CGFloat { 180 }
 
@@ -16,15 +16,17 @@ public final class GroupHoverCardView: NSView {
 
     public init() {
         super.init(frame: .zero)
-        titleLabel.font = Typography.bodyEmphasized
+        titleLabel.font = HoverCardStyle.shared.titleFont
         titleLabel.lineBreakMode = .byWordWrapping
         titleLabel.maximumNumberOfLines = 3
         titleLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = Metrics.space3
+        // The shared card style's one spacing scale: the title and the rows sit `rowGap` apart.
+        stack.spacing = HoverCardStyle.shared.rowGap
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(titleLabel)
+        stack.setCustomSpacing(HoverCardStyle.shared.titleGap, after: titleLabel)
         addSubview(stack)
         let p = Self.padding
         NSLayoutConstraint.activate([
@@ -68,7 +70,7 @@ public final class GroupHoverCardView: NSView {
             case .danger: .danger
             }
             row.configure(HoverCardRowContent(text: block.lines.joined(separator: "\n"), ink: ink, lines: block.lines.count),
-                          image: nil, wrapWidth: wrap)
+                          image: nil, font: HoverCardStyle.shared.secondaryFont, wrapWidth: wrap)
         }
         setAccessibilityLabel(summary.lines.joined(separator: ", "))
         applyColors()
@@ -81,7 +83,7 @@ public final class GroupHoverCardView: NSView {
 
     /// Recolors in the card's theme scope; the panel runs it on adopt and on every scope change.
     public func applyColors() {
-        performWithTheme { titleLabel.textColor = Palette.textPrimary }
+        performWithTheme { titleLabel.textColor = HoverCardStyle.shared.titleInk.color }
         for row in rows { row.applyColors() }
     }
 }

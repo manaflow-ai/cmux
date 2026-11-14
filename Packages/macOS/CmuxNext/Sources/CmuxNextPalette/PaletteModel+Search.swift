@@ -3,7 +3,8 @@ import CmuxNextActions
 extension PaletteModel {
     /// Asks every provider of a list page for items: immediate items land
     /// now (the first frame is never empty), async ones merge as they arrive.
-    func load(_ state: PageState) {
+    /// The hidden providers in `reading` read now, not after the frame.
+    func load(_ state: PageState, reading: Set<String> = []) {
         state.needsLoad = false
         guard case .list(let page) = state.kind else { return }
         state.cancel()
@@ -15,8 +16,8 @@ extension PaletteModel {
         let defersHidden = page.filtersByQuery && state.query.allSatisfy(\.isWhitespace)
         var deferred: [any PaletteProvider] = []
         for provider in page.providers {
-            if defersHidden, !provider.showsItemsForEmptyQuery {
-                state.providerItems[provider.id] = shownDeferredItems[page.id]?[provider.id] ?? []
+            if defersHidden, !provider.showsItemsForEmptyQuery, !reading.contains(provider.id) {
+                state.providerItems[provider.id] = deferredStandIn(provider.id, page: page.id, state: state)
                 deferred.append(provider)
                 continue
             }
@@ -47,7 +48,9 @@ extension PaletteModel {
     /// (``PaletteProvider/itemUpdates()``). Same generation: the rows update, the selection stays.
     private func loadTask(_ provider: any PaletteProvider, into state: PageState) -> Task<Void, Never> {
         let providerID = provider.id
-        return Task { [weak self, weak state] in
+        state.liveReads += 1
+        return Task { [weak self, weak state, weak counted = state] in
+            defer { counted?.liveReads -= 1 }
             if let updates = provider.itemUpdates() {
                 var any = false
                 for await items in updates {
@@ -114,6 +117,20 @@ extension PaletteModel {
             if !items.isEmpty { kept[provider.id] = items }
         }
         shownDeferredItems[page.id] = kept
+    }
+
+    /// The rows a hidden provider shows until it reads again after the frame: the Recent rows the
+    /// page's empty query last showed, each as `state` last read it. A reload of an open page (a
+    /// setting's write landed) must not show the copy kept before a keep-open run read the row
+    /// again: the empty query's rank keeps that copy only once it lands, so a write that landed
+    /// first flashed the row's old On/Off back.
+    func deferredStandIn(_ providerID: String, page pageID: String, state: PageState) -> [PaletteItem] {
+        let shown = shownDeferredItems[pageID]?[providerID] ?? []
+        guard !shown.isEmpty, let read = state.providerItems[providerID], !read.isEmpty else { return shown }
+        let ids = Set(shown.map(\.id))
+        var latest: [String: PaletteItem] = [:]
+        for item in read where ids.contains(item.id) { latest[item.id] = item }
+        return shown.map { latest[$0.id] ?? $0 }
     }
 
     /// Ranks the page's rows for its query and generation on the searcher,

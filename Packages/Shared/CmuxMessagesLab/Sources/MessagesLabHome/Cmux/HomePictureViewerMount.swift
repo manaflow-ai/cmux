@@ -6,8 +6,9 @@ struct HomePictureViewerMount {
     /// The view the viewer covers (the chat pane's host).
     let host: NSView
 
-    /// Opens `gallery` over ``host``; false (nothing opened) off the main thread.
-    func open(_ gallery: HomePictureGallery, load: @escaping HomePictureViewer.Load,
+    /// Opens `gallery` over ``host``, growing out of `thumbnail` (its frame in ``host`` and its picture) when given;
+    /// false (nothing opened) off the main thread.
+    func open(_ gallery: HomePictureGallery, from thumbnail: (rect: CGRect, image: CGImage)? = nil, load: @escaping HomePictureViewer.Load,
               onClose: @escaping () -> Void, onReply: @escaping (URL) -> Void) -> Bool {
         guard Thread.isMainThread else { return false }
         // main-proof: guarded by Thread.isMainThread above; clicks and the DEBUG socket drive arrive on main.
@@ -18,6 +19,7 @@ struct HomePictureViewerMount {
             viewer.onReply = onReply
             host.addSubview(viewer, positioned: .above, relativeTo: nil)
             host.window?.makeFirstResponder(viewer)
+            if let thumbnail { viewer.present(from: thumbnail.rect, thumbnail: thumbnail.image) }
             return true
         }
     }

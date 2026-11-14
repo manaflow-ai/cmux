@@ -1,3 +1,4 @@
+public import AppKit
 import CCmuxMotionFFI
 public import CoreGraphics
 public import Foundation
@@ -13,8 +14,8 @@ public import CmuxNextDesignTokens
 public nonisolated enum MotionTween: UInt8, Sendable, CaseIterable {
     /// A new tab opening at its slot, its neighbours and the + making room (`ui.animations.newTab`).
     case tabOpen = 0
-    /// The tabs widening back to the strip when Chrome's closing mode ends (the pointer left the strip). A tab
-    /// close itself is instant (msg 2833): only a whole pane and a whole window close with motion.
+    /// A closing tab shrinking with its left edge pinned, the others closing the gap (close case A, cmux-ad m49; no
+    /// kind switch: the `tabs` category, speed and Reduce Motion gate it); also the tabs widening back when Chrome's closing mode ends (the pointer left the strip).
     case tabClose = 1
     /// A reorder, a crowding change, a dragged tab settling on release. A gesture: no kind switch.
     case tabMove = 2
@@ -40,25 +41,33 @@ nonisolated extension MotionPolicy {
             case .off: 2
             }
         }
-        return CmuxMotionPolicy(speed: speedIndex, reduce_motion: reduceMotion || liveResize, bounce: bounce == .subtle ? 1 : 0,
-                                pane_animations: false, new_tab: enabledKinds.contains(.newTab),
-                                new_workspace: enabledKinds.contains(.newWorkspace))
+        // Field by field from the zero value, never the memberwise initializer: this source then
+        // compiles against every pinned CCmuxAppFFI header (ABI 5 had one more field, `bounce`, and
+        // zero was "none"), so a C ABI field can go before the app FFI re-pin.
+        var policy = CmuxMotionPolicy()
+        policy.speed = speedIndex
+        policy.reduce_motion = reduceMotion || liveResize
+        policy.new_tab = enabledKinds.contains(.newTab)
+        policy.new_workspace = enabledKinds.contains(.newWorkspace)
+        return policy
     }
 
     /// Seconds of `token`; 0 applies at once: speed off, Reduce Motion (Chrome's strip is 0 ms
-    /// under it), a live resize, or tabOpen/tabClose with `ui.animations.newTab` off.
+    /// under it), a policy made for a window in a live resize (``MotionGate/duration(_:in:)``; the
+    /// window-free policy never has one), or tabOpen with `ui.animations.newTab` off.
     public func duration(_ token: MotionTween) -> TimeInterval {
         cmux_motion_tween_seconds(token.rawValue, ffi)
     }
 }
 
 extension MotionGate {
-    /// Seconds of tween `token` in this gate's category; 0 applies at once.
-    public func duration(_ token: MotionTween) -> TimeInterval { policy.duration(token) }
+    /// Seconds of tween `token` in this gate's category for a motion that `window` shows; 0 applies
+    /// at once (a live resize of `window` too).
+    public func duration(_ token: MotionTween, in window: NSWindow?) -> TimeInterval { policy(in: window).duration(token) }
 }
 
 /// One scalar on a tween (cmux-motion `TweenValue`, stepped through the app
-/// FFI). Pure: the caller passes the duration (`Motion.tabs.duration(token)`).
+/// FFI). Pure: the caller passes the duration (`Motion.tabs.duration(token, in: window)`).
 public nonisolated struct TweenValue: Equatable, Sendable {
     public private(set) var value: CGFloat
     public private(set) var target: CGFloat
@@ -123,7 +132,7 @@ public nonisolated struct MotionTabStrip: Equatable, Sendable {
     public var maxWidth: CGFloat
     /// A new tab starts this wide at the previous tab's right edge minus this.
     public var openStartWidth: CGFloat
-    /// Chrome's close end width (design token; unused since a tab close is instant, msg 2833).
+    /// A closing tab ends this wide, its left edge pinned to the previous tab's right edge minus this.
     public var closeEndWidth: CGFloat
     public var minActiveWidth: CGFloat
     public var minInactiveWidth: CGFloat

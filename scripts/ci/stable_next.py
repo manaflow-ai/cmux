@@ -189,6 +189,8 @@ def pick(feed: str, stable: str | None, pulled: set[int], verdict_of, build: int
         raise Refused(f"build {chosen} has no usable enclosure")
     short = SHORT.search(item)
     minimum = MINIMUM.search(item)
+    date = PUBDATE.search(item)
+    published = email.utils.parsedate_to_datetime(date.group(1)) if date else None
     result = {
         "build": str(chosen),
         # nightly.yml's build number is <run id><two-digit attempt>.
@@ -197,6 +199,9 @@ def pick(feed: str, stable: str | None, pulled: set[int], verdict_of, build: int
         "url": url,
         "length": length,
         "minimum_system_version": minimum.group(1) if minimum else "",
+        # The plan warns when the newest build is old: a feed that stopped moving (the retired
+        # nightly-next/next feed, 11-06 to 11-10) re-tests one build every night.
+        "published_at": published.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if published else "",
         "verdict": verdict or "none",
         "skip": "false",
         "skip_reason": "",
@@ -348,8 +353,15 @@ def crash_delta(base_tree: Path, head_tree: Path) -> list[str]:
     ratchet = _ratchet_module(head_tree)
     old, new = ratchet.scan_tree(str(base_tree), True), ratchet.scan_tree(str(head_tree), True)
     base_rows, head_rows = scan_rows(ratchet, old), scan_rows(ratchet, new)
+    # A counted row the candidate's own reviewed baseline allows is no new hit: the ratchet already
+    # passed it on feat-cmux-next. The stable build can sit under a row's baseline (a hit fixed, the
+    # baseline not lowered), and a reviewed hit added later brings it back to it: acpmux's
+    # parent-death exit(0), 4 -> 5 under a baseline of 5 (run 42918010143).
+    reviewed = ratchet.load_baseline(str(head_tree / "scripts/cmux-next/crash-safety-baseline.json"))
+    allowed = ratchet.baseline_rows(reviewed) if reviewed else {}
     found = []
-    risen = {row: n for row, n in head_rows.items() if row[0] != ratchet.WAIVED and n > base_rows.get(row, 0)}
+    risen = {row: n for row, n in head_rows.items()
+             if row[0] != ratchet.WAIVED and n > base_rows.get(row, 0) and n > allowed.get(row, 0)}
     if risen:
         allowance, _ = ratchet.carry_moves(base_rows, risen, ratchet.proven_moves(old, new))
         found += [f"{ratchet.row_label(row)}: {base_rows.get(row, 0)} -> {n}"
@@ -378,6 +390,14 @@ def sentry_new_crashes(release: str, org: str, project: str, token: str) -> list
 
 
 # main ---------------------------------------------------------------------------------------------
+
+def annotate(title: str, lines: list[str]) -> None:
+    """An error annotation on the job in GitHub Actions: the reason stable_next_slack.py posts."""
+    if os.environ.get("GITHUB_ACTIONS") != "true" or not lines:
+        return
+    body = "\n".join(lines).replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+    print(f"::error title=cmux NEXT Stable: {title}::{body}")
+
 
 def read_optional(path: str | None) -> str | None:
     if not path:
@@ -471,6 +491,8 @@ def main(argv: list[str]) -> int:
             for line in risen:
                 print(f"crash-delta: {line}")
             print(f"crash-delta: {len(risen)} crash-class row(s) rose over the last stable build")
+            if risen:
+                annotate("new crash-risk code since the last stable build", risen)
             return 1 if risen else 0
         elif args.command == "sentry-new-crashes":
             token = os.environ.get("SENTRY_AUTH_TOKEN", "").strip()
@@ -488,6 +510,7 @@ def main(argv: list[str]) -> int:
             return 1 if issues else 0
     except Refused as error:
         print(f"refused: {error}", file=sys.stderr)
+        annotate("refused", [str(error)])
         return 1
     return 0
 

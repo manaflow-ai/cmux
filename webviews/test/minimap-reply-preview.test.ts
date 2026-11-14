@@ -33,6 +33,7 @@ const expected: ReplyBlock[][] = [
     { kind: "item", spans: [{ text: "item one", bold: false }] },
     { kind: "item", spans: [{ text: "item two", bold: false }] },
     { kind: "item", spans: [{ text: "numbered", bold: false }] },
+    { kind: "paragraph", spans: [{ text: "quoted more", bold: false }] },
   ],
   [
     {
@@ -56,18 +57,13 @@ const expected: ReplyBlock[][] = [
       kind: "paragraph",
       spans: [
         {
-          text: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          text: "x".repeat(480),
           bold: false,
         },
       ],
     },
   ],
-  [
-    { kind: "paragraph", spans: [{ text: "a", bold: false }] },
-    { kind: "paragraph", spans: [{ text: "b", bold: false }] },
-    { kind: "paragraph", spans: [{ text: "c", bold: false }] },
-    { kind: "paragraph", spans: [{ text: "d", bold: false }] },
-  ],
+  ["a", "b", "c", "d", "e", "f"].map((text) => ({ kind: "paragraph" as const, spans: [{ text, bold: false }] })),
 ];
 
 for (const [index, fixture] of fixtures.entries()) {
@@ -77,21 +73,21 @@ for (const [index, fixture] of fixtures.entries()) {
 }
 
 test("a full preview ignores everything after it", () => {
-  const head = "First paragraph.\n\n- one\n- two\n- three\n\nMore";
+  const head = "First paragraph.\n\n- one\n- two\n- three\n- four\n- five\n\nMore";
   const preview = replyPreview(head);
-  expect(preview.length).toBe(4);
+  expect(preview.length).toBe(6);
   const tail = "\n\n" + "A later paragraph that streams in.\n\n".repeat(50_000);
   expect(replyPreview(head + tail)).toEqual(preview);
 });
 
 test("a preview full by length ignores the rest", () => {
-  const head = "y".repeat(400);
+  const head = "y".repeat(520);
   const preview = replyPreview(head);
   expect(replyPreview(`${head}\n\n${"z ".repeat(200_000)}`)).toEqual(preview);
 });
 
 test("a long reply's preview costs about as much as a short one's", () => {
-  const short = "Intro.\n\n- a\n- b\n- c\n\nrest";
+  const short = "Intro.\n\n- a\n- b\n- c\n- d\n- e\n\nrest";
   const long = short + "\n\n" + "more text\n".repeat(200_000);
   const time = (text: string) => {
     const start = performance.now();
@@ -101,4 +97,12 @@ test("a long reply's preview costs about as much as a short one's", () => {
   time(long);
   // Splitting 200,000 lines on every call took tens of milliseconds a call; reading stops now.
   expect(time(long)).toBeLessThan(Math.max(50, time(short) * 50));
+});
+
+test("the card's open excerpt reads more of the reply, still bounded", () => {
+  const reply = Array.from({ length: 40 }, (_, index) => `- step ${index + 1}`).join("\n");
+  expect(replyPreview(reply)).toHaveLength(6);
+  const more = replyPreview(reply, { blocks: 24, chars: 2400 });
+  expect(more).toHaveLength(24);
+  expect(replyPreview(`${"z".repeat(5000)}`, { blocks: 24, chars: 2400 })[0]!.spans[0]!.text).toHaveLength(2400);
 });

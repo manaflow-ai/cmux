@@ -10,8 +10,11 @@
 //!
 //! [`sanitize`] is the one way the daemon reads a title out of a terminal:
 //! no control characters, no bidi overrides, at most [`MAX_TITLE_CHARS`].
+//! [`TabTitle::terminal`] is the one rule for what a tab shows of it: the
+//! text without the leading status glyphs, and their [`TitleActivity`].
 
 use std::borrow::Cow;
+use std::sync::Arc;
 
 /// The longest title the daemon stores or sends, in characters.
 pub(crate) const MAX_TITLE_CHARS: usize = 256;
@@ -59,6 +62,144 @@ fn is_hidden_format(c: char) -> bool {
     )
 }
 
+/// What a leading status glyph of a terminal title says about the program.
+///
+/// Agents animate their title: Claude Code writes `⠂ Fix the login bug`,
+/// `⠐ Fix the login bug`, … while it works and `✳ Fix the login bug` when it
+/// waits. [`TabTitle::terminal`] moves those glyphs into an activity, so a
+/// spinner frame changes nothing a tab shows and the daemon announces nothing
+/// for it (plans/cmux-next/main-thread-scheduling.md, D2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TitleActivity {
+    /// A spinner frame (Braille dots, a turning circle): the program works.
+    Working,
+    /// A resting marker (`✳`, `●`, `⏺`): the program waits.
+    Idle,
+    /// A check mark: the program finished.
+    Done,
+    /// A cross: the program failed.
+    Failed,
+}
+
+impl TitleActivity {
+    /// The wire name (`title-changed`'s and a tab snapshot's `title_activity`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Working => "working",
+            Self::Idle => "idle",
+            Self::Done => "done",
+            Self::Failed => "failed",
+        }
+    }
+
+    /// The activity a wire name names; `None` for an unknown name.
+    pub fn from_wire(name: &str) -> Option<Self> {
+        match name {
+            "working" => Some(Self::Working),
+            "idle" => Some(Self::Idle),
+            "done" => Some(Self::Done),
+            "failed" => Some(Self::Failed),
+            _ => None,
+        }
+    }
+
+    fn of(c: char) -> Option<Self> {
+        match u32::from(c) {
+            // Braille patterns: every terminal spinner frame (`⠋⠙⠹`, Claude's `⠂⠐`).
+            0x2801..=0x28FF => Some(Self::Working),
+            // Turning circles and half blocks used as spinners.
+            0x25D0..=0x25D3 | 0x25F4..=0x25F7 | 0x2596..=0x259F => Some(Self::Working),
+            // Claude Code's resting asterisks, a filled or empty dot, a record mark.
+            0x2733 | 0x2736 | 0x273B | 0x273D | 0x2722 | 0x00B7 | 0x25CF | 0x25CB | 0x25C9
+            | 0x23FA => Some(Self::Idle),
+            0x2713 | 0x2714 | 0x2705 => Some(Self::Done),
+            0x2717 | 0x2718 | 0x274C => Some(Self::Failed),
+            _ => None,
+        }
+    }
+}
+
+/// What a tab shows of a title: its text and what its leading glyphs said.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TabTitle {
+    /// The title without its leading status glyphs; empty for none.
+    pub text: Arc<str>,
+    /// What the stripped glyphs said; `None` when the title had none.
+    pub activity: Option<TitleActivity>,
+}
+
+impl TabTitle {
+    /// A page's title: shown as is (a remote terminal tab uses the terminal rule).
+    pub fn page(raw: &str) -> Self {
+        Self { text: Arc::from(raw), activity: None }
+    }
+
+    /// A terminal's title (already [`sanitize`]d) split into its text and the
+    /// activity its leading glyphs name. `✳ ⠂ Task` reads as working (the last
+    /// glyph wins); a title of glyphs only keeps them as its text, so the tab
+    /// is not blank.
+    pub fn terminal(raw: &str) -> Self {
+        let mut rest = raw;
+        let mut activity = None;
+        loop {
+            let mut chars = rest.chars();
+            let Some(found) = chars.next().and_then(TitleActivity::of) else { break };
+            activity = Some(found);
+            rest = chars
+                .as_str()
+                // A variation selector (`✔︎`) belongs to the glyph before it.
+                .trim_start_matches(is_variation_selector)
+                .trim_start_matches(char::is_whitespace);
+        }
+        let words = rest.trim();
+        let text = if words.is_empty() { raw.trim() } else { words };
+        Self { text: Arc::from(text), activity }
+    }
+}
+
+impl TabTitle {
+    /// What a tab of `kind` (a tree tab's `kind`) shows of `raw`: a local or a
+    /// remote terminal's title loses its status glyphs, any other shows as is.
+    pub(crate) fn of_kind(kind: Option<&str>, raw: &str) -> Self {
+        match kind {
+            Some("pty" | crate::state::remote_terminal_tabs_store::REMOTE_TERMINAL_KIND) => {
+                Self::terminal(raw)
+            }
+            _ => Self::page(raw),
+        }
+    }
+
+    /// What a `list-workspaces` tab shows: its `title_text` and
+    /// `title_activity`, or, from a daemon before them, the rule of its kind
+    /// over its raw `title`. Clients show this and never the raw title, which
+    /// keeps a spinner frame the daemon does not announce.
+    pub fn of_tree_tab(tab: &serde_json::Value) -> Self {
+        let field = |name| tab.get(name).and_then(serde_json::Value::as_str);
+        let Some(text) = field("title_text") else {
+            return Self::of_kind(field("kind"), field("title").unwrap_or_default());
+        };
+        let activity = field("title_activity").and_then(TitleActivity::from_wire);
+        Self { text: Arc::from(text), activity }
+    }
+}
+
+/// Unicode's `Variation_Selector` property.
+fn is_variation_selector(c: char) -> bool {
+    matches!(c, '\u{180B}'..='\u{180D}' | '\u{180F}' | '\u{FE00}'..='\u{FE0F}' | '\u{E0100}'..='\u{E01EF}')
+}
+
+/// Stores `title` as the terminal's raw title. Returns it when what a tab
+/// shows of it ([`TabTitle::terminal`]) moved: a spinner frame, or a program
+/// that writes the same title again, announces nothing.
+pub(crate) fn store(stored: &mut String, title: String) -> Option<String> {
+    if *stored == title {
+        return None;
+    }
+    let moved = TabTitle::terminal(stored) != TabTitle::terminal(&title);
+    *stored = title;
+    moved.then(|| stored.clone())
+}
+
 /// How many pushed titles the stack keeps, as xterm does.
 const MAX_STACK: usize = 10;
 /// The most title bytes kept: libghostty-vt cuts a title to 1024 bytes too.
@@ -95,14 +236,25 @@ pub(crate) struct TitleTracker {
 impl TitleTracker {
     /// `data` with the title sequences libghostty-vt cannot apply rewritten
     /// into the `OSC 2` that applies them; borrowed when nothing changed.
+    // perf-hot: 0.1ns/byte terminal-output-scan (every output byte, host and daemon)
     pub(crate) fn rewrite<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
         let mut out: Option<Vec<u8>> = None;
         let mut copied = 0;
-        for (index, &byte) in data.iter().enumerate() {
+        let mut index = 0;
+        while let Some(rest) = data.get(index..) {
+            // On the ground only an ESC starts a sequence: jump to the next one.
+            if self.state == ScanState::Ground {
+                let Some(offset) = memchr::memchr(0x1b, rest) else { break };
+                index = index.saturating_add(offset);
+            }
+            let Some(&byte) = data.get(index) else { break };
+            index = index.saturating_add(1);
             let Some(title) = self.step(byte) else { continue };
-            let out = out.get_or_insert_with(|| Vec::with_capacity(data.len() + title.len() + 6));
-            out.extend_from_slice(&data[copied..=index]);
-            copied = index + 1;
+            let out = out.get_or_insert_with(|| {
+                Vec::with_capacity(data.len().saturating_add(title.len()).saturating_add(6))
+            });
+            out.extend_from_slice(data.get(copied..index).unwrap_or_default());
+            copied = index;
             out.extend_from_slice(b"\x1b]2;");
             out.extend_from_slice(&title);
             out.push(0x07);
@@ -110,7 +262,7 @@ impl TitleTracker {
         match out {
             None => Cow::Borrowed(data),
             Some(mut out) => {
-                out.extend_from_slice(&data[copied..]);
+                out.extend_from_slice(data.get(copied..).unwrap_or_default());
                 Cow::Owned(out)
             }
         }
@@ -261,6 +413,98 @@ fn clip_utf8(bytes: &[u8], max: usize) -> &[u8] {
 mod tests {
     use super::*;
 
+    impl TitleTracker {
+        /// For the scan bench in `terminal_metadata`.
+        pub(crate) fn rewrite_reference_for_bench<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
+            self.rewrite_reference(data)
+        }
+
+        /// The byte-at-a-time scan [`TitleTracker::rewrite`] replaced.
+        fn rewrite_reference<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
+            let mut out: Option<Vec<u8>> = None;
+            let mut copied = 0;
+            for (index, &byte) in data.iter().enumerate() {
+                let Some(title) = self.step(byte) else { continue };
+                let out =
+                    out.get_or_insert_with(|| Vec::with_capacity(data.len() + title.len() + 6));
+                out.extend_from_slice(&data[copied..=index]);
+                copied = index + 1;
+                out.extend_from_slice(b"\x1b]2;");
+                out.extend_from_slice(&title);
+                out.push(0x07);
+            }
+            match out {
+                None => Cow::Borrowed(data),
+                Some(mut out) => {
+                    out.extend_from_slice(&data[copied..]);
+                    Cow::Owned(out)
+                }
+            }
+        }
+    }
+
+    /// Output that reaches every state of the tracker: titles with BEL and
+    /// ST, pushes and pops with every parameter form, OSC 1 before and after
+    /// an OSC 0/2, cancels, ESC inside a CSI and an OSC, an over-long CSI,
+    /// C0 controls inside a CSI, non-UTF-8 bytes and an over-long title.
+    fn adversarial_output() -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(b"plain \x1b[1;31mred\x1b[0m\x1b]1;icon\x07\x1b[22;0t");
+        out.extend_from_slice(
+            b"\x1b]2;one\x1b\\\x1b[22t\x1b]0;two\x07\x1b[23;2t\x1b[23t\x1b[23;1t",
+        );
+        out.extend_from_slice(b"\x1b[2\x1b[22;0t\x1b]2;x\x18\x1b]2;y\x1a\x1b]2;z\x1b[23t");
+        out.extend_from_slice(b"\x1b[11111111111111111111;0t\x1b[2\n2;0t\x1b[?22t\x1b[23;0t");
+        out.extend_from_slice(b"\xff\xfe\x9d\x1b\x1b]1;late icon\x07\x1b]2;");
+        out.extend(std::iter::repeat_n(b'w', MAX_TITLE_BYTES + 20));
+        out.extend_from_slice("\u{e9}\x07\x1b[22;0t\x1b]2;\u{2500}\x07\x1b[23;0ttail".as_bytes());
+        out
+    }
+
+    fn rewritten(chunks: &[&[u8]], reference: bool) -> (Vec<Vec<u8>>, String) {
+        let mut tracker = TitleTracker::default();
+        let out = chunks
+            .iter()
+            .map(|chunk| {
+                if reference {
+                    tracker.rewrite_reference(chunk).into_owned()
+                } else {
+                    tracker.rewrite(chunk).into_owned()
+                }
+            })
+            .collect();
+        (out, format!("{tracker:?}"))
+    }
+
+    /// The jumping scan rewrites exactly what the byte-at-a-time scan did
+    /// and ends in the same state, for every split of adversarial output,
+    /// for empty chunks and for deterministic random byte soup.
+    #[test]
+    fn title_scan_matches_the_byte_at_a_time_reference() {
+        let stream = adversarial_output();
+        for at in 0..=stream.len() {
+            let chunks: [&[u8]; 3] = [&stream[..at], b"", &stream[at..]];
+            assert_eq!(rewritten(&chunks, false), rewritten(&chunks, true), "split at {at}");
+        }
+        let alphabet = b"\x1b\x07\x18\x1a\\[]t;0123\n\xff";
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        for _ in 0..2_000 {
+            let mut soup = Vec::new();
+            for _ in 0..64 {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                soup.push(alphabet[(seed % alphabet.len() as u64) as usize]);
+                if seed.is_multiple_of(7) {
+                    soup.extend_from_slice(b"plain text ");
+                }
+            }
+            let at = (seed as usize) % (soup.len() + 1);
+            let chunks: [&[u8]; 2] = [&soup[..at], &soup[at..]];
+            assert_eq!(rewritten(&chunks, false), rewritten(&chunks, true), "soup {soup:?}");
+        }
+    }
+
     fn run(tracker: &mut TitleTracker, chunks: &[&[u8]]) -> Vec<u8> {
         chunks.iter().flat_map(|chunk| tracker.rewrite(chunk).into_owned()).collect()
     }
@@ -352,6 +596,48 @@ mod tests {
         let out = run(&mut tracker, &[&stream]);
         let pops = out.windows(4).filter(|w| *w == b"\x1b]2;").count() - 12;
         assert_eq!(pops, 10);
+    }
+
+    #[test]
+    fn leading_status_glyphs_become_the_activity() {
+        use TitleActivity::*;
+        let cases: [(&str, &str, Option<TitleActivity>); 11] = [
+            ("⠐ Fix the login bug", "Fix the login bug", Some(Working)),
+            ("⠂ Fix the login bug", "Fix the login bug", Some(Working)),
+            ("✳ Claude Code", "Claude Code", Some(Idle)),
+            ("● build", "build", Some(Idle)),
+            ("✔\u{fe0e} tests passed", "tests passed", Some(Done)),
+            ("✘ deploy", "deploy", Some(Failed)),
+            ("✳ ⠂ Task", "Task", Some(Working)),
+            ("vim notes.md", "vim notes.md", None),
+            ("~/src · main", "~/src · main", None),
+            ("⠂", "⠂", Some(Working)),
+            ("", "", None),
+        ];
+        for (raw, text, activity) in cases {
+            let title = TabTitle::terminal(raw);
+            assert_eq!((title.text.as_ref(), title.activity), (text, activity), "{raw:?}");
+        }
+        assert_eq!(TabTitle::page("● Slack | general").text.as_ref(), "● Slack | general");
+        assert_eq!(TabTitle::page("● Slack | general").activity, None);
+        for activity in [Working, Idle, Done, Failed] {
+            assert_eq!(TitleActivity::from_wire(activity.as_str()), Some(activity));
+        }
+    }
+
+    #[test]
+    fn store_announces_a_title_only_when_what_a_tab_shows_moved() {
+        let mut stored = String::new();
+        assert_eq!(store(&mut stored, "⠂ Fix it".into()).as_deref(), Some("⠂ Fix it"));
+        // A spinner frame: stored raw, not announced.
+        assert_eq!(store(&mut stored, "⠐ Fix it".into()), None);
+        assert_eq!(stored, "⠐ Fix it");
+        // The same title again: not announced.
+        assert_eq!(store(&mut stored, "⠐ Fix it".into()), None);
+        // The program waits now: the activity moved.
+        assert_eq!(store(&mut stored, "✳ Fix it".into()).as_deref(), Some("✳ Fix it"));
+        // New words.
+        assert_eq!(store(&mut stored, "✳ Run tests".into()).as_deref(), Some("✳ Run tests"));
     }
 
     #[test]

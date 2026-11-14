@@ -16,18 +16,15 @@
   min-width: 0;
   box-sizing: border-box;
 }
-/* The model menu and its side menus never let the chat read through them (Leo 2026-10-31: "plus all
-   this dumbass shit in the model picker", over a menu whose list showed the transcript's "23m 43s
-   Running" and "Done" behind its rows). Still glass, never opaque: the fill a translucent surface
-   that carries text keeps (desktop.css --surface-text-min) and the menus' stronger frost
-   (--ds-glass-menu-blur), in plain glass and under the lens alike. Chromium over the window glass
-   lays it over the theme surface as well (glass.css), so there it is near solid. Reduce
-   Transparency still makes it the solid popup surface (glass.css, !important). */
-.ui-popup.ui-glass.acpmux-quick-menu,
-:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) .ui-popup.ui-glass.acpmux-quick-menu {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--surface-text-min, 92%), transparent);
-  --glass-backdrop: var(--ds-glass-menu-blur, blur(32px) saturate(1.6));
-}
+/* The model menus' glass is every popup's (ui/glass/glass.css GLASS LEVELS: the menu level, and the
+   40% veil on the App's glass that started here, cmux#37794). They kept a 92% tint of their own
+   (--surface-text-min; Leo 2026-10-31: "plus all this dumbass shit in the model picker", over a menu
+   whose list showed the transcript's "23m 43s Running" and "Done"), which made the model picker a
+   different material from the context card and the menus beside it (Leo, 2026-11-11: "the styles mix
+   and they don't look good"). The chat under it still never reads through its rows: on the App's
+   glass the chat blurs in place under the 40% veil, in WebKit the menu level's 32 px frost takes it,
+   and in a see-through Chromium page without the App's glass the underlay lays the theme surface
+   under the tint (glass.css). Reduce Transparency still makes it the solid popup surface. */
 .acpmux-mp-rail-scroll {
   flex: 0 0 auto;
   min-width: 0;
@@ -135,7 +132,7 @@
 /* Under Increase Contrast the search row's text step does not show (muted is the text color):
    the row takes the shared focus ring when its field has focus (cx-ncc.57). */
 @media (prefers-contrast: more) {
-  .acpmux-mp-search:focus-within {
+  .acpmux-mp-search:is(:focus-visible, :has(:focus-visible)) {
     box-shadow: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
   }
 }
@@ -158,7 +155,8 @@
   max-width: min(440px, var(--available-width, calc(100vw - 24px)));
   padding: 4px;
   border: 0;
-  border-radius: 10px;
+  /* Every popup's one radius (popupSurface.css, the native popovers' 8 pt), never a 10 of its own. */
+  border-radius: var(--ui-popup-radius);
   /* Size to visible rows, then give the list room up to the popup boundary and viewport. */
   --acpmux-quick-room: min(var(--available-height, calc(100vh - 16px)), calc(100vh - 16px));
   max-height: calc(100vh - 16px);
@@ -166,6 +164,11 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+/* The plain menu was always a scroll container, including while its filtered rows fit.
+   Keep that behavior on the inner viewport as well: toggling it to overflow:visible
+   changes scroll anchoring and layout-shift accounting as matches replace the rows.
+   The glass and pinned update footer remain outside this scrolling/masked box. */
+.acpmux-quick-menu > .ui-popup-scroll { overflow-y: auto; }
 .acpmux-quick-menu.acpmux-quick-submenu { --ui-row-height: calc(24px * var(--cmux-interface-scale, 1)); }
 .acpmux-quick-menu .ui-menu-group-label {
   display: block;
@@ -507,7 +510,9 @@
 /* The menu's screen-reader-only text (a symbol tab's name, the effort trigger's model, Add
    harness's label) is hidden by the picker's own rule, not only by the pane's Tailwind sr-only:
    the menu is portaled, and a page without that utility drew it all as text. */
-.acpmux-quick-menu .sr-only {
+.acpmux-quick-menu .sr-only,
+.acpmux-model-fork .sr-only,
+.acpmux-used-mark .sr-only {
   position: absolute;
   overflow: hidden;
   clip-path: inset(50%);
@@ -824,3 +829,61 @@
   align-items: center;
   color: inherit;
 }
+
+/* What a started chat ran, beside a held pick of another harness's model (QuickModelMenu
+   UsedMark, Leo 2026-11-06): a quiet mark in secondary ink on the chat's own model row, provider
+   row and harness tab, only while another harness's model is held. `glyph` ships (the history glyph; its tab a hairline ring); `dot` and
+   `caption` are the gallery's other versions. */
+.acpmux-used-mark {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  margin-inline-start: 4px;
+  color: var(--agent-muted);
+}
+.acpmux-used-dot {
+  width: 5px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: currentColor;
+}
+.acpmux-used-caption {
+  flex: none;
+  margin-inline-start: 8px;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
+}
+.acpmux-quick-rail-tab[data-used="glyph"],
+.acpmux-mp-harness[data-used="glyph"] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-muted) 55%, transparent);
+}
+.acpmux-mp-harness[data-used="dot"],
+.acpmux-mp-harness[data-used="caption"] {
+  position: relative;
+}
+.acpmux-mp-harness[data-used="dot"]::after,
+.acpmux-mp-harness[data-used="caption"]::after {
+  content: "";
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-end: 0;
+  translate: -1px -1px;
+  width: 5px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--agent-muted);
+}
+
+/* The model button with another harness's model held for the next message (forkHold.ts): the
+   held model's name and effort, then a small fork glyph in secondary ink. */
+.acpmux-model .acpmux-model-fork {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  color: var(--agent-muted);
+}
+/* The model chip's right-click menu host (ModelPicker.tsx): no box of its own, so the chip's button
+   lays out in the chip as it did without it. */
+.acpmux-model-chip-menu { display: contents; }

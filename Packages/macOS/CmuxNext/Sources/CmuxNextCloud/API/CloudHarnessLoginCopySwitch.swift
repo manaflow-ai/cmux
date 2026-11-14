@@ -23,13 +23,17 @@ public final class CloudHarnessLoginCopySwitch: Sendable {
 
     public init() {}
 
-    /// The last answer while it is fresh; nil (off) when never read, failed, or past its ttl.
+    /// The last answer while it is fresh; nil (off) when never read, failed, or past its ttl
+    /// (cmux-cloud-machine `harness_copy::current`).
     public var current: Bool? {
         let now = clock.now
-        return state.withLock { answer in
-            guard let answer, now - answer.at <= answer.ttl else { return nil }
-            return answer.enabled
-        }
+        let answer = state.withLock { $0 }
+        struct Request: Encodable { var enabled: Bool?, ttlSeconds: Int, ageMs: Int }
+        struct Reply: Decodable { var enabled: Bool? }
+        let age = answer.map { now - $0.at } ?? .zero
+        let request = Request(enabled: answer?.enabled, ttlSeconds: answer.map { Int($0.ttl.components.seconds) } ?? 0,
+                              ageMs: Int(age.components.seconds * 1000 + age.components.attoseconds / 1_000_000_000_000_000))
+        return CloudMachineRules().call("cloud_model_harness_copy_current", request, as: Reply.self)?.enabled ?? nil
     }
 
     /// Reads the switch once and keeps the answer; a failed read forgets the last one (off).

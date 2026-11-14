@@ -4,6 +4,7 @@
 .acpmux-outputs-edges {
   --outputs-edge-visible: 1;
   --cmux-scroll-edge-band: 12px;
+  /* glass-raw-blur-allow: a scroll edge's fade band (#26720), not a glass surface */
   --cmux-scroll-edge-blur: 5px;
   --cmux-scroll-edge-opacity: 0.58;
   position: relative;
@@ -37,11 +38,13 @@
 /* Comparison variants stay in the gallery; the app uses the restrained treatment above. */
 [data-outputs-edge-variant="balanced"] .acpmux-outputs-edges {
   --cmux-scroll-edge-band: 16px;
+  /* glass-raw-blur-allow: a scroll edge's fade band (#26720), not a glass surface */
   --cmux-scroll-edge-blur: 8px;
   --cmux-scroll-edge-opacity: 0.82;
 }
 [data-outputs-edge-variant="roomy"] .acpmux-outputs-edges {
   --cmux-scroll-edge-band: 24px;
+  /* glass-raw-blur-allow: a scroll edge's fade band (#26720), not a glass surface */
   --cmux-scroll-edge-blur: 12px;
   --cmux-scroll-edge-opacity: 0.9;
 }

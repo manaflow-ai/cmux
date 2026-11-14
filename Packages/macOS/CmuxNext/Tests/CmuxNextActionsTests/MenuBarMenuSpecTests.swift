@@ -13,6 +13,11 @@ struct MenuBarMenuSpecTests {
             case .separator: "-"
             case .info(let text, _, _): "info:\(text)"
             case .action(let id, _, _): id.rawValue
+            case .setting(let text, let key, _): "setting:\(key):\(text)"
+            case .header(let title): "header:\(title)"
+            case .chat(let chat): "chat:\(chat.id)"
+            case .command(let command, _, _): "command:\(command)"
+            case .computerUse(let app, _, _): "computerUse:\(app ?? "")"
             }
         }
     }
@@ -63,6 +68,30 @@ struct MenuBarMenuSpecTests {
         #expect(!idle.contains { $0.hasPrefix("info:") })
     }
 
+    /// While cmux keeps the Mac awake the agents section says so first, with the terminal commands that
+    /// count; with no hold there is no line.
+    @Test func keepingAwakeLeadsTheAgentsSection() throws {
+        let state = MenuBarMenuState(agentsWorking: 2, keepingAwake: .init(commands: 1, setting: "sessions.keepAwake"))
+        let items = MenuBarMenuSpec().items(for: state, isBound: Self.everything)
+        let ids = Self.ids(items)
+        let start = try #require(ids.firstIndex(of: "-")) + 1
+        #expect(Array(ids[start..<start + 4]) == ["setting:sessions.keepAwake:Keeping Mac awake", "info:Commands running: 1", "info:Agents working: 2", "-"])
+        #expect(items[start] == .setting("Keeping Mac awake", key: "sessions.keepAwake", symbol: "cup.and.saucer"))
+
+        let agentsOnly = Self.ids(MenuBarMenuSpec().items(for: MenuBarMenuState(agentsWorking: 1, keepingAwake: .init(setting: "sessions.keepAwake")), isBound: Self.everything))
+        #expect(agentsOnly.contains("setting:sessions.keepAwake:Keeping Mac awake"))
+        #expect(!agentsOnly.contains { $0.hasPrefix("info:Commands running") })
+
+        // Phones hold: the line opens their setting. The Keep Mac Awake action alone: a plain line.
+        let phone = Self.ids(MenuBarMenuSpec().items(for: MenuBarMenuState(keepingAwake: .init(setting: "phone.keepAwake")), isBound: Self.everything))
+        #expect(phone.contains("setting:phone.keepAwake:Keeping Mac awake"))
+        let manual = Self.ids(MenuBarMenuSpec().items(for: MenuBarMenuState(keepingAwake: .init()), isBound: Self.everything))
+        #expect(manual.contains("info:Keeping Mac awake"))
+
+        let none = Self.ids(MenuBarMenuSpec().items(for: MenuBarMenuState(agentsWorking: 1), isBound: Self.everything))
+        #expect(!none.contains { $0.hasPrefix("setting:sessions.keepAwake") })
+    }
+
     /// A downloaded update: Restart to Update (the install path, run only on this click) takes
     /// Check for Updates' place.
     @Test func updateReadyOffersRestart() throws {
@@ -80,6 +109,23 @@ struct MenuBarMenuSpecTests {
         let bound: Set<ActionID> = ["showMainWindow", "help.discord", "quit"]
         let ids = Self.ids(MenuBarMenuSpec().items(for: MenuBarMenuState(), isBound: { bound.contains($0) }))
         #expect(ids == ["showMainWindow", "-", "help.discord", "-", "quit"])
+    }
+
+    /// Keeping Mac awake is one click from its setting: the row runs Settings… at sessions.keepAwake,
+    /// enabled, with no shortcut, beside Settings… itself.
+    @Test func keepingAwakeOpensItsSetting() throws {
+        let registry = ActionRegistry.standard()
+        registry.bind("openSettings") {}
+        let menu = NSMenu()
+        MenuBarMenuBuilder(registry: registry).fill(menu, state: MenuBarMenuState(keepingAwake: .init(setting: "sessions.keepAwake")))
+        let row = try #require(menu.items.first { $0.identifier?.rawValue == "cmux.setting.sessions.keepAwake" })
+        #expect(row.title == "Keeping Mac awake")
+        #expect(row.keyEquivalent.isEmpty)
+        #expect(row.action != nil)
+        let run = try #require(ActionRegistry.menuRun(of: row))
+        #expect(run.id == "openSettings")
+        #expect(run.arguments == ["setting": .string("sessions.keepAwake")])
+        #expect(menu.items.filter { $0.identifier?.rawValue == "cmux.action.openSettings" }.count == 1)
     }
 
     /// The builder: registry rows with their ids, a disabled info line, the global key on Open cmux.
@@ -110,5 +156,80 @@ struct MenuBarMenuSpecTests {
         MenuBarMenuBuilder(registry: registry).fill(menu, state: MenuBarMenuState())
         #expect(!menu.items.contains { $0.title.hasPrefix("Agents working") })
         #expect(menu.items.filter { $0.identifier?.rawValue == "cmux.action.quit" }.count == 1)
+    }
+
+    /// User 2026-11-06 ("for our computer use i imagine w'll also want to maybe have something
+    /// similar to this in our top right menu button situation"): Computer Use on top, then the
+    /// Unread and Running chats under their headers, each capped with More…, before the account.
+    @Test func computerUseThenUnreadThenRunningOnTop() throws {
+        let chats = (1...10).map { MenuBarMenuState.Chat(id: "c\($0)", title: "Chat \($0)", harness: "codex") }
+        let state = MenuBarMenuState(computerUse: .init(session: .init(id: "s1", appName: "Calculator", bundleID: "com.apple.calculator")),
+                                     unread: .init(Array(chats.prefix(2))), running: .init(chats))
+        let items = MenuBarMenuSpec().items(for: state, isBound: Self.everything)
+        let ids = Self.ids(items)
+        #expect(Array(ids.prefix(16)) == [
+            "computerUse:Calculator", "-",
+            "header:Unread", "chat:c1", "chat:c2", "-",
+            "header:Running", "chat:c1", "chat:c2", "chat:c3", "chat:c4", "chat:c5", "chat:c6", "chat:c7", "chat:c8", "search.chats",
+        ])
+        #expect(ids[16] == "-" && ids[17] == "palette.auth.signIn")
+        #expect(items[15] == .action("search.chats", title: "More…", symbol: "ellipsis"))
+        guard case .computerUse(_, let bundleID, let sub) = items[0] else { throw CancellationError() }
+        #expect(bundleID == "com.apple.calculator")
+        #expect(Self.ids(sub) == ["command:takeOver(\"s1\")", "computerUseFocus", "computerUseFocusCallingTerminal",
+                                  "computerUseStop", "-", "agentActivity.open"])
+        let paused = MenuBarMenuState(computerUse: .init(session: .init(id: "s1", paused: true)))
+        guard case .computerUse(let app, _, let pausedSub) = MenuBarMenuSpec().items(for: paused, isBound: Self.everything)[0] else {
+            throw CancellationError()
+        }
+        #expect(app == nil)
+        #expect(pausedSub.first == .command(.handBack("s1"), title: "Hand Back", symbol: "arrow.uturn.backward"))
+    }
+
+    /// No Computer Use (off or not set up) and no chats: none of the new rows. Computer Use on with
+    /// nothing driving: the row opens Agent Activity and setup.
+    @Test func newSectionsHideWhenEmpty() throws {
+        let ids = Self.ids(MenuBarMenuSpec().items(for: MenuBarMenuState(), isBound: Self.everything))
+        #expect(!ids.contains { $0.hasPrefix("header:") || $0.hasPrefix("chat:") || $0.hasPrefix("computerUse:") })
+        let idle = MenuBarMenuSpec().items(for: MenuBarMenuState(computerUse: .init()), isBound: Self.everything)
+        guard case .computerUse(nil, nil, let sub) = idle[0] else { throw CancellationError() }
+        #expect(Self.ids(sub) == ["agentActivity.open", "palette.computerUse.setup"])
+        // An unbound submenu row leaves no dangling separator.
+        let some = MenuBarMenuState(computerUse: .init(session: .init(id: "s")))
+        let bound: Set<ActionID> = ["computerUseStop", "quit"]
+        guard case .computerUse(_, _, let trimmed) = MenuBarMenuSpec().items(for: some, isBound: { bound.contains($0) })[0] else {
+            throw CancellationError()
+        }
+        #expect(Self.ids(trimmed) == ["command:takeOver(\"s\")", "computerUseStop"])
+    }
+
+    /// The builder: native section headers, chat rows that run their command with the harness
+    /// mark, and the Computer Use row with the driven app as its badge and a submenu.
+    @Test func builderMakesChatAndComputerUseRows() throws {
+        let registry = ActionRegistry.standard()
+        for id: ActionID in ["computerUseStop", "quit"] { registry.bind(id) {} }
+        var ran: [MenuBarMenuSpec.Command] = []
+        let target = MenuBarCommandTarget { ran.append($0) }
+        let mark = NSImage(size: NSSize(width: 14, height: 14))
+        let menu = NSMenu()
+        let state = MenuBarMenuState(computerUse: .init(session: .init(id: "s1", appName: "Notes")),
+                                     unread: .init([.init(id: "a", title: "Fix the sidebar", harness: "claude-code")]))
+        MenuBarMenuBuilder(registry: registry).fill(menu, state: state, commands: target, chatImage: { _ in mark })
+        #expect(menu.items[0].title == "Computer Use")
+        #expect(menu.items[0].badge?.stringValue == "Notes")
+        let sub = try #require(menu.items[0].submenu)
+        #expect(sub.items.map(\.title) == ["Take Over", "Stop Computer Use"])
+        #expect(menu.items[2].isSectionHeader && menu.items[2].title == "Unread")
+        let chat = menu.items[3]
+        #expect(chat.title == "Fix the sidebar" && chat.image === mark)
+        _ = chat.target?.perform(chat.action, with: chat)
+        _ = sub.items[0].target?.perform(sub.items[0].action, with: sub.items[0])
+        #expect(ran == [.openChat("a"), .takeOver("s1")])
+
+        // The host's answer after opening rewrites the row in place: paused shows Hand Back.
+        MenuBarMenuBuilder(registry: registry).updateComputerUse(in: menu, .init(session: .init(id: "s1", paused: true)), commands: target)
+        #expect(menu.items[0].badge == nil)
+        #expect(menu.items[0].submenu?.items.first?.title == "Hand Back")
+        #expect(menu.items[2].title == "Unread", "no other row moves")
     }
 }

@@ -17,7 +17,8 @@ import entryIndex from "virtual:cmux-gallery/entry-index";
 import { overPicture, readEnv } from "../env";
 import { DEFAULT_DARK_THEME } from "../theme/ghostty";
 import { themeTokens } from "../theme/web";
-import { css, mixed, withAlpha, wallpaperTintOpacity, type ThemeTokens } from "../theme/tokens";
+import { css, mixed, type ThemeTokens } from "../theme/tokens";
+import { chromeFills } from "./chrome";
 import { fitScale, windowGeometry, windowSize, type PaneLayout, type WindowGeometry } from "../window";
 import { appAxis, paneFrameQuery, parseFixture } from "./axes";
 import { createFrameEntryStore } from "../registry";
@@ -38,10 +39,11 @@ const tokens = themeTokens(theme, env.accent);
 /** The chrome's colors from the theme's tokens, as the native window derives them. */
 function applyTokens(target: HTMLElement, t: ThemeTokens): void {
   const set = (name: string, value: string) => target.style.setProperty(name, value);
-  const glass = overPicture(env);
-  set("--app-window", glass ? css(withAlpha(t.windowBackground, wallpaperTintOpacity(t))) : css(t.windowBackground));
-  set("--app-sidebar", glass ? "transparent" : css(t.sidebarBackground));
-  set("--app-strip", glass ? "transparent" : css(t.stripBackground));
+  // chrome.ts: the fills test/chrome-layer-colors.test.ts holds to the native window's recorded colours.
+  const fills = chromeFills(t, overPicture(env));
+  set("--app-window", css(fills.window));
+  set("--app-sidebar", fills.sidebar ? css(fills.sidebar) : "transparent");
+  set("--app-strip", fills.strip ? css(fills.strip) : "transparent");
   set("--app-content", css(t.contentBackground));
   set("--app-text", css(t.textPrimary));
   set("--app-text-2", css(t.textSecondary));
@@ -239,18 +241,25 @@ const specs: WindowSpec[] = (params.get("windows") ?? appAxis(params, "window"))
   .map((size) => ({ size, layout: (appAxis(params, "layout") as PaneLayout) || "one" }));
 
 const zoomValue = appAxis(params, "zoom");
+/// A font study pairing draws the chrome too (the sidebar); the app is ready once its faces load.
+const fontStudy = env.fontStudy
+  ? import("../fontStudy/apply").then((study) => study.applyFontStudy(env.fontStudy))
+  : null;
 let ready = 0;
 const markReady = () => {
   ready += 1;
   // The first window ready is the app ready; the rest mount as they scroll into view.
-  if (ready === 1) {
-    root.dataset.mockAppReady = "1";
-    parent.postMessage({ type: "cmux-mock-app", status: "ready" }, "*");
-    // The native view shell (Prototypes/ViewShell) times its windows and captures them from this.
-    (
-      window as { webkit?: { messageHandlers?: Record<string, { postMessage(body: unknown): void }> } }
-    ).webkit?.messageHandlers?.cmuxPreview?.postMessage({ status: "ready", at: performance.now() });
-  }
+  if (ready !== 1) return;
+  if (fontStudy) void fontStudy.then(announceReady);
+  else announceReady();
+};
+const announceReady = () => {
+  root.dataset.mockAppReady = "1";
+  parent.postMessage({ type: "cmux-mock-app", status: "ready" }, "*");
+  // The native view shell (Prototypes/ViewShell) times its windows and captures them from this.
+  (
+    window as { webkit?: { messageHandlers?: Record<string, { postMessage(body: unknown): void }> } }
+  ).webkit?.messageHandlers?.cmuxPreview?.postMessage({ status: "ready", at: performance.now() });
 };
 
 const stages: { stage: HTMLElement; size: { width: number; height: number } }[] = [];

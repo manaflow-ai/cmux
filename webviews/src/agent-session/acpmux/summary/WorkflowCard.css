@@ -90,6 +90,22 @@
   line-height: 18px;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* The running phase names give way first, so the count, the clock, the tokens and the model stay. */
+.acpmux-workflow-card__meta > span,
+.acpmux-workflow-card__focus > span {
+  flex: none;
+}
+.acpmux-workflow-card__meta > .acpmux-workflow-card__running,
+.acpmux-workflow-card__focus > .acpmux-workflow-card__running {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Whose line it is, at the row's weight, so five running agents never read as one. */
+.acpmux-workflow-card__agent {
+  color: var(--agent-text);
+}
 .acpmux-workflow-card__latest,
 .acpmux-workflow-card__focus {
   min-width: 0;

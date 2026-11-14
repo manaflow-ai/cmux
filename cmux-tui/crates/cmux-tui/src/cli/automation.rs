@@ -12,9 +12,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use cmux_automations::exec::{ProcessExecutor, run_job};
+use cmux_automations::watch::Watches;
 use cmux_automations::{
-    Automation, AutomationSpec, Body, CatchUp, Run, RunState, RunnerLock, Store, StoreError,
-    Trigger, Zone, recover_orphans, start_manual, tick,
+    Automation, AutomationSpec, Body, CatchUp, EventOutcome, Gate, Run, RunState, RunnerLock,
+    Store, StoreError, Trigger, Zone, recover_orphans, start_event, start_manual_with_event, tick,
 };
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
@@ -22,7 +23,9 @@ use serde_json::{Value, json};
 use super::OutputMode;
 use crate::localization::AutomationMessages;
 
+mod events;
 mod teleport;
+mod triggers;
 
 /// The runner never sleeps longer than this, so a new automation, a clock
 /// change or a wake from sleep is seen within a minute.
@@ -264,10 +267,12 @@ impl Args {
     }
 }
 
-const SCHEDULE_FLAGS: &[&str] = &["daily", "weekdays", "weekly", "every", "at", "in", "cron"];
+const SCHEDULE_FLAGS: &[&str] =
+    &["when", "daily", "weekdays", "weekly", "every", "at", "in", "cron", "watch"];
 const SPEC_VALUED: &[&str] = &[
     "prompt", "command", "daily", "weekdays", "weekly", "every", "at", "in", "cron", "tz",
-    "folder", "model", "timeout", "catch-up", "name",
+    "folder", "model", "timeout", "catch-up", "name", "watch", "debounce", "if", "cooldown",
+    "max-runs", "when",
 ];
 const SPEC_FLAGS: &[&str] = &["hourly", "manual", "paused"];
 
@@ -316,6 +321,8 @@ fn dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Outcome {
         "resume" => set_enabled(rest, true, out),
         "edit" | "update" => edit(rest, out),
         "history" | "runs" => history(rest, out),
+        "test" | "dry-run" => triggers::test(rest, out),
+        "events" | "event" => events::run(rest, global, out),
         "logs" | "log" => logs(rest, out),
         "delete" | "rm" => delete(rest, out),
         "teleport" | "move" => teleport::run(rest, global, out, false),
@@ -440,6 +447,8 @@ fn parse_trigger(a: &Args, now: i64) -> Result<Option<Trigger>, Failure> {
         "at" => Trigger::At { at: parse_at(value, zone, now)? },
         "in" => Trigger::At { at: now + parse_duration(value)? as i64 },
         "cron" => Trigger::Cron { expr: value.to_string(), tz: zone.name().to_string() },
+        "watch" => triggers::watch_trigger(a, value)?,
+        "when" => triggers::event_trigger(a, value)?,
         _ => return Ok(None),
     };
     trigger.validate().map_err(|e| Failure::Usage(e.0))?;
@@ -497,6 +506,13 @@ fn automation_json(store: &Store, a: &Automation) -> Value {
     let mut v = serde_json::to_value(a).unwrap_or(Value::Null);
     if let Value::Object(map) = &mut v {
         map.insert("next_run_at".into(), json!(next));
+        // The trigger in words, as `list` and the Automations page say it
+        // ("When a pull request is opened", "every 30m").
+        map.insert("trigger_label".into(), json!(describe_trigger(&a.trigger)));
+        map.insert(
+            "dropped_events".into(),
+            json!(store.state(&a.id).map(|s| s.dropped).unwrap_or(0)),
+        );
         map.insert("last_run".into(), serde_json::to_value(last).unwrap_or(Value::Null));
     }
     v
@@ -543,6 +559,7 @@ fn create(args: &[String], out: &Out) -> Outcome {
         (None, Some(command)) => Body::Command { command: command.into(), folder },
         _ => return usage(messages().need_body),
     };
+    let defaults = triggers::guard_defaults(&trigger);
     let spec = AutomationSpec {
         name,
         trigger,
@@ -550,6 +567,7 @@ fn create(args: &[String], out: &Out) -> Outcome {
         catch_up: a.value("catch-up").map(parse_catch_up).transpose()?.unwrap_or_default(),
         timeout_seconds: a.value("timeout").map(parse_duration).transpose()?.unwrap_or(30 * 60),
         enabled: !a.flag("paused"),
+        gate: triggers::gate(&a, Gate::default(), defaults)?,
     };
     let store = open_store()?;
     let created = store.create(spec, now)?;
@@ -572,6 +590,7 @@ fn create(args: &[String], out: &Out) -> Outcome {
         if let Some(next) = created.trigger.next_after(now).ok().flatten() {
             println!("{}", messages().next_run.replace("{time}", &when(next)));
         }
+        triggers::print_event_source(&created.trigger);
         if !runner && !matches!(created.trigger, Trigger::Manual) {
             println!("{}", messages().runner_hint);
         }
@@ -664,6 +683,7 @@ fn show(args: &[String], out: &Out) -> Outcome {
     if let Some(f) = x.body.folder() {
         println!("  {}: {f}", messages().folder_label);
     }
+    triggers::show_lines(&x, store.state(&x.id)?.dropped);
     if let Some(next) = v.get("next_run_at").and_then(Value::as_i64) {
         println!("  {}: {}", messages().next_label, when(next));
     }
@@ -680,7 +700,7 @@ fn show(args: &[String], out: &Out) -> Outcome {
 
 fn run_now(args: &[String], out: &Out) -> Outcome {
     let output = out.mode;
-    let a = Args::parse(args, &["key"], &["wait"])?;
+    let a = Args::parse(args, &["key", "event"], &["wait"])?;
     let store = open_store()?;
     let x = store.find(a.one_word("AUTOMATION")?)?;
     let key = a
@@ -688,7 +708,7 @@ fn run_now(args: &[String], out: &Out) -> Outcome {
         .map(str::to_string)
         .unwrap_or_else(|| format!("cli-{}-{}", now(), std::process::id()));
     let mut exec = executor(&store)?;
-    let run = start_manual(&store, &x.id, &key, now(), &mut exec)?;
+    let run = start_manual_with_event(&store, &x.id, &key, a.value("event"), now(), &mut exec)?;
     if a.flag("wait") {
         let pid = store.run(&x.id, &run)?.and_then(|r| r.pid);
         if let Some(pid) = pid {
@@ -741,7 +761,20 @@ fn edit(args: &[String], out: &Out) -> Outcome {
     }
     if let Some(trigger) = parse_trigger(&a, now)? {
         spec.trigger = trigger;
+    } else if a.value("debounce").is_some() {
+        spec.trigger = match &spec.trigger {
+            Trigger::Watch { command, .. } => triggers::watch_trigger(&a, &command.clone())?,
+            Trigger::Event { event, .. } => triggers::event_trigger(&a, &event.clone())?,
+            _ => return usage(messages().debounce_needs_watch),
+        };
+        spec.trigger.validate().map_err(|e| Failure::Usage(e.0))?;
     }
+    // A schedule that became a watch or an event, with no guardrails of its
+    // own yet, gets that trigger's defaults (flags still win).
+    let defaults = (!x.trigger.is_watched() && x.gate == Gate::default())
+        .then(|| triggers::guard_defaults(&spec.trigger))
+        .flatten();
+    spec.gate = triggers::gate(&a, spec.gate, defaults)?;
     let folder = match a.value("folder") {
         Some(_) => folder_arg(&a)?,
         None => x.body.folder().map(str::to_string),
@@ -831,7 +864,13 @@ fn history(args: &[String], out: &Out) -> Outcome {
         } else {
             String::new()
         };
-        println!("{}  {at}  {:<24} {}{late}", r.id, name, state_label(r));
+        let event = r
+            .event
+            .as_deref()
+            .and_then(|e| e.lines().next())
+            .map(|line| format!("  [{}] {}", r.trigger, line.chars().take(60).collect::<String>()))
+            .unwrap_or_default();
+        println!("{}  {at}  {:<24} {}{late}{event}", r.id, name, state_label(r));
     }
     Ok(0)
 }
@@ -922,8 +961,8 @@ fn runner(args: &[String], out: &Out) -> Outcome {
     }
 }
 
-/// The runner loop: one tick, then sleep until the next due time (at most a
-/// minute). `--once` ticks once and exits.
+/// The runner loop: a tick at each due time (at most a minute apart), and
+/// in between, the watch commands' lines. `--once` ticks once and exits.
 fn serve(once: bool, out: &Out) -> Outcome {
     let output = out.mode;
     let store = open_store()?;
@@ -935,38 +974,71 @@ fn serve(once: bool, out: &Out) -> Outcome {
     };
     let mut exec = executor(&store)?;
     recover_orphans(&store, now(), &mut exec)?;
+    // An event trigger runs `cmux automation events NAME` through this same binary.
+    let program = std::env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "cmux".to_string());
+    let mut watches = Watches::new(store.clone()).with_program(program);
+    let mut next_tick_ms = 0i64;
     loop {
-        let _ = store.prune_moved(now_ms());
-        let report = tick(&store, now(), &mut exec)?;
+        if now_ms() >= next_tick_ms {
+            let _ = store.prune_moved(now_ms());
+            let report = tick(&store, now(), &mut exec)?;
+            exec.reap();
+            if output == OutputMode::Json {
+                println!(
+                    "{}",
+                    json!({ "at": now(), "started": report.started, "skipped": report.skipped, "errors": report.errors })
+                );
+            } else if output != OutputMode::Quiet
+                && (!report.started.is_empty() || !report.errors.is_empty())
+            {
+                for id in &report.started {
+                    println!("{} {id}", when(now()));
+                }
+                for (id, e) in &report.errors {
+                    eprintln!("{id}: {e}");
+                }
+            }
+            if once {
+                return Ok(0);
+            }
+            let automations = store.list()?;
+            watches.reconcile(&automations, now_ms());
+            let t = now();
+            let next = automations
+                .iter()
+                .filter(|x| x.enabled && !x.fenced())
+                .filter_map(|x| x.trigger.next_after(t).ok().flatten())
+                .min()
+                .unwrap_or(t + MAX_SLEEP.as_secs() as i64);
+            next_tick_ms = next.clamp(t + 1, t + MAX_SLEEP.as_secs() as i64) * 1000;
+        }
+        watches.restart_due(now_ms());
+        for event in watches.due_events(now_ms()) {
+            match start_event(&store, &event.automation, &event.text, &event.key, now(), &mut exec)
+            {
+                Ok(outcome) if output == OutputMode::Json => {
+                    let (state, value) = match &outcome {
+                        EventOutcome::Started(run) => ("started", run.as_str()),
+                        EventOutcome::Dropped(why) => ("dropped", *why),
+                    };
+                    println!(
+                        "{}",
+                        json!({ "at": now(), "automation": event.automation, "event": state, "detail": value })
+                    );
+                }
+                Ok(EventOutcome::Started(run)) if output != OutputMode::Quiet => {
+                    println!("{} {run} ({})", when(now()), event.automation);
+                }
+                Ok(_) => {}
+                Err(e) => eprintln!("{}: {e}", event.automation),
+            }
+        }
         exec.reap();
-        if output == OutputMode::Json {
-            println!(
-                "{}",
-                json!({ "at": now(), "started": report.started, "skipped": report.skipped, "errors": report.errors })
-            );
-        } else if output != OutputMode::Quiet
-            && (!report.started.is_empty() || !report.errors.is_empty())
-        {
-            for id in &report.started {
-                println!("{} {id}", when(now()));
-            }
-            for (id, e) in &report.errors {
-                eprintln!("{id}: {e}");
-            }
-        }
-        if once {
-            return Ok(0);
-        }
-        let t = now();
-        let next = store
-            .list()?
-            .iter()
-            .filter(|x| x.enabled && !x.fenced())
-            .filter_map(|x| x.trigger.next_after(t).ok().flatten())
-            .min()
-            .unwrap_or(t + MAX_SLEEP.as_secs() as i64);
-        let wait = Duration::from_secs((next - t).clamp(1, MAX_SLEEP.as_secs() as i64) as u64);
-        std::thread::sleep(wait);
+        let deadline = watches.next_deadline_ms().map_or(next_tick_ms, |d| d.min(next_tick_ms));
+        let wait = (deadline - now_ms()).clamp(10, MAX_SLEEP.as_millis() as i64);
+        watches.wait(Duration::from_millis(wait as u64), &now_ms);
     }
 }
 
@@ -989,6 +1061,20 @@ fn launchctl(args: &[&str]) -> bool {
         .is_ok_and(|s| s.success())
 }
 
+/// The runner's `PATH`: launchd gives agents only the system folders, so a
+/// body, condition or event source (`gh`, `jq`) finds what the shell that
+/// installed it finds, and the usual Homebrew folders either way.
+fn runner_path(installer: Option<&str>) -> String {
+    let mut dirs: Vec<&str> =
+        installer.unwrap_or("").split(':').filter(|d| !d.is_empty()).collect();
+    for dir in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"] {
+        if !dirs.contains(&dir) {
+            dirs.push(dir);
+        }
+    }
+    dirs.join(":")
+}
+
 /// A launchd agent that keeps `cmux automation runner` running for this user.
 fn install(out: &Out) -> Outcome {
     let output = out.mode;
@@ -997,9 +1083,10 @@ fn install(out: &Out) -> Outcome {
     let plist = plist_path().ok_or_else(|| Failure::Usage(messages().no_home.into()))?;
     let log = store.root().join("runner.log");
     let body = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n<key>Label</key><string>{LAUNCHD_LABEL}</string>\n<key>ProgramArguments</key><array><string>{}</string><string>automation</string><string>runner</string></array>\n<key>EnvironmentVariables</key><dict><key>CMUX_AUTOMATIONS_DIR</key><string>{}</string></dict>\n<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><true/>\n<key>ProcessType</key><string>Background</string>\n<key>StandardOutPath</key><string>{}</string>\n<key>StandardErrorPath</key><string>{}</string>\n</dict></plist>\n",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n<key>Label</key><string>{LAUNCHD_LABEL}</string>\n<key>ProgramArguments</key><array><string>{}</string><string>automation</string><string>runner</string></array>\n<key>EnvironmentVariables</key><dict><key>CMUX_AUTOMATIONS_DIR</key><string>{}</string><key>PATH</key><string>{}</string></dict>\n<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><true/>\n<key>ProcessType</key><string>Background</string>\n<key>StandardOutPath</key><string>{}</string>\n<key>StandardErrorPath</key><string>{}</string>\n</dict></plist>\n",
         xml_escape(&exe.to_string_lossy()),
         xml_escape(&store.root().to_string_lossy()),
+        xml_escape(&runner_path(std::env::var("PATH").ok().as_deref())),
         xml_escape(&log.to_string_lossy()),
         xml_escape(&log.to_string_lossy()),
     );
@@ -1046,7 +1133,9 @@ fn cloud_schedule(a: &Args) -> Result<Option<CloudSchedule>, Failure> {
         cmux_automations::CronExpr::parse(&expr).map_err(Failure::Usage)?;
         Ok(Some(CloudSchedule::Cron { expr, tz: tz.clone() }))
     };
-    for local_only in ["every", "at", "in"] {
+    for local_only in
+        ["every", "at", "in", "watch", "when", "debounce", "if", "cooldown", "max-runs"]
+    {
         if a.value(local_only).is_some() {
             return usage(messages().cloud_local_only.replace("{flag}", local_only));
         }
@@ -1324,10 +1413,13 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Out
             Err(done) => done,
         },
         "edit" | "update" => {
-            let unsupported = ["prompt", "command", "folder", "model", "timeout", "tz"]
-                .iter()
-                .chain(SCHEDULE_FLAGS)
-                .any(|f| a.value(f).is_some())
+            let unsupported = [
+                "prompt", "command", "folder", "model", "timeout", "tz", "if", "cooldown",
+                "max-runs", "debounce",
+            ]
+            .iter()
+            .chain(SCHEDULE_FLAGS)
+            .any(|f| a.value(f).is_some())
                 || ["hourly", "manual", "webhook"].iter().any(|f| a.flag(f));
             if unsupported {
                 return usage(messages().cloud_edit_flags);
@@ -1507,6 +1599,49 @@ mod tests {
         assert_eq!(t(&["--manual"]), Some(Trigger::Manual));
         assert_eq!(t(&["--hourly", "--tz", "UTC"]), Some(Trigger::preset_hourly(Zone::Utc)));
         assert_eq!(t(&[]), None);
+    }
+
+    #[test]
+    fn the_runner_finds_what_the_installing_shell_finds_and_homebrew() {
+        assert_eq!(
+            runner_path(Some("/Users/me/.cargo/bin:/usr/bin:/bin")),
+            "/Users/me/.cargo/bin:/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/sbin"
+        );
+        assert_eq!(
+            runner_path(None),
+            "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        );
+    }
+
+    #[test]
+    fn when_names_an_event_with_its_own_debounce_and_guardrails() {
+        let t = |w: &[&str]| parse_trigger(&args(w), 0);
+        assert_eq!(
+            t(&["--when", "pr-opened"]).ok().flatten(),
+            Some(Trigger::Event { event: "pr-opened".into(), debounce_seconds: 5 })
+        );
+        assert_eq!(
+            t(&["--when=agent-idle", "--debounce", "10s"]).ok().flatten(),
+            Some(Trigger::Event { event: "agent-idle".into(), debounce_seconds: 10 })
+        );
+        for bad in [&["--when", "agent-busy"][..], &["--when", "pr-opened", "--daily", "9:00"]] {
+            let Err(Failure::Usage(why)) = t(bad) else { panic!("{bad:?} is a usage error") };
+            assert!(!why.is_empty(), "{bad:?}");
+        }
+        let Err(Failure::Usage(why)) = t(&["--when", "agent-busy"]) else { unreachable!() };
+        assert!(why.contains("agent-idle, agent-needs-input, pr-opened"), "{why}");
+        assert!(why.contains("cmux automation events"), "{why}");
+        // A new automation on an event gets that event's guardrails; flags win.
+        let idle = Trigger::Event { event: "agent-idle".into(), debounce_seconds: 5 };
+        let defaults = triggers::guard_defaults(&idle);
+        assert_eq!(defaults, Some((60, Some(48))));
+        let gate = triggers::gate(&args(&[]), Gate::default(), defaults).ok().unwrap();
+        assert_eq!((gate.cooldown_seconds, gate.max_runs_per_day), (60, Some(48)));
+        let gate =
+            triggers::gate(&args(&["--max-runs", "0"]), Gate::default(), defaults).ok().unwrap();
+        assert_eq!(gate.max_runs_per_day, None);
+        assert_eq!(triggers::guard_defaults(&Trigger::Manual), None);
+        assert_eq!(describe_trigger(&idle), "When an agent goes idle");
     }
 
     #[test]

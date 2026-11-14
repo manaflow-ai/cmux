@@ -11,9 +11,9 @@
 //   doc, ppt, xls, xlsm, csv, tsv, md, mdx and images.
 // Code files never count, however they were made. Images and documents drawn in the chat itself are
 // OutputsSection's own rows (the gallery, the artifacts).
-import { turnFiles, type TurnFile } from "../diff";
+import type { TurnFile } from "../diff";
 import { codePath, linkPath } from "../chips/paths";
-import type { AcpmuxRow } from "../model";
+import { contentsUnknown, pathKey, type AcpmuxRow } from "../model";
 import { homePath } from "../sessionList";
 
 /// What a reply's link makes an output: a document.
@@ -84,12 +84,65 @@ function pointedPaths(text: string): string[] {
   return targets;
 }
 
+/// What one row gives Outputs, kept per row object (a row is replaced, never changed, when it grows:
+/// direct.ts bumps its version), so an update reads only its new and changed rows: a reply's pointed
+/// paths, and its file tools' changes, without diffing them (`turnFiles` diffs every edit, which
+/// Outputs never shows, and that cost grew with the chat's history on every streamed update).
+type RowOutputs = { text?: string; items?: unknown; pointed: string[]; changes: Change[] };
+/// A file tool's change, as `turnFiles` (diff.ts `toolFiles`, `known`) counts it: `hides` marks its
+/// file's net change unknown, `skip` is a failed Write that wrote nothing.
+type Change = { key: string; path: string; created: boolean; hides: boolean; skip: boolean };
+const perRow = new WeakMap<AcpmuxRow, RowOutputs>();
+
+function rowOutputs(row: AcpmuxRow): RowOutputs {
+  const kept = perRow.get(row);
+  if (kept && kept.text === row.text && kept.items === row.items) return kept;
+  const changes: Change[] = [];
+  if (row.kind === "activity")
+    for (const item of row.items ?? []) {
+      const tool = item.tool;
+      // An edit still waiting for its permission has changed nothing yet.
+      if (!tool || tool.status === "pending") continue;
+      for (const change of tool.diffs ?? []) {
+        const unknown = contentsUnknown(change);
+        changes.push({
+          key: pathKey(change),
+          path: change.path,
+          // A fragment has no whole-file text, so a missing old text is not proof of a new file.
+          created: change.oldText == null && !change.fragment,
+          hides: unknown && tool.status !== "failed",
+          skip: unknown && tool.status === "failed",
+        });
+      }
+    }
+  const outputs: RowOutputs = {
+    text: row.text,
+    items: row.items,
+    pointed: row.kind === "assistant" && row.text ? pointedPaths(row.text) : [],
+    changes,
+  };
+  perRow.set(row, outputs);
+  return outputs;
+}
+
+/// The files the chat's file tools changed, each once under its first edit's spelling, as
+/// `turnFiles` lists them, with only what Outputs reads.
+function changedFiles(rows: readonly RowOutputs[]): Pick<TurnFile, "path" | "created" | "deleted">[] {
+  const hidden = new Set(rows.flatMap((row) => row.changes.flatMap((change) => (change.hides ? [change.key] : []))));
+  const files = new Map<string, Pick<TurnFile, "path" | "created" | "deleted">>();
+  for (const row of rows)
+    for (const change of row.changes)
+      if (!change.skip && !hidden.has(change.key) && !files.has(change.key))
+        files.set(change.key, { path: change.path, created: change.created });
+  return [...files.values()];
+}
+
 /// The chat's output files, oldest first, each once: the documents its replies link to, then the
-/// deliverables its file tools created.
+/// deliverables its file tools created. `created` stands in for the file tools' files (tests).
 export function chatOutputs(
   rows: readonly AcpmuxRow[],
   cwd: string | undefined,
-  created: readonly TurnFile[] = turnFiles([...rows]),
+  created?: readonly Pick<TurnFile, "path" | "created" | "deleted">[],
 ): OutputFile[] {
   const seen = new Set<string>();
   const out: OutputFile[] = [];
@@ -98,11 +151,9 @@ export function chatOutputs(
     seen.add(path);
     out.push({ path, displayPath: shown(path, cwd) });
   };
-  for (const row of rows) {
-    if (row.kind !== "assistant" || !row.text) continue;
-    for (const path of pointedPaths(row.text)) if (LINKED.has(extension(path))) add(absolute(path, cwd));
-  }
-  for (const file of created)
+  const each = rows.map(rowOutputs);
+  for (const row of each) for (const path of row.pointed) if (LINKED.has(extension(path))) add(absolute(path, cwd));
+  for (const file of created ?? changedFiles(each))
     if (file.created && !file.deleted && DELIVERABLE.has(extension(file.path))) add(absolute(file.path, cwd));
   return out;
 }

@@ -21,6 +21,11 @@ public nonisolated protocol TerminalIO: Sendable {
     /// paste.
     func write(_ data: Data) async
 
+    /// This terminal's filesystem lives on another machine. Native pasteboard
+    /// files must be handed to its owner instead of becoming local path text.
+    var uploadsPasteboardFiles: Bool { get }
+    func pasteFiles(_ pasteboard: TerminalFilePaste) async throws
+
     /// Requests this view's grid when it owns canonical geometry. An IO that
     /// sends `.resize` events answers with one once the PTY has the size;
     /// one that does not must apply the size itself (the surface keeps
@@ -28,12 +33,12 @@ public nonisolated protocol TerminalIO: Sendable {
     func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async
 
     /// Requests this view's grid on the main actor, in the caller's turn, instead of through the
-    /// ordered ``resize(cols:rows:pixelWidth:pixelHeight:)``. `final`: the grid the view will have
-    /// when its pane's layout spring lands, sent at the spring's start (a split or a close resizes
-    /// the program in the terminal before the motion ends). Returns false when the IO has no
+    /// ordered ``resize(cols:rows:pixelWidth:pixelHeight:)``: the grid goes in that turn (a layout
+    /// spring's final grid at the spring's start, so a split or a close resizes the program in the
+    /// terminal before the motion ends; a key resize's grids with no extra frame). Returns false when the IO has no
     /// main-actor path; the session then sends `resize` in order. `window`: the view's window, whose
     /// full screen transition holds the grid.
-    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool
+    @MainActor func resizeOnMain(cols: Int, rows: Int, window: NSWindow?) -> Bool
 
     /// True when the owner keeps its own VT state and answers terminal
     /// queries (DA, DSR, OSC color queries). The cmux-tui daemon does, so the
@@ -79,18 +84,27 @@ public nonisolated protocol TerminalIO: Sendable {
     /// the attachment that sends its keys uses, so an echo counts only for the terminal that typed.
     /// Nil (the default): the probe takes no echo hop from this IO while a press is tied to a terminal.
     nonisolated var typingProbeSource: TypingLatencyProbe.Source? { get }
+
+    /// True when the terminal's shell runs on another machine (a Cloud machine, a remote daemon), so a key's echo
+    /// makes a network round trip: the session then draws typed characters at once, underlined until the echo
+    /// confirms them (``TerminalEchoPredictor``; the shared engine still waits for a measured slow echo, and stays
+    /// off in full-screen programs and at password prompts). False (the default) for a shell on this Mac.
+    var predictsEcho: Bool { get }
 }
 
 public extension TerminalIO {
+    nonisolated var uploadsPasteboardFiles: Bool { false }
+    nonisolated func pasteFiles(_ pasteboard: TerminalFilePaste) async throws { throw CocoaError(.featureUnsupported) }
     var answersTerminalQueries: Bool { true }
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool { false }
     @MainActor var linkGrids: TerminalLinkGrids? { nil }
-    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool { false }
+    @MainActor func resizeOnMain(cols: Int, rows: Int, window: NSWindow?) -> Bool { false }
     func focusGained() async {}
     func takeOverSize(setLatest: Bool) async {}
     func reconnectRequested() async {}
     func resyncRequested() async {}
     nonisolated var typingProbeSource: TypingLatencyProbe.Source? { nil }
+    var predictsEcho: Bool { false }
 }
 
 /// One event from a ``TerminalIO``.

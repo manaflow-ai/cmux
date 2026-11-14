@@ -38,9 +38,17 @@ pub(super) struct Head {
     pub last_seq: u64,
     /// The highest seq the peer was seen at for this copy (its pages' `lastSeq`, its records).
     pub host_last_seq: u64,
+    /// The seq from which the copy saw every record: a copy started past a gap starts it
+    /// again; a bound that cuts the oldest records does not (`open_delivery.rs` `whole`).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub since: u64,
     pub captured_at: u64,
     pub from_start: bool,
     pub summary: Value,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 pub(super) fn record_bytes(v: &Value) -> u64 {
@@ -245,8 +253,11 @@ pub(super) fn remove(path: &Path) -> std::io::Result<()> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(e),
     };
-    let gone =
-        if meta.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) };
+    let gone = if meta.is_dir() {
+        crate::home_fs::remove_dir_all(path)
+    } else {
+        crate::home_fs::remove_file(path)
+    };
     match gone {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         other => other,
@@ -255,4 +266,4 @@ pub(super) fn remove(path: &Path) -> std::io::Result<()> {
 
 #[cfg(test)]
 #[path = "disk_tests.rs"]
-mod tests;
+pub(super) mod tests;

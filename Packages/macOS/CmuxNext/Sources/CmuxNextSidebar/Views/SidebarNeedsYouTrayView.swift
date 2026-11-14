@@ -6,18 +6,25 @@ import CmuxNextDesign
 /// instead). A header with the count, up to three sessions blocked on you (a glyph, the title, why,
 /// and the path to it under), and a quiet line for the rest and for finished unread sessions.
 /// Clicking an item goes to its row, opening the folds above it. Hidden while nothing needs you.
+/// An item whose session's one pending tool permission the App can answer (``answerable``) shows
+/// Allow and Deny in place of its reason, and takes y and n while it has the keyboard focus.
 final class SidebarNeedsYouTrayView: NSView {
     static let shownItems = 3
     /// Goes to a session: an item, or the first finished unread one.
     var onOpen: ((WorkspaceID) -> Void)?
+    /// Answers a waiting item's pending tool permission (by its request id): allow once (true) or deny.
+    var onAnswer: ((WorkspaceID, String, Bool) -> Void)?
     private(set) var tray = SidebarNeedsYou()
+    /// The workspaces whose waiting session the App can answer from here, each with its pending
+    /// request's id (``SidebarView/showAnswerable(_:)``).
+    private(set) var answerable: [WorkspaceID: String] = [:]
     private let header = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let count = SidebarRowView.label(font: SidebarStyle.badgeFont)
     private let countFill = CALayer()
     /// An opaque sidebar-colored base under the tint: the tray floats over rows, which must not show through.
     private let backing = CALayer(), tintFill = CALayer()
-    private let footnote = TrayLine()
-    private let rows = (0..<SidebarNeedsYouTrayView.shownItems).map { _ in TrayLine() }
+    private let footnote = SidebarNeedsYouTrayLine()
+    let rows = (0..<SidebarNeedsYouTrayView.shownItems).map { _ in SidebarNeedsYouTrayLine() }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -46,6 +53,13 @@ final class SidebarNeedsYouTrayView: NSView {
         return Self.pad + Self.headerHeight + shown * Self.itemHeight + (footnoteText == nil ? 0 : Self.lineHeight) + Self.pad
     }
 
+    /// Which items get Allow and Deny; only the shown items' rows change.
+    func setAnswerable(_ answerable: [WorkspaceID: String]) {
+        guard answerable != self.answerable else { return }
+        self.answerable = answerable
+        configureAnswers()
+    }
+
     func show(_ tray: SidebarNeedsYou) {
         guard tray != self.tray else { return }
         self.tray = tray
@@ -64,6 +78,7 @@ final class SidebarNeedsYouTrayView: NSView {
             row.setAccessibilityLabel([item.title, Strings.needsYouReason(item), item.path.joined(separator: ", ")]
                 .filter { !$0.isEmpty }.joined(separator: ", "))
         }
+        configureAnswers()
         footnote.isHidden = footnoteText == nil
         footnote.configure(title: footnoteText ?? "", reason: "", detail: "", failed: false, quiet: true)
         footnote.setAccessibilityLabel(footnoteText)
@@ -73,6 +88,21 @@ final class SidebarNeedsYouTrayView: NSView {
         setAccessibilityLabel(Strings.needsYouSummary(blocked: tray.items.count, unread: tray.unread))
         tint()
         needsLayout = true
+    }
+
+    /// Allow and Deny on each shown waiting item the App can answer; none on the others.
+    private func configureAnswers() {
+        for (n, row) in rows.enumerated() {
+            let item = n < tray.items.count ? tray.items[n] : nil
+            guard let item, item.reason == .waiting, let request = answerable[item.id] else {
+                row.answers.target = nil
+                row.onAnswer = nil
+                continue
+            }
+            // A press answers the request it began on, never the next one in this slot.
+            row.answers.target = "\(item.id)\u{1F}\(request)"
+            row.onAnswer = { [weak self] allow in self?.onAnswer?(item.id, request, allow) }
+        }
     }
 
     /// "+2 more · 7 finished, unread", or either half alone.
@@ -87,7 +117,7 @@ final class SidebarNeedsYouTrayView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let blocked = !tray.items.isEmpty
-        backing.backgroundColor = (Palette.sidebarBackground.usingColorSpace(.sRGB) ?? Palette.windowBackground).withAlphaComponent(1).cgColor
+        backing.backgroundColor = SidebarStyle.ground.withAlphaComponent(1).cgColor
         layer?.backgroundColor = nil
         tintFill.backgroundColor = (blocked ? Palette.attention.withAlphaComponent(0.08) : Palette.badgeFill).cgColor
         layer?.borderColor = (blocked ? Palette.attention.withAlphaComponent(0.4) : Palette.separator).cgColor
@@ -135,8 +165,21 @@ final class SidebarNeedsYouTrayView: NSView {
 }
 
 /// One line of the tray: a glyph, the title, why it waits on the right, and a dim second line.
-private final class TrayLine: NSView {
+/// An answerable line shows Allow and Deny where the reason was, and takes the keyboard focus for y and n.
+final class SidebarNeedsYouTrayLine: NSView {
     var onClick: (() -> Void)?
+    /// Set while the line's session can be answered from here: Allow (true) or Deny.
+    var onAnswer: ((Bool) -> Void)? {
+        didSet {
+            let answers = onAnswer != nil
+            guard answers != (oldValue != nil) else { return }
+            self.answers.isHidden = !answers
+            reason.isHidden = answers
+            if !answers, window?.firstResponder === self { window?.makeFirstResponder(nil) }
+            needsLayout = true
+        }
+    }
+    let answers = SidebarAnswerButtons()
     private let glyph = CALayer()
     private let title = SidebarRowView.label(font: SidebarStyle.titleFont)
     private let reason = SidebarRowView.label(font: SidebarStyle.subtitleFont)
@@ -148,7 +191,9 @@ private final class TrayLine: NSView {
         wantsLayer = true
         layer?.cornerRadius = Metrics.insetCornerRadius
         layer?.addSublayer(glyph)
-        [title, reason, detail].forEach(addSubview)
+        [title, reason, detail, answers].forEach(addSubview)
+        answers.isHidden = true
+        answers.onAnswer = { [weak self] allow in self?.onAnswer?(allow) }
         title.lineBreakMode = .byTruncatingTail
         detail.lineBreakMode = .byTruncatingTail
         setAccessibilityElement(true)
@@ -180,9 +225,51 @@ private final class TrayLine: NSView {
         detail.setColor(Palette.textTertiary)
     }
 
-    /// The whole line takes the click, its labels too (`point` is in the superview's coordinates).
+    /// The whole line takes the click, its labels too, but for its Allow and Deny (`point` is in the
+    /// superview's coordinates).
     override func hitTest(_ point: NSPoint) -> NSView? {
-        !isHidden && frame.contains(point) ? self : nil
+        guard !isHidden, frame.contains(point) else { return nil }
+        if !answers.isHidden {
+            let local = answers.convert(point, from: superview)
+            for button in [answers.allow, answers.deny] where button.frame.contains(local) { return button }
+        }
+        return self
+    }
+
+    /// Only an answerable line takes the keyboard focus (Tab, Full Keyboard Access): there y allows once and n denies.
+    override var acceptsFirstResponder: Bool { onAnswer != nil }
+    override var canBecomeKeyView: Bool { onAnswer != nil && !isHiddenOrHasHiddenAncestor }
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { showFocus(true) }
+        return became
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { showFocus(false) }
+        return resigned
+    }
+
+    private func showFocus(_ focused: Bool) {
+        performWithTheme {
+            layer?.borderColor = Palette.focusRing.cgColor
+            layer?.borderWidth = focused ? Metrics.lineWidth(1.5) : 0
+        }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard let onAnswer, let key = SidebarAnswerKey(event) else { return super.keyDown(with: event) }
+        onAnswer(key.allows)
+    }
+
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        guard onAnswer != nil else { return super.accessibilityCustomActions() }
+        return (super.accessibilityCustomActions() ?? []) + [
+            NSAccessibilityCustomAction(name: Strings.answerAllowLabel) { [weak self] in self?.onAnswer?(true); return self != nil },
+            NSAccessibilityCustomAction(name: Strings.answerDenyLabel) { [weak self] in self?.onAnswer?(false); return self != nil },
+        ]
     }
 
     override func accessibilityPerformPress() -> Bool {
@@ -211,8 +298,12 @@ private final class TrayLine: NSView {
         let textX = quiet ? inset : glyph.frame.maxX + Metrics.space2
         let r = reason.naturalSize
         reason.frame = NSRect(x: bounds.width - inset - ceil(r.width), y: (firstLine - r.height) / 2, width: ceil(r.width), height: r.height)
+        // Allow and Deny stand where the reason was, so the line keeps its height.
+        let a = NSSize(width: answers.naturalWidth, height: answers.naturalHeight)
+        answers.frame = NSRect(x: bounds.width - inset - a.width, y: (firstLine - a.height) / 2, width: a.width, height: a.height)
+        let trailing = answers.isHidden ? reason.frame.minX : answers.frame.minX
         let t = title.naturalSize
-        title.frame = NSRect(x: textX, y: (firstLine - t.height) / 2, width: max(0, reason.frame.minX - Metrics.space2 - textX), height: t.height)
+        title.frame = NSRect(x: textX, y: (firstLine - t.height) / 2, width: max(0, trailing - Metrics.space2 - textX), height: t.height)
         let d = detail.naturalSize
         detail.frame = NSRect(x: textX, y: firstLine - Metrics.space1, width: max(0, bounds.width - inset - textX), height: d.height)
     }

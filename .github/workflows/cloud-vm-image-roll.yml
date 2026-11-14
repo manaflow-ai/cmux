@@ -1,0 +1,287 @@
+name: Cloud VM image roll
+
+# A merged cmux-tui or image fix reaches production's Cloud VM boot image with no hand PR:
+#
+#   1. plan     cmux-tui-artifacts.yml dispatches this run for every feat-cmux-next build it published and
+#               verified (input commit); a feat-cmux-next push that changes the image inputs starts it too.
+#               images/cmux-vm/auto-roll.ts plan rolls only a build of the branch that changes the binaries
+#               the lock pins, and never an older one; it lists the fix commits the roll carries.
+#   2. bake     cloud-vm-image-bake.yml (called, roll: true) pins that build into the lock and bakes the
+#               image with the agent tools. The gate is the bake's own exact-image checks
+#               on the candidate snapshot: the 5-clone smoke and the agent tools probe. Any red there and
+#               nothing is kept or promoted; production stays on its image.
+#   3. promote  images/cmux-vm/image-roll-push.sh lands one bot commit on feat-cmux-next: the pinned lock
+#               and the image first in production's VM_BOOT_IMAGES (last in staging's). It pushes with the
+#               manaflow-cmux-pr-autofix App, so cmux-vm.yml deploys it to production and runs
+#               smoke-production, whose product create boots exactly that first image.
+#   4. settle   cmux-vm.yml's image-roll-settle job: a red production smoke or deploy on the roll commit lands
+#               a rollback commit (the image leaves both lists; the entry before it boots again).
+#
+# Records: each roll's rolls/<run id>.json on the branch cloud-image-rolls (images/cmux-vm/image-roll-record.sh),
+# plus the trailers Image-Roll-Run and Image-Roll-Image on the roll and rollback commits. A red gate, a failed
+# promotion and a rollback also comment on the one open issue labelled cloud-image-roll.
+#
+# images/cmux-vm/auto-roll.json is the switch: "off" (only a dispatch runs), "dry-run" (bake and gate, then
+# make the commit and upload its diff without pushing) or "live". The dispatch input dry_run overrides it.
+#
+# Concurrency: one roll runs at a time, and one waits. A newer request replaces the waiting one (GitHub's
+# pending-run replacement), so a burst of merges bakes the newest build next. A running roll is never
+# cancelled: the bake deletes what it made in its own always() step. Every job has a timeout.
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: The feat-cmux-next commit whose published cmux-tui build to roll; empty rebakes the tip's image inputs with the pinned cmux-tui
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: auto = images/cmux-vm/auto-roll.json; true = bake and gate, push nothing; false = live
+        required: false
+        default: auto
+        type: choice
+        options: [auto, "true", "false"]
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - images/cmux-vm/**
+      - web/scripts/cmux-vm-image/**
+      - "!images/cmux-vm/channels/**"
+
+permissions: {}
+
+# The roll's own commits change the lock and so start a push run here; that run does nothing and takes a group
+# of its own, so it never replaces a waiting roll.
+concurrency:
+  group: "${{ github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'cmux-vm: image roll ') || startsWith(github.event.head_commit.message, 'cmux-vm: image rollback ')) && format('cloud-vm-image-roll-own-{0}', github.run_id) || 'cloud-vm-image-roll' }}"
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    # Never on the roll's own commits (they change the lock), and only on feat-cmux-next.
+    if: >-
+      github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' &&
+      !(github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'cmux-vm: image roll ') ||
+      startsWith(github.event.head_commit.message, 'cmux-vm: image rollback ')))
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      roll: ${{ steps.plan.outputs.roll }}
+      pin: ${{ steps.plan.outputs.pin }}
+      dry_run: ${{ steps.plan.outputs.dry_run }}
+      plan: ${{ steps.plan.outputs.plan }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: feat-cmux-next
+          # Full history without blobs: "never older than the pin" and the fix commits since it need the pin's
+          # real ancestry, which a shallow window cuts (auto-roll.ts plan refuses a shallow checkout).
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Plan the roll
+        id: plan
+        env:
+          EVENT: ${{ github.event_name == 'push' && 'push' || 'dispatch' }}
+          COMMIT: ${{ github.event_name == 'push' && github.sha || inputs.commit }}
+          BEFORE: ${{ github.event.before }}
+          DRY_RUN: ${{ inputs.dry_run || 'auto' }}
+        run: |
+          set -euo pipefail
+          # A pin off the branch (a hand pin of a lane build) is fetched with its history; a pin that cannot be
+          # fetched fails the plan, never skips the guard. A build commit off the branch is "not on the tip" anyway.
+          pinned="$(jq -r '.programs[] | select(.name == "cmux-tui") | .version' images/cmux-vm/inputs.lock.json)"
+          if ! git cat-file -e "$pinned^{commit}" 2> /dev/null; then git fetch -q --filter=blob:none origin "$pinned"; fi
+          if [ -n "$COMMIT" ] && ! git cat-file -e "$COMMIT^{commit}" 2> /dev/null; then git fetch -q --filter=blob:none origin "$COMMIT" || true; fi
+          bun images/cmux-vm/auto-roll.ts plan --event "$EVENT" --commit "$COMMIT" --before "${BEFORE:-}" --dry-run "$DRY_RUN" --tip HEAD > "$RUNNER_TEMP/plan.json"
+          cat "$RUNNER_TEMP/plan.json"
+          {
+            echo "roll=$(jq -r .roll "$RUNNER_TEMP/plan.json")"
+            echo "pin=$(jq -r .pin "$RUNNER_TEMP/plan.json")"
+            echo "dry_run=$(jq -r .dryRun "$RUNNER_TEMP/plan.json")"
+            echo "plan=$(jq -c . "$RUNNER_TEMP/plan.json")"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Cloud VM image roll: plan"
+            echo
+            echo "$(jq -r '"Roll: \(.roll) (\(.reason)). Dry run: \(.dryRun)."' "$RUNNER_TEMP/plan.json")"
+            echo
+            jq -r '.fixes[] | "- `\(.sha[0:12])` \(.mergedAt) \(.subject)"' "$RUNNER_TEMP/plan.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  bake:
+    needs: plan
+    if: needs.plan.outputs.roll == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/cloud-vm-image-bake.yml
+    with:
+      mode: bake
+      clones: "5"
+      keep_snapshot: true
+      probes: true
+      agent_tools: true
+      layered: true
+      roll: true
+      cmux_tui_commit: ${{ needs.plan.outputs.pin }}
+    # The bake's Freestyle key and UI test login are repository secrets: a called workflow gets them only when
+    # passed, so exactly these three pass (never `secrets: inherit`). The bake job runs in cmux-next-vm-image-dev.
+    secrets:
+      FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+      CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_UITEST_STACK_EMAIL }}
+      CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_UITEST_STACK_PASSWORD }}
+
+  promote:
+    needs: [plan, bake]
+    if: needs.plan.outputs.roll == 'true' && needs.bake.result == 'success' && needs.bake.outputs.candidate != ''
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
+    # A production change: the environment that deploys production (feat-cmux-next only) bounds the push App key.
+    environment: cmux-vm-production
+    permissions:
+      contents: read
+    outputs:
+      result: ${{ steps.push.outputs.result }}
+      sha: ${{ steps.push.outputs.sha }}
+      image: ${{ steps.message.outputs.image }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: feat-cmux-next
+          fetch-depth: 50
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Write the roll commit's message
+        id: message
+        env:
+          PLAN: ${{ needs.plan.outputs.plan }}
+          CANDIDATE: ${{ needs.bake.outputs.candidate }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$CANDIDATE" > "$RUNNER_TEMP/candidate.json"
+          printf '%s' "$PLAN" > "$RUNNER_TEMP/plan.json"
+          tui="$(jq -r .cmuxTui "$RUNNER_TEMP/plan.json")"
+          # The attempt too: a re-run bakes a new snapshot, a new image with its own id (auto-roll.ts rolledImage).
+          image="cloud-native-auto-${tui:0:8}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          {
+            echo "cmux-vm: image roll ${image} (cmux-tui ${tui:0:8}) first in production"
+            echo
+            echo "$(jq -r .reason "$RUNNER_TEMP/plan.json")."
+            echo "Gate passed on snapshot $(jq -r .snapshot_id "$RUNNER_TEMP/candidate.json"): $(jq -r '.smoke.detail // "the clone smoke"' "$RUNNER_TEMP/candidate.json"), and the agent tools probe (${RUN_URL})."
+            echo
+            jq -r '.fixes[] | "- \(.sha[0:12]) \(.subject)"' "$RUNNER_TEMP/plan.json"
+            echo
+            echo "Image-Roll-Run: ${GITHUB_RUN_ID}"
+            echo "Image-Roll-Image: ${image}"
+            echo "Image-Roll-Cmux-Tui: ${tui}"
+          } > "$RUNNER_TEMP/message.txt"
+          cat "$RUNNER_TEMP/message.txt"
+      - name: Mint the push token
+        id: push-token
+        if: needs.plan.outputs.dry_run != 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+      - name: Land the roll commit
+        id: push
+        env:
+          TOKEN: ${{ steps.push-token.outputs.token }}
+          PIN: ${{ needs.plan.outputs.pin }}
+          REVISION: ${{ needs.bake.outputs.revision }}
+          DRY_RUN: ${{ needs.plan.outputs.dry_run == 'true' && '--dry-run' || '' }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2086
+          images/cmux-vm/image-roll-push.sh roll --candidate "$RUNNER_TEMP/candidate.json" --revision "$REVISION" \
+            --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --pin "$PIN" --message-file "$RUNNER_TEMP/message.txt" $DRY_RUN | tee "$RUNNER_TEMP/push.out"
+          tail -1 "$RUNNER_TEMP/push.out" | sed 's/^/Promotion: /' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the roll commit's diff
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-vm-image-roll-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/image-roll.diff
+            ${{ runner.temp }}/message.txt
+            ${{ runner.temp }}/approve.json
+          if-no-files-found: ignore
+          retention-days: 3
+
+  # The record and, on a red gate or promotion, the loud part: an ::error, the summary and a comment on the
+  # one open cloud-image-roll issue. The GITHUB_TOKEN writes both; its push to the record branch starts nothing.
+  report:
+    needs: [plan, bake, promote]
+    if: always() && needs.plan.outputs.roll == 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: images/cmux-vm
+      - name: Record the roll
+        env:
+          TOKEN: ${{ github.token }}
+          PLAN: ${{ needs.plan.outputs.plan }}
+          CANDIDATE: ${{ needs.bake.outputs.candidate }}
+          BAKE: ${{ needs.bake.result }}
+          PROMOTE: ${{ needs.promote.result }}
+          RESULT: ${{ needs.promote.outputs.result }}
+          SHA: ${{ needs.promote.outputs.sha }}
+          IMAGE: ${{ needs.promote.outputs.image }}
+          REVISION: ${{ needs.bake.outputs.revision }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gate=failed
+          if [ "$BAKE" = success ] && [ -n "$CANDIDATE" ]; then gate=passed; fi
+          outcome="$gate"
+          if [ "$gate" = passed ]; then outcome="${RESULT:-promote-failed}"; fi
+          jq -n --argjson plan "$PLAN" --arg candidate "${CANDIDATE:-}" --arg gate "$gate" --arg bake "$BAKE" --arg promote "$PROMOTE" \
+            --arg result "${RESULT:-}" --arg sha "${SHA:-}" --arg image "${IMAGE:-}" --arg revision "${REVISION:-}" --arg now "$now" --arg run "$RUN_URL" \
+            '{schema: 1, run: $run, recorded_at: $now, reason: $plan.reason, dry_run: $plan.dryRun, cmux_tui: $plan.cmuxTui,
+              fixes: $plan.fixes, fixes_truncated: $plan.fixesTruncated,
+              gate: ({result: $gate, bake_job: $bake, done_at: $now} + (if $candidate != "" then {snapshot_id: ($candidate | fromjson | .snapshot_id), detail: ($candidate | fromjson | .smoke.detail)} else {} end)),
+              promotion: {result: (if $gate == "passed" then (if $result == "" then "failed" else $result end) else "not-run" end), job: $promote,
+                commit: $sha, image: $image, revision: $revision, at: (if $result == "pushed" then $now else null end)},
+              rolled_back: false}' \
+            | bash images/cmux-vm/image-roll-record.sh "$GITHUB_RUN_ID" || echo "::warning title=Image roll record::the record was not written"
+          echo "Outcome: ${outcome}. Record: \`cloud-image-rolls:rolls/${GITHUB_RUN_ID}.json\`." >> "$GITHUB_STEP_SUMMARY"
+          case "$outcome" in
+            pushed|dry-run|nothing) exit 0 ;;
+          esac
+          what="the gate (bake, 5-clone smoke or agent tools probe) failed; production stays on its image"
+          [ "$gate" = passed ] && what="the gate passed but the promotion commit did not land; production stays on its image"
+          echo "::error title=Cloud VM image roll::${what}"
+          body="Cloud VM image roll ${GITHUB_RUN_ID}: ${what}. $(jq -r .reason <<< "$PLAN"). ${RUN_URL}"
+          issue="$(gh issue list --repo "$GITHUB_REPOSITORY" --label cloud-image-roll --state open --limit 1 --json number --jq '.[0].number // empty' || true)"
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh label create cloud-image-roll --repo "$GITHUB_REPOSITORY" --color B60205 --description "Cloud VM image roll gate, promotion or rollback" --force > /dev/null || true
+            gh issue create --repo "$GITHUB_REPOSITORY" --label cloud-image-roll --title "Cloud VM image roll is red" --body "$body" \
+              || gh issue create --repo "$GITHUB_REPOSITORY" --title "Cloud VM image roll is red" --body "$body"
+          fi
+          exit 1

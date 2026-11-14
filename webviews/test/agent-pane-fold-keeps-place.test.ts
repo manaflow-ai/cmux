@@ -3,7 +3,9 @@
 // IT'S SO FUCKING AWKWARD TO SEE THEM THERE AT THE BOTTOM SINCE WHEN I EXPAND THEM IT JUMPS ME DOWN
 // AND WHEN I COLLAPSE IT JUMPS ME UP"): the line clicked stays on its pixel while its panel opens
 // under it, and again while it closes, at the transcript's end too, where the browser used to
-// clamp the offset and bring every row down by what closed (foldAnchor.ts `foldRoomFor`).
+// clamp the offset and bring every row down by what closed in one frame (foldAnchor.ts
+// `foldRoomFor`). Near the end the line holds until the rows reach the view's end; from there the
+// bottom is pinned and no blank room stays under the last row (Leo, 2026-11-07).
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -43,10 +45,13 @@ await requireBrowserLane("agent-pane-fold-keeps-place.test.ts", async () => {
     await vite?.close();
   });
 
-  /// The fanout-infra line's toggle: the long report, with a table.
-  const toggleOf = (page: Page) =>
-    page.locator(".cv-received", { hasText: "fanout-infra" }).first().locator(".cv-disclosure__toggle");
-  const topOf = (page: Page) => toggleOf(page).evaluate((node) => node.getBoundingClientRect().top);
+  /// The fanout-infra line (the long report, with a table): the whole line toggles on a click
+  /// (AgentMessageRow.tsx); its chevron is the pointer's target, since an opened line's toggle
+  /// button holds no words and has no box of its own.
+  const lineOf = (page: Page) =>
+    page.locator(".cv-received", { hasText: "fanout-infra" }).first().locator(":scope > .cv-agentmsg__line");
+  const toggleOf = (page: Page) => lineOf(page).locator(".cv-agentmsg__chevron");
+  const topOf = (page: Page) => lineOf(page).evaluate((node) => node.getBoundingClientRect().top);
   /// Every finite animation over (the fold), then the view at rest: the scroller's offset and
   /// height the same over STILL painted frames in a row, which outlasts the hold's last passes.
   const settled = (page: Page) =>
@@ -107,7 +112,7 @@ await requireBrowserLane("agent-pane-fold-keeps-place.test.ts", async () => {
     await page.close();
   });
 
-  test("closing a line at the transcript's end keeps it where it was clicked", async () => {
+  test("closing a line near the transcript's end keeps it until the rows reach the end, then leaves no blank room", async () => {
     const page = await open();
     await toggleOf(page).click();
     await page.locator(".cv-received__text table").waitFor();
@@ -124,25 +129,37 @@ await requireBrowserLane("agent-pane-fold-keeps-place.test.ts", async () => {
       const panel = node.querySelector<HTMLElement>(".cv-received__text")!.getBoundingClientRect().height;
       return node.scrollHeight - node.scrollTop - node.clientHeight - panel;
     });
-    // Without the kept room, closing would clamp: less below the view than what closes.
+    // What closes is more than what lies below the view: holding the line through the whole close
+    // would leave that much blank under the last row.
     expect(room).toBeLessThan(0);
+    const rowHeight = () =>
+      toggleOf(page).evaluate((node) => node.closest<HTMLElement>(".acpmux-row")!.getBoundingClientRect().height);
+    const below = await scroller.evaluate((node) => node.scrollHeight - node.scrollTop - node.clientHeight);
+    const tallBefore = await rowHeight();
     const before = await topOf(page);
     await toggleOf(page).click();
     await page.locator(".cv-received__text table").waitFor({ state: "detached" });
     await settled(page);
-    expect(Math.abs((await topOf(page)) - before)).toBeLessThanOrEqual(1);
-    // Scrolling up gives the kept room up: the content ends where the rows (or the view) do again.
-    const after = await scroller.evaluate(async (node) => {
+    const shortfall = tallBefore - (await rowHeight()) - below;
+    expect(shortfall).toBeGreaterThan(0);
+    // The line holds while the rows still reach the view's end (ask-a736047107: no clamp jump), then
+    // comes down only by what would have been blank (Leo, 2026-11-07: the closed ones should
+    // "remove the space at the bottom"), never up.
+    const moved = (await topOf(page)) - before;
+    expect(moved).toBeGreaterThanOrEqual(-1);
+    expect(moved).toBeLessThanOrEqual(shortfall + 2);
+    // At the end with nothing kept under the rows: scrolling up and back down finds the same end.
+    const ends = await scroller.evaluate(async (node) => {
+      const atEnd = node.scrollHeight - node.clientHeight - node.scrollTop;
       const tall = node.scrollHeight;
       node.scrollTop = 0;
       node.dispatchEvent(new Event("scroll"));
       await window.cmuxPaintFrame();
       await window.cmuxPaintFrame();
-      return { tall, now: node.scrollHeight, view: node.clientHeight };
+      return { atEnd, tall, now: node.scrollHeight };
     });
-    // The kept room made the content taller than the view; released, it is shorter than that again.
-    expect(after.tall).toBeGreaterThan(after.view);
-    expect(after.now).toBeLessThan(after.tall);
+    expect(ends.atEnd).toBeLessThanOrEqual(1);
+    expect(Math.abs(ends.now - ends.tall)).toBeLessThanOrEqual(1);
     await page.close();
   });
 });

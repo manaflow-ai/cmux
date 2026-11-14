@@ -44,6 +44,13 @@ spctl -a -vv -t exec "$CHANNEL_APP_PATH" > "$out/spctl-app.txt" 2>&1
 syspolicy_check distribution "$CHANNEL_APP_PATH" > "$out/syspolicy-check.txt" 2>&1
 cat "$out/receipt.txt" "$out/sparkle.txt" "$out/stapler-app.txt"
 { echo "### cx-f58x notary test receipt"; echo '```'; cat "$out/receipt.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-# Receipts are text only: refuse to upload anything else.
-if find "$out" -type f ! -name '*.txt' ! -name '*.log' | grep -q .; then echo "non-text receipt file" >&2; exit 1; fi
+# Receipts are text only (the repository is public): a file that holds a NUL byte is binary, so it is
+# removed before the upload and never uploaded. The check reads what a file holds, not its name: the
+# step's own entitlements.plist (codesign's XML) is text and stays (run 42176643049 failed on it).
+while IFS= read -r -d '' f; do
+  if ! tr -d '\000' < "$f" | cmp -s - "$f"; then
+    echo "::warning::removed binary receipt file before the upload: ${f#"$out"/}"
+    rm -f -- "$f"
+  fi
+done < <(find "$out" -type f -print0)
 exit 0

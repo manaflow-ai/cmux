@@ -9,6 +9,8 @@
 //! ```
 //!
 //! Scale 1.0 is the real shape: 6.08M sealed and 14.93M live rows.
+//! `CMUX_OUTPUT_CLEANUP_BENCH_STRUCTURAL_EVERY=N` keeps one record in N
+//! (default 262); a small N is a registry whose kept records are most of it.
 
 #![cfg(all(target_os = "linux", debug_assertions))]
 
@@ -28,6 +30,14 @@ const SEALED_ROWS: f64 = 6_022_532.0;
 const LIVE_ROWS: f64 = 14_934_714.0;
 /// One structural record per this many rows (57k of 15M).
 const STRUCTURAL_EVERY: u64 = 262;
+
+fn structural_every() -> u64 {
+    std::env::var("CMUX_OUTPUT_CLEANUP_BENCH_STRUCTURAL_EVERY")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|every| *every > 0)
+        .unwrap_or(STRUCTURAL_EVERY)
+}
 const TERMINALS: u64 = 600;
 
 fn command(dir: &Path) -> Command {
@@ -209,6 +219,7 @@ impl Rng {
 /// one structural record per `STRUCTURAL_EVERY` rows.
 fn append_rows(db: &mut Connection, rows: u64, rng: &mut Rng, offsets: &mut [u64]) -> u64 {
     let mut structural = 0;
+    let every = structural_every();
     let words: Vec<&str> =
         "the quick brown fox jumps over a lazy dog cargo build test ok running warning error"
             .split(' ')
@@ -247,7 +258,7 @@ fn append_rows(db: &mut Connection, rows: u64, rng: &mut Rng, offsets: &mut [u64
             ]);
             let event_id = format!("event_terminal_{:016x}{:016x}", rng.next(), rng.next());
             let now = 1_790_000_000_000_i64 + index as i64;
-            let is_structural = rng.next().is_multiple_of(STRUCTURAL_EVERY);
+            let is_structural = rng.next().is_multiple_of(every);
             let (kind, class, replay, sensitivity, payload, content): (
                 _,
                 _,
@@ -466,6 +477,13 @@ fn generate(dir: &Path, sealed_rows: u64, live_rows: u64) -> PathBuf {
 fn finish(dir: &Path, registry: &Path, scale: f64, before: u64, plain_start: Duration) {
     let owner = Owner::start(dir, "phase-a", "0");
     let phase_a = owner.wait_for_log("output cleanup: phase A complete");
+    // A build that swaps at the next start straight from Phase A has no
+    // background build to wait for.
+    let built = if phase_a.contains("building the new registry next") {
+        owner.wait_for_log("output cleanup: built the new registry in the background")
+    } else {
+        "no background build".to_string()
+    };
     let phase_a_rss = owner.peak_rss_kib();
     owner.stop();
     let staged = file_bytes(&registry.with_file_name(format!("{REGISTRY}.output-cleanup")));
@@ -493,6 +511,7 @@ fn finish(dir: &Path, registry: &Path, scale: f64, before: u64, plain_start: Dur
         plain_start.as_secs_f64()
     );
     eprintln!("bench: RESULT {phase_a}");
+    eprintln!("bench: RESULT {built}");
     eprintln!("bench: RESULT phase A owner peak RSS {} MiB", phase_a_rss / 1024);
     eprintln!("bench: RESULT {swap}");
     eprintln!(

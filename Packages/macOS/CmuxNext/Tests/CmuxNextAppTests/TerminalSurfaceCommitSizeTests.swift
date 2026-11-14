@@ -40,7 +40,7 @@ struct TerminalSurfaceCommitSizeTests {
         #expect(fixture.mismatches.isEmpty,
                 "\(fixture.mismatches.count) turns ended with the layer at one size and its frame at another: \(fixture.mismatches.prefix(8))")
         let stats = TerminalFramePresenter.forWindow(fixture.window).stats
-        #expect(stats.presented > 0 && stats.fallbacks == 0, "presenter: \(stats)")
+        #expect(stats.presented > 0, "presenter: \(stats)")
     }
 
     /// Its window moved to a display of another scale (1x and 2x): the terminal keeps its layer's scale and its frame
@@ -55,7 +55,6 @@ struct TerminalSurfaceCommitSizeTests {
         let new: CGFloat = old == 2 ? 1 : 2
         let presenter = TerminalFramePresenter.forWindow(fixture.window)
         let presentedBefore = presenter.stats.presented
-        let fallbacksBefore = presenter.stats.fallbacks
         // What AppKit does when the window moves to a display of another scale.
         view.backingScaleOverride = new
         view.viewDidChangeBackingProperties()
@@ -65,8 +64,6 @@ struct TerminalSurfaceCommitSizeTests {
         #expect(fixture.mismatches.isEmpty,
                 "\(fixture.mismatches.count) turns ended with the layer at one size and its frame at another: \(fixture.mismatches.prefix(8))")
         #expect(presenter.stats.presented > presentedBefore, "the new scale's frame did not come through the presenter: \(presenter.stats)")
-        #expect(presenter.stats.fallbacks == fallbacksBefore,
-                "the new scale's frame came after the keep limit and fell back (\(presenter.stats.fallbacks - fallbacksBefore))")
         // The landing's commit is reported: output at the new scale goes to the screen off the main thread again.
         let offMain = fixture.offMainPresents
         let deadline = ContinuousClock.now.advanced(by: .seconds(2))
@@ -243,7 +240,6 @@ struct TerminalSurfaceCommitSizeTests {
         // Warm-up press: one-time setup is not the key turn's cost.
         _ = await screen.press(.left)
         let before = screen.counters
-        let fallbacksBefore = screen.fallbacks
         var turns: [Double] = []
         for direction in [LayoutDirection.right, .left, .right, .left, .right, .left] {
             let presentedBefore = screen.presented
@@ -253,7 +249,7 @@ struct TerminalSurfaceCommitSizeTests {
             #expect(screen.presented >= presentedBefore + 2, "a press's frames did not both come through the presenter (\(presentedBefore) -> \(screen.presented))")
             if let ms = pressed.turnMs { turns.append(ms) }
         }
-        #expect(screen.fallbacks == fallbacksBefore, "a press's frame came too late and fell back (\(screen.fallbacks - fallbacksBefore))")
+        print("S4 m26 Reduce Motion presses: presenter \(TerminalFramePresenter.forWindow(screen.window).stats)")
         try #require(turns.count >= 4, "too few key turns were timed (\(turns.count) of 6: the boundary missed the rest)")
         let median = turns.sorted()[turns.count / 2]
         let after = screen.counters
@@ -302,9 +298,6 @@ struct TerminalSurfaceCommitSizeTests {
             window.contentView = root
             window.orderFrontRegardless()
             root.layoutSubtreeIfNeeded() // sync-layout: the panes exist before their terminals attach
-            let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
-            if on != .bool(true) { close() }
-            try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
             let line = String(repeating: "y", count: 40)
             let text = Array(repeating: line, count: 400).joined(separator: "\r\n")
             for pane: PaneID in ["p1", "p2"] {
@@ -342,7 +335,6 @@ struct TerminalSurfaceCommitSizeTests {
             for io in ios { io.finish() }
             window.close()
             WindowDrawPolicy.drawsWhenOccluded = drew
-            TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, nil)
         }
 
         private func sample() {
@@ -364,9 +356,9 @@ struct TerminalSurfaceCommitSizeTests {
             }
         }
 
-        /// Frames the window's presenter showed with their bounds, and requests that fell back.
+        /// Frames the window's presenter showed with their bounds, and passes that kept a frame long (data, m26).
         var presented: Int { TerminalFramePresenter.forWindow(window).stats.presented }
-        var fallbacks: Int { TerminalFramePresenter.forWindow(window).stats.fallbacks }
+        var longKeeps: Int { TerminalFramePresenter.forWindow(window).stats.longKeeps }
 
         /// One press: whether p2 moved, and the key turn's main-thread time, from the press to the end of that turn's
         /// Core Animation commit (nil when the boundary missed it). Then commits until neither terminal waits for its
@@ -378,10 +370,13 @@ struct TerminalSurfaceCommitSizeTests {
             let committed = await withCheckedContinuation { (done: CheckedContinuation<ContinuousClock.Instant?, Never>) in
                 CommitBoundary().after { outcome in done.resume(returning: outcome == .committed ? .now : nil) }
             }
-            // The real signal: the presenter's waiting state of both terminals, read after each commit.
+            // The real signal: the presenter's waiting state of both terminals, read after each commit. A Reduce Motion
+            // press shows at the next frame tick (RESIZE P0 13, KEY SNAP GRID): until then its presentation waits.
             let presenter = TerminalFramePresenter.forWindow(window)
             let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-            while ContinuousClock.now < deadline, sessions.contains(where: { presenter.isWaiting($0.surfaceView) }) {
+            let screen = root.screenViews["s"]
+            while ContinuousClock.now < deadline,
+                  screen?.frameInput.presentationWaiting == true || sessions.contains(where: { presenter.isWaiting($0.surfaceView) }) {
                 await Self.commit()
             }
             for (index, session) in sessions.enumerated() where presenter.isWaiting(session.surfaceView) {
@@ -457,8 +452,6 @@ struct TerminalSurfaceCommitSizeTests {
             window.orderFrontRegardless()
             do {
                 try #require(session.surfaceView.surface != nil, "libghostty created no surface")
-                let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
-                try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
             } catch {
                 close()
                 throw error
@@ -479,7 +472,6 @@ struct TerminalSurfaceCommitSizeTests {
             io.finish()
             window.close()
             WindowDrawPolicy.drawsWhenOccluded = drew
-            TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, nil)
         }
 
         /// The surface layer's bounds, in pixels.

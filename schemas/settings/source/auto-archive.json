@@ -23,6 +23,9 @@
             "text": "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "AutoArchiveStyle"
+          },
           "choices": [
             {
               "value": "suggest",

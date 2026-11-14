@@ -62,9 +62,11 @@ struct ClosingPanes {
     /// neighbours, the gaps beside them and the handles in those gaps); `kept`: the new layout's handles (``handles(of:)``);
     /// `maxGap`: the widest gap between two neighbours (a column gap); `rank`: its stacking rank at the close; `viewShift`:
     /// the strip's view shift in the new layout before the camera moves (what ``settleCarried(stripShift:)`` measures from),
-    /// nil when nothing was carried. It waits for the change's cameras (``settle(frames:row:)``).
+    /// nil when nothing was carried; `stripShift`: `before`'s view shift at the close's camera (a docked pane's neighbours
+    /// in the strip, and a strip pane's docked ones, are found across it). It waits for the change's cameras
+    /// (``settle(frames:row:)``).
     mutating func begin(_ pane: PaneID, shown: CGRect, before: ScreenGeometry, kept: Set<DividerHandleView.Kind>, maxGap: CGFloat, rank: Int,
-                        viewShift: CGFloat?) {
+                        viewShift: CGFloat?, stripShift: CGFloat) {
         guard before.panes[pane] != nil else { return }
         var panes: [ClosingPanesRules.PaneFact] = []
         for (other, rect) in before.panes.sorted(by: { $0.key < $1.key }) {
@@ -97,7 +99,8 @@ struct ClosingPanes {
             handles.append(fact)
         }
         let id = number(of: pane)
-        guard rules.begin(id, shown: Self.edges(shown), panes: panes, handles: handles, maxGap: maxGap, viewShift: viewShift) else { return }
+        guard rules.begin(id, shown: Self.edges(shown), panes: panes, handles: handles, maxGap: maxGap, viewShift: viewShift,
+                          stripShift: stripShift) else { return }
         entries[pane] = Entry(scrolls: before.scrolls(pane: pane), rowColumn: before.rowColumnOfPane[pane], area: before.scrollAreaOfPane[pane],
                               rank: rank)
     }
@@ -109,18 +112,20 @@ struct ClosingPanes {
     /// neighbour that closes beside them and has one. They go at once, as before S3c (their place shows what the layout
     /// rests at from the first frame).
     mutating func settle(frames: [PaneID: AnimatedFrame], row: (ColumnID) -> Travel?) -> Set<PaneID> {
-        let facts = frameFacts(frames), rows = rowTravels(row)
+        let facts = frameFacts(frames, fixed: []), rows = rowTravels(row)
         let still = rules.settle(frames: facts, rows: rows)
         return Set(still.compactMap { panesByNumber[$0] })
     }
 
-    /// Where every closing pane shows this frame, from the live panes' presented frames (`frames`, the screen's springs)
-    /// and where the row columns' scrolls are and rest (`row`). A side whose neighbours are all gone (closed and landed, or
-    /// taken out) keeps where they last were.
-    mutating func rects(frames: [PaneID: AnimatedFrame], row: (ColumnID) -> Travel?) -> [PaneID: CGRect] { // perf-hot: 4ms motion-frame
-        let facts = frameFacts(frames), rows = rowTravels(row)
+    /// Where every closing pane shows this frame, from the live panes' presented frames (`frames`, the screen's springs;
+    /// `fixed`, the ones that do not scroll), where the row columns' scrolls are and rest (`row`) and where the strip's view
+    /// shift is and rests (`strip`, `restStrip`). A side whose neighbours are all gone (closed and landed, or taken out)
+    /// keeps where they last were.
+    mutating func rects(frames: [PaneID: AnimatedFrame], fixed: Set<PaneID>, row: (ColumnID) -> Travel?, strip: CGFloat,
+                        restStrip: CGFloat) -> [PaneID: CGRect] { // perf-hot: 4ms motion-frame
+        let facts = frameFacts(frames, fixed: fixed), rows = rowTravels(row)
         var shown: [PaneID: CGRect] = [:]
-        for (number, rect) in rules.rects(frames: facts, rows: rows) {
+        for (number, rect) in rules.rects(frames: facts, rows: rows, strip: strip, restStrip: restStrip) {
             guard let pane = panesByNumber[number] else { continue }
             shown[pane] = CGRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
         }
@@ -145,11 +150,12 @@ struct ClosingPanes {
 
     /// Takes `pane` out (its close was taken back): where it shows now (its last presented sides, carried with the strip as
     /// the live frames are, so it reads no live frame a change has not carried yet), to start its live frame from, with
-    /// its sides' velocities (a side on a live neighbour moves at that neighbour's speed).
-    mutating func remove(_ pane: PaneID, frames: [PaneID: AnimatedFrame]) -> AnimatedFrame? {
+    /// its sides' velocities (a side on a live neighbour moves at that neighbour's speed; `fixed`: the live panes that do
+    /// not scroll, `strip`: the strip's view shift now).
+    mutating func remove(_ pane: PaneID, frames: [PaneID: AnimatedFrame], fixed: Set<PaneID>, strip: CGFloat) -> AnimatedFrame? {
         entries[pane] = nil
-        let facts = frameFacts(frames)
-        guard let number = paneNumbers[pane], let taken = rules.remove(number, frames: facts) else { return nil }
+        let facts = frameFacts(frames, fixed: fixed)
+        guard let number = paneNumbers[pane], let taken = rules.remove(number, frames: facts, strip: strip) else { return nil }
         var frame = AnimatedFrame(CGRect(x: taken.rect.x, y: taken.rect.y, width: taken.rect.width, height: taken.rect.height))
         frame.x.velocity = taken.vx
         frame.width.velocity = taken.vw
@@ -170,13 +176,59 @@ struct ClosingPanes {
         ClosingPanesRules.Edges(minX: rect.minX, maxX: rect.maxX, minY: rect.minY, maxY: rect.maxY)
     }
 
-    /// The live panes' frames the rules may read (the panes they have a number for).
-    private func frameFacts(_ frames: [PaneID: AnimatedFrame]) -> [ClosingPanesRules.FrameFact] {
+    /// The live panes' frames the rules may read (the panes they have a number for); `fixed`: the ones that do not scroll;
+    /// `landed`: each frame on its target (where a landing puts it).
+    private func frameFacts(_ frames: [PaneID: AnimatedFrame], fixed: Set<PaneID>, landed: Bool = false) -> [ClosingPanesRules.FrameFact] {
         frames.compactMap { pane, frame in
             guard let number = paneNumbers[pane] else { return nil }
-            let moving = frame.rect != frame.targetRect || [frame.x, frame.y, frame.width, frame.height].contains { $0.velocity != 0 }
-            return ClosingPanesRules.FrameFact(id: number, now: Self.edges(frame.rect), target: Self.edges(frame.targetRect), moving: moving,
-                                               vx: frame.x.velocity, vy: frame.y.velocity, vw: frame.width.velocity, vh: frame.height.velocity)
+            let moving = !landed && Self.hasTravel(frame)
+            return ClosingPanesRules.FrameFact(id: number, now: Self.edges(landed ? frame.targetRect : frame.rect),
+                                               target: Self.edges(frame.targetRect), moving: moving,
+                                               vx: frame.x.velocity, vy: frame.y.velocity, vw: frame.width.velocity, vh: frame.height.velocity,
+                                               scrolls: !fixed.contains(pane))
+        }
+    }
+
+    /// The least way to go the rules count as a travel (`ClosingPanesRules.collapse`, `settle`): half a point.
+    private static let leastTravel: CGFloat = 0.5
+
+    /// Whether a live pane moves over a closing pane beside it: a side of it has half a point or more to go. Less is no
+    /// travel for the rules (the last part of a point of an earlier motion, as when two last columns close in a row): a
+    /// closing pane a pane like that "moves over" got no travel and kept its whole place until the landing took it away in
+    /// one frame (352 pt, `PaneCloseCameraGroundTests`), so it goes at once, as a pane beside panes at rest does. A
+    /// velocity alone is no travel: a spring on its target does not leave it (`SpringParameters.admitted`).
+    private static func hasTravel(_ frame: AnimatedFrame) -> Bool {
+        let now = frame.rect, rest = frame.targetRect
+        return abs(rest.minX - now.minX) >= leastTravel || abs(rest.maxX - now.maxX) >= leastTravel
+            || abs(rest.minY - now.minY) >= leastTravel || abs(rest.maxY - now.maxY) >= leastTravel
+    }
+
+    /// The land rule's question for the closing panes (`ScreenContentView.advancePaneAndDividerSprings`): would a landing
+    /// now, which puts every live frame on its target, move a side of a closing pane more than `snap`? A closing pane's
+    /// free side follows its rider's share of the rider's travel (`ClosingPanesRules.collapse`), so the part of a point a
+    /// live pane has left when it lands is, on the closing pane, that part times the pane's size over the rider's travel:
+    /// 22 pt of a 352 pt pane on a rider with 4 pt to go, ground the landing took away in one frame. The rules place the
+    /// closing panes two times on copies, from the live frames where this frame's step put them (`frames`, not shown yet)
+    /// and from the same frames on their targets, and the answer is the largest difference of a side. It falls with the
+    /// live frames' way left, so the motion lands a few frames later, never not at all: a side the frames do not move is
+    /// the same in both. The cameras are taken at rest (the strip's view shift `restStrip`, no row travel): they land on
+    /// their own springs, and a side they move does not hold the panes' landing.
+    ///
+    /// What it bounds is the way from this frame's step, which is not shown, to the landing. The frame shown before is
+    /// one step further away: with `snap` a quarter point, a side moves up to about 0.44 pt on the screen in the
+    /// landing's frame at 120 Hz (about 0.8 pt at 60 Hz), under the one point the ground rule allows. It does not see a
+    /// side the rules gave no travel (a pane like that keeps its place; `hasTravel` and
+    /// `ScreenContentView.settleClosing` are what keep one from being made), and it needs the rules to be a value: the
+    /// two placements run on copies.
+    func landingMovesAClosingPane(frames: [PaneID: AnimatedFrame], fixed: Set<PaneID>, restStrip: CGFloat, snap: CGFloat) -> Bool { // perf-hot: 4ms motion-frame
+        guard !entries.isEmpty else { return false }
+        var stepped = rules, landed = rules
+        let now = stepped.rects(frames: frameFacts(frames, fixed: fixed), rows: [], strip: restStrip, restStrip: restStrip)
+        let then = landed.rects(frames: frameFacts(frames, fixed: fixed, landed: true), rows: [], strip: restStrip, restStrip: restStrip)
+        // Both lists are in the rules' order (the same entries, the same order).
+        return zip(now, then).contains { a, b in
+            abs(a.1.x - b.1.x) > snap || abs(a.1.x + a.1.width - b.1.x - b.1.width) > snap
+                || abs(a.1.y - b.1.y) > snap || abs(a.1.y + a.1.height - b.1.y - b.1.height) > snap
         }
     }
 

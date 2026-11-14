@@ -333,6 +333,19 @@ async fn a_chat_on_a_second_claude_account_keeps_that_account() {
     local.ok("_acpmux/sessions/restart_harness", ids).await;
     assert_eq!(local.env_of(&before, "CLAUDE_CONFIG_DIR").await, "CLAUDE_CONFIG_DIR=");
 
+    // A turned-off account is no default: setting one is refused, and turning the default off clears it.
+    local.ok("_acpmux/account/set", json!({"id": "claude-work", "enabled": false})).await;
+    let bindings = local.ok("_acpmux/route/list", json!({})).await;
+    assert!(bindings["bindings"]["families"].get("claude").is_none(), "{bindings}");
+    let refused = local
+        .err(
+            "_acpmux/route/default.set",
+            json!({"scope": "family:claude", "routeId": "claude-work"}),
+        )
+        .await;
+    assert!(refused["message"].as_str().unwrap_or("").contains("turned off"), "{refused}");
+    local.ok("_acpmux/account/set", json!({"id": "claude-work", "enabled": true})).await;
+
     // Clearing the default leaves the chat on its account.
     local.ok("_acpmux/route/default.set", json!({"scope": "family:claude"})).await;
     local.ok("_acpmux/sessions/restart_harness", json!({"sessions": [chat]})).await;

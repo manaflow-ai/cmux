@@ -1,4 +1,4 @@
-import type { TabKind } from "./NewTabPage";
+import type { TabKind } from "./newTabModel";
 
 /// What the omnibar can suggest besides the typed text: the window's open tabs and
 /// workspaces (jumping to one beats opening a duplicate), recent sessions, folders,

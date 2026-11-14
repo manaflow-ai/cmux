@@ -22,6 +22,8 @@ Usage: webauthn-opaque-e2e.py --tag <tag> [--timeout 60]
 """
 import argparse, glob, http.server, json, os, re, signal, socket, subprocess, sys, tempfile, threading, time
 from urllib.parse import parse_qs, quote, urlparse
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -37,7 +39,8 @@ if not APP:
 BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
 SCRATCH = tempfile.mkdtemp(prefix=f"webauthn-{opts.tag}-")
 SUPPORT = os.path.expanduser("~/Library/Application Support")
-TAG_STATE = [os.path.join(SUPPORT, "cmux/tags", opts.tag, "tui"),
+# NEXT's own folder first, then the one in classic's of a build from before it (a new build adopts that at launch).
+TAG_STATE = [os.path.join(SUPPORT, "cmux-next/tags", opts.tag, "tui"), os.path.join(SUPPORT, "cmux/tags", opts.tag, "tui"),
              os.path.join(SUPPORT, "cmux-next", f"com.cmuxterm.app.debug.{opts.tag}")]
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 GHOSTTY = os.path.join(SCRATCH, "ghostty")
@@ -190,14 +193,14 @@ try:
            "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1100,720"}
     app = subprocess.Popen([BINARY], env=env, stdout=open(os.path.join(SCRATCH, "app.log"), "a"),
                            stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-    print(f"launched pid {app.pid}", flush=True)
+    safe_print(f"launched pid {app.pid}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 90):
         sys.exit("FAIL the tagged app did not come up")
     # `focus: true`: a socket run may not change the view by default
     # (ActionRunScope), so the new tab would stay unselected behind the
     # start tab, and Chromium never creates or loads an unshown tab.
     opened = rpc("action.run", {"action": "tab new-chromium", "focus": True, "args": {"url": url}})
-    print(f"opened {url}: {json.dumps(opened)[:300]}", flush=True)
+    safe_print(f"opened {url}: {json.dumps(opened)[:300]}", flush=True)
     expected = {"bench"} if opts.bench else {f"{frame}.{call}" for frame in FRAMES for call in [*CALLS, "locked"]} | {"parent"}
     done = wait(lambda: app.poll() is not None or set(RESULTS) >= expected, opts.timeout)
     time.sleep(3)  # test harness: an abort after the last report still fails the run
@@ -218,23 +221,23 @@ try:
     if failed:
         page = rpc("debug.cef.devtools", {"method": "Runtime.evaluate", "params": {"returnByValue": True,
                    "expression": "location.href+' '+document.readyState+' secure='+isSecureContext"}})
-        print(f"page: {json.dumps(page)[:400]}", flush=True)
+        safe_print(f"page: {json.dumps(page)[:400]}", flush=True)
         sys.exit(f"FAIL {failed}; results {RESULTS}")
     if opts.bench:
-        print(f"ok: {RESULTS['bench']} (ms per frame)")
+        safe_print(f"ok: {RESULTS['bench']} (ms per frame)")
     else:
-        print(f"ok: every WebAuthn call from {len(FRAMES)} opaque frames came back and the app is alive")
+        safe_print(f"ok: every WebAuthn call from {len(FRAMES)} opaque frames came back and the app is alive")
 finally:
     server.shutdown()
     if app and app.poll() is not None and app.returncode != 0:
-        print(open(os.path.join(SCRATCH, "app.log")).read()[-3000:])
+        safe_print(open(os.path.join(SCRATCH, "app.log")).read()[-3000:])
     if app and app.poll() is None:
         rpc("debug.quit")
         try:
             app.wait(timeout=15)
         except subprocess.TimeoutExpired:
             app.send_signal(signal.SIGKILL)
-            print(f"killed {app.pid}", flush=True)
+            safe_print(f"killed {app.pid}", flush=True)
     # The tag's daemons: exact pids whose command line starts inside this
     # tag's app bundle (no pattern kill).
     bundle = os.path.join(APP, "Contents") + os.sep
@@ -243,4 +246,4 @@ finally:
         pid, _, args = line.strip().partition(" ")
         if args.startswith(bundle) and int(pid) != os.getpid():
             os.kill(int(pid), signal.SIGTERM)
-            print(f"stopped {pid}", flush=True)
+            safe_print(f"stopped {pid}", flush=True)

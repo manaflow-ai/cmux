@@ -98,7 +98,7 @@ fn adopt_locked(
             Err(why) => return Outcome::Deferred(why),
         }
     }
-    // A post-update daemon that stopped without a shutdown while the event journal was on left
+    // A post-update daemon that stopped without a shutdown left
     // changes that only its journal holds (a new chat's `session.json` is written by a
     // checkpoint), and the merge below moves the home's `sessions/` alone. Replayed first, under
     // its daemon lock; nothing has moved if it fails.

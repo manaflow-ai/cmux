@@ -17,7 +17,7 @@ runbook for doing it, and the plan for machines it cannot reach.
 
 `cmux host run`'s `updater` role (`cmux-tui/crates/cmux-host/src/updater`)
 reads the signed channel `https://files.cmux.com/cmux-tui/channels/cloud-machine.json`
-30 s after it starts, on every resume and every five minutes. CI moves the
+30 s after it starts, on every resume and every minute. CI moves the
 channel to every feat-cmux-next push whose cmux-tui build is published
 (`point-machine-channel` in `cmux-tui-artifacts.yml`; signed with the web update
 key, which never leaves CI). When the channel names another build, the machine
@@ -65,6 +65,7 @@ missing, and an in-place upgrade plus a one-row backfill restored them
 | `cmux-tui` binary and `cmux-tui-hook` on a store image (`cmux host run`) | Yes, by itself | The `updater` role (Self-update, above) |
 | `cmux-tui` binary, `cmux-tui-hook`, and the state-mount helper on a devbox image | Yes | `web/scripts/upgrade-fleet-cmux-tui.ts` (below) |
 | Coding-agent hook entries | Yes | Same run: the pinned install command re-runs `cmux-tui agent hook install` |
+| Guest `cmux` adapter, browser opener and Cloud CLI (`/usr/local/libexec/cmux-cloud-*`) | Yes | Same run: the install script puts this web build's guest integration in with the binary, so the adapter always reads the binary's exits (a timed-out `process wait` exits 124). An update that replaces only the binary (the app's machine update) leaves the old adapter, and a shell running the old adapter keeps its code after the file is replaced, so on a Cloud machine the binary exits 124 for that wait only to a caller that sets `CMUX_CALLER_READS_WAIT_124=1`, as the current adapter does on each call; a machine whose binary is already current still gets the integration |
 | `cmux-devbox-boot`, systemd units, the daemon's argv and environment | No | Bake only. The supervisor that is running keeps its own copy |
 | Baked packages, agent pins, desktop, `/etc/cmux/*` | No (agent pins: only on machines opted into `agentUpdates: "latest"`) | Bake only; opted-in machines update their coding agents on attach (`web/services/vms/guestAgentUpdates.ts`) |
 | Create-time provider config: inline TLS rules (coderouter), VPC, firewall | No | Fixed at `vms.create`; the platform ignores later rules |

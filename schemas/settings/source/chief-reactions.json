@@ -1,0 +1,113 @@
+{
+  "$comment": "HAND-EDITED source of the Home section's Chief Reactions rows (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it (its docstring is the row format); schemas/settings/settings-schema.json is still exported from Swift and must not change when rows move here.",
+  "lists": [
+    {
+      "name": "chiefReactions",
+      "section": "home",
+      "group": {
+        "key": "settings.group.chiefReactions",
+        "text": "Reactions"
+      },
+      "note": "Settings > Chief > Reactions (a416): whether a tapback on a Chief message can start a turn, and the cheap classifier that decides it. The Chief host reads the keys at each decision; a Chief's engine.json overrides them.",
+      "rows": [
+        {
+          "key": "chief.reactionsCanWake",
+          "name": "canWake",
+          "title": {
+            "key": "settings.chief.reactionsCanWake",
+            "text": "Reactions Can Wake the Chief"
+          },
+          "help": {
+            "key": "settings.chief.reactionsCanWake.help",
+            "text": "A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "chief",
+            "reaction",
+            "tapback",
+            "wake",
+            "classifier",
+            "turn",
+            "typing"
+          ]
+        },
+        {
+          "key": "chief.reactionClassifier.harness",
+          "note": "Empty uses the Chief's Claude route.",
+          "title": {
+            "key": "settings.chief.reactionClassifier.harness",
+            "text": "Reaction Classifier Harness"
+          },
+          "help": {
+            "key": "settings.chief.reactionClassifier.harness.help",
+            "text": "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route."
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "chief",
+            "reaction",
+            "tapback",
+            "wake",
+            "classifier",
+            "turn",
+            "typing",
+            "harness"
+          ]
+        },
+        {
+          "key": "chief.reactionClassifier.model",
+          "note": "Claude Haiku, the compactor's model too (Lawrence 2026-10-21: \"use claude haiku as the cheap model by default\").",
+          "title": {
+            "key": "settings.chief.reactionClassifier.model",
+            "text": "Reaction Classifier Model"
+          },
+          "help": {
+            "key": "settings.chief.reactionClassifier.model.help",
+            "text": "The model that decides whether a reaction starts a turn. Claude Haiku by default: it is fast and cheap."
+          },
+          "kind": "text",
+          "default": "claude-haiku-5-5",
+          "keywords": [
+            "chief",
+            "reaction",
+            "tapback",
+            "wake",
+            "classifier",
+            "turn",
+            "typing",
+            "model",
+            "haiku"
+          ]
+        },
+        {
+          "key": "chief.reactionClassifier.prompt",
+          "note": "Empty uses the built-in instructions.",
+          "title": {
+            "key": "settings.chief.reactionClassifier.prompt",
+            "text": "Reaction Classifier Instructions"
+          },
+          "help": {
+            "key": "settings.chief.reactionClassifier.prompt.help",
+            "text": "What the classifier is told when it decides. Empty uses the built-in instructions."
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "chief",
+            "reaction",
+            "tapback",
+            "wake",
+            "classifier",
+            "turn",
+            "typing",
+            "prompt",
+            "instructions"
+          ]
+        }
+      ]
+    }
+  ]
+}

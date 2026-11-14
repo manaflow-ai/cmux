@@ -44,7 +44,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
      (window as any).calls = calls;
      // As surface.tsx's mountUpdateSurface mounts them (#28004): the PR chips' host routed (no
      // host here) and the card inside the page's UiProvider.
-     (window as any).mount = (kind: "ready" | "updated", data: unknown) => {
+     (window as any).mount = (kind: "ready" | "updated", data: unknown, props: Record<string, unknown> = {}) => {
        routeChipHost(null);
        document.documentElement.dataset.surface = kind;
        const actions = kind === "updated"
@@ -53,7 +53,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
        const strings = createStrings(table);
        const container = document.getElementById("root")!;
        const root = createRoot(container);
-       const card = createElement(kind === "ready" ? UpdateReadyHighlights : UpdatedCard, { data, strings, actions } as any);
+       const card = createElement(kind === "ready" ? UpdateReadyHighlights : UpdatedCard, { data, strings, actions, ...props } as any);
        flushSync(() => root.render(createElement(UiProvider, { container, dir: languageDirection(strings.language), overlayPosition: "fixed" }, card)));
      };`,
   );
@@ -111,7 +111,12 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
       });
       afterAll(async () => browser?.close());
 
-      async function open(kind: "ready" | "updated", width?: number, highlights: typeof data = data): Promise<Page> {
+      async function open(
+        kind: "ready" | "updated",
+        width?: number,
+        highlights: typeof data = data,
+        props: Record<string, unknown> = {},
+      ): Promise<Page> {
         const page = await browser.newPage({ viewport: { width: 420, height: 400 } });
         await page.setContent(
           `<!doctype html><html style="--page-text:#ddd;--page-text-2:#aaa;--page-text-3:#888"><head><style>${css}</style></head><body><div id="root"${width ? ` style="width:${width}px"` : ""}></div></body></html>`,
@@ -121,7 +126,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         page.on("pageerror", (error) => errors.push(error.stack ?? String(error)));
         await page.addScriptTag({ content: script });
         if (errors.length > 0) throw new Error(`the bundle threw as it loaded: ${errors.join("; ")}`);
-        await page.evaluate(([k, d]) => (window as any).mount(k, d), [kind, highlights] as const);
+        await page.evaluate(([k, d, p]) => (window as any).mount(k, d, p), [kind, highlights, props] as const);
         return page;
       }
 
@@ -160,8 +165,10 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
       });
 
       test("the Updated card's buttons still work on a click", async () => {
-        const page = await open("updated");
-        await page.locator(".wn-card-primary").click();
+        // The card's own What's New link shows only in the top-right placement: since 8d5626228bc3 the
+        // shipped title line is the title alone and What's New leads the open preview.
+        const page = await open("updated", undefined, data, { placement: "top-right" });
+        await page.locator(".wn-card-link").click();
         await page.locator(".wn-card").hover();
         await page.locator(".wn-card-close").click();
         expect(await calls(page)).toEqual({ openChangelog: 1, dismiss: 1 });
@@ -170,8 +177,9 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         await page.close();
       });
 
-      // The top change wraps instead of being cut with an ellipsis (u4466, design #2 "Readable"), so
-      // it reads and selects whole; a short one keeps one line in a sidebar-wide card. The fixture's
+      // The top change keeps the card's one line (since Leo 2026-11-07 the card is the composer's
+      // one-line height; the hover preview has every change in full). A long one is cut at the
+      // card's edge, and a drag across it still selects it whole (u4466). The fixture's
       // own top change ("Sidebar: workspace groups at a glance") is about as wide as the card's
       // 220px text column at 12px, so whether it wraps depends on the font (it wraps in DejaVu Sans,
       // CI's fallback): these cases use a top change that clearly fits and one that clearly does not.
@@ -194,12 +202,12 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         await page.close();
       });
 
-      test("in a sidebar-wide card a top change too wide for one line wraps to two, never cut on one", async () => {
+      test("in a sidebar-wide card a top change too wide for one line keeps one line and selects whole", async () => {
         const page = await open("updated", 244, topChange("Workspace groups keep their pins across windows", "new"));
-        expect(await page.locator(".wn-card-note").innerText()).toContain("keep their pins across windows");
         const metrics = await noteLines(page);
-        expect(metrics.height).toBeGreaterThan(metrics.line * 1.5);
-        expect(metrics.height).toBeLessThan(metrics.line * 2.5 + 4);
+        expect(metrics.height).toBeLessThan(metrics.line * 1.5 + 4);
+        await page.locator(".wn-card-note").selectText();
+        expect(await selection(page)).toContain("keep their pins across windows");
         await page.close();
       });
 
@@ -209,7 +217,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         expect(await selection(page)).toContain("groups at a");
         await dragAcross(page, ".wn-pop-line");
         expect(await selection(page)).toContain("match the rows");
-        await dragAcross(page, ".wn-pop-from");
+        await dragAcross(page, ".wn-pop-span-from");
         expect(await selection(page)).toContain("3801702");
         expect(await calls(page)).toEqual({ openChangelog: 0, dismiss: 0 });
         await page.locator(".wn-pop-all").click();

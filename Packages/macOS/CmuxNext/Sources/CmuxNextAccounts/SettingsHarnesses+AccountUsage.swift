@@ -9,9 +9,10 @@ import Foundation
 /// signed-in Codex account, all at once. Claude Code reports its limits only during a chat, so
 /// Claude accounts are not asked.
 extension SettingsHarnesses {
-    /// The accounts whose usage the page asks for: signed-in Codex logins.
+    /// The accounts whose usage the page asks for: signed-in Codex logins. An API-key account has no
+    /// plan limits, and acpmux refuses a usage read for one.
     nonisolated static func usageAccounts(_ accounts: [SettingsProviderAccount]) -> [String] {
-        accounts.filter { $0.family == "codex" && $0.signedIn }.map(\.id)
+        accounts.filter { $0.family == "codex" && $0.signedIn && !$0.key }.map(\.id)
     }
 
     /// The `usageLimits` of an `_acpmux/account/usage` reply; null when it read none (`skipped`, or

@@ -123,7 +123,7 @@ final class CloudAccessAsks {
             let listed = answer.asks.map { ($0.session, CloudAccessAsk.Asked.file($0)) } + answer.secrets.map { ($0.session, CloudAccessAsk.Asked.secret($0)) }
             for (session, asked) in listed {
                 guard let chat = machineChats.first(where: { $0.session == session }), let tab = Self.tab(of: chat, on: machine, services: services),
-                      let root = Self.remoteRoot(chat.remoteFolder, roots: setup.workRoots) else { continue }
+                      let root = setup.workRoot(of: chat.remoteFolder) else { continue }
                 next[tab, default: []].append(CloudAccessAsk(asked: asked, host: chat.host, session: chat.session, machineID: machineID,
                                                              machineName: machine.machine.title, socket: socket, remoteRoot: root))
             }
@@ -229,12 +229,7 @@ final class CloudAccessAsks {
         let tabs = services.agentTabs
         return machine.daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { tab in
             guard let record = tab.agentSession, record.host == chat.host else { return false }
-            return (record.session ?? tabs.sessions[tabs.resolve(tab.id)]) == chat.session
+            return (record.session ?? tabs.sessions[tabs.tabKey(tab.id, machine: machine.daemon.machineID)]) == chat.session
         }?.id
-    }
-
-    /// The work root (``CloudMoveSetup/workRoots``) the chat's synced folder is under.
-    static func remoteRoot(_ folder: String, roots: [String]) -> String? {
-        roots.first { folder.hasPrefix($0.hasSuffix("/") ? $0 : $0 + "/") }
     }
 }

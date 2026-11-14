@@ -1,10 +1,12 @@
 import AppKit
 import CmuxHomeRender
+import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextHomeModel
 
 /// Chat Colors…: one chat's bubble and text colours, with a live preview. Each change is stored
 /// at once (the open chat redraws as you pick); Automatic text is picked to read on the bubble.
-/// AppKit (plans/cmux-next/no-swiftui-DESIGN.md): the view follows the store and the design
+/// AppKit (plans/cmux-next/language-layers.md): the view follows the store and the design
 /// settings through Observation and updates its controls in place, so a colour well stays
 /// attached to the colour panel while you drag.
 @MainActor
@@ -35,7 +37,7 @@ final class HomeChatColorsView: NSView {
         let key: WritableKeyPath<HomeBubbleColors, HomeColor?>
         let swatches: [HomeChatColorSwatch]
         let well: HomeChatColorWell
-        let current: KeyPath<HomeChatColorsPreview.Pair, NSColor>
+        let current: KeyPath<HomeChatColorsPreview.Pair, HomeColor>
     }
 
     static let width: CGFloat = 340
@@ -114,7 +116,7 @@ final class HomeChatColorsView: NSView {
     }
 
     private func makeRow(_ label: String, key: WritableKeyPath<HomeBubbleColors, HomeColor?>, choices: [HomeColor], auto: Bool,
-                         current: KeyPath<HomeChatColorsPreview.Pair, NSColor>) -> (view: NSView, row: Row) {
+                         current: KeyPath<HomeChatColorsPreview.Pair, HomeColor>) -> (view: NSView, row: Row) {
         let name = NSTextField(labelWithString: label)
         name.textColor = .secondaryLabelColor
         name.widthAnchor.constraint(equalToConstant: 48).isActive = true
@@ -134,24 +136,44 @@ final class HomeChatColorsView: NSView {
 
     // MARK: - State
 
+    /// What the panel shows for the chat: its own colours and the colours it draws with.
+    private struct Shown: Hashable, Sendable {
+        let colors: HomeBubbleColors
+        let preview: HomeChatColorsPreview
+    }
+
+    /// The loop that follows the store and the design settings; cancelled when the view leaves its window.
+    private var following: Task<Void, Never>?
+
+    private func current() -> Shown {
+        let colors = colors
+        return Shown(colors: colors, preview: performWithTheme { resolve(colors) })
+    }
+
     /// Shows the store's colours for this chat, again whenever they or the design settings change.
-    /// Stops when the view is gone (the panel showed another chat): the re-arm holds it weakly.
+    /// Stops when the view leaves its window (the panel showed another chat).
     private func follow() {
-        withObservationTracking {
-            update()
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.follow() }
+        let (now, later) = ObservationStream.current { [weak self] in self?.current() }
+        if let now { show(now) }
+        // task-owner: one loop per view; it ends when the view leaves its window or is gone
+        following = Task { [weak self] in
+            for await next in later {
+                guard let self, let next, !Task.isCancelled else { return }
+                self.show(next)
+            }
         }
     }
 
-    private func update() {
-        let colors = colors
-        let shown = performWithTheme { resolve(colors) }
+    private func update() { show(current()) }
+
+    private func show(_ state: Shown) {
+        let colors = state.colors
+        let shown = state.preview
         preview.show(shown)
         for section in sections {
             for row in [section.fill, section.text] {
                 for swatch in row.swatches { swatch.isSelected = colors[keyPath: row.key] == swatch.color }
-                row.well.show(colors[keyPath: row.key]?.nsColor ?? shown[keyPath: section.shown][keyPath: row.current])
+                row.well.show(colors[keyPath: row.key]?.nsColor ?? shown[keyPath: section.shown][keyPath: row.current].nsColor)
             }
         }
         resetButton.isEnabled = !colors.isEmpty
@@ -160,6 +182,11 @@ final class HomeChatColorsView: NSView {
     // The theme the preview resolves in comes from the window and the appearance.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        guard window != nil else {
+            following?.cancel()
+            following = nil
+            return
+        }
         update()
     }
 
@@ -193,31 +220,15 @@ final class HomeChatColorsView: NSView {
         .compactMap(HomeColor.init(hex:))
 }
 
-/// The colours a choice draws with, for the preview and the pickers' starting colour.
-struct HomeChatColorsPreview {
-    struct Pair {
-        let fill: NSColor
-        let text: NSColor
-    }
-
-    let background: NSColor
-    let sent: Pair
-    let received: Pair
-
-    init(_ palette: HomePalette) {
-        let page = palette.background
-        background = HomeColor(red: page.red, green: page.green, blue: page.blue).nsColor
-        sent = Pair(fill: (palette.outgoingGradient.first?.color ?? palette.caret).nsColor, text: palette.outgoingText.nsColor)
-        received = Pair(fill: palette.incomingBubble.nsColor, text: palette.incomingText.nsColor)
-    }
-}
-
 extension HomeColor {
-    var nsColor: NSColor { NSColor(srgbRed: red, green: green, blue: blue, alpha: alpha) }
+    var nsColor: NSColor { NSColor(cgColor: cgColor) ?? .labelColor }
 
     /// The sRGB colour of `color` (opaque).
     init(_ color: NSColor) {
-        let s = color.usingColorSpace(.sRGB) ?? NSColor(srgbRed: 0.5, green: 0.5, blue: 0.5, alpha: 1)
+        guard let s = color.usingColorSpace(.sRGB) else {
+            self = .gray255(128)
+            return
+        }
         self.init(red: s.redComponent, green: s.greenComponent, blue: s.blueComponent)
     }
 }

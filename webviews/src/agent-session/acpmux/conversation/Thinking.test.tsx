@@ -11,6 +11,7 @@ import { WorkingFor } from "./WorkingFor";
 import { StatusVerbContext } from "../statusVerbs";
 import { WaitingOnContext } from "./waitingOn";
 import { setChatDisplay } from "../chatDisplay";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -35,10 +36,11 @@ beforeEach(() => {
   root = createRoot(container);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   setChatDisplay({});
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;
@@ -173,7 +175,7 @@ test("a new call rolls the live line's words: the old rise out above, the new re
 
   act(() => root!.render(<Thinking since={0} now={() => 1_000} doing="ls -la" doingShell doingAt={2} command />));
   out = container.querySelector(".cv-roll-out")!;
-  // The action keeps its full ink as it leaves.
+  // The action keeps its own span as it leaves.
   expect(out.getAttribute("data-lead")).toBe("Read");
   expect(out.getAttribute("data-text")).toBe(" App.tsx");
   // The same live region, its roll restarted by the swapped keyframes.
@@ -208,4 +210,23 @@ test("the words back after a retry roll nothing in, and no old words rise again"
   act(() => root!.render(<Thinking since={0} now={() => 1_000} doing="Read App.tsx" doingAt={1} />));
   expect(container.querySelector(".cv-roll-out")).toBeNull();
   expect(container.querySelector("output.cv-thinking")?.hasAttribute("data-roll")).toBe(false);
+});
+
+test("the needs-input dot grows in only when an ask opens under a drawn line, and shrinks out once answered", () => {
+  const at = (waiting?: "permission") =>
+    act(() =>
+      root!.render(
+        <WaitingOnContext.Provider value={waiting}>
+          <Thinking since={0} now={() => 1_000} />
+        </WaitingOnContext.Provider>,
+      ),
+    );
+  at("permission");
+  expect(container.querySelector(".cv-needs-input-glyph")).not.toBeNull();
+  expect(container.querySelector(".cv-needs-input-glyph.is-asked")).toBeNull();
+  at();
+  expect(container.querySelector(".cv-needs-input-glyph.is-answered")).not.toBeNull();
+  at("permission");
+  expect(container.querySelector(".cv-needs-input-glyph.is-asked")).not.toBeNull();
+  expect(container.querySelector(".cv-needs-input-glyph.is-answered")).toBeNull();
 });

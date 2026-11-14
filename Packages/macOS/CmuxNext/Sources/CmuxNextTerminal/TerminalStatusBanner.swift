@@ -5,8 +5,42 @@ import CmuxNextDesign
 /// visible behind it. The theme's raised surface and secondary text, no
 /// accent. ``TerminalStatusLabel`` builds it the first time a label shows and
 /// decides when it shows; it starts hidden.
+///
+/// An in-between state ("Restoring…", "Reconnecting…": the ones that wait out a
+/// reveal delay) is no label at all: a small, very transparent loading mark with
+/// no surface of its own, so the pane keeps its one material (Leo, 2026-11-07:
+/// "we can just have the small symbols as loading indicators, like really
+/// transparent things"). Its words stay its accessibility label.
+///
+/// A pane that still starts after ``startingOverdueDelay`` says so in words and offers Close after
+/// them (``show(_:inBetween:fadeIn:closes:)``): the one control in the label that takes a click.
 final class TerminalStatusBanner: NSView {
     private let label = ThemedLabel(labelWithString: "")
+    /// The in-between state's mark, built the first time one shows.
+    private var mark: StatusIndicatorView?
+    private lazy var labelTrailing = label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12)
+    private lazy var labelEdges = [
+        label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+        labelTrailing,
+        label.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+        label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+    ]
+    private var markEdges: [NSLayoutConstraint] = []
+    /// Close after the words, built the first time it is offered. No key hint: a hint binds its key
+    /// for the whole window, two starting panes would bind the same one, and Return and Escape are
+    /// the terminal's keys. Close Tab's shortcut closes the focused pane as always.
+    private var closeButton: ThemedBezelButton?
+    private var closeEdges: [NSLayoutConstraint] = []
+    /// Whether Close shows after the words.
+    private(set) var offersClose = false
+    /// Close was pressed.
+    var onClose: (@MainActor () -> Void)?
+    /// Whether it shows the in-between mark instead of its words.
+    private(set) var showsMark = false
+    /// The mark's side, the size of a tab's loading mark.
+    static let markSide: CGFloat = 14
+    /// The mark's opacity: present, never louder than the terminal under it.
+    static let markOpacity: CGFloat = 0.4
 
     init() {
         super.init(frame: .zero)
@@ -18,12 +52,7 @@ final class TerminalStatusBanner: NSView {
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            label.topAnchor.constraint(equalTo: topAnchor, constant: 6),
-            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
-        ])
+        NSLayoutConstraint.activate(labelEdges)
         isHidden = true
         setAccessibilityRole(.staticText)
     }
@@ -44,34 +73,154 @@ final class TerminalStatusBanner: NSView {
     }
 
     private func applyThemeColors() {
+        guard !showsMark else {
+            layer?.backgroundColor = nil
+            layer?.borderColor = nil
+            return
+        }
         performWithTheme {
             layer?.backgroundColor = Palette.elevatedBackground.cgColor
             layer?.borderColor = Palette.separator.cgColor
+            closeButton?.contentTintColor = Palette.textSecondary
+        }
+        // As the "Sized for" chip's button: its title draws for its own appearance, so it takes the theme's.
+        guard let closeButton else { return }
+        let dark = themeTokens.isDark
+        let isDark = closeButton.appearance.map { $0.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
+        if isDark != dark { closeButton.appearance = NSAppearance(named: dark ? .darkAqua : .aqua) }
+    }
+
+    /// Shows or takes away Close after the words (never with the mark).
+    private func setOffersClose(_ offers: Bool) {
+        guard offers != offersClose else { return }
+        offersClose = offers
+        if offers { buildCloseButton() }
+        closeButton?.isHidden = !offers
+        setAccessibilityRole(offers ? .group : .staticText)
+        if offers {
+            labelTrailing.isActive = false
+            NSLayoutConstraint.activate(closeEdges)
+            applyThemeColors()
+        } else {
+            NSLayoutConstraint.deactivate(closeEdges)
+            labelTrailing.isActive = !showsMark
         }
     }
 
-    /// Clicks go to the terminal below (a click there re-attaches).
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    private func buildCloseButton() {
+        guard closeButton == nil else { return }
+        let made = ThemedBezelButton(frame: .zero)
+        made.title = Self.closeTitle()
+        made.bezelStyle = .rounded
+        made.controlSize = .small
+        made.font = .systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis)
+        made.target = self
+        made.action = #selector(closeClicked)
+        made.translatesAutoresizingMaskIntoConstraints = false
+        // In a narrow pane the words truncate before Close does.
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        addSubview(made)
+        closeEdges = [
+            made.leadingAnchor.constraint(equalTo: label.trailingAnchor, constant: 8),
+            made.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            made.centerYAnchor.constraint(equalTo: centerYAnchor),
+            heightAnchor.constraint(greaterThanOrEqualTo: made.heightAnchor, constant: 6),
+        ]
+        closeButton = made
+    }
 
-    /// Shows `text` (the label's words, ``text(for:hostLoss:cause:stall:strings:)``). `fadeIn`: it
-    /// appears with the overlays' fade (a label that waited out its reveal delay); else at once.
-    func show(_ text: String, fadeIn: Bool) {
-        setText(text)
+    @objc private func closeClicked() { onClose?() }
+
+    /// The title of the Close on screen, nil while none is offered.
+    var shownCloseTitle: String? { offersClose && !isHidden ? closeButton?.title : nil }
+
+    /// Presses Close as a click on it does; false while it is not offered (tests).
+    func pressClose() -> Bool {
+        guard offersClose, !isHidden else { return false }
+        closeClicked()
+        return true
+    }
+
+    /// Shows the in-between mark (`mark`) or the words, and spins the mark only while it shows.
+    private func setShowsMark(_ mark: Bool) {
+        guard mark != showsMark else { return spinMark() }
+        showsMark = mark
+        if mark { buildMark() }
+        NSLayoutConstraint.deactivate(mark ? labelEdges : markEdges)
+        NSLayoutConstraint.activate(mark ? markEdges : labelEdges)
+        label.isHidden = mark
+        self.mark?.isHidden = !mark
+        layer?.borderWidth = mark ? 0 : Metrics.lineWidth(1)
+        applyThemeColors()
+        spinMark()
+    }
+
+    private func buildMark() {
+        guard mark == nil else { return }
+        let made = StatusIndicatorView.spinner()
+        made.translatesAutoresizingMaskIntoConstraints = false
+        made.alphaValue = Self.markOpacity
+        made.setAccessibilityElement(false)
+        addSubview(made)
+        let pad: CGFloat = 4
+        markEdges = [
+            made.widthAnchor.constraint(equalToConstant: Self.markSide),
+            made.heightAnchor.constraint(equalToConstant: Self.markSide),
+            made.leadingAnchor.constraint(equalTo: leadingAnchor, constant: pad),
+            made.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -pad),
+            made.topAnchor.constraint(equalTo: topAnchor, constant: pad),
+            made.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -pad),
+        ]
+        mark = made
+    }
+
+    /// The mark spins while it shows and stops when it hides or gives way to words.
+    private func spinMark() {
+        mark?.spin(showsMark && !isHidden)
+    }
+
+    /// Clicks go to the terminal below (a click there re-attaches); only an offered Close takes one.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard offersClose, let closeButton else { return nil }
+        let hit = super.hitTest(point)
+        return hit?.isDescendant(of: closeButton) == true ? hit : nil
+    }
+
+    /// Shows `text` (the label's words, ``text(for:hostLoss:cause:stall:strings:)``); `inBetween`: as the
+    /// in-between mark. `fadeIn`: it appears with the overlays' fade (a label that waited out its reveal
+    /// delay); else at once. `closes`: Close shows after the words (never with the mark).
+    func show(_ text: String, inBetween: Bool, fadeIn: Bool, closes: Bool = false) {
+        setText(text, inBetween: inBetween, closes: closes)
         guard isHidden else { return }
         isHidden = false
+        spinMark()
         if fadeIn, let layer { Motion.overlays.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0)) }
     }
 
     /// Sets the words while hidden (a label still waiting, whose place the buttons above it use).
-    func setText(_ text: String) {
+    func setText(_ text: String, inBetween: Bool, closes: Bool = false) {
         label.stringValue = text
         setAccessibilityLabel(text)
+        let closes = closes && !inBetween
+        if !closes { setOffersClose(false) }
+        setShowsMark(inBetween)
+        if closes { setOffersClose(true) }
     }
 
     func hide() {
         guard !isHidden else { return }
         layer?.removeAnimation(forKey: "opacity")
         isHidden = true
+        spinMark()
+    }
+
+    /// Whether `status` (with the daemon's `stall`) is an in-between state, shown as the mark: one that waits
+    /// out a reveal delay (``revealDelay(for:stall:)``) because it usually clears on its own. "Disconnected"
+    /// waits too, but says its words when it shows: the person acts on it.
+    static func isInBetween(_ status: TerminalConnectionStatus, stall: TerminalShellStall?) -> Bool {
+        if shownStall(status, stall) == nil, case .disconnected(let cause, reconnecting: false) = status,
+           cause != .turnedOffByOrganization { return false }
+        return revealDelay(for: status, stall: stall) != nil
     }
 
     /// "Restoring…" shows only after `restoringRevealDelay`, so an attach
@@ -83,8 +232,18 @@ final class TerminalStatusBanner: NSView {
     /// of connect retries and 2 s of handshake, after up to 2 s waiting for
     /// the owner to say ready), and a dropped view re-attaches at once. Those
     /// clear within it and never show; one that lasts still shows, and the
-    /// lasting "Disconnected" and stopped states show at once.
+    /// stopped states show at once.
     static let reconnectingRevealDelay: CFTimeInterval = 5
+    /// "Disconnected: …" shows only after `disconnectedRevealDelay`: a daemon restart drops every
+    /// pane's link, and a click, a key or the link back re-attaches within it, so a drop that heals
+    /// at once never flashes the label on every pane.
+    static let disconnectedRevealDelay: CFTimeInterval = 1.5
+    /// A new pane's "Starting…" mark shows only after `startingRevealDelay`: the daemon confirms a
+    /// split or a tab well within it, so the usual one never shows a mark.
+    static let startingRevealDelay: CFTimeInterval = 1
+    /// A pane that still starts this long after it began says so in words, with Close
+    /// (``overdueText(for:stall:strings:)``). Nothing is rolled back: the pane stays and still waits.
+    static let startingOverdueDelay: CFTimeInterval = 10
 
     /// How long the label for `status` (with the daemon's `stall`) waits
     /// before it fades in; nil shows it at once. Only transient states wait.
@@ -94,10 +253,32 @@ final class TerminalStatusBanner: NSView {
         }
         switch status {
         case .restoring: return restoringRevealDelay
+        case .starting: return startingRevealDelay
         case .disconnected(.turnedOffByOrganization, _): return nil
         case .disconnected(_, reconnecting: true): return reconnectingRevealDelay
-        case .connected, .disconnected, .exited: return nil
+        case .disconnected(_, reconnecting: false): return disconnectedRevealDelay
+        case .connected, .exited: return nil
         }
+    }
+
+    /// How long after `status` began its label says ``overdueText(for:stall:strings:)`` instead, with
+    /// Close; nil: it never does. Only a pane that still starts does, and never under a stall the label names.
+    static func overdueDelay(for status: TerminalConnectionStatus, stall: TerminalShellStall?) -> CFTimeInterval? {
+        status == .starting && shownStall(status, stall) == nil ? startingOverdueDelay : nil
+    }
+
+    /// The words of a `status` that lasted past ``overdueDelay(for:stall:)``, nil when it has none. They
+    /// name the session, never the person's shell: no shell has started yet.
+    static func overdueText(
+        for status: TerminalConnectionStatus, stall: TerminalShellStall? = nil, strings: ModuleResourceBundle = .terminal
+    ) -> String? {
+        guard overdueDelay(for: status, stall: stall) != nil else { return nil }
+        return strings.text("terminal.link.startingOverdue", defaultValue: "Still starting. The session is not answering.")
+    }
+
+    /// The title of Close in a pane that still starts.
+    static func closeTitle(strings: ModuleResourceBundle = .terminal) -> String {
+        strings.text("terminal.link.startingClose", defaultValue: "Close")
     }
 
     /// The banner text, or nil while connected. An exited terminal whose
@@ -127,6 +308,8 @@ final class TerminalStatusBanner: NSView {
             return nil
         case .restoring:
             return strings.text("terminal.link.restoring", defaultValue: "Restoring…")
+        case .starting:
+            return strings.text("terminal.link.starting", defaultValue: "Starting…")
         case .exited:
             switch hostLoss {
             case .hostEnded:

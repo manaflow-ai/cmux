@@ -58,7 +58,7 @@ import Testing
         let uploads = variant == .before ? nil : ChiefAvatarUploads(folder: folder.appending(path: "uploads-\(variant)-\(appearance.rawValue)"))
         if variant == .worn, let uploads {
             try await uploads.store(from: Self.face(in: folder), for: ChiefAvatarUploads.key(chief: HomeChiefAvatars.defaultChief),
-                                over: HomeChiefPetSetting.defaultMascot)
+                                over: HomeChiefPetSetting.mascotDefault)
         }
         let home = folder.appending(path: "brain")
         let popover = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))

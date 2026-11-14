@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import CmuxUpdater
 import Foundation
@@ -58,7 +59,7 @@ import Testing
     static func updater(_ row: Row) -> UpdaterService {
         let identity = TipAppTrackTests.identity(row.bundleIdentifier, feed: row.feed)
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false },
-                                     defaults: UserDefaults(suiteName: "UpdateTrackMatrixTests.\(UUID().uuidString)")!,
+                                     defaults: UserDefaults(testSuiteName: "UpdateTrackMatrixTests.\(UUID().uuidString)")!,
                                      enableSparkle: false, recordsUpdates: false)
         updater.announcementsFetch = false
         return updater

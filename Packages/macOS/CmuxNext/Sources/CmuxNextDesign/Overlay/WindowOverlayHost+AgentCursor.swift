@@ -15,7 +15,7 @@ final class AgentCursorCarrierView: NSView {
     let cursorLayer = CALayer()
     /// The glass's mask: y-down, the carrier's bounds; empty until a cursor shows a tag.
     let glassLayer = CALayer()
-    let glassView = NSVisualEffectView()
+    let glassView = NSVisualEffectView() // glass-level-allow: the agent cursor's behind-window blur well under its tag, not a surface that carries a tint
     private let cursorView = PassThroughLayerView()
     /// The clickable tags (`WindowOverlayHost.agentCursorTags`).
     weak var tags: (any AgentCursorTagSource)?

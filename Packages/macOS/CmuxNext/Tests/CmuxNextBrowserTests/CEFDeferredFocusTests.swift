@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextTestSupport
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -22,6 +23,8 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
+        #expect(FocusSpyShim.granted.isEmpty, "a page shown in this turn took focus in this turn")
+        Self.endTurn()
         #expect(FocusSpyShim.granted == [7])
     }
 
@@ -34,6 +37,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn()
         tab.setContentVisible(false)
 
         tab.setFocused(true)
@@ -41,6 +45,33 @@ import Testing
 
         tab.setContentVisible(true)
         #expect(FocusSpyShim.granted == [8])
+    }
+
+    /// Lawrence 2026-11-10 ("there are multiple steps"): selecting a loaded Chromium tab shows its page in this turn,
+    /// and its focus ask is granted only after the turn's frame commit (up to 40 ms later on a busy Mac). Meanwhile the
+    /// cmux window has no first responder, so a plain key typed then reached no view. A page whose ask waits is not
+    /// ready for keys (the window's key hold keeps them), and it reports ready again at the grant, which ends the hold.
+    @Test func aLoadedPageWhoseFocusAskWaitsIsNotReadyForKeysUntilTheGrant() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, reported) = try Self.readyTab(runtime, browser: 31)
+        tab.contentView.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        Self.load(runtime, 31, "https://example.com/")
+        try #require(tab.pageReady && reported() == 1)
+        FocusSpyShim.granted = []
+
+        // The tab is selected: its view enters the window and the focus applier asks, in one turn.
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        try #require(window.contentView).addSubview(tab.contentView)
+        tab.setFocused(true)
+        try #require(FocusSpyShim.granted.isEmpty, "the page took focus in the turn it showed: nothing waits, the test proves nothing")
+        #expect(!tab.pageReady, "a key typed before the grant reaches no view, and nothing holds it")
+
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [31])
+        #expect(tab.pageReady, "the page has the keys and is not ready")
+        #expect(reported() == 2, "the grant did not report the page ready: the key hold waits for its bound (reported \(reported()))")
     }
 
     /// An ask taken back (focus moved on) before the page showed is not granted later.
@@ -54,6 +85,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn()
         #expect(FocusSpyShim.granted.isEmpty)
     }
 
@@ -74,6 +106,7 @@ import Testing
         workspace.addSubview(chromium)
         workspace.addSubview(tab.contentView)
         try #require(window.contentView).addSubview(workspace)
+        Self.endTurn()
         FocusSpyShim.granted = []
         chromium.onHide = { tab.setFocused(true) }
 
@@ -82,6 +115,8 @@ import Testing
 
         chromium.onHide = nil
         workspace.isHidden = false
+        #expect(FocusSpyShim.granted.isEmpty, "a page shown again in this turn took focus in this turn")
+        Self.endTurn()
         #expect(FocusSpyShim.granted == [10])
     }
 
@@ -98,6 +133,7 @@ import Testing
         workspace.addSubview(tab.contentView)
         let chromium = HideSpyView(frame: tab.contentView.bounds)
         tab.contentView.addSubview(chromium)
+        Self.endTurn()
         FocusSpyShim.granted = []
         chromium.onHide = { tab.setFocused(true) }
 
@@ -106,6 +142,7 @@ import Testing
 
         chromium.onHide = nil
         workspace.isHidden = false
+        Self.endTurn()
         #expect(FocusSpyShim.granted == [11])
     }
 
@@ -365,7 +402,7 @@ import Testing
     }
 
     /// One whole load of `url` in CEF's order, with its document's first contentful paint before its load end.
-    private static func load(_ runtime: CEFRuntime, _ browser: Int32, _ url: String) {
+    static func load(_ runtime: CEFRuntime, _ browser: Int32, _ url: String) {
         runtime.handle(.loadingState(browser: browser, loading: true, canGoBack: false, canGoForward: false))
         runtime.handle(.loadStart(browser: browser, url: url, fromPost: false))
         paint(runtime, browser)
@@ -416,6 +453,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn() // shown before the ask's turn (a page shown in it takes focus after its commit)
         let page = pageWindow(over: tab, in: window)
         defer { page.closeAfterTest() }
         let keys = KeyRecorder(key: window)
@@ -436,6 +474,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn() // shown before the ask's turn (a page shown in it takes focus after its commit)
         let page = pageWindow(over: tab, in: window)
         defer { page.closeAfterTest() }
         let keys = KeyRecorder(key: window)
@@ -461,6 +500,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn() // shown before the ask's turn (a page shown in it takes focus after its commit)
         let page = pageWindow(over: tab, in: window)
         let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: .borderless, backing: .buffered, defer: true)
         defer { page.closeAfterTest(); other.closeAfterTest() }
@@ -506,8 +546,44 @@ import Testing
         #expect(FocusSpyShim.granted == [15], "the kept ask was granted \(FocusSpyShim.granted) after the host got its area (want [15] once)")
     }
 
+    /// The page of the workspace Cmd-N built before its key (#36962) is unhidden in the key's turn and the focus applier
+    /// asks for focus in that turn. Granted then, the grant and the page window's order-in ran before the first frame
+    /// (Time Profiler, cmux22: 10 ms of the swap turn, the key window changed 18-25 ms after the key). A page that becomes
+    /// shown in a turn takes no focus in that turn and exactly one grant after its commit; a page shown before the turn
+    /// still takes it at once.
+    @Test func aPageShownInThisTurnTakesFocusOnlyAfterTheCommit() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 17)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        workspace.addSubview(tab.contentView)
+        try #require(window.contentView).addSubview(workspace)
+        workspace.isHidden = true
+        Self.endTurn()
+        FocusSpyShim.granted = []
+
+        workspace.isHidden = false
+        tab.setFocused(true)
+        #expect(FocusSpyShim.granted.isEmpty, "a page shown in this turn took focus before the turn's frame: \(FocusSpyShim.granted)")
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [17], "the kept ask was granted \(FocusSpyShim.granted) after the commit (want [17] once)")
+
+        // Shown since before this turn: at once.
+        tab.setFocused(false)
+        FocusSpyShim.granted = []
+        tab.setFocused(true)
+        #expect(FocusSpyShim.granted == [17])
+    }
+
+    /// Lets the main run loop end this turn: its frame commit, and the work queued after it (`AfterFrameCommit`).
+    static func endTurn() {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    }
+
     /// A Chromium page window over `tab`'s view, a child of `window`, as the fork places it.
-    private func pageWindow(over tab: CEFTab, in window: NSWindow) -> NSWindow {
+    func pageWindow(over tab: CEFTab, in window: NSWindow) -> NSWindow {
         let frame = window.convertToScreen(tab.host.hostView.convert(tab.host.hostView.bounds, to: nil))
         let page = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: true)
         page.setFrame(frame, display: false)
@@ -527,6 +603,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn()
         let log = CallLog()
         let fork = CEFLayerHosting.Fork(setLayerHosting: { _, on in on ? 7 : 0 }, setResizeSync: { _, _ in true },
                                         setDetachedHosting: { _, on in log.items.append(on ? "detach" : "attach"); return true })
@@ -553,7 +630,110 @@ import Testing
         #expect(log.items == ["detach", "attach", "grant"], "the landing has nothing to attach")
     }
 
-    private func createdTab(_ runtime: CEFRuntime, browser: Int32) throws -> (CEFTab, CEFPaneHost) {
+    /// SWITCH STALL 5: Cmd-N's page (built before the key, hidden) is unhidden in the key's turn. The fork orders its
+    /// input window in (addChildWindow, then the overlay panel's re-add above it) from a run-loop observer it means for
+    /// after the commit, but on macOS 27 that observer fires on the key pass's exit, before the commit: 7.6 ms of
+    /// window-server work before the first frame on every press (Time Profiler, cmux22, macOS 27.0, 60 Hz, 2a93dae4).
+    /// A hosted page shown in a turn stays detached for that turn (its pixels show from the hosted context, no window is
+    /// ordered), attaches after the turn's commit, and a focus ask in the turn is granted only after the attach.
+    @Test func aHostedPageShownInThisTurnOrdersItsWindowInOnlyAfterTheCommit() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, host) = try createdTab(runtime, browser: 19)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        workspace.addSubview(tab.contentView)
+        try #require(window.contentView).addSubview(workspace)
+        Self.endTurn()
+        let log = CallLog()
+        let fork = CEFLayerHosting.Fork(setLayerHosting: { _, on in on ? 7 : 0 }, setResizeSync: { _, _ in true },
+                                        setDetachedHosting: { _, on in log.items.append(on ? "detach" : "attach"); return true })
+        let hosting = host.hostView.layerHosting
+        hosting.holdsFocus = { false }
+        hosting.pageWindowCreated(browser: 19, fork: fork)
+        let hosted = Date().addingTimeInterval(2)
+        while hosting.page == nil, Date() < hosted { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        try #require(hosting.page != nil)
+        workspace.isHidden = true
+        Self.endTurn()
+        FocusSpyShim.granted = []
+        FocusSpyShim.onGrant = { log.items.append("grant") }
+        defer { FocusSpyShim.onGrant = nil }
+
+        // The key's turn: the workspace shows and the focus applier asks for the page.
+        workspace.isHidden = false
+        tab.setFocused(true)
+        #expect(log.items == ["detach"], "a hosted page shown in this turn must stay out of the window until its frame commits: \(log.items)")
+        // The window's display frames: a test window is never on screen, so its display link stays still, and the
+        // scheduler's stall tick is a main-actor task that this nested run loop does not run. Tick it by hand.
+        let frames = FrameScheduler.forWindow(window)
+        let deadline = Date().addingTimeInterval(2)
+        while FocusSpyShim.granted.isEmpty, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            frames.frameDidFire()
+        }
+        #expect(log.items == ["detach", "attach", "grant"], "the page attaches after the commit and takes the focus after the attach: \(log.items)")
+        #expect(!hosting.isDetached)
+    }
+
+    /// TAB SWITCH TAIL: Ctrl-Tab between two page tabs of one pane. Each page tab has its own Chromium window, so the
+    /// switch shows the incoming page's window in the place the leaving page's window still has in that turn. The
+    /// pane binds the incoming page's view first (`BrowserPageArea.show`, the host is still hidden then) and the
+    /// content lifecycle reveals the tab after (`TabContentCache.reveal`). The page took no first-frame hold: the
+    /// show saw a hidden host, and the leaving page's window at the same rect passed for the incoming page's. The fork
+    /// then ordered the window in from its run-loop exit observer, 6.7 ms of window-server work per switch that ran
+    /// before the turn's commit in 18 of 40 switches (aws-m4pro-7, macOS 26.7, 120 Hz: commit 17.8 ms after the key
+    /// against 5.3 ms, first frame 49 to 66 ms against 16 to 25 ms).
+    @Test func aPageSwitchedToInItsPaneOrdersItsWindowInOnlyAfterTheFrame() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, host) = try createdTab(runtime, browser: 23)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn()
+        let log = CallLog()
+        let fork = CEFLayerHosting.Fork(setLayerHosting: { _, on in on ? 7 : 0 }, setResizeSync: { _, _ in true },
+                                        setDetachedHosting: { _, on in log.items.append(on ? "detach" : "attach"); return true })
+        let hosting = host.hostView.layerHosting
+        hosting.holdsFocus = { false }
+        hosting.pageWindowCreated(browser: 23, fork: fork)
+        let hosted = Date().addingTimeInterval(2)
+        while hosting.page == nil, Date() < hosted { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        try #require(hosting.page != nil)
+        // Another tab of the pane shows: this page parks hidden in the page area and the lifecycle conceals it.
+        tab.contentView.isHidden = true
+        tab.setContentVisible(false)
+        Self.endTurn()
+        try #require(host.hostView.isHidden, "a parked page's host is hidden by the end of the turn")
+        // The page that shows now: its window still fills the pane's page area in the turn of the switch back.
+        let leaving = pageWindow(over: tab, in: window)
+        leaving.isReleasedWhenClosed = false
+        defer { leaving.closeAfterTest() }
+        log.items = []
+        FocusSpyShim.granted = []
+        FocusSpyShim.onGrant = { log.items.append("grant") }
+        defer { FocusSpyShim.onGrant = nil }
+
+        // The switch's turn, in the pane's order (`PaneController.showSelected`): bind, reveal, focus.
+        tab.contentView.isHidden = false
+        tab.setContentVisible(true)
+        tab.setFocused(true)
+        #expect(!host.hostView.isHidden)
+        #expect(log.items == ["detach"], "a page switched to must stay out of the window until its frame showed: \(log.items)")
+        window.removeChildWindow(leaving)
+        let frames = FrameScheduler.forWindow(window)
+        let deadline = Date().addingTimeInterval(2)
+        while FocusSpyShim.granted.isEmpty, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            frames.frameDidFire()
+        }
+        #expect(log.items == ["detach", "attach", "grant"], "the page attaches after the frame and takes the focus after the attach: \(log.items)")
+        #expect(!hosting.isDetached)
+    }
+
+    func createdTab(_ runtime: CEFRuntime, browser: Int32) throws -> (CEFTab, CEFPaneHost) {
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
         // A pane host has an area: the fork orders an empty host's page window out, and an empty host takes no focus.
@@ -570,11 +750,11 @@ import Testing
 
 /// The app's key window in a test: every change a grant makes is recorded.
 /// Fork and grant calls in the order they came.
-private final class CallLog {
+final class CallLog {
     var items: [String] = []
 }
 
-@MainActor private final class KeyRecorder {
+@MainActor final class KeyRecorder {
     var key: NSWindow?
     private(set) var made: [NSWindow] = []
 
@@ -600,7 +780,7 @@ private final class HideSpyView: NSView {
 
 /// Stand-in shim functions: `cmux_shim_set_focus` records the browsers given focus,
 /// `cmux_shim_create_window` reports the browser started; every other function does nothing.
-private nonisolated enum FocusSpyShim {
+nonisolated enum FocusSpyShim {
     nonisolated(unsafe) static var granted: [Int32] = []
     /// Runs inside a grant (CEF's SetFocus), as a page window becoming key would.
     nonisolated(unsafe) static var onGrant: (() -> Void)?

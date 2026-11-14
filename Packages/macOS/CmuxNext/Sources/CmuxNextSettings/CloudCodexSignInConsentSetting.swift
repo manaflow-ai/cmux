@@ -12,26 +12,22 @@
 /// would need a Codex sign-in. Only the person sets it, in every build: agents are refused (privacy),
 /// and any managed source makes it no (``CloudLoginCopyConsentSetting``'s rule).
 public nonisolated struct CloudCodexSignInConsentSetting: Sendable {
-    public static let path = ["cloud", "useMyCodexLoginOnMyCloudMachines"]
-    public static let key = path.joined(separator: ".")
+    public static let key = configPath.joined(separator: ".")
 
     public init() {}
 
     /// The person's answer: nil when never asked, else yes or no. Only the person's own cmux.json says yes.
     public func consent(file: JSONValue, effective: JSONValue, managed: Bool) -> Bool? {
-        CloudLoginCopyConsentSetting.consent(at: Self.path, file: file, effective: effective, managed: managed)
+        CloudLoginCopyConsentSetting.consent(at: Self.configPath, file: file, effective: effective, managed: managed)
     }
 
-    static var descriptors: [SettingDescriptor] {
-        [
-            SettingDescriptor(
-                path, section: .machines, group: SettingsText.keyed("settings.group.cloudWorkspaces", "Cloud Workspaces"),
-                title: SettingsText.keyed("settings.cloud.useMyCodexLogin", "Use My Codex Login on My Own Cloud Machines"),
-                help: SettingsText.keyed("settings.cloud.useMyCodexLogin.help",
-                                         "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead."),
-                kind: .toggle, default: .bool(false),
-                keywords: ["cloud", "codex", "chatgpt", "login", "sign in", "token", "credential", "machine", "consent"]
-            ),
-        ]
+    /// The answer a start goes by. A DEV or NIGHTLY build (`copiesWithoutConsent`: dogfood, with the login copy
+    /// left on) uses the Mac's Codex sign-in unless the person said no, as it copies their Claude login with no
+    /// consent asked (``CloudLoginCopyConsentSetting``): the Codex login rides along the way Claude's does. Before,
+    /// a start that may show no prompt (`cmux chat --on vm:new`, `cloud start-session`) never asked, so it passed
+    /// nothing and the machine's Codex failed on "Missing environment variable: `OPENAI_API_KEY`" (Cloud composer
+    /// journey, 2026-11-10). A no, or any managed key, stays no in every build; Release still asks once.
+    public func consent(file: JSONValue, effective: JSONValue, managed: Bool, copiesWithoutConsent: Bool) -> Bool? {
+        consent(file: file, effective: effective, managed: managed) ?? (copiesWithoutConsent ? true : nil)
     }
 }

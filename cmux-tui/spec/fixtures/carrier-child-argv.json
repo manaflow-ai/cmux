@@ -1,0 +1,15 @@
+{
+  "about": "The exact argv the app spawns for each carrier child, after the bundled cmux-tui. cmux-tui carrier/argv_contract_tests.rs runs each through the real carrier CLI parser (no network); CmuxNextCloudTests CloudCarrierArgvContractTests asserts CloudCarrierDial builds exactly these from `swift`. The machine id is a real one (`vm_` and 20 lowercase letters or digits), as the parser requires. Add a child here when the app spawns a new one (next: `carrier key --public`).",
+  "children": [
+    {
+      "name": "desktop dial",
+      "swift": { "builder": "arguments", "machine": "vm_0123456789abcdefghij", "service": "desktop" },
+      "argv": ["carrier", "dial", "--machine", "vm_0123456789abcdefghij", "--service", "desktop", "--deadline-ms", "180000"]
+    },
+    {
+      "name": "session mux serve",
+      "swift": { "builder": "serveArguments", "machine": "vm_0123456789abcdefghij", "service": "mux", "socket": "/tmp/cmux-link-0123456789ab.sock" },
+      "argv": ["carrier", "serve", "--machine", "vm_0123456789abcdefghij", "--socket", "/tmp/cmux-link-0123456789ab.sock"]
+    }
+  ]
+}

@@ -3,7 +3,8 @@
 // matrix manifest (scripts/gallery-matrix) and the native gallery (CmuxNextGallery
 // GalleryEnvironment) read the same names: entry, variant, locale, theme, colorScheme, fontFamily,
 // fontSize, density, scale, width, height, reducedMotion, highContrast, dynamicSize, windowKey,
-// frame, window, zoom, layout, source. The web gallery alone also reads accent, background and load.
+// frame, window, zoom, layout, source. The web gallery alone also reads accent, background, load and
+// titleAreaTone.
 // The shell keeps it in its own URL and passes the same query to every stage frame; the matrix
 // runner builds frame URLs from it. Defaults are left out of the query, so links stay short.
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME } from "./theme/ghostty";
@@ -71,6 +72,15 @@ export type GalleryBackground = (typeof BACKGROUNDS)[number];
 export const LOADS = ["none", "busy", "saturated"] as const;
 export type GalleryLoad = (typeof LOADS)[number];
 
+/**
+ * `appearance.titleAreaTone` (TitleAreaTone.swift): `one-color`, the app's default, is the chrome in
+ * the content's colour, parted by the divider; `subtle-tone` shades the chrome a step apart and the
+ * selected tab or row joins the content as a folder tab. web.ts sends it as WebTheme does
+ * (--cmux-chrome-tone, --cmux-folder-fill, --cmux-sidebar-surface).
+ */
+export const TITLE_AREA_TONES = ["one-color", "subtle-tone"] as const;
+export type TitleAreaToneName = (typeof TITLE_AREA_TONES)[number];
+
 export type GalleryEnv = {
   locale: string;
   /** The Ghostty theme the window shows (a shipped theme's file name). */
@@ -83,12 +93,17 @@ export type GalleryEnv = {
   background?: GalleryBackground;
   /** The machine's load (LOADS); absent is `none`, an idle machine. Web only. */
   load?: GalleryLoad;
+  /** The title area tone (TITLE_AREA_TONES); absent is `one-color`, the app's default. Web only for
+   * now (the native gallery draws the chrome itself). */
+  titleAreaTone?: TitleAreaToneName;
   /** The window appearance; `auto` is the theme's own (dark when its background is darker). */
   colorScheme: "auto" | "dark" | "light";
   /** Empty: the page's own font. */
   fontFamily: string;
   /** Px; 0 is the page's own size. */
   fontSize: number;
+  /** A font study pairing's id (fontStudy/candidates.ts); empty: the app's own fonts. */
+  fontStudy: string;
   density: Density;
   /** Interface scale (WKWebView pageZoom, DesignSettings.uiScale). */
   scale: number;
@@ -120,6 +135,7 @@ export const DEFAULT_ENV: GalleryEnv = {
   colorScheme: "auto",
   fontFamily: "",
   fontSize: 0,
+  fontStudy: "",
   density: "comfortable",
   scale: 1,
   interfaceScale: 1,
@@ -137,7 +153,7 @@ export const DEFAULT_ENV: GalleryEnv = {
 
 export const ZOOMS = ["fit", 0.5, 0.75, 1] as const;
 
-const KEYS = [...Object.keys(DEFAULT_ENV), "accent", "background", "load"] as (keyof GalleryEnv)[];
+const KEYS = [...Object.keys(DEFAULT_ENV), "accent", "background", "load", "titleAreaTone"] as (keyof GalleryEnv)[];
 
 /**
  * The theme when the query names none: the app's default pair (Apple System Colors), on the side
@@ -181,11 +197,14 @@ export function readEnv(params: URLSearchParams): GalleryEnv {
     env.background = background as GalleryBackground;
   const load = params.get("load");
   if (load !== "none" && (LOADS as readonly string[]).includes(load ?? "")) env.load = load as GalleryLoad;
+  if (params.get("titleAreaTone") === "subtle-tone") env.titleAreaTone = "subtle-tone";
   const scheme = params.get("colorScheme");
   if (scheme === "dark" || scheme === "light") env.colorScheme = scheme;
   env.theme = params.get("theme") || defaultTheme(env.colorScheme);
   env.fontFamily = (params.get("fontFamily") ?? "").slice(0, 200);
   env.fontSize = finite(params.get("fontSize"), 0, 0, 40);
+  const fontStudy = params.get("fontStudy") ?? "";
+  if (/^[a-z0-9-]{1,40}$/.test(fontStudy)) env.fontStudy = fontStudy;
   if (params.get("density") === "compact") env.density = "compact";
   env.scale = finite(params.get("scale"), 1, 0.5, 3);
   env.interfaceScale = finite(params.get("interfaceScale"), 1, 0.9, 1.25);
@@ -219,7 +238,8 @@ export function writeEnv(env: GalleryEnv, params = new URLSearchParams()): URLSe
       value === undefined ||
       (key === "accent" && value === "neutral") ||
       (key === "background" && value === "none") ||
-      (key === "load" && value === "none")
+      (key === "load" && value === "none") ||
+      (key === "titleAreaTone" && value === "one-color")
     )
       continue;
     params.set(key, typeof value === "boolean" ? "1" : String(value));

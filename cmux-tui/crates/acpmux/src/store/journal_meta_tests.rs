@@ -1,4 +1,4 @@
-//! Chat metadata through the event journal (`store.journal`, R-DURABILITY S3; DESIGN.md 3.3e): a
+//! Chat metadata through the event journal (always on, R-DURABILITY S3; DESIGN.md 3.3e): a
 //! metadata change is a journal record, `session.json` is what a checkpoint writes from it, and a
 //! crash at any point leaves the metadata and the log in step.
 //!
@@ -18,7 +18,7 @@ const CHAT: &str = "chat-a";
 const WAIT: Duration = Duration::from_secs(10);
 
 fn config() -> StoreConfig {
-    StoreConfig { journal: true, ..StoreConfig::default() }
+    StoreConfig::default()
 }
 
 fn journal_config() -> cmux_journal::Config {
@@ -32,6 +32,145 @@ fn journal_config() -> cmux_journal::Config {
 fn open(home: &Path, journal: &SimStorage) -> Box<dyn Store> {
     open_with_journal(&config(), home, Arc::new(journal.clone()), journal_config())
         .unwrap_or_else(|e| panic!("open the store: {e:#}"))
+}
+
+/// Opens the store at `home` and returns once its checkpointer went idle: the checkpoint the
+/// replay asks for (`JournalStore::open`) has run on its thread. Only a later change wakes it
+/// again, one period (30 s) after that change, so the journal keeps the records of the saves
+/// that follow until the test's own flush or kill.
+fn open_after_replay_checkpoint(home: &Path, journal: &SimStorage) -> Box<dyn Store> {
+    open_held_at_idle(home, journal, |idle| {
+        idle.recv_timeout(WAIT)
+            .unwrap_or_else(|e| panic!("the checkpointer never went idle after the open: {e}"));
+    })
+}
+
+/// Opens the store at `home` with its checkpointer held once at idle (holding the timer lock),
+/// runs `wait_idle` on the hold's arrival, then lets the checkpointer go.
+fn open_held_at_idle(
+    home: &Path,
+    journal: &SimStorage,
+    wait_idle: impl FnOnce(&std::sync::mpsc::Receiver<()>),
+) -> Box<dyn Store> {
+    let (arrived, idle) = std::sync::mpsc::channel();
+    let (release, released) = std::sync::mpsc::channel();
+    super::journal_store::checkpointer_seams(home, |seams| {
+        seams.idle_hold = Some((arrived, released));
+    });
+    let store = open(home, journal);
+    // After the store: a panic in the wait releases before the unwind drops the store.
+    let release = super::journal_store::Release::new(release);
+    wait_idle(&idle);
+    release.now();
+    store
+}
+
+/// How a body run by `ends_within` ended.
+enum Ending {
+    Returned,
+    /// It panicked, with this payload.
+    Panicked(Box<dyn std::any::Any + Send>),
+    /// It was still running after the bound: a hang, reported instead of hanging the test.
+    Hung,
+}
+
+/// Runs `body` on its own thread and returns how it ended within `bound`.
+fn ends_within(bound: Duration, body: impl FnOnce() + Send + 'static) -> Ending {
+    let (done, ended) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = done.send(std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)));
+    });
+    match ended.recv_timeout(bound) {
+        Ok(Ok(())) => Ending::Returned,
+        Ok(Err(payload)) => Ending::Panicked(payload),
+        Err(_) => Ending::Hung,
+    }
+}
+
+/// The deliberate panic of the expired wait in
+/// `a_wait_that_expires_at_the_idle_hold_fails_instead_of_hanging`, raised with
+/// `std::panic::panic_any` so no other panic can pass for it.
+struct WaitExpiredAtHold;
+
+/// A panic payload as text, for a verdict's message.
+fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(text) = payload.downcast_ref::<&str>() {
+        (*text).to_string()
+    } else if let Some(text) = payload.downcast_ref::<String>() {
+        text.clone()
+    } else if payload.is::<WaitExpiredAtHold>() {
+        "WaitExpiredAtHold".to_string()
+    } else {
+        "a non-text payload".to_string()
+    }
+}
+
+/// The verdict on the expiring-wait worker (#41816 F1): `Ok` only when it ended in the
+/// deliberate `WaitExpiredAtHold` panic after it observed the idle hold. Any panic before the hold
+/// (the store's `open`, a hold that never came) or any other panic after it is not the case under
+/// test, and a return or a hang fails it too; each `Err` says which.
+fn judge_expired_at_hold(hold_seen: bool, ending: Ending) -> Result<(), String> {
+    match ending {
+        Ending::Hung => Err("it hung: still running after the bound".to_string()),
+        Ending::Returned => Err("it returned instead of panicking at the hold".to_string()),
+        Ending::Panicked(payload) if !hold_seen => {
+            Err(format!("it panicked before the idle hold was observed: {}", panic_text(&*payload)))
+        }
+        Ending::Panicked(payload) if !payload.is::<WaitExpiredAtHold>() => Err(format!(
+            "it panicked after the hold, but not with the deliberate panic: {}",
+            panic_text(&*payload)
+        )),
+        Ending::Panicked(_) => Ok(()),
+    }
+}
+
+/// #41816 F1: the detector above counts only the deliberate panic after the hold. Before, any
+/// panic passed, so a store that failed to open or a hold that never came passed as "fails
+/// instead of hanging".
+#[test]
+fn the_hang_detector_counts_only_the_deliberate_panic_after_the_hold() {
+    let deliberate = || Ending::Panicked(Box::new(WaitExpiredAtHold));
+    let other = || Ending::Panicked(Box::new("open the store: denied"));
+    let cases = [
+        ("a panic before the hold", judge_expired_at_hold(false, other())),
+        ("the deliberate panic before the hold", judge_expired_at_hold(false, deliberate())),
+        ("another panic after the hold", judge_expired_at_hold(true, other())),
+        ("a return", judge_expired_at_hold(true, Ending::Returned)),
+        ("a hang", judge_expired_at_hold(true, Ending::Hung)),
+    ];
+    for (case, verdict) in cases {
+        assert!(verdict.is_err(), "the hang detector passed {case}");
+    }
+    assert_eq!(
+        judge_expired_at_hold(true, deliberate()),
+        Ok(()),
+        "the hang detector failed the deliberate panic after the hold"
+    );
+}
+
+/// #41627 F1: a wait for the idle checkpointer that expires just as the checkpointer reaches its
+/// idle hold fails the test; it does not hang it. The checkpointer holds the timer lock in the
+/// hold, and the store's drop takes that lock: a release still owed when the unwind drops the
+/// store left both waiting on each other forever. Here the wait "expires" (panics) right after
+/// the hold arrived, the worst moment.
+#[test]
+fn a_wait_that_expires_at_the_idle_hold_fails_instead_of_hanging() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(103);
+    let path = home.path().to_path_buf();
+    let hold_seen = Arc::new(AtomicBool::new(false));
+    let seen = Arc::clone(&hold_seen);
+    let ending = ends_within(WAIT * 3, move || {
+        let _store = open_held_at_idle(&path, &journal, |idle| {
+            idle.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the idle hold never arrived: {e}"));
+            seen.store(true, Ordering::SeqCst);
+            std::panic::panic_any(WaitExpiredAtHold);
+        });
+    });
+    if let Err(why) = judge_expired_at_hold(hold_seen.load(Ordering::SeqCst), ending) {
+        panic!("a wait that expired at the idle hold did not end as intended: {why}");
+    }
 }
 
 fn meta(id: &str, name: &str, last_seq: u64) -> SessionMeta {
@@ -425,13 +564,12 @@ fn an_open_after_a_kill_syncs_nothing_per_chat_and_the_checkpoint_makes_it_durab
 
 // ---------------------------------------------------------------- review of #35483 (F1 to F4)
 
-/// F1 (review of #35483): the metadata twin of S2's finding 1a (lines written with the switch off).
-/// A kill with the switch on; a run with it off whose catch-up did not replay this journal (an
-/// older build stops at kind 4, and the journal here is on `SimStorage`, so the switch-off start
-/// finds none); a rename then; the switch on again. The replay must not write the journal's older
-/// image over the change made with the switch off.
+/// F1 (review of #35483): the metadata twin of S2's finding 1a (lines an older build wrote). A
+/// kill; an older build (no event journal: a plain `LocalStore`, as a downgrade runs) starts on
+/// the home, does not replay this journal and renames the chat in `session.json`; this build
+/// starts again. The replay must not write the journal's older image over that change.
 #[test]
-fn metadata_written_with_the_switch_off_survives_turning_it_on_again() {
+fn metadata_an_older_build_wrote_after_a_kill_survives_the_replay() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(60);
     let store = open(home.path(), &journal);
@@ -442,24 +580,23 @@ fn metadata_written_with_the_switch_off_survives_turning_it_on_again() {
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     let killed = journal.restart(Crash::Process);
     drop(store);
-    let off = super::open(&StoreConfig::default(), home.path())
-        .unwrap_or_else(|e| panic!("open the store with the switch off: {e:#}"));
-    off.save(&meta(CHAT, "three", 1)).unwrap_or_else(|e| panic!("{e:#}"));
-    drop(off);
+    let older = LocalStore::new(home.path().join("sessions"), config().segment_bytes)
+        .unwrap_or_else(|e| panic!("open the store as an older build: {e:#}"));
+    older.save(&meta(CHAT, "three", 1)).unwrap_or_else(|e| panic!("{e:#}"));
+    drop(older);
     let store = open(home.path(), &killed);
     let name = store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
     assert_eq!(
         name.as_deref(),
         Some("three"),
-        "the replay wrote the journal's older image over a change made with the switch off"
+        "the replay wrote the journal's older image over a change an older build made"
     );
 }
 
-/// F1, a delete: a chat made after the checkpoint, a kill, a start with the switch off whose
-/// catch-up fails (here its checkpoint file does not read), and the chat deleted in that run. The
-/// next start with the switch on must not make the chat again from its journaled records.
+/// F1, a delete: a chat made after the checkpoint, a kill, an older build (no event journal)
+/// that deletes the chat. The next start must not make the chat again from its journaled records.
 #[test]
-fn a_chat_deleted_with_the_switch_off_after_a_failed_catch_up_is_not_made_again() {
+fn a_chat_an_older_build_deleted_after_a_kill_is_not_made_again() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(63);
     let store = open(home.path(), &journal);
@@ -471,26 +608,18 @@ fn a_chat_deleted_with_the_switch_off_after_a_failed_catch_up_is_not_made_again(
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     let killed = journal.restart(Crash::Process);
     drop(store);
-    // The switch-off start finds a journal on disk and cannot catch up with it.
-    let checkpoint = home.path().join("journal-projected.json");
-    let saved = std::fs::read(&checkpoint).unwrap_or_else(|e| panic!("{e}"));
-    std::fs::write(&checkpoint, b"not a checkpoint").unwrap_or_else(|e| panic!("{e}"));
-    let on_disk = home.path().join("journal");
-    std::fs::create_dir(&on_disk).unwrap_or_else(|e| panic!("{e}"));
-    let off = super::open(&StoreConfig::default(), home.path())
-        .unwrap_or_else(|e| panic!("open the store with the switch off: {e:#}"));
-    off.delete(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
-    drop(off);
-    std::fs::write(&checkpoint, saved).unwrap_or_else(|e| panic!("{e}"));
-    std::fs::remove_dir(&on_disk).unwrap_or_else(|e| panic!("{e}"));
+    let older = LocalStore::new(home.path().join("sessions"), config().segment_bytes)
+        .unwrap_or_else(|e| panic!("open the store as an older build: {e:#}"));
+    older.delete(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
+    drop(older);
     let store = open(home.path(), &killed);
     assert!(
         store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_none(),
-        "a chat deleted with the switch off came back"
+        "a chat an older build deleted came back"
     );
     assert!(
         !home.path().join("sessions").join(CHAT).exists(),
-        "the replay made the folder of a chat deleted with the switch off again"
+        "the replay made the folder of a chat an older build deleted again"
     );
 }
 
@@ -508,8 +637,7 @@ fn a_late_settle_never_writes_an_older_image_over_a_checkpointed_one() {
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     let (arrived_tx, arrived) = std::sync::mpsc::channel();
     let (release, release_rx) = std::sync::mpsc::channel();
-    *super::journal_store::SETTLE_HOLD.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-        Some((SETTLED.to_owned(), arrived_tx, release_rx));
+    let hold = super::journal_store::on_settle_hold(SETTLED, arrived_tx, release_rx);
     let late = {
         let store = Arc::clone(&store);
         std::thread::spawn(move || store.session_dir(SETTLED))
@@ -525,6 +653,7 @@ fn a_late_settle_never_writes_an_older_image_over_a_checkpointed_one() {
     store.save(&meta(SETTLED, "three", 0)).unwrap_or_else(|e| panic!("{e:#}"));
     release.send(()).unwrap_or_else(|e| panic!("{e}"));
     let _dir = late.join().unwrap_or_else(|_| panic!("the late settle panicked"));
+    drop(hold);
     // A kill now: "three" is lost, "two" was acknowledged.
     let killed = journal.restart(Crash::Process);
     killed.set_sync_delay(Duration::ZERO);
@@ -712,7 +841,7 @@ fn a_checkpoint_after_a_failed_repair_writes_only_durable_images() {
     );
 }
 
-/// A run with the switch on that a kill ended, with chat-b's repair failing at every later open.
+/// A run that a kill ended, with chat-b's repair failing at every later open.
 fn killed_run_with_a_broken_chat(home: &Path, save: &[SessionMeta]) {
     let store = super::open(&config(), home).unwrap_or_else(|e| panic!("{e:#}"));
     store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
@@ -724,18 +853,29 @@ fn killed_run_with_a_broken_chat(home: &Path, save: &[SessionMeta]) {
     link_first_segment(home, "chat-b");
 }
 
-fn open_switch_off(home: &Path) -> Box<dyn Store> {
+/// The store as the daemon opens it (`store::open`: its journal on the real file system).
+fn open_daemon_store(home: &Path) -> Box<dyn Store> {
     super::open(&StoreConfig::default(), home).unwrap_or_else(|e| panic!("{e:#}"))
 }
 
-/// F2 of the review of #35562 (its test): with the switch off, a start's catch-up never writes an
-/// older journaled image over a change made with the switch off, also after a failed repair
-/// (DESIGN.md 3.3c: "turning it on again replays nothing old").
+/// The store a build with the journal switch off opened on `home` (as `store::open` did then):
+/// the journal's catch-up first, whose failure it only logged, then the logs alone.
+fn open_switch_off_build(home: &Path) -> Box<dyn Store> {
+    let _ = super::catch_up_journal(&config(), home);
+    Box::new(
+        LocalStore::new(home.join("sessions"), config().segment_bytes)
+            .unwrap_or_else(|e| panic!("open the store as a switch-off build: {e:#}")),
+    )
+}
+
+/// F2 of the review of #35562 (its test): after a failed repair, a build with the switch off
+/// renames the chat without the journal; this build's replay must not write an older journaled
+/// image over that rename (DESIGN.md 3.3c: "turning it on again replays nothing old").
 #[test]
-fn a_start_with_the_switch_off_after_a_failed_repair_keeps_a_rename_made_with_it_off() {
+fn a_rename_a_switch_off_build_made_after_a_failed_repair_survives_the_replay() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     killed_run_with_a_broken_chat(home.path(), &[meta(CHAT, "on", 0)]);
-    let off = open_switch_off(home.path());
+    let off = open_switch_off_build(home.path());
     let mut renamed = off
         .load(CHAT)
         .unwrap_or_else(|e| panic!("{e:#}"))
@@ -743,33 +883,30 @@ fn a_start_with_the_switch_off_after_a_failed_repair_keeps_a_rename_made_with_it
     renamed.name = "off".into();
     off.save(&renamed).unwrap_or_else(|e| panic!("{e:#}"));
     drop(off);
-    let off = open_switch_off(home.path());
-    let name = off.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
+    let store = open_daemon_store(home.path());
+    let name = store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
     assert_eq!(
         name.as_deref(),
         Some("off"),
-        "the catch-up wrote an older journaled image over a rename made with the switch off"
+        "the replay wrote an older journaled image over a rename made without the journal"
     );
 }
 
-/// F2 of the review of #35562 (its test): with the switch off, a chat deleted with the switch off
-/// stays deleted at the next start, also after a failed repair.
+/// F2 of the review of #35562 (its test): after a failed repair, a build with the switch off
+/// deletes the chat; this build's replay must not make it again.
 #[test]
-fn a_start_with_the_switch_off_after_a_failed_repair_keeps_a_chat_deleted_with_it_off() {
+fn a_chat_a_switch_off_build_deleted_after_a_failed_repair_stays_deleted() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     killed_run_with_a_broken_chat(home.path(), &[meta(CHAT, "chat", 0)]);
-    let off = open_switch_off(home.path());
+    let off = open_switch_off_build(home.path());
     off.delete(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
     drop(off);
-    let off = open_switch_off(home.path());
+    let store = open_daemon_store(home.path());
     assert!(
-        off.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_none(),
-        "a chat deleted with the switch off came back"
+        store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_none(),
+        "a chat deleted without the journal came back"
     );
-    assert!(
-        !home.path().join("sessions").join(CHAT).exists(),
-        "the catch-up made its folder again"
-    );
+    assert!(!home.path().join("sessions").join(CHAT).exists(), "the replay made its folder again");
 }
 
 // ---------------------------------------------------------------- review of #35483 at 8301994b135 (N1)
@@ -1394,5 +1531,271 @@ fn a_kill_after_a_failed_log_close_before_any_checkpoint_keeps_the_lines() {
         seqs(store.as_ref(), CHAT),
         (1..=5).collect::<Vec<_>>(),
         "a kill after a failed log close and before any checkpoint: the restart trusted the log's pages and lost acked lines"
+    );
+}
+
+/// A chat with the metadata of a busy one (a busy machine, 2026-11-11: 26 KB per image on average,
+/// most of it fields that never change between two saves).
+fn busy(id: &str) -> SessionMeta {
+    let mut m = meta(id, "busy", 0);
+    m.previous_agent_session_ids =
+        (0..120).map(|i| format!("01a1c7d1-9867-75c0-8bd4-{i:012x}")).collect();
+    m.context_breakdown = Some(json!({
+        "categories": (0..60)
+            .map(|i| json!({"name": format!("category {i}"), "tokens": i * 1_000, "detail": "x".repeat(40)}))
+            .collect::<Vec<_>>(),
+    }));
+    m.config_options = Some(
+        serde_json::from_value(json!((0..30)
+            .map(|i| json!({"id": format!("option-{i}"), "name": format!("Option {i}"), "description": "y".repeat(60), "options": ["a", "b", "c"]}))
+            .collect::<Vec<_>>()))
+        .unwrap_or_else(|e| panic!("config options: {e}")),
+    );
+    m.cmux_context = Some(
+        serde_json::from_value(json!((0..60)
+            .map(|i| json!({
+                "id": format!("part-{i}"), "source": format!("/w/docs/{}/{i}.md", "z".repeat(60)),
+                "label": format!("context part {i}: {}", "z".repeat(60)), "tokens": i * 100,
+                "included": true, "editable": false, "measurement": "estimated",
+            }))
+            .collect::<Vec<_>>()))
+        .unwrap_or_else(|e| panic!("context parts: {e}")),
+    );
+    m
+}
+
+fn written_meta() -> u64 {
+    meta_parts::WRITTEN.with(std::cell::Cell::get)
+}
+
+/// The changes a busy chat's metadata takes most (a busy machine's journal, 2026-11-11): one counter
+/// or flag at a time.
+fn change(m: &mut SessionMeta, n: u64) {
+    match n % 4 {
+        0 => m.hibernated_ms = 1_000 + n,
+        1 => m.seen_seq = Some(n),
+        2 => {
+            m.last_seq = n;
+            m.updated_at = 2 + n;
+        }
+        _ => m.status = if n % 8 == 3 { SessionStatus::Running } else { SessionStatus::Idle },
+    }
+}
+
+/// The harness of the before and after (cmuxterm-hq#9262, #9263): journal bytes per metadata
+/// change of a busy chat, over 200 one-field changes with checkpoints between them. Before, every
+/// change journaled the whole image. After, a change journals the fields it changed (the first
+/// change after a checkpoint, the whole image again); a save that changes nothing journals
+/// nothing. The chat then reads back whole after a crash.
+#[test]
+fn a_metadata_change_journals_the_fields_it_changed_not_the_whole_image() {
+    const CHANGES: u64 = 200;
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(81);
+    let store = open(home.path(), &journal);
+    let mut m = busy(CHAT);
+    let before = written_meta();
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    let whole = written_meta() - before;
+    let before = written_meta();
+    for n in 0..CHANGES {
+        change(&mut m, n);
+        store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+        if n % 50 == 24 {
+            // A checkpoint writes `session.json` and retires the image: the next change journals
+            // a whole image again, then patches over that.
+            store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+        }
+    }
+    let per_change = (written_meta() - before) / CHANGES;
+    let before = written_meta();
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    let no_op = written_meta() - before;
+    eprintln!(
+        "STRESS journal bytes per metadata change: before {whole} (the whole image), after {per_change}; a save that changes nothing: {no_op}"
+    );
+    assert!(whole > 20_000, "the busy fixture is {whole} bytes");
+    assert!(per_change * 20 < whole, "a change journaled {per_change} bytes, the image is {whole}");
+    assert_eq!(no_op, 0, "a save that changed nothing journaled {no_op} bytes");
+
+    // The image after the last checkpoint and its patches replay.
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    let loaded = store
+        .load(CHAT)
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .unwrap_or_else(|| panic!("the chat is gone"));
+    assert_eq!(
+        serde_json::to_value(&loaded).unwrap_or_default(),
+        serde_json::to_value(&m).unwrap_or_default(),
+        "the chat read back after a crash is not its last image"
+    );
+}
+
+/// Patches replay over their whole image, a removed field staying removed, and a chat's first
+/// change after a checkpoint is a whole image (its chain never starts at the file).
+#[test]
+fn patches_replay_over_their_image() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(82);
+    let store = open(home.path(), &journal);
+    // chat-b: its whole image retired by a checkpoint, then changes.
+    let mut b = busy("chat-b");
+    store.save(&b).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    // chat-a: its whole image and its patches all after the last checkpoint.
+    let mut a = busy("chat-a");
+    store.save(&a).unwrap_or_else(|e| panic!("{e:#}"));
+    for n in 0..9 {
+        change(&mut b, n);
+        let before = written_meta();
+        store.save(&b).unwrap_or_else(|e| panic!("{e:#}"));
+        let wrote = written_meta() - before;
+        if n == 0 {
+            assert!(wrote > 20_000, "the first change after a checkpoint journaled {wrote} bytes");
+        } else {
+            assert!(wrote < 1_000, "a change journaled {wrote} bytes");
+        }
+    }
+    // A field removed is removed by the replay too.
+    b.seen_seq = None;
+    store.save(&b).unwrap_or_else(|e| panic!("{e:#}"));
+    for n in 0..9 {
+        change(&mut a, n);
+        a.name = format!("renamed {n}");
+        store.save(&a).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let store = open(home.path(), &killed);
+    for (id, want) in [("chat-a", &a), ("chat-b", &b)] {
+        let loaded = store
+            .load(id)
+            .unwrap_or_else(|e| panic!("{e:#}"))
+            .unwrap_or_else(|| panic!("{id} is gone"));
+        assert_eq!(
+            serde_json::to_value(&loaded).unwrap_or_default(),
+            serde_json::to_value(want).unwrap_or_default(),
+            "{id} read back after a kill is not its last image"
+        );
+    }
+    // The checkpoint writes the rebuilt images.
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let on_disk = session_json(home.path(), "chat-b").unwrap_or_else(|| panic!("no session.json"));
+    assert_eq!(on_disk["hibernatedMs"], json!(b.hibernated_ms));
+    assert!(on_disk.get("seenSeq").is_none(), "a removed field came back: {on_disk}");
+}
+
+/// A `session.json` written outside the store: the next save journals a whole image (a patch
+/// over it would name an image the file does not hold), and the image of a change after a
+/// checkpoint whose file another writer then replaces goes aside instead of over it.
+#[test]
+fn a_session_json_written_outside_the_store_is_never_patched_over() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(83);
+    let store = open(home.path(), &journal);
+    let mut m = busy(CHAT);
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let path = home.path().join("sessions").join(CHAT).join("session.json");
+    // Another writer (an older build) replaces the file, same folder.
+    let mut outside = meta(CHAT, "outside", 0);
+    outside.hibernated_ms = 7;
+    std::fs::write(&path, serde_json::to_vec(&outside).unwrap_or_default())
+        .unwrap_or_else(|e| panic!("{e}"));
+    change(&mut m, 0);
+    let before = written_meta();
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    let next = written_meta() - before;
+    assert!(next > 20_000, "the save after an outside write journaled a {next}-byte patch");
+    // Patches after it replay over that whole image.
+    change(&mut m, 1);
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    // The checkpoint the replay asks for runs on the checkpointer's thread, at background
+    // priority: under load it can come after the saves below and retire their records before
+    // the kill, and then nothing replays to go aside. Wait for it first.
+    let store = open_after_replay_checkpoint(home.path(), &killed);
+    let loaded = store
+        .load(CHAT)
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .unwrap_or_else(|| panic!("the chat is gone"));
+    assert_eq!(
+        serde_json::to_value(&loaded).unwrap_or_default(),
+        serde_json::to_value(&m).unwrap_or_default(),
+        "the replay lost the changes after an outside write"
+    );
+
+    // A change after a checkpoint is a whole image: a file another writer then puts there is
+    // not written over, and the image goes aside.
+    change(&mut m, 2);
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    change(&mut m, 3);
+    let before = written_meta();
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    let next = written_meta() - before;
+    assert!(
+        next > 20_000,
+        "the save after a checkpoint journaled a {next}-byte patch over the file"
+    );
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = killed.restart(Crash::Process);
+    drop(store);
+    std::fs::write(&path, serde_json::to_vec(&outside).unwrap_or_default())
+        .unwrap_or_else(|e| panic!("{e}"));
+    let store = open(home.path(), &killed);
+    let loaded = store
+        .load(CHAT)
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .unwrap_or_else(|| panic!("the chat is gone"));
+    assert_eq!(loaded.name, "outside", "an image was written over a file another writer wrote");
+    let aside = std::fs::read_dir(home.path().join("journal-unapplied"))
+        .map(|dir| dir.flatten().count())
+        .unwrap_or_default();
+    assert!(aside > 0, "the image was not kept aside");
+}
+
+/// A transfer's swap that is undone (the folder renamed aside, then back, same identity) while
+/// the checkpoint kept the chat's image aside: that image never reached the folder's
+/// `session.json`, so the next change is a whole image, and the chat reads back after a kill.
+#[test]
+fn a_change_after_an_image_kept_aside_is_whole() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(84);
+    let store = open(home.path(), &journal);
+    let mut m = busy(CHAT);
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    change(&mut m, 0);
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    let sessions = home.path().join("sessions");
+    let aside = sessions.join(format!(".{CHAT}.replacement-backup"));
+    std::fs::rename(sessions.join(CHAT), &aside).unwrap_or_else(|e| panic!("{e}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    std::fs::rename(&aside, sessions.join(CHAT)).unwrap_or_else(|e| panic!("{e}"));
+    change(&mut m, 1);
+    let before = written_meta();
+    store.save(&m).unwrap_or_else(|e| panic!("{e:#}"));
+    let next = written_meta() - before;
+    assert!(next > 20_000, "the change after a kept-aside image journaled a {next}-byte patch");
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let store = open(home.path(), &killed);
+    let loaded = store
+        .load(CHAT)
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .unwrap_or_else(|| panic!("the chat is gone"));
+    assert_eq!(
+        serde_json::to_value(&loaded).unwrap_or_default(),
+        serde_json::to_value(&m).unwrap_or_default(),
+        "the chat read back after a kill is not its last image"
     );
 }

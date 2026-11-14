@@ -256,3 +256,33 @@
   margin: 0;
   font-variant-numeric: tabular-nums;
 }
+
+.stats-usage-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px 24px;
+  margin-bottom: 12px;
+}
+
+.stats-usage-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.stats-usage-key {
+  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-caption);
+}
+
+.stats-usage .stats-harness {
+  grid-template-columns: minmax(90px, 160px) 1fr auto;
+}
+
+.stats-usage-since {
+  margin: 0 0 12px;
+}

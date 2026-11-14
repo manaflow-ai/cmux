@@ -22,64 +22,27 @@ import { ImageIcon, Lock } from "../conversation/icons";
 import { knownImageSize, rememberImageSize } from "../conversation/imageEntries";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { callChipHost } from "./host";
-import { DataUrlCache, IMAGE_CACHE_MAX_CHARS, IMAGE_CACHE_MAX_ENTRIES } from "./imageCache";
+
 import { ElsewhereChip } from "./LinkChips";
 import { useMessageScope } from "./messageScope";
-import { usePathInfo, useReplyPolicy, type ReplyPolicy } from "./linkStore";
-import { isRemoteMedia, mediaKind, RemoteMedia, ReplyMedia } from "./ReplyMedia";
-import { isDeniedPath, isTemplatePath, linkPath, pathName } from "./paths";
+import { usePathInfo, useReplyPolicy } from "./linkStore";
+import { RemoteMedia, ReplyMedia } from "./ReplyMedia";
+import { mediaKind } from "./replyMediaModel";
+import { isRemoteMedia } from "./replyMediaModel";
+import { isDeniedPath, isTemplatePath, pathName } from "./paths";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
+import {
+  localImageSource,
+  remoteImageHost,
+  loadsWithoutClick,
+  started,
+  loaded,
+  clicked,
+  waiting,
+  loadEnded,
+} from "./replyImageModel";
 
 type State = { kind: "idle" } | { kind: "loading" } | { kind: "shown"; src: string } | { kind: "failed" };
-
-/// A local image: an absolute path, a `file://` URL or a relative path (from the session's folder).
-export function localImageSource(src: string): string | undefined {
-  if (isTemplatePath(src)) return undefined;
-  const path = linkPath(src);
-  if (path) return path;
-  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(src) || src.startsWith("//") || src.startsWith("#") || src.startsWith("?"))
-    return undefined;
-  return src.split(/[?#]/)[0] || undefined;
-}
-
-/// The https image's site, or undefined for anything else.
-export function remoteImageHost(src: string): string | undefined {
-  try {
-    const url = new URL(src);
-    return url.protocol === "https:" && !url.username && !url.password ? url.host : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/// Whether the web image at `src` loads without a click under `click`: it is written exactly
-/// `https://<a host the host named>/…` (lowercase, no port, user info, backslash or space before
-/// the path), the same test the host makes on the same string, so the two never disagree.
-export function loadsWithoutClick(src: string, policy: ReplyPolicy): boolean {
-  if (policy.remoteImages !== "click" || !Array.isArray(policy.clickFreeImageHosts)) return false;
-  return policy.clickFreeImageHosts.some((host) => typeof host === "string" && src.startsWith(`https://${host}/`));
-}
-
-/// Sources an automatic load started for, so a render twice in a row asks the host once.
-const started = new Set<string>();
-/// Images that loaded on their own (a file in the folders, a web image under "always"), the most
-/// recently drawn first. One it forgets loads again on its own when it draws.
-const loaded = new DataUrlCache(IMAGE_CACHE_MAX_ENTRIES, IMAGE_CACHE_MAX_CHARS, (src) => started.delete(src));
-/// Images the reader loaded with "Load image". They stay: loading one again would need another
-/// click (the host spends a gesture on each), so forgetting it would leave its placeholder.
-const clicked = new Map<string, string>();
-
-/// Instances waiting on a load another instance of the same source started (the transcript's tile and
-/// the Gallery's, say): they hear when it ends, since `started` keeps them from asking the host again.
-const waiting = new Map<string, Set<() => void>>();
-const loadEnded = (src: string) => {
-  // Waiters stay until they unmount or show the image: one that wakes to a failed load may find
-  // another instance already retrying, and must hear that retry end too.
-  waiting.get(src)?.forEach((wake) => wake());
-};
-
-/// The data URL a local or web image already loaded to, if it has (the image viewer steps to it).
-export const loadedImageSrc = (src: string): string | undefined => clicked.get(src) ?? loaded.get(src);
 
 /// `auto`: load without a click. `clickFree`: that load is one the host may refuse (the image is
 /// not one it calls click-free after all); the page tells it so (`auto: true`), so a refusal spends

@@ -23,10 +23,29 @@ struct HomePictureGallery: Equatable, Sendable {
     var items: [Item]
     /// The picture shown, always a valid index of `items`.
     var index: Int
+    /// Each body row's label ("Light", "Dark"), by row; empty when the rows have none. The viewer's comparison
+    /// offers them as a switch.
+    var rowLabels: [Int: String] = [:]
+    /// Whether the viewer opens on the comparison (a Before|After table, ``HomeCompareLayout``).
+    var opensComparing = false
 
     init(items: [Item], index: Int) {
         self.items = items
         self.index = items.isEmpty ? 0 : min(max(0, index), items.count - 1)
+    }
+
+    /// The rows with a label, in order: the comparison's switch ("Light | Dark").
+    var labeledRows: [Int] { Array(Set(items.map(\.row))).sorted().filter { rowLabels[$0] != nil } }
+
+    /// The gallery showing row `row`'s picture in the shown picture's column (else the row's first picture);
+    /// unchanged when no picture is in that row.
+    func moved(toRow row: Int) -> HomePictureGallery {
+        guard let current else { return self }
+        let inRow = items.indices.filter { items[checked: $0]?.row == row }
+        guard let first = inRow.first else { return self }
+        var next = self
+        next.index = inRow.first { items[checked: $0]?.column == current.column } ?? first
+        return next
     }
 
     var current: Item? { items[checked: index] }
@@ -49,9 +68,11 @@ struct HomePictureGallery: Equatable, Sendable {
     init?(table: HomeTable, opening source: String) {
         let header = table.header.map { HomeTableCell(markdown: $0) }
         var items: [Item] = []
+        var labels: [Int: String] = [:]
         for (r, row) in table.rows.enumerated() {
             let cells = row.map { HomeTableCell(markdown: $0) }
             let label = cells.first { $0.images.isEmpty && !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }?.text
+            if let label { labels[r] = label.trimmingCharacters(in: .whitespaces) }
             var column = 0
             for (c, cell) in cells.enumerated() {
                 for image in cell.images {
@@ -67,5 +88,7 @@ struct HomePictureGallery: Equatable, Sendable {
         }
         guard let at = items.firstIndex(where: { $0.source == source }) else { return nil }
         self.init(items: items, index: at)
+        rowLabels = labels
+        opensComparing = HomeCompareLayout.matches(table)
     }
 }

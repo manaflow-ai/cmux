@@ -1,0 +1,32 @@
+// Harbor: cmux's example theme file. A harbor-blue look over Willem van de Velde's ship in a storm,
+// glass panes, Menlo in the terminals. Copy it to ~/.config/cmux/themes/harbor.json (yours wins over
+// this one), edit and save: the running app repaints at once, no relaunch.
+{
+  "name": "Harbor",
+  "description": "Harbor-blue glass over a storm at sea, Menlo in the terminals.",
+
+  // The terminal theme, and its own colors (appearance.themeEdits of that theme).
+  "appearance.theme": "Soft Blue",
+  "colors": { "background": "#0f1b26", "foreground": "#dce6ee", "selection": "#1f3a52", "accent": "#5fb3d9" },
+  "appearance.accent": "theme",
+
+  // The wallpaper behind the window: a bundled painting (or "file:my-picture.jpg" beside this file).
+  "appearance.background": "velde-small-ship-storm",
+  "appearance.backgroundOpacity": 0.9,
+
+  // The sidebar: its own tinted glass, a hairline edge, sections as cards.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#0b1620",
+  "appearance.surfaces.sidebar.opacity": 0.8,
+  "sidebar.border": true,
+  "sidebar.sectionLook": "card",
+
+  // The pane background behind every terminal.
+  "appearance.surfaces.terminal.color": "#0f1b26",
+  "appearance.surfaces.terminal.opacity": 0.85,
+
+  // Fonts: the terminal's family and size, and the chrome's text size.
+  "terminal.fontFamily": "Menlo",
+  "terminal.fontSize": 14,
+  "appearance.metrics.chromeFontSize": 13
+}

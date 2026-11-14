@@ -35,13 +35,13 @@ final class RowControlSlot<Host: NSView, Control: NSView> {
 }
 
 extension WorkspaceRowView {
-    /// `setHoverShown` for a control that exists only once it has shown: showing makes it, hiding one never made does
-    /// nothing.
+    /// `setHoverPainted` for a control that exists only once it has shown: showing makes it, clearing one never made
+    /// does nothing. A made control stays in the tree; a hover changes its opacity only (HOVER COMMIT).
     func setHoverShown<Control: NSView>(_ slot: RowControlSlot<WorkspaceRowView, Control>, _ shown: Bool, fades: Bool) {
         if shown {
-            setHoverShown(slot.control(in: self), true, fades: fades)
+            setHoverPainted(slot.control(in: self), true, fades: fades)
         } else if let made = slot.made {
-            setHoverShown(made, false, fades: fades)
+            setHoverPainted(made, false, fades: fades)
         }
     }
 }

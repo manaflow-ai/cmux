@@ -1,7 +1,7 @@
 // Reply Markdown a longer fence or an escaped pipe has to survive: an agent that quotes Markdown opens
 // with four backticks to show its own three, and shell pipes in a table cell arrive as `\|`.
 import { expect, test } from "bun:test";
-import { parseMarkdown } from "../src/agent-session/acpmux/conversation/Markdown";
+import { parseMarkdown } from "../src/agent-session/acpmux/conversation/markdownModel";
 import { tableMarkdown, type Table } from "../src/agent-session/acpmux/conversation/tableFormats";
 
 test("a four-backtick fence holds an inner three-backtick fence as its text", () => {

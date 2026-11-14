@@ -128,6 +128,8 @@ public final class MockAgentSession: AgentSessionSource {
             emit(.dequeued(promptId: promptID))
         case .resumeQueue:
             emit(.queuePaused(false, reason: nil))
+        case .answerElevation(let ask, _):
+            emit(.elevationDecision(id: ask.id))
         }
     }
 
@@ -267,7 +269,10 @@ public final class MockAgentSession: AgentSessionSource {
         running = Task { [weak self] in
             guard let self else { return }
             do {
-                if ListStressSettings.shared.streams {
+                if ListStressSettings.shared.holdsTurn {
+                    // The rig's running chat: the turn stays open, with no output, until stopped.
+                    try await Task.sleep(for: .seconds(24 * 3600))
+                } else if ListStressSettings.shared.streams {
                     try await self.stream(MockStressContent.streamedAnswer, messageID: "stress-stream-\(turnID)")
                 } else if rich {
                     try await self.richTurn()

@@ -60,8 +60,18 @@ fn bundle(dir: &Path, name: &str, bundle_id: &str) -> PathBuf {
     let acpmux = bin.join("acpmux");
     // A copy, never a hard link: a deleted bundle must leave its binary with no name.
     let source = daemon_env::bin();
-    std::fs::copy(source, &acpmux).unwrap();
+    copy_executable(source, &acpmux);
     bundle
+}
+
+/// Copies an executable without this process holding it open for writing. A
+/// sibling test that forks while this process holds such a descriptor hands a
+/// copy to its child until that child execs, and starting the copy in that
+/// window fails with ETXTBSY ("Text file busy"). A short-lived `cp` writes it in
+/// its own process. (The reason `write_executable` in daemon_lifecycle.rs has.)
+fn copy_executable(source: &Path, target: &Path) {
+    let status = Command::new("/bin/cp").arg(source).arg(target).status().unwrap();
+    assert!(status.success(), "could not copy {} to {}", source.display(), target.display());
 }
 
 /// The app's control socket, as the app names it in the daemon's environment.

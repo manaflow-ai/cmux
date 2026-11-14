@@ -34,7 +34,7 @@ struct TornOffWorkspaceNameTests {
         WorkspaceAutoNameReader(
             enabled: { true }, isNewTabPage: { newTabPages.contains($0.id) }, livePage: { _ in nil },
             incognitoTitle: { _ in nil },
-            terminal: { NewWorkspaceName.Tab(kind: .terminal, userName: $0.name, title: $0.title, pageTitle: nil, url: $0.url, cwd: $0.cwd) },
+            terminal: { NewWorkspaceName.Tab(kind: .terminal, userName: $0.name, title: $0.titleText, pageTitle: nil, url: $0.url, cwd: $0.cwd) },
             turns: turns, hold: WorkspaceAutoNameHold())
     }
 
@@ -58,7 +58,9 @@ struct TornOffWorkspaceNameTests {
         // A name written now lasts: the prompt would stand in for the agent's title for good.
         let reader = Self.reader(Self.turns(["s1": "fix the flaky test in Foo"], generated: false))
         #expect(reader.newWorkspaceName(Self.chatTab("s1")) == nil)
-        #expect(reader.displayName(try Self.workspace("workspace-41"), front: Self.chatTab("s1")) == "workspace-41")
+        // The titlebar's live label reads as the chat's tab, never workspace-N (#36148, Leo 2026-11-05: "this workspace
+        // didn't inherit the agent chat name"); it is never written, so the daemon's name stays the workspace's name.
+        #expect(reader.displayName(try Self.workspace("workspace-41"), front: Self.chatTab("s1")) == "fix the flaky test in Foo")
     }
 
     @Test func aNewTabPageKeepsTheDaemonsName() {

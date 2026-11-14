@@ -59,6 +59,14 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var answer: ((_ method: String, _ params: [String: any Sendable]) -> String?)?
     /// Runs when the host closes the page.
     public var onClose: (() -> Void)?
+    /// The page's own area and its docked DevTools' area (``contentView`` coordinates), while a
+    /// test has DevTools docked beside the page; nil: no docked DevTools.
+    public var dockedDevTools: (page: CGRect, devTools: CGRect)?
+    /// What ``devToolsImage()`` answers: Chromium's image of the docked DevTools; nil: none.
+    public var devToolsPicture: CGImage?
+
+    /// ``devToolsPicture``.
+    public func devToolsImage() async -> CGImage? { devToolsPicture }
 
     /// Makes a page with no calls yet.
     public init() {}

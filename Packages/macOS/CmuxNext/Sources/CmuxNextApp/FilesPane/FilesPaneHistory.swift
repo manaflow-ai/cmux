@@ -1,4 +1,5 @@
 import CmuxNextFiles
+import CmuxNextPages
 
 /// A Files tab's folder history as page history, so cmux's Back and Forward
 /// (Cmd+[ and Cmd+]) step through the folders the tab showed.

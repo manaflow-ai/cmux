@@ -38,7 +38,7 @@ import Testing
         // The middle of the open band's extent, past the traffic lights: the strip's first tab
         // sits there while the band is collapsed.
         let lights = try #require(WindowTitlebar.trafficLightsFrame(in: window))
-        let firstTab = CGPoint(x: root.convert(lights, from: nil).maxX + Metrics.space3 + TitlebarToolbarBand.width / 2, y: top)
+        let firstTab = CGPoint(x: root.convert(lights, from: nil).maxX + Metrics.space3 + root.toolbarBand.slots.width / 2, y: top)
         #expect(region.contains(firstTab))
         // The rest of the strip does not reveal.
         #expect(!region.contains(CGPoint(x: root.bounds.midX, y: top)))

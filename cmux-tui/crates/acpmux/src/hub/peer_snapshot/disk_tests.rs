@@ -7,6 +7,18 @@ use std::cell::Cell;
 
 thread_local! {
     static RECORD_BYTES_ALLOCS: Cell<Option<usize>> = const { Cell::new(None) };
+    /// While [`thread_peak_bytes`] runs on this thread: the bytes it holds now and at most.
+    static PEAK_BYTES: Cell<Option<(isize, isize)>> = const { Cell::new(None) };
+}
+
+/// Counts `delta` bytes against this thread's peak, when one is measured.
+fn note_bytes(delta: isize) {
+    let _ = PEAK_BYTES.try_with(|peak| {
+        if let Some((live, most)) = peak.get() {
+            let live = live + delta;
+            peak.set(Some((live, most.max(live))));
+        }
+    });
 }
 
 struct AllocationCounter;
@@ -20,6 +32,7 @@ unsafe impl GlobalAlloc for AllocationCounter {
                 count.set(Some(value.saturating_add(1)));
             }
         });
+        note_bytes(layout.size() as isize);
         unsafe { System.alloc(layout) }
     }
 
@@ -29,10 +42,12 @@ unsafe impl GlobalAlloc for AllocationCounter {
                 count.set(Some(value.saturating_add(1)));
             }
         });
+        note_bytes(layout.size() as isize);
         unsafe { System.alloc_zeroed(layout) }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        note_bytes(-(layout.size() as isize));
         unsafe { System.dealloc(ptr, layout) }
     }
 
@@ -42,12 +57,32 @@ unsafe impl GlobalAlloc for AllocationCounter {
                 count.set(Some(value.saturating_add(1)));
             }
         });
+        note_bytes(size as isize - layout.size() as isize);
         unsafe { System.realloc(ptr, layout, size) }
     }
 }
 
 #[global_allocator]
 static ALLOCATOR: AllocationCounter = AllocationCounter;
+
+/// `run`'s result and how many allocations it made on this thread (Linux scale tests only).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) fn thread_allocations<T>(run: impl FnOnce() -> T) -> (T, usize) {
+    let outer = RECORD_BYTES_ALLOCS.with(|count| count.replace(Some(0)));
+    let value = run();
+    let made = RECORD_BYTES_ALLOCS.with(|count| count.replace(outer)).unwrap_or(0);
+    (value, made)
+}
+
+/// `run`'s result and the most bytes it held at once on this thread above what it started with
+/// (Linux benches only).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) fn thread_peak_bytes<T>(run: impl FnOnce() -> T) -> (T, usize) {
+    let outer = PEAK_BYTES.with(|peak| peak.replace(Some((0, 0))));
+    let value = run();
+    let most = PEAK_BYTES.with(|peak| peak.replace(outer)).map_or(0, |(_, most)| most);
+    (value, most.max(0) as usize)
+}
 
 fn key(mux: &str) -> Key {
     ("huge-blue".to_owned(), mux.to_owned())

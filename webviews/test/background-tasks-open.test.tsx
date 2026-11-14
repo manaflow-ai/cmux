@@ -6,6 +6,7 @@
 // opening its own transcript with a way back.
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -53,18 +54,14 @@ const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { trayItems } = await import("../src/agent-session/acpmux/subagents/runningTray");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
 const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
-const { BackgroundTasksPanel, panelSections } =
-  await import("../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel");
+const { BackgroundTasksPanel } = await import("../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel");
+const { panelSections } = await import("../src/agent-session/acpmux/backgroundTasks/backgroundTasksPanelModel");
 type BackgroundGroup = import("../src/agent-session/acpmux/backgroundTasks/backgroundTasks").BackgroundGroup;
 type AcpmuxRow = import("../src/agent-session/acpmux/model").AcpmuxRow;
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
 
@@ -107,8 +104,9 @@ describe("the running tray opens the Background tasks panel", () => {
       // A sibling of the header's own button (a button holds no button), over its slot.
       expect(bar.head().contains(button)).toBe(false);
       expect(bar.head().querySelector(".acpmux-running-tray__open-slot")).not.toBeNull();
-      // The folded header keeps its names (#33104, #33364: the newest one, then +N more).
-      expect(bar.head().querySelector(".acpmux-running-tray__title")?.textContent).toBe("Audit the stack");
+      // The folded header keeps its names (#33104, #33364): the longest-running one, then +N more
+      // (subagents/trayHeadOrder.ts).
+      expect(bar.head().querySelector(".acpmux-running-tray__title")?.textContent).toBe("Review the tray");
       await act(async () => button!.click());
       expect(opened).toBe(1);
       expect(bar.head().getAttribute("aria-expanded")).toBe("false");
@@ -250,18 +248,19 @@ describe("the Background tasks panel", () => {
       expect(heads).toEqual(["Running1", "Finished2"]);
       const live = view.host.querySelector('[data-group="agent:live"]')!;
       expect(live.querySelector(".acpmux-bg__fold")?.textContent).toBe("3 tasks, 1 failed");
+      // A heading folds its agents: Finished starts folded, as Claude Desktop's panel opens.
+      expect(
+        view.host.querySelector('[data-section="finished"] .acpmux-bg__section-head')?.getAttribute("aria-expanded"),
+      ).toBe("false");
+      expect(view.host.querySelector('[data-group="agent:review"]')).toBeNull();
+      await view.click(view.host.querySelector('[data-section="finished"] .acpmux-bg__section-head'));
+      expect(view.host.querySelector('[data-group="agent:review"]')).not.toBeNull();
       const review = view.host.querySelector('[data-group="agent:review"]')!;
       expect(review.querySelector(".acpmux-bg__agent .acpmux-bg__time")?.textContent).toBe("50s");
       const broken = view.host.querySelector('[data-group="agent:broken"]')!;
       const state = broken.querySelector(".acpmux-bg__agent .acpmux-bg__time");
       expect(state?.textContent).toBe("Failed");
       expect(state?.classList.contains("acpmux-bg__failed")).toBe(true);
-      // A heading folds its agents.
-      await view.click(view.host.querySelector('[data-section="finished"] .acpmux-bg__section-head'));
-      expect(view.host.querySelector('[data-group="agent:review"]')).toBeNull();
-      expect(
-        view.host.querySelector('[data-section="finished"] .acpmux-bg__section-head')?.getAttribute("aria-expanded"),
-      ).toBe("false");
     } finally {
       await view.done();
     }
@@ -270,7 +269,8 @@ describe("the Background tasks panel", () => {
   test("an agent's row and each of its tasks open that agent's transcript, and Back returns", async () => {
     const view = await panel();
     try {
-      // A finished agent, from the Finished heading.
+      // A finished agent, from the Finished heading (folded at first).
+      await view.click(view.host.querySelector('[data-section="finished"] .acpmux-bg__section-head'));
       await view.click(view.host.querySelector('[data-group="agent:review"] .acpmux-bg__name'));
       expect(view.title()).toBe("Review asks sort change");
       expect(view.listHidden()).toBe(true);

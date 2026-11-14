@@ -65,6 +65,45 @@ struct IncognitoSurfacesTests {
         #expect(posted.subtitle == nil && posted.attachment == nil && !posted.approval)
     }
 
+    /// An agent chat's permission ask in an incognito window: its banner has no answer buttons (not even
+    /// Always allow, where the prompt offers it), and no button path answers it.
+    @Test func anIncognitoApprovalBannerOffersAndAnswersNothing() async throws {
+        let services = Self.services()
+        let window = services.windows.newIncognitoWindow()
+        let key = WorkspaceKey(rawValue: try #require(services.windows.claims.pending.first { $0.value == window }?.key))
+        var tab = TabSnapshot(surface: 1, kind: .conversation)
+        tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: ApprovalBannerTests.thisMac, session: "sess-1"))
+        let store = DaemonStore()
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [tab])])
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: key, name: "secret-project", screens: [screen])]))
+        let workspace = try #require(store.workspaces.first)
+        let paneModel = try #require(workspace.screens.first?.panes.first)
+        let located = LocatedTab(tab: try #require(paneModel.tabs.first), pane: paneModel, workspace: workspace)
+        let notification = try JSONDecoder().decode(DaemonNotification.self, from: Data(ApprovalBannerTests.needsInput.utf8))
+        let answerer = ApprovalBannerTests.Answerer()
+        var offering = ApprovalBannerTests.bash
+        offering.alwaysOffered = true
+        answerer.pending["sess-1"] = offering
+        let service = NotificationCenterService()
+        service.services = services
+        service.screenLocked = { false }
+        service.approvals.answerer = answerer
+        service.localAgentHost = { ApprovalBannerTests.thisMac }
+        var decision = NotificationPolicy.Decision()
+        decision.desktop = true
+        service.deliver(notification, source: .agent, located: located, decision: decision, program: nil)
+        for _ in 0..<200 where service.desktop.posted.isEmpty { await Task.yield() }
+        let posted = try #require(service.desktop.posted.last)
+        #expect(!posted.approval)
+        #expect(posted.category == DesktopNotifier.defaultCategory, "an incognito banner offered answer buttons")
+        service.answerApproval(banner: posted.id, surface: SurfaceID(rawValue: 1), allow: true, always: true)
+        service.answerApproval(banner: posted.id, surface: SurfaceID(rawValue: 1), allow: true)
+        for _ in 0..<50 { await Task.yield() }
+        #expect(answerer.always.isEmpty && answerer.answered.isEmpty, "an incognito banner answered its ask")
+        // The service holds its services weakly and posts after the approval read: as the app does, keep them alive.
+        withExtendedLifetime(services) {}
+    }
+
     @Test func aNormalBannerIsUnchanged() throws {
         let posted = try #require(try banner(incognito: false))
         #expect(posted.title.hasPrefix("secret-project"))
@@ -100,44 +139,6 @@ struct IncognitoSurfacesTests {
         #expect(services.notifications.desktop.posted.last?.body == DesktopNotifier.incognitoBody)
     }
 
-    /// A Run or hand-off from an incognito chat is never saved for the next launch (its task or summary
-    /// included), so no later launch can post it. Only its bare id is kept while it may be open (#31040).
-    @Test func incognitoRunsAreNeverSaved() async throws {
-        let suite = "incognito-surfaces-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let follower = SandboxRunFollower(wait: { _, _ in throw CancellationError() }, defaults: defaults)
-        follower.account("u")
-        var secret = SandboxRunRecord(id: "run_secret", task: "rotate the prod key", key: "k1", user: "u", team: nil, started: Date())
-        secret.incognito = true
-        follower.watch(secret)
-        follower.watch(SandboxRunRecord(id: "run_normal", task: "make test", key: "k2", user: "u", team: nil, started: Date()))
-        let saved = String(decoding: defaults.data(forKey: SandboxRunFollower.defaultsKey) ?? Data(), as: UTF8.self)
-        #expect(saved.contains("run_normal"))
-        #expect(!saved.contains("prod key"), "an incognito Run was saved for the next launch")
-        let relaunched = SandboxRunFollower(wait: { _, _ in throw CancellationError() }, defaults: defaults)
-        #expect(relaunched.following.map(\.id) == ["run_normal"], "an incognito Run's record was saved for the next launch")
-    }
-
-    /// Issue #31208: an incognito Run is never resumed after a relaunch (its record isn't saved, and no list
-    /// brings it back), so its id is dropped at the next sign-in instead of staying saved forever.
-    @Test func anIncognitoRunsIDIsDroppedAtTheNextLaunchsSignIn() async throws {
-        let suite = "incognito-surfaces-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        func saved() -> String { String(decoding: defaults.data(forKey: SandboxRunFollower.defaultsKey) ?? Data(), as: UTF8.self) }
-        let first = SandboxRunFollower(wait: { _, _ in throw CancellationError() }, defaults: defaults)
-        first.account("u")
-        var secret = SandboxRunRecord(id: "run_secret", task: "rotate the prod key", key: "k1", user: "u", team: nil, started: Date())
-        secret.incognito = true
-        first.watch(secret)
-        #expect(saved().contains("run_secret"))
-        first.stop()
-        let relaunched = SandboxRunFollower(wait: { _, _ in throw CancellationError() }, defaults: defaults)
-        relaunched.account("u")
-        #expect(!saved().contains("run_secret"), "an incognito Run's id outlived the launch that could follow it")
-    }
-
     /// The tabs the quit leaves out are taken before its window step closes the incognito workspaces (after
     /// that, a removed tab no longer reads as incognito): every chat view's tab and every held composer's.
     @Test func theQuitTakesTheIncognitoTabsUpFront() {
@@ -145,7 +146,7 @@ struct IncognitoSurfacesTests {
                                  environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
         tabs.wakeStates["tab_secret"] = AgentPaneWakeState(shell: true, shellText: "cat ~/.ssh/id_ed25519")
         tabs.wakeStates["tab_normal"] = AgentPaneWakeState(shell: true, shellText: "make test")
-        #expect(AgentQuitFiles.incognitoTabs(tabs, isIncognito: { $0 == "tab_secret" }) == ["tab_secret"])
+        #expect(AgentQuitFiles.incognitoTabs(tabs, isIncognito: { $0.key == "tab_secret" }).map(\.key) == ["tab_secret"])
     }
 
     // MARK: Leak 6: the quit's agent tab files
@@ -162,10 +163,10 @@ struct IncognitoSurfacesTests {
                                  environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
         tabs.localHost = Self.thisMac
         let tree = DaemonStore()
-        tabs.lookup = { key in records[key].map { ($0, tree) } }
+        tabs.lookupScoped = { key in records[key.key].map { ($0, tree) } }
         tabs.wakeStates["tab_normal"] = AgentPaneWakeState(shell: true, shellText: "make test")
         tabs.wakeStates["tab_secret"] = AgentPaneWakeState(shell: true, shellText: "cat ~/.ssh/id_ed25519")
-        let saved = await AgentQuitFiles.composers(tabs, isIncognito: { $0 == "tab_secret" })
+        let saved = await AgentQuitFiles.composers(tabs, isIncognito: { $0.key == "tab_secret" })
         #expect(saved["tab_normal"]?.shellText == "make test")
         #expect(saved["tab_secret"] == nil, "the quit saved an incognito chat's composer for the next launch")
     }

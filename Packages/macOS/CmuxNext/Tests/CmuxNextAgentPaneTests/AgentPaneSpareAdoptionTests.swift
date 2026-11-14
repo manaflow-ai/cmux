@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextSettings
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -41,5 +42,22 @@ struct AgentPaneSpareAdoptionTests {
         #expect(adopts(seeded: true) == nil)
         #expect(adopts(wake: true) == nil)
         #expect(adopts(chief: true) == nil)
+    }
+
+    /// The adopt event carries the chat's kept tail, so the page draws it in the event's own render
+    /// instead of asking the host for it (`chat.tail.get`, a round trip raced against 250 ms that a
+    /// busy main thread loses, leaving the pane empty until acpmux's attach answers).
+    @Test func theAdoptEventCarriesTheChatsTail() throws {
+        let tail: JSONValue = .object(["events": .array([.object(["seq": .number(1), "kind": .string("user_message")])]),
+                                       "historyExhausted": .bool(true)])
+        let text = AgentPaneView.adoptEventDetail(session: "s-1", revealTurn: "subagent:a", tail: tail)
+        let detail = try #require(JSONValue(foundation: try JSONSerialization.jsonObject(with: Data(text.utf8))))
+        #expect(detail["sessionId"] == .string("s-1"))
+        #expect(detail["revealTurn"] == .string("subagent:a"))
+        #expect(detail["tail"] == tail)
+        // No tail kept: the detail names none, and the page asks the host as before.
+        let bare = AgentPaneView.adoptEventDetail(session: "s-1", revealTurn: nil, tail: nil)
+        let parsed = try #require(JSONValue(foundation: try JSONSerialization.jsonObject(with: Data(bare.utf8))))
+        #expect(parsed == .object(["sessionId": .string("s-1")]))
     }
 }

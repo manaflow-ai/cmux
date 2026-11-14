@@ -2,11 +2,14 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLiveCode
+import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 import os
 
 /// Edit cmux Live… and Stop Editing cmux Live (docs/cmux-next/hot-reload.md): the palette and
-/// Settings > General face of `cmux live start|stop`, so a person finds Live Web Reload without
+/// Settings > General face of `cmux live start|stop`, so a person finds cmux Live without
 /// knowing the script. Leo (2026-11-05): "it should be like enableable in the GUI ... accessible,
 /// visible, usable, and nice to use". Both run the bundled `cmux live` (one implementation with
 /// the CLI and the `cmux-live` agent skill), off the main actor, and show the outcome as a toast.
@@ -14,6 +17,8 @@ import os
 enum LiveWebHandlers {
     static let startID: ActionID = "liveWeb.start"
     static let stopID: ActionID = "liveWeb.stop"
+    static let swiftStartID: ActionID = "liveSwift.start"
+    static let swiftStopID: ActionID = "liveSwift.stop"
     private static let toastID = "live-web"
     /// `start` may install the checkout's webviews packages first, then waits up to 60 s for the server.
     private static let startTimeout: Duration = .seconds(300)
@@ -28,8 +33,10 @@ enum LiveWebHandlers {
             if let path = invocation["path"]?.stringValue, !path.isEmpty {
                 show(LiveWebStrings.starting(path), in: window, duration: startTimeout)
                 return .applied(result: {
+                    // With cmux Live off the app ignores web-dev.json: the server runs, pages stay bundled.
                     await run(cli, ["live", "start", "--worktree", path], timeout: startTimeout,
-                              done: LiveWebStrings.started(path), in: window)
+                              done: WebDevOverride.isAllowed ? LiveWebStrings.started(path) : LiveWebStrings.startedButOff,
+                              in: window)
                 })
             }
             guard !registry.isCapturingRefusal else { return .refused(LiveWebStrings.pathRequired) }
@@ -55,6 +62,45 @@ enum LiveWebHandlers {
                 await run(cli, ["live", "stop"], timeout: .seconds(30), done: LiveWebStrings.stopped, in: window)
             })
         })
+        bindSwift(into: registry, context: context, bundled: bundled)
+    }
+
+    /// Start / Stop Swift Live Mode (docs/cmux-next/live-code.md): `cmux live start|stop --swift`,
+    /// detached, since the swap quits this app and starts the other build of its commit with every
+    /// session. Leo (2026-11-05): "there should likely be a way to switch it on and off for when
+    /// you're hot-building". Only a tagged DEV build switches; Labs > Live Code is user-only, so the
+    /// person's own click sets it here and any other caller leaves it to the script's confirmation.
+    private static func bindSwift(into registry: ActionRegistry, context: AppActionContext, bundled: BundledExecutable) {
+        let environment = ProcessInfo.processInfo.environment
+        let tagged = Bundle.main.bundleIdentifier?.hasPrefix("com.cmuxterm.app.debug.") == true
+        let tree = environment["CMUXTERM_REPO_ROOT"].flatMap { $0.isEmpty ? nil : $0 }
+        let refusal: @MainActor (Bool) -> String? = { on in
+            if bundled.known == nil { return LiveWebStrings.noCLI }
+            if !tagged { return LiveWebStrings.swiftNotTagged }
+            if tree == nil { return LiveWebStrings.swiftNoCheckout }
+            return context.services.liveCode.isLive == on ? (on ? LiveWebStrings.swiftAlreadyOn : LiveWebStrings.swiftAlreadyOff) : nil
+        }
+        for on in [true, false] {
+            registry.bindEffect(on ? swiftStartID : swiftStopID, unavailable: { refusal(on) }, effect: { invocation in
+                if let why = refusal(on) { return .refused(why) }
+                guard let cli = bundled.known, let tree else { return .refused(LiveWebStrings.noCLI) }
+                let window = context.activeWindow?.window
+                let byPerson = invocation.isPersonsOwnRun // a socket request may claim the user origin
+                let settings = context.services.settings
+                show(on ? LiveWebStrings.swiftStarting : LiveWebStrings.swiftStopping, in: window, duration: .seconds(20))
+                return .applied(result: {
+                    // Only a write that took skips the script's own confirmation.
+                    var set = false
+                    if byPerson {
+                        set = (try? await settings?.setSetting(at: CmuxConfigSnapshot.liveCodePath, to: .bool(on), by: .user)) != nil
+                    }
+                    var arguments = ["live", on ? "start" : "stop", "--swift", "--detach", "--worktree", tree]
+                    if set { arguments.append("--setting-done") }
+                    return await run(cli, arguments, timeout: .seconds(30),
+                                     done: on ? LiveWebStrings.swiftStarted : LiveWebStrings.swiftStopped, in: window)
+                })
+            })
+        }
     }
 
     /// Runs `cmux <arguments>` and replaces the working toast with `done` or the command's error.
@@ -114,10 +160,31 @@ enum LiveWebStrings {
         format("liveWeb.starting", "Starting the web UI dev server in %@…", (path as NSString).lastPathComponent)
     }
 
+    static var startedButOff: String {
+        text("liveWeb.startedButOff",
+             "The dev server is running, but cmux Live is off. Turn it on in Settings > General to see your edits.")
+    }
     static func started(_ path: String) -> String {
         format("liveWeb.started", "cmux now loads its web UI from %@. Save a file under webviews/ to see it change.",
                (path as NSString).lastPathComponent)
     }
 
-    static func failed(_ why: String) -> String { format("liveWeb.failed", "Live Web Reload: %@", why) }
+    static func failed(_ why: String) -> String { format("liveWeb.failed", "cmux Live: %@", why) }
+
+    static var swiftNotTagged: String {
+        text("liveSwift.notTagged", "Swift live mode switches a tagged DEV build. A NIGHTLY has no live code build of its commit to restart into yet.")
+    }
+    static var swiftNoCheckout: String {
+        text("liveSwift.noCheckout", "This build does not name the checkout it was built from, which builds its live code build.")
+    }
+    static var swiftAlreadyOn: String { text("liveSwift.alreadyOn", "Swift live mode is already on.") }
+    static var swiftAlreadyOff: String { text("liveSwift.alreadyOff", "Swift live mode is off.") }
+    static var swiftStarting: String { text("liveSwift.starting", "Starting Swift live mode…") }
+    static var swiftStopping: String { text("liveSwift.stopping", "Stopping Swift live mode…") }
+    static var swiftStarted: String {
+        text("liveSwift.started", "cmux restarts into the live code build when it is ready (the first time it builds it), keeping every session.")
+    }
+    static var swiftStopped: String {
+        text("liveSwift.stopped", "cmux restarts into the normal build, keeping every session.")
+    }
 }

@@ -26,7 +26,7 @@ import Testing
 
     /// A model on an active document (`SidebarDocPinnedGroupTests.projection`: a Pinned band above This Mac).
     static func withDocument(_ body: (SidebarModel) throws -> Void) rethrows {
-        let store = SidebarDocStore(remote: nil, mirror: nil)
+        let store = SidebarDocStore(remote: nil)
         store.shown = SidebarDocPinnedGroupTests.projection()
         let model = SidebarModel()
         model.docDrag = SidebarDocDrag(document: store, item: { key in
