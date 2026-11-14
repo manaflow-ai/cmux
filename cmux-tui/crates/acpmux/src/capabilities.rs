@@ -96,6 +96,8 @@ pub const CAPABILITIES: &[Capability] = &[
     // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
+    // `_acpmux/markRead`: mark a chat read without showing it (cmux's `chat.mark_read`).
+    Capability { id: "mark-read-v1", wire: &[method::MUX_MARK_READ] },
     // The session list as a row log (`hub/row_log.rs`): `session_changed` and a watch's list
     // carry `listSeq`/`listEpoch`, and `_acpmux/watch {afterSeq, listEpoch}` answers the rows
     // changed since, not the list. Older daemons ignore `afterSeq` and send the list.
@@ -118,6 +120,15 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
+    // Signing in enrolls this machine on the hub; signing out leaves only that join
+    // (`server/machine_enroll.rs`). A literal id, which the app's reference check reads.
+    Capability {
+        id: "machine-enroll-v1",
+        wire: &[method::MUX_MACHINE_ENROLL, method::MUX_MACHINE_LEAVE_IF_AUTO],
+    },
+    // The app reports only who is signed in; acpmux decides the enroll, its retry and the leave
+    // (`server/sign_in_follow.rs`). A literal id, which the app's reference check reads.
+    Capability { id: "machine-signed-in-v1", wire: &[method::MUX_MACHINE_SIGNED_IN] },
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
     Capability { id: SETTLED_ATTACH, wire: &[method::MUX_ATTACH] },
     Capability {

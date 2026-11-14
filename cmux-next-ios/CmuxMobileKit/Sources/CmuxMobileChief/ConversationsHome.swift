@@ -337,7 +337,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                         .padding(.top, 80)
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
-                        .listRowBackground(CmuxMobileBackdrop.listRow)
+                        .listRowBackground(theme.colors.bg.color)
                         .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("home.note.problem")
                 } else {
@@ -768,6 +768,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             case .create:
                 Button("Create Cloud Chief", action: startNewChief)
                     .accessibilityIdentifier("home.chief.create")
+            case .retry:
+                Button("Try Again") { sources.refresh() }
+                    .accessibilityIdentifier("home.chief.retry")
             case .turnOn, nil:
                 // Turn On is the off card's (``ChiefOffCardView``), above.
                 EmptyView()

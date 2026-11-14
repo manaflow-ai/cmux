@@ -12,6 +12,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { loadAppCatalogs, schemaType } from "./app-catalogs.ts"
 import { SchemaValidator } from "./json-schema.ts"
+import { createCmux } from "../js/src/cmux.ts"
 
 const here = new URL(".", import.meta.url).pathname
 const repo = join(here, "../../../..")
@@ -290,7 +291,8 @@ export function generate(): Record<string, string> {
     "coderouter.usage.get": { scope: "coderouter:read", class: "read" },
     // The Agent Memory app's search, from the agent memory index (optchat-chief agent-memory).
     "memory.search": { scope: "memory:read", class: "read" },
-    // The agent chats the sidebar shows (AgentChatAppOps in CmuxNextApps), for a customize section's thread list.
+    // The older name of chat.list for a customize section's thread list: the daemon answers it
+    // from the same chat index as chat.list (apps/routing.rs), shaped {chats: [...]}.
     "agent_chat.list": { scope: "agent_chat:read", class: "read" }
   }
   Object.assign(scopes, hostOps)
@@ -313,6 +315,13 @@ export function generate(): Record<string, string> {
     const result = op.source === "app" ? (op.output ? schemaType(op.output) : "unknown") : tsType(op.result)
     node.ops.push([parts.at(-1)!, `${doc}\n${ident(parts.at(-1)!)}: CmuxOp<${paramsType(op)}, ${result}>`])
   }
+  // `cmux.<name>` answers the runtime's own member first (js/src/cmux.ts createCmux), so a catalog
+  // family with a member's name (`theme.scheme.*`, `integrations.*`) is unreachable as
+  // `cmux.theme.scheme`; declaring it too made TypeScript type `cmux.theme` as the family. Leave
+  // it out here; those ops stay callable as `cmux.call("theme.scheme.convert", ...)`.
+  const runtimeMembers = new Set(Reflect.ownKeys(createCmux(() => undefined)).filter((k): k is string => typeof k === "string"))
+  for (const name of runtimeMembers) root.children.delete(name)
+  root.ops = root.ops.filter(([k]) => !runtimeMembers.has(k))
   const render = (t: Tree, indent: string): string => {
     const lines: string[] = []
     const keys = new Set([...t.ops.map(([k]) => k), ...t.children.keys()])

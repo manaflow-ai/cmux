@@ -869,6 +869,10 @@ export type AcpmuxActivity = {
     title: string;
     kind?: string;
     status: string;
+    /// A result whose call this view has not read (an older page holds it) and that shows
+    /// nothing on its own: kept so paging can join it to its call, and drawn and counted as
+    /// nothing until then (hiddenTools.ts `isCompletedPlumbingTool`).
+    awaitingCall?: true;
     inputSummary?: string;
     output?: string;
     /// A shell call's command line (`rawInput.command`), for its Shell block.
