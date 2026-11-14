@@ -132,18 +132,14 @@
         },
         "react-apps-base-check": {
           "exact": [
-            "web / react-apps-base-check (1)",
-            "web / react-apps-base-check (2)",
-            "web / react-apps-base-check (3)",
-            "web / react-apps-base-check (4)",
-            "web / react-apps-base-check (5)",
-            "web / react-apps-base-check (6)",
-            "web / react-apps-base-check (7)",
-            "web / react-apps-base-check (8)",
-            "web / react-apps-base-check (9)",
-            "web / react-apps-base-check (10)",
-            "web / react-apps-base-check (11)",
-            "web / react-apps-base-check (12)"
+            "web / react-apps-base-check"
+          ],
+          "prefixes": []
+        },
+        "react-apps-base-early": {
+          "exact": [
+            "web / react-apps-base-early (1)",
+            "web / react-apps-base-early (2)"
           ],
           "prefixes": []
         },

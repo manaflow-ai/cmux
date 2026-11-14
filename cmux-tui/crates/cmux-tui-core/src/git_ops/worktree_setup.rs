@@ -506,7 +506,7 @@ fn same_folder(left: &Path, right: &Path) -> bool {
 /// The text of `path` from `since` (or from where the last `limit` bytes
 /// start, if later) to its end, with that start and end.
 fn tail(path: &Path, since: u64, limit: u64) -> (String, u64, u64) {
-    let Ok(mut file) = File::open(path) else { return (String::new(), 0, 0) };
+    let Some(mut file) = open_own(path) else { return (String::new(), 0, 0) };
     let end = file.metadata().map_or(0, |metadata| metadata.len());
     let start = since.min(end).max(end.saturating_sub(limit));
     let mut bytes = Vec::new();
@@ -612,7 +612,8 @@ fn hold(_git_dir: &Path) -> Option<File> {
 /// holds the lock of the worktree whose git folder is `git_dir`.
 #[cfg(unix)]
 fn held(git_dir: &Path) -> bool {
-    let Ok(file) = File::open(git_dir.join(LOCK_FILE)) else { return false };
+    // A link or a named pipe in the lock's place is nobody's lock.
+    let Some(file) = open_own(&git_dir.join(LOCK_FILE)) else { return false };
     held_on(file)
 }
 
@@ -655,7 +656,41 @@ fn signal_group(pid: u32, signal: Signal) {
 fn signal_group(_pid: u32, _signal: Signal) {}
 
 fn read_status(git_dir: &Path) -> Option<Status> {
-    serde_json::from_slice(&fs::read(git_dir.join(STATUS_FILE)).ok()?).ok()
+    serde_json::from_slice(&read_own(&git_dir.join(STATUS_FILE))?).ok()
+}
+
+/// The bytes of a file that cmux keeps in a git folder ([`open_own`]).
+fn read_own(path: &Path) -> Option<Vec<u8>> {
+    let mut bytes = Vec::new();
+    open_own(path)?.read_to_end(&mut bytes).ok()?;
+    Some(bytes)
+}
+
+/// Opens a file that cmux keeps in a git folder (a setup's status, log and
+/// lock, the repository's ports), for a read ([`open_as_own`]).
+fn open_own(path: &Path) -> Option<File> {
+    open_as_own(OpenOptions::new().read(true), path)
+}
+
+/// Opens with `options` a file that cmux keeps in a git folder. The file is
+/// cmux's own: a link in its place is not followed, the open waits for
+/// nothing (a named pipe has no other end to wait for), and only a regular
+/// file is used (the open file is looked at, not its name).
+fn open_as_own(options: &mut OpenOptions, path: &Path) -> Option<File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    // No open here refuses a link: the look at the name is all there is.
+    #[cfg(not(unix))]
+    {
+        if fs::symlink_metadata(path).is_ok_and(|metadata| !metadata.is_file()) {
+            return None;
+        }
+    }
+    let file = options.open(path).ok()?;
+    file.metadata().ok()?.is_file().then_some(file)
 }
 
 fn write_status(path: &Path, status: &Status) -> std::io::Result<()> {
@@ -675,21 +710,31 @@ mod ports {
     use super::*;
 
     /// This process's lock, then the file lock every session host's
-    /// allocation for the repository takes (released when it closes).
+    /// allocation for the repository takes. The drop unlocks the file before
+    /// it closes (a child another thread forked meanwhile shares it until it
+    /// execs), then lets go of this process's lock.
     struct Lock {
         _guard: std::sync::MutexGuard<'static, ()>,
-        _file: Option<File>,
+        file: Option<File>,
+    }
+
+    impl Drop for Lock {
+        fn drop(&mut self) {
+            if let Some(file) = &self.file {
+                let _ = file.unlock();
+            }
+        }
     }
 
     fn lock(path: &Path) -> Lock {
         static LOCK: Mutex<()> = Mutex::new(());
         let guard = LOCK.lock().unwrap_or_else(PoisonError::into_inner);
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(path.with_extension("lock"))
-            .ok();
+        // No lock file is made through a link, and none is taken on a file
+        // that is not a regular one: the allocation then has this process's
+        // lock alone, as when the file cannot be made.
+        let mut options = OpenOptions::new();
+        options.create(true).truncate(false).write(true);
+        let file = open_as_own(&mut options, &path.with_extension("lock"));
         #[cfg(unix)]
         if let Some(file) = &file {
             use std::os::fd::AsRawFd as _;
@@ -699,7 +744,7 @@ mod ports {
                 libc::flock(file.as_raw_fd(), libc::LOCK_EX);
             }
         }
-        Lock { _guard: guard, _file: file }
+        Lock { _guard: guard, file }
     }
 
     /// The repository's port list, in its shared git folder (`git_dir` is a
@@ -713,10 +758,7 @@ mod ports {
     }
 
     fn load(path: &Path) -> BTreeMap<String, u16> {
-        fs::read(path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+        read_own(path).and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
     }
 
     fn save(path: &Path, ports: &BTreeMap<String, u16>) {
@@ -728,6 +770,26 @@ mod ports {
 
     fn key(root: &Path) -> String {
         root.to_string_lossy().into_owned()
+    }
+
+    #[cfg(all(test, unix))]
+    mod lock_tests {
+        use super::*;
+
+        /// An allocation lets go of the repository's port lock, also while a child the server
+        /// forked meanwhile has the descriptor: else every other session host's allocation for
+        /// the repository waits for that child.
+        #[test]
+        fn a_dropped_port_lock_is_free_while_a_forked_child_keeps_its_descriptor() {
+            let dir = crate::fork_tests::Scratch::new("worktree_ports");
+            let path = dir.path().join("cmux-worktree-ports.json");
+            let held = lock(&path);
+            let keeper = crate::fork_tests::Keeper::fork();
+            drop(held);
+            let free = crate::fork_tests::free(&path.with_extension("lock"));
+            drop(keeper);
+            assert!(free, "a dropped port lock stayed held through a forked child's copy");
+        }
     }
 
     pub(super) fn lookup(git_dir: &Path, root: &Path) -> Option<u16> {

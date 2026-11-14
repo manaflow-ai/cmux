@@ -27,9 +27,15 @@
   display: flex;
   align-items: center;
   flex: none;
+  gap: var(--ds-space-1);
 }
-.cv-subagents__stack > .cv-subagent-avatar + .cv-subagent-avatar {
-  margin-left: -8px;
+.cv-subagents .cv-subagent-avatar,
+.cv-subagent > .cv-subagent-avatar {
+  width: var(--cv-glyph-slot);
+  height: var(--cv-tool-row-height);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .cv-subagents__more {
   margin-left: var(--ds-space-1);
@@ -49,7 +55,7 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-weight: var(--weight-emphasis);
+  font-weight: normal;
 }
 .cv-subagent__state {
   overflow: hidden;
@@ -77,7 +83,7 @@
   box-shadow: 0 0 0 1px var(--cv-card-ring);
   color: var(--cv-text);
 }
-/* A listed subagent: one 48px line inside the list's border. */
+/* A listed subagent: one plain 48px row with its current action under its name. */
 .cv-subagent {
   box-sizing: border-box;
   height: 48px;
@@ -89,20 +95,11 @@
   font-size: var(--cv-font-size);
   color: var(--cv-text);
   font-variant-numeric: tabular-nums;
-  border-left: 1px solid var(--cv-card-ring);
-  border-right: 1px solid var(--cv-card-ring);
-}
-.cv-subagent[data-edge="first"],
-.cv-subagent[data-edge="only"] {
-  border-top: 1px solid var(--cv-card-ring);
-  border-top-left-radius: var(--grid-cards-radius);
-  border-top-right-radius: var(--grid-cards-radius);
+  border: 0;
+  border-radius: var(--ds-radius-control);
 }
 .cv-subagent[data-edge="last"],
 .cv-subagent[data-edge="only"] {
-  border-bottom: 1px solid var(--cv-card-ring);
-  border-bottom-left-radius: var(--grid-cards-radius);
-  border-bottom-right-radius: var(--grid-cards-radius);
   margin-bottom: var(--ds-space-2);
 }
 /* A listed subagent that opens its own view: the line is a button with a chevron. */
@@ -698,41 +695,12 @@ button.cv-subagent > :last-child {
   background: none;
   box-shadow: none;
 }
-.acpmux-running-tray[data-settled][data-card][data-surface="tint"] {
-  --acpmux-tray-fill: color-mix(in srgb, var(--agent-text) 5%, transparent);
-}
-.acpmux-running-tray[data-settled][data-card][data-surface="rim"] {
-  --acpmux-tray-fill: color-mix(in srgb, var(--agent-text) 2%, transparent);
-}
-/* A card over the composer is the composer's own glass, the popover level (composerStates.css: the
-   composer surface at 70%, or 50% over a see-through window, under the level's blur) with the tray's tint over it, so the transcript
-   never shows through its lines: the reply's footer icons read through a settled line that drew no
-   surface (Leo, 2026-11-02: "this running thing now looks mildly awkward"). It stays glass, never
-   opaque; Reduce Transparency gives it the composer's solid fill, as the card. */
+/* Match the composer's fill and frost without a second tint over the shared material. */
 .acpmux-running-tray[data-card] {
-  --acpmux-tray-glass: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-tint), transparent);
-  --acpmux-tray-frost: var(--ds-glass-popover-blur);
-  background:
-    linear-gradient(var(--acpmux-tray-fill, color-mix(in srgb, var(--agent-text) 8%, transparent)), var(--acpmux-tray-fill, color-mix(in srgb, var(--agent-text) 8%, transparent))),
-    var(--acpmux-tray-glass);
+  --acpmux-tray-frost: var(--acpmux-stack-backdrop);
+  background: var(--acpmux-stack-tint);
   -webkit-backdrop-filter: var(--acpmux-tray-frost);
   backdrop-filter: var(--acpmux-tray-frost);
-}
-:root[data-cmux-see-through] .acpmux-running-tray[data-card] {
-  --acpmux-tray-glass: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-art-tint), transparent);
-  --acpmux-tray-frost: var(--ds-glass-popover-blur);
-}
-:root[data-reduce-transparency] .acpmux-running-tray[data-card] {
-  /* glass-opaque-allow: the Reduce Transparency fill only, as the composer card's */
-  --acpmux-tray-glass: var(--acpmux-composer-solid);
-  --acpmux-tray-frost: none;
-}
-@media (prefers-reduced-transparency: reduce) {
-  .acpmux-running-tray[data-card] {
-    /* glass-opaque-allow: the Reduce Transparency fill only, as the composer card's */
-    --acpmux-tray-glass: var(--acpmux-composer-solid);
-    --acpmux-tray-frost: none;
-  }
 }
 /* The header's mark is off by default (trayHead.experiment.ts `bare`, Leo, 2026-11-01: "why did you
    guys not remove the 3/4"): its slot stays, unseen, so the counts keep the text column. */
@@ -755,7 +723,12 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__stack-mark {
   flex: none;
   display: inline-flex;
+  align-items: center;
+  line-height: 0;
   color: var(--agent-muted);
+}
+.acpmux-running-tray__stack-mark svg {
+  display: block;
 }
 /* The header (Leo's collapsed strip, 2026-10-31: the time floated in a column of its own far from
    the words it belongs to): the counts take only their width, the elapsed time follows them as quiet
@@ -1266,6 +1239,11 @@ button.cv-subagent > :last-child {
 .cv-subagent-done-row > .cv-subagent-done__trail {
   flex: none;
   margin-inline-start: auto;
+}
+/* Started task names use the available sentence width instead of the shared tag's 40% cap. */
+.cv-subagent-started .cv-agent-activity__sentence > .cv-agent-tag {
+  flex: 0 1 auto;
+  max-width: none;
 }
 /* The name chip takes the room the line has and is cut, with an ellipsis, only at the row's edge,
    never at AgentTag.css's 40% cap (#29754); the words before it keep their width. A block box so

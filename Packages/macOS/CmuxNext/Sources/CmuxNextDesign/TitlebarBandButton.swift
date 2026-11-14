@@ -80,6 +80,9 @@ public final class TitlebarBandButton: ClickableButton {
     override public func layout() {
         super.layout()
         renderSymbol()
+        // The hover fill is the button's own layer: the buttons' one corner, a tab's, which keeps its ratio at every
+        // density (Lucas 2026-11-13: "same roundness (proportionally)"; Lawrence 2026-11-12: buttons round as tabs).
+        layer?.cornerRadius = Metrics.buttonCornerRadius
         let size = min(Metrics.space3, bounds.height)
         badgeLabel.frame = NSRect(x: bounds.maxX - size, y: bounds.maxY - size, width: size, height: size)
     }

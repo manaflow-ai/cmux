@@ -1,4 +1,4 @@
-import { errorMessage, isHostRefusal, startCancelled } from "./transportErrors";
+import { errorMessage, isHostRefusal, startCancelled, switchFailedText } from "./transportErrors";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
@@ -464,7 +464,7 @@ export class HarnessSwitch {
         if (this.modelPick !== pick) return false;
         this.modelPick = undefined;
         this.changed();
-        this.handlers.notice?.(t("switch.modelFailed", { model, reason: errorText(error) || "?" }));
+        this.handlers.notice?.(switchFailedText("model", model, error));
         return false;
       },
     );
@@ -490,7 +490,7 @@ export class HarnessSwitch {
         if (this.configPick !== pick) return;
         this.configPick = undefined;
         this.changed();
-        this.handlers.notice?.(t("switch.modelFailed", { model: value, reason: errorText(error) || "?" }));
+        this.handlers.notice?.(switchFailedText("model", value, error));
       });
       return true;
     }
@@ -701,7 +701,7 @@ export class HarnessSwitch {
       applied.push(
         ticket("mode")
           .then((t) => port.setMode(mode, t))
-          .catch((error) => this.handlers.notice?.(t("switch.modeFailed", { mode, reason: errorText(error) || "?" }))),
+          .catch((error) => this.handlers.notice?.(switchFailedText("mode", mode, error))),
       );
     for (const [configId, value] of Object.entries(options)) {
       const pick = offered ? heldOptionPick(configId, value, offered) : { configId, value };
@@ -770,7 +770,7 @@ export class HarnessSwitch {
   }
 
   private refused(model: string, error: unknown): void {
-    this.handlers.notice?.(t("switch.modelFailed", { model, reason: errorText(error) || "?" }));
+    this.handlers.notice?.(switchFailedText("model", model, error));
   }
 
   private fail(intent: Intent, error: unknown): void {
