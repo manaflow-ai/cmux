@@ -2,6 +2,7 @@ import CmuxAgentQuestion
 import CmuxConnectivityTelemetry
 import CmuxMobileAgentChat
 import CmuxMobileArtifacts
+import enum CmuxMobileModel.UserFacingError
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -1474,6 +1475,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         if let error = error as? AcpmuxConnection.RPCError {
             // The chat clears this notice by its exact text when full access turns on.
             if error.reason == "remote.full_access_required" { return AgentChatStore.fullAccessOffNotice }
+            // An agent's own refusal ("model unavailable") says what is wrong in the chat;
+            // a dump (a type name, JSON) or an empty message falls through to the type's copy.
+            let raw = error.message.trimmingCharacters(in: .whitespacesAndNewlines)
+            if error.reason == nil, !raw.hasPrefix("no pending permission"), UserFacingError.displayable(raw) != nil {
+                return TurnFailureCopy.plain(raw)
+            }
             // RPCError's copy (reasons, "Already answered", an agent's JSON error) lives on the type.
             if let text = error.errorDescription { return text }
         }

@@ -45,6 +45,10 @@ import Testing
         #expect(RPC(code: -32603, message: "internal error", reason: nil).errorDescription == "Your Mac couldn't do that. Try again.")
         #expect(RPC(code: -32000, message: "paced", reason: "list.paced", retryAfterMs: 500).errorDescription
             == "Your Mac is busy. Try again in a moment.")
+        // In the chat, an agent's own refusal says what is wrong; a dump never shows.
+        #expect(AcpmuxSessionSource.message(RPC(code: -32000, message: "model unavailable", reason: nil)) == "model unavailable")
+        #expect(AcpmuxSessionSource.message(RPC(code: -32000, message: "LinkError(code: x)", reason: nil))
+            == "Your Mac couldn't do that. Try again.")
         #expect(UserFacingError.message(RPC(code: -32603, message: "internal error", reason: nil)) == "Your Mac couldn't do that. Try again.")
     }
 
