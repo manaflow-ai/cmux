@@ -3381,6 +3381,34 @@ class IOSRouting(unittest.TestCase):
         self.assertEqual((ios_pool.charged_jobs(kit), ios_pool.charged_sim_jobs(kit)), (1, 1))
         self.assertEqual(ios_pool.charged_sim_jobs(kit, ios_pool.Placements(frozenset()), NOW), 0)
 
+    def test_a_review_gate_run_holds_its_two_phone_walks(self):
+        # ios-review-gate.yml walks iPhone and Duo on owned simulator minis;
+        # the iPad leg holds the agent pass's token and stays on Blacksmith.
+        self.assertIn("ios-review-gate.yml", ios_pool.IOS_WORKFLOWS)
+        gate = {"id": 1, "display_title": "App Review gate · feat-cmux-next · appstore", "run_attempt": 1,
+                "path": ".github/workflows/ios-review-gate.yml",
+                "created_at": pool.iso(NOW - dt.timedelta(minutes=10))}
+        self.assertEqual((ios_pool.charged_jobs(gate), ios_pool.charged_sim_jobs(gate)), (2, 2))
+        self.assertEqual(ios_pool.charged_sim_jobs(gate, ios_pool.Placements(frozenset()), NOW), 0)
+        self.assertEqual(ios_pool.sim_jobs("review-gate", None), 2)
+        self.assertEqual(ios_pool.run_jobs("review-gate"), 2)
+        workflow = yaml.safe_load((WORKFLOWS / "ios-review-gate.yml").read_text())
+        self.assertEqual(workflow["jobs"]["runner"].get("name", "runner"), ios_pool.PICKER_JOB)
+        name = workflow["jobs"]["walk"]["name"].replace("${{ needs.plan.outputs.lane }}", "appstore")
+        legs = [{"name": name.replace("${{ matrix.family }}", family), "labels": [MINI, IOS_SIM],
+                 "status": "in_progress", "runner_name": f"mini-{family}-glaeda"} for family in ("iphone", "duo")]
+        ipad = {"name": "Reviewer path (appstore, ipad)", "labels": ["blacksmith-6vcpu-macos-26"], "status": "queued"}
+        # Walking: each leg holds its mini's simulator; the iPad leg holds nothing owned.
+        self.assertEqual(ios_pool.hold(gate, [*legs, ipad], MINI, None, NOW),
+                         ios_pool.Hold(0, 0, frozenset({"mini-iphone", "mini-duo"})))
+        for leg in legs:
+            leg.update(status="completed", conclusion="success")
+        self.assertEqual(ios_pool.hold(gate, [*legs, ipad], MINI, None, NOW), ios_pool.Hold())
+        # Queued on the owned labels: a machine and a simulator each.
+        for leg in legs:
+            leg.update(status="queued", conclusion=None, runner_name=None)
+        self.assertEqual(ios_pool.hold(gate, [*legs, ipad], MINI, None, NOW), ios_pool.Hold(2, 2))
+
     def test_kit_workflow_wiring_and_simulator_hold(self):
         workflow = yaml.safe_load((WORKFLOWS / "cmux-next-ios-kit.yml").read_text())
         picker = workflow["jobs"]["runner"]
