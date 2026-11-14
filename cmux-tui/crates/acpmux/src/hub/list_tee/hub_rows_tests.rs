@@ -225,8 +225,13 @@ async fn a_changed_hub_row_is_one_submit_and_an_unchanged_heartbeat_none() {
 
     let marks = state.marks.load(Ordering::Relaxed);
     let seq = index.seq();
+    let kept = [v1.mesh_book_row("machine-b", "b-1"), v1.mesh_book_row("machine-b", "b-2")];
     read_book(&v1, &[("machine-b", &[("b-1", "waiting"), ("b-2", "ready")])]);
     assert!(!state.has_pending(), "a heartbeat that changes nothing marks nothing");
+    for (row, id) in kept.iter().zip(["b-1", "b-2"]) {
+        let now = v1.mesh_book_row("machine-b", id).unwrap();
+        assert!(Arc::ptr_eq(row.as_ref().unwrap(), &now), "an unchanged read keeps row {id}");
+    }
     let index = turn(&v1, index, &state, false).await;
     assert_eq!(counts(&state), (0, 0));
     assert_eq!(state.marks.load(Ordering::Relaxed), marks);

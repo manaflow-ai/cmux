@@ -17,9 +17,33 @@ const MAX_BOOK_ROWS: usize = 2048;
 #[derive(Default)]
 pub(crate) struct MeshBook {
     /// `HOST/ID` to the hub's fields of it (`row_of`) and its row.
-    rows: BTreeMap<String, (Value, Arc<RemoteSession>)>,
+    rows: BTreeMap<String, (Bare, Arc<RemoteSession>)>,
     /// Each machine listed, with its newest heartbeat (ms since the epoch).
     hosts: BTreeMap<String, u64>,
+    /// The book reads so far: a row no read lists now has an older one (`Bare::read`).
+    reads: u64,
+}
+
+/// The fields a hub row is built from beside its key (`row_of`), and the last read that listed
+/// it. A heartbeat that changes nothing is told by these, not by building each row again: at
+/// 2,048 rows that build took 2.65 ms a read, and the next allocation, whoever made it, paid
+/// another 100 us for its frees (`list_tee/gates.rs`, `hub_row_drain_steps`, 2026-11-14).
+struct Bare {
+    name: String,
+    harness: String,
+    state: String,
+    read: u64,
+}
+
+impl Bare {
+    fn of(s: &BookSession, read: u64) -> Self {
+        Self { name: s.name.clone(), harness: s.harness.clone(), state: s.state.clone(), read }
+    }
+
+    /// Whether `s` builds the row this was built from.
+    fn builds(&self, s: &BookSession) -> bool {
+        self.name == s.name && self.harness == s.harness && self.state == s.state
+    }
 }
 
 /// The machines and sessions of `book` this daemon lists: those of the same person (`own_user`)
@@ -93,35 +117,43 @@ impl Hub {
         let now = now_ms();
         let (gone, changed, moved, came, left) = {
             let mut book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
-            let mut rows = BTreeMap::new();
+            book.reads = book.reads.wrapping_add(1);
+            let read = book.reads;
             let mut changed = Vec::new();
+            // A row the book lists as it was keeps its entry and its key: an unchanged read
+            // allocates and frees nothing per row.
+            let mut key = String::new();
             for s in &sessions {
-                let key = format!("{}/{}", s.host, s.session_id);
-                let bare = row_of(s);
-                let old = book.rows.get(&key).filter(|(was, _)| *was == bare);
-                let row = match old {
-                    Some((_, old)) => old.clone(),
-                    None => {
-                        let mut fields = bare.clone();
-                        fields.set("updatedAt", json!(now));
-                        let summary = Self::remote_summary(&s.host, fields);
-                        let row = PeerRow::new(&summary);
-                        changed.push((s.host.clone(), summary));
-                        Arc::new(RemoteSession {
-                            peer: s.host.clone(),
-                            summary: row,
-                            receipt: SessionReceipt::new(&s.host, &s.session_id, None, 0),
-                        })
-                    }
-                };
-                rows.insert(key, (bare, row));
+                key.clear();
+                key.push_str(&s.host);
+                key.push('/');
+                key.push_str(&s.session_id);
+                if let Some((was, _)) = book.rows.get_mut(key.as_str())
+                    && was.builds(s)
+                {
+                    was.read = read;
+                    continue;
+                }
+                let mut fields = row_of(s);
+                fields.set("updatedAt", json!(now));
+                let summary = Self::remote_summary(&s.host, fields);
+                let row = PeerRow::new(&summary);
+                changed.push((s.host.clone(), summary));
+                let row = Arc::new(RemoteSession {
+                    peer: s.host.clone(),
+                    summary: row,
+                    receipt: SessionReceipt::new(&s.host, &s.session_id, None, 0),
+                });
+                book.rows.insert(key.clone(), (Bare::of(s, read), row));
             }
-            let gone: Vec<(String, Value)> = book
-                .rows
-                .iter()
-                .filter(|(key, _)| !rows.contains_key(*key))
-                .map(|(_, (_, r))| (r.peer.clone(), r.summary.value()))
-                .collect();
+            let mut gone: Vec<(String, Value)> = Vec::new();
+            book.rows.retain(|_, (bare, r)| {
+                let listed = bare.read == read;
+                if !listed {
+                    gone.push((r.peer.clone(), r.summary.value()));
+                }
+                listed
+            });
             // A heartbeat's time alone changes no row: only a machine coming or going does.
             let moved = !book.hosts.keys().eq(hosts.keys());
             let (came, left) = if moved {
@@ -133,7 +165,6 @@ impl Hub {
             } else {
                 Default::default()
             };
-            book.rows = rows;
             book.hosts = hosts;
             (gone, changed, moved, came, left)
         };
