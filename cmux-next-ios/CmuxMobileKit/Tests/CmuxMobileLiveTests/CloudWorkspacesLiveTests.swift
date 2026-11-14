@@ -840,15 +840,14 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
     /// answers after a newer poll keeps the newer list, but still shows its plan and snapshots.
     @Test(.timeLimit(.minutes(1))) func aPageReadOvertakenByAPollStillShowsItsPlanAndSnapshots() async {
         let entered = OpsLog()
-        let gate = DispatchSemaphore(value: 0)
         ServiceStub.install(host: host) { request in
             switch Self.op(request) {
             case "cloud.machine.list":
                 if !entered.all.contains("page") {
-                    // The page's read (the first): held until the poll has answered.
+                    // The page's read (the first): its reply is held until the poll has answered
+                    // (held, not blocked: a blocked stub stalls the session's other requests).
                     entered.add("page")
-                    gate.wait()
-                    return .init(body: Self.list([("vm_o", "paused")]))
+                    return .init(body: Self.list([("vm_o", "paused")]), held: true)
                 }
                 return .init(body: Self.list([("vm_o", "running")]))
             case "cloud.plan.get":
@@ -866,7 +865,7 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         await settle { entered.all.contains("page") }
         // The poll begins later and answers first.
         #expect(await cloud.model.loadMachines())
-        gate.signal()
+        ServiceStub.release(host: host)
         await page.value
         #expect(cloud.model.machine("vm_o")?.status == .running, "the newer poll's list stands")
         #expect(cloud.model.plan?.planID == "team", "the page's plan still applies")
