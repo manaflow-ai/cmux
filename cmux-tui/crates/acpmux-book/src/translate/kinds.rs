@@ -292,6 +292,10 @@ pub(super) const UPDATES: &[Kind] = &[
     page("session_info_update"),
     code("subagent_progress", "a sub row (State::sub)"),
     not("subagent_state_update", LIVE),
+    not(
+        "task_progress",
+        "Claude's own task line, which the hub writes as subagent_progress (claude_stdio/workflows.rs)",
+    ),
     code("tool_call", "a tool row (State::tool)"),
     code("tool_call_update", "a tool row (State::tool)"),
     page("usage_update"),
