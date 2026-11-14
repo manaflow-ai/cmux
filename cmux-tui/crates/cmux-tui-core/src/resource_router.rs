@@ -7,8 +7,8 @@ use cmux_json::JsonSet as _;
 
 mod auxiliary;
 mod browser_engine;
-mod chats;
 pub(crate) mod browser_import;
+mod chats;
 mod close_value;
 mod config;
 mod content;
