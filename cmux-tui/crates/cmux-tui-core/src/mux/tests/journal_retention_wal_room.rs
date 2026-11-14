@@ -12,6 +12,9 @@
 //! reader's snapshot holds (a long read of the registry does that; so do
 //! requests that write faster than the checkpoint copies). No test times
 //! anything.
+//!
+//! The last test asks the room rule itself at the limit, on a database of
+//! its own with no session.
 #![cfg(unix)]
 
 use super::journal_retention_bound::{RECORDS, head, write_through};
@@ -221,5 +224,101 @@ fn the_retention_pass_takes_a_copied_wal_past_its_limit_with_no_request() {
     assert_eq!(
         counted_at_idle, counted,
         "a tick with no segment to delete asked for WAL room and was counted"
+    );
+}
+
+/// A guard for the room rule at the limit itself (the rule had these
+/// answers before this test: no red run exists for it). SQLite cuts a WAL
+/// file that restarts to exactly `journal_size_limit`, so a registry whose
+/// WAL was past the limit once has a `-wal` file of exactly
+/// `WAL_SIZE_LIMIT_BYTES` at rest. That file is room: with each frame
+/// copied, and also with frames that a reader holds (the size compare is
+/// "at or below"). One more byte, with frames that a reader holds, is no
+/// room.
+#[test]
+fn a_wal_file_of_exactly_its_limit_is_room_and_one_more_byte_with_frames_held_is_not() {
+    use crate::workspace_registry::wal_durability::{WalDurability, WalRoom};
+    let wait = std::time::Duration::from_secs(30);
+    let dir = std::env::temp_dir().join(format!(
+        "cmux-retention-wal-at-its-limit-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("r.sqlite");
+    let wal = dir.join("r.sqlite-wal");
+    let wal_len = || std::fs::metadata(&wal).unwrap().len();
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    connection
+        .execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; CREATE TABLE t(v);")
+        .unwrap();
+    let durability = WalDurability::attach(&connection, &path, None, false);
+    let snapshot = || {
+        let reader = rusqlite::Connection::open(&path).unwrap();
+        reader.execute_batch("BEGIN").unwrap();
+        let _: i64 = reader.query_row("SELECT COUNT(*) FROM t", [], |row| row.get(0)).unwrap();
+        reader
+    };
+    let megabyte = vec![7u8; 1024 * 1024];
+
+    // The setup: a WAL file past the limit that a reader held, then each
+    // frame copied, then the commit that restarts the WAL: SQLite cuts the
+    // file to the limit.
+    let reader = snapshot();
+    for _ in 0..(WAL_SIZE_LIMIT_BYTES / megabyte.len() as u64 + 8) {
+        connection.execute("INSERT INTO t VALUES (?1)", [&megabyte]).unwrap();
+    }
+    let past = wal_len();
+    reader.execute_batch("COMMIT").unwrap();
+    drop(reader);
+    let copied = durability.checkpoint_and_wait(wait);
+    connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
+    let at_rest = wal_len();
+
+    // Exactly the limit, each frame copied.
+    let room_at_rest = durability.checkpoint_and_wait(wait);
+    let after_the_look = wal_len();
+
+    // Exactly the limit, with 8 MiB of frames that a reader holds.
+    let reader = snapshot();
+    for _ in 0..8 {
+        connection.execute("INSERT INTO t VALUES (?1)", [&megabyte]).unwrap();
+    }
+    let with_frames_held = wal_len();
+    let room_with_frames_held = durability.checkpoint_and_wait(wait);
+
+    // One more byte, the same frames held.
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&wal)
+        .unwrap()
+        .set_len(WAL_SIZE_LIMIT_BYTES + 1)
+        .unwrap();
+    let one_more_byte = durability.checkpoint_and_wait(wait);
+    reader.execute_batch("COMMIT").unwrap();
+    drop(reader);
+    drop(connection);
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(past > WAL_SIZE_LIMIT_BYTES, "the setup: the held WAL file is only {past} bytes");
+    assert_eq!(copied, WalRoom::Room, "the setup: the look after the reader ended");
+    assert_eq!(
+        (at_rest, after_the_look, with_frames_held),
+        (WAL_SIZE_LIMIT_BYTES, WAL_SIZE_LIMIT_BYTES, WAL_SIZE_LIMIT_BYTES),
+        "the setup: the WAL file is at its limit after its restart, after the look and with \
+         8 MiB of new frames"
+    );
+    assert_eq!(room_at_rest, WalRoom::Room, "a WAL file of exactly its limit, each frame copied");
+    assert_eq!(
+        room_with_frames_held,
+        WalRoom::Room,
+        "a WAL file of exactly its limit with frames that a reader holds"
+    );
+    assert!(
+        matches!(
+            one_more_byte,
+            WalRoom::Full { looked: true, file_bytes, uncopied_frames }
+                if file_bytes == WAL_SIZE_LIMIT_BYTES + 1 && uncopied_frames > 0
+        ),
+        "one byte past the limit with frames that a reader holds: {one_more_byte:?}"
     );
 }
