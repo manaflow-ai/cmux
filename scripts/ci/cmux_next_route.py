@@ -570,7 +570,6 @@ import re  # noqa: E402 - the Cargo and Xcode project readers below
 CMUX_TUI = "cmux-tui/"
 # The routing replay (cmux_next_route_replay.py) accepts dropped native and scheme tiers with this reason.
 NO_SWIFT_COMPILE_REASON = "(no Swift compile reads it)"
-APP_FFI_CRATE = "cmux-tui/crates/cmux-app-ffi"
 APP_PROJECT = "cmux.xcodeproj/project.pbxproj"
 CARGO_PATH = re.compile(r'path\s*=\s*"([^"]+)"')
 CARGO_WORKSPACE_DEP = re.compile(r'^\s*([A-Za-z0-9_-]+)\s*(?:\.workspace\s*=\s*true|=\s*\{[^}\n]*\bworkspace\s*=\s*true)', re.M)
@@ -580,74 +579,56 @@ PHASE_INPUT = re.compile(r'"\$\(SRCROOT\)/(cmux-tui/[^"]+)"')
 _READ: dict = {}  # (reader, root) -> its paths, read once a run
 
 
-def app_ffi_inputs(root: Path) -> list[str]:
+def _app_ffi_listed(root: Path) -> tuple[list[str], list[str]]:
+    """(the inputs, the excluded paths) of the app FFI walk of ROOT's HEAD: app_ffi_pin.listed, the one definition, which
+    check-app-ffi-pin.sh lists (--list-inputs, --list-excluded) and base_red_excuse.py reads too. A walk that refuses
+    counts all of cmux-tui, the inputs above the crates and the files a source names outside them
+    (app_ffi_pin.REFUSED_INPUTS) and excludes nothing: the
+    routes then run more, never less, and the pin check refuses with the reason. That is the router's own side of a
+    refused walk (lead decision 2, 2026-11-11), which build_class.py, ci_apply.py and hot-apply.py take through it;
+    base_red_excuse.py takes the other (ffi_input: no path is an input)."""
     if ("ffi", root) not in _READ:
-        _READ["ffi", root] = _app_ffi_inputs(root)
+        import app_ffi_pin  # noqa: PLC0415 - scripts/ci, beside this file
+        try:
+            _READ["ffi", root] = app_ffi_pin.listed(root)
+        except (app_ffi_pin.Unresolved, OSError) as why:
+            print(f"warning: the app FFI inputs cannot be listed ({why}); every cmux-tui path counts as one",
+                  file=sys.stderr)
+            _READ["ffi", root] = (list(app_ffi_pin.REFUSED_INPUTS), [])
     return _READ["ffi", root]
 
 
+def app_ffi_inputs(root: Path) -> list[str]:
+    """The CCmuxAppFFI sources, the only Rust the Swift compiles link (_app_ffi_listed): each crate cmux-app-ffi
+    reaches, a directory with a trailing /, every path a scanned source names, the cargo configs and toolchain files
+    above the crates, build-app-ffi.sh and the release workflow. app_ffi_excluded lists what inside them is not one. A
+    change to one also needs a new pin (app-ffi-pin.json, which runs every tier)."""
+    return [p + "/" if (root / p).is_dir() else p for p in _app_ffi_listed(root)[0]]
+
+
 def app_ffi_excluded(root: Path) -> list[str]:
-    """The FFI crates' tests/, benches/ and examples/ that Cargo never builds into the library: not app FFI inputs.
-    One definition, app_ffi_pin.not_built, read by check-app-ffi-pin.sh (--list-excluded) and base_red_excuse.py too."""
-    if ("ffi-excluded", root) not in _READ:
-        import app_ffi_pin  # noqa: PLC0415 - scripts/ci, beside this file
-        _READ["ffi-excluded", root] = app_ffi_pin.not_built(root, app_ffi_inputs(root))
-    return _READ["ffi-excluded", root]
+    """What inside app_ffi_inputs is not an input (check-app-ffi-pin.sh --list-excluded): each crate's tests/, benches/
+    and examples/ that nothing built names, and the reviewed TEST_ONLY files (app_ffi_pin.py)."""
+    return list(_app_ffi_listed(root)[1])
 
 
 def app_ffi_input(root: Path, path: str) -> bool:
     """PATH reaches the CCmuxAppFFI archive: under app_ffi_inputs and outside app_ffi_excluded."""
     import app_ffi_pin  # noqa: PLC0415 - scripts/ci, beside this file
-    return app_ffi_pin.is_input(path, app_ffi_inputs(root), app_ffi_excluded(root))
+    return app_ffi_pin.is_input(path, *_app_ffi_listed(root))
 
 
-def app_ffi_pathspecs(root: Path) -> list[str]:
-    """app_ffi_inputs, then app_ffi_excluded as git exclude pathspecs: what `git diff` compares."""
-    return list(app_ffi_inputs(root)) + [f":(exclude,literal){d}" for d in app_ffi_excluded(root)]
+def app_ffi_pathspecs(root: Path, *revs: str) -> list[str]:
+    """The pathspecs check-app-ffi-pin.sh compares between the commits REVS (the union of their walks, app_ffi_pin.merge;
+    the inherited view of cmux-tui/Cargo.toml it compares itself). Raises app_ffi_pin.Unresolved (a ValueError)."""
+    import app_ffi_pin  # noqa: PLC0415 - scripts/ci, beside this file
+    return app_ffi_pin.merge([app_ffi_pin.walk(root, rev) for rev in revs or ("HEAD",)])[1]
 
 
 def scheme_phase_rust_inputs(root: Path) -> list[str]:
     if ("scheme", root) not in _READ:
         _READ["scheme", root] = _scheme_phase_rust_inputs(root)
     return _READ["scheme", root]
-
-
-def _app_ffi_inputs(root: Path) -> list[str]:
-    """The CCmuxAppFFI sources, the only Rust the Swift compiles link: cmux-app-ffi and every crate it
-    reaches through Cargo path dependencies (its own or the workspace's), the toolchain and the build
-    script, as scripts/cmux-next/check-app-ffi-pin.sh derives them, plus the swift test job's crates. A
-    change to one also needs a new pin (app-ffi-pin.json, which runs every tier)."""
-    workspace: dict[str, str] = {}
-    try:
-        manifest = (root / "cmux-tui/Cargo.toml").read_text(encoding="utf-8")
-        for line in manifest.splitlines():
-            named = re.match(r'\s*([A-Za-z0-9_-]+)\s*=\s*\{[^}]*\bpath\s*=\s*"([^"]+)"', line)
-            if named:
-                workspace[named.group(1)] = "cmux-tui/" + named.group(2).strip("/")
-    except OSError:
-        pass
-    seen: set[str] = set()
-    pending = [APP_FFI_CRATE]
-    while pending:
-        crate = pending.pop()
-        if crate in seen or not (root / crate / "Cargo.toml").is_file():
-            continue
-        seen.add(crate)
-        text = (root / crate / "Cargo.toml").read_text(encoding="utf-8")
-        found = [(Path(crate) / dep).as_posix() for dep in CARGO_PATH.findall(text)]
-        found += [workspace[name] for name in CARGO_WORKSPACE_DEP.findall(text) if name in workspace]
-        for dep in found:
-            resolved = (root / dep).resolve()
-            try:
-                relative = resolved.relative_to(root.resolve()).as_posix()
-            except ValueError:
-                continue
-            if (resolved / "Cargo.toml").is_file():
-                pending.append(relative)
-    prefixes = {crate + "/" for crate in seen}
-    prefixes |= {p for p in SWIFT_JOB_INPUTS if p.startswith(CMUX_TUI)}
-    prefixes |= {"cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh"}
-    return sorted(prefixes)
 
 
 def _scheme_phase_rust_inputs(root: Path) -> list[str]:
@@ -1058,8 +1039,8 @@ def pure_ffi_repin(root: Path, changed: list[str] | None, base_rev: str | None) 
       block (app_ffi_pin.py), the pin moved, and rewriting the base's pin to the head's release sha and checksum
       gives the head's two texts byte for byte: the pin and the loader's checksum line are the only change;
     - the release's source commit (its tag is cmux-app-ffi-<sha>, and the publish job checks SOURCE_SHA is that
-      sha) has HEAD's FFI sources: `git diff <sha> HEAD` over app_ffi_pathspecs, a superset of the paths
-      check-app-ffi-pin.sh compares, is empty. A shallow checkout fetches that one commit.
+      sha) has HEAD's FFI sources: `git diff <sha> HEAD` over app_ffi_pathspecs(root, sha, HEAD), the union of the
+      two commits' walks that check-app-ffi-pin.sh compares, is empty. A shallow checkout fetches that one commit.
 
     Anything it cannot read (no base, a git or network error, a pin that is not canonical) is not a re-pin."""
     if not base_rev or sorted(changed or []) != REPIN_PATHS:
@@ -1086,7 +1067,7 @@ def pure_ffi_repin(root: Path, changed: list[str] | None, base_rev: str | None) 
             shallow = git("rev-parse", "--is-shallow-repository").stdout.strip() == "true"
             if git("fetch", "--quiet", "--no-tags", *(["--depth=1"] if shallow else []), "origin", sha).returncode:
                 return None
-        if git("diff", "--quiet", sha, "HEAD", "--", *app_ffi_pathspecs(root)).returncode != 0:
+        if git("diff", "--quiet", sha, "HEAD", "--", *app_ffi_pathspecs(root, sha, "HEAD")).returncode != 0:
             return None
     except (OSError, ValueError, subprocess.SubprocessError):  # app_ffi_pin.NotCanonical is a ValueError
         return None

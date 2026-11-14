@@ -6,6 +6,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
@@ -61,6 +62,17 @@ class BuildClassTests(unittest.TestCase):
         self.assertEqual(classify(ROOT, [])["class"], "none")
         self.assertEqual(classify(ROOT, [DAEMON_RS])["class"], "blaze")
         self.assertEqual(classify(ROOT, [DAEMON_RS, "cmux-tui/Cargo.lock"])["class"], "app")
+
+    def test_a_refused_app_ffi_walk_builds_the_app(self):
+        # Lead decision 2 (2026-11-11): build_class reads the walk through the router, whose side of a refused walk is
+        # "an input": every cmux-tui path is then a CCmuxAppFFI source, so a daemon-only change builds the app too.
+        import app_ffi_pin
+        import cmux_next_route
+        with mock.patch.object(app_ffi_pin, "listed",
+                               side_effect=app_ffi_pin.Unresolved("a Rust string that does not end")), \
+                mock.patch.dict(cmux_next_route._READ, clear=True):
+            self.assertEqual(classify_path(ROOT, DAEMON_RS), ("app", "a CCmuxAppFFI source: the Swift compiles link it"))
+            self.assertEqual(classify(ROOT, [DAEMON_RS])["class"], "app")
 
 
 if __name__ == "__main__":
