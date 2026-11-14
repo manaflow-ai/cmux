@@ -212,17 +212,20 @@ pub(crate) fn name_probe(summary: &Summary) -> Option<Value> {
     if name.as_str().is_none_or(|n| n.ends_with('…')) {
         return None;
     }
-    let mut probe = json!({"name": name, "sessionId": summary.chat_id});
+    let mut probe = serde_json::Map::new();
+    probe.insert("name".into(), name);
+    probe.insert("sessionId".into(), json!(summary.chat_id));
     if summary.origin == "local" {
         // This daemon's rows are `local/ID` (`SessionReceipt::qualified_id`).
-        probe["qualifiedSessionId"] =
-            json!(format!("{}/{}", crate::session_identity::LOCAL_HOST_ID, summary.chat_id));
+        let qualified = format!("{}/{}", crate::session_identity::LOCAL_HOST_ID, summary.chat_id);
+        probe.insert("qualifiedSessionId".into(), json!(qualified));
     } else {
-        probe["peer"] = json!(summary.origin);
-        probe["qualifiedSessionId"] =
+        probe.insert("peer".into(), json!(summary.origin));
+        let qualified =
             extra(summary, "qualifiedSessionId").unwrap_or_else(|| json!(row_key(summary)));
+        probe.insert("qualifiedSessionId".into(), qualified);
     }
-    Some(probe)
+    Some(Value::Object(probe))
 }
 
 /// The rows `keys` name, as `_acpmux/sessions` writes them, in the order asked: a hundred keys
@@ -238,14 +241,16 @@ pub(crate) async fn fetch(
     let mut rows = Vec::new();
     while !queue.is_empty() {
         let ask: Vec<String> = queue.drain(..queue.len().min(KEYS_PER_PAGE)).collect();
-        let mut params = json!({"sessionIds": ask, "row": true});
+        let mut params = serde_json::Map::new();
+        params.insert("sessionIds".into(), json!(ask));
+        params.insert("row".into(), json!(true));
         if with_tools {
-            params["withTools"] = json!(true);
+            params.insert("withTools".into(), json!(true));
         }
         if usage {
-            params["usage"] = json!(true);
+            params.insert("usage".into(), json!(true));
         }
-        let mut reply = client.request(method::MUX_INFO, params).await?;
+        let mut reply = client.request(method::MUX_INFO, Value::Object(params)).await?;
         let got = match reply.get_mut("rows").map(Value::take) {
             Some(Value::Array(got)) => got,
             _ => anyhow::bail!("the daemon's rows by key hold no rows"),
