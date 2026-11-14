@@ -232,13 +232,13 @@ extension View {
     /// y - 12. It takes its own room: the content below (a list) is inset
     /// by the banner's height at every text size, so it covers nothing (R2-4).
     /// A swipe up or sideways, or a tap, hides it until the state changes.
-    public func cmuxMobileBanner(_ state: ConnectionBannerState?, retry: (() -> Void)? = nil) -> some View {
-        safeAreaInset(edge: .top, spacing: 0) { BannerHost(state: state, retry: retry) }
+    public func cmuxMobileBanner(_ state: ConnectionBannerState?, material: CmuxMobileTransientMaterial? = nil, retry: (() -> Void)? = nil) -> some View {
+        safeAreaInset(edge: .top, spacing: 0) { BannerHost(state: state, material: material, retry: retry) }
     }
 
     /// Shows a toast under the top safe area for 3 s. One at a time; newest replaces.
-    public func cmuxMobileToast(_ toast: Binding<CmuxMobileToast?>) -> some View {
-        overlay(alignment: .top) { ToastHost(toast: toast) }
+    public func cmuxMobileToast(_ toast: Binding<CmuxMobileToast?>, material: CmuxMobileTransientMaterial? = nil) -> some View {
+        overlay(alignment: .top) { ToastHost(toast: toast, material: material) }
     }
 }
 
@@ -246,13 +246,14 @@ extension View {
 /// dismissed state stays hidden until the state changes (to no banner, or to another one).
 private struct BannerHost: View {
     let state: ConnectionBannerState?
+    let material: CmuxMobileTransientMaterial?
     let retry: (() -> Void)?
     @State private var dismissed: ConnectionBannerState?
 
     var body: some View {
         ZStack {
             if let state, state != dismissed {
-                ConnectionBanner(state, retry: retry)
+                ConnectionBanner(state, material: material, retry: retry)
                     .cmuxMobileDismissibleToast(entry: .top, announcement: state.text,
                                                tapDismisses: !(state.offersRetry && retry != nil)) {
                         withAnimation(theme.motion.snappy.animation.unlessReduceMotion) { dismissed = state }
@@ -285,20 +286,12 @@ enum BannerDismissal {
 /// is never serialized, so the descriptor stays inside CmuxMobileDesign.
 private struct ToastHost: View {
     @Binding var toast: CmuxMobileToast?
+    let material: CmuxMobileTransientMaterial?
 
     var body: some View {
         ZStack {
             if let value = toast {
-                HStack(spacing: 8) {
-                    if let symbol = value.symbol { Image(systemName: symbol) }
-                    Text(value.text)
-                }
-                .font(theme.type.meta.weight(.semibold))
-                .foregroundStyle(theme.colors.label)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .frame(minHeight: 36)
-                .glassEffect(.regular, in: .capsule)
+                CmuxMobileToastContent(value, material: material)
                 .padding(.top, 8)
                 .transition(.opacity.combined(with: .offset(y: -12)))
                 .id(value.id)

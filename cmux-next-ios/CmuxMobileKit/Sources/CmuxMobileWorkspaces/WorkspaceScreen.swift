@@ -94,7 +94,7 @@ public struct WorkspaceScreen: View {
             .toolbar(.hidden, for: .navigationBar)
             .background(InteractivePopEnabler())
             // Search Agent Chats, Screens, Panes and a tab group's pages, and Fork Conversation…'s destinations.
-            .modifier(WorkspacePages(source: source))
+            .modifier(WorkspacePages(source: source, material: transientMaterial))
             .onAppear {
                 source.exit = { dismiss() }
                 source.openWorkspace = openWorkspace
@@ -114,6 +114,7 @@ public struct WorkspaceScreen: View {
             .sheet(isPresented: Binding(get: { source.choosingAgent }, set: { source.choosingAgent = $0 })) {
                 AgentChooser(load: { [source] in try await source.agentCatalog() },
                              start: { [source] start in source.startAgentChat(start) })
+                    .cmuxMobileTransientSheet(material: transientMaterial)
                     .presentationDetents([.medium, .large])
             }
             // + › Screen Sharing: the account's Macs; this workspace's Mac connects at once.
@@ -134,6 +135,7 @@ public struct WorkspaceScreen: View {
                                 }
                             }
                     }
+                    .cmuxMobileTransientSheet(material: transientMaterial)
                 }
             }
             // Rename Tab… (page and card menus), as the Mac's.
@@ -159,7 +161,7 @@ public struct WorkspaceScreen: View {
                 }
                     .keyboardShortcut(.defaultAction)
             }
-            .modifier(TabMoveAndGroupSheets(source: source))
+            .modifier(TabMoveAndGroupSheets(source: source, material: transientMaterial))
             // Closing a tab with a running program asks first (Codex QA F9).
             // While a page is pushed (Screens, Panes, a tab group), its own copy of this question shows (this screen is under it).
             .alert(source.pendingClose?.title ?? "", isPresented: Binding(
@@ -172,6 +174,13 @@ public struct WorkspaceScreen: View {
             } message: {
                 Text(source.pendingClose?.message ?? "")
             }
+    }
+
+    // A workspace can host a chat: its toast must retain the held chat rendering.
+    private var transientMaterial: CmuxMobileTransientMaterial? {
+        if showsGrid { return .standard }
+        guard let id = source.activeTabID, let tab = source.workspaceTab(id), tab.kind != .agent else { return nil }
+        return .standard
     }
 
     private var toast: some View {
@@ -187,7 +196,7 @@ public struct WorkspaceScreen: View {
                 .foregroundStyle(theme.colors.label.color)
                 .padding(.horizontal, 16)
                 .frame(minHeight: 40)
-                .glassEffect(.regular, in: .capsule)
+                .cmuxMobileTransientGlass(in: .capsule, material: transientMaterial)
                 .dynamicTypeSize(...DynamicTypeSize.accessibility3)
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(.updatesFrequently)
@@ -204,7 +213,7 @@ public struct WorkspaceScreen: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .frame(minHeight: 40)
-                .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
+                .cmuxMobileTransientGlass(in: .rect(cornerRadius: 20, style: .continuous), material: transientMaterial)
                 .dynamicTypeSize(...DynamicTypeSize.accessibility3)
                 .accessibilityElement(children: .combine)
                 .cmuxMobileDismissibleToast(entry: placement.entry, announcement: text) {

@@ -76,7 +76,7 @@ Increase Contrast by using the "High contrast" column where given.
 | `bgGrouped` | `#000000` | `#F2F2F7` | Settings and grouped lists. |
 | `surface` | `#1C1C1E` | `#FFFFFF` | Grouped rows, cards. Measured ChatGPT settings rows #1B1B1D. |
 | `surfaceRaised` | `#2C2C2E` | `#F2F2F7` | Cards on `surface`, skeleton base, inline inputs. |
-| `sheet` | `#1C1C1E` | `#F2F2F7` | Opaque sheet background at full height (glass at partial heights is system). |
+| `sheet` | `#1C1C1E` | `#F2F2F7` | Legacy content color; never a backdrop for non-chat transient sheets. |
 | `bubble` | `#2C2C2E` | `#EDEDED` | User message bubble, feed quote bubble. Measured Grok #333333, Claude #2C2C2A. |
 | `codeBg` | `#1C1C1E` | `#F5F5F7` | Code and diff cards. Measured ChatGPT #212121; aligned to `surface` for one fewer gray. |
 | `fill` | `#FFFFFF` @ 8% | `#000000` @ 5% | `+` circle, chips, mic circle, idle key caps. |
@@ -178,14 +178,23 @@ control, not its children.
 
 | Element | API | Notes |
 | --- | --- | --- |
-| Toolbar items, tab bar, menus, partial-height sheets, search field | System (automatic) | Do not set bar backgrounds or `UIBarAppearance`. |
+| Toolbar items, tab bar, menus, search field | System (automatic) | Do not set bar backgrounds or `UIBarAppearance`. |
+| Non-chat sheets, every detent | `cmuxMobileTransientSheet` | Regular system material and the shared neutral veil; no opaque child backdrop. |
 | Glass circle buttons outside toolbars (jump-to-bottom, joystick, keyboard toggle) | `.glassEffect(.regular.interactive(), in: .circle)` | 36 or 44 pt. |
 | Composer card | `.glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))` | Not interactive (it holds a text view). Its inner `+`, mic and pill use `fill`, not glass. |
 | Groups of floating controls that can morph (composer + jump-to-bottom; terminal key bar + joystick) | `GlassEffectContainer(spacing: 12)` + `.glassEffectID(_:in:)` | Lets the jump circle "drip" out of the composer. |
 | Primary CTA | Solid `accent` fill, not glass | References show opaque white capsules. |
 | Secondary CTA | `.buttonStyle(.glass)` capsule | "Pair manually instead" (`chatgpt-08`) is an outline; glass reads as the iOS 26 equivalent. |
-| Banner / toast | `.glassEffect(.regular, in: .capsule)` | Section 7.4. |
+| Banner / toast | `cmuxMobileTransientGlass` with `TransientMaterial.standard` | Section 7.4. Chat-owned consumers remain held on their prior regular glass. |
 | Accessibility | With Reduce Transparency, glass becomes opaque automatically; custom fills (`fill`, `bubble`) stay. Verify Increase Contrast: add a 1 pt `separator` stroke to the composer. | |
+
+The shared token is `schemas/design-scale/design-scale.json` ↔ the hand-maintained, generator-checked `CmuxTheme.TransientMaterial`;
+`CmuxMobileTransientMaterial` adapts its neutral veil to regular Liquid Glass and native
+sheet material. It never inherits a paired Mac background. Native Menu, UIMenu, context
+menus, alerts, confirmation dialogs and share controllers retain system-owned material;
+there is no custom replacement or private background styling. Shape, placement and timing
+remain owned by each surface. Reduce Transparency still uses the system opaque fallback.
+See [transient-material.md](transient-material.md) for scope and capture states.
 
 Scroll edge effect: leave the default (soft) on every `ScrollView` and `List`. Use
 `.scrollEdgeEffectStyle(.hard, for: .top)` only on the terminal in TUI (alt-screen) mode and on
@@ -598,7 +607,7 @@ margins (bleeds to the screen edges, content inset 20) (`chatgpt-18-table-hscrol
 
 ### 4.8 Sheets
 
-- Native sheets with `.presentationDetents`; partial heights get floating glass from the system.
+- Native sheets with `.presentationDetents` and `cmuxMobileTransientSheet`: one translucent neutral material at every height. Do not cover it with an opaque content or presentation background. This supersedes the old full-height opacity rule (Leo, 2026-11-11: translucency is intended, one coherent material, never opaque). Chat-owned sheets remain held.
 - Header: 44 pt glass circle `xmark` leading, centered title (`screenTitle`), optional trailing
   circle (Claude settings "i", `claude-07-settings`). Grabber visible for resizable sheets only.
 - Primary action docked at the bottom (or above the keyboard) as a large `PrimaryCapsule`,
@@ -685,9 +694,9 @@ serif line in the middle, the sign-in stack at the bottom. Layout on `bg`:
 
 ### 5.4 Email code
 
-Sheet, `.presentationDetents([.large])`, keyboard up immediately. Background `sheet` in dark,
-plain `bg` (white) in light, where `sheet` and `surfaceRaised` are the same gray and the field
-and code boxes would vanish:
+Sheet, `.presentationDetents([.large])`, keyboard up immediately. Use
+`cmuxMobileTransientSheet` at both email and code steps; fields and code boxes keep
+their `surfaceRaised` content fill so controls remain distinct from the translucent sheet:
 
 1. Step "Email": leading `sheetTitle` "Continue with email", `rowSubtitle` "We'll send you a
    6-digit code." `TextField` 52 h, radius 14, `surfaceRaised` fill, `.textContentType(.emailAddress)`,
@@ -1374,7 +1383,7 @@ Every transition in the app. "System" means do not customize.
 | Tab switch | System (no custom transition) | |
 | Tab bar minimize/expand | System | |
 | Push to chat / terminal / diff | System push; tab bar hides with the push (system) | |
-| Sheets | System (glass at partial height, opaque at full) | |
+| Sheets | System transition; shared translucent material at every detent | Chat-owned sheets retain their held design. |
 | Menus, context menus, alerts, confirmation dialogs | System | |
 | Composer expand/collapse | Height + corner morph capsule ↔ card, `smooth` | One `glassEffectID` for both shapes |
 | Composer primary symbol swap | `.contentTransition(.symbolEffect(.replace))`, `snap` | arrow.up ↔ stop.fill |

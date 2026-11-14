@@ -37,6 +37,7 @@ struct WorkspaceIconPicker: View {
                     }
                 }
         }
+        .cmuxMobileTransientSheet()
         .task {
             guard catalog == nil else { return }
             catalog = await WorkspaceSymbolCatalog.load()
@@ -68,11 +69,9 @@ struct WorkspaceIconPicker: View {
                 }
                 .padding(.vertical, 12)
             }
-            .background(theme.colors.bg.color.ignoresSafeArea())
         } else {
             CmuxSpinner()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(theme.colors.bg.color.ignoresSafeArea())
         }
     }
 

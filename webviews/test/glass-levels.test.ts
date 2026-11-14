@@ -162,7 +162,7 @@ test("the native GlassLevel names the design scale's levels, and the roles map o
   const levels = designScale.glass.filter((level) => level.kind === "level").map((level) => level.name);
   expect(cases).toEqual(levels);
   // The overlay tint tunable defaults to the popover level's strength.
-  const popover = swift.match(/case \.popover, \.menu: ([\d.]+)/)?.[1];
+  const popover = designScale.transientMaterial.nativeTintStrength;
   const tunables = readFileSync(
     new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift", import.meta.url),
     "utf8",

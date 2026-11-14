@@ -2,6 +2,7 @@
 // native window CmuxNextBrowser's PageInfoWindows owns, through CmuxNextPages BrowserChromeWebHost.
 // The host pushes the window's state on `cmux.site-data.state`; the page sends its commands and the
 // height its content needs, which sizes the window.
+import "../shared/transientMaterial";
 import "../shared/desktop";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { mountChromePage } from "../../browser-chrome/page-info/mountChromePage";

@@ -1,6 +1,7 @@
 // Boots the server card page (`cmux-page://cmux.server-cards/#/<card>`). In the app the host
 // installs the `cmuxPage` bridge; in the browser dev loop (`/server-cards/?mock#/pair-invite`) the
 // mock host stands in.
+import "../shared/transientMaterial";
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";

@@ -6,6 +6,8 @@ public import CmuxNextDesignTokens
 /// optional fields, and the buttons with their roles. `CmuxDialogCenter`
 /// shows it in a scope and reports one `CmuxDialogAnswer`.
 public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
+    /// Non-chat callers opt into the shared material; held chat dialogs retain their current look.
+    public var usesTransientMaterial: Bool
     public var title: String
     /// One short sentence per line.
     public var lines: [String]
@@ -40,8 +42,9 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
         }
     }
 
-    public init(title: String, lines: [String] = [], origin: String? = nil, fields: [CmuxDialogField] = [],
+    public init(usesTransientMaterial: Bool = false, title: String, lines: [String] = [], origin: String? = nil, fields: [CmuxDialogField] = [],
                 buttons: [CmuxDialogButton], icon: Data? = nil, identifier: String? = nil, layout: Layout = .standard) {
+        self.usesTransientMaterial = usesTransientMaterial
         self.title = title
         self.lines = lines
         self.origin = origin

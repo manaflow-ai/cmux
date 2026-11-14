@@ -32,7 +32,7 @@ final class PageInfoCardView: NSView {
     override init(frame: NSRect) {
         let body = OverlayBackingView()
         self.body = body
-        glass = Glass.makeOverlayPanel(content: body, cornerRadius: PageInfoStyle.cornerRadius)
+        glass = Glass.makeOverlayPanel(content: body, cornerRadius: PageInfoStyle.cornerRadius, tone: .neutralGlass(.transient))
         super.init(frame: frame)
         glass.translatesAutoresizingMaskIntoConstraints = true
         glass.autoresizingMask = [.width, .height]

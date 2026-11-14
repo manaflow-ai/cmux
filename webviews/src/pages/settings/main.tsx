@@ -2,6 +2,7 @@
 // `cmuxPage` bridge (pageClient.ts); in the browser dev loop (vite.config.settings-page.mjs, or
 // `?mock`) the in-memory mock provider stands in for the app.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
+import "../shared/transientMaterial";
 import "../shared/desktop";
 import "../../ui/ui.css";
 import { createPageClient } from "../shared/pageClient";

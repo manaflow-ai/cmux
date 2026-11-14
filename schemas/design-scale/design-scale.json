@@ -54,6 +54,20 @@
     "rimLit": 1,
     "rimShade": 0
   },
+  "transientMaterial": {
+    "for": "One regular translucent material for non-chat popovers, menus, tooltips, palettes, toasts and sheets; native system menus retain their system material",
+    "darkVeilAlpha": 0.42,
+    "lightVeilAlpha": 0.55,
+    "darkRimTop": 0.3,
+    "darkRimBottom": 0.06,
+    "lightRimTop": 0.85,
+    "lightRimBottom": 0.1,
+    "hostVeil": 0.4,
+    "nativeTintStrength": 1.25,
+    "webTint": 78,
+    "webBlur": 32,
+    "webSaturation": 1.6
+  },
   "elevation": [
     { "name": "1", "geometry": "0 1px 2px", "light": 7, "dark": 12, "for": "rows, cards and inline surfaces" },
     { "name": "2", "geometry": "0 2px 6px", "light": 11, "dark": 16, "for": "popovers, menus, the palette, hover cards, the composer, sheets and find bars" }

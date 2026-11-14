@@ -6,7 +6,7 @@ import UIKit
 
 private let theme = CmuxMobileTheme.standard
 
-/// Team color and icon editor (SPEC 3.4): an opaque sheet with a glass X,
+/// Team color and icon editor (SPEC 3.4): a translucent sheet with a glass X,
 /// centered "Team appearance", a 72 pt preview, the 13 color swatches and
 /// Transparent (7 columns, never under the keyboard), the icon control and a
 /// docked "Done". Transparent (no background) is offered only with a custom
@@ -16,6 +16,7 @@ private let theme = CmuxMobileTheme.standard
 /// through `onSave`.
 public struct TeamAppearanceEditor: View {
     let team: Team
+    private let material: CmuxMobileTransientMaterial?
     let onSave: (TeamAppearance) -> Void
     @State private var appearance: TeamAppearance
     @State private var mode: GlyphMode
@@ -40,14 +41,15 @@ public struct TeamAppearanceEditor: View {
         }
     }
 
-    /// The sheet's opaque background (grouped gray in light, raised in dark)
-    /// and the icon box on it.
+    /// Exact pre-unification background, used only by the before gallery.
+    /// The production sheet never lays this opaque color over its material.
     private static let sheetBackground = CmuxMobileColorToken(dark: CmuxMobileRGBA(hex: "#1C1C1E"), light: CmuxMobileRGBA(hex: "#F2F2F7"))
     private static let boxBackground = CmuxMobileColorToken(dark: CmuxMobileRGBA(hex: "#2C2C2E"), light: CmuxMobileRGBA(hex: "#FFFFFF"))
     private static let compactDetent = PresentationDetent.height(640)
 
-    public init(team: Team, onSave: @escaping (TeamAppearance) -> Void) {
+    public init(team: Team, material: CmuxMobileTransientMaterial? = .standard, onSave: @escaping (TeamAppearance) -> Void) {
         self.team = team
+        self.material = material
         self.onSave = onSave
         _appearance = State(initialValue: team.appearance)
         _wantsTransparent = State(initialValue: team.appearance.isTransparent)
@@ -108,7 +110,7 @@ public struct TeamAppearanceEditor: View {
                     .transition(.opacity)
                 }
             }
-            .background(Self.sheetBackground.color.ignoresSafeArea())
+            .background((material == nil ? Self.sheetBackground.color : Color.clear).ignoresSafeArea())
             .navigationTitle("Team appearance")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -118,7 +120,7 @@ public struct TeamAppearanceEditor: View {
             }
         }
         .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [Self.compactDetent, .large], selection: $detent)
-        .presentationBackground(Self.sheetBackground.color)
+        .cmuxMobileTransientSheet(material: material, legacyBackground: Self.sheetBackground.color)
         .cmuxMobileNeutralControlTint()
         .cmuxMobileSensoryFeedback(.selection, trigger: appearance)
         .onChange(of: customFocused) { _, focused in

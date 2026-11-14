@@ -1,3 +1,4 @@
+import "../shared/transientMaterial";
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";

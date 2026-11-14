@@ -1,5 +1,6 @@
 // Boots the changelog page (`cmux-page://cmux.changelog/`). In the app the host installs the
 // `cmuxPage` bridge; in the browser dev loop (`/changelog/?mock`) the mock provider stands in.
+import "../shared/transientMaterial";
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";

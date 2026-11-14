@@ -1,5 +1,6 @@
 // Boots the Mobile Pairing page (`cmux-page://cmux.mobile-pairing/`). In the app the host installs
 // the `cmuxPage` bridge; in the browser dev loop (`/mobile-pairing/?mock`) the mock provider stands in.
+import "../shared/transientMaterial";
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";

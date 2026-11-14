@@ -58,6 +58,8 @@ public struct RecoveryGalleryRoot: View {
                 signedOut
             case "cloudmachines":
                 NavigationStack { CloudMachinesScreen(model: .gallery(), openChats: {}) }
+            case "transient-toast", "transient-banner", "transient-sheet", "transient-palette", "transient-menu":
+                TransientMaterialGallery(surface: scene)
             case "theme-mocha", "theme-solarized", "theme-wallpaper":
                 MacThemeGallery(variant: scene)
             default:
@@ -176,13 +178,13 @@ public struct RecoveryGalleryRoot: View {
         List {
             ForEach(["cmux", "api", "web"], id: \.self) { Text($0) }
         }
-        .cmuxMobileBanner(.signedOut, retry: {})
+        .cmuxMobileBanner(.signedOut, material: .standard, retry: {})
     }
 
     private var cards: some View {
         VStack(spacing: 24) {
-            ConnectionBanner(.offline, retry: {})
-            ConnectionBanner(.signedOut, retry: {})
+            ConnectionBanner(.offline, material: .standard, retry: {})
+            ConnectionBanner(.signedOut, material: .standard, retry: {})
             FailureCard(title: "Couldn't load your teams", message: "Check your connection, then retry.") {}
                 .padding(.horizontal, 20)
             VStack(spacing: 10) {

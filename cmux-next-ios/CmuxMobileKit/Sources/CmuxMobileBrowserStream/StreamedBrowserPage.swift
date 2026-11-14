@@ -95,6 +95,7 @@ public struct StreamedBrowserPage: View {
             if next == nil, let shown { model.choose(.cancel, in: shown) }
         })) { open in
             StreamedSelectSheet(open: open) { model.choose($0, in: open.token) }
+                .cmuxMobileTransientSheet()
         }
         // A JavaScript alert, confirm, prompt or leave-page question as a system alert,
         // gone without an answer when the page closes it itself.

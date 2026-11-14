@@ -10,7 +10,7 @@ final class RemoteStateCard: NSView {
     var onCancel: (() -> Void)?
     var onClose: (() -> Void)?
 
-    let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius)
+    let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius, tone: .neutralGlass(.transient))
     private let column = NSStackView()
     private var content: [NSView] = []
 

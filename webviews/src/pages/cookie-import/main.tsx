@@ -3,6 +3,7 @@
 // through CmuxNextPages BrowserChromeWebHost). The host pushes the card's lines on
 // `cmux.cookie-import.state`; the page sends the person's answer and the height its content needs
 // at the host's width, which sizes the card.
+import "../shared/transientMaterial";
 import "../shared/desktop";
 import { useLayoutEffect, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";

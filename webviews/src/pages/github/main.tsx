@@ -2,6 +2,7 @@
 // `cmuxPage` bridge; in the browser dev loop (`/github/?mock#/pull?url=…`) the mock provider stands in.
 // The host moves an open page to another pull request by its route (`PageWebView.open(route:)`), so
 // a second link is a route change in this page, never a new page.
+import "../shared/transientMaterial";
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";

@@ -336,7 +336,7 @@ struct PanesScreen: View {
         .foregroundStyle(theme.colors.label.color)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
+        .cmuxMobileTransientGlass(in: .rect(cornerRadius: 20, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("panes.toast")
         .padding(.horizontal, 20)

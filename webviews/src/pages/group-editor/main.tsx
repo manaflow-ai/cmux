@@ -1,6 +1,7 @@
 // Boots the workspace group editor page (mount.tsx). In the app the host installs the `cmuxPage`
 // bridge; in a browser (`/group-editor/?mock`) the in-memory mock host stands in.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
+import "../shared/transientMaterial";
 import "../shared/desktop";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { mountGroupEditor, type MountedGroupEditor } from "./mount";

@@ -2,6 +2,7 @@
 // `cmuxPage` bridge and pushes a sample about once a second while the page is open
 // (CmuxNextApp TaskManagerPageService); in the browser dev loop (`/task-manager/?mock`) the mock
 // host stands in. DESKTOP-FEEL (R139): the shared desktop layer loads first.
+import "../shared/transientMaterial";
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";

@@ -62,6 +62,12 @@ def load():
         else:
             assert role["tone"] == "theme" and set(role) == FIELDS, role
     assert len(styles) == len(set(styles)), "one role per neutral style"
+    with open(os.path.join(ROOT, DESIGN_SCALE)) as handle:
+        transient = json.load(handle)["transientMaterial"]
+    toast = next(role for role in data["roles"] if role["name"] == "toast")
+    for appearance in ("dark", "light"):
+        assert toast["veil"][appearance] == transient[appearance + "VeilAlpha"], "toast and transient veil differ"
+        assert toast["rim"][appearance] == [transient[appearance + "RimTop"], transient[appearance + "RimBottom"]], "toast and transient rim differ"
     return data
 
 
@@ -87,6 +93,8 @@ def swift(data):
         '        case .%s: return "%s"' % (role["name"], role["reduceTransparency"]) for role in data["roles"]
     )
     looks = "\n".join(
+        "    /// Toasts share the transient material without changing the held chat appearance.\n    nonisolated public static let toast = FloatingGlassStyle.transient"
+        if role["name"] == "toast" else
         "    /// %s.\n"
         "    nonisolated public static let %s = FloatingGlassStyle(cornerDepth: %d, darkVeilAlpha: %s, lightVeilAlpha: %s,\n"
         "                                                         darkRim: (%s, %s), lightRim: (%s, %s), castsShadow: %s%s)"

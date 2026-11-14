@@ -18,8 +18,10 @@ final class CmuxDialogCardSurface: NSView {
     private let shadowCutout = CAShapeLayer()
 
     /// A card drawing `content` on its glass; `activeLook` keeps the key-window glass while the card fades out.
-    init(content: NSView, activeLook: ActiveLookScope?) {
-        glass = Glass.makeSurface(.sheet, content: content, activeLook: activeLook)
+    init(content: NSView, activeLook: ActiveLookScope?, usesTransientMaterial: Bool = false) {
+        glass = usesTransientMaterial
+            ? Glass.makeOverlayPanel(content: content, activeLook: activeLook, tone: .neutralGlass(.transient))
+            : Glass.makeSurface(.sheet, content: content, activeLook: activeLook)
         glass.samplesBehindWindow = true
         super.init(frame: .zero)
         wantsLayer = true

@@ -21,7 +21,8 @@ const swiftNumber = (name: string) => {
 
 test("the native menu veil is the menu level's veil", () => {
   expect(menu.veil).toBeGreaterThan(0);
-  expect(swiftNumber("veilPercent")).toBe(menu.veil as number);
+  expect(swift).toContain("veilPercent: Double = TransientMaterial.standard.hostVeil * 100");
+  expect(designScale.transientMaterial.hostVeil * 100).toBe(menu.veil as number);
 });
 
 test("the native menu radius is the popup radius, and the native default outer radius is too", () => {

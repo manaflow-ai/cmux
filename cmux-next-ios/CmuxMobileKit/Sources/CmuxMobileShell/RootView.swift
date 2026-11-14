@@ -281,6 +281,7 @@ public struct RootView: View {
             NavigationStack {
                 MachineInviteSheet(invite: invite) { machineInvite = nil }
             }
+            .cmuxMobileTransientSheet()
         }
         .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
         .onChange(of: asksNotifications) { _, _ in planSetup() }
@@ -581,6 +582,30 @@ struct ShellView: View {
         self.live = live
     }
 
+    private var nonChatToastMaterial: CmuxMobileTransientMaterial? {
+        guard shell.cloudChats == nil, shell.messagingChief == nil, shell.messagingChiefText == nil else { return nil }
+        switch shell.tab {
+        case .settings: return .standard
+        case .home: return shell.homePath.isEmpty ? .standard : nil
+        case .workspaces:
+            guard let shown = shell.workspacesPath.last else { return .standard }
+            let id = shell.store.resolvedWorkspaceID(shown.id)
+            guard let workspace = shell.store.workspace(id: id), !workspace.tabs.isEmpty,
+                  shell.store.requestedTabByWorkspace[id] == nil else { return nil }
+            // A workspace without agent tabs cannot expose a transcript. Opening a chat
+            // inserts its agent tab before activating it (WorkspaceTabsSource.openAgentChat).
+            if workspace.tabs.allSatisfy({ $0.kind != .agent }) { return .standard }
+            // The recorded tab updates on every activation, but can be persisted data
+            // before the new workspace screen appears. Requiring its opening tab to be
+            // non-chat too keeps that initial frame held when a mixed workspace opens a chat.
+            guard let tabID = shell.store.lastTabByWorkspace[id],
+                  let active = workspace.tabs.first(where: { $0.id == tabID }), active.kind != .agent,
+                  let opening = shell.store.openingTab(for: workspace), opening.kind != .agent else { return nil }
+            return .standard
+        case .feed: return shell.feedPath.isEmpty ? .standard : nil
+        }
+    }
+
     var body: some View {
         SidebarContainer(
             model: shell.sidebar,
@@ -593,7 +618,7 @@ struct ShellView: View {
         #if DEBUG
         .modifier(BillingDemoSheet(billing: billing))
         #endif
-        .cmuxMobileToast($shell.toast)
+        .cmuxMobileToast($shell.toast, material: nonChatToastMaterial)
         .modifier(LiveCallHost(shell: shell))
         .sheet(item: $shell.shareURL) { item in
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
@@ -612,6 +637,7 @@ struct ShellView: View {
         }
         .sheet(item: $shell.connectedDevices) { item in
             TerminalConnectedDevicesSheet(live: item.live, macID: item.macID, surface: item.surface, service: shell.sizingService)
+                .cmuxMobileTransientSheet()
                 .presentationDetents([.medium, .large])
         }
         .alert("Invite to \(shell.invitingTeam?.name ?? "team")", isPresented: Binding(

@@ -22,7 +22,7 @@ struct ClassicImportConfirmation {
     }
 
     func spec() -> CmuxDialogSpec {
-        return CmuxDialogSpec(
+        return CmuxDialogSpec(usesTransientMaterial: true,
             title: ClassicImportStrings.previewTitle,
             lines: ClassicImportStrings.previewLines(preview),
             buttons: [

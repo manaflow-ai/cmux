@@ -125,7 +125,7 @@ final class HelperDragPanel: NSPanel {
             ])
         }
         let size = NSSize(width: Self.width, height: content.fittingSize.height)
-        let surface = Glass.makeOverlayPanel(content: content, cornerRadius: Metrics.cornerRadius(nestedIn: Self.rowRadius, inset: -padding))
+        let surface = Glass.makeOverlayPanel(content: content, cornerRadius: Metrics.cornerRadius(nestedIn: Self.rowRadius, inset: -padding), tone: .neutralGlass(.transient))
         // A window's content view sizes by its frame, not constraints.
         surface.translatesAutoresizingMaskIntoConstraints = true
         surface.frame = NSRect(origin: .zero, size: size)
