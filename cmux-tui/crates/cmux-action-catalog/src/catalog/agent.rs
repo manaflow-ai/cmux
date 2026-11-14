@@ -296,22 +296,6 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
-        id: "palette.captureScreenshotToChat",
-        group: GROUP,
-        title: t("ActionCatalog", "action.palette.captureScreenshotToChat", "Capture Screenshot to Chat"),
-        description: Some("Picks a region of the screen with the system's picker and puts the screenshot into the focused agent chat's composer (else a new chat's) as an unsent draft. Its system-wide key works while another app is in front once app.captureScreenshotGlobalHotKey is on."),
-        keywords: &["screenshot", "capture", "screen", "region", "image", "picture", "attach", "chat", "agent", "global", "hotkey", "hot key"],
-        default_shortcut: Some(Shortcut { key: "s", modifiers: CTRL | OPT | CMD }),
-        category: "agents",
-        symbol: "camera.viewfinder",
-        surfaces: PALETTE | KEYBOARD,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        cli_name: "action palette-capture-screenshot-to-chat",
-        is_person_only: true,
-        is_global_hot_key: true,
-        ..Action::DEFAULT
-    },
-    Action {
         id: "palette.addHarness",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.addHarness", "Integrate a Harness with an Agent…"),
