@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43615341878",
+  "recorded_at": "2026-11-14T16:31:37Z",
+  "reason": "cmux-tui 9f8d03ead79f changes the image's cmux-tui (pinned b12be2452a1f)",
+  "dry_run": false,
+  "cmux_tui": "9f8d03ead79fa8a75f6c2223778163e433524ee4",
+  "fixes": [
+    {
+      "sha": "9f8d03ead79fa8a75f6c2223778163e433524ee4",
+      "mergedAt": "2026-11-14T08:03:55-08:00",
+      "subject": "Extension samples on the public SDK: weather, recent PRs, agent pet, standup, workspace notes (#42991)"
+    },
+    {
+      "sha": "614adfc5944183a4e2124c9d561b66976e1671e0",
+      "mergedAt": "2026-11-14T16:01:49Z",
+      "subject": "v2 list callers in the CLI (7b part one) (#42969)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T16:31:37Z",
+    "snapshot_id": "sh-a0a2e5c87acd4e23b434265f7b456927",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43615341878): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "600d4af70ba136821c0568298b812c9a8119d8b6",
+    "image": "cloud-native-auto-9f8d03ea-43615341878-1",
+    "revision": "ci-43615341878-1",
+    "at": "2026-11-14T16:31:37Z"
+  },
+  "rolled_back": false
+}
