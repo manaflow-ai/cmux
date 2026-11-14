@@ -382,11 +382,12 @@ fn git_diff_counts_the_lines_of_an_untracked_file_below_a_folder_that_is_passed_
     std::fs::write(repo.join("new.txt"), "one\ntwo\n").unwrap();
     let mut client = Client::of_a_new_daemon();
 
-    // A user that has each right (root) passes the folder with and without the right to list.
-    std::fs::set_permissions(&above, std::fs::Permissions::from_mode(0o111)).unwrap();
+    // The folder gets its old rights back when `read_again` ends, also when the request fails,
+    // so the fixture's folder can be removed. A user that lists each folder (root) makes no
+    // such state: the helper fails the test there.
+    let read_again = passed_and_not_read(&above);
     let reply = client.reply_with("git.diff", &repo, &[("scope", "uncommitted")]);
-    // The old rights, before the reply is looked at: the fixture's folder can be removed.
-    std::fs::set_permissions(&above, std::fs::Permissions::from_mode(0o755)).unwrap();
+    drop(read_again);
 
     assert_eq!(reply["ok"], true, "git.diff failed: {reply}");
     let files = reply["result"]["files"].as_array().unwrap_or_else(|| panic!("no files: {reply}"));

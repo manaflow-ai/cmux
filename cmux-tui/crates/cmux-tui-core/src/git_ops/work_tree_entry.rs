@@ -90,7 +90,9 @@ mod through_folders {
     const ABOVE_TOP_FLAGS: libc::c_int =
         libc::O_PATH | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
     /// macOS: `O_SEARCH` has `O_DIRECTORY` in it and opens a folder for a
-    /// search of its names only.
+    /// search of its names only. A kernel older than the flag (before
+    /// macOS 13) does not read the bit, by a read of its source and with
+    /// no run: there the open is for a read, as it was before this flag.
     #[cfg(target_os = "macos")]
     const ABOVE_TOP_FLAGS: libc::c_int =
         libc::O_SEARCH | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
