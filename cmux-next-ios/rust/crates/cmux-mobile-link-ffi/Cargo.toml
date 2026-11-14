@@ -32,6 +32,7 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uniffi = "=0.31.1"
+url.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]

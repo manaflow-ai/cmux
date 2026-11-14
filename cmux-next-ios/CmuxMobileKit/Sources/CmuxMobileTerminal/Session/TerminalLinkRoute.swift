@@ -39,10 +39,15 @@ public enum TerminalLinkDestination: Equatable, Sendable {
     case none
 }
 
-/// Decides where a terminal's web link opens.
+/// Decides where a terminal's web link opens: a tap opens it where it can be reached
+/// (a public page on this iPhone, a page only the Mac reaches on the Mac), and the
+/// long-press menu offers the other device.
 ///
 /// ```swift
-/// TerminalLinkRoute(opensOnMac: true).destination(for: url, reach: .phone, action: .tap)  // .mac(url)
+/// let route = TerminalLinkRoute(opensOnMac: true)
+/// route.destination(for: github, reach: .phone, action: .tap)     // .phone(github)
+/// route.destination(for: localhost, reach: .mac, action: .tap)    // .mac(localhost)
+/// route.otherDevice(for: .phone)                                  // .openOnMac
 /// ```
 public struct TerminalLinkRoute: Equatable, Sendable {
     /// The terminal's workspace can open a browser tab on its Mac.
@@ -53,14 +58,22 @@ public struct TerminalLinkRoute: Equatable, Sendable {
     }
 
     public func destination(for url: URL, reach: TerminalLinkReach, action: TerminalLinkAction) -> TerminalLinkDestination {
+        if reach == .notWeb { return .none }
         switch action {
-        case .openInSafari, .openOnPhone: return .systemBrowser(url)
-        case .tap, .openLink, .openOnMac: return opensOnMac ? .mac(url) : .systemBrowser(url)
+        case .openInSafari: return .systemBrowser(url)
+        case .openOnPhone: return .phone(url)
+        case .openOnMac: return opensOnMac ? .mac(url) : .phone(url)
+        case .tap, .openLink: return reach == .mac && opensOnMac ? .mac(url) : .phone(url)
         }
     }
 
     /// The long-press menu's row for the device a tap does not open the link on.
     public func otherDevice(for reach: TerminalLinkReach) -> TerminalLinkAction? {
-        nil
+        guard opensOnMac else { return nil }
+        switch reach {
+        case .phone: return .openOnMac
+        case .mac: return .openOnPhone
+        case .notWeb: return nil
+        }
     }
 }

@@ -19,6 +19,7 @@ mod terminal_prediction;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
+pub use link_side::{LinkOpenSide, link_open_side};
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 
 uniffi::setup_scaffolding!();

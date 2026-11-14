@@ -1446,7 +1446,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
     }
 
-    /// A web link tapped in a terminal tab (the Mac's Cmd-click): a cmux browser tab at `url`
+    /// A terminal web link that opens on the Mac (one only the Mac reaches, or the link menu's
+    /// Open on Mac; the Mac's Cmd-click): a cmux browser tab at `url`
     /// beside the terminal on the Mac, shown here once the Mac lists it.
     public func openLink(_ url: URL, fromTab id: TabsKitTab.ID) async {
         // No Mac to open it on (the workspace went away, the Mac is offline or doesn't let

@@ -2624,8 +2624,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         terminalTapped()
     }
 
-    /// A tap on the shell's rows: a web link opens in a browser tab beside the terminal
-    /// (the Mac's Cmd-click); anywhere else the terminal takes the keyboard.
+    /// A tap on the shell's rows: a web link opens where it can be reached (a public page on
+    /// this iPhone, a dev server on the Mac); anywhere else the terminal takes the keyboard.
     @objc private func shellTapped(_ tap: UITapGestureRecognizer) {
         if !tapStoppedScroll, selection.selection == nil, tuiSelection.selection == nil, !model.isTUI,
            let url = shellLink(at: tap.location(in: scrollView)) {
@@ -2954,7 +2954,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return TerminalLinkFinder(rows: rows, firstRow: first, columns: max(1, surface.grid.columns))
                 .link(row: cell.row, column: cell.column)?.url
         }
-        selection.openLink = { [weak self] url, external in self?.model.openLink(url, external: external) }
+        selection.openLink = { [weak self] url, action in self?.model.openLink(url, action: action) }
+        selection.otherLinkDevice = { [weak self] url in self?.model.otherLinkDevice(url) }
         selection.install(in: scrollView)
         if let press = selection.longPress {
             press.addTarget(self, action: #selector(selectionPressChanged(_:)))
@@ -2995,7 +2996,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return TerminalLinkFinder(rows: rows, firstRow: first, columns: max(1, surface.grid.columns))
                 .link(row: cell.row, column: cell.column)?.url
         }
-        tuiSelection.openLink = { [weak self] url, external in self?.model.openLink(url, external: external) }
+        tuiSelection.openLink = { [weak self] url, action in self?.model.openLink(url, action: action) }
+        tuiSelection.otherLinkDevice = { [weak self] url in self?.model.otherLinkDevice(url) }
         tuiSelection.install(in: tuiHost)
     }
 
