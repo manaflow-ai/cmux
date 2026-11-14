@@ -1331,7 +1331,10 @@
         "deleteConfirmBody": "この操作は元に戻せず、アカウントに関連するすべてのデータが削除されます。",
         "deleteAcknowledge": "アカウントとそのデータが完全に削除されることを理解しました。",
         "deleteConfirm": "アカウントを削除",
-        "deleteError": "アカウントを削除できませんでした。もう一度お試しください。"
+        "deleteError": "アカウントを削除できませんでした。もう一度お試しください。",
+        "deleteAppStoreTitle": "App Store のサブスクリプションは引き続き更新されます",
+        "deleteAppStoreBody": "cmux アカウントを削除しても App Store のサブスクリプションは解約されません。App Store で解約するまで Apple からの請求は続きます。",
+        "deleteAppStoreManage": "App Store でサブスクリプションを管理"
       }
     },
     "teams": {

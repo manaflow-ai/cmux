@@ -979,7 +979,10 @@
         "deleteConfirmBody": "Bu işlem geri alınamaz ve hesabınızla ilişkili tüm verileri siler.",
         "deleteAcknowledge": "Hesabımın ve verilerinin kalıcı olarak silineceğini anlıyorum.",
         "deleteConfirm": "Hesabı sil",
-        "deleteError": "Hesap silinemedi. Tekrar deneyin."
+        "deleteError": "Hesap silinemedi. Tekrar deneyin.",
+        "deleteAppStoreTitle": "App Store aboneliğiniz yenilenmeye devam edecek",
+        "deleteAppStoreBody": "cmux hesabınızı silmek App Store aboneliğinizi iptal etmez. Apple, App Store'da iptal edene kadar sizden ücret almaya devam eder.",
+        "deleteAppStoreManage": "Aboneliği App Store'da yönet"
       }
     },
     "teams": {

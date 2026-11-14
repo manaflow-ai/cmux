@@ -979,7 +979,10 @@
         "deleteConfirmBody": "Esta acción es irreversible y elimina todos los datos asociados a tu cuenta.",
         "deleteAcknowledge": "Entiendo que mi cuenta y sus datos se eliminarán de forma permanente.",
         "deleteConfirm": "Eliminar cuenta",
-        "deleteError": "No se pudo eliminar la cuenta. Inténtalo de nuevo."
+        "deleteError": "No se pudo eliminar la cuenta. Inténtalo de nuevo.",
+        "deleteAppStoreTitle": "Tu suscripción de App Store se seguirá renovando",
+        "deleteAppStoreBody": "Eliminar tu cuenta de cmux no cancela tu suscripción de App Store. Apple te seguirá cobrando hasta que la canceles en App Store.",
+        "deleteAppStoreManage": "Gestionar suscripción en App Store"
       }
     },
     "teams": {

@@ -979,7 +979,10 @@
         "deleteConfirmBody": "Tej operacji nie można cofnąć. Usunie ona wszystkie dane powiązane z Twoim kontem.",
         "deleteAcknowledge": "Rozumiem, że moje konto i jego dane zostaną trwale usunięte.",
         "deleteConfirm": "Usuń konto",
-        "deleteError": "Nie udało się usunąć konta. Spróbuj ponownie."
+        "deleteError": "Nie udało się usunąć konta. Spróbuj ponownie.",
+        "deleteAppStoreTitle": "Twoja subskrypcja w App Store będzie nadal odnawiana",
+        "deleteAppStoreBody": "Usunięcie konta cmux nie anuluje subskrypcji w App Store. Apple będzie pobierać opłaty, dopóki nie anulujesz jej w App Store.",
+        "deleteAppStoreManage": "Zarządzaj subskrypcją w App Store"
       }
     },
     "teams": {

@@ -979,7 +979,10 @@
         "deleteConfirmBody": "لا يمكن التراجع عن هذا الإجراء، وسيحذف كل البيانات المرتبطة بحسابك.",
         "deleteAcknowledge": "أفهم أن حسابي وبياناته سيُحذفان نهائيًا.",
         "deleteConfirm": "حذف الحساب",
-        "deleteError": "تعذّر حذف الحساب. حاول مرة أخرى."
+        "deleteError": "تعذّر حذف الحساب. حاول مرة أخرى.",
+        "deleteAppStoreTitle": "سيستمر تجديد اشتراكك في App Store",
+        "deleteAppStoreBody": "حذف حساب cmux لا يلغي اشتراكك في App Store. ستواصل Apple تحصيل الرسوم منك حتى تلغيه في App Store.",
+        "deleteAppStoreManage": "إدارة الاشتراك في App Store"
       }
     },
     "teams": {

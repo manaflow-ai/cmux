@@ -1,7 +1,7 @@
 "use client";
 
 import { useStackApp, useUser } from "@hexclave/next";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
@@ -15,7 +15,8 @@ import {
   settingsButtonClass,
   useAsyncAction,
 } from "@/dashboard-app/components/settings-ui";
-import { settingsOverviewQuery } from "@/dashboard-app/queries/settings";
+import { settingsAccountDeletionQuery, settingsOverviewQuery } from "@/dashboard-app/queries/settings";
+import { AppStoreSubscriptionWarning } from "./app-store-subscription-warning";
 
 /** `/dashboard/settings/account`: billing link, sign out, delete account. */
 export function AccountActions() {
@@ -26,6 +27,9 @@ export function AccountActions() {
   const locale = useLocale();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [runSignOut, signOutState] = useAsyncAction(t("signOutError"));
+  // Read when the dialog opens. A failed read never blocks deletion: the
+  // dialog then shows no App Store warning, as for a web subscriber.
+  const deletionCheck = useQuery({ ...settingsAccountDeletionQuery, enabled: confirmingDelete, retry: false });
 
   // The same sign-out as the dashboard account menu.
   const signOut = () => runSignOut(() => signOutOfDashboard(app, locale));
@@ -61,12 +65,17 @@ export function AccountActions() {
             acknowledgement={t("deleteAcknowledge")}
             confirmLabel={t("deleteConfirm")}
             errorMessage={t("deleteError")}
+            confirmDisabled={deletionCheck.isPending}
             onConfirm={async () => {
               await user.delete();
               clearCoderouterOrganizationScope();
               await app.redirectToHome();
             }}
-          />
+          >
+            {deletionCheck.data?.appStoreSubscriptionRenews ? (
+              <AppStoreSubscriptionWarning manageUrl={deletionCheck.data.manageSubscriptionsUrl} />
+            ) : null}
+          </ConfirmDialog>
         </SettingsSection>
       ) : null}
     </SettingsStack>

@@ -45,6 +45,12 @@ All authenticated routes use the same Stack auth as the other `/api/billing/*` r
 
 The same handler serves Production and Sandbox payloads; the `environment` field selects the App Store Server API host.
 
+## Account deletion
+
+Deleting a cmux account does not cancel an App Store subscription; Apple keeps charging until the subscriber cancels it in the App Store (App Store Review Guideline 5.1.1(v)). Before deleting, the iOS app and the dashboard ask `GET /api/account/deletion-check` (auth like the other billing routes; the dashboard reads the same answer through the `settings.accountDeletion` procedure). Response: `{ appStoreSubscriptionRenews, manageSubscriptionsUrl }`. `appStoreSubscriptionRenews` is true when any of the account's `apple_subscriptions` rows is `active`, `grace_period`, or `billing_retry` with `auto_renew_enabled`, in `Production` or `Sandbox` (App Review subscribes in the Sandbox). `manageSubscriptionsUrl` is `https://apps.apple.com/account/subscriptions` then, else null. The app shows a native alert with Manage Subscription (`AppStore.showManageSubscriptions(in:)`, falling back to that URL), Delete Account, and Cancel; the dashboard's delete dialog shows the same warning with a link. The check never blocks deletion.
+
+`DELETE /api/account` then drops the account's link to Apple, in the same transaction as the other cmux rows: the `apple_account_tokens` row and the account's `apple_subscriptions` rows are deleted, and its `apple_transactions` rows are kept as the revenue ledger with `user_id` set to `deleted-account`. A later notification for that subscription finds no row and no token owner and is closed as `skipped: unlinked_account`, so it never grants a plan to the deleted account and the lapse sweep never re-derives one. If the same Apple ID later buys in the app while signed in to another cmux account, that purchase carries the other account's token and creates a new row for it.
+
 ## Data (Drizzle, Postgres)
 
 - `apple_account_tokens`: `user_id` (pk), `app_account_token` (uuid, unique), `created_at`.

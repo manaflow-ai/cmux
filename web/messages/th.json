@@ -979,7 +979,10 @@
         "deleteConfirmBody": "การดำเนินการนี้ย้อนกลับไม่ได้ และจะลบข้อมูลทั้งหมดที่เกี่ยวข้องกับบัญชีของคุณ",
         "deleteAcknowledge": "ฉันเข้าใจว่าบัญชีและข้อมูลของฉันจะถูกลบอย่างถาวร",
         "deleteConfirm": "ลบบัญชี",
-        "deleteError": "ลบบัญชีไม่ได้ โปรดลองอีกครั้ง"
+        "deleteError": "ลบบัญชีไม่ได้ โปรดลองอีกครั้ง",
+        "deleteAppStoreTitle": "การสมัครสมาชิก App Store ของคุณจะต่ออายุต่อไป",
+        "deleteAppStoreBody": "การลบบัญชี cmux ไม่ได้ยกเลิกการสมัครสมาชิก App Store ของคุณ Apple จะเรียกเก็บเงินต่อไปจนกว่าคุณจะยกเลิกใน App Store",
+        "deleteAppStoreManage": "จัดการการสมัครสมาชิกใน App Store"
       }
     },
     "teams": {

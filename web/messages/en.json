@@ -1331,7 +1331,10 @@
         "deleteConfirmBody": "This is irreversible and deletes all data associated with your account.",
         "deleteAcknowledge": "I understand my account and its data will be deleted permanently.",
         "deleteConfirm": "Delete account",
-        "deleteError": "Could not delete the account. Try again."
+        "deleteError": "Could not delete the account. Try again.",
+        "deleteAppStoreTitle": "Your App Store subscription will keep renewing",
+        "deleteAppStoreBody": "Deleting your cmux account doesn't cancel your App Store subscription. Apple keeps charging you until you cancel it in the App Store.",
+        "deleteAppStoreManage": "Manage subscription in the App Store"
       }
     },
     "teams": {

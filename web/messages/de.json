@@ -979,7 +979,10 @@
         "deleteConfirmBody": "Dies kann nicht rückgängig gemacht werden und löscht alle Daten, die mit deinem Konto verknüpft sind.",
         "deleteAcknowledge": "Mir ist klar, dass mein Konto und seine Daten dauerhaft gelöscht werden.",
         "deleteConfirm": "Konto löschen",
-        "deleteError": "Das Konto konnte nicht gelöscht werden. Versuche es erneut."
+        "deleteError": "Das Konto konnte nicht gelöscht werden. Versuche es erneut.",
+        "deleteAppStoreTitle": "Dein App Store-Abo verlängert sich weiter",
+        "deleteAppStoreBody": "Wenn du dein cmux-Konto löschst, wird dein App Store-Abo nicht gekündigt. Apple berechnet es weiter, bis du es im App Store kündigst.",
+        "deleteAppStoreManage": "Abo im App Store verwalten"
       }
     },
     "teams": {

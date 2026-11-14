@@ -979,7 +979,10 @@
         "deleteConfirmBody": "此操作不可撤销，将删除与你的账户相关的所有数据。",
         "deleteAcknowledge": "我了解我的账户及其数据将被永久删除。",
         "deleteConfirm": "删除账户",
-        "deleteError": "无法删除账户，请重试。"
+        "deleteError": "无法删除账户，请重试。",
+        "deleteAppStoreTitle": "你的 App Store 订阅将继续续订",
+        "deleteAppStoreBody": "删除 cmux 账户不会取消你的 App Store 订阅。在你于 App Store 中取消之前，Apple 会继续向你收费。",
+        "deleteAppStoreManage": "在 App Store 中管理订阅"
       }
     },
     "teams": {
