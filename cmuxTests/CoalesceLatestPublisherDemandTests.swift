@@ -144,4 +144,78 @@ struct CoalesceLatestPublisherDemandTests {
         #expect(subscriber.valuesReceivedWithZeroDemand == 0)
         subscriber.cancel()
     }
+
+    /// The sidebar consumes `coalesceLatest` from `@MainActor` tasks. The
+    /// operator is main-thread only, so every demand request and the final
+    /// cancel must reach it on the main thread. `AsyncPublisher` requests
+    /// from its nonisolated `next()` on the generic executor, which raced the
+    /// main thread's `receive` and over-released the coalesced value
+    /// (CMUXTERM-MACOS-3ZZH, 3XS7).
+    @Test
+    func sidebarConsumptionDrivesOperatorOnlyFromMainThread() async {
+        let recorder = SubscriptionThreadRecorder()
+        let upstream = CurrentValueSubject<Int, Never>(0)
+        let changes = upstream
+            .coalesceLatest(for: .zero, scheduler: DispatchQueue.main)
+            .handleEvents(
+                receiveCancel: { recorder.record(.cancel) },
+                receiveRequest: { _ in recorder.record(.request) }
+            )
+            .sidebarMainThreadValues()
+
+        let consumer = Task { @MainActor in
+            var received = 0
+            for await _ in changes {
+                received += 1
+            }
+            return received
+        }
+        for value in 1...40 {
+            upstream.send(value)
+            try? await Task.sleep(nanoseconds: 2_000_000)
+        }
+        consumer.cancel()
+        let received = await consumer.value
+        let deadline = Date().addingTimeInterval(2)
+        while !recorder.sawCancel, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+
+        #expect(received > 0)
+        #expect(recorder.requestCount > 0)
+        #expect(recorder.sawCancel)
+        #expect(recorder.offMainEvents == [])
+    }
+}
+
+private final class SubscriptionThreadRecorder: @unchecked Sendable {
+    enum Event: Equatable { case request, cancel }
+
+    private let lock = NSLock()
+    private var events: [(event: Event, onMain: Bool)] = []
+
+    func record(_ event: Event) {
+        let onMain = Thread.isMainThread
+        lock.lock()
+        events.append((event, onMain))
+        lock.unlock()
+    }
+
+    var requestCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return events.filter { $0.event == .request }.count
+    }
+
+    var sawCancel: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return events.contains { $0.event == .cancel }
+    }
+
+    var offMainEvents: [Event] {
+        lock.lock()
+        defer { lock.unlock() }
+        return events.filter { !$0.onMain }.map(\.event)
+    }
 }
