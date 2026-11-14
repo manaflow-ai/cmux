@@ -192,6 +192,20 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine leave-intent",
+        &[(
+            "Record that this account signs out, before the daemon leaves",
+            "acpmux machine leave-intent --user-id \"$CMUX_USER_ID\"",
+        )],
+    ),
+    (
+        "machine enroll-self",
+        &[(
+            "Enroll this machine as the signed-in person, the token on stdin",
+            "printf '%s\\n' \"$CMUX_ACCESS_TOKEN\" | acpmux machine enroll-self --access-token-stdin --user-id \"$CMUX_USER_ID\"",
+        )],
+    ),
+    (
         "machine vault",
         &[
             ("Pull this machine's vault now", "acpmux machine vault pull"),

@@ -8,6 +8,16 @@ from codegen.ir import load_ir_document
 from support import schema_document
 
 
+def plain_command_document() -> dict:
+    """The fixture with its one command under a name the Go emitter has no
+    hand-written method for (list-workspaces keeps its zero-argument API in
+    raw/list_workspaces.go), so the generated method shows."""
+    document = schema_document()
+    command = document["commands"].pop("list-workspaces")
+    document["commands"]["list-things"] = command
+    return document
+
+
 class GoEmitterTests(unittest.TestCase):
     def test_nullable_fields_use_exact_generated_presence_types(self) -> None:
         document = schema_document()
@@ -158,8 +168,8 @@ class GoEmitterTests(unittest.TestCase):
         )
 
     def test_command_maps_propagate_presence_encoding_errors(self) -> None:
-        document = schema_document()
-        document["commands"]["list-workspaces"]["request"]["fields"] = {
+        document = plain_command_document()
+        document["commands"]["list-things"]["request"]["fields"] = {
             "filter": {
                 "type": {"kind": "scalar", "name": "string"},
                 "presence": "optional",
@@ -178,8 +188,8 @@ class GoEmitterTests(unittest.TestCase):
         )
 
     def test_shaped_methods_reject_invalid_inline_constraints(self) -> None:
-        document = schema_document()
-        document["commands"]["list-workspaces"]["request"]["fields"] = {
+        document = plain_command_document()
+        document["commands"]["list-things"]["request"]["fields"] = {
             "mode": {
                 "type": {
                     "kind": "enum",
@@ -193,14 +203,14 @@ class GoEmitterTests(unittest.TestCase):
         generated = emit(load_ir_document(document))
         commands = generated["generated_commands.go"]
 
-        self.assertIn("type ListWorkspacesRequestMode string", commands)
+        self.assertIn("type ListThingsRequestMode string", commands)
         self.assertIn(
-            "mode ListWorkspacesRequestMode",
+            "mode ListThingsRequestMode",
             commands,
         )
         self.assertIn("switch mode", commands)
         self.assertIn(
-            "encode list-workspaces.mode: invalid value",
+            "encode list-things.mode: invalid value",
             commands,
         )
         self.assertIn("ErrInvalidArgument", commands)

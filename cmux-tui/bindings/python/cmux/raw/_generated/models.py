@@ -1132,6 +1132,17 @@ class ListTerminalsResult:
 
 
 @dataclass(frozen=True)
+class ListWorkspacesKnown:
+    __cmux_schema_path__: ClassVar[str] = 'types/ListWorkspacesKnown'
+    generation: Union[str, None, MissingType] = field(default=MISSING)
+    pane_revision: Union[int, None, MissingType] = field(default=MISSING)
+    registry_id: Union[str, None, MissingType] = field(default=MISSING)
+    terminal_revision: Union[int, None, MissingType] = field(default=MISSING)
+    tree_revision: Union[str, None, MissingType] = field(default=MISSING)
+    workspace_revision: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class LivePane:
     __cmux_schema_path__: ClassVar[str] = 'types/LivePane'
     active_tab: int
@@ -2407,6 +2418,9 @@ class Tree:
     pane_revision: Union[int, MissingType] = field(default=MISSING)
     registry_id: Union[str, MissingType] = field(default=MISSING)
     terminal_revision: Union[int, MissingType] = field(default=MISSING)
+    total: Union[int, MissingType] = field(default=MISSING)
+    tree_revision: Union[str, MissingType] = field(default=MISSING)
+    unchanged: Union[bool, MissingType] = field(default=MISSING)
     workspace_revision: Union[int, MissingType] = field(default=MISSING)
 
 
@@ -4006,7 +4020,8 @@ class ListWorkspaceGroupsRequest:
 @dataclass(frozen=True)
 class ListWorkspacesRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/list-workspaces/request'
-    pass
+    known: Union[ListWorkspacesKnown, None, MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -6614,6 +6629,7 @@ __all__ = [
     'LayoutUndoUndone',
     'ListAgentsResult',
     'ListTerminalsResult',
+    'ListWorkspacesKnown',
     'LivePane',
     'MachineListeningTcpResult',
     'MachinePlatform',

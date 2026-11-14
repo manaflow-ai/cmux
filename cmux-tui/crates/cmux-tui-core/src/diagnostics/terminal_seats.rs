@@ -43,6 +43,12 @@
 //! adoption. An adoption that gives the terminal the seat of its session
 //! ends the host's seat after that. Each other end of an adoption leaves the
 //! terminal with no seat.
+//!
+//! The class that a client has from a kept host's seat ends with that seat
+//! ([`KeptSeatClass`]). The client's record keeps which seat gave the class,
+//! and at the seat's end the record keeps its terminal only when the seat of
+//! the client's session names the same terminal. In each other case the
+//! client is no terminal's.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
@@ -71,6 +77,9 @@ struct Seated {
     /// from this daemon's start to the end of the host's adoption
     /// ([`KeptHostSeat`]).
     kept_hosts: HashMap<u32, KeptSeats>,
+    /// How many entries `kept_hosts` got: the number of the newest
+    /// (`KeptSeats::entry`).
+    kept_entries: u64,
 }
 
 /// The seats under the process of one kept host.
@@ -83,6 +92,12 @@ struct KeptSeats {
     /// so one of the two is wrong: the entry names no terminal while it
     /// lives.
     taken_twice: bool,
+    /// The number of this entry. A later entry for the same process has
+    /// another.
+    entry: u64,
+    /// A lookup read this entry for a client ([`KeptSeatClass`]), also one
+    /// that then gave no terminal or kept no class.
+    gave_class: bool,
 }
 
 /// The seats of the session's terminals and of the hosts that start one.
@@ -122,6 +137,29 @@ impl TerminalSeats {
 pub struct SeatedTerminal {
     /// The terminal's public id. Nil: the terminal has none.
     pub id: Option<Arc<str>>,
+}
+
+/// The seat of a kept host that gave a client its terminal, and the client's
+/// process session ([`ConnectionStats::seated_terminal_from`]). The terminal
+/// is the client's class only while that seat gives it
+/// ([`ConnectionStats::kept_seat_class_now`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeptSeatClass {
+    host: u32,
+    entry: u64,
+    session: u32,
+}
+
+/// What a class from the seat of a kept host is now
+/// ([`ConnectionStats::kept_seat_class_now`]).
+#[derive(Debug, PartialEq, Eq)]
+pub enum KeptSeatClassNow {
+    /// The seat is there and names its terminal.
+    Held,
+    /// The seat ended, or its host was seated twice. The value is the
+    /// terminal of the seat of the client's session now. Nil: the session
+    /// has no seat.
+    Ended(Option<SeatedTerminal>),
 }
 
 /// A terminal's process id and, while this value lives, its seat among the
@@ -233,19 +271,36 @@ impl KeptHost {
 #[must_use = "the seat ends when this value is dropped"]
 pub struct KeptHostSeat {
     seated: Option<(Arc<ConnectionStats>, u32)>,
+    /// This seat was the second for its host, and the host's entry had given
+    /// its terminal before.
+    ended_a_class: bool,
+}
+
+impl KeptHostSeat {
+    /// This seat made its host name no terminal (a second seat for one
+    /// process) after a lookup had the terminal from the host's seat. The
+    /// owner then has the classes from that seat read again.
+    pub fn ended_a_class(&self) -> bool {
+        self.ended_a_class
+    }
+
+    /// Ends the seat now; the drop does the same. True: the host's entry
+    /// ended with this seat, and a lookup had the terminal from it. The
+    /// owner then has the classes from that seat read again.
+    pub fn end(&mut self) -> bool {
+        let Some((connections, host)) = self.seated.take() else { return false };
+        let mut seats = connections.terminal_seats.lock();
+        let ended = seats.kept_hosts.get_mut(&host).is_some_and(|kept| {
+            kept.held = kept.held.saturating_sub(1);
+            kept.held == 0
+        });
+        ended && seats.kept_hosts.remove(&host).is_some_and(|kept| kept.gave_class)
+    }
 }
 
 impl Drop for KeptHostSeat {
     fn drop(&mut self) {
-        let Some((connections, host)) = &self.seated else { return };
-        let mut seats = connections.terminal_seats.lock();
-        let ended = seats.kept_hosts.get_mut(host).is_some_and(|kept| {
-            kept.held = kept.held.saturating_sub(1);
-            kept.held == 0
-        });
-        if ended {
-            seats.kept_hosts.remove(host);
-        }
+        let _ = self.end();
     }
 }
 
@@ -297,15 +352,22 @@ impl HostSeating {
             return KeptHostSeat::default();
         };
         let mut seats = connections.terminal_seats.lock();
-        let kept = seats.kept_hosts.entry(host.process).or_insert_with(|| KeptSeats {
-            host,
-            terminal: self.terminal.clone(),
-            held: 0,
-            taken_twice: false,
+        let Seated { kept_hosts, kept_entries, .. } = &mut *seats;
+        let kept = kept_hosts.entry(host.process).or_insert_with(|| {
+            *kept_entries = kept_entries.wrapping_add(1);
+            KeptSeats {
+                host,
+                terminal: self.terminal.clone(),
+                held: 0,
+                taken_twice: false,
+                entry: *kept_entries,
+                gave_class: false,
+            }
         });
+        let ended_a_class = kept.held > 0 && !kept.taken_twice && kept.gave_class;
         kept.taken_twice |= kept.held > 0;
         kept.held = kept.held.saturating_add(1);
-        KeptHostSeat { seated: Some((connections.clone(), host.process)) }
+        KeptHostSeat { seated: Some((connections.clone(), host.process)), ended_a_class }
     }
 }
 
@@ -366,29 +428,59 @@ impl ConnectionStats {
         session: u32,
         parent_of: impl FnOnce(u32) -> Option<u32>,
     ) -> Option<SeatedTerminal> {
+        self.seated_terminal_from(session, parent_of).map(|(seated, _)| seated)
+    }
+
+    /// [`Self::seated_terminal`] and, when the terminal is from the seat of
+    /// a kept host, that seat. The caller that keeps the terminal as a
+    /// client's class keeps the seat with it, and reads the class again at
+    /// the seat's end ([`Self::kept_seat_class_now`]).
+    pub fn seated_terminal_from(
+        &self,
+        session: u32,
+        parent_of: impl FnOnce(u32) -> Option<u32>,
+    ) -> Option<(SeatedTerminal, Option<KeptSeatClass>)> {
         {
             let seats = self.terminal_seats.lock();
             if let Some(held) = seats.sessions.get(&session) {
-                return Some(seated(held));
+                return Some((seated(held), None));
             }
             if seats.hosts.is_empty() && seats.kept_hosts.is_empty() {
                 return None;
             }
         }
         let host = parent_of(session);
-        let (kept, terminal) = {
-            let seats = self.terminal_seats.lock();
+        let (kept, terminal, class) = {
+            let mut seats = self.terminal_seats.lock();
             let held = seats
                 .sessions
                 .get(&session)
                 .or_else(|| host.and_then(|host| seats.hosts.get(&host)));
             if let Some(held) = held {
-                return Some(seated(held));
+                return Some((seated(held), None));
             }
-            let kept = seats.kept_hosts.get(&host?).filter(|kept| !kept.taken_twice)?;
-            (kept.host, kept.terminal.clone())
+            let kept = seats.kept_hosts.get_mut(&host?).filter(|kept| !kept.taken_twice)?;
+            // Before the read of the host's start: an end of the seat from
+            // here on has the classes read again.
+            kept.gave_class = true;
+            let class = KeptSeatClass { host: kept.host.process, entry: kept.entry, session };
+            (kept.host, kept.terminal.clone(), class)
         };
-        kept.is_there().then_some(SeatedTerminal { id: terminal })
+        kept.is_there().then_some((SeatedTerminal { id: terminal }, Some(class)))
+    }
+
+    /// What the class `class` is now. One hold of the seats' lock, and no
+    /// read of a process.
+    pub fn kept_seat_class_now(&self, class: KeptSeatClass) -> KeptSeatClassNow {
+        let seats = self.terminal_seats.lock();
+        let held = seats
+            .kept_hosts
+            .get(&class.host)
+            .is_some_and(|kept| kept.entry == class.entry && !kept.taken_twice);
+        if held {
+            return KeptSeatClassNow::Held;
+        }
+        KeptSeatClassNow::Ended(seats.sessions.get(&class.session).map(Vec::as_slice).map(seated))
     }
 
     /// The connections the terminals hold in their short lane now (of

@@ -364,3 +364,6 @@ async fn viewing_a_chat_never_blocks_starting_a_new_one() {
     assert_eq!(summary["watching"], "claude", "the viewed chat goes on viewing: {summary}");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[path = "watch_follow.rs"]
+mod follow;

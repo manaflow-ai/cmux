@@ -165,6 +165,29 @@ const AGENT_STREAMS: &[&str] = &["agent.changed"];
 /// The streams a change to the chat index (`mux/chat_index.rs`) invalidates.
 const CHAT_STREAMS: &[&str] = &["chat.changed", "agent_chat.changed"];
 
+/// The stream every settings change invalidates (`settings-v1`; `mux/settings.rs`).
+const SETTINGS_STREAMS: &[&str] = &["settings.changed"];
+/// The streams a settings change that touches the theme invalidates.
+const SETTINGS_AND_THEME_STREAMS: &[&str] = &["settings.changed", "theme.changed"];
+/// The settings the theme is made from: a change to one of these keys (or a key under one, such as
+/// `appearance.themeEdits.dark.background`) is a theme change.
+const THEME_KEYS: &[&str] = &[
+    "appearance.theme",
+    "appearance.appTheme",
+    "appearance.themeFile",
+    "appearance.themeEdits",
+    "appearance.accent",
+    "appearance.hue",
+    "appearance.saturation",
+    "appearance.highlightColor",
+];
+
+fn is_theme_key(key: &str) -> bool {
+    THEME_KEYS.iter().any(|theme| {
+        key.strip_prefix(theme).is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+    })
+}
+
 /// The app streams a daemon event invalidates (`cmux.live` re-reads on them). Every one is
 /// declared in `cmux-app-host/schema/v2/events.json`, the table the extension SDKs are made from.
 fn streams(event: &MuxEvent) -> &'static [&'static str] {
@@ -175,6 +198,10 @@ fn streams(event: &MuxEvent) -> &'static [&'static str] {
         | MuxEvent::TreeDelta(_) => TREE_STREAMS,
         MuxEvent::AgentChanged { .. } => AGENT_STREAMS,
         MuxEvent::ChatsChanged { .. } => CHAT_STREAMS,
+        MuxEvent::SettingsChanged(change) if change.keys.iter().any(|key| is_theme_key(key)) => {
+            SETTINGS_AND_THEME_STREAMS
+        }
+        MuxEvent::SettingsChanged(_) => SETTINGS_STREAMS,
         _ => &[],
     }
 }
@@ -190,12 +217,50 @@ mod tests {
                 .unwrap();
         let declared = table["events"].as_object().unwrap();
         assert_eq!(streams(&MuxEvent::TreeChanged), TREE_STREAMS);
-        for stream in TREE_STREAMS.iter().chain(AGENT_STREAMS).chain(CHAT_STREAMS) {
+        for stream in TREE_STREAMS
+            .iter()
+            .chain(AGENT_STREAMS)
+            .chain(CHAT_STREAMS)
+            .chain(SETTINGS_STREAMS)
+            .chain(SETTINGS_AND_THEME_STREAMS)
+        {
             assert!(
                 declared.contains_key(*stream),
                 "{stream} is published to apps but not declared in schema/v2/events.json"
             );
         }
+    }
+
+    fn settings_changed(keys: &[&str]) -> MuxEvent {
+        MuxEvent::SettingsChanged(cmux_config::store::Change {
+            revision: 1,
+            keys: keys.iter().map(|key| (*key).to_string()).collect(),
+            origin: cmux_config::store::Origin::User,
+        })
+    }
+
+    /// Every settings change invalidates `settings.changed`; one that touches a key the theme is
+    /// made from also invalidates `theme.changed`. Both are declared with `settings.get`, so an app
+    /// hears them with `settings:read`.
+    #[test]
+    fn settings_changes_publish_settings_changed_and_theme_keys_also_theme_changed() {
+        assert_eq!(streams(&settings_changed(&["terminal.fontSize"])), ["settings.changed"]);
+        for key in ["appearance.theme", "appearance.themeFile", "appearance.accent"] {
+            assert_eq!(
+                streams(&settings_changed(&["terminal.fontSize", key])),
+                ["settings.changed", "theme.changed"],
+                "{key}"
+            );
+        }
+        assert_eq!(
+            streams(&settings_changed(&["appearance.themeEdits.dark.background"])),
+            ["settings.changed", "theme.changed"]
+        );
+        assert_eq!(streams(&settings_changed(&["appearance.themeful"])), ["settings.changed"]);
+        for stream in ["settings.changed", "theme.changed"] {
+            assert_eq!(super::super::subscriptions::declared_reads(stream), Some("settings.get"));
+        }
+        assert_eq!(super::super::subscriptions::declared_reads("made.changed"), None);
     }
 
     #[test]

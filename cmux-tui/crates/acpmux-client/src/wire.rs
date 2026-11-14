@@ -38,6 +38,7 @@ pub enum Request {
     Page(Page),
     Credit(Credit),
     Unsub(Unsub),
+    Blob(Blob),
 }
 
 /// A generic stream name. The wire layer does not know which stream is being
@@ -397,6 +398,13 @@ pub struct Page {
     pub max_bytes: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filter: Option<ListFilter>,
+    /// On a chat: the edition the anchor's rowId is from. A page of another edition is
+    /// answered `stale_edition`, never rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edition: Option<u32>,
+    /// On a chat: a group's rowId. The page holds that fold's rows, taken as open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fold: Option<u64>,
 }
 
 /// Descriptive alias used by request routers.
@@ -422,6 +430,8 @@ impl Page {
             view: None,
             max_bytes: default_page_bytes(),
             filter: None,
+            edition: None,
+            fold: None,
         }
     }
 
@@ -447,6 +457,8 @@ impl Page {
             view: None,
             max_bytes: default_page_bytes(),
             filter: None,
+            edition: None,
+            fold: None,
         }
     }
 
@@ -465,6 +477,8 @@ impl Page {
             view: Some(ListView::Folders),
             max_bytes: default_page_bytes(),
             filter: None,
+            edition: None,
+            fold: None,
         }
     }
 
@@ -556,6 +570,259 @@ pub struct FolderPageResult {
     pub missing: Vec<FolderIdentity>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rest: Vec<FolderIdentity>,
+}
+
+/// JSON bytes carried as they are stored: a chat row's text, or an escaped `text` piece.
+/// They are copied into a frame and never parsed into values and escaped again.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RawJson(pub Box<serde_json::value::RawValue>);
+
+impl RawJson {
+    /// Takes stored JSON bytes. The bytes are checked once, here.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, FrameError> {
+        let text = std::str::from_utf8(bytes).map_err(|_| {
+            FrameError::Encode(serde_json::Error::custom("stored JSON is not UTF-8"))
+        })?;
+        serde_json::value::RawValue::from_string(text.to_owned())
+            .map(Self)
+            .map_err(FrameError::Encode)
+    }
+
+    pub fn get(&self) -> &str {
+        self.0.get()
+    }
+}
+
+impl PartialEq for RawJson {
+    fn eq(&self, other: &Self) -> bool {
+        self.get() == other.get()
+    }
+}
+
+impl Eq for RawJson {}
+
+/// A waiting prompt as a window and a `queue` op carry it: its id, at most 1 KB of its text,
+/// and the text's whole length. The rest of the text is read by `blob`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueItem {
+    pub id: String,
+    pub text: String,
+    /// The decoded text's length in bytes.
+    pub len: u64,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub held: bool,
+    pub at: u64,
+}
+
+/// The entries next to run (at most 64) and the count of all that wait.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueHead {
+    pub entries: Vec<QueueItem>,
+    pub count: u32,
+}
+
+/// An open row as a window or a resume's state frame carries it. `row` holds the body while
+/// the open bodies fit in 64 KB together; past that the body is left out (`{}`) and `bodyLen`
+/// names its length, read by `blob`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenRow {
+    pub row: RawJson,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_len: Option<u64>,
+}
+
+/// A chat's window: the breakpoint everything after it is a delta of. Separate from
+/// `Window<T>` so the list's clients decode their windows unchanged.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatWindow {
+    pub sid: String,
+    pub cursor: u64,
+    pub edition: u32,
+    pub rows: Vec<RawJson>,
+    pub has_before: bool,
+    pub has_after: bool,
+    #[serde(default)]
+    pub open: Vec<OpenRow>,
+    #[serde(default)]
+    pub queue: QueueHead,
+    /// The person's seen row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seen: Option<u64>,
+    /// The person's open folds.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folds: Vec<u64>,
+    /// Rows this window would hold whose records a read refused.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refused: Vec<u64>,
+}
+
+/// A chat's page reply. `refused` names the rows in its range whose records were refused.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPageResult {
+    pub sid: String,
+    pub edition: u32,
+    pub rows: Vec<RawJson>,
+    pub has_before: bool,
+    pub has_after: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refused: Vec<u64>,
+}
+
+/// One op of a chat's delta. A settled row and a patch carry a seq of their own; a row that
+/// begins, a `text` and a `queue` op carry the last record's seq and move no cursor. Separate
+/// from the list's `DeltaOp<T>`, in the same frame kind.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "op")]
+pub enum ChatOp {
+    /// A settled row, or an open one as it is now; it replaces what the client holds for its
+    /// rowId. An open row whose body was left out names its length, read by `blob`.
+    Row {
+        seq: u64,
+        row: RawJson,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        body_len: Option<u64>,
+    },
+    /// Text appended to an open row's `text`: an escaped JSON string, as stored.
+    Text { seq: u64, row_id: u64, text: RawJson },
+    /// A new rev of a settled row.
+    Patch { seq: u64, row: RawJson },
+    /// One entry as it is now, or its removal, with the count; or `head`, the entries next to
+    /// run, which replaces what the client holds.
+    Queue {
+        seq: u64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        entry: Option<QueueItem>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        removed: Option<String>,
+        count: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        head: Option<QueueHead>,
+    },
+}
+
+// Read from the JSON map directly, as `DeltaOp` is: an internally tagged enum buffers its
+// fields, which a `RawJson` cannot come through.
+impl<'de> Deserialize<'de> for ChatOp {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Fields {
+            op: String,
+            seq: u64,
+            row: Option<RawJson>,
+            body_len: Option<u64>,
+            row_id: Option<u64>,
+            text: Option<RawJson>,
+            entry: Option<QueueItem>,
+            removed: Option<String>,
+            count: Option<u32>,
+            head: Option<QueueHead>,
+        }
+        let fields = Fields::deserialize(deserializer)?;
+        let seq = fields.seq;
+        match fields.op.as_str() {
+            "row" => Ok(Self::Row {
+                seq,
+                row: fields.row.ok_or_else(|| D::Error::missing_field("row"))?,
+                body_len: fields.body_len,
+            }),
+            "text" => Ok(Self::Text {
+                seq,
+                row_id: fields.row_id.ok_or_else(|| D::Error::missing_field("rowId"))?,
+                text: fields.text.ok_or_else(|| D::Error::missing_field("text"))?,
+            }),
+            "patch" => Ok(Self::Patch {
+                seq,
+                row: fields.row.ok_or_else(|| D::Error::missing_field("row"))?,
+            }),
+            "queue" => Ok(Self::Queue {
+                seq,
+                entry: fields.entry,
+                removed: fields.removed,
+                count: fields.count.ok_or_else(|| D::Error::missing_field("count"))?,
+                head: fields.head,
+            }),
+            other => Err(D::Error::unknown_variant(other, &["row", "text", "patch", "queue"])),
+        }
+    }
+}
+
+/// A chat's delta frame: `{sid, replay?, ops}`. A resume's frames set `replay`; its last, the
+/// state frame, is `"end"`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatDelta {
+    pub sid: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay: Option<ReplayMark>,
+    pub ops: Vec<ChatOp>,
+}
+
+/// A bounded read of a row's body, or of a waiting prompt's text.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Blob {
+    /// The request's id, named again by its reply.
+    pub id: String,
+    pub stream: Stream,
+    pub edition: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row_id: Option<u64>,
+    /// A waiting prompt's id, in place of `rowId`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    /// The range's start; for a prompt with `from` and no start, the token's offset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<u64>,
+    pub len: u64,
+    /// A prompt's `next` token: where the scan starts, never where the bytes start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+}
+
+/// The JSON head of a `blob` reply. The frame is this head, a newline, then the bytes.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlobHead {
+    pub id: String,
+    pub start: u64,
+    pub len: u64,
+    /// The body's (or the prompt text's) whole length.
+    pub total: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<String>,
+    /// An open row's snapshot: `gen` names it and the bytes under `fixed` stay within it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub open: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "gen")]
+    pub generation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed: Option<u64>,
+}
+
+/// A `blob` reply: the head, a newline, the bytes as they are stored.
+pub fn blob_frame(head: &BlobHead, bytes: &[u8]) -> Result<Frame, FrameError> {
+    let mut payload = serde_json::to_vec(head).map_err(FrameError::Encode)?;
+    payload.reserve(1 + bytes.len());
+    payload.push(b'\n');
+    payload.extend_from_slice(bytes);
+    Frame::new(FrameKind::Blob, payload)
+}
+
+/// Splits a `blob` reply into its head and its bytes.
+pub fn decode_blob(frame: &Frame) -> Result<(BlobHead, &[u8]), FrameError> {
+    let payload = frame.payload();
+    let newline = payload.iter().position(|byte| *byte == b'\n').ok_or(FrameError::Truncated)?;
+    let (head, rest) = payload.split_at(newline);
+    let head = serde_json::from_slice(head).map_err(FrameError::Decode)?;
+    Ok((head, rest.get(1..).unwrap_or_default()))
 }
 
 /// One bounded delta frame. Resume frames carry at most 256 KiB of operations;
@@ -1005,6 +1272,67 @@ mod other_delta_tests {
         .unwrap();
         let decoded: DeltaFrame<serde_json::Value> = frame.decode_json().unwrap();
         assert_eq!(decoded.ops, ops);
+    }
+
+    #[test]
+    fn chat_ops_round_trip_in_their_own_delta() {
+        let row = RawJson::from_bytes(br#"{"id":7,"rev":1,"body":{"text":"a\"b"}}"#).unwrap();
+        let item = QueueItem { id: "p".into(), text: "hi".into(), len: 2, held: false, at: 9 };
+        let ops = vec![
+            ChatOp::Row { seq: 3, row: row.clone(), body_len: Some(9) },
+            ChatOp::Text {
+                seq: 3,
+                row_id: 7,
+                text: RawJson::from_bytes(br#""\n\u0001""#).unwrap(),
+            },
+            ChatOp::Patch { seq: 4, row },
+            ChatOp::Queue {
+                seq: 4,
+                entry: Some(item.clone()),
+                removed: None,
+                count: 1,
+                head: None,
+            },
+            ChatOp::Queue { seq: 4, entry: None, removed: Some("q".into()), count: 0, head: None },
+            ChatOp::Queue {
+                seq: 4,
+                entry: None,
+                removed: None,
+                count: 1,
+                head: Some(QueueHead { entries: vec![item], count: 1 }),
+            },
+        ];
+        let delta = ChatDelta { sid: "s".into(), replay: Some(ReplayMark::End), ops };
+        let frame = Frame::json(FrameKind::Delta, &delta).unwrap();
+        // Stored bytes go out as they are: the escape is not decoded and escaped again.
+        assert!(std::str::from_utf8(frame.payload()).unwrap().contains(r#""a\"b""#));
+        let decoded: ChatDelta = frame.decode_json().unwrap();
+        assert_eq!(decoded, delta);
+    }
+
+    #[test]
+    fn a_blob_reply_is_a_head_a_newline_and_the_stored_bytes() {
+        let head = BlobHead {
+            id: "b".into(),
+            start: 4,
+            len: 3,
+            total: 10,
+            next: None,
+            open: true,
+            generation: Some("0123456789abcdef".into()),
+            fixed: Some(8),
+        };
+        let frame = blob_frame(&head, b"\\\"\n").unwrap();
+        assert_eq!(frame.kind, FrameKind::Blob);
+        let (decoded, bytes) = decode_blob(&frame).unwrap();
+        assert_eq!(decoded, head);
+        assert_eq!(bytes, b"\\\"\n");
+        let request: Request = serde_json::from_value(serde_json::json!({
+            "method": "blob",
+            "params": {"id": "b", "stream": "chat:c", "edition": 2, "rowId": 7, "len": 10}
+        }))
+        .unwrap();
+        assert!(matches!(request, Request::Blob(Blob { row_id: Some(7), .. })));
     }
 
     #[test]
