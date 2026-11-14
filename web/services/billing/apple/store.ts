@@ -5,11 +5,12 @@
 // `appAccountToken` (planAppleSubscriptionWrite).
 
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, isNull, lt, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, max, or, sql, type SQL } from "drizzle-orm";
 
 import { cloudDb } from "../../../db/client";
 import {
   appleAccountTokens,
+  appleNotificationHistoryCursors,
   appleNotifications,
   appleSubscriptions,
   appleTransactions,
@@ -20,6 +21,7 @@ type Db = ReturnType<typeof cloudDb>;
 
 export type AppleSubscriptionRow = typeof appleSubscriptions.$inferSelect;
 export type AppleNotificationRow = typeof appleNotifications.$inferSelect;
+export type AppleNotificationHistoryCursor = Omit<typeof appleNotificationHistoryCursors.$inferSelect, "updatedAt">;
 
 export class AppleOwnershipError extends Error {
   constructor(readonly originalTransactionId: string) {
@@ -118,9 +120,46 @@ export function planAppleSubscriptionWrite(
   return { kind: "write", userId: owner, transferredFrom: moves ? previous.userId : null };
 }
 
-export type AppleLapsedSubscription = {
-  readonly originalTransactionId: string;
-  readonly userId: string;
+export type AppleLapsedSubscription = Pick<
+  AppleSubscriptionRow,
+  | "originalTransactionId"
+  | "userId"
+  | "bundleId"
+  | "environment"
+  | "expiresAt"
+  | "gracePeriodExpiresAt"
+  | "appleCheckedAt"
+>;
+
+/** Failed applications before a notification is dead-lettered (about 3 days of retries). */
+export const APPLE_NOTIFICATION_MAX_ATTEMPTS = 12;
+const RETRY_BASE_SECONDS = 300;
+const RETRY_MAX_SECONDS = 12 * 60 * 60;
+
+/**
+ * Delay before the next retry once `attemptCount` applications have failed:
+ * 5 minutes, doubling, at most 12 hours. The database store computes the
+ * same value in SQL.
+ */
+export function appleNotificationRetryDelayMs(attemptCount: number): number {
+  const exponent = Math.max(0, attemptCount - 1);
+  return Math.min(RETRY_BASE_SECONDS * 2 ** exponent, RETRY_MAX_SECONDS) * 1000;
+}
+
+export type AppleNotificationFailure = {
+  readonly attemptCount: number;
+  readonly deadLettered: boolean;
+};
+
+/** Rows the renewal re-check asks Apple about (see `renewalCheckCandidates`). */
+export type AppleRenewalCheckQuery = {
+  /** Access must end after this... */
+  readonly accessEndsAfter: Date;
+  /** ...and no later than this. */
+  readonly accessEndsBy: Date;
+  /** Skip rows Apple answered for at or after this time. */
+  readonly checkedBefore: Date;
+  readonly limit: number;
 };
 
 /** Statuses that can grant access; their rows are what the lapse sweep watches. */
@@ -159,18 +198,41 @@ export type AppleIapStore = {
   recordTransaction(row: AppleTransactionRow): Promise<void>;
   /** Inserts the ledger row; false when the notification UUID already exists. */
   insertNotification(row: AppleNotificationInsert): Promise<{ inserted: boolean; row: AppleNotificationRow }>;
+  notification(notificationUuid: string): Promise<AppleNotificationRow | null>;
   markNotificationProcessed(notificationUuid: string, processedAt: Date): Promise<void>;
-  markNotificationFailed(notificationUuid: string, error: string): Promise<void>;
+  /**
+   * Records a failed application: counts the attempt, schedules the next one
+   * (`appleNotificationRetryDelayMs`), and dead-letters the row once
+   * APPLE_NOTIFICATION_MAX_ATTEMPTS attempts failed.
+   */
+  markNotificationFailed(notificationUuid: string, error: string, now: Date): Promise<AppleNotificationFailure>;
   /** Closes a notification that can never apply, keeping the reason. */
   markNotificationSkipped(notificationUuid: string, reason: string, processedAt: Date): Promise<void>;
-  /** Ledger rows still owed an entitlement application (failed or never run), oldest first. */
-  pendingNotifications(limit: number): Promise<AppleNotificationRow[]>;
+  /**
+   * Ledger rows still owed an entitlement application (failed or never run)
+   * that are due (`next_attempt_at` null or past) and not dead-lettered,
+   * earliest due first.
+   */
+  pendingNotifications(limit: number, now: Date): Promise<AppleNotificationRow[]>;
   /**
    * Rows still in an access-granting status whose access ended (the later of
-   * `expires_at` and `grace_period_expires_at` is past) after their last
-   * write, oldest lapse first.
+   * `expires_at` and `grace_period_expires_at`) before `endedBefore` and
+   * after their last write, oldest lapse first. The sweep passes a cutoff an
+   * hour before now, so a late renewal has time to arrive.
    */
-  lapsedSubscriptions(now: Date, limit: number): Promise<AppleLapsedSubscription[]>;
+  lapsedSubscriptions(endedBefore: Date, limit: number): Promise<AppleLapsedSubscription[]>;
+  /**
+   * `active` and `grace_period` rows with auto-renew on (or unknown) whose
+   * access ends inside the query's window and that Apple has not answered for
+   * since `checkedBefore`, soonest end first.
+   */
+  renewalCheckCandidates(query: AppleRenewalCheckQuery): Promise<AppleSubscriptionRow[]>;
+  /** Records that Apple answered a status lookup for the subscription. Leaves `updated_at` alone. */
+  markAppleChecked(originalTransactionId: string, checkedAt: Date): Promise<void>;
+  notificationHistoryCursor(bundleId: string, environment: string): Promise<AppleNotificationHistoryCursor | null>;
+  saveNotificationHistoryCursor(cursor: AppleNotificationHistoryCursor): Promise<void>;
+  /** The newest `signed_date` in the ledger for the environment, or null. */
+  latestNotificationSignedDate(environment: string): Promise<Date | null>;
   /**
    * Records that a lapse was applied, so the row does not match again:
    * `active` becomes `expired`, `grace_period` becomes `billing_retry` (Apple
@@ -349,36 +411,127 @@ export function databaseAppleIapStore(db: () => Db = cloudDb): AppleIapStore {
     writeSubscriptionState: (state, claim) => writeSubscriptionState(db(), state, claim),
     recordTransaction: (row) => recordTransaction(db(), row),
     insertNotification: (row) => insertNotification(db(), row),
+    async notification(notificationUuid) {
+      const [row] = await db()
+        .select()
+        .from(appleNotifications)
+        .where(eq(appleNotifications.notificationUuid, notificationUuid))
+        .limit(1);
+      return row ?? null;
+    },
     async markNotificationProcessed(notificationUuid, processedAt) {
       await db().update(appleNotifications)
         .set({ processedAt, error: null })
         .where(eq(appleNotifications.notificationUuid, notificationUuid));
     },
-    async markNotificationFailed(notificationUuid, error) {
-      await db().update(appleNotifications)
-        .set({ error: error.slice(0, 1000) })
-        .where(eq(appleNotifications.notificationUuid, notificationUuid));
+    async markNotificationFailed(notificationUuid, error, now) {
+      // Right-hand sides read the row's values before this update.
+      const [row] = await db().update(appleNotifications)
+        .set({
+          error: error.slice(0, 1000),
+          attemptCount: sql`${appleNotifications.attemptCount} + 1`,
+          nextAttemptAt: sql`${now.toISOString()}::timestamptz + least(
+            ${RETRY_BASE_SECONDS} * power(2, ${appleNotifications.attemptCount}), ${RETRY_MAX_SECONDS}
+          ) * interval '1 second'`,
+          deadLetteredAt: sql`case when ${appleNotifications.attemptCount} + 1 >= ${APPLE_NOTIFICATION_MAX_ATTEMPTS}
+            then coalesce(${appleNotifications.deadLetteredAt}, ${now.toISOString()}::timestamptz)
+            else ${appleNotifications.deadLetteredAt} end`,
+        })
+        .where(eq(appleNotifications.notificationUuid, notificationUuid))
+        .returning({ attemptCount: appleNotifications.attemptCount, deadLetteredAt: appleNotifications.deadLetteredAt });
+      return { attemptCount: row?.attemptCount ?? 0, deadLettered: Boolean(row?.deadLetteredAt) };
     },
     async markNotificationSkipped(notificationUuid, reason, processedAt) {
       await db().update(appleNotifications)
         .set({ processedAt, error: `skipped: ${reason}`.slice(0, 1000) })
         .where(eq(appleNotifications.notificationUuid, notificationUuid));
     },
-    async pendingNotifications(limit) {
+    async pendingNotifications(limit, now) {
       return await db()
         .select()
         .from(appleNotifications)
-        .where(isNull(appleNotifications.processedAt))
-        .orderBy(asc(appleNotifications.receivedAt))
+        .where(and(
+          isNull(appleNotifications.processedAt),
+          isNull(appleNotifications.deadLetteredAt),
+          or(isNull(appleNotifications.nextAttemptAt), sql`${appleNotifications.nextAttemptAt} <= ${now.toISOString()}::timestamptz`),
+        ))
+        .orderBy(sql`coalesce(${appleNotifications.nextAttemptAt}, ${appleNotifications.receivedAt})`, asc(appleNotifications.receivedAt))
         .limit(limit);
     },
-    async lapsedSubscriptions(now, limit) {
+    async lapsedSubscriptions(endedBefore, limit) {
       return await db()
-        .select({ originalTransactionId: appleSubscriptions.originalTransactionId, userId: appleSubscriptions.userId })
+        .select({
+          originalTransactionId: appleSubscriptions.originalTransactionId,
+          userId: appleSubscriptions.userId,
+          bundleId: appleSubscriptions.bundleId,
+          environment: appleSubscriptions.environment,
+          expiresAt: appleSubscriptions.expiresAt,
+          gracePeriodExpiresAt: appleSubscriptions.gracePeriodExpiresAt,
+          appleCheckedAt: appleSubscriptions.appleCheckedAt,
+        })
         .from(appleSubscriptions)
-        .where(and(inArray(appleSubscriptions.status, [...APPLE_GRANTING_STATUSES]), lapsedSince(now)))
+        .where(and(inArray(appleSubscriptions.status, [...APPLE_GRANTING_STATUSES]), lapsedSince(endedBefore)))
         .orderBy(asc(ACCESS_ENDS_AT), asc(appleSubscriptions.originalTransactionId))
         .limit(limit);
+    },
+    async renewalCheckCandidates({ accessEndsAfter, accessEndsBy, checkedBefore, limit }) {
+      return await db()
+        .select()
+        .from(appleSubscriptions)
+        .where(and(
+          inArray(appleSubscriptions.status, ["active", "grace_period"]),
+          sql`${appleSubscriptions.autoRenewEnabled} is distinct from false`,
+          sql`${ACCESS_ENDS_AT} > ${accessEndsAfter.toISOString()}::timestamptz`,
+          sql`${ACCESS_ENDS_AT} <= ${accessEndsBy.toISOString()}::timestamptz`,
+          or(isNull(appleSubscriptions.appleCheckedAt), lt(appleSubscriptions.appleCheckedAt, checkedBefore)),
+        ))
+        .orderBy(asc(ACCESS_ENDS_AT), asc(appleSubscriptions.originalTransactionId))
+        .limit(limit);
+    },
+    async markAppleChecked(originalTransactionId, checkedAt) {
+      await db().update(appleSubscriptions)
+        .set({ appleCheckedAt: checkedAt })
+        .where(eq(appleSubscriptions.originalTransactionId, originalTransactionId));
+    },
+    async notificationHistoryCursor(bundleId, environment) {
+      const [row] = await db()
+        .select({
+          bundleId: appleNotificationHistoryCursors.bundleId,
+          environment: appleNotificationHistoryCursors.environment,
+          nextStartAt: appleNotificationHistoryCursors.nextStartAt,
+          windowStartAt: appleNotificationHistoryCursors.windowStartAt,
+          windowEndAt: appleNotificationHistoryCursors.windowEndAt,
+          paginationToken: appleNotificationHistoryCursors.paginationToken,
+        })
+        .from(appleNotificationHistoryCursors)
+        .where(and(
+          eq(appleNotificationHistoryCursors.bundleId, bundleId),
+          eq(appleNotificationHistoryCursors.environment, environment),
+        ))
+        .limit(1);
+      return row ?? null;
+    },
+    async saveNotificationHistoryCursor(cursor) {
+      const values = { ...cursor, updatedAt: new Date() };
+      await db().insert(appleNotificationHistoryCursors)
+        .values(values)
+        .onConflictDoUpdate({
+          target: [appleNotificationHistoryCursors.bundleId, appleNotificationHistoryCursors.environment],
+          set: {
+            nextStartAt: values.nextStartAt,
+            windowStartAt: values.windowStartAt,
+            windowEndAt: values.windowEndAt,
+            paginationToken: values.paginationToken,
+            updatedAt: values.updatedAt,
+          },
+        });
+    },
+    async latestNotificationSignedDate(environment) {
+      const [row] = await db()
+        .select({ latest: max(appleNotifications.signedDate) })
+        .from(appleNotifications)
+        .where(eq(appleNotifications.environment, environment));
+      return row?.latest ?? null;
     },
     async markLapseSwept(originalTransactionIds, now) {
       if (originalTransactionIds.length === 0) return;
