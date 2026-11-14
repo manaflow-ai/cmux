@@ -22,6 +22,7 @@ export interface AcpmuxRequests {
   "acp.trust.set": { params: TrustSetParams; result: unknown };
   "catalog.get": { params: unknown; result: unknown };
   "catalog.refresh": { params: unknown; result: unknown };
+  "_acpmux/v2": { params: unknown; result: unknown };
   "_acpmux/tailnet/login": { params: unknown; result: unknown };
   "_acpmux/tailnet/logout": { params: unknown; result: unknown };
   "_acpmux/tailnet/start": { params: unknown; result: unknown };
@@ -291,6 +292,8 @@ export interface AcpmuxRequests {
   "_acpmux/peer_remove": { params: unknown; result: unknown };
   "_acpmux/peer_snapshot": { params: PeerSnapshotParams; result: unknown };
   "_acpmux/peer_snapshots_clear": { params: unknown; result: unknown };
+  "_acpmux/journal_restore": { params: unknown; result: unknown };
+  "_acpmux/attachments_held": { params: unknown; result: unknown };
   "_acpmux/pair_ticket_new": { params: unknown; result: unknown };
   "_acpmux/pair_list": { params: unknown; result: unknown };
   "_acpmux/pair_revoke": { params: unknown; result: unknown };
@@ -336,6 +339,7 @@ export interface AcpmuxNotifications {
   "_acpmux/start_mode_changed": unknown;
   "_acpmux/prompt_accepted": unknown;
   "_acpmux/cancel_refused": unknown;
+  "_acpmux/unsent": unknown;
   "_acpmux/lagged": unknown;
 }
 
@@ -376,6 +380,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "catalog.get", kind: "request", acp: false, typed: false },
   { name: "catalog.refresh", kind: "request", acp: false, typed: false },
   { name: "catalog.changed", kind: "notification", acp: false, typed: false },
+  { name: "_acpmux/v2", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tailnet/login", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tailnet/logout", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tailnet/start", kind: "request", acp: false, typed: false },
@@ -651,6 +656,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/peer_remove", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_snapshot", kind: "request", acp: false, typed: true },
   { name: "_acpmux/peer_snapshots_clear", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/journal_restore", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/attachments_held", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_ticket_new", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_list", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_revoke", kind: "request", acp: false, typed: false },
@@ -678,6 +685,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/start_mode_changed", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/prompt_accepted", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/cancel_refused", kind: "notification", acp: false, typed: false },
+  { name: "_acpmux/unsent", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/lagged", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/disconnected", kind: "client_local", acp: false, typed: false },
 ];

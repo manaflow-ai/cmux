@@ -635,6 +635,7 @@ impl Hub {
             // A referencing fork's own records follow the history it shows.
             last_seq: if referenced { fork_seq } else { 0 },
             transcript_seq: if referenced { fork_seq } else { 0 },
+            recovered_after: None,
             parent_id: Some(session.id.clone()),
             fork_seq: if empty { None } else { Some(fork_seq) },
             fork_before: before.as_ref().map(|(_, b)| b.clone()),
@@ -701,6 +702,7 @@ impl Hub {
             seen_seq: None,
             unread_turns: 0,
             last_return: None,
+            away_recap: None,
             read_through: Default::default(),
             claude_unstored: false,
             // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
@@ -750,6 +752,7 @@ impl Hub {
             totals: None,
             pull_requests: vec![],
             pull_request_times: Default::default(),
+            closed_pull_requests: vec![],
             touched_files: vec![],
             harness_cost_usd: if matches!(made, Made::ClaudeResume) {
                 parent_meta.harness_cost_usd
@@ -838,7 +841,7 @@ impl Hub {
         }
         self.update_live_session_index(&new);
         // A session that came may be another row's parent: every closed row is built again.
-        self.events.changed();
+        self.session_came(&new);
         // Indexed again once published (`transfer.rs` `import_into`).
         self.child_tags.note(&new);
         let creation_guard = super::lifecycle::CreationGuard::new(self.clone(), new.clone(), 0);
@@ -915,6 +918,7 @@ impl Hub {
                         e.msg,
                         None,
                         Some(e.at),
+                        false,
                         false,
                     );
                     if !stored {

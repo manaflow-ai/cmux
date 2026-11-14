@@ -40,6 +40,10 @@ impl std::fmt::Display for OpenError {
 
 impl std::error::Error for OpenError {}
 
+/// What [`Repository::open`] says of a work tree that it does not open
+/// because its top folder's name is not UTF-8.
+const TOP_FOLDER_NOT_UTF8: &str = "the work tree's top folder has a name that is not UTF-8";
+
 impl Repository {
     /// The repository `directory` is in.
     pub fn open(directory: &Path) -> Result<Self, OpenError> {
@@ -53,6 +57,18 @@ impl Repository {
     }
 
     fn open_until(directory: &Path, deadline: Option<Instant>) -> Result<Self, OpenError> {
+        Self::open_unfiltered(directory, deadline)?.filtered().map_err(OpenError::Git)
+    }
+
+    /// The repository `directory` is in, with no filter driver blanked: for
+    /// the runs that read no file content (a ref, a config value, a path of
+    /// the repository). Crate-private, so that only such a run gets one
+    /// ([`crate::head::Checkout`]); a run that can read content takes
+    /// [`Repository::filtered`] first.
+    pub(crate) fn open_unfiltered(
+        directory: &Path,
+        deadline: Option<Instant>,
+    ) -> Result<Self, OpenError> {
         let arguments = ["rev-parse", "--show-toplevel"];
         let left = remaining(deadline);
         let output = match run_git_within(directory, &[], &arguments, MAX_SMALL_OUTPUT_BYTES, left)
@@ -63,14 +79,27 @@ impl Repository {
             }
             Err(failure) => return Err(OpenError::Git(failure)),
         };
-        let root = String::from_utf8_lossy(&output.stdout).trim_end_matches('\n').to_string();
+        // git ends the line with one line break. The top folder's name can
+        // end with a line break too: no more is taken off.
+        let root = output.stdout.as_slice();
+        let root = root.strip_suffix(b"\n").unwrap_or(root);
         if root.is_empty() {
             return Err(OpenError::NotARepository);
         }
-        let root = PathBuf::from(root);
-        let overrides =
-            filter_overrides_within(&root, remaining(deadline)).map_err(OpenError::Git)?;
-        Ok(Self { root, overrides, deadline })
+        // The top folder is text for each user of it (a reply, a key). A
+        // name that is not UTF-8 has no such text, and a text with other
+        // characters in its place is the name of another folder: refused.
+        let Ok(root) = std::str::from_utf8(root) else {
+            return Err(OpenError::Git(GitFailure::Exit(TOP_FOLDER_NOT_UTF8.to_string())));
+        };
+        Ok(Self { root: PathBuf::from(root), overrides: Vec::new(), deadline })
+    }
+
+    /// This repository with every configured filter driver blanked, as
+    /// [`Repository::open`] gives it.
+    pub(crate) fn filtered(&self) -> Result<Self, GitFailure> {
+        let overrides = filter_overrides_within(&self.root, remaining(self.deadline))?;
+        Ok(Self { root: self.root.clone(), overrides, deadline: self.deadline })
     }
 
     /// This repository with its runs stopped at `deadline` too (the earlier

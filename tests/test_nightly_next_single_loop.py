@@ -78,6 +78,45 @@ for name in ("generate-nightly-deltas", "sign-release-notes", "published-in"):
     if "needs.published-build.outputs.run_tail == 'true'" not in str(JOBS.get(name, {}).get("if", "")):
         failures.append(f"{name} must not hold a loop run's push group (run_tail)")
 
+# A loop retry that started just before a newer push leaves the build slot to that push's run (runs 43395284047
+# and 43395323737, 2026-11-13: retry 2 of c31b2b678 was dispatched at 08:42:11, nightly-next moved to 7341dd7 at
+# 08:42:29, and the push run waited 19 min for a retry of the older commit). The check runs in resolve, before any
+# build job starts, so no started build is ever left; the push run is pending in the same group and builds the head.
+resolve_steps = {step.get("id"): step for step in JOBS["resolve-nightly-cmux-tui-client"].get("steps", [])}
+leave = resolve_steps.get("superseded") or {}
+leave_if = " ".join(str(leave.get("if", "")).split())
+if "github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != ''" not in leave_if:
+    failures.append("a loop retry must leave the build slot when nightly-next moved past it (resolve's superseded step)")
+if "github.event_name == 'push' && vars.NIGHTLY_NEXT_SUPERSEDE_SKIP == '1'" not in leave_if:
+    failures.append("a push run still leaves the build slot only with vars.NIGHTLY_NEXT_SUPERSEDE_SKIP == '1'")
+if "github.ref == 'refs/heads/nightly-next'" not in leave_if:
+    failures.append("only nightly-next runs leave the build slot")
+
+
+def leave_slot(current: str, tip: str) -> str:
+    """Runs resolve-leave-build-slot.sh with a gh that answers `current` for the nightly-next ref."""
+    import os
+    import subprocess
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = Path(tmp) / "gh"
+        fake.write_text(f"#!/bin/sh\necho {current}\n")
+        fake.chmod(0o755)
+        out = Path(tmp) / "out"
+        env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}", GITHUB_OUTPUT=str(out), TIP_SHA=tip, REPOSITORY="o/r")
+        subprocess.run(["bash", str(ROOT / "scripts/ci/nightly-steps/resolve-leave-build-slot.sh")], env=env,
+                       check=True, capture_output=True)
+        return out.read_text()
+
+
+OLD_HEAD, NEW_HEAD = "c31b2b6786669f7d25210f6496653b58bcc71dd3", "7341dd7bef6021463ef2ad54a9189502e8361adf"
+if leave_slot(NEW_HEAD, OLD_HEAD).strip() != "superseded=true":
+    failures.append("a run whose head nightly-next moved past must leave the build slot")
+if leave_slot(OLD_HEAD, OLD_HEAD).strip() != "superseded=false":
+    failures.append("a run at the nightly-next head keeps the build slot")
+if leave_slot("", OLD_HEAD).strip() != "superseded=false":
+    failures.append("an unread nightly-next ref keeps the build slot")
+
 decide = "\n".join(str(step.get("with", {}).get("script", "")) for step in JOBS["decide"].get("steps", []))
 if "resumeOutsideLoop" not in decide or "if (resumeOutsideLoop) shouldBuild = false;" not in decide:
     failures.append("decide must build nothing for an unsigned resume the loop did not ask for")

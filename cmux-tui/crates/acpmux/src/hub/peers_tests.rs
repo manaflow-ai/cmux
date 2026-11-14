@@ -166,7 +166,7 @@ fn compact_remote_change_keeps_the_cached_tool_inventory() {
         "toolsMutable": true,
     });
     let compact = json!({"sessionId": "mux-1", "status": "running"});
-    let retained = Hub::retain_summary_tools(compact, Some(&previous));
+    let retained = Hub::retain_summary_tools(compact, Some(&PeerRow::new(&previous)));
     assert_eq!(retained["tools"], previous["tools"]);
     assert_eq!(retained["toolsMutable"], true);
 }
