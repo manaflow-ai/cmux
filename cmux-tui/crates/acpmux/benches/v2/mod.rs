@@ -329,29 +329,11 @@ pub const GATE_ROWS: &[GateRow] = &[
     },
     GateRow {
         pr: "4b",
-        name: "v2.pr04b.bytes_held",
-        done_when: "With one frame of changes waiting while the daemon sends 1 GB, the client holds no more than one frame of bytes.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "4b",
-        name: "v2.pr04b.credit_slow_taker",
-        done_when: "A caller taking one change per 10 ms stays within one credit window of uncredited daemon bytes, sees replay frames and an end, and converges to the hub's rows.",
-        measured: false,
-        ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
-        god_max: None,
-    },
-    GateRow {
-        pr: "4b",
         name: "v2.pr04b.mirror_v1_rows",
         done_when: "A live mirror with rows: v1 converts 20 live rows with 11,000 closed rows beside them within 1.2x of 20 alone for received bytes and client time.",
-        measured: false,
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
-        ratio_all: None,
+        ratio_all: Some(2.0),
         god_max: None,
     },
     GateRow {
@@ -1279,9 +1261,8 @@ pub fn print_report_with_mode(
 mod tests {
     use super::*;
 
-    /// A row of a PR whose other rows are written, held for a gate a later PR adds. PR 4b's
-    /// two are held by plain tests of the client today and have no gate line yet.
-    const WAITS_ON_ANOTHER_PR: &[&str] = &["v2.pr04b.bytes_held", "v2.pr04b.credit_slow_taker"];
+    /// Rows intentionally left without a source writer while a later PR owns their gate.
+    const WAITS_ON_ANOTHER_PR: &[&str] = &[];
 
     /// A gate name as a source spells it. A `{..}` hole is a name built by `format!`.
     const NAME_IN_SOURCE: &str = r"v2\.pr[0-9]+[a-z]?\.(?:[a-z0-9_]|\{[^{}]*\})+";
