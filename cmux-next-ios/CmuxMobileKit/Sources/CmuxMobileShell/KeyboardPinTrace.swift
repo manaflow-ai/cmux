@@ -24,6 +24,8 @@ final class KeyboardPinTrace: NSObject {
     private let handle: FileHandle?
     private let probe = UILabel(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
     private let start = CACurrentMediaTime()
+    /// Main-thread time per frame (`busy=` on each line).
+    private let busyMeter = MainThreadBusyMeter()
 
     static func startIfRequested() {
         guard shared == nil, CommandLine.arguments.contains(flag) else { return }
@@ -147,6 +149,8 @@ final class KeyboardPinTrace: NSObject {
         } else {
             parts.append("field=-")
         }
+        let busy = busyMeter.take()
+        parts.append(String(format: "busy=%.1f span=%.1f", busy.busyMs, busy.longestMs))
         let line = parts.joined(separator: " ")
         let summary = [
             "fj=\(fieldSteps.jumps)",

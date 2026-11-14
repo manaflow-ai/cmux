@@ -28,6 +28,19 @@ public final class MockTerminalSession: TerminalSession {
     private let roundTrip: Duration
     private var inFlight: [(due: ContinuousClock.Instant, bytes: Data)] = []
     private var delivery: Task<Void, Never>?
+    /// Plays the Mac's side of a resize (`-CmuxMobileTerminalDemoMac`): the
+    /// grid answers a round trip later with the Mac's `resized` (a
+    /// `.hostGrid`), a mirror reset (`ESC c`) and one replay of the whole
+    /// screen, the way `DaemonTerminalSession` delivers it. Nil: the mock
+    /// resizes in place, as a local shell does.
+    private let macResize: Duration?
+    /// The grid the "Mac" answered last (nil before the first resize).
+    private var macGrid: (columns: Int, rows: Int)?
+    /// Everything written on the primary screen, for the Mac's replay.
+    private var transcript: [String] = []
+    private var transcriptBytes = 0
+    private var resizeAnswer: Task<Void, Never>?
+    private var answers: [(due: ContinuousClock.Instant, columns: Int, rows: Int)] = []
 
     private enum Program {
         case shell
@@ -36,11 +49,16 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     /// `playsIntro`: run `ls -la`, `git log` and a build when the session starts.
-    public init(clock: any Clock<Duration> = ContinuousClock(), playsIntro: Bool = true, roundTrip: Duration = .zero) {
+    public init(clock: any Clock<Duration> = ContinuousClock(), playsIntro: Bool = true, roundTrip: Duration = .zero,
+                macResize: Duration? = nil) {
         self.clock = clock
         self.playsIntro = playsIntro
         self.roundTrip = roundTrip
+        self.macResize = macResize
     }
+
+    public var remoteRows: Int? { macGrid?.rows }
+    public var remoteColumns: Int? { macGrid?.columns }
 
     public func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {
         self.handler = handler
@@ -81,6 +99,10 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     public func resize(columns: Int, rows: Int) {
+        if let macResize {
+            answerResize(columns: columns, rows: rows, after: macResize)
+            return
+        }
         guard columns > 0, rows > 0, columns != self.columns || rows != self.rows else { return }
         self.columns = columns
         self.rows = rows
@@ -93,7 +115,53 @@ public final class MockTerminalSession: TerminalSession {
         }
     }
 
+    /// The Mac's answer to a resize: its grid, a mirror reset and one replay
+    /// (the primary screen's history, then the program's screen at the new
+    /// size), in one turn of the main queue like a `resized` event line.
+    /// Every resize is answered, in order, as the daemon does (two toggles
+    /// inside a round trip get two answers).
+    private func answerResize(columns: Int, rows: Int, after delay: Duration) {
+        guard columns > 0, rows > 0 else { return }
+        answers.append((ContinuousClock.now + delay, columns, rows))
+        guard resizeAnswer == nil else { return }
+        let clock = ContinuousClock()
+        resizeAnswer = Task { [weak self] in
+            while let self, let next = self.answers.first {
+                try? await clock.sleep(until: next.due)
+                guard !Task.isCancelled else { return }
+                self.answers.removeFirst()
+                self.answer(columns: next.columns, rows: next.rows)
+            }
+            self?.resizeAnswer = nil
+        }
+    }
+
+    /// The mouse reporting htop turns on (and the Mac's replay keeps).
+    static let htopMouse = "\u{1B}[?1000h\u{1B}[?1006h"
+
+    private func answer(columns: Int, rows: Int) {
+        if let grid = macGrid, grid.columns == columns, grid.rows == rows { return }
+        self.columns = columns
+        self.rows = rows
+        macGrid = (columns, rows)
+        handler?(.hostGrid(columns: columns, rows: rows))
+        handler?(.output(Data("\u{1B}c".utf8)))
+        var replay = transcript.joined()
+        switch program {
+        case .shell: break
+        case .htop(let tick):
+            replay += "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + Self.htopMouse + MockHtop.render(columns: columns, rows: rows, tick: tick)
+        case .vim(var vim):
+            replay += "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + vim.render(columns: columns, rows: rows)
+            program = .vim(vim)
+        }
+        handler?(.output(Data(replay.utf8)))
+    }
+
     public func stop() {
+        resizeAnswer?.cancel()
+        resizeAnswer = nil
+        answers.removeAll()
         for task in tasks { task.cancel() }
         tasks.removeAll()
         delivery?.cancel()
@@ -105,13 +173,24 @@ public final class MockTerminalSession: TerminalSession {
     // MARK: Output
 
     private func write(_ text: String) {
+        if macResize != nil, !isAlternateScreen { record(text) }
         handler?(.output(Data(text.utf8)))
+    }
+
+    /// The primary screen's history the Mac would replay (its last 256 KB).
+    private func record(_ text: String) {
+        transcript.append(text)
+        transcriptBytes += text.utf8.count
+        while transcriptBytes > 256 << 10, transcript.count > 1 {
+            transcriptBytes -= transcript.removeFirst().utf8.count
+        }
     }
 
     private func setAlternate(_ on: Bool, program name: String) {
         isAlternateScreen = on
         programName = name
-        write(on ? "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" : "\u{1B}[?1049l")
+        // Not part of the primary screen's history (the Mac's replay).
+        handler?(.output(Data((on ? "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" : "\u{1B}[?1049l").utf8)))
         handler?(.alternateScreen(on))
         handler?(.title(on ? "\(name) — cmux-next" : "zsh — cmux-next"))
     }
@@ -269,6 +348,8 @@ public final class MockTerminalSession: TerminalSession {
             busy = false
             program = .htop(tick: 0)
             setAlternate(true, program: "htop")
+            // htop reports the mouse (button events, SGR coordinates).
+            handler?(.output(Data(Self.htopMouse.utf8)))
             startHtopTicker()
             return
         case "vim", "vi", "nvim":
