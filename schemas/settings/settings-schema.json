@@ -1212,6 +1212,29 @@
 
         ],
         "groups" : [
+
+        ],
+        "id" : "customize",
+        "lead" : [
+          "customizationExamples"
+        ],
+        "symbol" : "wand.and.stars",
+        "title" : {
+          "key" : "settings.category.customize",
+          "text" : "Customize"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
           {
             "key" : "chat.0",
             "rows" : [
@@ -2182,7 +2205,8 @@
         "categories" : [
           "terminal",
           "editor",
-          "browser"
+          "browser",
+          "customize"
         ],
         "id" : "tools",
         "title" : {
