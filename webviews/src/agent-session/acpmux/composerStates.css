@@ -1045,6 +1045,10 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
 }
+/* A tile too narrow for the length keeps the glyph alone in its corner (composer/videoLengthFit.ts). */
+[data-length-clipped] > .acpmux-queued-video .acpmux-queued-video-time {
+  display: none;
+}
 .acpmux-queued-images-more {
   flex: none;
   white-space: nowrap;

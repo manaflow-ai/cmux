@@ -15,12 +15,16 @@
 // why it's so slow"). One nothing can play (`unplayable`: the host and Quick Look both refused it)
 // says so in its tile instead of its play glyph (Leo, 2026-11-04: "i can neither preview a vid in
 // place nor have it pop up anymore :(").
-import { type ReactNode } from "react";
+// Its length is one line in the bottom-right corner, or not drawn where the tile has no room for it
+// clear of the play glyph (videoLengthFit.ts; Leo, 2026-11-11: "this preview, the time is on the
+// wrong place ... we should never be able to see this").
+import { type ReactNode, useRef } from "react";
 
 import { formatDuration } from "../chips/replyMediaModel";
 import { PlayTriangle } from "../conversation/icons";
 import { useT } from "../i18n";
 import type { VideoInfo } from "./videoAttachments";
+import { useVideoLengthFit } from "./videoLengthFit";
 import { videoShapeStyle } from "./videoShape";
 
 export function VideoAttachmentTile({
@@ -46,6 +50,8 @@ export function VideoAttachmentTile({
 }) {
   const t = useT();
   const length = video ? (formatDuration(video.durationMs / 1000) ?? "") : "";
+  const open = useRef<HTMLButtonElement>(null);
+  useVideoLengthFit(open, length ? `${length}${unplayable ? " unplayable" : ""}` : undefined);
   return (
     <div
       className={`acpmux-attachment acpmux-attachment-image acpmux-attachment-video${video ? "" : " acpmux-attachment-video-unread"}`}
@@ -54,6 +60,7 @@ export function VideoAttachmentTile({
       /* tooltip-allow: a video's poster shows no name */ title={title}
     >
       <button
+        ref={open}
         type="button"
         className="acpmux-attachment-open acpmux-attachment-video-open"
         aria-label={length ? t("composer.playVideo", { name, length }) : t("media.play")}
@@ -61,14 +68,16 @@ export function VideoAttachmentTile({
       >
         {video && <img alt="" src={video.poster} />}
         {unplayable ? (
-          <output className="acpmux-attachment-video-unplayable">{t("media.cantPlayHere")}</output>
+          <output className="acpmux-attachment-video-unplayable" data-video-glyph="">
+            {t("media.cantPlayHere")}
+          </output>
         ) : (
-          <span className="ui-glass acpmux-attachment-video-play" aria-hidden="true">
+          <span className="ui-glass acpmux-attachment-video-play" data-video-glyph="" aria-hidden="true">
             <PlayTriangle size={12} style={{ color: "inherit" }} />
           </span>
         )}
         {length && (
-          <span className="acpmux-attachment-video-length" aria-hidden="true">
+          <span className="acpmux-attachment-video-length" data-video-length="" aria-hidden="true">
             {length}
           </span>
         )}
