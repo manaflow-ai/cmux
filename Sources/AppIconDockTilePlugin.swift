@@ -16,6 +16,8 @@ private enum DockTileAppIconMode: String {
     func imageName(isDarkAppearance: Bool) -> NSImage.Name? {
         switch self {
         case .automatic:
+            // nil shows the bundle icon, which macOS 26 styles itself.
+            if #available(macOS 26.0, *) { return nil }
             return isDarkAppearance ? NSImage.Name("AppIconDark") : NSImage.Name("AppIconLight")
         case .light:
             return NSImage.Name("AppIconLight")
