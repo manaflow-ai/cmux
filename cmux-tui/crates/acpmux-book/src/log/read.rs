@@ -1,13 +1,12 @@
 //! Reading a book: windows and pages by rowId, a resume by seq, and the one copy of row text
 //! out of the segments.
 //!
-//! A window, a page and a resume are lists of [`RowRef`]: byte ranges of stored row text. They
-//! are found from the indexes (and, for a resume, the record headers); no row is parsed and no
-//! reply is built here. [`Log::fill`] then reads the ranges, one read per run of neighbouring
-//! records, and the caller copies the row texts into its frame.
+//! Windows, pages and resumes return [`RowRef`] ranges after checking each record's header
+//! and CRC. Closed folds parse only their group row's visible ranges; hidden rows are skipped.
+//! [`Log::fill`] reads the checked ranges for the caller to copy into its frame.
 //!
-//! Every reply is bounded whatever the caller asks for: [`MAX_ROWS`] rows, [`MAX_FRAME_BYTES`]
-//! for a window or a resume, [`MAX_PAGE_BYTES`] for a page.
+//! Windows and pages hold at most [`MAX_ROWS`] visible rows. The record-byte bounds are
+//! [`MAX_FRAME_BYTES`] for a window or resume and [`MAX_PAGE_BYTES`] for a page.
 
 use super::index::Entry;
 use super::record::{Check, HEADER_LEN, HEADER_LEN_U32, HEADER_LEN_U64, Header};
@@ -16,11 +15,11 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::ops::Range;
 
-/// The most rows one window, page or resume returns.
+/// The most visible rows one window or page accounts for.
 pub const MAX_ROWS: usize = 400;
-/// The most row text one window or resume returns: one frame.
+/// The most record bytes one window or resume accounts for: one frame.
 pub const MAX_FRAME_BYTES: usize = 256 * 1024;
-/// The most row text one page returns.
+/// The most record bytes one page accounts for.
 pub const MAX_PAGE_BYTES: usize = 256 * 1024;
 /// The most segment bytes one read covers: a full page of small rows with their record
 /// overhead, with room for records of other rows that lie between them.
@@ -95,14 +94,14 @@ pub enum Edge {
 pub struct Window {
     /// The rows, by rising rowId.
     pub rows: Vec<RowRef>,
-    /// The lowest and highest rowId this reply accounts for: every settled row from `lo` to `hi`
-    /// is in `rows`. A caller that wants more asks for the page before `lo` or after `hi`.
+    /// The first and last candidates, including refused rows but excluding folded-away rows.
+    /// A caller continues before `lo` or after `hi`. An empty reply keeps its requested edge.
     pub lo: u64,
     pub hi: u64,
-    /// Whether settled rows exist before `lo`, and after `hi`.
+    /// Whether the walk has unexamined rows before or after the range it accounted for.
     pub has_before: bool,
     pub has_after: bool,
-    /// Rows whose records were refused by the record crc. They count in the window's bounds,
+    /// Rows whose headers or CRCs were refused. They count in the window's bounds,
     /// but are holes in its rows.
     pub refused: Vec<u64>,
 }
@@ -114,7 +113,7 @@ pub struct Since {
     pub rows: Vec<RowRef>,
     /// The cursor after these rows: the seq to resume from next.
     pub cursor: u64,
-    /// Whether more records follow `cursor` (the reply was cut at its byte or row bound).
+    /// Whether more records follow `cursor` (the reply was cut at its byte bound).
     pub more: bool,
     /// Replay encountered a refused record. The caller must give a fresh window;
     /// the rows before it are valid, and the cursor never advances over damage.
@@ -129,8 +128,7 @@ pub enum ResumeSize {
     Over,
 }
 
-/// The segment bytes one read would cover: from the first record's header to the end of the
-/// last row text.
+/// The segment bytes one read covers, including record headers and CRCs.
 #[derive(Clone, Copy)]
 struct Span {
     seg: u32,
@@ -173,12 +171,15 @@ struct FoldRead<'a> {
     index: Option<&'a crate::folds::Folds>,
     open: &'a [u64],
     ranges: BTreeMap<u64, Vec<(u64, u64)>>,
+    /// Exact group records already checked while reading their visible ranges. The sole
+    /// writer cannot change them during this request, so validation need not read them twice.
+    validated: BTreeMap<u64, RowRef>,
     hint: Option<crate::folds::Entry>,
 }
 
 impl<'a> FoldRead<'a> {
     fn new(index: Option<&'a crate::folds::Folds>, open: &'a [u64]) -> Self {
-        Self { index, open, ranges: BTreeMap::new(), hint: None }
+        Self { index, open, ranges: BTreeMap::new(), validated: BTreeMap::new(), hint: None }
     }
 }
 
@@ -190,7 +191,7 @@ impl Log {
 
     /// Walks rowIds from `start`, up or down, collecting settled rows into `out` until the
     /// budget is spent or the book ends. Returns the last id it accounted for (taken, or not
-    /// settled), `None` when it accounted for none. Index entries only.
+    /// settled), `None` when it accounted for none. Only fold groups require record reads here.
     fn walk(
         &mut self,
         start: u64,
@@ -266,9 +267,7 @@ impl Log {
         if folds.open.contains(&fold.group) || row_id == fold.group {
             return Ok(Some((true, None)));
         }
-        if let std::collections::btree_map::Entry::Vacant(entry) = folds.ranges.entry(fold.group) {
-            entry.insert(self.fold_out_ranges(fold.group)?);
-        }
+        self.load_fold_ranges(fold.group, folds)?;
         let ranges = folds.ranges.get(&fold.group).map(Vec::as_slice).unwrap_or(&[]);
         let visible = ranges.iter().any(|(first, last)| (*first..=*last).contains(&row_id));
         if visible {
@@ -290,11 +289,24 @@ impl Log {
         }
     }
 
+    /// Shares one group's metadata read between anchor normalization and every walk direction.
+    fn load_fold_ranges(&mut self, group: u64, folds: &mut FoldRead<'_>) -> Result<(), Error> {
+        if let std::collections::btree_map::Entry::Vacant(entry) = folds.ranges.entry(group) {
+            entry.insert(self.fold_out_ranges(group, &mut folds.validated)?);
+        }
+        Ok(())
+    }
+
     /// Reads only a group's row to recover its bounded visible `out` ranges.
-    fn fold_out_ranges(&mut self, group: u64) -> Result<Vec<(u64, u64)>, Error> {
+    fn fold_out_ranges(
+        &mut self,
+        group: u64,
+        validated: &mut BTreeMap<u64, RowRef>,
+    ) -> Result<Vec<(u64, u64)>, Error> {
         let Some(entry) = self.entry(group) else { return Ok(Vec::new()) };
         let row = RowRef::of(group, 0, &entry);
         let Some(bytes) = self.read_row_bytes(&row)? else { return Ok(Vec::new()) };
+        validated.insert(group, row);
         let Ok(value) = serde_json::from_slice::<Value>(&bytes) else { return Ok(Vec::new()) };
         let Some(out) =
             value.get("body").and_then(|body| body.get("out")).and_then(Value::as_array)
@@ -312,19 +324,16 @@ impl Log {
             .collect())
     }
 
-    fn normalize_anchor(
-        &mut self,
-        id: u64,
-        folds: Option<&crate::folds::Folds>,
-        open_folds: &[u64],
-    ) -> Result<u64, Error> {
-        let Some(fold) = folds.map_or(Ok(None), |index| index.containing(id))? else {
+    fn normalize_anchor(&mut self, id: u64, folds: &mut FoldRead<'_>) -> Result<u64, Error> {
+        let Some(fold) = folds.index.map_or(Ok(None), |index| index.containing(id))? else {
             return Ok(id);
         };
-        if open_folds.contains(&fold.group) || id == fold.group {
+        folds.hint = Some(fold);
+        if folds.open.contains(&fold.group) || id == fold.group {
             return Ok(id);
         }
-        let ranges = self.fold_out_ranges(fold.group)?;
+        self.load_fold_ranges(fold.group, folds)?;
+        let ranges = folds.ranges.get(&fold.group).map(Vec::as_slice).unwrap_or(&[]);
         Ok(if ranges.iter().any(|(first, last)| (*first..=*last).contains(&id)) {
             id
         } else {
@@ -367,10 +376,22 @@ impl Log {
         Ok(self.read_row_bytes(row)?.is_some())
     }
 
-    fn refuse_rows(&mut self, window: &mut Window) -> Result<(), Error> {
+    fn refuse_rows(&mut self, window: &mut Window, folds: &FoldRead<'_>) -> Result<(), Error> {
         let mut bytes = Vec::new();
         let mut ranges = Vec::new();
-        self.fill_checked(&window.rows, &mut bytes, &mut ranges, &mut window.refused)?;
+        let unchecked;
+        let rows = if folds.validated.is_empty() {
+            window.rows.as_slice()
+        } else {
+            unchecked = window
+                .rows
+                .iter()
+                .copied()
+                .filter(|row| folds.validated.get(&row.row_id) != Some(row))
+                .collect::<Vec<_>>();
+            unchecked.as_slice()
+        };
+        self.fill_checked(rows, &mut bytes, &mut ranges, &mut window.refused)?;
         let refused: std::collections::BTreeSet<_> = window.refused.iter().copied().collect();
         window.rows.retain(|row| !refused.contains(&row.row_id));
         Ok(())
@@ -390,8 +411,8 @@ impl Log {
     }
 
     /// The settled rows around `anchor`: at most `rows` of them ([`MAX_ROWS`] at most) and
-    /// `max_bytes` of row text ([`MAX_FRAME_BYTES`] at most), always at least one when one
-    /// exists. Reads index entries only: the cost is the window's, for a book of any length.
+    /// `max_bytes` of records ([`MAX_FRAME_BYTES`] at most), always at least one when one
+    /// exists. Every returned record is checked; damage becomes a named hole.
     pub fn window(
         &mut self,
         anchor: Anchor,
@@ -431,18 +452,18 @@ impl Log {
                 self.window_of(out, lo.unwrap_or(self.max_row), self.max_row)
             }
             Anchor::Row { id, side: Side::Before } => {
-                let start = self.normalize_anchor(id.min(self.max_row), folds, open_folds)?;
+                let start = self.normalize_anchor(id.min(self.max_row), &mut fold_read)?;
                 let lo = self.walk(start, false, &mut budget, &mut out, &mut fold_read, None)?;
                 out.reverse();
                 self.window_of(out, lo.unwrap_or(start), start)
             }
             Anchor::Row { id, side: Side::After } => {
-                let start = self.normalize_anchor(id.max(self.min_row), folds, open_folds)?;
+                let start = self.normalize_anchor(id.max(self.min_row), &mut fold_read)?;
                 let hi = self.walk(start, true, &mut budget, &mut out, &mut fold_read, None)?;
                 self.window_of(out, start, hi.unwrap_or(start))
             }
             Anchor::Row { id, side: Side::Around } => {
-                let start = self.normalize_anchor(id.max(self.min_row), folds, open_folds)?;
+                let start = self.normalize_anchor(id.max(self.min_row), &mut fold_read)?;
                 // Half from the anchor on, then everything left before it, then what the rows
                 // before it did not use goes after again.
                 let mut ahead = Budget {
@@ -478,15 +499,14 @@ impl Log {
                 self.window_of(out, lo.unwrap_or(start), hi.unwrap_or(start))
             }
         };
-        self.refuse_rows(&mut result)?;
+        self.refuse_rows(&mut result, &fold_read)?;
         Ok(result)
     }
 
-    /// The settled rows just before or just after a row: at most `max_bytes` of row text
-    /// ([`MAX_PAGE_BYTES`] at most), always at least one when one exists. The page ends where
-    /// its rows would stop coming in one read (a segment's end, or a row whose record lies far
-    /// from the others), so [`Log::fill`] of a page is always exactly one read; the caller asks
-    /// for the next page from `lo` or `hi`. Reads index entries only.
+    /// The checked settled rows just before or just after a row: at most `max_bytes` of
+    /// records ([`MAX_PAGE_BYTES`] at most), always at least one when one exists. This
+    /// unfolded page also ends at a span boundary so filling its rows takes one read.
+    /// The caller continues from `lo` or `hi`; refused records retain their cursor places.
     pub fn page(&mut self, edge: Edge, max_bytes: usize) -> Result<Window, Error> {
         self.read_page(edge, max_bytes, None, None, &[])
     }
@@ -517,20 +537,20 @@ impl Log {
         let mut fold_read = FoldRead::new(folds, open_folds);
         let mut result = match edge {
             Edge::Before(id) => {
-                let id = self.normalize_anchor(id, folds, open_folds)?;
+                let id = self.normalize_anchor(id, &mut fold_read)?;
                 let start = id.saturating_sub(1).min(self.max_row);
                 let lo = self.walk(start, false, &mut budget, &mut out, &mut fold_read, None)?;
                 out.reverse();
                 self.window_of(out, lo.unwrap_or(id.max(1)), start)
             }
             Edge::After(id) => {
-                let id = self.normalize_anchor(id, folds, open_folds)?;
+                let id = self.normalize_anchor(id, &mut fold_read)?;
                 let start = id.saturating_add(1).max(self.min_row);
                 let hi = self.walk(start, true, &mut budget, &mut out, &mut fold_read, None)?;
                 self.window_of(out, start, hi.unwrap_or(id.min(self.max_row)))
             }
         };
-        self.refuse_rows(&mut result)?;
+        self.refuse_rows(&mut result, &fold_read)?;
         Ok(result)
     }
 
@@ -586,7 +606,7 @@ impl Log {
             rows,
             refused: Vec::new(),
         };
-        self.refuse_rows(&mut result)?;
+        self.refuse_rows(&mut result, &fold_read)?;
         Ok(result)
     }
 
@@ -632,7 +652,7 @@ impl Log {
         }
     }
 
-    /// The records after `cursor`, in change order: at most `max_bytes` of row text
+    /// The records after `cursor`, in change order: at most `max_bytes` of record bytes
     /// ([`MAX_FRAME_BYTES`] at most), always at least one when one exists. Starts at the
     /// `seq.idx` entry at or before the cursor, so it reads what was missed (and at most 255
     /// records before it), never the book. A cursor at or past the last seq gets nothing.
@@ -734,9 +754,8 @@ impl Log {
 
     /// Reads the row texts of `rows` out of the segments. `buf` (cleared first) receives the
     /// segment bytes and `at[i]` is where row `i`'s text lies in it; the caller copies those
-    /// slices into its frame, so a row text is copied once and never parsed. Rows whose records
-    /// are neighbours in one segment come in one read: a window is usually one read, a page
-    /// always is. Returns the reads made.
+    /// slices into its frame. Neighbouring records in one segment share a read; folded pages
+    /// can require several bounded spans. Returns the reads made.
     ///
     /// Each row's record header is checked against the row asked for, so an index entry that
     /// does not match its record is [`Error::CorruptRow`], never another row's text.

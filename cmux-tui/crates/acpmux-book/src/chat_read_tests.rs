@@ -240,3 +240,29 @@ fn closed_fold_pagination_never_uses_a_hidden_gap_as_its_cursor() {
     let after = log.read_page(Edge::After(10), bytes, Some(1), Some(&folds), &[]).unwrap();
     assert!(after.rows.is_empty() && after.has_before && !after.has_after);
 }
+
+#[test]
+fn fold_group_crc_is_reused_only_within_the_same_request() {
+    for rows in [10, 100_000] {
+        let home = tempfile::tempdir().unwrap();
+        let (mut log, folds) = folded_book(home.path(), rows);
+        for anchor in [Anchor::End, Anchor::Row { id: rows, side: Side::After }] {
+            let reads = log.stats().reads;
+            let window =
+                log.read_window(anchor, MAX_ROWS, MAX_FRAME_BYTES, Some(&folds), &[]).unwrap();
+            assert_eq!(ids(&window.rows), [1, 2, 3]);
+            assert_eq!(log.stats().reads - reads, 2, "one group read and one out read at {rows}");
+        }
+        let group = log.row(1).unwrap();
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(home.path().join(format!("rows/{:06}.seg", group.seg)))
+            .unwrap();
+        file.seek(SeekFrom::Start(u64::from(group.off))).unwrap();
+        file.write_all(b"!").unwrap();
+        let window =
+            log.read_window(Anchor::End, MAX_ROWS, MAX_FRAME_BYTES, Some(&folds), &[]).unwrap();
+        assert!(window.rows.is_empty());
+        assert_eq!(window.refused, [1], "the previous request's check must not be reused");
+    }
+}
