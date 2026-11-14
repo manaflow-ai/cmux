@@ -3483,10 +3483,10 @@ jobs:
     name: macOS cross-compile run-time check (x86_64 under Rosetta, compare only)
     needs: [macos-cross-shadow]
     if: always() && needs.macos-cross-shadow.result != 'skipped' && needs.macos-cross-shadow.result != 'cancelled'
-    # A literal Blacksmith 6 vCPU label, not vars.MACOS_RUNNER_26: that names the
-    # nightly app build's blacksmith-12vcpu-macos-26, which no cmux-tui job may take
-    # (tests/test_ci_tui_routes_avoid_nightly_label.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
+    # Pin pushes have their own daemon pool and must not join the PR side lane.
+    # When that pool is unset, the light owned lane is the safe shared fallback;
+    # Blacksmith 6 vCPU remains the final overflow route (never the nightly label).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && (vars.CI_PIN_DAEMON_POOL || vars.CI_LIGHT_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 20
     continue-on-error: true
     permissions:
