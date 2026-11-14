@@ -154,9 +154,10 @@ public protocol TerminalSession: AnyObject {
     func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void)
     /// Bytes for the PTY (keys encoded by Ghostty, composer text, paste).
     func send(_ bytes: Data)
-    /// Bytes the terminal wrote by itself, not the person: Ghostty's replies
-    /// to terminal queries (cursor and device reports, focus and mouse
-    /// reports). A session that holds keys through an outage drops these
+    /// Bytes that are no key the person typed, pressed or pasted: Ghostty's
+    /// replies to terminal queries (cursor and device reports, focus,
+    /// visibility and size reports), and the wheel and click reports of a
+    /// scroll or a tap. A session that holds keys through an outage drops these
     /// instead, and never reports them as ``TerminalSessionEvent/inputNotSent(bytes:)``.
     func sendReply(_ bytes: Data)
     /// The screen's grid in cells: what a TUI should draw (rows between the

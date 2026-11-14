@@ -324,9 +324,8 @@ impl Request {
             Self::Wake | Self::Close { .. } => 0,
             Self::Sub { sub, .. } => size_of::<stream::ChatSub>() + sub.sid.len(),
             Self::Resume { sid, .. } | Self::End { sid, .. } => sid.len(),
-            Self::Page { page, .. } => {
-                size_of::<Page>() + page.sid.len() + page.stream.as_str().len() + size_of::<Reply>()
-            }
+            // Every member a page may carry (positions, keys, a filter), as its JSON counts them.
+            Self::Page { page, .. } => size_of::<Page>() + encoded_len(page) + size_of::<Reply>(),
             Self::Blob { blob, .. } => {
                 size_of::<Blob>()
                     + blob.id.len()
@@ -340,6 +339,23 @@ impl Request {
         };
         size_of::<Self>() + held
     }
+}
+
+/// How many bytes `value` takes as JSON, counted as it is written: nothing is held.
+fn encoded_len(value: &impl serde::Serialize) -> usize {
+    struct Count(usize);
+    impl Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    let _ = serde_json::to_writer(&mut count, value);
+    count.0
 }
 
 impl ChatError {
@@ -1155,6 +1171,7 @@ fn run_once(
             }
             Wait::Read => {}
             Wait::Idle => {
+                stream::prune(state);
                 if state.translate.open_rows().next().is_none()
                     && state.subs.is_empty()
                     && state.translate.queue_len() == 0
@@ -1412,7 +1429,10 @@ fn apply_ops(
 }
 
 /// A body field of a logged line's record: its `msg` key for `field` (a prompt's `text` for its
-/// content, its `images`, `inlineParts` or `pasted`).
+/// content, its `images`, `inlineParts` or `pasted`). A prompt's text is read in pieces through
+/// `read_at` ([`queue::read_text`]), never the line whole. A source that cannot read part of a
+/// line, a line whose text does not begin in its first 16 KB, a part refused (the source's lines
+/// changed) and every other key are read as a chunk, which says `SourceChanged` when they did.
 fn raw_body_value(
     state: &mut ActorState,
     place: u64,
@@ -1425,6 +1445,14 @@ fn raw_body_value(
         BodyField::Pasted => "pasted",
         _ => "text",
     };
+    if key == "text"
+        && state.source.stamp() == state.source_stamp
+        && let Ok(Some(text)) = queue::read_text(state.source.as_mut(), place)
+    {
+        // Decoded and written again: the book holds the form a chunk read gives.
+        let text: String = serde_json::from_slice(&text).map_err(|_| ChatError::Closed)?;
+        return serde_json::to_string(&text).map_err(|_| ChatError::Closed);
+    }
     let chunk = state.source.read_chunk(place)?;
     if chunk.stamp != state.source_stamp {
         return Err(ChatError::SourceChanged);
