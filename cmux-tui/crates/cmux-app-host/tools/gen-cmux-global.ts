@@ -290,7 +290,8 @@ export function generate(): Record<string, string> {
     "coderouter.usage.get": { scope: "coderouter:read", class: "read" },
     // The Agent Memory app's search, from the agent memory index (optchat-chief agent-memory).
     "memory.search": { scope: "memory:read", class: "read" },
-    // The agent chats the sidebar shows (AgentChatAppOps in CmuxNextApps), for a customize section's thread list.
+    // The older name of chat.list for a customize section's thread list: the daemon answers it
+    // from the same chat index as chat.list (apps/routing.rs), shaped {chats: [...]}.
     "agent_chat.list": { scope: "agent_chat:read", class: "read" }
   }
   Object.assign(scopes, hostOps)
