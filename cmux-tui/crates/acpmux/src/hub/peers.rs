@@ -5,10 +5,18 @@ use crate::session_identity::SessionReceipt;
 use acpmux_book::index::OriginState;
 use cmux_json::JsonSet as _;
 
-fn peer_origin_state(peer: &crate::peer::Peer) -> OriginState {
+pub(super) fn peer_origin_state(peer: &crate::peer::Peer) -> OriginState {
     match peer.state() {
         crate::peer_link::PeerState::Connected | crate::peer_link::PeerState::Degraded => {
             OriginState::Connected
+        }
+        _ if peer.outage_ended.load(std::sync::atomic::Ordering::Acquire)
+            || peer.link().down_since.is_some_and(|at| {
+                crate::store::now_ms().saturating_sub(at)
+                    >= super::peer_grace::DROP_GRACE.as_millis() as u64
+            }) =>
+        {
+            OriginState::Stale
         }
         _ => OriginState::Down,
     }
@@ -120,14 +128,18 @@ impl Hub {
     /// daemon's deferred startup uses this gate; in-process hubs may start peers immediately.
     pub(crate) async fn start_saved_peers(&self) {
         let peers = self.config.read().await.peers.clone();
+        let mut started_all = true;
         for (name, pc) in peers {
             // A gate released during shutdown cannot start a new tunnel after the existing
             // peers were stopped. Registration and the shutdown fence share this lock.
             if self.before_shutdown(|| self.start_peer(&name, &pc)).is_none() {
+                started_all = false;
                 break;
             }
         }
-        self.events.remote_tee_ready();
+        if started_all {
+            self.events.remote_tee_ready();
+        }
     }
 
     pub(crate) async fn wait_local_ready(&self) {
@@ -761,7 +773,6 @@ impl Hub {
         };
         if !changed.is_empty() {
             self.save_peer_cache(peer, generation, true);
-            self.events.origin_tee(peer, OriginState::Stale, crate::store::now_ms());
         }
         for summary in changed {
             self.announce_remote(peer, summary, "status");
@@ -875,7 +886,6 @@ impl Hub {
                     // Called directly, with no grace: this drop is its outage's first
                     // when the link counts one failed attempt.
                     self.note_peer_drop(&peer, generation, &e);
-                    self.events.origin_tee(&peer, OriginState::Down, crate::store::now_ms());
                     let first = self.peer(&peer).is_some_and(|p| p.link().attempts == 1);
                     self.save_after_drop(&peer, generation, first);
                     self.mark_peer_unreachable(&peer, generation);

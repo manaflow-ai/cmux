@@ -481,11 +481,7 @@ impl Mux {
             !self.consume_template_completion_failure(),
             "injected template completion failure"
         );
-        self.commit_ordinary_full_resource_projection(
-            &Actor::Daemon,
-            "terminal.adopt-template",
-            serde_json::json!({}),
-        )?;
+        self.commit_placed_terminal_projection("terminal.adopt-template", terminal_id)?;
         // The host's own record (its recovery mirror, which a rehost copies) names this machine's
         // workspace now, not the key every clone of the snapshot shares.
         let surface = {
@@ -1262,7 +1258,7 @@ const REOPEN_ADOPTION_WAIT: Duration = Duration::from_secs(10);
 const ADOPTION_SLOTS: usize = 8;
 
 /// The longest a start's adoption waits for its owner to say ready.
-const STARTUP_READY_WAIT: Duration = Duration::from_secs(2);
+pub(super) const STARTUP_READY_WAIT: Duration = Duration::from_secs(2);
 
 /// One of the ``ADOPTION_SLOTS``, held while a host's handshake and replay run.
 struct AdoptionSlot;
