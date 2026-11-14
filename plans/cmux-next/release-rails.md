@@ -321,8 +321,10 @@ deploy-staging and on `workflow_dispatch target=promote`:
   `prod-promote.ts` reads the tag back; a version without one is "unknown code".
 - **promote-gates** (no production secret; repo CLOUDFLARE_API_TOKEN and GITHUB_TOKEN):
   `prod-promote.ts stale --issue`, then `prod-promote.ts gates`:
-  - G6 hold switch first: repository variable `CMUX_NEXT_PRODUCTION_HOLD`, non-empty = hold
-    (shipped ON; Lawrence's go clears it before the first automatic promotion).
+  - G6 hold switch first: repository variable `CMUX_NEXT_PRODUCTION_HOLD`, off by default (unset,
+    empty or `released`: every staging-proven commit promotes itself). A person sets any other
+    value on purpose to hold; no job sets it (Leo, 2026-11-14: "y'all should've just set up an
+    auto system"). It shipped on in 2026-10, with Lawrence's go to clear it.
   - source: production must carry a source tag (the first deploy is the hand rail).
   - spacing: production code changed at least 6 h ago.
   - G1 staging-proven: the newest feat-cmux-next push whose deploy-staging job and smoke step
@@ -345,8 +347,18 @@ deploy-staging and on `workflow_dispatch target=promote`:
   main, concurrency shared with deploy-production): checks the hold again, checks out the
   candidate, runs `deploy-worker.sh production` with `CMUX_DEPLOY_NO_SECRETS=1
   CMUX_RELEASE_PROMOTE=1` (production keeps its own secrets; CI sends none), then the
-  worker-release smoke.
-- **Exact-SHA promote** (2026-10-19): `gh workflow run backend.yml --repo manaflow-ai/cmux --ref feat-cmux-next -f target=promote -f candidate=<40-hex sha>`. G1 must then prove that commit itself (its own green staging run, 60 min soak, no red staging deploy in that window); every other gate is unchanged. The hold accepts a one-shot value `released:<40-hex sha>`: it releases only that commit (gates and recheck), so no other push can promote while it is set; set it back to a hold value after the deploy. The runbook is HQ `skills/infra/cloud-api-promote`.
+  worker-release smoke (a red smoke rolls back).
+- **Journey rollback gate** (in `journey-production`, no extra job). After a promote it runs the
+  Cloud journey on production with the model stub, never a real Claude login (a used-up
+  test-account quota must never roll back a deploy, as the 06acc4475450 promote's real-model
+  journey showed on 2026-11-14). A stub journey red after the script's own second run, when the
+  newest hourly stub journey on production before the promote (cloud-journey-prod.yml) was
+  green, rolls back: `prod-promote.ts rollback --execute`, only while production still serves
+  the promoted commit. The real-model journey then runs as proof and never rolls back.
+  After a rollback, `gates` holds the rolled-back commit and anything not newer than it; the next
+  newer staging-proven commit promotes itself after the 6 h spacing. The Chief off switch still
+  holds every automatic promote until an exact-SHA promote.
+- **Exact-SHA promote** (2026-10-19): `gh workflow run backend.yml --repo manaflow-ai/cmux --ref feat-cmux-next -f target=promote -f candidate=<40-hex sha>`. G1 must then prove that commit itself (its own green staging run, 60 min soak, no red staging deploy in that window); every other gate is unchanged. The hold accepts a one-shot value `released:<40-hex sha>`: it releases only that commit (gates and recheck), so no other push can promote while it is set. Clear it (unset) after the deploy; a hold value only when you mean to hold. The runbook is HQ `skills/infra/cloud-api-promote`.
 - **Staleness**: `prod-promote.ts stale` fails when production has no source tag, lacks a
   commit staging proved more than 24 h ago, or is more than 20 backend commits behind the newest
   staging-proven commit. `--issue` opens or comments on the issue labeled `prod-stale` and closes

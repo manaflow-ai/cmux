@@ -35,6 +35,8 @@ mod connect;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod desktop;
 mod encoder;
+#[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
+mod eval;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod fdwait;
 #[cfg(any(target_os = "linux", target_os = "macos"))]

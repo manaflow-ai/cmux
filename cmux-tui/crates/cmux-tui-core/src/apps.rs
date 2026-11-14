@@ -26,6 +26,10 @@ mod cancel;
 #[cfg(unix)]
 mod catalog;
 #[cfg(unix)]
+mod chat_widgets;
+#[cfg(unix)]
+mod composer;
+#[cfg(unix)]
 mod deploy;
 #[cfg(unix)]
 mod egress;
@@ -46,6 +50,8 @@ mod local_reload;
 mod mirror;
 #[cfg(unix)]
 mod open_tokens;
+#[cfg(unix)]
+mod openers;
 #[cfg(unix)]
 // The `render: web` page bridge (design step 5); the daemon's page-call
 // command and the Mac page host wire it in a follow-up.

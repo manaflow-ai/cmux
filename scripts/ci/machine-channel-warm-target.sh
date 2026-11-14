@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Warm cargo target for the Cloud machine channel's Linux musl legs (lto=thin in
-# .github/workflows/cmux-tui-build-package.yml), kept on a Blacksmith sticky disk.
+# Warm cargo target for the cmux-tui legs of .github/workflows/cmux-tui-build-package.yml,
+# kept on a Blacksmith sticky disk: the Cloud machine channel's Linux musl legs (lto=thin)
+# and the shipped fat-LTO legs (both musl targets and aarch64-apple-darwin built on Linux),
+# each on its own disk, so thin and fat objects never mix.
 #
 # usage: scripts/ci/machine-channel-warm-target.sh restore|record DISK TRIPLE
 #
@@ -24,6 +26,13 @@
 # bound the disk (scripts/blacksmith-testbox-target-prune.sh), then record the
 # source mtimes and the commit next to the artifacts.
 #
+# MACHINE_CHANNEL_WARM_TOOLCHAIN (optional): what built the disk that Cargo does not
+# track, such as the macOS cross toolchain (clang, lld, zig, the SDK version label)
+# and the framework stubs it links against. record stores it; restore empties a
+# disk whose stored value differs, or that has none, before linking it, so a new
+# toolchain starts cold instead of linking objects the old one made. Unset, the
+# disk is used as recorded (the thin legs).
+#
 # Build output here is for an explicit zig -Dtarget (the musl triple, never the
 # host), so ghostty-vt-sys's library does not depend on the build host's CPU.
 # The mtimes helper drops output built on another CPU model; its CPU
@@ -43,6 +52,8 @@ target="$disk/target"
 link="$repo/cmux-tui/target"
 manifest="$target/.cmux-testbox-source-mtimes.tsv"
 source_record="$target/.machine-channel-warm-source"
+toolchain_record="$target/.machine-channel-warm-toolchain"
+toolchain="${MACHINE_CHANNEL_WARM_TOOLCHAIN:-}"
 registry="${CARGO_HOME:-$HOME/.cargo}/registry"
 # 40 GiB: one leg's six cargo groups leave about 10 GB of release output.
 max_bytes="${MACHINE_CHANNEL_WARM_MAX_BYTES:-$((40 * 1024 * 1024 * 1024))}"
@@ -61,6 +72,15 @@ restore() {
     return 0
   fi
   mkdir -p "$target" "$disk/cargo-registry"
+  if [[ -n "$toolchain" && -n "$(ls -A "$target")" ]]; then
+    local recorded=""
+    [[ -f "$toolchain_record" && ! -L "$toolchain_record" ]] && recorded="$(head -c 4096 "$toolchain_record")"
+    if [[ "$recorded" != "$toolchain" ]]; then
+      echo "warm target: miss (toolchain changed: '${recorded:-none recorded}' -> '$toolchain'); emptying the disk"
+      rm -rf "$target"
+      mkdir -p "$target"
+    fi
+  fi
   if [[ -f "$source_record" && ! -L "$source_record" ]]; then
     echo "warm target: hit, built from $(head -c 40 "$source_record" | tr -cd '0-9a-f')"
   else
@@ -87,6 +107,8 @@ record() {
     || echo "warning: prune failed; recording as is" >&2
   rm -f "$source_record"
   python3 -I "$repo/scripts/blacksmith-testbox-source-mtimes.py" record "$repo" "$manifest"
+  rm -f "$toolchain_record"
+  [[ -z "$toolchain" ]] || printf '%s' "$toolchain" > "$toolchain_record"
   git -C "$repo" rev-parse HEAD > "$source_record"
   echo "warm target: recorded $(du -sxh "$target" | cut -f1) of build output for $(cat "$source_record")"
 }
