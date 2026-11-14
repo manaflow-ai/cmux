@@ -10,8 +10,8 @@ import XCTest
 final class AppDelegateWindowFrameReconcileTests: XCTestCase {
     // A window stranded above the only remaining display after disconnecting an
     // external monitor that sat above the built-in must be pulled back so its
-    // titlebar is reachable. AppKit does not auto-constrain the non-movable main
-    // window on a display change, so this reactive reconcile is the only defense.
+    // titlebar is reachable. AppKit has not reliably auto-constrained cmux's
+    // custom-titlebar window on display changes, so keep this reactive defense.
     func testReconciledFrameAfterScreenChangePullsBackStrandedWindow() {
         // Built-in display only; the window's titlebar (top ~64pt near y~=1520)
         // is far above the built-in's visible top (944), with only its bottom
