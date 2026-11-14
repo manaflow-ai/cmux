@@ -1,5 +1,6 @@
-import CmuxNextCloud
+public import CmuxNextCloud
 public import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 
 /// DEV-only control methods for the lease-bound auth persistence proof.
@@ -7,7 +8,7 @@ public struct CaptureAuthControl: Sendable {
     public init() {}
 
     public func register(on router: ControlRouter?,
-                         remote: @escaping @MainActor @Sendable (String, String, String, String) async -> JSONValue,
+                         remote: @escaping @MainActor @Sendable (String, String, String, String) async -> CmuxNextDaemon.JSONValue,
                          auth: @escaping @MainActor @Sendable () -> CloudAuth?) {
         #if DEBUG || CMUX_BENCH_HOOKS
         router?.register([
@@ -30,7 +31,7 @@ public struct CaptureAuthControl: Sendable {
                                     "verified_absent": .bool(false), "worker_quiescent": .bool(false),
                                     "worker_pid_exited": .bool(false), "descendants_exited": .bool(false)])
                 }
-                return await remote(phase, lease, bundle, root)
+                return remoteJSON(await remote(phase, lease, bundle, root))
             }.withDeadline(.fixed(.seconds(80)))
         })
         #endif
@@ -38,7 +39,7 @@ public struct CaptureAuthControl: Sendable {
 
     #if DEBUG || CMUX_BENCH_HOOKS
     private func run(_ call: ControlCall, phase: CaptureAuthCleanupPhase,
-                     auth: @escaping @MainActor @Sendable () -> CloudAuth?) async -> JSONValue {
+                     auth: @escaping @MainActor @Sendable () -> CloudAuth?) async -> CmuxNextSettings.JSONValue {
         guard let leaseID = call.params["lease_id"]?.stringValue,
               let bundleID = call.params["bundle_id"]?.stringValue,
               let auth = await MainActor.run(body: auth) else {
@@ -48,12 +49,18 @@ public struct CaptureAuthControl: Sendable {
                                                   requestedBundleIdentifier: bundleID))
     }
 
-    private func json(_ result: CaptureAuthCleanupResult) -> JSONValue {
+    private func remoteJSON(_ result: CmuxNextDaemon.JSONValue) -> CmuxNextSettings.JSONValue {
+        guard let data = try? JSONEncoder().encode(result),
+              let value = try? JSONDecoder().decode(CmuxNextSettings.JSONValue.self, from: data) else { return .null }
+        return value
+    }
+
+    private func json(_ result: CaptureAuthCleanupResult) -> CmuxNextSettings.JSONValue {
         var encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
         guard let data = try? encoder.encode(result),
               let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return .null }
-        return JSONValue(foundation: object) ?? .null
+        return CmuxNextSettings.JSONValue(foundation: object) ?? .null
     }
     #endif
 }
