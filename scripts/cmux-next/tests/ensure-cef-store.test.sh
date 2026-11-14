@@ -57,6 +57,23 @@ run "$TMP/cache1"
 grep -q 'controller artifact store' <<<"$out" || { printf 'no store download:\n%s\n' "$out" >&2; exit 1; }
 [[ "$(cat "$TMP/cache1/$version/.verified")" == "$sha" ]] || { echo "cache entry not verified" >&2; exit 1; }
 
+# An ARM-only release can keep the existing Intel archive. Its directory and
+# cache key follow the Intel version, not the newer top-level ARM version.
+cp "$TMP/manifest.json" "$TMP/arm-manifest.json"
+python3 - "$TMP/manifest.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+m = json.load(open(p))
+m['x86_64'] = {k: m[k] for k in ('version', 'tag', 'asset', 'sha256', 'url')}
+m['version'] = m['tag'] = 'cef-new-arm-release'
+with open(p, 'w') as f: json.dump(m, f)
+PY
+CMUX_CEF_ARCH=x86_64 run "$TMP/cache-intel"
+[[ "$status" == 0 ]] || { printf 'retained Intel archive failed (exit %s):\n%s\n' "$status" "$out" >&2; exit 1; }
+[[ "$(cat "$TMP/cache-intel/$version-x86_64/.verified")" == "$sha" ]] || { echo 'Intel version cache not verified' >&2; exit 1; }
+[[ ! -e "$TMP/cache-intel/cef-new-arm-release-x86_64" ]] || { echo 'Intel archive cached under ARM version' >&2; exit 1; }
+cp "$TMP/arm-manifest.json" "$TMP/manifest.json"
+
 # Bytes that do not hash to the manifest are never cached; the other sources fail here.
 cp "$TMP/bad.tar.xz" "$TMP/serve"
 run "$TMP/cache2"
