@@ -138,6 +138,8 @@ def role_of(pid, top, cmd):
         return "agent"
     if "__terminal-host" in cmd:
         return "terminal-host"
+    if "__holder" in cmd:
+        return "holder"  # CMUX_TUI_TERMINAL_HOST_MODEL=holder: one process holds every terminal
     if "acpmux" in cmd:
         return "acpmux-child"
     if any(cmd.split(" ")[0].endswith(s) for s in ("sh", "bash", "zsh", "fish")):
@@ -163,7 +165,10 @@ def snapshot(top):
         s = sample_proc(pid)
         if s is None:
             continue
-        s["role"] = role_of(pid, top, cmdline(pid))
+        cmd = cmdline(pid)
+        s["role"] = role_of(pid, top, cmd)
+        # The program and its first words, paths cut to their names: which kind of child a role's processes are.
+        s["cmd"] = " ".join(os.path.basename(w) if w.startswith("/") else w for w in cmd.split()[:3])
         rows[pid] = s
     return rows
 
@@ -187,7 +192,8 @@ def idle_window(top, seconds, disks):
     after = snapshot(top)
     roles = {}
     for pid, s in after.items():
-        r = roles.setdefault(s["role"], {"count": 0, "rss": 0, "pss": 0, "fds": 0, "cpu_s": 0.0, "wakeups": 0})
+        r = roles.setdefault(s["role"], {"count": 0, "rss": 0, "pss": 0, "fds": 0, "cpu_s": 0.0, "wakeups": 0, "cmds": {}})
+        r["cmds"][s["cmd"]] = r["cmds"].get(s["cmd"], 0) + 1
         r["count"] += 1
         r["rss"] += s["rss"]
         r["pss"] += s.get("pss") or s["rss"]
@@ -327,7 +333,10 @@ class Run:
         self.wait_for(lambda: '"ready":true' in open(ready).read().replace(" ", ""), acp, "acpmux ready")
         with open(os.path.join(self.root, "tui.log"), "w") as log_file:
             tui = subprocess.Popen([self.args.tui, "--headless", "--session", f"inf{os.getpid()}-{self.count}",
-                                    "--socket", self.tui_sock, "--state", os.path.join(self.tui_root, "state")],
+                                    "--socket", self.tui_sock, "--state", os.path.join(self.tui_root, "state"),
+                                    # The app's owner reaps a closed tab's terminal after its grace (30 s,
+                                    # local_owner.rs); a bare --headless reaps nothing. Fast-forwarded here.
+                                    "--terminal-reap-grace-seconds", str(self.args.reap_grace_secs)],
                                    stdout=log_file, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                    env=self.env(), start_new_session=True)
         self.procs.append(tui)
@@ -579,8 +588,8 @@ CPU_FLOOR_PCT, WAKEUPS_FLOOR = 0.1, 1.0
 
 
 def settle(args):
-    # Past the (fast-forwarded) idle timer, so idle agents have hibernated.
-    time.sleep(args.idle_child_secs + args.settle)  # bench: waiting out the idle timer
+    # Past the (fast-forwarded) idle and reap timers, so idle agents have hibernated and closed terminals ended.
+    time.sleep(max(args.idle_child_secs, args.reap_grace_secs) + args.settle)  # bench: waiting out the timers
 
 
 def run_count(args, count):
@@ -642,9 +651,13 @@ def report(results):
               f"{t['disk_mb']:.2f} | {mb_day:+.2f} | {disk_day:+.3f} | {steep[0]} {steep[1]:.3f}", flush=True)
         print(f"INFINITE-EMPTY {n} {json.dumps(e)}", flush=True)
         for s in r["samples"]:
-            roles = {k: {"n": v["count"], "mb": v["pss_mb"], "cpu": v["cpu_pct"], "wk": v["wakeups_per_s"], "fds": v["fds"]}
-                     for k, v in sorted(s["roles"].items())}
-            print(f"INFINITE-DAY {n} day={s['day']} {json.dumps(s['total'])} disk={json.dumps(s['disk'])} roles={json.dumps(roles)}", flush=True)
+            t_ = s["total"]
+            print(f"INFINITE-DAY {n} day={s['day']} mb={t_['pss_mb']} cpu={t_['cpu_pct']} wk={t_['wakeups_per_s']} "
+                  f"procs={t_['procs']} fds={t_['fds']} disk={json.dumps(s['disk'])}", flush=True)
+            for k, v in (sorted(s["roles"].items()) if s is r["samples"][0] or s is r["samples"][-1] else []):
+                top_cmds = sorted(v.get("cmds", {}).items(), key=lambda kv: -kv[1])[:2]
+                print(f"INFINITE-ROLE {n} day={s['day']} {k} n={v['count']} mb={v['pss_mb']} cpu={v['cpu_pct']} "
+                      f"wk={v['wakeups_per_s']} fds={v['fds']} cmd={top_cmds}", flush=True)
         if r.get("errors"):
             print(f"INFINITE-ERRORS {n} {json.dumps(r['errors'])}", flush=True)
         # A row is never negative (perf-cron and NOW read a negative number as none): a shrinking day is 0 growth.
@@ -672,6 +685,8 @@ def main():
     p.add_argument("--archived", type=float, default=0.2, help="share of chats archived")
     p.add_argument("--turn-bytes", type=int, default=2048)
     p.add_argument("--idle-child-secs", type=int, default=5, help="ACPMUX_IDLE_CHILD_SECS (product: 120)")
+    p.add_argument("--reap-grace-secs", type=int, default=5,
+                   help="cmux-tui --terminal-reap-grace-seconds (the app's owner: 30)")
     p.add_argument("--settle", type=float, default=5)
     p.add_argument("--window", type=float, default=10, help="idle window seconds per sample")
     p.add_argument("--sleep", type=float, default=3, help="simulated sleep a day (SIGSTOP), seconds")
