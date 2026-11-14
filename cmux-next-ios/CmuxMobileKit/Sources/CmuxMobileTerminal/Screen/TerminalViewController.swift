@@ -1733,9 +1733,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // the moving rows and show an older position until the replay was in
         // (user report 2026-10-14, frames alternating near the bottom).
         guard freezeView == nil, view.window != nil, document != nil || model.isTUI,
-              !scrollView.isTracking, !scrollView.isDecelerating,
-              let snapshot = view.snapshotView(afterScreenUpdates: false) else { return }
-        snapshot.frame = view.bounds
+              !scrollView.isTracking, !scrollView.isDecelerating else { return }
+        // A full-screen app's frame is its area alone: the rest of the page
+        // (the composer's glass, the key row) stays live above the backing,
+        // and a still of the whole page cost 10-15 ms on the frame the
+        // keyboard stopped (the held replay's reset, step f97802b9).
+        let source: UIView = model.isTUI ? tuiClip : view
+        guard let snapshot = measured("hold-frame-snapshot", { source.snapshotView(afterScreenUpdates: false) }) else { return }
+        // Where the area is drawn now (it may be riding the keyboard).
+        snapshot.frame = source === view ? view.bounds : (tuiClip.layer.presentation()?.frame ?? tuiClip.frame)
         snapshot.isUserInteractionEnabled = false
         view.insertSubview(snapshot, belowSubview: bottomBacking)
         freezeView = snapshot
