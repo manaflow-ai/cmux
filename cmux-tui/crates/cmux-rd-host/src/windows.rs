@@ -1,11 +1,8 @@
 //! Windows screen-share host support.
 //!
-//! The session agent owns the capture and input handles.  DXGI duplication and
-//! Media Foundation are probed first (the service can use those backends when
-//! the desktop is available); the portable runner fallback below uses a GDI
-//! readback and the same OpenH264 trait as Linux.  Keeping the fallback in the
-//! host makes the Windows CI selftest useful on runners without a GPU while
-//! preserving the production backend seam for the signed service.
+//! The session agent owns capture and input handles. Desktop Duplication is
+//! preferred; an unsupported driver or lost duplication falls back to GDI.
+//! Both feed the existing OpenH264 encoder and production media engine.
 
 use crate::args::Opts;
 use crate::clock::now_ns;
@@ -31,6 +28,10 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
 
+mod capture;
+mod dxgi;
+use capture::DesktopCapture;
+
 #[cfg(feature = "bench")]
 mod loopback;
 
@@ -39,6 +40,7 @@ struct HostMetrics {
     capture_ms: Vec<f64>,
     convert_ms: Vec<f64>,
     encode_ms: Vec<f64>,
+    capture_details: serde_json::Value,
 }
 
 fn sample(samples: &mut Vec<f64>, start: Instant) {
@@ -286,7 +288,7 @@ pub fn selftest(opts: &Opts) -> Res<()> {
         (None, None) => None,
         _ => return Err("--width and --height must be supplied together".into()),
     };
-    let mut capture = GdiCapture::new(requested)?;
+    let mut capture = DesktopCapture::new(requested, &opts.str_or("capture", "auto"))?;
     let (width, height) = capture.size();
     let codec = opts.str_or("codec", "openh264");
     let mut encoder = encoder::open(&EncCfg {
@@ -320,7 +322,8 @@ pub fn selftest(opts: &Opts) -> Res<()> {
         "{}",
         serde_json::json!({
             "platform": "windows",
-            "capture": "gdi-readback",
+            "capture": capture.name(),
+            "capture_details": capture.statistics(),
             "desktop_duplication_available": dxgi_desktop_duplication_probe(),
             "hardware_backend_probe": "media-foundation",
             "media_foundation_available": media_foundation_probe(),
@@ -604,7 +607,7 @@ fn serve_connection(mut stream: TcpStream, opts: &Opts) -> Res<HostMetrics> {
     {
         return Err("second control must be start".into());
     }
-    let capture = GdiCapture::new(None)?;
+    let capture = DesktopCapture::new(None, &opts.str_or("capture", "auto"))?;
     let (width, height) = capture.size();
     let codec = opts.str_or("codec", "openh264");
     let encoder = encoder::open(&EncCfg {
@@ -652,17 +655,18 @@ fn serve_connection(mut stream: TcpStream, opts: &Opts) -> Res<HostMetrics> {
         session.deadline = Some(Instant::now() + Duration::from_secs(duration + 10));
     }
     session.run(&mut stream)?;
-    Ok(session.metrics.unwrap_or_default())
+    let mut metrics = session.metrics.unwrap_or_default();
+    metrics.capture_details = session.capture.statistics();
+    Ok(metrics)
 }
 
 struct WindowsSession {
-    capture: GdiCapture,
+    capture: DesktopCapture,
     encoder: Box<dyn H264Encoder>,
     picture: I420,
     engine: MediaEngine,
     held_keys: BTreeSet<u16>,
     held_buttons: BTreeSet<u8>,
-    last_frame_fingerprint: Option<u64>,
     width: u32,
     height: u32,
     interval: Duration,
@@ -672,7 +676,7 @@ struct WindowsSession {
 
 impl WindowsSession {
     fn new(
-        capture: GdiCapture,
+        capture: DesktopCapture,
         encoder: Box<dyn H264Encoder>,
         width: u32,
         height: u32,
@@ -701,7 +705,6 @@ impl WindowsSession {
             ),
             held_keys: BTreeSet::new(),
             held_buttons: BTreeSet::new(),
-            last_frame_fingerprint: None,
             width,
             height,
             interval: Duration::from_secs_f64(1.0 / f64::from(fps)),
@@ -758,28 +761,19 @@ impl WindowsSession {
             if now >= next {
                 let capture_started = self.metrics.as_ref().map(|_| Instant::now());
                 let now_us = now_ns() / 1000;
-                let pixels = self.capture.capture()?.to_vec();
-                let mut fingerprint = DefaultHasher::new();
-                fingerprint.write(&pixels);
-                let fingerprint = fingerprint.finish();
-                let changed =
-                    self.last_frame_fingerprint.map_or(true, |previous| previous != fingerprint);
-                self.last_frame_fingerprint = Some(fingerprint);
+                self.capture.capture()?;
+                let request = if let Some(damage) = self.capture.damage {
+                    self.engine.damage(0, damage, now_us)
+                } else {
+                    self.engine.poll(now_us)
+                };
+                // The retained DXGI surface is already current. Copy only for a
+                // frame the encoder will use, not on every unchanged tick.
+                let pixels = request.as_ref().map(|_| self.capture.pixels().to_vec());
                 if let (Some(metrics), Some(start)) = (&mut self.metrics, capture_started) {
                     sample(&mut metrics.capture_ms, start);
                 }
-                let request = if changed {
-                    self.engine.damage(
-                        0,
-                        Rect { x: 0, y: 0, width: self.width, height: self.height },
-                        now_us,
-                    )
-                } else {
-                    // Damage held by the fps cap still needs its due frame when the
-                    // desktop stops changing; no new damage event will wake it.
-                    self.engine.poll(now_us)
-                };
-                if let Some(req) = request {
+                if let (Some(req), Some(pixels)) = (request, pixels) {
                     self.encode(stream, &req, &pixels)?;
                 }
                 let output = self.engine.tick(true, now_us);
