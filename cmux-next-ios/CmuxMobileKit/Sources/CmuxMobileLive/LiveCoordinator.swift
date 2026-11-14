@@ -353,6 +353,7 @@ public final class LiveCoordinator {
             incidents.network(Self.networkKind(path))
             if store.isOffline { store.isOffline = false }
             presence?.kick()
+            discovery.wake()
             guard let teamID = registeredTeamID else { return }
             // Every link roams in place (one signaling socket carries them all);
             // one controller asks the dialer, the others only redial a failed link.
@@ -594,6 +595,9 @@ public final class LiveCoordinator {
         case .mac(let mac) where mac.removed == true:
             forgetMac(mac.deviceId)
         case .mac(let mac):
+            // A Mac came or went: discovery looks now (another team's Mac to follow, or the
+            // fast wait again) instead of at its backed-off cadence.
+            discovery.wake()
             var current = store.teams.first { $0.id == teamID }?.macs ?? []
             let known = current.first { $0.id == mac.deviceId }
             // A Worker that predates machine ids sends none: keep the one the list had. A
