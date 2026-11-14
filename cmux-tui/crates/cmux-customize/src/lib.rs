@@ -25,6 +25,7 @@ pub mod profile;
 pub mod redact;
 mod store;
 mod tree;
+mod try_on;
 mod validate;
 
 use serde::Serialize;
@@ -33,8 +34,9 @@ pub use brief::brief;
 pub use engine::Customize;
 pub use paths::{Roots, STATE_OVERRIDE};
 pub use redact::Reader;
-pub use store::{Ask, Draft, Generation, Kind};
+pub use store::{Ask, Draft, Generation, Kind, TryOn};
 pub use tree::{Part, Skipped};
+pub use try_on::{DEFAULT_TRY_ON_MINUTES, MAX_TRY_ON_MINUTES, Settled, TriedOn};
 pub use validate::Problem;
 
 /// How a live file differs from the current generation.
@@ -80,6 +82,9 @@ pub struct FileDiff {
 pub struct Status {
     /// The generation that is applied.
     pub current: Option<Generation>,
+    /// The applied setup is a try-on: it reverts by itself at `expires_ms`
+    /// unless someone keeps it.
+    pub try_on: Option<TryOn>,
     pub draft: Option<DraftInfo>,
     /// Live files that differ from `current`: the preview.
     pub changes: Vec<Change>,
@@ -178,6 +183,10 @@ pub enum Error {
     /// An agent's restore would change settings only the person may change
     /// (the keys); nothing was changed.
     Protected(Vec<String>),
+    /// A try-on with nothing to try: no profile, and no change live.
+    NothingToTry,
+    /// A try-on time outside a second to [`MAX_TRY_ON_MINUTES`].
+    TryOnTime,
 }
 
 impl Error {
@@ -192,6 +201,8 @@ impl Error {
             Error::Profile(_) => "customize.profile",
             Error::Untracked(_) => "customize.untracked",
             Error::Protected(_) => "customize.protected",
+            Error::NothingToTry => "customize.nothing_to_try",
+            Error::TryOnTime => "customize.try_on_time",
         }
     }
 }
@@ -216,6 +227,13 @@ impl std::fmt::Display for Error {
                 write!(f, "there is no generation {n}; `cmux customize generations` lists them")
             }
             Error::NothingEarlier => f.write_str("there is no earlier generation to roll back to"),
+            Error::NothingToTry => f.write_str(
+                "nothing to try on: name a profile (`cmux customize try FILE`), or make a change first and try that",
+            ),
+            Error::TryOnTime => write!(
+                f,
+                "a try-on lasts from a second to {MAX_TRY_ON_MINUTES} minutes (--minutes)"
+            ),
             Error::Profile(why) => f.write_str(why),
             Error::Protected(keys) => write!(
                 f,

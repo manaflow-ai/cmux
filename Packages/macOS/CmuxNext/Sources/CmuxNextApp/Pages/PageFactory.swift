@@ -241,6 +241,14 @@ struct PageFactory {
             let result = await devices.run(run)
             return (try? JSONValue.parse(JSONEncoder().encode(result))) ?? .object([:])
         }
+        // Try on (cmux-customize `try_on.rs`): the engine is the CLI's, answered as its JSON (an
+        // error's envelope on a refusal), so the bar shows what `cmux customize` would say.
+        provider.customizeRun = { [bundled = services.bundledCLI] verb in
+            guard let cli = await bundled.resolve() else { throw PageError.closed }
+            let ran = try await ProcessRunner.run(executable: cli, arguments: ["--json", "customize", verb], environment: nil,
+                                                  timeout: .seconds(10), clock: ContinuousClock())
+            return (try? CmuxNextSettings.JSONValue.parse(ran.status == 0 ? ran.stdout : ran.stderr)) ?? .object([:])
+        }
         provider.sharesList = { [weak services] in try await SettingsSharedLinks.list(services) }
         provider.sharesRevoke = { [weak services] id in try await SettingsSharedLinks.revoke(services, shareID: id) }
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }

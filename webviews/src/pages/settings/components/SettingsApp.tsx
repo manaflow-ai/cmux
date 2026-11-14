@@ -10,6 +10,7 @@ import { filterRows } from "../search";
 import { managedOf, valueOf } from "../store";
 import { ReadOnlyBanner } from "./ReadOnlyBanner";
 import { SearchField } from "./SearchField";
+import { TryOnSlot } from "./TryOnBar";
 import { SearchResults } from "./SearchResults";
 import { SectionList } from "./SectionList";
 import { personalizationPartOf } from "./PersonalizationCard";
@@ -156,6 +157,7 @@ export function SettingsApp() {
           ) : state.loaded && !state.readable ? (
             <ReadOnlyBanner reason="loadFailed" />
           ) : null}
+          <TryOnSlot />
           {searching ? <SearchResults query={shownQuery} /> : <Outlet />}
         </div>
       </main>

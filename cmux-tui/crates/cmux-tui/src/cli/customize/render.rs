@@ -4,7 +4,8 @@
 
 use cmux_customize::profile::{Listed, Saved};
 use cmux_customize::{
-    Applied, Begun, Change, FileDiff, Generation, History, Restored, Roots, Status, count,
+    Applied, Begun, Change, FileDiff, Generation, History, Restored, Roots, Settled, Status,
+    TriedOn, TryOn, count,
 };
 use serde_json::{Value, json};
 
@@ -36,6 +37,10 @@ pub(in crate::cli) enum Answer {
     },
     Profiles(Vec<Listed>),
     Paths(Roots),
+    TriedOn(TriedOn),
+    /// How try-ons ended, and the verb that asked (`keep`, `revert`,
+    /// `settle`).
+    Settled(Vec<Settled>, &'static str),
 }
 
 fn value(of: &impl serde::Serialize) -> Value {
@@ -80,6 +85,8 @@ impl Answer {
                 json!({ "profile": name, "begun": begun, "status": status_json(status) })
             }
             Answer::Profiles(profiles) => json!({ "profiles": profiles }),
+            Answer::TriedOn(tried) => value(tried),
+            Answer::Settled(settled, _) => json!({ "settled": settled }),
             Answer::Paths(roots) => json!({
                 "settings": roots.settings_file,
                 "keybindings": cmux_config::keybindings_path(&roots.settings_file),
@@ -187,6 +194,45 @@ impl Answer {
                 out.push_str(&format!("previewing profile {name}; nothing is applied yet\n"));
                 status_lines(&mut out, status, now_ms);
             }
+            Answer::TriedOn(tried) => {
+                out.push_str(&format!(
+                    "trying on: {} (generation {}), {}\n",
+                    tried.try_on.label,
+                    tried.applied.generation.n,
+                    left(&tried.try_on, now_ms)
+                ));
+                change_lines(&mut out, &tried.applied.changes);
+                try_on_next(&mut out, &tried.try_on);
+            }
+            Answer::Settled(settled, verb) if settled.is_empty() => {
+                let what = match *verb {
+                    "settle" => "no try-on is due",
+                    _ => "nothing is being tried on",
+                };
+                out.push_str(what);
+                out.push('\n');
+            }
+            Answer::Settled(settled, _) => {
+                for one in settled {
+                    match one {
+                        Settled::Kept { try_on } => out.push_str(&format!(
+                            "kept: {} stays applied (generation {})\n",
+                            try_on.label, try_on.generation
+                        )),
+                        Settled::Ended { try_on } => out.push_str(&format!(
+                            "the try-on of {} ended: something else was applied since\n",
+                            try_on.label
+                        )),
+                        Settled::Reverted { try_on, restored } => {
+                            out.push_str(&format!(
+                                "reverted the try-on of {}: generation {} is live again",
+                                try_on.label, restored.generation.n
+                            ));
+                            kept_line(&mut out, restored);
+                        }
+                    }
+                }
+            }
             Answer::Profiles(profiles) if profiles.is_empty() => {
                 out.push_str(
                     "no profiles yet; `cmux customize save NAME` saves what is live as one\n",
@@ -213,6 +259,22 @@ impl Answer {
         }
         out
     }
+}
+
+/// `9 minutes left`, `40 seconds left`.
+pub(super) fn left(try_on: &TryOn, now_ms: u64) -> String {
+    let seconds = try_on.expires_ms.saturating_sub(now_ms).div_ceil(1000);
+    match seconds {
+        0 => "reverting now".to_owned(),
+        1..=59 => format!("{} left", count(seconds as usize, "second")),
+        _ => format!("{} left", count(seconds.div_ceil(60) as usize, "minute")),
+    }
+}
+
+fn try_on_next(out: &mut String, try_on: &TryOn) {
+    let back = try_on.revert_to.map(|n| format!("generation {n}")).unwrap_or("it".to_owned());
+    out.push_str("  cmux customize keep            keep it\n");
+    out.push_str(&format!("  cmux customize revert          put {back} back now\n"));
 }
 
 fn kept_line(out: &mut String, restored: &Restored) {
@@ -246,6 +308,14 @@ fn status_lines(out: &mut String, status: &Status, now_ms: u64) {
             ago(now_ms, generation.at_ms)
         )),
         None => out.push_str("no generation yet\n"),
+    }
+    if let Some(try_on) = &status.try_on {
+        out.push_str(&format!(
+            "trying on: {}, {}; it reverts by itself unless you keep it\n",
+            try_on.label,
+            left(try_on, now_ms)
+        ));
+        try_on_next(out, try_on);
     }
     if !status.dirty() {
         out.push_str("nothing is previewing\n");

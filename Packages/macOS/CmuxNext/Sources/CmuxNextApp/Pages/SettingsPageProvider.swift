@@ -42,6 +42,12 @@ final class SettingsPageProvider: PageProvider {
     var environmentsState: (@MainActor () -> JSONValue)?
     var environmentsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     var devicesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    /// The try-on bar (cmux-customize `try_on.rs`): `cmux --json customize VERB` for `status`, `keep`
+    /// or `revert`, through the bundled CLI, so the page and the CLI never differ; nil in tests
+    /// without an app.
+    var customizeRun: (@MainActor (String) async throws -> JSONValue)?
+    /// The verbs the page may run.
+    static let customizeVerbs: Set<String> = ["status", "keep", "revert"]
     /// Settings > Privacy > Shared Links (``SettingsSharedLinks``): this Mac's chat shares, and Revoke.
     var sharesList: (@MainActor () async throws -> JSONValue)?
     var sharesRevoke: (@MainActor (String) async throws -> JSONValue)?
@@ -221,6 +227,11 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.environments.state": return try Self.host(environmentsState, "environments")()
         case "cmux.settings.environments.run": return try await Self.host(environmentsRun, "environments")(params)
         case "cmux.settings.devices.state": return try Self.host(devicesState, "devices")()
+        case "cmux.settings.customize.run":
+            guard let verb = params["verb"]?.stringValue, Self.customizeVerbs.contains(verb) else {
+                throw PageError.invalidParams("verb is status, keep or revert")
+            }
+            return try await Self.host(customizeRun, "customize")(verb)
         case "cmux.settings.shares.list": return try await Self.host(sharesList, "shares")()
         case "cmux.settings.shares.revoke":
             guard let id = params["share_id"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("share_id") }

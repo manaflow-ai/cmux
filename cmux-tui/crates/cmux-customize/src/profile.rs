@@ -244,6 +244,21 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Begun, Error> {
+        // One import at a time, from the first read to the last write: two
+        // that merged into the same settings text would each write theirs
+        // and the later one would drop the other's keys, in no generation.
+        let _lock = self.store().lock()?;
+        self.preview_profile_locked(profile, origin, now_ms)
+    }
+
+    /// [`Customize::preview_profile`] for a caller that holds the store's
+    /// lock and goes on under it (a try-on applies what this wrote).
+    pub(crate) fn preview_profile_locked(
+        &self,
+        profile: &Profile,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Begun, Error> {
         if profile.version != 1 {
             return Err(Error::Profile(format!(
                 "this profile is format {}; this cmux reads format 1",
@@ -268,10 +283,6 @@ impl Customize {
                 )));
             }
         }
-        // One import at a time, from the first read to the last write: two
-        // that merged into the same settings text would each write theirs
-        // and the later one would drop the other's keys, in no generation.
-        let _lock = self.store().lock()?;
         let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
         for (path, text) in &profile.files {
             // Only a path the scan reads: anything else (a dot file like
