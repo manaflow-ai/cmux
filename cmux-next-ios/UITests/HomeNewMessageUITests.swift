@@ -42,6 +42,43 @@ final class HomeNewMessageUITests: XCTestCase {
         return to
     }
 
+    /// New Message's message bar works before a conversation exists (user report 2026-11-13: the
+    /// + and the microphone did nothing): the + opens the apps menu with Photos, a tap on the
+    /// record button says to hold it, and the list scrolls under To: and the bar (native edge effect).
+    @MainActor
+    func testPlusAndRecordWorkBeforeAConversationExists() {
+        for look in Look.allCases {
+            let app = launch(look: look)
+            _ = openSheet(app, look)
+            XCTAssertTrue(app.cells["conversation.compose.suggestion.chief:cloud"].waitForExistence(timeout: 10),
+                          "the Chiefs\n\(app.debugDescription)")
+            attach(app, look, "edge-00-rest")
+            app.tables["conversation.compose.suggestions"].swipeUp()
+            Self.pause(0.8)
+            attach(app, look, "edge-01-scrolled-under-bars")
+            app.tables["conversation.compose.suggestions"].swipeDown()
+            Self.pause(0.6)
+
+            let record = app.buttons["conversation.composer.record"]
+            XCTAssertTrue(record.waitForExistence(timeout: 5), "record button\n\(app.debugDescription)")
+            XCTAssertTrue(record.isHittable, "record button takes touches")
+            record.tap()
+            XCTAssertTrue(app.staticTexts["conversation.recording.holdHint"].waitForExistence(timeout: 3), "a tap shows the hold hint")
+            attach(app, look, "mic-01-hold-hint")
+
+            let plus = app.buttons["conversation.composer.plus"]
+            XCTAssertTrue(plus.isEnabled, "the + is enabled")
+            plus.tap()
+            let photos = app.descendants(matching: .any)["conversation.apps.photo.on.rectangle"]
+            XCTAssertTrue(photos.waitForExistence(timeout: 5), "the + opens the apps menu with Photos\n\(app.debugDescription)")
+            attach(app, look, "plus-01-apps-menu")
+            photos.tap()
+            Self.pause(1.5)
+            attach(app, look, "plus-02-photo-picker")
+            app.terminate()
+        }
+    }
+
     /// A1–A4, A8, A9: the sheet, the sections before typing, typed matches, tokens, addresses and refusals.
     @MainActor
     func testSectionsTypingTokensAndRefusals() {
