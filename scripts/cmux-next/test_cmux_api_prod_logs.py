@@ -323,7 +323,7 @@ class PrivateOutputTests(unittest.TestCase):
         def request(token, method, suffix, data):
             self.assertEqual((token, method), ("fixture-hq-token", "POST"))
             writes.append((suffix, data))
-            return {"number": 123}
+            return {"number": 123} if suffix == "/issues" else {"id": 456}
 
         output = io.StringIO()
         with patch.object(logs, "hq_request", side_effect=request), patch.object(logs, "PRIVATE_PART_CHARS", 140), \
@@ -339,6 +339,14 @@ class PrivateOutputTests(unittest.TestCase):
             self.assertLessEqual(len(payload), 140)
             recovered.extend(json.loads(line) for line in payload.splitlines())
         self.assertEqual(recovered, [{"header": {"count": 6}}, *rows])
+
+    def test_partial_upload_without_comment_receipt_never_succeeds(self):
+        rows = [{"log": {"msg": "team selection unreachable", "team": logs.tag(TEAM)}, "i": i} for i in range(6)]
+        with patch.object(logs, "hq_request", side_effect=[{"number": 123}, {}]) as request, \
+                patch.object(logs, "PRIVATE_PART_CHARS", 140):
+            with self.assertRaisesRegex(SystemExit, "comment receipt"):
+                logs.private_upload("fixture-hq-token", {"count": 6}, rows)
+        self.assertEqual(request.call_count, 2)
 
     def test_failed_private_upload_has_no_public_fallback(self):
         args = ["logs", "--from", "2026-11-11T13:20:00Z", "--account", TEAM, "--needles", "team selection"]

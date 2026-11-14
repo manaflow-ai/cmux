@@ -527,7 +527,10 @@ def private_upload(token, header, rows):
     if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
         sys.exit("private log store did not return an issue receipt")
     for index in range(1, len(parts)):
-        hq_request(token, "POST", f"/issues/{number}/comments", {"body": body(index)})
+        receipt = hq_request(token, "POST", f"/issues/{number}/comments", {"body": body(index)})
+        comment = receipt.get("id") if isinstance(receipt, dict) else None
+        if not isinstance(comment, int) or isinstance(comment, bool) or comment <= 0:
+            sys.exit("private log store did not return a comment receipt")
     return f"https://github.com/{HQ_REPO}/issues/{number}"
 
 
