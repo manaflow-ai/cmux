@@ -13,7 +13,7 @@
 //!   the segments sealed since the last request (a range of the
 //!   `start_sequence` index). A segment's `content` is megabytes on overflow
 //!   pages, and only the size of the newest [`SIZED_SEGMENTS_PER_CODEC`]
-//!   segments of a codec reads them, once (`SEGMENT_ROWS_SQL`,
+//!   segments of a codec can read them, once (`SEGMENT_ROWS_SQL`,
 //!   `SEGMENT_SIZE_SQL`). An output cleanup that rewrites the registry file
 //!   lists them again once.
 
@@ -82,7 +82,7 @@ const LISTED_FILES: usize = 32;
 /// Journal kinds and segment kinds the section lists.
 const LISTED_KINDS: usize = 16;
 /// Segments of a codec whose size before compression is read: its newest.
-/// Reading that size reads the segment's content pages (`SEGMENT_SIZE_SQL`).
+/// Reading that size can read the segment's content pages (`SEGMENT_SIZE_SQL`).
 pub const SIZED_SEGMENTS_PER_CODEC: u64 = 8;
 
 /// One row for each segment past `?1`.
@@ -107,7 +107,9 @@ const SEGMENTS_KEPT_SQL: &str =
     "SELECT COUNT(*), MIN(start_sequence) FROM journal_segments WHERE start_sequence <= ?1";
 
 /// The size before compression of the segment at `?1`. The row stores it
-/// after `content`, so this read walks that segment's overflow pages.
+/// after `content`, so this read can walk that segment's overflow pages:
+/// SQLite goes past a chain with no read of it only where the pointer map
+/// shows that the chain's pages follow one another.
 const SEGMENT_SIZE_SQL: &str =
     "SELECT uncompressed_bytes FROM journal_segments WHERE start_sequence = ?1";
 /// The bytes one `session_journal` row stores, as SQL over its columns:
@@ -224,6 +226,17 @@ pub struct SegmentKindSnapshot {
 #[derive(Default)]
 pub struct DiskUsageCache {
     segments: Option<SegmentList>,
+    /// Size reads (`SEGMENT_SIZE_SQL`) since the daemon started, counted for
+    /// mux/tests/disk_read_cost.rs.
+    #[cfg(all(test, target_os = "linux"))]
+    size_reads: u64,
+}
+
+#[cfg(all(test, target_os = "linux"))]
+impl DiskUsageCache {
+    pub(crate) fn size_reads(&self) -> u64 {
+        self.size_reads
+    }
 }
 
 struct SegmentList {
@@ -508,6 +521,10 @@ fn read_segments(
                     Some(bytes) => bytes,
                     None => {
                         let bytes: i64 = size.query_row([row.start_sequence], |row| row.get(0))?;
+                        #[cfg(all(test, target_os = "linux"))]
+                        {
+                            cache.size_reads = cache.size_reads.saturating_add(1);
+                        }
                         let bytes = to_u64(bytes);
                         row.uncompressed_bytes = Some(bytes);
                         bytes
