@@ -164,9 +164,6 @@ extension DiffPageProvider {
 
 /// The running app's diff git: the agent pane's local git link and its staging.
 public final class DiffAgentGit: DiffGitRunning {
-    /// What a session host with `git.fingerprint` advertises (cmux-tui `git_ops.rs`).
-    static let fingerprintCapability = "git-fingerprint-v1"
-
     let link: AgentPaneGitLink
 
     public init(link: AgentPaneGitLink) {
@@ -191,7 +188,7 @@ public final class DiffAgentGit: DiffGitRunning {
     public func fingerprint(_ repository: String, scope: AgentPaneGitScope) async throws(AgentPaneGitFailure) -> String {
         let reply = try Self.parse(try await link.read(
             "git.fingerprint", params: ["path": .string(repository), "scope": .string(scope.rawValue)],
-            requiring: Self.fingerprintCapability))
+            requiring: AgentPaneGitLink.fingerprintCapability))
         guard let fingerprint = reply["fingerprint"]?.stringValue else { throw AgentPaneGitFailure.failed }
         return fingerprint
     }

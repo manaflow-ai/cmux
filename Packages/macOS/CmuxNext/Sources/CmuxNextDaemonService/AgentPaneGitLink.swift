@@ -29,6 +29,10 @@ public final class AgentPaneGitLink {
     /// This Mac's link: the Changes view's git writes run here only for a chat it reads.
     public var isLocal: Bool { daemon.isLocal }
 
+    /// What a session host with `git.fingerprint` advertises; a read that names it is sent only
+    /// to such a host (``read(_:params:requiring:)``).
+    public nonisolated static let fingerprintCapability = DaemonCapability.gitFingerprint.rawValue
+
     /// Whether the session host answers `diff.comments.send`, as its last handshake said.
     public var sendsDiffComments: Bool { daemon.identity?.supports(DaemonCapability.diffCommentsSend.rawValue) == true }
 

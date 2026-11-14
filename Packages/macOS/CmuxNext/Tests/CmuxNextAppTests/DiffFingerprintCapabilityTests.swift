@@ -6,7 +6,8 @@ import Foundation
 import Testing
 
 /// The diff tab asks its session host for `git.fingerprint`, a read that an older session host
-/// does not have. `DiffAgentGit` names the capability `git-fingerprint-v1` for it, so such a host
+/// does not have. `DiffAgentGit` names the capability `git-fingerprint-v1` for it
+/// (`DaemonCapability.gitFingerprint`), so such a host
 /// gets no request for it: the read ends in the app as `native.unsupported`, and the page then
 /// stops asking.
 ///
@@ -52,7 +53,7 @@ struct DiffFingerprintCapabilityTests {
         let log = FileManager.default.temporaryDirectory.appendingPathComponent("cn-fingerprint-\(UUID().uuidString.prefix(8)).log")
         defer { try? FileManager.default.removeItem(at: log) }
         // What the git link's own connection requires, and the read's capability only for the modern host.
-        let capabilities = DaemonCapability.required + (modern ? [DiffAgentGit.fingerprintCapability] : [])
+        let capabilities = DaemonCapability.required + (modern ? [DaemonCapability.gitFingerprint.rawValue] : [])
         let list = String(decoding: try JSONEncoder().encode(capabilities), as: UTF8.self)
         let endpoint = DaemonEndpoint(socketPath: "/tmp/cmux-fingerprint-test-\(UUID().uuidString).sock",
                                       bridge: .fakePython(["-c", Self.script, log.path, list]))
