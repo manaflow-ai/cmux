@@ -5165,6 +5165,7 @@ export class AcpmuxDirectClient {
               code?: unknown;
               details?: unknown;
               reason?: unknown;
+              action?: unknown;
               detail?: unknown;
               errorKind?: unknown;
               recovery?: unknown;
@@ -5176,6 +5177,8 @@ export class AcpmuxDirectClient {
             ...(data?.details === undefined ? {} : { details: data.details }),
             // acpmux's own refusals name their reason (`trust.pending`, `remote.mode_not_asking`).
             ...(typeof data?.reason === "string" ? { reason: data.reason } : {}),
+            // A refusal that names its one way out (`new_chat`: sendFailure.ts draws New chat).
+            ...(typeof data?.action === "string" ? { action: data.action } : {}),
             // A host refusal can carry acpmux's own words (a refused Enable harness prompt).
             ...(typeof data?.detail === "string" ? { detail: data.detail } : {}),
             // acpmux's typed failures (`spawn.failed`) name their kind and the way out in words.

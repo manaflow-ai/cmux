@@ -284,6 +284,15 @@ public final class AgentChatStore {
     /// ``fullAccessOffNotice`` for a message to a chat whose mode does not ask (the Mac's
     /// fleet lanes run in Bypass permissions): what to change to send it.
     public static let fullAccessOffPromptNotice = "Not sent: this chat runs in a mode that doesn't ask before changes, and Full access is off for this iPhone. Turn it on in Settings > Devices on the Mac, or switch the chat to a mode that asks."
+    /// What the chat says when the Mac refused a send this phone may not make: a Claude chat its
+    /// Mac started, from a phone of another account (acpmux D13, `remote.local_claude_session`,
+    /// `action: new_chat`). The composer's notice draws it with New chat, the one action that
+    /// works (Leo, 2026-11-14: "Where a refusal stays (another account), name the one action that
+    /// works, as a button."), matched by this exact text as ``fullAccessOffNotice`` is.
+    public static let newChatNotice = String(
+        localized: "mobile.agentChat.newChatNotice",
+        defaultValue: "Not sent: only the Mac that started this Claude chat can send to it. Start a new chat to send from this iPhone.",
+        bundle: .module)
     /// The allow option on its way (nil otherwise).
     public private(set) var approvingOptionID: String?
     /// A prompt that was not sent, for the composer to put back (then cleared).

@@ -17,6 +17,9 @@ public actor AcpmuxConnection {
         public var reason: String?
         /// `error.data.retryAfterMs`: when acpmux paces a request (`list.paced`), how long to wait.
         public var retryAfterMs: Int? = nil
+        /// `error.data.action`: the one way out acpmux names for a refusal (`new_chat`: a new
+        /// chat from this device works where this one is refused, D13).
+        public var action: String? = nil
     }
 
     public struct Notification: Sendable {
@@ -232,7 +235,8 @@ public actor AcpmuxConnection {
                     code: Int(error["code"]?.numberValue ?? 0),
                     message: error["message"]?.stringValue ?? "error",
                     reason: error["data"]?["reason"]?.stringValue,
-                    retryAfterMs: error["data"]?["retryAfterMs"]?.numberValue.map { Int(min(max($0, 0), 60_000)) }
+                    retryAfterMs: error["data"]?["retryAfterMs"]?.numberValue.map { Int(min(max($0, 0), 60_000)) },
+                    action: error["data"]?["action"]?.stringValue
                 ))
             } else {
                 outcome = .success(value["result"] ?? .null)

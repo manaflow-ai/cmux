@@ -12,9 +12,9 @@ import { errorMessage } from "./transportErrors";
 import { peerLinkFailure, peerLinkLine } from "./hostLine";
 
 /// The causes the failure card names in its own words, with their own way out.
-export type SendCause = "trust-pending" | "trust-untrusted" | "pane" | "too-large" | "host-away" | "other";
+export type SendCause = "trust-pending" | "trust-untrusted" | "pane" | "too-large" | "host-away" | "new-chat" | "other";
 
-type CauseFields = { code?: unknown; reason?: unknown } | null | undefined;
+type CauseFields = { code?: unknown; reason?: unknown; action?: unknown } | null | undefined;
 
 const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
 
@@ -26,6 +26,10 @@ export function sendCause(fields: CauseFields): SendCause {
   if (reason === "trust.untrusted") return "trust-untrusted";
   // More than one message carries (`rpc::MAX_MESSAGE_BYTES`): the same prompt is refused again.
   if (reason === "message.too_large") return "too-large";
+  // A chat this device may not send to, where a new chat from here works (acpmux D13: a Claude chat
+  // its Mac started, sent to from another account's device). acpmux names the way out
+  // (`action: new_chat`); a delivery record keeps only the reason, which says the same.
+  if (text(fields?.action) === "new_chat" || reason === "remote.local_claude_session") return "new-chat";
   // A request the pane's host would not take is the pane's bug, not something the person did.
   if (text(fields?.code) === "transport.intent_invalid") return "pane";
   // acpmux was still starting or reconnecting when the send's wait for it ran out
@@ -39,8 +43,14 @@ export function sendCause(fields: CauseFields): SendCause {
 export const isTrustCause = (cause: SendCause) => cause === "trust-pending" || cause === "trust-untrusted";
 
 /// Whether Retry can help: a prompt too large to send is refused the same way again, so its way
-/// out is Edit (Leo, 2026-10-31: "this is completely hardlocked bc of message size").
-export const retryHelps = (cause: SendCause) => cause !== "too-large";
+/// out is Edit (Leo, 2026-10-31: "this is completely hardlocked bc of message size"). A chat this
+/// device may not send to refuses it again too: its way out is New chat.
+export const retryHelps = (cause: SendCause) => cause !== "too-large" && cause !== "new-chat";
+
+/// A refusal whose one way out is a new chat in the same folder, with the same agent (Leo,
+/// 2026-11-14: "Where a refusal stays (another account), name the one action that works, as a
+/// button."). The card draws New chat; its sentence never names a step the person cannot take.
+export const startsNewChat = (cause: SendCause) => cause === "new-chat";
 
 /// The bytes an attachment puts in the prompt: its base64 or its text.
 const promptBytes = (attachment: ComposerAttachment) => (attachment.data?.length ?? 0) + (attachment.text?.length ?? 0);
@@ -64,7 +74,7 @@ export function failedSendText(
   retried: boolean,
   attachments: readonly ComposerAttachment[] = [],
 ): string {
-  const fields = error && typeof error === "object" ? (error as { code?: unknown; reason?: unknown }) : undefined;
+  const fields = error && typeof error === "object" ? (error as NonNullable<CauseFields>) : undefined;
   switch (sendCause(fields)) {
     case "trust-pending":
       return translate("prompt.failure.trustPending");
@@ -76,6 +86,10 @@ export function failedSendText(
       return translate(retried ? "prompt.failure.paneAgain" : "prompt.failure.pane");
     case "too-large":
       return tooLargeText(attachments);
+    case "new-chat":
+      // Never acpmux's own words, which name steps for other devices (Leo, 2026-11-14, of those:
+      // "these options dont do anything"): the card's New chat is the step.
+      return translate("prompt.failure.newChat");
     case "host-away":
       // A kept prompt that waited for the agent service is quiet: "Not sent" and its Retry, never
       // that the service is slow or that the message is kept (Leo, 2026-11-12: "STOP F---ING
@@ -107,7 +121,7 @@ export function failedSendText(
 /// again under the same id), so "Not sent yet" was wrong as often as right (Leo, 2026-11-12:
 /// "STOP FUCKING SHOWING THESE FUCKING MESSAGES"). A failed row keeps its sentence and Retry.
 export function heldSendNotice(error: unknown, attachments: readonly ComposerAttachment[] = []): string | undefined {
-  const fields = error && typeof error === "object" ? (error as { code?: unknown; reason?: unknown }) : undefined;
+  const fields = error && typeof error === "object" ? (error as NonNullable<CauseFields>) : undefined;
   if (sendCause(fields) === "host-away") return undefined;
   return failedSendText(error, false, attachments);
 }

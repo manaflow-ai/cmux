@@ -4,7 +4,7 @@ import { type StringKey } from "../i18n";
 import { type FailedRun } from "../sendFailure";
 
 /// What the failure cards read from the chat (App.tsx): the runs of failed prompts, and the
-/// folder's trust for a trust failure. Without it each failed prompt has its own card.
+/// folder's trust for a trust failure, and New chat for a chat this device may not send to. Without it each failed prompt has its own card.
 export type FailedSends = {
   runs: ReadonlyMap<string, FailedRun>;
   /// Why the folder's trust holds prompts now (its question is open, or Not now stands): a trust
@@ -12,6 +12,9 @@ export type FailedSends = {
   trustBlock?: StringKey;
   /// Trust the chat's folder, when the folder is not trusted and this pane may answer for it.
   trustFolder?: () => void;
+  /// Start a new chat with the chat's agent, in its folder, on its machine (the pane's own
+  /// `chat.new`): the way out of a refusal this device can't get past (sendFailure.ts startsNewChat).
+  newChat?: () => void;
 };
 export const FailedSendsContext = createContext<FailedSends | undefined>(undefined);
 

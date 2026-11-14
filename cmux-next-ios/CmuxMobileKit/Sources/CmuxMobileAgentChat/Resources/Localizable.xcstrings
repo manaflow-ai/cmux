@@ -1507,6 +1507,124 @@
           }
         }
       }
+    },
+    "mobile.agentChat.newChatNotice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not sent: only the Mac that started this Claude chat can send to it. Start a new chat to send from this iPhone."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht gesendet: Nur der Mac, der diesen Claude-Chat gestartet hat, kann an ihn senden. Starte einen neuen Chat, um von diesem iPhone zu senden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non envoyé : seul le Mac qui a démarré cette discussion Claude peut y envoyer des messages. Démarrez une nouvelle discussion pour envoyer depuis cet iPhone."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تُرسَل: يمكن فقط لجهاز Mac الذي بدأ محادثة Claude هذه الإرسال إليها. ابدأ محادثة جديدة للإرسال من هذا الـ iPhone."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No enviado: solo el Mac que inició este chat de Claude puede enviarle mensajes. Inicia un chat nuevo para enviar desde este iPhone."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未傳送：只有開始這個 Claude 對話的 Mac 才能傳送訊息給它。請開始新對話，從這部 iPhone 傳送。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未发送：只有开始这个 Claude 对话的 Mac 才能向它发送消息。请开始新对话，从这台 iPhone 发送。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보내지 않음: 이 Claude 채팅을 시작한 Mac만 이 채팅에 보낼 수 있습니다. 이 iPhone에서 보내려면 새 채팅을 시작하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未送信：このClaudeチャットに送信できるのは、チャットを開始したMacだけです。このiPhoneから送信するには新規チャットを開始してください。"
+          }
+        }
+      }
+    },
+    "mobile.agentChat.newChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer Chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvelle discussion"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محادثة جديدة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo chat"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新對話"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新对话"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 채팅"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規チャット"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

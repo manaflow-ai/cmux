@@ -3300,13 +3300,35 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   trustNow.current = trustAsk.trust;
   const canTrustFolder = answersTrust && !trustAsk.trusted && trustAsk.ask?.state !== "remote";
   const trustBlock = trustAsk.blocked?.reason;
+  // A send this device may not make (a Claude chat its Mac started, from another account): the card's
+  // New chat starts one with the chat's agent, in its folder, on its machine, through the pane's own
+  // chat.new (Leo, 2026-11-14: "name the one action that works, as a button").
+  const newChatStart = useRef<Record<string, unknown> | undefined>(undefined);
+  const chatSummary = snapshot.summary;
+  const chatPeer = chatSummary?.peer || (chatSummary?.hostKind === "cloud" ? chatSummary.host : undefined);
+  newChatStart.current = chatSummary?.harness
+    ? {
+        harness: chatSummary.harness,
+        ...(chatSummary.cwd ? { cwd: chatSummary.cwd } : {}),
+        ...(chatPeer ? { peer: chatPeer } : {}),
+      }
+    : undefined;
+  const canStartNewChat = newChatStart.current !== undefined;
   const failedSends = useMemo<FailedSends>(
     () => ({
       runs,
       ...(trustBlock ? { trustBlock } : {}),
       ...(canTrustFolder ? { trustFolder: () => trustNow.current() } : {}),
+      ...(canStartNewChat
+        ? {
+            newChat: () => {
+              const start = newChatStart.current;
+              if (start) void callNative("chat.new", start).catch(() => undefined);
+            },
+          }
+        : {}),
     }),
-    [runs, trustBlock, canTrustFolder],
+    [runs, trustBlock, canTrustFolder, canStartNewChat],
   );
   // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
   // popover under the header button so it never covers the composer controls.
