@@ -61,12 +61,20 @@ fn envelope_reserve(sid: &str) -> Result<usize, HubError> {
 }
 
 impl Hub {
-    pub(super) fn folder_window(&self, sub: &Sub) -> Result<Frame, HubError> {
+    pub(crate) fn validate_folder_sub(&self, sub: &Sub) -> Result<usize, HubError> {
+        if sub.stream.as_str() != "list" {
+            return Err(HubError::WrongStream(sub.stream.as_str().to_owned()));
+        }
         if sub.filter.is_some() || !matches!(sub.anchor, None | Some(Anchor::End)) {
             return Err(HubError::InvalidParams(
                 "folders subscriptions read an unfiltered head".into(),
             ));
         }
+        validate_window(sub)
+    }
+
+    pub(super) fn folder_window(&self, sub: &Sub) -> Result<Frame, HubError> {
+        let limit = self.validate_folder_sub(sub)?;
         self.require_folders_ready()?;
         let state = self.folder_state.lock().map_err(|_| HubError::WriterGone)?;
         let seq = state.seq;
@@ -93,7 +101,7 @@ impl Hub {
                 anchor.as_ref(),
                 side,
                 true,
-                (validate_window(sub)?, crate::wire::MAX_PAGE_BYTES.saturating_sub(reserve)),
+                (limit, crate::wire::MAX_PAGE_BYTES.saturating_sub(reserve)),
                 sub.filter.as_ref(),
                 (|row| visible(&index, row), continuation_bytes),
             )

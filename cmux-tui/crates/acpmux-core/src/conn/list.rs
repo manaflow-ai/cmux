@@ -73,13 +73,8 @@ impl Source for HubSource {
         _person: Option<&[u8]>,
         sink: Arc<dyn OfferSink>,
     ) -> Result<(), ConnError> {
-        if sub.view == Some(crate::wire::ListView::Folders)
-            && (sub.filter.is_some()
-                || !matches!(sub.anchor, None | Some(crate::wire::Anchor::End)))
-        {
-            return Err(ConnError::InvalidRequest(
-                "folders subscriptions read an unfiltered head".into(),
-            ));
+        if sub.view == Some(crate::wire::ListView::Folders) {
+            self.hub.validate_folder_sub(sub)?;
         }
         if let Ok(mut metrics) = self.metrics.lock() {
             *metrics = Some(sink.metrics());

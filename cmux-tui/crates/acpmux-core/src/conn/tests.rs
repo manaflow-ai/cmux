@@ -205,19 +205,36 @@ async fn folder_and_summary_sids_refuse_cross_view_pages_and_keep_cursors_separa
         json!({"method":"page","params":{"sid":"summary","stream":"list","view":"folders"}}),
     )
     .await;
-    assert_eq!(receive(&mut client).await.kind, FrameKind::Error);
+    let error = receive(&mut client).await;
+    assert_eq!(error.kind, FrameKind::Error);
+    assert_eq!(error.decode_json::<serde_json::Value>().unwrap()["code"], "invalid_params");
     send(
         &mut client,
         json!({"method":"page","params":{"sid":"folders","stream":"list","view":"all"}}),
     )
     .await;
-    assert_eq!(receive(&mut client).await.kind, FrameKind::Error);
+    let error = receive(&mut client).await;
+    assert_eq!(error.kind, FrameKind::Error);
+    assert_eq!(error.decode_json::<serde_json::Value>().unwrap()["code"], "invalid_params");
     send(
         &mut client,
         json!({"method":"sub","params":{"sid":"bad","stream":"list","view":"folders","anchor":{"key":{"lastActivity":1,"chatId":"chat","origin":"local"},"side":"after"}}}),
     )
     .await;
-    assert_eq!(receive(&mut client).await.kind, FrameKind::Error);
+    let error = receive(&mut client).await;
+    assert_eq!(error.kind, FrameKind::Error);
+    assert_eq!(error.decode_json::<serde_json::Value>().unwrap()["code"], "invalid_params");
+
+    for (sid, option) in
+        [("filtered", json!({"filter":{"origin":"local"}})), ("oversized", json!({"window":401}))]
+    {
+        let mut params = json!({"sid":sid,"stream":"list","view":"folders"});
+        params.as_object_mut().unwrap().extend(option.as_object().unwrap().clone());
+        send(&mut client, json!({"method":"sub","params":params})).await;
+        let error = receive(&mut client).await;
+        assert_eq!(error.kind, FrameKind::Error);
+        assert_eq!(error.decode_json::<serde_json::Value>().unwrap()["code"], "invalid_params");
+    }
 
     writer.apply(row_with_folder("chat", "/b", 2)).unwrap();
     let delta_one = receive(&mut client).await;
