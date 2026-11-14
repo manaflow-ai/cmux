@@ -39,12 +39,15 @@ enum GhosttyConfigFontFamily {
         Task { // task-owner: one short file read per config load; a later load supersedes it by `loads`
             // After the load finished: the runtime's config is the one just loaded.
             let paths = GhosttyRuntime.shared.loadedConfigFiles
+            // The size the terminals draw at (`terminal.fontSize` over the files'), for the iPhone.
+            let size = GhosttyRuntime.shared.configuredFontSize
             let families = await Task.detached { Self.families(inFiles: paths) }.value
             let family = families.first
             guard load == loads else { return }
             let settings = DesignSettings.shared
             if family != settings.terminalConfigFontFamily { settings.terminalConfigFontFamily = family }
             if families != settings.terminalConfigFontFamilies { settings.terminalConfigFontFamilies = families }
+            if size != settings.terminalFontSize { settings.terminalFontSize = size }
         }
     }
 
