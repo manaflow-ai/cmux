@@ -49,8 +49,13 @@ public nonisolated struct CmuxToastTunables {
         help: "How far below its slot a new toast starts as it fades in. 0: it only fades.",
         default: 8, range: 0...40, step: 1, unit: .points, code: "CmuxToastTunables.rise")
 
+    public static let playgroundFocus = Tunable<CmuxToastPlaygroundFocus>.choice(
+        "toast.playgroundFocus", section, "Playground shows",
+        help: "Every style in the Toast Playground, or one alone. Applies the next time the playground opens.",
+        default: .all, code: "CmuxToastTunables.playgroundFocus")
+
     public static var all: [TunableDescriptor] {
         [durationScale.descriptor, minimumSeconds.descriptor, glass.descriptor, horizontalPadding.descriptor, trailingPadding.descriptor,
-         verticalPadding.descriptor, buttonSpacing.descriptor, messageWidth.descriptor, rise.descriptor]
+         verticalPadding.descriptor, buttonSpacing.descriptor, messageWidth.descriptor, rise.descriptor, playgroundFocus.descriptor]
     }
 }

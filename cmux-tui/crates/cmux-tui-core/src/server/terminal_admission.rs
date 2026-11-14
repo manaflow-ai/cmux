@@ -51,8 +51,9 @@ pub(super) fn parent_process(pid: u32) -> Option<u32> {
 /// [`admit_session`] with the read of a process's parent (`parent_of`).
 ///
 /// A session with a seat is a terminal's, and so is a session whose leader
-/// is the child of a host that starts a terminal: the connection is counted
-/// in that terminal's share from its first moment, by its session. A
+/// is the child of a host that starts a terminal, or of a host that an
+/// earlier daemon started and that this daemon adopts: the connection is
+/// counted in that terminal's share from its first moment, by its session. A
 /// session with neither is an outside client's now; the lease keeps the
 /// session, and a terminal that takes its seat for it later takes the
 /// connection over (`ConnectionLease::admitted_outside`).

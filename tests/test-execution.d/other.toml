@@ -252,6 +252,11 @@ path = "tests/test_github_spend.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_group_kill_without_leader.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Checks that a cleanup owning a process group kills the group whatever its leader's state (cmux#41767 review F1): a behaviour row on rust-live.py's Builder.cancel() and an AST scan of scripts/; run python3 tests/test_group_kill_without_leader.py yourself after adding or changing a script that starts a process in its own session or kills a process group (about 5 s; python3, sh, sleep and ps)."
+
+[[test]]
 path = "tests/test_guard_hooks_from_base.py"
 lane = "linux-guard"
 

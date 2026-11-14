@@ -97,7 +97,9 @@ The Mac keeps ~/.cache/zig between jobs. "Cache Zig packages" restored 647 MB ov
 
 resolve-nightly-cmux-tui-client, Leave the build slot to a newer nightly-next push:
 
-A loop retry (nightly_next_loop_retry) always leaves the slot when nightly-next moved past its commit: the newer push's run waits in the same group and builds the head (run 43395323737 waited 19 min behind retry 43395284047 of the older c31b2b678, dispatched 18 s before the push). It runs before any build job starts, so no started build is left. A push run leaves it only with vars.NIGHTLY_NEXT_SUPERSEDE_SKIP == '1'. tests/test_nightly_next_single_loop.py.
+A loop retry (nightly_next_loop_retry) always leaves the slot when nightly-next moved past its commit: the newer push's run waits in the same group and builds the head (run 43395323737 waited 19 min behind retry 43395284047 of the older c31b2b678, dispatched 18 s before the push). It runs before any build job starts, so no started build is left. A push run leaves a moved head at once only with vars.NIGHTLY_NEXT_SUPERSEDE_SKIP == '1'.
+
+Latest wins at the slot: a stale run waits here for a newer promotion when feat-cmux-next has moved past its commit. A stale run is a loop retry (it rebuilds a commit that just failed) or a push run that sat 5 min or more in the group behind another build. It waits up to 6 min (YIELD_MINUTES). Main's rolling rule counts a run in this step as no holder (LEAVE_SLOT_STEP in scripts/ci/nightly_next_rolling.py), so the finished build's tick or the 5-minute cron promotes the newest buildable commit, and this run leaves to it. If nothing is promoted in that time, it builds its own commit. A fresh push run never waits. Push run 43558081148 of a22a4eb1 (2026-11-14) waited 23 min behind another build, then built the old head beside 20 newer commits and failed. Its retry 43560964857 built a22a4eb1 again: 60.9 min from landing to the feed. tests/test_nightly_next_single_loop.py.
 
 ## note-17
 

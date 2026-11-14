@@ -288,6 +288,7 @@ fn a_torn_patch_restores_the_previous_revision() {
     let old = b"old revision".to_vec();
     let next = b"new revision".to_vec();
     let old_index;
+    let new_index;
     {
         let (mut log, _) = open(&book);
         log.append_settled(1, 1, RawRange::NONE, &old).unwrap();
@@ -295,6 +296,7 @@ fn a_torn_patch_restores_the_previous_revision() {
         old_index = fs::read(book.join("rows.idx")).unwrap();
         let file = log.append_raw_file(b"events/patch").unwrap();
         log.patch(1, 2, RawRange { file, off: 0, len: 1 }, &next).unwrap();
+        new_index = fs::read(book.join("rows.idx")).unwrap();
     }
     let segment = book.join("rows/000001.seg");
     let whole = fs::read(&segment).unwrap();
@@ -304,11 +306,13 @@ fn a_torn_patch_restores_the_previous_revision() {
         copy_book(&book, &copy);
         let record_end = cut.min(whole.len());
         fs::write(copy.join("rows/000001.seg"), &whole[..record_end]).unwrap();
-        // The patch's index is written only after its complete record has been synced.
+        // Exercise both sides of the index write ordering. A torn record with the new index
+        // already visible must be repaired from rows.undo; a kill before the index write keeps
+        // the old entry and needs no undo.
         let mut partial_index = old_index.clone();
-        let index_bytes = cut.saturating_sub(whole.len());
-        let new_index = fs::read(book.join("rows.idx")).unwrap();
-        partial_index[16..16 + index_bytes].copy_from_slice(&new_index[16..16 + index_bytes]);
+        if cut >= whole.len() {
+            partial_index[16..32].copy_from_slice(&new_index[16..32]);
+        }
         fs::write(copy.join("rows.idx"), &partial_index).unwrap();
         let (mut log, recovered) = open(&copy);
         assert_eq!(recovered.scanned_bytes, (record_end - patch_at) as u64, "cut {cut}");
@@ -326,6 +330,97 @@ fn a_torn_patch_restores_the_previous_revision() {
         drop(log);
         fs::remove_dir_all(copy).unwrap();
     }
+}
+
+#[test]
+fn a_torn_patch_with_a_durable_new_index_restores_from_undo() {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    let old = b"old revision";
+    let next = b"new revision";
+    {
+        let (mut log, _) = open(&book);
+        log.append_settled(1, 1, RawRange::NONE, old).unwrap();
+        log.write_checkpoint(&[], &[]).unwrap();
+        log.patch(1, 2, RawRange::NONE, next).unwrap();
+    }
+    let whole = fs::read(segment(&book)).unwrap();
+    let new_index = fs::read(book.join("rows.idx")).unwrap();
+    let patch_at = SEGMENT_HEADER_LEN as usize + old.len() + RECORD_OVERHEAD;
+    let copy = home.path().join("durable-index-cut");
+    copy_book(&book, &copy);
+    fs::write(segment(&copy), &whole[..patch_at + 1]).unwrap();
+    fs::write(copy.join("rows.idx"), new_index).unwrap();
+
+    let (mut log, _) = open(&copy);
+    let row = log.row(1).expect("undo restores the prior index");
+    assert_eq!(row.rev, 1);
+    assert_eq!(texts(&mut log, &[row]).0[0], old);
+}
+
+#[test]
+fn a_cut_patch_without_undo_requests_rebuild() {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    let mark_len;
+    {
+        let (mut log, _) = open(&book);
+        settle(&mut log, 1, 1);
+        log.write_checkpoint(&[], &[]).unwrap();
+        mark_len = fs::metadata(segment(&book)).unwrap().len();
+        log.patch(1, 2, RawRange::NONE, &text(1)).unwrap();
+        log.sync().unwrap();
+    }
+    let path = segment(&book);
+    let mut bytes = fs::read(&path).unwrap();
+    bytes.truncate(mark_len as usize);
+    fs::write(path, bytes).unwrap();
+    fs::write(book.join("rows.undo"), []).unwrap();
+    let (mut log, _) = Log::open(&book, Options::default()).unwrap();
+    assert!(matches!(log.patch(1, 3, RawRange::NONE, b"replay"), Err(Error::CorruptRow { .. })));
+}
+
+#[test]
+fn a_source_change_cuts_the_replay_suffix_to_the_checkpoint() {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    let mark_len;
+    {
+        let (mut log, _) = open(&book);
+        settle(&mut log, 1, 1);
+        log.write_checkpoint(&[], &[]).unwrap();
+        mark_len = fs::metadata(segment(&book)).unwrap().len();
+        log.patch(1, 2, RawRange::NONE, b"new revision").unwrap();
+        log.append_settled(2, 1, RawRange::NONE, &text(2)).unwrap();
+        log.sync().unwrap();
+        log.cut_to_checkpoint(&[]).unwrap();
+        assert_eq!(log.last_seq(), 1);
+        assert_eq!(log.max_row(), 1);
+        assert!(log.row(2).is_none());
+        let row = log.row(1).expect("the cut restores the checkpoint row");
+        assert_eq!(row.rev, 1);
+        assert_eq!(texts(&mut log, &[row]).0[0], text(1));
+        assert_eq!(fs::metadata(segment(&book)).unwrap().len(), mark_len);
+        assert_eq!(log.patch(1, 2, RawRange::NONE, b"patched after cut").unwrap(), 2);
+    }
+    let (log, recovered) = open(&book);
+    assert_eq!(recovered.replayed, 1);
+    assert_eq!(log.last_seq(), 2);
+    assert_eq!(log.row(1).unwrap().rev, 2);
+    assert!(log.row(2).is_none());
+}
+
+#[test]
+fn a_checkpoint_open_row_can_settle_again_after_a_cut() {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    let (mut log, _) = open(&book);
+    log.write_checkpoint(&[], &[1]).unwrap();
+    log.append_settled(1, 1, RawRange::NONE, &text(1)).unwrap();
+    log.cut_to_checkpoint(&[1]).unwrap();
+    assert!(log.row(1).is_none());
+    assert_eq!(log.append_settled(1, 1, RawRange::NONE, &text(1)).unwrap(), 1);
+    assert_eq!(log.row(1).unwrap().rev, 1);
 }
 
 #[test]
@@ -611,4 +706,181 @@ fn power_loss_clears_a_sparse_seq_entry_beyond_the_checkpoint() {
     assert_eq!(&index[8..16], &[0; 8]);
     assert_eq!(log.append_settled(256, 1, RawRange { file, off: 0, len: 3 }, b"new").unwrap(), 256);
     assert_eq!(ids(&log.since(255, 1000).unwrap().rows), vec![256]);
+}
+
+#[test]
+fn cut_rejects_each_missing_or_untrusted_undo_before_removing_records() {
+    for damage in ["missing", "short-head", "head-crc", "stale-head", "short-entry", "entry-crc"] {
+        let home = tempfile::tempdir().unwrap();
+        let (mut log, _) = open(home.path());
+        settle(&mut log, 1, 1);
+        log.write_checkpoint(&[], &[]).unwrap();
+        log.patch(1, 2, RawRange::NONE, b"patched").unwrap();
+        let path = home.path().join("rows.undo");
+        let mut bytes = fs::read(&path).unwrap();
+        match damage {
+            "missing" => bytes.clear(),
+            "short-head" => bytes.truncate(8),
+            "head-crc" => bytes[0] ^= 1,
+            "stale-head" => {
+                bytes[..4].copy_from_slice(&77u32.to_le_bytes());
+                let crc = crc32fast::hash(&bytes[..12]);
+                bytes[12..16].copy_from_slice(&crc.to_le_bytes());
+            }
+            "short-entry" => bytes.truncate(28),
+            "entry-crc" => bytes[20] ^= 1,
+            _ => unreachable!(),
+        }
+        fs::write(path, bytes).unwrap();
+        let before = fs::metadata(segment(home.path())).unwrap().len();
+        assert!(matches!(log.cut_to_checkpoint(&[]), Err(Error::Rebuild(_))), "{damage}");
+        assert_eq!(fs::metadata(segment(home.path())).unwrap().len(), before);
+        assert!(matches!(log.since(0, 100), Err(Error::Stopped)));
+        assert!(matches!(log.append_settled(2, 1, RawRange::NONE, b"next"), Err(Error::Stopped)));
+    }
+}
+
+#[test]
+fn failed_cut_index_mutations_stop_reads_and_writes() {
+    for fail_after in 0..4 {
+        let home = tempfile::tempdir().unwrap();
+        let (mut log, _) = open(home.path());
+        settle(&mut log, 1, 1);
+        log.write_checkpoint(&[], &[2]).unwrap();
+        log.patch(1, 2, RawRange::NONE, b"patched").unwrap();
+        settle(&mut log, 2, 3);
+        log.fail_cut_after(fail_after);
+        assert!(log.cut_to_checkpoint(&[2]).is_err());
+        assert!(matches!(log.since(0, 100), Err(Error::Stopped)));
+        assert!(matches!(log.write_checkpoint(&[], &[]), Err(Error::Stopped)));
+        assert!(log.row(1).is_none());
+    }
+}
+
+#[test]
+fn cut_can_return_from_a_shorter_later_segment() {
+    let home = tempfile::tempdir().unwrap();
+    let options = Options { segment_bytes: 512 };
+    let (mut log, _) = Log::open(home.path(), options).unwrap();
+    log.append_settled(1, 1, RawRange::NONE, &[b'x'; 400]).unwrap();
+    log.write_checkpoint(&[], &[]).unwrap();
+    log.append_settled(2, 1, RawRange::NONE, &[b'y'; 40]).unwrap();
+    assert!(home.path().join("rows/000002.seg").exists());
+    log.cut_to_checkpoint(&[]).unwrap();
+    assert_eq!(log.last_seq(), 1);
+    assert!(!home.path().join("rows/000002.seg").exists());
+}
+
+#[test]
+fn resume_missing_segment_is_damage_not_retryable_io() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = Log::open(home.path(), Options { segment_bytes: 100 }).unwrap();
+    log.append_settled(1, 1, RawRange::NONE, &[b'x'; 50]).unwrap();
+    log.append_settled(2, 1, RawRange::NONE, &[b'y'; 50]).unwrap();
+    fs::remove_file(segment(home.path())).unwrap();
+    assert!(matches!(log.since(0, 1024), Err(Error::Corrupt(_))));
+}
+
+#[test]
+fn zero_edition_is_only_opened_and_written_in_staging_mode() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = Log::open_staging(home.path(), Options::default(), |_, _| Ok(true)).unwrap();
+    log.write_checkpoint_in_edition(&[], &[], 0).unwrap();
+    drop(log);
+    assert!(matches!(Log::open(home.path(), Options::default()), Err(Error::Rebuild(_))));
+    let (mut log, recovered) =
+        Log::open_staging(home.path(), Options::default(), |_, _| Ok(true)).unwrap();
+    assert_eq!(recovered.edition, 0);
+    log.write_checkpoint_in_edition(&[], &[], 3).unwrap();
+    drop(log);
+    let (mut log, recovered) = Log::open(home.path(), Options::default()).unwrap();
+    assert_eq!(recovered.edition, 3);
+    assert!(log.write_checkpoint_in_edition(&[], &[], 0).is_err());
+}
+
+#[test]
+fn lost_undo_head_or_entry_never_exposes_a_cut_patch_in_either_segment() {
+    for later_segment in [false, true] {
+        for corrupt_head in [false, true] {
+            let home = tempfile::tempdir().unwrap();
+            // One header plus one 50-byte record fits; the patch rolls to segment two.
+            let options = Options { segment_bytes: if later_segment { 102 } else { 10_000 } };
+            let (mut log, _) = Log::open(home.path(), options).unwrap();
+            log.append_settled(1, 1, RawRange::NONE, &[b'a'; 50]).unwrap();
+            log.write_checkpoint(&[], &[]).unwrap();
+            let mark = fs::metadata(segment(home.path())).unwrap().len();
+            log.patch(1, 2, RawRange::NONE, &[b'b'; 50]).unwrap();
+            assert_eq!(log.row(1).unwrap().seg, if later_segment { 2 } else { 1 });
+            drop(log);
+            let undo = home.path().join("rows.undo");
+            let mut bytes = fs::read(&undo).unwrap();
+            bytes[if corrupt_head { 0 } else { 20 }] ^= 1;
+            fs::write(undo, bytes).unwrap();
+            if later_segment {
+                fs::remove_file(home.path().join("rows/000002.seg")).unwrap();
+            } else {
+                OpenOptions::new()
+                    .write(true)
+                    .open(segment(home.path()))
+                    .unwrap()
+                    .set_len(mark)
+                    .unwrap();
+            }
+            let (mut log, _) = Log::open(home.path(), options).unwrap();
+            let row = log.row(1).unwrap();
+            assert!(matches!(
+                log.fill(&[row], &mut Vec::new(), &mut Vec::new()),
+                Err(Error::CorruptRow { .. })
+            ));
+            assert!(matches!(
+                log.patch(1, 2, RawRange::NONE, b"replay"),
+                Err(Error::CorruptRow { .. })
+            ));
+        }
+    }
+}
+
+#[test]
+fn every_torn_undo_append_keeps_a_whole_replayed_patch() {
+    for cut in 0..44 {
+        let home = tempfile::tempdir().unwrap();
+        let (mut log, _) = open(home.path());
+        settle(&mut log, 1, 1);
+        log.write_checkpoint(&[], &[]).unwrap();
+        log.patch(1, 2, RawRange::NONE, b"new revision").unwrap();
+        drop(log);
+        OpenOptions::new()
+            .write(true)
+            .open(home.path().join("rows.undo"))
+            .unwrap()
+            .set_len(cut)
+            .unwrap();
+        let (mut log, _) = open(home.path());
+        let row = log.row(1).unwrap();
+        assert_eq!(row.rev, 2, "undo cut at byte {cut}");
+        assert_eq!(texts(&mut log, &[row]).0[0], b"new revision");
+    }
+}
+
+#[test]
+fn stale_undo_interval_cannot_restore_a_revision_older_than_the_checkpoint() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = open(home.path());
+    settle(&mut log, 1, 1);
+    log.write_checkpoint(&[], &[]).unwrap();
+    log.patch(1, 2, RawRange::NONE, b"checkpoint revision").unwrap();
+    let stale = fs::read(home.path().join("rows.undo")).unwrap();
+    log.write_checkpoint(&[], &[]).unwrap();
+    let mark = fs::metadata(segment(home.path())).unwrap().len();
+    log.patch(1, 3, RawRange::NONE, b"cut revision").unwrap();
+    drop(log);
+    fs::write(home.path().join("rows.undo"), stale).unwrap();
+    OpenOptions::new().write(true).open(segment(home.path())).unwrap().set_len(mark).unwrap();
+    let (mut log, _) = open(home.path());
+    let row = log.row(1).unwrap();
+    assert_ne!(row.rev, 1);
+    assert!(matches!(
+        log.fill(&[row], &mut Vec::new(), &mut Vec::new()),
+        Err(Error::CorruptRow { .. })
+    ));
 }

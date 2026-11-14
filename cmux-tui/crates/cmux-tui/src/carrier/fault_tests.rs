@@ -108,7 +108,7 @@ fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(30)
 }
 
-fn seqs(record: &Value) -> Vec<u64> {
+pub(crate) fn seqs(record: &Value) -> Vec<u64> {
     record["events"].as_array().unwrap().iter().map(|e| e["seq"].as_u64().unwrap()).collect()
 }
 
@@ -117,7 +117,7 @@ fn seqs(record: &Value) -> Vec<u64> {
 /// after the last event before it, seqs 1..N once each, the resume from the last
 /// seq before the kill plus one, a final event. Answers the route events took
 /// after the kill.
-fn judged_after_kill(record: &Value) -> Vec<String> {
+pub(crate) fn judged_after_kill(record: &Value) -> Vec<String> {
     let events = record["events"].as_array().unwrap();
     let times: Vec<u64> = events.iter().map(|e| e["at_ms"].as_u64().unwrap()).collect();
     assert!(times.windows(2).all(|w| w[0] <= w[1]), "events out of arrival order: {times:?}");
