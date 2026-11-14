@@ -117,7 +117,8 @@ fleet_submit_mac() {
     fi
   fi
   local out
-  out="$(cmux_ci build cmux --ref "$SHA" --tag "$SLUG" --workspace "$WORKSPACE")" || { REPORT_MAC="BLOCKED: cmux-ci build cmux was refused"; return 1; }
+  # cmux-next needs no shared dev backend (AGENTS.md): the tag's own local mode.
+  out="$(cmux_ci build cmux --ref "$SHA" --tag "$SLUG" --workspace "$WORKSPACE" --backend-mode local)" || { REPORT_MAC="BLOCKED: cmux-ci build cmux was refused"; return 1; }
   MAC_JOB="$(printf '%s' "$out" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" ||
     { REPORT_MAC="BLOCKED: cmux-ci build cmux printed no job id"; return 1; }
   printf '%s\n' "$MAC_JOB" >"$STATE/cmux-job"
