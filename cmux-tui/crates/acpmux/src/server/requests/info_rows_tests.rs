@@ -287,7 +287,7 @@ async fn status_reads_the_live_sessions_and_says_the_same() {
     let (status, stuck) = read(hub.clone()).await;
     assert_eq!(status["sessions"], 6);
     assert_eq!(status["closedListed"], 4);
-    assert_eq!(stuck, [older_stuck.clone()]);
+    assert_eq!(stuck, std::slice::from_ref(&older_stuck));
 
     // A purged session leaves the count; a purged live one leaves the closed count as it was.
     hub.kill(&hub.resolve(&live).unwrap(), true).await.unwrap();
