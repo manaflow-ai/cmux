@@ -83,9 +83,10 @@ claude_session() { # a -p session against a dead endpoint; its MCP servers start
     "$@" -p "say hi" --debug-file "$D/claude.debug" >/dev/null 2>&1
 }
 # A person's own Codex entry LABEL named cmux, turned off, with settings of its own.
-toml_entry() {
-  printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = ["%s", "%s", "%s"]\nenabled = false\ncwd = "/%s-cwd"\nstartup_timeout_sec = 30\n[mcp_servers.cmux.env]\nUSER_ONLY = "from-%s"\n' \
-    "$NODE" "$F" "$1" "$L" "$1" "$1"
+toml_entry() { # its own working folder, which exists, so it starts when turned on alone
+  mkdir -p "$D/$1-cwd"
+  printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = ["%s", "%s", "%s"]\nenabled = false\ncwd = "%s"\nstartup_timeout_sec = 30\n[mcp_servers.cmux.env]\nUSER_ONLY = "from-%s"\n' \
+    "$NODE" "$F" "$1" "$L" "$D/$1-cwd" "$1"
 }
 # Codex sessions against a dead model provider: MCP servers start first.
 dead=(-c 'model_provider="dead"' -c 'model_providers.dead={name="dead",base_url="http://127.0.0.1:9/v1",env_key="DEAD_KEY",wire_api="responses",request_max_retries=0,stream_max_retries=0}')
