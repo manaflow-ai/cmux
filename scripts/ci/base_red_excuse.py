@@ -1393,7 +1393,7 @@ def failed_view(job: dict, log: str, *, step_names, base: bool) -> "FailedView |
     `✘ Test fake()` matched the base's real fake() failure and compare_window excused an unrelated new error in the
     step that failed. An empty log is placed and has no section. STEP_NAMES: step_owners'. BASE, keyword-only with no
     default, is the log's role, which every caller names: True for a base's log (evidence: FAILED sections and the
-    ERRORED ones its failed rollup names red, rollup_vouched),
+    ERRORED ones its failed rollup names red, rollup_vouched, or its failed gated step needed to fail, gate_vouched),
     False for the head's or a stack's (its red: FAILED and ERRORED). The test scan (FailedViewIsTheOnlyReader) checks
     each caller's role against where its log came from: the follow-up to #40542's Codex F1 at 8dc7e0dc, where
     next_batch read its base runs with the head's default role, so a base's ERRORED continue-on-error section was

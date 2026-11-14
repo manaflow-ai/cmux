@@ -13291,6 +13291,7 @@ def run_own_tests_only(case):
 
 run_own_tests_only(RealShapesOfNovember11)
 run_own_tests_only(RunnerDownloadLinesAreTheOpenedSteps)
+run_own_tests_only(GeneratedFilesOfNovember14)
 
 
 def one_step_flood(headers, steps):
