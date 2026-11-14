@@ -302,34 +302,17 @@ jobs:
           cp .review-gate/cmux-next-ios/UITests/AppReviewGateUITests.swift cmux-next-ios/UITests/
           mkdir -p cmux-next-ios/AppStoreReview
           cp .review-gate/cmux-next-ios/AppStoreReview/rejection-history.json cmux-next-ios/AppStoreReview/
-      - name: Install xcodegen and axe
+      - name: Install xcodegen
         run: |
           set -euo pipefail
           command -v xcodegen >/dev/null || brew install xcodegen
           xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
-          brew install cameroncooke/axe/axe || true
       - name: Pick the ${{ matrix.family }} simulator
         env:
           FAMILY: ${{ matrix.family }}
-        run: |
-          # Never -e (Actions runs `bash -e`): the picker's exit is read below.
-          set +e
-          set -uo pipefail
-          # Before the build: a family this image has no simulator for (the
-          # picker's exit 3) skips the build, and the report reads the
-          # marker as its result. Any other picker failure fails the leg,
-          # which leaves no result, so the report blocks.
-          udid="$(python3 -I .review-gate/cmux-next-ios/scripts/app_review_pick_simulator.py --family "$FAMILY" --print-udid)"
-          code=$?
-          if [ "$code" -eq 0 ]; then
-            echo "UDID=$udid" >> "$GITHUB_ENV"
-          elif [ "$code" -eq 3 ]; then
-            echo "::notice::no $FAMILY simulator on this image; its size classes are covered by the Pro Max and iPad rotation tests"
-            echo "{\"family\":\"$FAMILY\",\"skipped\":true}" > "$RESULTS/$FAMILY.skipped.json"
-          else
-            echo "::error::the $FAMILY simulator pick failed (exit $code)" >&2
-            exit "$code"
-          fi
+        # Before the build: only the picker's no-simulator exit skips the
+        # leg (with a marker the report reads); any other failure fails it.
+        run: bash .review-gate/cmux-next-ios/scripts/app_review_pick_step.sh "$FAMILY"
       # cmux-next-ios/rust pins the same toolchain as cmux-tui.
       - name: Set up pinned Rust
         if: env.UDID != ''
@@ -403,16 +386,44 @@ jobs:
         if: >-
           matrix.family == 'ipad' && env.UDID != ''
           && (github.event_name == 'push' || github.event_name == 'pull_request' || inputs.agent_pass)
-        continue-on-error: true
+        # A check, not advice: a pass that judged nothing fails this step and
+        # the report (app_review_agent_pass.py). It used to be
+        # continue-on-error, and with axe never installed it ended in two
+        # seconds as a pass on every run (job 132387096997).
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The homebrew tap's formula (cameroncooke/homebrew-axe) uses an
+          # install DSL the runner's Homebrew refuses ("undefined method
+          # 'run'"), so its pinned archive is installed as the formula does.
+          AXE_URL: https://github.com/cameroncooke/AXe/releases/download/v2.0.4/AXe-macOS-homebrew-v2.0.4.tar.gz
+          AXE_SHA256: 4997a7305814d1bcbb925bf1f81667177e204fe58855d99c4896b85d749e181a
         run: |
           set -euo pipefail
           if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
-            echo "::notice::no agent token for this event (fork PR); skipping the agent pass"
+            # A fork pull request gets no secrets. The skip is named, and the
+            # report shows it as a warning; any other missing token is a
+            # configuration error the report would block on.
+            echo "::notice::no agent token for this event (fork pull request); skipping the agent pass"
+            echo '{"skipped":true,"reason":"no agent token for this event (fork pull request)"}' > "$RESULTS/agent-skipped.json"
             exit 0
           fi
-          npm install -g @anthropic-ai/claude-code >/dev/null 2>&1
+          axe_dir="$RUNNER_TEMP/axe"
+          rm -rf "$axe_dir" && mkdir -p "$axe_dir"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/axe.tar.gz" "$AXE_URL"
+          echo "$AXE_SHA256  $RUNNER_TEMP/axe.tar.gz" | shasum -a 256 --check --strict
+          tar -xzf "$RUNNER_TEMP/axe.tar.gz" -C "$axe_dir"
+          axe_bin="$(find "$axe_dir" -maxdepth 2 -type f -name axe | head -n 1)"
+          axe_home="$(dirname "$axe_bin")"
+          # The archive ships unsigned: sign the frameworks, then the
+          # executable that loads them (the formula's post-install step).
+          codesign --force --sign - --timestamp=none \
+            "$axe_home/Frameworks/FBControlCore.framework" \
+            "$axe_home/Frameworks/FBSimulatorControl.framework" \
+            "$axe_bin"
+          export PATH="$axe_home:$PATH"
+          axe --version
+          npm install -g @anthropic-ai/claude-code > "$RUNNER_TEMP/npm.log" 2>&1 || { tail -n 30 "$RUNNER_TEMP/npm.log"; exit 1; }
+          claude --version
           app_path="$(find "$DERIVED/Build/Products" -maxdepth 2 -path '*iphonesimulator/CmuxMobileApp.app' | head -n 1)"
           python3 -I .review-gate/cmux-next-ios/scripts/app_review_agent_pass.py \
             --udid "$UDID" --app "$app_path" \
@@ -553,6 +564,7 @@ jobs:
         id: report
         env:
           ASC_RESULT: ${{ needs.asc-validate.result }}
+          EXPECT_AGENT: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || inputs.agent_pass }}
           JUDGED_SHA: ${{ needs.plan.outputs.sha }}
           # A direct push or pull_request run fails on a new blocker only:
           # the ones in known-blockers.json were there before it. A
@@ -570,6 +582,10 @@ jobs:
           # download-artifact puts a lone artifact straight into in/, not
           # in/<name>/, so find the files by name wherever they landed.
           args+=(--expect-lint --expect-device iphone --expect-device ipad --expect-device-or-skipped duo)
+          # The agent pass ran unless a dispatch or caller turned it off: its
+          # verdict, or its named skip (a fork pull request), must arrive.
+          if [ "$EXPECT_AGENT" = true ]; then args+=(--expect-agent); fi
+          while IFS= read -r f; do args+=(--agent-skipped "$f"); done < <(find in -name 'agent-skipped.json' -type f | sort)
           while IFS= read -r f; do args+=(--skipped "$f"); done < <(find in -name '*.skipped.json' -type f | sort)
           while IFS= read -r f; do args+=(--lint "$f"); done < <(find in -name 'lint-*.json' -type f | sort)
           for fam in iphone ipad duo; do
