@@ -1,4 +1,5 @@
 import { composerPickerEntries } from "./composerPickerEntries";
+import { acpmuxPerf } from "./perf";
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
@@ -209,6 +210,7 @@ export function ComposerPickers({
   holdsStartMode = false,
   startsChat = false,
 }: Props) {
+  acpmuxPerf.render("composer:pickers");
   const t = useT();
   const lastFastValue = useRef<{ scope: string; value: string } | undefined>(undefined);
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts).

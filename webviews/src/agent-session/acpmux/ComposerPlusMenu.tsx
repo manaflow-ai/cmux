@@ -14,6 +14,7 @@ import { useT } from "./i18n";
 import { experimentArm } from "../../experiments/experiment";
 import { composerPlusCommands } from "./composerPlusCommands.experiment";
 import { composerPlusMenuSections } from "./composerPlusMenuModel";
+import { acpmuxPerf } from "./perf";
 
 export type ComposerPlusMenuProps = {
   /** The rows, from composerPlusRegistry, already narrowed to what this composer can run. */
@@ -41,6 +42,7 @@ export function ComposerPlusMenu({
   onSlash,
   onOpen,
 }: ComposerPlusMenuProps) {
+  acpmuxPerf.render("composer:plus");
   const t = useT();
   // Untitled groups: a hairline splits them (styles.css), with no header band between.
   const sections: Section[] = composerPlusMenuSections(entries, planning, experimentArm(composerPlusCommands)).map(
