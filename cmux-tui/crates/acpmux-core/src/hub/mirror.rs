@@ -223,7 +223,7 @@ impl HubWriter {
                         seq: seq + 1,
                         origin: origin.to_owned(),
                         chat_id: summary.chat_id.clone(),
-                        summary: summary.as_ref().clone(),
+                        summary: (**summary).clone(),
                         gone: false,
                     }
                 }
