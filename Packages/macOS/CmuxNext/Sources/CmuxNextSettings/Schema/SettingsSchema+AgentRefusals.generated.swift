@@ -148,6 +148,7 @@ extension SettingsSchema {
         // What every agent is told, and which of the person's skills reach it, is the person's call: an agent must not switch off the guidance or the skills it was given.
         "agents.guidance.claude": .userOnly, "agents.guidance.codex": .userOnly,
         "agents.guidance.otherAgents": .userOnly, "agents.guidance.userSkills": .userOnly,
+        "agents.board.enabled": .userOnly,
         // Whether and how often a failed turn is sent again spends the person's usage: their call, as `sessions.resumeAgents` is.
         "agents.autoRetry.enabled": .userOnly, "agents.autoRetry.intervalSeconds": .userOnly,
         "agents.autoRetry.attempts": .userOnly,

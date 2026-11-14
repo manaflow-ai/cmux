@@ -199,6 +199,7 @@ mod tests {
             plugin_dir: Some("/private/plugin".into()),
             user_plugin_dir: None,
             displays: None,
+            work_tracking: false,
         }
     }
 
@@ -251,8 +252,10 @@ mod tests {
         let parts = tools().context_parts(true);
         let skills: Vec<_> = parts.iter().filter(|p| p.source == "cmux-skill-listing").collect();
         let compiled = SKILL_FILES.iter().filter(|(p, _)| p.ends_with("/SKILL.md")).count();
-        // No `cmux-secrets` server here, so no `cmux-sudo` listing (`SKILL_SERVERS`).
-        assert_eq!(skills.len(), compiled - 1);
+        // No `cmux-secrets` server here, so no `cmux-sudo` listing (`SKILL_SERVERS`), and
+        // Agent Board is off, so no `work-tracking` listing.
+        assert_eq!(skills.len(), compiled - 2);
+        assert!(!skills.iter().any(|p| p.id.ends_with("skill-cmux-work-tracking")), "{skills:?}");
         assert!(!skills.iter().any(|p| p.id.ends_with("skill-cmux-cmux-sudo")), "{skills:?}");
         assert!(skills.iter().any(|p| p.id.ends_with("skill-cmux-cmux-cua")), "{skills:?}");
         assert!(skills.iter().any(|p| p.id.ends_with("skill-cmux-cmux-chat")), "{skills:?}");

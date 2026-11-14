@@ -1446,7 +1446,8 @@
         "agents.guidance.claude",
         "agents.guidance.codex",
         "agents.guidance.otherAgents",
-        "agents.guidance.userSkills"
+        "agents.guidance.userSkills",
+        "agents.board.enabled"
       ]
     },
     {

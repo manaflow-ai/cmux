@@ -101,6 +101,31 @@
             "custom",
             "user skills"
           ]
+        },
+        {
+          "key": "agents.board.enabled",
+          "name": "boardEnabled",
+          "note": "On: a new agent session gets the work-tracking skill (acpmux agent_tools.rs, skills/work-tracking/SKILL.md) and keeps a ledger in ~/.cmux/agent-board for the Agent Board page. Off by default: the skill's listing is in every turn and recording evidence spends tool calls.",
+          "title": {
+            "key": "settings.agents.board.enabled",
+            "text": "Agent Board"
+          },
+          "help": {
+            "key": "settings.agents.board.enabled.help",
+            "text": "New agent sessions keep a ledger of what they build, the decisions they make and the evidence for each state, shown on the Agent Board. Uses more tokens: one more skill in every session, and extra steps to record and capture evidence."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent board",
+            "work tracking",
+            "ledger",
+            "evidence",
+            "decisions",
+            "permutations",
+            "tokens",
+            "agents"
+          ]
         }
       ]
     }

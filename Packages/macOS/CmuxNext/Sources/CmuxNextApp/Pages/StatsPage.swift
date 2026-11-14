@@ -8,9 +8,10 @@ import CmuxNextPages
 extension InternalPageID {
     static let stats = InternalPageID(rawValue: "stats")
     static let artifacts = InternalPageID(rawValue: "artifacts")
+    static let agentBoard = InternalPageID(rawValue: "agent-board")
 }
 
-/// The Stats page (``StatsPageProvider``, hq#1920) and the Artifacts page as internal page tabs, one per
+/// The Stats page (``StatsPageProvider``, hq#1920), the Artifacts page and the Agent Board as internal page tabs, one per
 /// window. Stats is a preview feature until styled: `stats.show` needs `labs.previewFeatures`.
 enum StatsPageTab {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
@@ -44,6 +45,19 @@ enum StatsPageTab {
         })
         registry.bindEffect("artifacts.show") { [weak services] invocation in
             if let services { _ = services.pages.show(.artifacts, in: services.windows.active, focus: invocation.allowsViewChange) }
+            return .done
+        }
+        // The Agent Board page (``AgentBoardPageProvider``): always available; off, it shows the onboarding.
+        services.pages.register(WebPageTab(.agentBoard, symbol: "square.grid.3x3.topleft.filled", title: AgentBoardPageProvider.title) {
+            [weak services] in
+            let provider = AgentBoardPageProvider(
+                settings: services?.settings, openFile: { NSWorkspace.shared.openInBackground($0) },
+                openLink: { [weak services] url in services?.linkOpener.openWeb(url, from: nil, background: false) ?? false },
+                revealFile: { NSWorkspace.shared.revealInBackground([$0]) })
+            return PageWebView(descriptor: .agentBoard, routes: [PageRoute(prefix: "cmux.agentBoard.", provider: provider)])
+        })
+        registry.bindEffect("agentBoard.show") { [weak services] invocation in
+            if let services { _ = services.pages.show(.agentBoard, in: services.windows.active, focus: invocation.allowsViewChange) }
             return .done
         }
     }

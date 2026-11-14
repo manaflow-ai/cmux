@@ -240,7 +240,13 @@ const SKILL_FILES: &[(&str, &str)] = &[
     ("cmux-chat/SKILL.md", include_str!("../skills/cmux-chat/SKILL.md")),
     // When and how to ask for one root command (`request_elevation`, `hub/elevation.rs`).
     ("cmux-sudo/SKILL.md", include_str!("../skills/cmux-sudo/SKILL.md")),
+    // Agent Board's ledger rules; only in a session while `agents.board.enabled` is on.
+    ("work-tracking/SKILL.md", include_str!("../../../../skills/work-tracking/SKILL.md")),
 ];
+
+/// The Agent Board skill ([`board_enabled`]): off by default, because its listing is in every
+/// turn's prompt and it asks the agent for extra tool calls (ledger lines, evidence).
+pub const WORK_TRACKING_SKILL: &str = "work-tracking";
 
 /// The skills that are only about one MCP server's tools, and that server. A session without
 /// the server gets no listing for the skill: each listing is in every turn's prompt, and a
@@ -277,6 +283,8 @@ pub struct AgentTools {
     /// (`agent_displays.rs`): [`AgentTools::scoped`] then gives the
     /// computer use server its workspace's display, or leaves it out.
     pub displays: Option<PathBuf>,
+    /// Agent Board is on (`agents.board.enabled`): the plugin lists [`WORK_TRACKING_SKILL`].
+    pub work_tracking: bool,
 }
 
 /// Where the tools come from; `current()` reads them from this process.
@@ -784,16 +792,24 @@ fn resolve_with_cua_helper(
     }
     // `agents.guidance.claude` off leaves `cmux-chat` out of the plugin, not only the pointer.
     let chat_skill = crate::agent_guidance::Switches::current().claude;
-    let plugin_dir =
-        match materialize(&inputs.state_dir, |skill| chat_skill || skill != "cmux-chat") {
-            Ok(dir) => Some(dir),
-            Err(e) => {
-                tracing::warn!("agent tools: the skills plugin was not written: {e:#}");
-                None
-            }
-        };
+    let work_tracking = inputs.cmux_json.as_deref().is_some_and(board_enabled);
+    let plugin_dir = match materialize(&inputs.state_dir, |skill| {
+        (chat_skill || skill != "cmux-chat") && (work_tracking || skill != WORK_TRACKING_SKILL)
+    }) {
+        Ok(dir) => Some(dir),
+        Err(e) => {
+            tracing::warn!("agent tools: the skills plugin was not written: {e:#}");
+            None
+        }
+    };
     let user_plugin_dir = user_plugin(&inputs.state_dir);
-    AgentTools { servers, plugin_dir, user_plugin_dir, displays: inputs.displays.clone() }
+    AgentTools {
+        servers,
+        plugin_dir,
+        user_plugin_dir,
+        displays: inputs.displays.clone(),
+        work_tracking,
+    }
 }
 
 impl AgentTools {
@@ -979,6 +995,9 @@ impl AgentTools {
 
     /// Whether these servers need the `cmux` plugin's skill `name` ([`SKILL_SERVERS`]).
     pub fn lists_skill(&self, name: &str) -> bool {
+        if name == WORK_TRACKING_SKILL {
+            return self.work_tracking;
+        }
         SKILL_SERVERS
             .iter()
             .find(|(skill, _)| *skill == name)
@@ -1236,6 +1255,14 @@ fn mcp_disabled(text: &str) -> bool {
 fn memory_enabled(text: &str) -> bool {
     crate::user_settings::document(text)
         .and_then(|doc| crate::user_settings::value(&doc, "agents.memory.enabled"))
+        == Some(Value::Bool(true))
+}
+
+/// Agent Board is on only when the settings file says `agents.board.enabled` is `true`: it
+/// costs the person tokens, so a missing key, another value or an unreadable file leaves it off.
+fn board_enabled(text: &str) -> bool {
+    crate::user_settings::document(text)
+        .and_then(|doc| crate::user_settings::value(&doc, "agents.board.enabled"))
         == Some(Value::Bool(true))
 }
 

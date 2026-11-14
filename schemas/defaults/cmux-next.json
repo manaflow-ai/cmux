@@ -283,6 +283,7 @@
     "setting.agents.autoRetry.attempts": 4,
     "setting.agents.autoRetry.enabled": true,
     "setting.agents.autoRetry.intervalSeconds": 0,
+    "setting.agents.board.enabled": false,
     "setting.agents.cacheCompact.enabled": false,
     "setting.agents.cacheCompact.minContextPercent": 50,
     "setting.agents.chats.coldArchive": false,

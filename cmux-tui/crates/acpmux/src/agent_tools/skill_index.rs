@@ -10,12 +10,6 @@ use std::collections::BTreeMap;
 use super::{AgentTools, SKILL_FILES};
 use crate::agent_guidance::UserSkill;
 
-/// Skills about one MCP server's tools, and that server: a session without the server is not
-/// told about the skill (a Linux or Cloud chat has no computer use; a chat without
-/// `cmux-secrets` has no `request_elevation`).
-const SKILL_SERVERS: &[(&str, &str)] =
-    &[("cmux-cua", crate::cua_v2::SERVER_NAME), ("cmux-sudo", crate::secret_mcp::SERVER_NAME)];
-
 /// Not indexed: `cmux-chat`'s rules are `AGENT_GUIDANCE` itself, already in the same block.
 const NOT_INDEXED: &[&str] = &["cmux-chat"];
 
@@ -31,9 +25,9 @@ impl AgentTools {
                 if NOT_INDEXED.contains(&name) {
                     return None;
                 }
-                let needs = SKILL_SERVERS.iter().find(|(skill, _)| *skill == name);
-                if needs.is_some_and(|(_, server)| !self.servers.iter().any(|s| s.name == *server))
-                {
+                // A skill about a server the session lacks, or Agent Board's while it is off
+                // (`AgentTools::lists_skill`), is not told about.
+                if !self.lists_skill(name) {
                     return None;
                 }
                 let (_, description) = crate::agent_guidance::frontmatter(text)?;
@@ -103,6 +97,10 @@ mod tests {
             ["cmux-browser", "cmux-customization", "cmux-live", "acpmux"],
             "no computer use or secrets server, no cmux-cua or cmux-sudo"
         );
+        // Agent Board on (`agents.board.enabled`): Codex is told about `work-tracking` too.
+        let board = AgentTools { work_tracking: true, ..full.clone() };
+        assert_eq!(names(&board).last().map(String::as_str), Some("work-tracking"));
+        assert!(!names(&full).iter().any(|n| n == "work-tracking"), "off by default");
         assert!(AgentTools { plugin_dir: None, ..full }.skill_index().is_empty());
     }
 

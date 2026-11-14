@@ -68,6 +68,7 @@ const pages = [
   "site-settings",
   "stash",
   "stats",
+  "agent-board",
   "task-manager",
   "tasks",
 ];

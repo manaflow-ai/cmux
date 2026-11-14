@@ -512,6 +512,7 @@ fn a_skill_for_a_server_the_chat_lacks_is_not_listed() {
     let with = super::AgentTools {
         servers: vec![server("cmux"), server("cmux-cua"), server(crate::secret_mcp::SERVER_NAME)],
         plugin_dir: Some(full.clone()),
+        work_tracking: true,
         ..Default::default()
     };
     assert_eq!(with.clone().fit_skills().plugin_dir, Some(full.clone()), "nothing to leave out");
@@ -678,5 +679,44 @@ fn a_cloud_machine_session_gets_the_github_mcp_server_with_no_token_in_its_confi
     )
     .unwrap();
     assert!(upstreams.as_array().unwrap().iter().any(|s| s["name"] == name));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Agent Board is off until `agents.board.enabled` is `true`: until then the session's plugin
+/// neither lists nor carries the `work-tracking` skill, because each listing is in every turn's
+/// prompt. On, the skill is in the plugin folder and in the chat's tool rows.
+#[test]
+fn agent_board_skill_is_off_until_the_setting_turns_it_on() {
+    let root = std::env::temp_dir().join(format!("acpmux-agent-board-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let skill_row = format!("skill:{}:{}", super::PLUGIN_NAME, super::WORK_TRACKING_SKILL);
+    let has_file = |tools: &super::AgentTools| {
+        tools
+            .plugin_dir
+            .as_ref()
+            .unwrap()
+            .join("skills")
+            .join(super::WORK_TRACKING_SKILL)
+            .join("SKILL.md")
+            .is_file()
+    };
+    let rows = |tools: &super::AgentTools| -> Vec<String> {
+        tools.tool_rows(true, false).into_iter().map(|r| r.id).collect()
+    };
+    for json in [None, Some("{}"), Some(r#"{"agents":{"board":{"enabled":"yes"}}}"#), Some("{")] {
+        let tools = resolve(&memory_inputs(&root, json)).fit_skills();
+        assert!(!tools.lists_skill(super::WORK_TRACKING_SKILL), "{json:?}");
+        assert!(!has_file(&tools), "{json:?}");
+        assert!(!rows(&tools).contains(&skill_row), "{json:?}");
+    }
+    for json in [
+        "{\"agents\": {\"board\": {\"enabled\": true}}}",
+        "{\n// mine\n\"agents.board.enabled\": true,\n}",
+    ] {
+        let tools = resolve(&memory_inputs(&root, Some(json))).fit_skills();
+        assert!(tools.lists_skill(super::WORK_TRACKING_SKILL), "{json}");
+        assert!(has_file(&tools), "{json}");
+        assert!(rows(&tools).contains(&skill_row), "{json}");
+    }
     let _ = std::fs::remove_dir_all(&root);
 }

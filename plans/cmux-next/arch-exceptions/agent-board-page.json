@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-13",
+  "row": "app_lines",
+  "allow": 16,
+  "why": "Agent Board is a new first-party page: like every page it must register its WebPageTab and its show action in the app, which owns AppServices (settings, linkOpener) and the page registry. The provider, its file reads and the setting logic live in CmuxNextPages; the app adds only the registration (in the existing Stats/Artifacts page-tab file) and one FirstPartyPageSchemes entry.",
+  "author": "feat-cmux-next-agent-board (claude opus)",
+  "owner": "feat-cmux-next-agent-board",
+  "receipt": "Review (subagent opus, correctness first): SHIP at bb8df96b57626b3c82bdfa452560a83da77d4f1e",
+  "expiry": "2026-11-27"
+}

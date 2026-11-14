@@ -27,6 +27,7 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
     /// app page is never served from it.
     static let pageIDs: Set<String> = [
         "cmux.apps",
+        "cmux.agent-board",
         "cmux.artifacts",
         "cmux.bookmarks",
         "cmux.changelog",

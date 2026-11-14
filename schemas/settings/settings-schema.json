@@ -1420,7 +1420,8 @@
               "agents.guidance.claude",
               "agents.guidance.codex",
               "agents.guidance.otherAgents",
-              "agents.guidance.userSkills"
+              "agents.guidance.userSkills",
+              "agents.board.enabled"
             ],
             "title" : {
               "key" : "settings.group.agentGuidance",
@@ -15451,6 +15452,142 @@
       "title" : {
         "key" : "settings.agents.guidance.userSkills",
         "text" : "Your Skills in Every Chat"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentGuidance",
+        "text" : "Guidance and Skills"
+      },
+      "help" : {
+        "key" : "settings.agents.board.enabled.help",
+        "text" : "New agent sessions keep a ledger of what they build, the decisions they make and the evidence for each state, shown on the Agent Board. Uses more tokens: one more skill in every session, and extra steps to record and capture evidence."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.board.enabled",
+      "keywords" : [
+        "agent board",
+        "work tracking",
+        "ledger",
+        "evidence",
+        "decisions",
+        "permutations",
+        "tokens",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "board",
+        "enabled"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agents.board.enabled"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.board.enabled",
+        "text" : "Agent Board"
       },
       "validation" : "portable"
     },

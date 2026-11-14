@@ -14,6 +14,9 @@ extension AgentGuidanceSettings {
     /// `agents.guidance.userSkills`: On: the skills in ~/.config/cmux/skills/<name>/SKILL.md reach every new chat: Claude Code as the cmux-user plugin, other agents as an index of names, descriptions and paths in the first-turn context.
     public nonisolated static let guidanceUserSkillsPath = ["agents", "guidance", "userSkills"]
     public nonisolated static let guidanceUserSkillsDefault = true
+    /// `agents.board.enabled`: On: a new agent session gets the work-tracking skill (acpmux agent_tools.rs, skills/work-tracking/SKILL.md) and keeps a ledger in ~/.cmux/agent-board for the Agent Board page. Off by default: the skill's listing is in every turn and recording evidence spends tool calls.
+    public nonisolated static let boardEnabledPath = ["agents", "board", "enabled"]
+    public nonisolated static let boardEnabledDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -61,6 +64,16 @@ nonisolated enum AgentGuidanceSettingsSchema {
                 kind: .toggle,
                 default: .bool(AgentGuidanceSettings.guidanceUserSkillsDefault),
                 keywords: ["guidance", "skills", "system prompt", "instructions", "agents", "custom", "user skills"]
+            ),
+            SettingDescriptor(
+                AgentGuidanceSettings.boardEnabledPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.board.enabled", "Agent Board"),
+                help: SettingsText.keyed("settings.agents.board.enabled.help", "New agent sessions keep a ledger of what they build, the decisions they make and the evidence for each state, shown on the Agent Board. Uses more tokens: one more skill in every session, and extra steps to record and capture evidence."),
+                kind: .toggle,
+                default: .bool(AgentGuidanceSettings.boardEnabledDefault),
+                keywords: ["agent board", "work tracking", "ledger", "evidence", "decisions", "permutations", "tokens", "agents"]
             ),
         ]
     }

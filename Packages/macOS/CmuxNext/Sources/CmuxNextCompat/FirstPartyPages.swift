@@ -14,7 +14,7 @@ public nonisolated struct FirstPartyPages {
     /// Keep this list in the compatibility module so native adapters agree without widening
     /// daemon permissions.
     public static let shippedIDs: Set<String> = [
-        "cmux.apps", "cmux.artifacts", "cmux.bookmarks", "cmux.changelog",
+        "cmux.agent-board", "cmux.apps", "cmux.artifacts", "cmux.bookmarks", "cmux.changelog",
         "cmux.chief-inspector", "cmux.chief-usage", "cmux.chief-views", "cmux.cloud",
         "cmux.cloud-progress", "cmux.coderouter", "cmux.debug-settings", "cmux.feed",
         "cmux.files", "cmux.github", "cmux.group-editor", "cmux.history",

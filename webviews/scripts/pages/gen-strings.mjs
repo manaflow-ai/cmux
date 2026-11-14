@@ -318,6 +318,10 @@ export const PAGES = {
     out: "webviews/src/pages/stats/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/stats/Localizable.xcstrings" }],
   },
+  "agent-board": {
+    out: "webviews/src/pages/agent-board/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/agent-board/Localizable.xcstrings" }],
+  },
   // The GitHub page (cmux-page://cmux.github/); its table lives next to it.
   github: {
     out: "webviews/src/pages/github/generated/strings.json",
