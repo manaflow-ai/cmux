@@ -6,6 +6,7 @@
 //! environment-specific Keychain namespace owned by the app.
 
 mod client_config;
+pub mod launch;
 
 pub use client_config::{
     ADVANCED_CREATE_FIELDS, ClientConfig, ConfigSource, check_create_capabilities,
@@ -378,6 +379,7 @@ impl Resolver {
 
     /// Fetch and validate the backend's client configuration, falling back
     /// to a validated per-backend cache on transport/server errors.
+    #[cfg(feature = "http")]
     pub async fn client_config(&self, selection: Selection) -> Result<Selection, String> {
         client_config::resolve(self, selection).await
     }
@@ -386,14 +388,21 @@ impl Resolver {
     /// deployment's built-in configuration (what an unreachable or config-less backend gives
     /// anyway); only a custom origin with no cache is fetched. The app refreshes the cache after
     /// its window is up, so a changed backend config applies at the next launch.
+    #[cfg(feature = "http")]
     pub async fn client_config_cache_first(
         &self,
         selection: Selection,
     ) -> Result<Selection, String> {
-        match client_config::without_fetch(self, selection.clone()) {
+        match self.client_config_local(selection.clone()) {
             Some(selection) => Ok(selection),
             None => client_config::resolve(self, selection).await,
         }
+    }
+
+    /// The cache-first launch answer, or None when the existing HTTP path must run.
+    /// This performs only local I/O; callers must run it off their UI thread.
+    pub fn client_config_local(&self, selection: Selection) -> Option<Selection> {
+        client_config::without_fetch(self, selection)
     }
 
     /// Applies a previously fetched, validated client-config cache without

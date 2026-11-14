@@ -10,11 +10,16 @@ description = "Runtime NEXT Cloud backend allowlist, client-config cache and per
 [lints]
 workspace = true
 
+[features]
+default = ["http"]
+# The app reads the same validated cache in process, without an HTTP runtime.
+http = ["dep:reqwest", "dep:rustls"]
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-reqwest.workspace = true
-rustls.workspace = true
+reqwest = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
 url.workspace = true
 
 [dev-dependencies]
