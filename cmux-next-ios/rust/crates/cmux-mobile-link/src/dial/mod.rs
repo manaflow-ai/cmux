@@ -160,12 +160,14 @@ pub struct DialOptions {
     /// (srflx 500 ms, prflx 1 s, relay 2 s) for before/after comparisons.
     #[doc(hidden)]
     pub stock_ice_waits: bool,
-    /// WireGuard, phone side: the person's "Ultra mode on cellular" setting.
-    /// On, a tunnel dialed while the phone's network is cellular
-    /// ([`wireguard::set_cellular_path`]) sends Reed-Solomon repair data
-    /// ([`wireguard::ultra_for_dial`]), about 2-3x the bytes, so loss costs
-    /// no time. `CMUX_WG_ULTRA` still wins over it.
-    pub ultra_on_cellular: bool,
+    /// WireGuard: the person's Settings > Transport > Ultra Mode (Off, Auto
+    /// or Always; Auto by default, the Mac's side of the link too). Auto
+    /// sends no extra data on a clean link and Reed-Solomon repair data from
+    /// the first loss, capped while the phone's network is cellular
+    /// ([`wireguard::set_cellular_path`], [`wireguard::ultra_for_dial`]);
+    /// Always sends it on every datagram, about 2-3x the bytes.
+    /// `CMUX_WG_ULTRA` still wins over it.
+    pub ultra: UltraSetting,
     /// Bound on the whole dial or answer.
     pub timeout: Duration,
     /// Dial side, WebRTC: how long an offer waits for the Mac's answer. An
@@ -175,6 +177,31 @@ pub struct DialOptions {
     /// Where the dial or answer records its steps (`offer_sent`,
     /// `ice_connected`, `dtls_connected`, `channel_open`, ...).
     pub timeline: crate::Timeline,
+}
+
+/// Settings > Transport > Ultra Mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UltraSetting {
+    /// No repair data.
+    Off,
+    /// No extra data on a clean link; repair data within about one round
+    /// trip of a loss, capped on cellular.
+    #[default]
+    Auto,
+    /// Repair data on every datagram, cellular too.
+    Always,
+}
+
+impl UltraSetting {
+    /// `"off"`, `"auto"` or `"always"` (what the app stores); anything else
+    /// is the default, Auto.
+    pub fn parse(text: &str) -> Self {
+        match text.trim() {
+            "off" => Self::Off,
+            "always" => Self::Always,
+            _ => Self::Auto,
+        }
+    }
 }
 
 impl Default for DialOptions {
@@ -198,7 +225,7 @@ impl Default for DialOptions {
             video_cap_bps: 0,
             video_blackout: None,
             stock_ice_waits: false,
-            ultra_on_cellular: false,
+            ultra: UltraSetting::Auto,
             timeout: Duration::from_secs(25),
             answer_timeout: Duration::from_secs(8),
             timeline: crate::Timeline::new(),
