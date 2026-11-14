@@ -89,6 +89,14 @@ import Testing
         #expect(TerminalGridSizing.keyboardLift(gridRows: 37, visibleHeight: 20 * 16, cursorRow: 10, cellHeight: 16) == CGFloat(7 * 16))
         // Unknown cursor: the bottom rows stay above the keyboard.
         #expect(TerminalGridSizing.keyboardLift(gridRows: 37, visibleHeight: 20 * 16, cursorRow: nil, cellHeight: 16) == 0)
+        // Visual review of #42422: a shorter Mac grid (12 rows of a 37-row host) with the
+        // keyboard up slid under the header, following the cursor. While it and its note fit,
+        // it stays whole at the top: the lift is the whole clipped part.
+        #expect(TerminalGridSizing.keyboardLift(gridRows: 37, visibleHeight: 20 * 16, cursorRow: 4, cellHeight: 16,
+                                                pinnedHeight: 12 * 16 + 30) == CGFloat(17 * 16))
+        // It does not fit: the cursor rule as before.
+        #expect(TerminalGridSizing.keyboardLift(gridRows: 37, visibleHeight: 10 * 16, cursorRow: 30, cellHeight: 16,
+                                                pinnedHeight: 12 * 16 + 30) == 0)
     }
 }
 
