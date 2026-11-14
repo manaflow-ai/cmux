@@ -7,10 +7,16 @@
 //! opened through its parent's descriptor and refuses a link (`O_NOFOLLOW`),
 //! and the entry is looked at and opened through its folder's descriptor.
 //!
+//! The top folder is reached the same way. git gives its path with real
+//! folders only, so the walk starts at the root of the file system and takes
+//! each folder of that path through its parent: a link at the top folder or
+//! above it gives no work tree. The top folder is opened one time and held,
+//! and each entry is of that held folder.
+//!
 //! A system that is not Unix has no call that reads a name through an open
-//! folder. There each folder above the entry is looked at by its path, at
-//! each entry; a folder that becomes a link between that look and the read
-//! is not seen.
+//! folder. There the top folder is found by its path at each entry, and each
+//! folder above the entry is looked at by its path, at each entry; a folder
+//! that becomes a link between that look and the read is not seen.
 
 use std::ffi::OsStr;
 use std::path::{Component, Path};
@@ -68,7 +74,7 @@ mod through_folders {
     use std::mem::MaybeUninit;
     use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd};
     use std::os::unix::ffi::OsStrExt as _;
-    use std::path::Path;
+    use std::path::{Component, Path};
 
     use super::{Kind, NoEntry};
 
@@ -78,6 +84,13 @@ mod through_folders {
         libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
     const FILE_FLAGS: libc::c_int =
         libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
+    /// A folder above the top folder is a step of the walk only. Where the
+    /// system has a flag for it, the open asks for no read of that folder.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    const ABOVE_TOP_FLAGS: libc::c_int =
+        libc::O_PATH | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    const ABOVE_TOP_FLAGS: libc::c_int = FOLDER_FLAGS;
     /// Bytes of a link's target text that count.
     const MAX_TARGET_BYTES: usize = 4096;
 
@@ -156,17 +169,33 @@ mod through_folders {
     }
 
     impl Tree {
-        /// The work tree at `root`, the folder that the caller names. A name
-        /// that is no folder is no work tree, and the open waits for the
-        /// other end of no FIFO that has the name.
+        /// The work tree at `root`, the path of its top folder from the root
+        /// of the file system, as git gives it: a list of names of real
+        /// folders. Each folder of the path is opened through its parent and
+        /// refuses a link, and the top folder stays open. A name that is no
+        /// folder is no work tree, and no open waits for the other end of a
+        /// FIFO that has the name.
         pub(in crate::git_ops) fn open(root: &Path) -> Option<Self> {
-            use std::os::unix::fs::OpenOptionsExt as _;
-            let root = std::fs::OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_DIRECTORY | libc::O_NONBLOCK)
-                .open(root)
-                .ok()?;
-            root.metadata().ok()?.is_dir().then(|| Self { root: root.into(), above: Vec::new() })
+            let mut parts = root.components();
+            if parts.next() != Some(Component::RootDir) {
+                return None;
+            }
+            let mut names = Vec::new();
+            for part in parts {
+                let Component::Normal(name) = part else { return None };
+                names.push(c_name(name).ok()?);
+            }
+            let Some((top, folders_above)) = names.split_last() else {
+                // The root of the file system is the top folder.
+                let root = open_at(libc::AT_FDCWD, c"/", FOLDER_FLAGS).ok()?;
+                return Some(Self { root, above: Vec::new() });
+            };
+            let mut folder = open_at(libc::AT_FDCWD, c"/", ABOVE_TOP_FLAGS).ok()?;
+            for name in folders_above {
+                folder = open_at(folder.as_raw_fd(), name, ABOVE_TOP_FLAGS).ok()?;
+            }
+            let root = open_at(folder.as_raw_fd(), top, FOLDER_FLAGS).ok()?;
+            Some(Self { root, above: Vec::new() })
         }
 
         /// The entry that `relative` names, a path under the top folder.
