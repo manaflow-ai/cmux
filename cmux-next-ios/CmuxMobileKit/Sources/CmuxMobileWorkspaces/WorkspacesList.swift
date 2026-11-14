@@ -55,6 +55,8 @@ public struct WorkspacesList: View {
     @State private var bulkClosing: BulkClose?
     /// Set Icon…: the workspace whose icon picker is open.
     @State private var iconPicking: Workspace?
+    /// New Task…: the task composer is open.
+    @State private var composingTask = false
     /// New Workspace Group…: the Mac it goes on (one name field with the other group names).
     @State private var newGroupOnMac: String?
     /// Group by None / Group by Folder (this iPhone's view of the list).
@@ -200,6 +202,20 @@ public struct WorkspacesList: View {
             .sheet(item: $iconPicking) { ws in
                 WorkspaceIconPicker(workspace: ws) { icon in creator.setIcon(ws, icon) }
             }
+            #if DEBUG
+            // `-cmux-mobile-open-new-task`: New Task opens at launch (its captures at Accessibility sizes).
+            .task {
+                guard CommandLine.arguments.contains("-cmux-mobile-open-new-task"), !DebugLaunch.openedNewTask,
+                      !creator.taskMacs.isEmpty else { return }
+                DebugLaunch.openedNewTask = true
+                composingTask = true
+            }
+            #endif
+            // Full screen, as classic's task composer: a prompt canvas with its controls above the keyboard.
+            .fullScreenCover(isPresented: $composingTask) {
+                TaskComposerScreen(creator: creator, sameNames: sameNames,
+                                   started: { made in startedTask(made) }, close: { composingTask = false })
+            }
             .alert("Rename Workspace", isPresented: isPresented($renaming), presenting: renaming) { ws in
                 TextField("Name", text: $renameText)
                     // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
@@ -323,6 +339,16 @@ public struct WorkspacesList: View {
             return
         }
         theme.haptics.impactLight()
+        open(workspace)
+    }
+
+    /// New Task…: opens the composer.
+    func startNewTask() { composingTask = true }
+
+    /// New Task started: one workspace opens at once; several stay in the list, each row
+    /// spinning until its Mac answers.
+    func startedTask(_ made: [Workspace]) {
+        guard made.count == 1, let workspace = made.first else { return }
         open(workspace)
     }
 
@@ -975,7 +1001,8 @@ public struct WorkspacesList: View {
             recents: target.map { creator.recentDirectories(on: $0.id) } ?? [],
             options: target.map { creator.options(on: $0.id) }, availableMacs: creator.availableMacs,
             grouping: grouping, canNewGroup: target.map { creator.canCreateGroup(on: $0.id) } ?? false,
-            agentDestinations: NewAgentChatDestination.all(creator)
+            agentDestinations: NewAgentChatDestination.all(creator),
+            canStartTask: !creator.taskMacs.isEmpty
         )
         return WorkspacesToolbar(model: model, host: self).equatable()
     }
@@ -1086,6 +1113,8 @@ struct WorkspacesToolbar: View, Equatable {
         var canNewGroup: Bool
         /// New Agent Chat on…: each Mac that starts agent chats from a phone, with its folders.
         var agentDestinations: [NewAgentChatDestination] = []
+        /// New Task… can start agents on some Mac now.
+        var canStartTask = false
     }
 
     let model: Model
@@ -1109,6 +1138,8 @@ struct WorkspacesToolbar: View, Equatable {
                                        macs: model.availableMacs, canNewGroup: model.canNewGroup,
                                        newGroup: { if let id = model.target?.id { host.startNewEmptyGroup(on: id) } },
                                        agentDestinations: model.agentDestinations,
+                                       canStartTask: model.canStartTask,
+                                       newTask: { host.startNewTask() },
                                        createOn: { start, directory, macID in host.create(start, directory: directory, on: macID) }) { start, directory in
                         host.create(start, directory: directory, on: model.target?.id)
                     }
@@ -1833,6 +1864,9 @@ struct NewWorkspaceButton: View, Equatable {
     let newGroup: () -> Void
     /// New Agent Chat on…: the Macs it can start on, each with its folders (from the list).
     var agentDestinations: [NewAgentChatDestination] = []
+    /// New Task… (the task composer): offered when some Mac can start agents now.
+    var canStartTask = false
+    var newTask: () -> Void = {}
     /// Creates on a named Mac (New Agent Chat on…).
     var createOn: (NewWorkspaceStart, String?, String) -> Void = { _, _, _ in }
     let create: (NewWorkspaceStart, String?) -> Void
@@ -1841,7 +1875,7 @@ struct NewWorkspaceButton: View, Equatable {
     nonisolated static func == (a: Self, b: Self) -> Bool {
         a.target == b.target && a.showsMacPicker == b.showsMacPicker && a.sameNames == b.sameNames && a.recents == b.recents
             && a.options == b.options && a.macs == b.macs && a.canNewGroup == b.canNewGroup
-            && a.agentDestinations == b.agentDestinations
+            && a.agentDestinations == b.agentDestinations && a.canStartTask == b.canStartTask
     }
     /// Open Folder…: the typed path, and why the last one was refused.
     @State private var openingFolder = false
@@ -1881,6 +1915,13 @@ struct NewWorkspaceButton: View, Equatable {
     }
 
     @ViewBuilder private var menu: some View {
+        if canStartTask {
+            // New Task…: a prompt, the agents that run it and where, in one sheet.
+            Section {
+                Button("New Task…", systemImage: "text.badge.plus") { newTask() }
+                    .accessibilityIdentifier("workspaces.newTask")
+            }
+        }
         if let mac = target, let options {
             if macs.count > 1 || !showsMacPicker {
                 Section("On \(displayName(mac))") { starts(options) }
@@ -2019,5 +2060,13 @@ struct NewWorkspaceButton: View, Equatable {
         directory == "~" ? "Home" : (directory as NSString).lastPathComponent
     }
 }
+
+#if DEBUG
+/// DEBUG launch arguments that act once per launch.
+@MainActor
+final class DebugLaunch {
+    static var openedNewTask = false
+}
+#endif
 
 #endif

@@ -8,6 +8,7 @@ use crate::{fsio, log::Error};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const ENTRY_BYTES: u64 = 16;
 
@@ -17,12 +18,36 @@ pub struct Folds {
     last_group: u64,
     last_row: u64,
     stopped: bool,
+    counters: Counters,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Entry {
     pub group: u64,
     pub last: u64,
+}
+
+/// What reads of `folds.idx` cost since it was opened.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FoldStats {
+    /// Calls of [`Folds::search`] (and of [`Folds::containing`], which uses it).
+    pub searches: u64,
+    /// Entries those searches read.
+    pub search_reads: u64,
+    /// Entries [`Folds::entry_at`] read: steps to a neighbouring entry.
+    pub entry_reads: u64,
+}
+
+/// Readers hold `&Folds`; the counts are relaxed atomics so the value stays `Sync`.
+#[derive(Default)]
+struct Counters {
+    searches: AtomicU64,
+    search_reads: AtomicU64,
+    entry_reads: AtomicU64,
+}
+
+fn bump(counter: &AtomicU64) {
+    counter.fetch_add(1, Ordering::Relaxed);
 }
 
 impl Folds {
@@ -52,7 +77,14 @@ impl Folds {
             fsio::sync(&file)?;
         }
         file.seek(SeekFrom::Start(checkpoint_len))?;
-        Ok(Self { file, len: checkpoint_len, last_group, last_row, stopped: false })
+        Ok(Self {
+            file,
+            len: checkpoint_len,
+            last_group,
+            last_row,
+            stopped: false,
+            counters: Counters::default(),
+        })
     }
 
     pub fn len(&self) -> u64 {
@@ -94,29 +126,101 @@ impl Folds {
         Ok(())
     }
 
+    /// The number of entries.
+    pub fn count(&self) -> u64 {
+        self.len / ENTRY_BYTES
+    }
+
+    /// What reads of the index cost since it was opened.
+    pub fn stats(&self) -> FoldStats {
+        FoldStats {
+            searches: self.counters.searches.load(Ordering::Relaxed),
+            search_reads: self.counters.search_reads.load(Ordering::Relaxed),
+            entry_reads: self.counters.entry_reads.load(Ordering::Relaxed),
+        }
+    }
+
     /// Returns the closed fold containing a row, when one exists.
     pub fn containing(&self, row_id: u64) -> Result<Option<Entry>, Error> {
+        if row_id == 0 {
+            if self.stopped {
+                return Err(Error::Stopped);
+            }
+            return Ok(None);
+        }
+        Ok(self.search(row_id)?.map(|(_, entry)| entry).filter(|entry| row_id <= entry.last))
+    }
+
+    /// The entry with the greatest group at or before `row_id`, and its position: the fold
+    /// holding the row, or the one before the gap it lies in. `None` when the row is before
+    /// every fold. One search: the last entry is held in memory, so it goes back from the end
+    /// by doubling steps and then halves; a row near the end costs a read or two however many
+    /// folds the book has, and any row at most two reads per doubling of its distance.
+    pub fn search(&self, row_id: u64) -> Result<Option<(u64, Entry)>, Error> {
         if self.stopped {
             return Err(Error::Stopped);
         }
-        if row_id == 0 {
+        bump(&self.counters.searches);
+        let count = self.count();
+        if count == 0 {
             return Ok(None);
         }
-        let count = self.len / ENTRY_BYTES;
-        let mut lo = 0u64;
-        let mut hi = count;
-        while lo < hi {
-            let mid = lo + (hi - lo) / 2;
-            let (group, last) = read_entry_at(&self.file, mid.saturating_mul(ENTRY_BYTES))?;
-            if row_id < group {
-                hi = mid;
-            } else if row_id > last {
-                lo = mid.saturating_add(1);
+        let last = count.saturating_sub(1);
+        if row_id >= self.last_group {
+            return Ok(Some((last, Entry { group: self.last_group, last: self.last_row })));
+        }
+        // Positions below `next` are known at or before the row (`found` is the greatest of
+        // them); positions from `above` on are known after it.
+        let mut found = None;
+        let mut next = 0u64;
+        let mut above = last;
+        let mut step = 1u64;
+        while above > 0 {
+            let probe = above.saturating_sub(step);
+            let entry = self.read_for_search(probe)?;
+            if entry.group <= row_id {
+                found = Some((probe, entry));
+                next = probe.saturating_add(1);
+                break;
+            }
+            above = probe;
+            step = step.saturating_mul(2);
+        }
+        while next < above {
+            let mid = next + (above - next) / 2;
+            let entry = self.read_for_search(mid)?;
+            if entry.group <= row_id {
+                found = Some((mid, entry));
+                next = mid.saturating_add(1);
             } else {
-                return Ok(Some(Entry { group, last }));
+                above = mid;
             }
         }
-        Ok(None)
+        Ok(found)
+    }
+
+    /// The entry at `position`, `None` past the last one. One 16-byte read; the last entry is
+    /// held in memory and costs none.
+    pub fn entry_at(&self, position: u64) -> Result<Option<Entry>, Error> {
+        if self.stopped {
+            return Err(Error::Stopped);
+        }
+        let count = self.count();
+        if position >= count {
+            return Ok(None);
+        }
+        if position == count.saturating_sub(1) {
+            return Ok(Some(Entry { group: self.last_group, last: self.last_row }));
+        }
+        bump(&self.counters.entry_reads);
+        let (group, last) = read_entry_at(&self.file, position.saturating_mul(ENTRY_BYTES))?;
+        Ok(Some(Entry { group, last }))
+    }
+
+    fn read_for_search(&self, position: u64) -> Result<Entry, Error> {
+        bump(&self.counters.search_reads);
+        let (group, last) = read_entry_at(&self.file, position.saturating_mul(ENTRY_BYTES))?;
+        Ok(Entry { group, last })
     }
 }
 
@@ -166,6 +270,7 @@ mod tests {
             last_group: 2,
             last_row: 8,
             stopped: false,
+            counters: Counters::default(),
         };
         assert!(matches!(stopped.append(10, 20), Err(Error::Io(_))));
         assert_eq!(stopped.len(), ENTRY_BYTES);
@@ -238,6 +343,50 @@ mod tests {
         assert_eq!(folds.containing(9)?, Some(Entry { group: 9, last: 9 }));
         assert_eq!(folds.containing(10)?, Some(Entry { group: 10, last: 20 }));
         assert_eq!(folds.len(), 3 * ENTRY_BYTES);
+        Ok(())
+    }
+
+    #[test]
+    fn search_finds_the_entry_at_or_before_a_row() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut folds = Folds::open(&dir.path().join("folds.idx"), 0)?;
+        assert_eq!(folds.search(5)?, None);
+        assert_eq!(folds.entry_at(0)?, None);
+        // Folds (10k+1 ..= 10k+5) for k in 1..=1000; rows 10k+6 ..= 10k+10 are gaps.
+        for k in 1..=1000u64 {
+            folds.append(10 * k + 1, 10 * k + 5)?;
+        }
+        let rows = [0, 1, 10, 11, 13, 15, 16, 20, 21, 5_000, 5_001, 9_999, 10_001, 10_006, 99_999];
+        for row in rows {
+            let expected = (1..=1000u64)
+                .rev()
+                .map(|k| (k - 1, Entry { group: 10 * k + 1, last: 10 * k + 5 }))
+                .find(|(_, entry)| entry.group <= row);
+            assert_eq!(folds.search(row)?, expected, "row {row}");
+            let within = expected.map(|(_, entry)| entry).filter(|entry| row <= entry.last);
+            assert_eq!(folds.containing(row)?, within, "row {row}");
+            if let Some((position, entry)) = expected {
+                assert_eq!(folds.entry_at(position)?, Some(entry));
+            }
+        }
+        assert_eq!(folds.entry_at(1000)?, None);
+        // A row in the last fold reads nothing; one near the end a few entries.
+        let before = folds.stats();
+        assert_eq!(folds.search(10_003)?.map(|(position, _)| position), Some(999));
+        let after = folds.stats();
+        assert_eq!(
+            (after.searches - before.searches, after.search_reads),
+            (1, before.search_reads)
+        );
+        folds.search(9_993)?;
+        assert!(folds.stats().search_reads - after.search_reads <= 3);
+        let before = folds.stats();
+        folds.search(13)?;
+        let after = folds.stats();
+        assert_eq!(after.searches - before.searches, 1);
+        assert!(after.search_reads - before.search_reads <= 2 * 11, "logarithmic in the distance");
+        assert_eq!(folds.entry_at(3)?, Some(Entry { group: 41, last: 45 }));
+        assert_eq!(folds.stats().entry_reads - after.entry_reads, 1);
         Ok(())
     }
 }

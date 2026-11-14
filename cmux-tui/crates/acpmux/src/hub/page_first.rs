@@ -244,6 +244,68 @@ impl Hub {
     }
 }
 
+impl Hub {
+    /// The rows `keys` name, as `_acpmux/sessions` writes them with `with_tools`: this daemon's
+    /// session by its id ([`Hub::own_row_text`], a closed one from its cached bytes), a peer's
+    /// or a hub machine's by its `PEER/ID` row key (the mirrored row, never asked of the peer).
+    /// `None` for a key that names no row. Only the rows asked for are built, whatever the
+    /// list's size (`_acpmux/info` with `sessionIds`, agent service v2 row 7b).
+    pub(crate) fn rows_by_key(&self, keys: &[String], with_tools: bool) -> Vec<Option<Arc<str>>> {
+        /// A key's row, found before any is built.
+        enum Found {
+            Own(Arc<Session>),
+            Mirrored(Arc<RemoteSession>),
+        }
+        // The lookups only under the locks, one lock at a time: no row is built while a peer's
+        // writer waits.
+        let mut found: Vec<Option<Found>> =
+            keys.iter().map(|key| self.session_by_id(key).map(Found::Own)).collect();
+        {
+            let remote = self.remote_sessions.read();
+            for (key, found) in keys.iter().zip(found.iter_mut()) {
+                if found.is_none() && key.contains('/') {
+                    *found = remote.get(key.as_str()).cloned().map(Found::Mirrored);
+                }
+            }
+        }
+        let mut states = None;
+        keys.iter()
+            .zip(found)
+            .map(|(key, found)| match found {
+                Some(Found::Own(session)) => Some(self.own_row_text(&session, with_tools)),
+                found => {
+                    let row = match found {
+                        Some(Found::Mirrored(row)) => row,
+                        _ if key.contains('/') => self.mesh_book_row(key)?,
+                        _ => return None,
+                    };
+                    let states = states.get_or_insert_with(|| self.peer_link_states());
+                    Some(super::peers::listed_remote_text(&row, states, with_tools).into())
+                }
+            })
+            .collect()
+    }
+
+    /// How many closed rows `_acpmux/sessions` with no filter lists: this daemon's `own` closed
+    /// sessions and the peers' and hub machines' mirrored ones, read from their status with no
+    /// row built (`ls`'s hidden line, beside a read of the live view), and of those the mirrored
+    /// ones (which the v2 list does not hold: a form that walks its whole view reads v1 while
+    /// any is listed).
+    pub(crate) fn closed_listed(&self, own: usize) -> ClosedListed {
+        let closed = |row: &RemoteSession| row.summary.status() == Some("closed");
+        let peers = self.remote_sessions.read().values().filter(|row| closed(row)).count();
+        let remote = peers + self.mesh_book_count(closed);
+        ClosedListed { all: own + remote, remote }
+    }
+}
+
+/// [`Hub::closed_listed`]: the closed rows the unfiltered list holds, and of those the ones other
+/// machines list.
+pub(crate) struct ClosedListed {
+    pub(crate) all: usize,
+    pub(crate) remote: usize,
+}
+
 /// The rows a window of the kept order holds past a page's `limit`: a filter or two may leave a
 /// few of them out without a second read.
 pub(super) const WINDOW_ROOM: usize = 64;

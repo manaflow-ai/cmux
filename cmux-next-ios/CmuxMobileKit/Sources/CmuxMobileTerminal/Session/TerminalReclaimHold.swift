@@ -63,9 +63,13 @@ public struct TerminalReclaimHold: Sendable {
     ///   - phoneGrid: The grid the phone claims, when it has measured one.
     ///   - alternate: The alternate screen state after this event, as the
     ///     stream says (the session's `isAlternateScreen`).
-    public mutating func take(_ event: TerminalSessionEvent, claims: Bool, phoneGrid: Grid?, alternate: Bool) -> [TerminalSessionEvent] {
+    ///   - awaitingClaim: A claim went out less than ``reclaimWait`` ago: the
+    ///     Mac's grid from before it (a release that went out with it, back
+    ///     after the background grace) is held as if the page were hidden.
+    public mutating func take(_ event: TerminalSessionEvent, claims: Bool, phoneGrid: Grid?, alternate: Bool,
+                              awaitingClaim: Bool = false) -> [TerminalSessionEvent] {
         guard var events = held else {
-            if case .hostGrid(let columns, let rows) = event, !claims, let phoneGrid,
+            if case .hostGrid(let columns, let rows) = event, !claims || awaitingClaim, let phoneGrid,
                phoneGrid != Grid(columns: columns, rows: rows) {
                 held = [event]
                 heldGrid = event
