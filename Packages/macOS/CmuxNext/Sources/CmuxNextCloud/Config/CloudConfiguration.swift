@@ -38,7 +38,7 @@ public struct CloudConfiguration: Sendable, Equatable {
         /// Names no real build uses, for an FFI that did not answer.
         static func unanswered(_ bundleID: String) -> StorageNames {
             StorageNames(keychainService: "\(bundleID).auth.unanswered",
-                         credentialsSubpath: ["Library", "Application Support", "cmux", bundleID, "unanswered"],
+                         credentialsSubpath: ["Library", "Application Support", "cmux-next", bundleID, "unanswered"],
                          defaultsKeySuffix: "unanswered")
         }
     }

@@ -51,6 +51,8 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 
 [dependencies]
 acpmux-book = { path = "../acpmux-book" }
+# The list's read and follow for the CLI and MCP list callers (`cli/list_read.rs`).
+acpmux-client = { path = "../acpmux-client", features = ["tokio"] }
 acpmux-core = { path = "../acpmux-core" }
 acpmux-build-id = { path = "../acpmux-build-id", optional = true }
 acpmux-hot = { workspace = true, optional = true, features = ["wasm"] }
@@ -186,7 +188,6 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
-acpmux-client = { path = "../acpmux-client" }
 # Property tests of the stores under random operations, restarts and torn writes (src/stress/).
 proptest = { version = "1", default-features = false, features = ["std"] }
 # The NEXT Cloud network list (`vm.networks`), whose id the tunnel tests attach with.
