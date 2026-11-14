@@ -825,7 +825,7 @@ pub enum Op {
     /// Sidebar", `item.remove_ref`): kind and value as the old layout ref
     /// names them (`workspace` `<session>:<workspace id>`, `url` the url,
     /// `app`, `built_in`, `tab`, `room`, `saved_group`, or an unknown kind).
-    /// A group has no ref. `unknown_item` when no item shows it.
+    /// A group has no ref. A no-op when no item shows it (any more).
     #[serde(rename = "item.remove_ref")]
     ItemRemoveRef {
         #[serde(rename = "ref")]
