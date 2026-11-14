@@ -62,6 +62,10 @@ public struct MacPairingKey: Hashable, Sendable {
         ).id
     }
 
+    /// Shared identity for this instance's browser data store and loopback
+    /// listeners. Legacy untagged pairings retain their original identifier.
+    public var browserNetworkID: String { "mac:\(pairingID)" }
+
     /// Whether this key names an app instance on the given physical device.
     public func isOnDevice(_ macDeviceID: String) -> Bool {
         canonicalMacDeviceID == cmxCanonicalDeviceID(macDeviceID)
