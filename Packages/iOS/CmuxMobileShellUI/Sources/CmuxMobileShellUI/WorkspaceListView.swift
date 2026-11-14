@@ -40,6 +40,9 @@ struct WorkspaceListView: View {
     /// group so it follows the list's filter and create controls at the actual
     /// trailing edge. `nil` keeps standalone and compact callers unchanged.
     var sidebarToggleAction: (() -> Void)? = nil
+    /// A phone-width split sidebar has no room for the create control in its
+    /// top bar, so it joins the sidebar's bottom destination bar instead.
+    var placesNewWorkspaceControlInBottomBar = false
     /// Whether workspace-row titles wrap (multi-line) instead of truncating to a
     /// single line. Passed in as a value snapshot so no `@Observable` store
     /// crosses the `List` boundary.
