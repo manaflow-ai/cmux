@@ -90,9 +90,31 @@ describe("renewal re-check before access ends", () => {
     expect(f.statusCalls).toHaveLength(2);
   });
 
-  test("does not ask about subscriptions far from their end, with auto-renew off, or already expired", async () => {
+  test("a renewal after a missed auto-renew re-enable keeps access even though the row says auto-renew off", async () => {
+    // The row still says auto-renew off: the DID_CHANGE_RENEWAL_STATUS that
+    // turned it back on never arrived, and neither did the DID_RENEW.
+    await seedSubscription(f, { expiresAt: new Date(oldExpiry), autoRenewEnabled: false });
+    f.serverApi = f.statusApi(async () => renewedSnapshot());
+    expect(await retryAppleNotifications({}, f.deps())).toMatchObject({ renewalsChecked: 1, renewalsExtended: 1 });
+    expect(f.subscription()).toMatchObject({ lastTransactionId: "period-2", autoRenewEnabled: true });
+    expect(grantsAt(oldExpiry + MINUTE)).toBe(true);
+  });
+
+  test("an auto-renew-off row Apple did not renew keeps its expiry and is not rewritten", async () => {
+    await seedSubscription(f, { expiresAt: new Date(oldExpiry), autoRenewEnabled: false, autoRenewProductId: null });
+    f.serverApi = f.statusApi(async () => ({
+      status: 1,
+      signedTransactionInfo: signer.sign(transaction({ transactionId: "period-1", signedDate: NOW.getTime() }, f.token)),
+      signedRenewalInfo: signer.sign(renewal({ signedDate: NOW.getTime(), autoRenewStatus: 0, autoRenewProductId: undefined })),
+    }));
+    await retryAppleNotifications({}, f.deps());
+    expect(f.statusCalls).toEqual([ORIGINAL]);
+    expect(f.subscription().expiresAt?.getTime()).toBe(oldExpiry);
+    expect(f.applied).toEqual([]);
+  });
+
+  test("does not ask about subscriptions far from their end or already expired", async () => {
     await seedSubscription(f, { originalTransactionId: "far", expiresAt: new Date(NOW.getTime() + 20 * DAY) });
-    await seedSubscription(f, { originalTransactionId: "off", autoRenewEnabled: false });
     await seedSubscription(f, { originalTransactionId: "gone", status: "expired" });
     f.serverApi = f.statusApi(async () => renewedSnapshot());
     expect(await retryAppleNotifications({}, f.deps())).toMatchObject({ renewalsChecked: 0 });

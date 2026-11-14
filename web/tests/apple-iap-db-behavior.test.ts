@@ -208,7 +208,7 @@ describe("Apple IAP store", () => {
     expect((await store.notification("n-1"))?.deadLetteredAt).not.toBeNull();
   });
 
-  dbTest("renewal re-check candidates: granting, auto-renewing, ending in the window, not checked recently", async () => {
+  dbTest("renewal re-check candidates: granting, ending in the window, not checked recently, whatever auto-renew says", async () => {
     const write = (overrides: Partial<AppleSubscriptionState>) =>
       store.writeSubscriptionState(state(overrides), { tokenOwner: "user-a" });
     const HOUR = 60 * 60_000;
@@ -237,9 +237,9 @@ describe("Apple IAP store", () => {
       limit: 10,
     };
     expect((await store.renewalCheckCandidates(query)).map((row) => row.originalTransactionId))
-      .toEqual(["sooner", "soon", "unknown-renew", "grace"]);
+      .toEqual(["off", "sooner", "soon", "unknown-renew", "grace"]);
     expect((await store.renewalCheckCandidates({ ...query, checkedBefore: new Date(NOW + 1) })).map((row) => row.originalTransactionId))
-      .toEqual(["checked", "sooner", "soon", "unknown-renew", "grace"]);
+      .toEqual(["checked", "off", "sooner", "soon", "unknown-renew", "grace"]);
     expect(await store.renewalCheckCandidates({ ...query, limit: 1 })).toHaveLength(1);
   });
 
