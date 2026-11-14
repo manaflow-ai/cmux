@@ -492,6 +492,52 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(linkUpWhileReleasing == [true, true])
     }
 
+    /// Review round 15: a link the phone closed itself (idle, the cap) placed no hold, so the next
+    /// apply dialed the machine again on the old list, and the carrier ask starts a machine that
+    /// idle-paused meanwhile. A new dial waits for a list read begun after the close.
+    @Test func aLinkThePhoneClosedWaitsForAReadBeforeANewDial() async throws {
+        let store = emptyStore()
+        let cloud = RecordingCloudDialer()
+        let live = coordinator(store: store, cloud: cloud)
+        defer { live.stop() }
+        live.releaseBeforeClose = { _ in }
+        await settle { store.macConnection["m1"] == .connected }
+        live.showing(macIDs: nil)
+        live.applyCloudMachines([machine(.running)])
+        await settle { store.macConnection[vm] == .connected }
+        let session = try #require(live.sessions[vm])
+        live.closeLink(session)
+        await settle { session.link.target == nil }
+
+        // Wanted again on the old list: not dialed.
+        live.applyCloudMachines([machine(.running)])
+        live.applyLinks()
+        await drain()
+        #expect(cloud.dials(vm) == 1, "dialed again on a list read before the close")
+        // A read after the close says it runs: dialed now.
+        live.applyCloudMachines([machine(.running)], fromRead: true)
+        await settle { cloud.dials(vm) == 2 && store.macConnection[vm] == .connected }
+        #expect(cloud.dials(vm) == 2)
+    }
+
+    /// Review round 15: a handshake refusal stayed until Retry even after the machine paused and
+    /// started again (a rebuilt machine has a new daemon). Its status moving lifts it.
+    @Test func aHandshakeRefusalLiftsWhenTheMachineStopsAndRunsAgain() async {
+        let store = emptyStore()
+        let cloud = RecordingCloudDialer()
+        cloud.refuse(vm, LinkError(code: "carrier.handshake", message: "daemon key mismatch"))
+        let live = coordinator(store: store, cloud: cloud)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        live.showing(macIDs: nil)
+        live.applyCloudMachines([machine(.running)])
+        await settle { live.isCloudRefused(vm) }
+        live.applyCloudMachines([machine(.running)], fromRead: true)
+        #expect(live.isCloudRefused(vm), "a read that still says running keeps it")
+        live.applyCloudMachines([machine(.paused)], fromRead: true)
+        #expect(!live.isCloudRefused(vm), "paused, then started: the refusal no longer holds")
+    }
+
     /// Close, touch, close again while the first release is unanswered: the second close waits for
     /// the first release before it closes the link, and the first (called off) never claims the
     /// size back on a link that is closing.
