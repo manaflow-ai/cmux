@@ -226,6 +226,9 @@ if [ -n "$CMUX" ]; then
   printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = mcp ] && exec %q "$@"; done\nfor a in "$@"; do printf "%%s\\n" "$a"; done > %q\n' \
     "$CODEX" "$D/codex-args" > "$D/bin/codex"
   chmod +x "$D/bin/codex"
+  # The shim's PATH: the fake codex first, then node (an npm-installed Codex
+  # is a node script) and the system tools.
+  shim_path="$D/bin:$(dirname "$NODE"):/usr/bin:/bin"
   user_plain() { printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = ["mcp", "serve"]\n' "$CMUX" > "$CODEX_HOME/config.toml"; }
   # shim_case NAME FOLDER LOADED VERIFY_ARGS -- SHIM_ARGS: run the shim in
   # FOLDER with SHIM_ARGS; Codex itself (mcp get in the effective folder with
@@ -246,7 +249,7 @@ if [ -n "$CMUX" ]; then
       fi
     done
     rm -f "$D/codex-args"
-    (cd "$at" && env "${shim_env[@]}" PATH="$D/bin:/usr/bin:/bin" "$CMUX" agent codex-wrapper ${shim[@]+"${shim[@]}"} >/dev/null 2>&1)
+    (cd "$at" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper ${shim[@]+"${shim[@]}"} >/dev/null 2>&1)
     local reported; reported=$(codex_get "$effective" transport.cwd ${verify[@]+"${verify[@]}"})
     python3 - "$D/codex-args" "$loaded" "$reported" <<'PY'
 import sys
@@ -255,6 +258,10 @@ loaded, reported = sys.argv[2] == "yes", sys.argv[3]
 settings = [args[i + 1] for i, a in enumerate(args[:-1]) if a == "-c"]
 names = {s.split(".")[1] for s in settings if s.startswith("mcp_servers.") and ".command=" in s}
 off = "mcp_servers.cmux.enabled=false" in settings
+# The off switch carries the reported transport: cmux's command and args.
+if off:
+    assert {"mcp_servers.cmux.command", "mcp_servers.cmux.args"} <= {s.split("=")[0] for s in settings}, settings
+    names.discard("cmux")
 if reported == "":
     # Codex refused its config (no answer): nothing is turned off.
     want = ({"cmux_terminal"}, False)
@@ -263,8 +270,9 @@ else:
     want = ({"cmux_terminal"}, True)
 assert (names, off) == want, f"shim placed {names} off={off}, want {want}"
 PY
+    local rc=$?
     local said=${reported:-no answer: $(cd "$effective" && "$CODEX" ${verify[@]+"${verify[@]}"} mcp get cmux --json 2>&1 >/dev/null | grep -v '^$' | tail -1 | cut -c1-90)}
-    check "codex shim [$name]: Codex reports the layer ($said); the shim places its server by that answer" $?
+    check "codex shim [$name]: Codex reports the layer ($said); the shim turns cmux off by that answer" $rc
   }
   sub=$P/sub
   mkdir -p "$P/.codex"; printf '[mcp_servers.cmux]\ncwd = "/project-cwd"\n' > "$P/.codex/config.toml"
@@ -299,7 +307,7 @@ PY
   no_turn_off() { # NAME FOLDER SHIM_ARGS...: the shim adds cmux_terminal, turns nothing off
     local name=$1 at=$2; shift 2
     rm -f "$D/codex-args"
-    (cd "$at" && env "${shim_env[@]}" PATH="$D/bin:/usr/bin:/bin" "$CMUX" agent codex-wrapper "$@" >/dev/null 2>&1)
+    (cd "$at" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper "$@" >/dev/null 2>&1)
     grep -q '^mcp_servers.cmux_terminal.command=' "$D/codex-args" && ! grep -q '^mcp_servers.cmux.enabled=false$' "$D/codex-args"
     check "codex shim [$name]: cmux_terminal added, nothing turned off" $?
   }
@@ -321,7 +329,7 @@ PY
   # The switch the shim sends where Codex reports the entry carries its
   # transport: from a folder where that entry is not loaded it is still valid.
   rm -f "$D/codex-args"
-  (cd "$sub" && env "${shim_env[@]}" PATH="$D/bin:/usr/bin:/bin" "$CMUX" agent codex-wrapper >/dev/null 2>&1)
+  (cd "$sub" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper >/dev/null 2>&1)
   overrides=(); while IFS= read -r a; do [ "$a" = -c ] && { read -r v; overrides+=(-c "$v"); }; done < "$D/codex-args"
   grep -q '^mcp_servers.cmux.command=' "$D/codex-args" && grep -q '^mcp_servers.cmux.args=' "$D/codex-args" \
     && grep -q '^mcp_servers.cmux.enabled=false$' "$D/codex-args" \
@@ -339,7 +347,7 @@ assert servers["cmux"]["enabled"] is False and servers["cmux_terminal"]["enabled
   # The merged result: the agent's own server carries no layer's settings.
   printf '[projects."%s"]\ntrust_level = "trusted"\n' "$P" >> "$CODEX_HOME/config.toml"
   mkdir -p "$P/.codex"; printf '[mcp_servers.cmux]\ncwd = "/project-cwd"\n' > "$P/.codex/config.toml"
-  (cd "$sub" && env "${shim_env[@]}" PATH="$D/bin:/usr/bin:/bin" "$CMUX" agent codex-wrapper >/dev/null 2>&1)
+  (cd "$sub" && env "${shim_env[@]}" PATH="$shim_path" "$CMUX" agent codex-wrapper >/dev/null 2>&1)
   overrides=(); while IFS= read -r a; do [ "$a" = -c ] && { read -r v; overrides+=(-c "$v"); }; done < "$D/codex-args"
   (cd "$sub" && "$CODEX" "${overrides[@]}" mcp list --json 2>/dev/null) | python3 -c '
 import json, os, sys
