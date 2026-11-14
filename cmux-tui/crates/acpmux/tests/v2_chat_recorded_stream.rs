@@ -471,6 +471,7 @@ fn the_chat_stream_is_recorded() {
         has_before: true,
         has_after: true,
         refused: vec![19],
+        turns: false,
     };
     let step = rec.step("page", Frame::json(FrameKind::Page, &page).unwrap().encode());
     assert_eq!(kinds(step), ["chatPage"]);
