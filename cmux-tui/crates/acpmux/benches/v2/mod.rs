@@ -247,6 +247,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "4b",
+        name: "v2.pr04b.mirror_v1_rows",
+        done_when: "A live mirror with rows: v1 converts 20 live rows with 11,000 closed rows beside them within 1.2x of 20 alone for received bytes and client time.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
         pr: "5",
         name: "v2.pr05.first_list_window",
         done_when: "First list window from a running hub: best p95 within 1.2x at 11,000 sessions against 20, all-sample p95 within 2x.",
@@ -553,6 +562,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "5h",
+        name: "v2.pr05h.hub_row_submit",
+        done_when: "The tee's turn for one changed hub row (its mark drained to one submit) with 2,048 book rows and 11,000 closed rows against one book row and an empty index: p95 within 1.2x, the sides alternating rounds.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
         pr: "5g",
         name: "v2.pr05g.rebuild_cost",
         done_when: "A rebuild walk costs at most 1.2x a first start at 11,000 sessions against 20.",
@@ -664,6 +682,24 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "7",
         name: "v2.pr07.sidebar_list_stream",
         done_when: "No \"Waiting for the agent service\" frame while the socket is up. Sidebar scroll frame time 1.2x at 11k against 20.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "7b",
+        name: "v2.pr07b.info_rows_wall",
+        done_when: "100 rows by key (`_acpmux/info` with `sessionIds`): wall time within 1.2x with 11k closed beside them against the same 100 alone.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "7b",
+        name: "v2.pr07b.info_rows_bytes",
+        done_when: "100 rows by key (`_acpmux/info` with `sessionIds`): reply bytes within 1.2x with 11k closed beside them against the same 100 alone.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: None,
@@ -971,8 +1007,10 @@ pub fn print_report_with_mode(
 mod tests {
     use super::*;
 
-    /// A row of a PR whose other rows are written, held for a gate a later PR adds.
-    const WAITS_ON_ANOTHER_PR: &[&str] = &["v2.pr04.chat_stopped_reader"];
+    /// A row of a PR whose other rows are written, held for a gate a later PR adds. PR 4b's
+    /// two are held by plain tests of the client today and have no gate line yet.
+    const WAITS_ON_ANOTHER_PR: &[&str] =
+        &["v2.pr04.chat_stopped_reader", "v2.pr04b.bytes_held", "v2.pr04b.credit_slow_taker"];
 
     /// A gate name as a source spells it. A `{..}` hole is a name built by `format!`.
     const NAME_IN_SOURCE: &str = r"v2\.pr[0-9]+[a-z]?\.(?:[a-z0-9_]|\{[^{}]*\})+";

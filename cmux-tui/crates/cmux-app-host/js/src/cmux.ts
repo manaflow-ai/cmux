@@ -18,6 +18,8 @@ export interface Native {
   paletteBatch?(reqId: number, generation: number, itemsJSON: string, isFinal: boolean, replace: boolean): void
   /** The end of palette request `reqId`: ok `{count}` or the detail, error `{code, message, details?}`. */
   paletteDone?(reqId: number, ok: boolean, json: string): void
+  /** An IANA zone's offset at `atMs`: `{offsetMinutes, abbreviation}` or `{error}` (ABI.md). Hosts with Intl may omit it. */
+  zone?(name: string, atMs: number): string
 }
 
 export class CmuxError extends Error {
@@ -83,6 +85,44 @@ export const state = {
 const native = (): Native => {
   if (!state.native) throw new CmuxError("app.host", "the cmux host is not attached")
   return state.native
+}
+
+export interface ZoneTime {
+  zone: string
+  /** Minutes east of UTC at that instant (Tokyo 540, New York -240 in summer). */
+  offsetMinutes: number
+  /** The zone's short name at that instant (`JST`, `EDT`); a `GMT+9` style name on a host without the zone database's names. */
+  abbreviation: string
+}
+
+/**
+ * `cmux.time.zone(name, at?)`: QuickJS has no Intl and ignores `toLocaleString`'s
+ * `timeZone`, so the host answers from its IANA database (`__cmuxAppNative.zone`).
+ * Engines with Intl and no native function (JavaScriptCore, test hosts) use Intl.
+ */
+export function timeZone(name: string, at: number = Date.now()): ZoneTime {
+  const zone = String(name)
+  const atMs = Number(at)
+  const nativeZone = state.native?.zone
+  if (nativeZone) {
+    const r = JSON.parse(nativeZone.call(state.native, zone, atMs)) as { offsetMinutes?: number; abbreviation?: string; error?: string }
+    if (r.error !== undefined) throw new CmuxError("zone.unknown", r.error)
+    return { zone, offsetMinutes: r.offsetMinutes ?? 0, abbreviation: r.abbreviation ?? "" }
+  }
+  const intl = (globalThis as { Intl?: typeof Intl }).Intl
+  if (!intl?.DateTimeFormat) throw new CmuxError("operation.unsupported", "this cmux has no time zone database")
+  let parts: Intl.DateTimeFormatPart[]
+  try {
+    parts = new intl.DateTimeFormat("en-US", {
+      timeZone: zone, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric", timeZoneName: "short"
+    }).formatToParts(new Date(atMs))
+  } catch {
+    throw new CmuxError("zone.unknown", `${zone} is not an IANA time zone`)
+  }
+  const part = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0)
+  const wall = Date.UTC(part("year"), part("month") - 1, part("day"), part("hour"), part("minute"), part("second"))
+  const offsetMinutes = Math.round((wall - Math.floor(atMs / 1000) * 1000) / 60_000)
+  return { zone, offsetMinutes, abbreviation: parts.find((p) => p.type === "timeZoneName")?.value ?? "" }
 }
 
 export function log(level: "debug" | "info" | "warn" | "error", ...parts: unknown[]): void {
@@ -334,6 +374,7 @@ export function createCmux(gesture: () => string | undefined): Record<string, un
       get: (_t, provider) => (typeof provider === "string" ? { request: (params: Record<string, unknown>) => c("integration.request", { provider, ...params }) } : undefined)
     }),
     timer: { after: (ms: number, fn: () => void) => setTimer(ms, false, fn), every: (ms: number, fn: () => void) => setTimer(ms, true, fn), clear: clearTimer },
+    time: { zone: timeZone },
     app: {
       get id() {
         return state.app.id

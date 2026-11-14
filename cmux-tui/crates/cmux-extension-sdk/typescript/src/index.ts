@@ -86,6 +86,36 @@ export function pane(render: (context: MountContext) => View): (context: MountCo
   return render
 }
 
+/** The tool call a chat widget draws: its name, and its input and result as the agent sent them (each cut to 16 KiB). */
+export type ChatWidgetTool = { name: string; title?: string; status?: string; input?: unknown; output?: string }
+
+/**
+ * Context a chat widget render gets. `widget.key` is stable for the call or the part: keep state
+ * that must outlive the extension in `cmux.storage` under it. `tool` is set under a tool call,
+ * `props` for a widget part an agent sent.
+ */
+export type ChatWidgetContext = {
+  surface: "chatWidget"
+  widget: { key: string }
+  tool?: ChatWidgetTool
+  props?: Record<string, unknown>
+}
+
+/**
+ * A chat widget (`cmux.chat.widget/1`): a card in the agent chat, under every tool call whose name
+ * matches the manifest's `options.tools` (`*` matches any run of characters), and for widget parts
+ * an agent sends naming this extension. cmux ships no widgets of its own; when the extension is
+ * missing, hidden or its render fails, the chat shows the call as it always did. The same render
+ * can be exported again with `section(...)` to show in the sidebar.
+ *
+ *     // cmux-app.json: "implements": { "cmux.chat.widget/1": { "export": "renderCard", "title": "PR",
+ *     //   "options": { "tools": ["mcp__github__*pull_request*"] } } }
+ *     export const renderCard = chatWidget((ctx) => Text(ctx.tool?.name ?? "widget"))
+ */
+export function chatWidget(render: (context: ChatWidgetContext) => View): (context: ChatWidgetContext) => View {
+  return render
+}
+
 /** A command (a catalog op the extension declares in catalog.json): runs from the palette, the CLI or another extension. */
 export function command<A, R>(run: (args: A, ctx: { app: string; gesture?: string; cmux: CmuxGlobal }) => R | Promise<R>) {
   return run

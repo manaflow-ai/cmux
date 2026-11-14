@@ -20,9 +20,13 @@
 # The base's fresh export needs the base's generator inputs. When this event changed none of them
 # (GENERATOR_INPUTS), they are HEAD's, so HEAD's fresh export is the base's. Otherwise the changed
 # inputs are checked out from HEAD^1 in place, the package is rebuilt and exported, and then HEAD's
-# inputs are put back and rebuilt, so the suites that run with `--skip-build` after this step test
-# HEAD's products. If that rebuild fails, the built products are removed, so those suites fail
-# instead of testing the base's binaries. This mirrors check-settings-exports.sh.
+# inputs are put back, so the suites that run with `--skip-build` after this step test HEAD's
+# products. When the calling job built HEAD's package itself (CMUX_NEXT_JOB_BUILT=plain, the three
+# CI jobs that run this), a copy-on-write clone of HEAD's .build is kept before the base build and
+# put back after it, so nothing is rebuilt (one CmuxNext rebuild was 14.8 min of daemon-test job
+# 132397275531). Without it, or when the clone cannot be made or put back, HEAD's inputs are
+# rebuilt. If that rebuild fails, the built products are removed, so those suites fail instead of
+# testing the base's binaries. This mirrors check-settings-exports.sh.
 #
 # The commands are overridable for scripts/cmux-next/tests/judge-action-exports.test.sh:
 #   CMUX_ACTION_EXPORTS_CHECK   the checks (default: check-action-surfaces.sh PACKAGE)
@@ -92,6 +96,9 @@ while IFS= read -r path; do [[ -n "$path" ]] && changed+=("$path"); done < <(
 restore_absent() { rm -f "$1"; git reset -q HEAD -- "$1" 2>/dev/null || true; }
 
 if ((${#changed[@]})); then
+  pkg_build="$package/.build"
+  head_build="$package/.build-action-exports-head"
+  kept=0
   restored=0
   restore() {
     ((restored)) && return 0
@@ -100,6 +107,13 @@ if ((${#changed[@]})); then
       if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else restore_absent "$path"; fi
     done
     for file in ${present[@]+"${present[@]}"}; do cp "$temp/head/$file" "$file"; done
+    # HEAD's own build, kept before the base build: nothing to rebuild. The sources' new mtimes only
+    # make a later build recompile what they feed, which is correct.
+    if ((kept)); then
+      if rm -rf "$pkg_build" && mv "$head_build" "$pkg_build"; then return 0; fi
+      echo "::warning::HEAD's kept build could not be put back; rebuilding from HEAD's sources instead" >&2
+      rm -rf "$head_build"
+    fi
     if build > "$temp/head-build.log" 2>&1; then return 0; fi
     cat "$temp/head-build.log" >&2
     echo "::error::the package could not be rebuilt from HEAD's sources; removing its built products so that nothing runs against the base's binaries" >&2
@@ -107,6 +121,16 @@ if ((${#changed[@]})); then
     return 1
   }
   trap 'restore || true' EXIT
+  rm -rf "$head_build"
+  if [[ "${CMUX_NEXT_JOB_BUILT:-}" == plain && -d "$pkg_build" ]]; then
+    if [[ "$(uname -s)" == Darwin ]]; then clone=(cp -c -R -p); else clone=(cp -a --reflink=auto); fi
+    if "${clone[@]}" "$pkg_build" "$head_build" 2>"$temp/head-clone.txt"; then
+      kept=1
+    else
+      echo "::notice::HEAD's package build could not be cloned ($(head -c 300 "$temp/head-clone.txt" 2>/dev/null)); the restore rebuilds from HEAD's sources"
+      rm -rf "$head_build"
+    fi
+  fi
   # The stale files start from the base's committed bytes too, so a file the base's export does not
   # rewrite is never read back as HEAD's fresh one.
   for path in "${changed[@]}" "${stale[@]}"; do
