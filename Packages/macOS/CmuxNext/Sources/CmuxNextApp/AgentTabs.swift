@@ -681,6 +681,9 @@ final class AgentTabStore {
         model.machineLink = machineLink
         model.onRunAction = { [weak self] id, arguments in
             guard let self, let registry = actionRegistry else { return .notRun }
+            if id == "session.screenShare" {
+                return shareScreen(of: resolvedKey(scoped), session: arguments["session"])
+            }
             // On this tab's pane: the New Tab page opens beside the tab that asked. Reconnect runs
             // on the machine this tab's chat runs on, resolved here: the page never names a machine.
             let target: ActionTargetRef

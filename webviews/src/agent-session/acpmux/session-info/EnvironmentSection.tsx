@@ -26,6 +26,7 @@ import "../../../ui/controls.css";
 import { CloudRepositoryPicker } from "./CloudRepositoryPicker";
 import { loadAttachedCloudRepos, type AttachedCloudRepo, type PendingCloudRepo } from "./cloudRepositoryPickerModel";
 import { type Summary, REMOTE_CONTROL_ICON, MACHINE_KIND_LABELS } from "./environmentSectionModel";
+import { useScreenSharing } from "./screenSharing";
 /// Something the chat was granted (App.tsx `accessGrants`): its label, and how Revoke takes it back.
 export type AccessGrant = {
   id: string;
@@ -106,6 +107,7 @@ export function EnvironmentSection({
   onOpenChanges,
   projectLook = "name",
   remoteControlIcon = REMOTE_CONTROL_ICON,
+  screenSharingLook = "row",
 }: {
   summary?: Summary;
   machineName?: string;
@@ -128,8 +130,11 @@ export function EnvironmentSection({
   onOpenChanges?: () => void;
   projectLook?: ProjectRowLook;
   remoteControlIcon?: string;
+  /** Gallery alternatives; the shipped action is a full text row below the machine. */
+  screenSharingLook?: "row" | "inline" | "icon";
 }) {
   const t = useT();
+  const screenSharing = useScreenSharing(summary?.sessionId);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -216,7 +221,31 @@ export function EnvironmentSection({
             {t(saved ? "artifact.saved" : "sessionInfo.environment.save")}
           </button>
         )}
+        {screenSharing.run && screenSharingLook !== "row" && (
+          <button
+            type="button"
+            className="acpmux-session-info-link acpmux-session-info-row__end"
+            aria-label={t("sessionInfo.environment.screenSharing")}
+            onClick={screenSharing.run}
+          >
+            {screenSharingLook === "icon" ? (
+              <Icon name="remote.display" size={ROW_ICON} />
+            ) : (
+              t("sessionInfo.environment.screenSharing")
+            )}
+          </button>
+        )}
       </li>
+      {screenSharing.run && screenSharingLook === "row" && (
+        <Row icon="remote.display" onClick={screenSharing.run}>
+          <span className="acpmux-session-info-row__name">{t("sessionInfo.environment.screenSharing")}</span>
+        </Row>
+      )}
+      {screenSharing.note && (
+        <li className="acpmux-session-info-row">
+          <output>{screenSharing.note}</output>
+        </li>
+      )}
       {canUseCloudRepositories && cloudSession && (
         <>
           <li className="acpmux-session-info-row acpmux-cloud-environment-row">

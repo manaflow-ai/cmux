@@ -14,6 +14,29 @@ import { until } from "./support/until";
 
 const t: Translate = (key, values) => translate(key, values, "en");
 
+test("screen sharing is one action below the named machine and preserves Cloud lifetime", () => {
+  const actions = new NativeInfoActions();
+  let requests = 0;
+  const section = environmentSection(
+    {
+      summary: { sessionId: "cloud-chat", hostKind: "cloud", host: "Maple" },
+      onShareScreen: () => {
+        requests += 1;
+      },
+      screenShareNote: "Host approval is required.",
+    },
+    actions,
+    t,
+  )!;
+  expect(section.rows[0]!.id).toBe("machine");
+  expect(section.rows[0]!.subtitle).toBe(t("cloudRepository.lifetime"));
+  const share = section.rows[1]!;
+  expect(share.id).toBe("screen-sharing");
+  expect(share.subtitle).toBe("Host approval is required.");
+  actions.run(share.action!);
+  expect(requests).toBe(1);
+});
+
 test("Cloud environment actions retain anchors, grants and one Remote Control switch", async () => {
   const actions = new NativeInfoActions();
   let anchored: unknown;
