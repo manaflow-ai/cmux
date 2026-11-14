@@ -1,0 +1,66 @@
+name: iOS owner Full access proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Full commit SHA to build and exercise
+        required: true
+        type: string
+      request_id:
+        description: Optional capture correlation id
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-owner-access-proof-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  proof:
+    # The environment owns the sealed team test account.  No personal account
+    # is accepted and no credential is written into an artifact.
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 150
+    env:
+      CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+      CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+      CMUX_IOS_OWNER_ACCESS_PROOF: "1"
+      CMUX_PAIR_E2E_DISCOVERY: "1"
+      CMUX_OWNER_ACCESS_PROOF_REQUEST_ID: ${{ inputs.request_id }}
+    steps:
+      - name: Checkout the requested exact head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Verify the checkout is the requested head
+        env:
+          EXPECTED: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED"
+          echo "owner-access proof head: $actual" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run the paired simulator proof
+        run: |
+          set -euo pipefail
+          bash scripts/ci/cmux-next-ios-sim.sh pair-e2e
+
+      - name: Upload sanitized pairing and owner proof
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-owner-access-proof-${{ github.run_id }}
+          path: artifacts/ios-sim/evidence.zip
+          if-no-files-found: error
+          retention-days: 7

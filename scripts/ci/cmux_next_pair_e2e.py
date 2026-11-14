@@ -46,12 +46,14 @@ in-source DEBUG dev credential of the dev Stack project (the one verify/e2e/mac.
 production or personal account and not a secret.
 """
 import argparse, glob, hashlib, json, os, plistlib, pwd, re, secrets, shutil, socket, subprocess, sys, threading, time
+from pathlib import Path
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
 from tag_teardown import TagTeardown  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cmux_next_cloud_pair_proof import allowlist_public_cloud_artifact, read_proof, run_cloud_leg  # noqa: E402
+from cmux_next_owner_access_proof import run_owner_access_proof  # noqa: E402
 
 PAGE = "cmux.mobile-pairing"
 RIG_MAC_NAME = "0 e2e rig Mac"
@@ -198,7 +200,9 @@ def main():
     a.theme = THEME_CONFIG if os.path.isfile(THEME_CONFIG) else None
     proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
     proof = read_proof(proof_path, artifact_root=a.out) if proof_path else None
+    owner_proof = os.environ.get("CMUX_IOS_OWNER_ACCESS_PROOF") == "1"
     cloud_ok = proof is None
+    owner_ok = not owner_proof
     screens = os.path.join(a.out, "screens")
     os.makedirs(screens, exist_ok=True)
 
@@ -384,7 +388,7 @@ def main():
         phone_launch()
         live = phone_log.wait(re.compile(r"live data on"), 90)
         if discovery:
-            ask_ok = discovery_ask(mac_log, phone_log, asked_from, status, rpc, note)
+            ask_ok = discovery_ask(mac_log, phone_log, asked_from, status, rpc, note, screens)
         time.sleep(5)  # bounded: the Devices list loads from the service after live data starts
         note(f"- phone: {'signed in, live data' if live else 'NO live data in 90 s'}; Settings > Devices "
              f"{phone_shot('phone-devices')}")
@@ -441,6 +445,11 @@ def main():
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
                 uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME)
                 note(f"- upload: {line}")
+            if paired and os.environ.get("CMUX_IOS_OWNER_ACCESS_PROOF") == "1":
+                run_owner_access_proof(mac_app=a.mac_app, sock=sock, env=env, simctl=simctl,
+                                       udid=a.udid, bundle=a.bundle_id, phone_env=phone_env,
+                                       work=a.work, out=a.out, shot=phone_shot, note=note)
+                owner_ok = True
             if discovery and paired:  # last: it quits and restarts the Mac
                 app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
                                                     phone_shot, note)
@@ -475,16 +484,16 @@ def main():
             shutil.rmtree(rig, ignore_errors=True)  # the settings and credential files
         finally:  # the account's keychains are put back even when a step above fails
             forget_tag(a.mac_app)  # cmux-next-ios-sim.sh's EXIT runs it again for a rig cut short
-        if proof is not None:
+        if proof is not None or os.environ.get("CMUX_IOS_OWNER_ACCESS_PROOF") == "1":
             # The public archive is an allowlist in Cloud mode. Raw screenshots,
             # pairing/app logs and failure captures remain unavailable to upload.
             allowlist_public_cloud_artifact(a.out)
-    if not url and not expects_code and proof is None:
+    if not url and not expects_code and proof is None and not owner_proof:
         return 0  # the "before": this ref shows no code, and the Devices screen is its evidence
     if discovery:
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
-    return 0 if paired and uploaded and cloud_ok and ask_ok and restart_ok else 1
+    return 0 if paired and uploaded and cloud_ok and owner_ok and ask_ok and restart_ok else 1
 
 
 ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
@@ -515,7 +524,7 @@ def log_time(line):
     return time.mktime(time.strptime(m.group(1).split(".")[0], "%Y-%m-%d %H:%M:%S")) + float("0." + m.group(1).split(".")[1]) if m else None
 
 
-def discovery_ask(mac_log, phone_log, since, status, rpc, note):
+def discovery_ask(mac_log, phone_log, since, status, rpc, note, screens):
     """The phone, signed in and never paired, opened while the Mac runs: hostd sends its pair request
     and the Mac shows it (the Allow prompt, the page's waiting row) within seconds. Only the person
     answers it (debug.dialog refuses a press on it); the run pairs with the code after."""
@@ -528,13 +537,27 @@ def discovery_ask(mac_log, phone_log, since, status, rpc, note):
     took = asked_at - live_at if asked_at is not None and live_at is not None else None
     pending = (status().get("host") or {}).get("pending") or []
     dialogs = [d for d in (rpc("debug.dialog").get("dialogs") or []) if d.get("identifier") == "cmux.dialog.iphonePair"]
+    full_access_prompt = False
+    if dialogs:
+        dialog = dialogs[0]
+        safe = {"title": dialog.get("title"), "lines": dialog.get("lines") or [],
+                "buttons": [{"id": b.get("id"), "title": b.get("title")} for b in dialog.get("buttons", [])]}
+        full_access_prompt = any("Full access" in str(line) for line in safe["lines"]) or any(
+            "Full access" in str(button["title"]) for button in safe["buttons"])
+        Path(screens, "pairing-dialog.json").write_text(json.dumps(safe, indent=2) + "\n")
+        window = dialog.get("window")
+        if isinstance(window, int) and window > 0:
+            subprocess.run(["/usr/sbin/screencapture", "-l", str(window), "-x",
+                            os.path.join(screens, "pairing-dialog.png")],
+                           capture_output=True, timeout=30)
     press = rpc("debug.dialog", {"id": dialogs[0]["id"], "press": "allow"}) if dialogs else {}
     # The prompt answers only to the person: a scripted press that is not refused is a failure.
     refused = not dialogs or bool(press.get("error"))
-    ok = took is not None and took <= 15 and bool(pending) and refused
+    ok = took is not None and took <= 15 and bool(pending) and refused and full_access_prompt
     note(f"- discovery, Allow request: {'phone ' + m.group(1) + ' asked (' + m.group(2) + ')' if m else 'NO request'}"
          f"{f' {took:.1f} s after the phone went live (logged times)' if took is not None else ' (no logged time)' if m else ' in 60 s'}; the page lists "
          f"{len(pending)} waiting phone(s); {len(dialogs)} pairing prompt(s) open"
+         f"; Full access choice {'present' if full_access_prompt else 'MISSING'}"
          f"{(': ' + repr(dialogs[0].get('title'))) if dialogs else ' (none on screen: no frontmost window in a step)'}; "
          f"a scripted Allow is refused: {press.get('error') or press or 'no prompt to press'}"
          f" -> {'PASS' if ok else 'FAIL (needs a request within 15 s of the phone going live, a waiting row and a refused scripted Allow)'}")

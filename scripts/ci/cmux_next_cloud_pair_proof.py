@@ -58,31 +58,40 @@ def remove_private_cloud_captures(out):
 
 
 def allowlist_public_cloud_artifact(out):
-    """On every exit path, leave only the sanitized receipt in Cloud proof output."""
+    """On every exit path, leave only sanitized proof receipts and approved captures."""
     root = Path(out)
-    receipt = root / "cloud-ui-proof.json"
+    receipts = [root / "cloud-ui-proof.json", root / "owner-access-proof.json"]
+    receipt = next((path for path in receipts if path.is_file()), None)
+    keep = {path.resolve() for path in receipts if path.is_file()}
+    keep.update((root / "screens" / name).resolve() for name in (
+        "pairing-dialog.png", "pairing-dialog.json", "owner-refusal.png",
+        "owner-approval.png", "owner-transcript.png"))
     for path in sorted(root.rglob("*"), reverse=True):
-        if path == receipt:
+        if path.resolve() in keep:
             continue
         if path.is_dir():
-            path.rmdir()
+            try:
+                path.rmdir()
+            except OSError:
+                pass
         else:
             path.unlink(missing_ok=True)
-    if not receipt.is_file():
-        raise ProofFailure("Cloud proof ended without a sanitized receipt")
+    if receipt is None or not receipt.is_file():
+        raise ProofFailure("UI proof ended without a sanitized receipt")
 
 
 def export_cloud_artifact(out, status):
     """Sanitize and create the receipt-only archive on success, failure, or signal cleanup."""
     root = Path(out)
-    receipt = root / "cloud-ui-proof.json"
+    receipt = next((path for path in (root / "cloud-ui-proof.json", root / "owner-access-proof.json")
+                    if path.is_file()), root / "cloud-ui-proof.json")
     try:
         allowlist_public_cloud_artifact(out)
     except ProofFailure:
         receipt = root / "cloud-ui-proof.json"
     summary = root / "SUMMARY.md"
     if receipt.is_file():
-        line = "- Cloud proof: sanitized receipt exported; raw captures and logs omitted"
+        line = "- UI proof: sanitized receipt and approved state captures exported; raw captures and logs omitted"
     else:
         line = f"- Cloud proof: no sanitized receipt (step status {int(status)})"
     summary.write_text(line + "\n")
@@ -91,6 +100,9 @@ def export_cloud_artifact(out, status):
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
         if receipt.is_file():
             bundle.write(receipt, receipt.name)
+        for path in sorted(root.glob("screens/*")):
+            if path.is_file():
+                bundle.write(path, str(path.relative_to(root)))
         bundle.write(summary, summary.name)
     return receipt.is_file()
 
