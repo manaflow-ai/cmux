@@ -10,6 +10,9 @@ dispatch-published-in), 5-10 min after the feed write, and the next landing wait
 
 - With the one job on, a push run and the loop's retry are run-scoped at the workflow level, and nightly-next-one
   takes nightly-next-one-push (never cancel-in-progress). With it off, the workflow-level push group is as before.
+  The group reads every repository variable decide's one_job reads: with NIGHTLY_NEXT_SUBMISSIONS_PAUSED=1 or
+  NIGHTLY_NEXT_NOTARY_PAUSED=1 decide builds the split jobs, which the workflow-level push group alone serializes.
+  The test reads decide's oneJob from its script, so a new input there fails it until the group reads it too.
 - The next run's notes and PR-comment span come from the live feed's newest cmux:sourceCommit (written inside
   nightly-next-one), not only from the release body and tag the previous run's tail writes after it: the next
   run's decide can now run before that tail is done.
@@ -21,7 +24,9 @@ Manual lane (Lawrence 2026-10-23: no new CI tests): python3 tests/test_nightly_n
 from __future__ import annotations
 
 import importlib.util
+import itertools
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -71,6 +76,82 @@ if substitute(top, context("workflow_dispatch", inputs__x="") | {"inputs.nightly
     failures.append("a sign stage keeps the sign group")
 if DOC.get("concurrency", {}).get("cancel-in-progress") is not False:
     failures.append("the workflow-level group never cancels in progress")
+
+# The workflow-level group and decide's one_job read the same repository variables: a push run is run-scoped only
+# when its nightly-next-one runs and serializes it. With NIGHTLY_NEXT_ONE_JOB=on and either pause variable set,
+# decide builds the split jobs, which only the workflow-level push group serializes (two builds at once otherwise).
+DECIDE_STEP = next(s for s in JOBS["decide"]["steps"] if s.get("id") == "decide")
+DECIDE_JS = str(DECIDE_STEP["with"]["script"])
+DECIDE_VARS = {name: var for name, var in
+               ((n, re.search(r"vars\.(\w+)", str(v))) for n, v in (DECIDE_STEP.get("env") or {}).items()) if var}
+# A push run's and the loop retry's facts that decide's one_job reads (none of them a repository variable).
+PUSH_FACTS = {"isNextRef": True, "track": "nightly-next", "shouldPublish": True, "notaryTest": False,
+              "continueOnly": False, "unsignedResume": False, "republish": False, "fastBuild": False,
+              "browserDataOut": False}
+if str((DOC.get("env") or {}).get("NIGHTLY_NEXT_BROWSER_DATA_IMPORT", "")) != "full":
+    failures.append("NIGHTLY_NEXT_BROWSER_DATA_IMPORT is no longer the literal 'full': decide's importPaused then "
+                    "depends on it, so the workflow-level group must too (update this test with it)")
+
+
+def decide_definition(name: str) -> str:
+    match = re.search(rf"const {name} = (.+?);\n", DECIDE_JS)
+    return match[1] if match else ""
+
+
+def decide_eval(name: str, env: dict, event: str, seen: tuple = ()) -> object:
+    """decide's `const NAME = ...` for a push run, read from the script: a term it does not model fails the test."""
+    if name in PUSH_FACTS:
+        return PUSH_FACTS[name]
+    text = decide_definition(name)
+    if not text or name in seen:
+        raise LookupError(name)
+    expr = re.sub(r"process\.env\.(\w+)", lambda m: f"env.get({m[1]!r}, '')", text)
+    expr = expr.replace("context.eventName", repr(event)).replace("===", "==").replace("!==", "!=")
+    expr = re.sub(r"Boolean\(", "bool(", expr).replace("&&", " and ").replace("||", " or ")
+    expr = re.sub(r"!(?!=)", " not ", expr)
+    names = {}
+    for ident in set(re.findall(r"\b([A-Za-z_]\w*)\b", re.sub(r"'[^']*'", "", expr))) - {
+            "env", "get", "bool", "and", "or", "not"}:
+        names[ident] = decide_eval(ident, env, event, seen + (name,))
+    return eval(expr, {"__builtins__": {}}, {"env": env, "bool": bool, **names})  # noqa: S307
+
+
+def one_job_env_inputs(name: str = "oneJob", seen: set | None = None) -> set[str]:
+    seen = set() if seen is None else seen
+    text = decide_definition(name)
+    out = set(re.findall(r"process\.env\.(\w+)", text))
+    for ident in set(re.findall(r"\b([A-Za-z_]\w*)\b", re.sub(r"process\.env\.\w+|'[^']*'", "", text))):
+        if ident not in seen and ident not in PUSH_FACTS and decide_definition(ident):
+            seen.add(ident)
+            out |= one_job_env_inputs(ident, seen)
+    return out
+
+
+one_job_vars = {DECIDE_VARS[n][1]: n for n in one_job_env_inputs() if n in DECIDE_VARS}
+if "NIGHTLY_NEXT_ONE_JOB" not in one_job_vars:
+    failures.append(f"decide's oneJob no longer reads vars.NIGHTLY_NEXT_ONE_JOB (it reads {sorted(one_job_vars)})")
+for var in sorted(one_job_vars):
+    if f"vars.{var}" not in top:
+        failures.append(f"decide's one_job reads vars.{var}, the workflow-level concurrency group does not")
+# Every combination of those variables (unset, or each value decide compares), for a push run and the loop's retry.
+choices = {var: sorted({""} | set(re.findall(rf"process\.env\.{env_name} === '([^']*)'", DECIDE_JS)))
+           for var, env_name in one_job_vars.items()}
+for values in itertools.product(*choices.values()):
+    vars_ctx = {f"vars.{var}": value for var, value in zip(choices, values)}
+    decide_env = {one_job_vars[var]: value for var, value in zip(choices, values)}
+    for name, event, extra in (("a push run", "push", {}), ("the loop's retry", "workflow_dispatch", RETRY)):
+        env = {**decide_env, "LOOP_RETRY": extra.get("inputs.nightly_next_loop_retry", ""), "SIGN_STAGE": ""}
+        try:
+            one_job = bool(decide_eval("oneJob", env, event))
+        except LookupError as missing:
+            failures.append(f"decide's oneJob reads {missing}, which this test does not model: model it, and make "
+                            "the workflow-level group read the same input if it is a repository variable")
+            break
+        group = substitute(top, {**context(event, one_job=""), **extra, **vars_ctx})
+        want = "nightly-build-nightly-next-run-43608103300" if one_job else "nightly-build-nightly-next-push"
+        if group != want:
+            failures.append(f"{name} with {vars_ctx}: decide's one_job is {str(one_job).lower()}, so the workflow-level "
+                            f"group must be {want!r}, got {group!r}")
 
 one_concurrency = ONE.get("concurrency") or {}
 one_group = str(one_concurrency.get("group", ""))
