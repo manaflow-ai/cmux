@@ -59,7 +59,7 @@ async fn streamed_text_with_zero_turn_metadata_ends_the_prompt() {
         msgs.iter().any(|m| matches!(
             m,
             Message::Response { id, result: Some(r), .. }
-                if *id == Value::from(9) && r["stopReason"] == "end_turn"
+                if id.as_u64() == Some(9) && r["stopReason"] == "end_turn"
         )),
         "streamed text left its prompt open: {msgs:?}"
     );
