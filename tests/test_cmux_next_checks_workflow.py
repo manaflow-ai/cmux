@@ -3975,8 +3975,12 @@ esac
 
     def test_the_mac_runner_selects_only_handler_coverage_for_a_repin(self):
         step = next(s for s in self.jobs()["fast-tier"]["steps"] if s.get("id") == "fast-tier-run")
+        fingerprint = next(s for s in self.jobs()["fast-tier"]["steps"] if s.get("id") == "reuse-key")
+        scope = re.search(r'--extra "suite_scope=(.*?)"', fingerprint["run"]).group(1)
         for repin in ("true", "false", ""):
             with self.subTest(repin=repin), tempfile.TemporaryDirectory() as tmp:
+                self.assertEqual(evaluate(scope, {"needs.path_route.outputs.ffi_repin": repin}),
+                                 "handlers" if repin == "true" else "all")
                 root = Path(tmp)
                 fake = root / "python3"
                 fake.write_text('#!/bin/bash\nprintf "%s\\n" "$@" > "$ARGS_FILE"\n')

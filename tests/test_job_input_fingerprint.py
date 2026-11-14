@@ -208,6 +208,10 @@ class JobInputFingerprint(unittest.TestCase):
         self.assertNotEqual(base, self.key("fast-tier", macos_build="25A363"))
         self.assertNotEqual(base, self.key("fast-tier", arch="x86_64"))
 
+    def test_a_handler_only_pass_cannot_stand_in_for_every_swift_suite(self):
+        self.assertNotEqual(self.key("fast-tier", suite_scope="handlers"),
+                            self.key("fast-tier", suite_scope="all"))
+
     def test_the_runner_pool_counts(self):
         # Owned minis, Blacksmith and hosted Macs differ in settings such as Reduce Motion/Transparency.
         base = self.key("fast-tier")
