@@ -144,7 +144,7 @@ extension CMUXCLI {
         let workingDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-autoname-cwd-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
-        let configToml = codexConfigToml(from: summarizerEnv)
+        let configToml = Self.codexConfigToml(from: summarizerEnv)
         let temporaryConfigHome: URL? = {
             guard let configToml else { return nil }
             let home = FileManager.default.temporaryDirectory
@@ -199,10 +199,8 @@ extension CMUXCLI {
         return (try? String(contentsOf: outputFile, encoding: .utf8)) ?? ""
     }
 
-    private func codexConfigToml(from env: [String: String]) -> String? {
-        let home = env["CODEX_HOME"] ??
-            ((env["HOME"].map { $0 + "/.codex" }) ?? "")
-        guard !home.isEmpty else { return nil }
+    private static func codexConfigToml(from env: [String: String]) -> String? {
+        guard let home = CodexAutoNamingArguments.configHome(from: env) else { return nil }
         return try? String(contentsOfFile: home + "/config.toml", encoding: .utf8)
     }
 }
