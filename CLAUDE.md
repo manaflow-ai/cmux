@@ -66,7 +66,9 @@ A documentation-only change needs no build; give the file path instead.
 
   Report the Tag Opener link `http://127.0.0.1:17320/<task-slug>`. Never `open` it (macOS sends it
   to the default browser); team members add it to their workspace with hq's `scripts/open-dev-build.sh <task-slug>`.
-- **iOS:** run `ios/scripts/reload.sh --review --tag <task-slug>`. In one command it builds on the
+- **iOS:** first check which app you changed. `ios/` is the classic iPhone app; `cmux-next-ios/` is
+  the cmux-next iPhone app, and `ios/scripts/reload.sh` does not build it. For the classic app, run
+  `ios/scripts/reload.sh --review --tag <task-slug>`. In one command it builds on the
   fleet (the Mac build above included, same tag, published to HQ), installs on every connected
   iPhone, not only the configured one, through the authenticated install
   (`scripts/verify-iphone-auth.sh` must pass; never raw `devicectl`), then checks the build in a

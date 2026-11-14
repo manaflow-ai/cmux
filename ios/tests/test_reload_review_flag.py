@@ -1,7 +1,7 @@
 """ios/scripts/reload.sh --review argument contract; never invokes Apple tools.
 
---review is the end-of-task hand-off (AGENTS.md "Finishing a task"): always the
-tag's isolated simulator plus the authenticated iPhone install. Flags that would
+--review is the end-of-task hand-off (AGENTS.md "Finishing a task"): the
+authenticated install on every connected iPhone plus the fleet simulator check. Flags that would
 drop a leg or skip the auth gate must be refused before anything is built.
 Run: python3 ios/tests/test_reload_review_flag.py
 """
@@ -68,7 +68,7 @@ class ConnectedPhonesTests(unittest.TestCase):
             config.mkdir()
             if known:
                 (config / 'iphone-device-ids').write_text(known)
-            script = ('set -u\nREVIEW_PHONES_FILE="$CMUX_CONFIG_DIR/iphone-device-ids"\nREVIEW_TARGETS=()\n'
+            script = ('set -u\nREVIEW_PHONES_FILE="$CMUX_CONFIG_DIR/iphone-device-ids"\nREVIEW_TARGETS=()\nREQUESTED_DEVICE_ID="${REQUESTED_DEVICE_ID:-}"\n'
                       'REVIEW_FAILED=0\nREVIEW_PHONE_STATUS=""\n' + funcs + body)
             env = dict(os.environ, PATH=f"{root / 'bin'}:{os.environ['PATH']}", CMUX_CONFIG_DIR=str(config))
             result = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True, timeout=30)
@@ -80,7 +80,7 @@ class ConnectedPhonesTests(unittest.TestCase):
                    device('00008150-0005154E0E84401C', 'Aziz', 'iPhone18,2', boot='unavailable'),
                    device('AAAA', 'Sim', 'iPhone18,3', reality='simulated'),
                    device('00008110-000000000000001E', 'Spare', 'iPhone14,2')]
-        result, files = self.run_helpers(devices, 'DEVICE_ID=""; DEFAULT_DEVICE_ID=00008150-0005154E0E84401C\n'
+        result, files = self.run_helpers(devices, 'DEFAULT_DEVICE_ID=00008150-0005154E0E84401C; DEVICE_ID=$DEFAULT_DEVICE_ID; REQUESTED_DEVICE_ID=""\n'
                                          'review_resolve_phones; printf "%s\\n" "${REVIEW_TARGETS[@]}"; '
                                          'echo "FAILED=$REVIEW_FAILED"; echo "$REVIEW_PHONE_STATUS"',
                                          known='00008140-001E3C840E8B001C\tiPhone\tiPhone17,4\n')
@@ -102,7 +102,7 @@ class ConnectedPhonesTests(unittest.TestCase):
 
     def test_requested_phone_not_connected_fails(self):
         devices = [device('00008140-001E3C840E8B001C', 'iPhone', 'iPhone17,4')]
-        result, _ = self.run_helpers(devices, 'DEVICE_ID=00008150-0005154E0E84401C; DEFAULT_DEVICE_ID=""\n'
+        result, _ = self.run_helpers(devices, 'DEVICE_ID=00008150-0005154E0E84401C; REQUESTED_DEVICE_ID=$DEVICE_ID; DEFAULT_DEVICE_ID=""\n'
                                      'review_resolve_phones; echo "FAILED=$REVIEW_FAILED"')
         self.assertIn('FAILED=1', result.stdout)
 
@@ -215,6 +215,32 @@ class FleetToolDiscoveryTests(unittest.TestCase):
         self.assertIn('install-ios-workflow.py', block)
         refuse = block.index('if [[ -n "$(review_cmux_ci)" ]]')
         self.assertLess(refuse, block.index('building locally'))
+
+
+class LocalInstallLoopTests(unittest.TestCase):
+    """The local --review loop must see a failed install as a failure (set -e inside the subshell)."""
+
+    def run_loop(self, reload_device_body):
+        text = RELOAD.read_text()
+        start = text.index('  for target in "${REVIEW_TARGETS[@]}"; do\n    DEVICE_ID=')
+        loop = text[start:text.index('  done\n', start) + len('  done\n')]
+        script = ('set -euo pipefail\nREVIEW_TARGETS=("UDID1\tPhone (Model, UDID1)")\nREVIEW_INSTALLED=()\nREVIEW_FAILED=0\n'
+                  'REVIEW_PHONE_STATUS=""\nreview_phone_result() { REVIEW_PHONE_STATUS+="$1;"; }\n'
+                  'reload_device() {\n' + reload_device_body + '\n}\n' + loop +
+                  'echo "FAILED=$REVIEW_FAILED STATUS=$REVIEW_PHONE_STATUS"\n')
+        return subprocess.run(['bash', '-c', script], capture_output=True, text=True, timeout=30)
+
+    def test_a_failed_install_is_blocked_not_passed(self):
+        result = self.run_loop('  false  # the install fails\n  echo "launched an older build"')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('FAILED=1', result.stdout)
+        self.assertIn('BLOCKED, install or auth gate failed', result.stdout)
+        self.assertNotIn('launched an older build', result.stdout)
+
+    def test_a_good_install_passes(self):
+        result = self.run_loop('  true')
+        self.assertIn('FAILED=0', result.stdout)
+        self.assertIn('installed, signed in', result.stdout)
 
 
 if __name__ == '__main__':
