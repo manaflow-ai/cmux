@@ -39,9 +39,25 @@
 //!   launch (`enabled=false`) when it is another cmux's server and on, so the
 //!   agent never gets two cmux servers. A server of the person's own that is
 //!   only named `cmux` stays on, and so does an entry Codex could not report.
-//!   An untrusted project's `cmux` entry that Codex loads only after its
-//!   trust prompt is not reported before the launch: it can start beside this
-//!   build's server, as a second cmux server for that session.
+//!   Nothing is turned off when Codex has no answer, or when its answer does
+//!   not describe the launch (a new `--worktree`, a resumed or forked
+//!   session, a remote app server, no user config: codex_mcp_entry.rs
+//!   `probe_matches_launch`): there `enabled=false` could name an entry the
+//!   session never loads, which fails Codex with "invalid transport".
+//!   In those cases, and when Codex loads an untrusted project's `cmux` entry
+//!   only after its trust prompt, the person's cmux entry can start beside
+//!   this build's server: a second cmux server for that session. Both are
+//!   cmux's own, and each reaches the app its own CLI and environment name
+//!   (the person's entry has no terminal socket, so its tools act for the
+//!   app that entry's CLI belongs to). Nothing here arbitrates Computer Use
+//!   between the two.
+//!   "Always allow" on a tool of `cmux_terminal` is not written to any
+//!   config: Codex 0.160.1 persists an MCP tool approval only for a server a
+//!   user (`config.toml`, profile) or project layer configures
+//!   (core/src/mcp_tool_call.rs `persist_non_app_mcp_tool_approval`,
+//!   `user_mcp_server_is_configured` over `effective_user_config`, which
+//!   holds no `-c` flags); for a `-c` server it logs "failed to persist MCP
+//!   tool approval" and keeps the approval for the session only.
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -229,25 +245,47 @@ fn after_options<'a>(
     takes_value: &[&str],
     refuses: &[&str],
 ) -> Option<&'a [String]> {
+    after_options_with(args, takes_value, refuses, &[]).map(|(rest, _)| rest)
+}
+
+/// [`after_options`], also answering the values of the options in `package`
+/// (`npx -p PKG`, `uvx --from PKG`, `pipx run --spec PKG`): the package the
+/// runner installs, whose command the next argument names.
+fn after_options_with<'a>(
+    args: &'a [String],
+    takes_value: &[&str],
+    refuses: &[&str],
+    package: &[&str],
+) -> Option<(&'a [String], Vec<&'a str>)> {
     let mut rest = args;
+    let mut packages = Vec::new();
     while let Some((first, tail)) = rest.split_first() {
         if first == "--" {
-            return Some(tail);
+            return Some((tail, packages));
         }
         if !first.starts_with('-') || first == "-" {
-            return Some(rest);
+            return Some((rest, packages));
         }
-        let flag = first.split('=').next().unwrap_or_default();
+        let (flag, attached) = match first.split_once('=') {
+            Some((flag, value)) => (flag, Some(value)),
+            None => (first.as_str(), None),
+        };
         if refuses.contains(&flag) {
             return None;
         }
-        rest = if takes_value.contains(&flag) && !first.contains('=') {
-            tail.get(1..).unwrap_or_default()
+        let value = if takes_value.contains(&flag) && attached.is_none() {
+            let value = tail.first().map(String::as_str);
+            rest = tail.get(1..).unwrap_or_default();
+            value
         } else {
-            tail
+            rest = tail;
+            attached
         };
+        if package.contains(&flag) {
+            packages.push(value.unwrap_or_default());
+        }
     }
-    Some(rest)
+    Some((rest, packages))
 }
 
 /// [`CmuxServe`] of an entry that runs `command args`, or `None` when it runs
@@ -293,7 +331,8 @@ pub(crate) fn cmux_serve<'a>(command: &'a str, args: &'a [String]) -> Option<Cmu
         return (base(script).as_deref() == Some(LAUNCHER_SCRIPT) && serves(rest))
             .then_some(CmuxServe::Path(script.as_str()));
     }
-    // A package runner: its own options, then the package, then its args.
+    // A package runner: its own options, then the package (or the command of
+    // a package an option names), then its args.
     let (args, takes_value, refuses): (&[String], &[&str], &[&str]) = match program.as_str() {
         "npx" | "pnpx" => {
             (args, &["-p", "--package", "--registry", "--cache", "--userconfig"], &["-c", "--call"])
@@ -343,9 +382,23 @@ pub(crate) fn cmux_serve<'a>(command: &'a str, args: &'a [String]) -> Option<Cmu
         ),
         _ => return None,
     };
-    let rest = after_options(args, takes_value, refuses)?;
-    let (package, rest) = rest.split_first()?;
-    (names_cmux_package(package) && serves(rest)).then_some(CmuxServe::Published)
+    // `-p PKG`/`--package PKG` (npx, bunx, pnpm dlx), `--from PKG` (uvx) or
+    // `--spec PKG` (pipx run) name the package; the command after is one of
+    // its binaries. (uvx's `-p` is its Python.)
+    let package_options: &[&str] = match program.as_str() {
+        "uvx" => &["--from"],
+        "pipx" => &["--spec"],
+        _ => &["-p", "--package"],
+    };
+    let (rest, packages) = after_options_with(args, takes_value, refuses, package_options)?;
+    let (command, rest) = rest.split_first()?;
+    let package_is_cmux = if packages.is_empty() {
+        names_cmux_package(command)
+    } else {
+        packages.iter().all(|package| names_cmux_package(package))
+            && CLI_NAMES.contains(&command.as_str())
+    };
+    (package_is_cmux && serves(rest)).then_some(CmuxServe::Published)
 }
 
 /// Whether the entry Codex reported runs cmux's server ([`cmux_serve`]).
@@ -624,6 +677,13 @@ mod tests {
             ("node", &["/n/cmux-other.js", "mcp", "serve"]),
             // The value of an option is not the package.
             ("uvx", &["--from", "cmux", "other", "mcp", "serve"]),
+            // A package an option names that is not cmux, whose command is
+            // only called `cmux`.
+            ("npx", &["-p", "evil", "cmux", "mcp", "serve"]),
+            ("npx", &["--package=evil@1", "cmux", "mcp", "serve"]),
+            ("uvx", &["--from", "evil", "cmux", "mcp", "serve"]),
+            ("pipx", &["run", "--spec", "evil", "cmux", "mcp", "serve"]),
+            ("bunx", &["-p", "evil", "cmux", "mcp", "serve"]),
             // Code that is no script: not a launch of cmux.
             ("node", &["-e", "x", "/n/cmux.js", "mcp", "serve"]),
             ("npx", &["-c", "cmux mcp serve"]),

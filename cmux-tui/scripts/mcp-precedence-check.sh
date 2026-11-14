@@ -249,6 +249,35 @@ PY
   { printf 'profile = "work"\n'; cat "$CODEX_HOME/config.toml"; } > "$CODEX_HOME/c.tmp" && mv "$CODEX_HOME/c.tmp" "$CODEX_HOME/config.toml"
   shim_case "top-level profile =" "$D/work" "$( [ "$(codex_get "$D/work" transport.cwd)" = None ] && echo no || echo yes )" --
   rm -f "$CODEX_HOME/work.config.toml"; user_plain
+  # Launches Codex's answer does not describe: the shim turns nothing off.
+  # Turning the entry off there could fail Codex: --worktree starts in a new
+  # untrusted worktree where a project-only cmux entry is not loaded.
+  no_turn_off() { # NAME FOLDER SHIM_ARGS...: the shim adds cmux_terminal, turns nothing off
+    local name=$1 at=$2; shift 2
+    rm -f "$D/codex-args"
+    (cd "$at" && env "${shim_env[@]}" PATH="$D/bin:/usr/bin:/bin" "$CMUX" agent codex-wrapper "$@" >/dev/null 2>&1)
+    grep -q '^mcp_servers.cmux_terminal.command=' "$D/codex-args" && ! grep -q '^mcp_servers.cmux.enabled=false$' "$D/codex-args"
+    check "codex shim [$name]: cmux_terminal added, nothing turned off" $?
+  }
+  rm -f "$CODEX_HOME/work.config.toml"
+  # A project-only cmux entry: in the trusted repo Codex reports it; the
+  # --worktree session would not load it.
+  mkdir -p "$P/.codex"
+  printf '[mcp_servers.cmux]\ncommand = "%s"\nargs = ["mcp", "serve"]\ncwd = "/project-cwd"\n' "$CMUX" > "$P/.codex/config.toml"
+  printf 'model = "x"\n[projects."%s"]\ntrust_level = "trusted"\n' "$P" > "$CODEX_HOME/config.toml"
+  [ "$(codex_get "$sub" transport.cwd)" = /project-cwd ]
+  check "codex: the trusted repo's project layer has a cmux entry (the worktree case's premise)" $?
+  no_turn_off "--worktree" "$sub" --worktree
+  no_turn_off "exec --worktree" "$sub" exec --worktree hi
+  no_turn_off "resume --last" "$sub" resume --last
+  no_turn_off "exec resume --last" "$sub" exec resume --last
+  no_turn_off "fork --last" "$sub" fork --last
+  # And the crash the turn-off would cause where the entry is not loaded:
+  # enabled=false for a cmux Codex has no transport for.
+  (cd "$D/work" && "$CODEX" -c 'mcp_servers.cmux.enabled=false' mcp list --json 2>&1 >/dev/null) | grep -q "invalid transport"
+  check "codex: enabled=false on a cmux entry the session does not load fails with invalid transport" $?
+  rm -rf "$P/.codex"; user_plain
+
   # The merged result: the agent's own server carries no layer's settings.
   printf '[projects."%s"]\ntrust_level = "trusted"\n' "$P" >> "$CODEX_HOME/config.toml"
   mkdir -p "$P/.codex"; printf '[mcp_servers.cmux]\ncwd = "/project-cwd"\n' > "$P/.codex/config.toml"

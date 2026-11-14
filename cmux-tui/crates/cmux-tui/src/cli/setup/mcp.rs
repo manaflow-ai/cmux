@@ -372,6 +372,15 @@ impl Entry {
         let Some(command) = self.command.as_deref() else { return true };
         match cmux_serve(command, &self.args) {
             Some(CmuxServe::Published) => true,
+            // A relative script is judged where the entry runs it (its
+            // `cwd`); without one that is unknown, and unknown is kept.
+            Some(CmuxServe::Path(program))
+                if program != command && Path::new(program).is_relative() =>
+            {
+                self.cwd
+                    .as_deref()
+                    .is_none_or(|cwd| dev_build(&Path::new(cwd).join(program)).is_none())
+            }
             Some(CmuxServe::Path(program)) => dev_build(Path::new(program)).is_none(),
             None => dev_build(Path::new(command)).is_none(),
         }

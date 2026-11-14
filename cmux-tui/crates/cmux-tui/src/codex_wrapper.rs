@@ -146,11 +146,18 @@ fn mcp_settings(
     if !choice.injects() {
         return Vec::new();
     }
-    let config = crate::codex_mcp_entry::config_args(launch.args);
-    let existing = resolve(launch.codex, launch.path, launch.cwd, &config);
-    if existing == CodexEntry::Unknown {
-        warn(crate::localization::catalog().agent_wrapper.codex_mcp_unknown);
-    }
+    // A resumed or forked session, a new worktree, a remote server: Codex's
+    // answer here is not the launch's, so nothing is turned off (asked or said).
+    let existing = if crate::codex_mcp_entry::probe_matches_launch(launch.args) {
+        let config = crate::codex_mcp_entry::config_args(launch.args);
+        let existing = resolve(launch.codex, launch.path, launch.cwd, &config);
+        if existing == CodexEntry::Unknown {
+            warn(crate::localization::catalog().agent_wrapper.codex_mcp_unknown);
+        }
+        existing
+    } else {
+        CodexEntry::Unknown
+    };
     crate::agent_mcp_choice::codex_settings(
         choice,
         launch.executable,
@@ -457,6 +464,29 @@ mod tests {
             settings.iter().all(|s| s.starts_with("mcp_servers.cmux_terminal.")),
             "{settings:?}"
         );
+    }
+
+    /// A launch whose session Codex's answer does not describe (a new
+    /// worktree: untrusted, no project layer; a resumed or forked session):
+    /// Codex is not asked and nothing is turned off, which would otherwise
+    /// fail Codex with "invalid transport".
+    #[test]
+    fn a_worktree_or_resumed_session_turns_nothing_off() {
+        for args in [
+            &["--worktree"][..],
+            &["exec", "--worktree", "hi"],
+            &["resume", "--last"],
+            &["exec", "resume", "--last"],
+            &["fork", "--last"],
+        ] {
+            let (settings, calls, said) = launch(AgentsCmuxMcp::On, args, found("/opt/cmux"));
+            assert!(calls.is_empty() && said.is_empty(), "{args:?}");
+            assert!(
+                !settings.iter().any(|s| s.contains("enabled=false")),
+                "{args:?}: {settings:?}"
+            );
+            assert!(settings.iter().any(|s| s.starts_with("mcp_servers.cmux_terminal.command=")));
+        }
     }
 
     /// `enabled=false` only for another cmux's entry Codex reported; an

@@ -124,6 +124,121 @@ pub(crate) fn config_args(args: &[OsString]) -> ConfigArgs {
     found
 }
 
+/// Codex 0.160's options that take a value (the top level's, `exec`'s,
+/// `resume`'s and `fork`'s), so the scan below never reads a value as a
+/// subcommand.
+const VALUE_OPTIONS: [&str; 25] = [
+    "-c",
+    "--config",
+    "--enable",
+    "--disable",
+    "--remote",
+    "--remote-auth-token-env",
+    "-i",
+    "--image",
+    "-m",
+    "--model",
+    "--local-provider",
+    "-p",
+    "--profile",
+    "-s",
+    "--sandbox",
+    "-C",
+    "--cd",
+    "--add-dir",
+    "-a",
+    "--ask-for-approval",
+    "--thread-source",
+    "--output-schema",
+    "--color",
+    "-o",
+    "--output-last-message",
+];
+
+/// Options after which the session's folder or config is not the one `mcp
+/// get` sees from the launch folder: a new worktree (`--worktree`, untrusted,
+/// no project layer), a remote app server, or no user config.
+const DIFFERENT_LAUNCH: [&str; 4] =
+    ["--worktree", "--remote", "--remote-auth-token-env", "--ignore-user-config"];
+
+/// Whether this launch's session runs where, and with the config, that
+/// `codex mcp get` in the launch folder sees (Codex 0.160's CLI): a new
+/// session (`codex [PROMPT]`, `exec`/`e`, `review`, `exec review`), without
+/// [`DIFFERENT_LAUNCH`] options. A resumed or forked session (`resume`,
+/// `fork`, `exec resume`, `exec fork`) keeps the folder and config it was
+/// recorded with, and any other subcommand is no session cmux knows: there
+/// Codex's answer cannot be trusted for the launch, so nothing is turned off.
+pub(crate) fn probe_matches_launch(args: &[OsString]) -> bool {
+    let mut args = args.iter();
+    let mut positionals = Vec::new();
+    while let Some(arg) = args.next() {
+        let Some(arg) = arg.to_str() else { return false };
+        if arg == "--" {
+            break;
+        }
+        if !arg.starts_with('-') || arg == "-" {
+            positionals.push(arg);
+            // A session's first word after `exec` decides; past that, words are the prompt.
+            if positionals.len() == 2 || !matches!(positionals[0], "exec" | "e") {
+                break;
+            }
+            continue;
+        }
+        let flag = arg.split('=').next().unwrap_or_default();
+        if DIFFERENT_LAUNCH.contains(&flag) {
+            return false;
+        }
+        // `-pwork`, `-C/w`: a short option with its value attached.
+        let short_attached =
+            !arg.starts_with("--") && arg.len() > 2 && VALUE_OPTIONS.contains(&&arg[..2]);
+        if VALUE_OPTIONS.contains(&flag) && !arg.contains('=') && !short_attached {
+            args.next();
+        }
+    }
+    match positionals.as_slice() {
+        [] | ["review", ..] => true,
+        ["exec" | "e"] | ["exec" | "e", "review", ..] => true,
+        ["exec" | "e", next, ..] => {
+            !matches!(*next, "resume" | "fork") && !SUBCOMMANDS.contains(next)
+        }
+        [first, ..] => !SUBCOMMANDS.contains(first),
+    }
+}
+
+/// Codex 0.160's subcommands (`codex --help`): a first word that is none of
+/// these is the prompt of a new session.
+const SUBCOMMANDS: [&str; 29] = [
+    "agents",
+    "exec",
+    "e",
+    "review",
+    "login",
+    "logout",
+    "mcp",
+    "plugin",
+    "app-server",
+    "remote-control",
+    "app",
+    "completion",
+    "update",
+    "doctor",
+    "sandbox",
+    "debug",
+    "apply",
+    "a",
+    "resume",
+    "queue",
+    "archive",
+    "delete",
+    "migrate-rollouts",
+    "unarchive",
+    "fork",
+    "cloud",
+    "exec-server",
+    "features",
+    "help",
+];
+
 /// Asks the Codex at `codex` for its `cmux` entry: `codex <config args> mcp
 /// get cmux --json` in `cwd` (joined with `-C`'s folder), with `PATH` set to
 /// `path`, bounded by `timeout`.
@@ -251,6 +366,42 @@ mod tests {
         assert_eq!(value.args, [OsString::from("-c"), odd]);
         // Other options and prompts are not config.
         assert_eq!(config_args(&os(&["--model", "o3", "fix -p bug"])), ConfigArgs::default());
+    }
+
+    /// Only a new session in the launch folder is probed; a new worktree, a
+    /// resumed or forked session, a remote app server, no user config or a
+    /// subcommand that is no session is not.
+    #[test]
+    fn only_a_launch_mcp_get_sees_is_probed() {
+        for args in [
+            &[][..],
+            &["fix the bug"],
+            &["-p", "work", "-C", "sub", "hi"],
+            &["-pwork", "--model", "o3", "resume this"],
+            &["exec", "hi"],
+            &["e", "--json", "hi"],
+            &["review"],
+            &["exec", "review", "--base", "main"],
+            &["--", "resume"],
+        ] {
+            assert!(probe_matches_launch(&os(args)), "{args:?}");
+        }
+        for args in [
+            &["--worktree"][..],
+            &["exec", "--worktree", "hi"],
+            &["resume", "--last"],
+            &["fork", "--last"],
+            &["exec", "resume", "--last"],
+            &["e", "fork", "abc"],
+            &["-m", "o3", "resume"],
+            &["--remote", "ws://h:1"],
+            &["--remote=ws://h:1", "hi"],
+            &["exec", "--ignore-user-config", "hi"],
+            &["cloud"],
+            &["app-server"],
+        ] {
+            assert!(!probe_matches_launch(&os(args)), "{args:?}");
+        }
     }
 
     /// A fake `codex` at `dir/codex` running `body`; it records its arguments
