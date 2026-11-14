@@ -87,7 +87,7 @@ async fn a_message_the_inbox_takes_before_the_first_work_starts_is_not_the_deleg
     // Another agent's message while the first work waits to start goes to the inbox.
     let other = send(&hub, &s, "s-other", "p-other", "and this", true);
     let inboxed = async {
-        while s.inbox.lock().unwrap().items.is_empty() {
+        while s.inbox().items.is_empty() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };
@@ -150,7 +150,7 @@ async fn a_blocker_that_comes_before_the_first_work_queues_waits_for_it() {
     // A blocker goes to the inbox; past the wake's debounce no notice has taken the chat's turn.
     let other = send(&hub, &s, "s-other", "p-other", "stuck on this", true);
     let inboxed = async {
-        while s.inbox.lock().unwrap().items.is_empty() {
+        while s.inbox().items.is_empty() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };
@@ -259,7 +259,7 @@ async fn a_first_work_a_restart_rebuilt_keeps_notices_behind_it() {
     // A blocker goes to the inbox; then the daemon restarts.
     let _blocker = send(&hub, &s, "s-other", "p-blocker", "stuck on this", true);
     let inboxed = async {
-        while s.inbox.lock().unwrap().items.is_empty() {
+        while s.inbox().items.is_empty() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };
@@ -271,7 +271,7 @@ async fn a_first_work_a_restart_rebuilt_keeps_notices_behind_it() {
 
     let hub = hub_in(Some(&dir));
     let s = hub.resolve(&id).expect("the chat is restored");
-    assert!(s.inbox.lock().unwrap().first.is_none(), "a restart rebuilds no hold");
+    assert!(s.inbox().first.is_none(), "a restart rebuilds no hold");
     assert!(s.turn().is_none());
     // Past the blocker's wake debounce, a review sends no notice ahead of the first work.
     tokio::time::sleep(Duration::from_millis(inbox::WAKE_DEBOUNCE_MS + 500)).await;
@@ -284,7 +284,7 @@ async fn a_first_work_a_restart_rebuilt_keeps_notices_behind_it() {
         .filter(notice)
         .collect();
     assert!(sent.is_empty(), "a notice went ahead of the first work: {sent:?}");
-    assert!(s.inbox.lock().unwrap().in_flight.is_none());
+    assert!(s.inbox().in_flight.is_none());
     hub.shutdown_all().await;
     let _ = std::fs::remove_file(gate);
     let _ = std::fs::remove_dir_all(&dir);

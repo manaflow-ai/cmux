@@ -10,11 +10,17 @@ mod enroll;
 pub(crate) mod host_fingerprint;
 mod leave;
 mod recovery;
+mod self_capabilities;
 mod to_revoke;
 
 pub(crate) use enroll::{
-    EnrollOutcome, EnrollRequest, LeaveOutcome, enroll_self, finish_leave_at_start, leave_if_auto,
-    leave_pending, record_leave_intent, relay_may_start,
+    EnrollOutcome, EnrollRequest, JOINED_BY_SIGN_IN, LeaveOutcome, enroll_self,
+    finish_leave_at_start, leave_if_auto, leave_pending, record_leave_intent, relay_may_start,
+};
+pub(crate) use self_capabilities::{
+    state_after_leave as state_capabilities_after_leave,
+    state_at_start as state_capabilities_at_start,
+    state_on_reconnect as state_capabilities_on_reconnect,
 };
 
 pub const CAPABILITY: &str = "machine.join.stdin.v1";
@@ -69,9 +75,9 @@ pub struct MachineCredential {
     /// out removes only that join. None for a pair code or a pasted join line: those stay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub joined_by: Option<String>,
-    /// What this machine told the hub it can do at its redeem or its last rotate
-    /// ([`machine_capabilities`]); the hub records it with the credential. None: joined before
-    /// the hub took the list (cmux-platform#1015), so the next sign-in rotates once to state it.
+    /// What this machine told the hub it can do at its redeem, or what the hub recorded when it
+    /// stated it later ([`machine_capabilities`]). None: joined before the hub took the list
+    /// (cmux-platform#1015), so it states it with its own credential (`self_capabilities.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
     /// The box that found this record copied and gave itself a fresh node key (its
@@ -768,10 +774,10 @@ pub(crate) fn already_joined(replace: bool, report: Report) -> Result<bool> {
     }
     // No released build created pre-marker credentials. Even branch-only local
     // state must persist the shared requirement before idempotent success.
-    authority().and_then(|authority| authority.enroll()).map_err(|_| store_error())?;
+    let sign_in = record.joined_by.as_deref() == Some(JOINED_BY_SIGN_IN);
+    authority().and_then(|authority| authority.enroll_as(sign_in)).map_err(|_| store_error())?;
     // Repair a previous config-save failure before reporting idempotent success. A sign-in's
     // join leaves a relay the person set up as it is.
-    let sign_in = record.joined_by.as_deref() == Some(enroll::JOINED_BY_SIGN_IN);
     relay_for_join_at(&crate::config::Config::path(), &record.hub_origin, sign_in)
         .map_err(|_| store_error())?;
     match report {
@@ -948,6 +954,15 @@ pub(crate) fn consent_status() -> Value {
     )
 }
 
+/// `_acpmux/machine_consent_get`'s answer. With `{"use": "localComputerUse"}` (the app asking
+/// for its Computer Use helper, which serves only this Mac's own sessions), a requirement only
+/// sign-in joins made gates nothing ([`machine_consent::Authority::status_for`]); every other
+/// caller gets the requirement as it is.
+pub(crate) fn consent_status_for(params: &Value) -> Value {
+    let local = params.get("use").and_then(Value::as_str) == Some("localComputerUse");
+    authority().map(|authority| authority.status_for(local)).unwrap_or_else(|_| consent_status())
+}
+
 pub fn require_consent(surface: &str) -> Result<()> {
     let status = consent_status();
     if matches!(surface, "screen" | "control") && status["consent"][surface] == "granted" {
@@ -956,6 +971,12 @@ pub fn require_consent(surface: &str) -> Result<()> {
         let _ = record_consent_refusal(surface);
         Err(anyhow!(CONSENT_REQUIRED))
     }
+}
+
+/// Whether the Mac's own sessions keep computer use with no consent: the requirement comes only
+/// from joins signing in made ([`machine_consent::Authority::required_only_by_sign_in`]).
+pub(crate) fn local_computer_use_kept() -> bool {
+    authority().is_ok_and(|authority| authority.required_only_by_sign_in())
 }
 
 pub fn require_joined_consent(surface: &str) -> Result<()> {

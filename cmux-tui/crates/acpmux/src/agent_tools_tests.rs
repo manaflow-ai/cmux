@@ -497,6 +497,24 @@ fn the_claude_guidance_switch_also_leaves_the_chat_skill_out_of_the_plugin() {
     assert!(off.join("skills/cmux-browser/SKILL.md").is_file(), "other skills stay");
 }
 
+#[test]
+fn cmux_cua_still_resolves_after_automatic_enrollment() {
+    // Only signing in joined this Mac: its own sessions keep computer use, and no refusal is
+    // recorded for asking.
+    let asked = std::cell::Cell::new(false);
+    assert!(super::computer_use_allowed(
+        || true,
+        || {
+            asked.set(true);
+            false
+        }
+    ));
+    assert!(!asked.get());
+    // Any other join: only with the local control consent.
+    assert!(!super::computer_use_allowed(|| false, || false));
+    assert!(super::computer_use_allowed(|| false, || true));
+}
+
 /// A chat without computer use or the secrets server is not told about their skills: the
 /// fitted plugin leaves out `cmux-cua` and `cmux-sudo`, keeps the rest (the chat skill
 /// as the full plugin had it), and the tool rows and context sources say the same.

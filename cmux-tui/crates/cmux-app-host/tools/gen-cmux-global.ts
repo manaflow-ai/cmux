@@ -238,8 +238,8 @@ export function loadSignals(scopes: Record<string, { scope: string; class: strin
 }
 
 /**
- * schema/v2/events.json, each stream's `reads` op checked against the catalog: the daemon delivers
- * `<family>.changed` only to an app that may call `<family>.list` or `<family>.get`, so that op's
+ * schema/v2/events.json, each stream's `reads` op checked against the catalog: the daemon delivers a
+ * stream only to an app that may call its `reads` op (apps/subscriptions.rs declared_reads), so that op's
  * scope is the stream's scope.
  */
 export function loadEvents(scopes: Record<string, { scope: string; class: string }>): Record<string, { docs: string; reads: string; scope: string }> {
@@ -250,7 +250,6 @@ export function loadEvents(scopes: Record<string, { scope: string; class: string
     const { docs, reads } = file.events[name]!
     const family = name.match(/^([a-z][a-z0-9_]*)\.changed$/)?.[1]
     if (!family) throw new Error(`events.json: ${name} is not <family>.changed`)
-    if (reads !== `${family}.list` && reads !== `${family}.get`) throw new Error(`events.json: ${name} reads ${reads}; the daemon checks ${family}.list or ${family}.get`)
     const known = scopes[reads]
     if (!known) throw new Error(`events.json: ${name} reads ${reads}, which apps cannot call`)
     if (known.class !== "read") throw new Error(`events.json: ${name} reads ${reads}, which is not a read (${known.class})`)
