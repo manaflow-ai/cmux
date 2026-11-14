@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43568683139",
+  "recorded_at": "2026-11-14T07:03:57Z",
+  "reason": "cmux-tui e97e5e0ee2d9 changes the image's cmux-tui (pinned cea82430405f)",
+  "dry_run": false,
+  "cmux_tui": "e97e5e0ee2d968fbfda80aed63e7bdd5be22e54c",
+  "fixes": [
+    {
+      "sha": "e97e5e0ee2d968fbfda80aed63e7bdd5be22e54c",
+      "mergedAt": "2026-11-13T22:33:31-08:00",
+      "subject": "rd: add Windows screen-share host (#42833)"
+    },
+    {
+      "sha": "796539608dd64a5c28d2570ea99dda320ef554ca",
+      "mergedAt": "2026-11-13T22:29:28-08:00",
+      "subject": "Extension SDK 1.0: a versioned TypeScript package and Rust crate, and an example extension built only on it (#42797)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T07:03:57Z",
+    "snapshot_id": "sh-3af681af89f54313b5cff55f5f98c122",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43568683139): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "425a01ac65ef685bc2a5f1067ae952a1aaa1d579",
+    "image": "cloud-native-auto-e97e5e0e-43568683139-1",
+    "revision": "ci-43568683139-1",
+    "at": "2026-11-14T07:03:57Z"
+  },
+  "rolled_back": false
+}
