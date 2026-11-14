@@ -1221,7 +1221,14 @@ export function assembleTerminal(reads: TerminalRead[]): { text: string; problem
     const want = i === 0 ? 0 : reads[i - 1].next;
     if (r.after !== want) problems.push(`read ${i} asked from ${r.after}, not the last read's end ${want}`);
     if (!r.complete) problems.push(`read ${i} from ${r.after} was not complete (output past retention)`);
-    if (r.start === r.after) {
+    // A live reconnect projection can have an empty stream cursor (after 0)
+    // while its screen already contains output. Treat a repeated offset-0
+    // complete window as the same idempotent snapshot replacement used for
+    // nonzero cursors; otherwise retries would append the screen forever.
+    if (r.start === 0 && r.after === 0 && r.complete && i > 0 && r.text.length > 0) {
+      snapshots += 1;
+      text = r.text;
+    } else if (r.start === r.after) {
       text += r.text;
     } else if (r.start === 0 && r.after > 0 && r.complete && r.next >= r.after) {
       snapshots += 1;
