@@ -21,7 +21,7 @@ jobs:
   bench:
     name: codec-bench H.264 rows (Windows)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || fromJSON(vars.RUNNER_POOLS).windows }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     defaults:
       run:
         shell: pwsh
@@ -63,9 +63,33 @@ jobs:
         shell: pwsh
         working-directory: cmux-tui/crates/cmux-codecs
         run: |
-          $bench = @('--codecs', 'h264,h264-mf,h264-mf-sw', '--scenes', 'page,scroll,drag,typing', '--loss', '0,2,2b', '--rtt-ms', '50', '--seconds', '10', '--json', 'target\codec-bench-windows.jsonl')
-          .\target\release\codec-bench.exe @bench | Tee-Object -Variable table
-          if ($LASTEXITCODE -ne 0) { throw "codec-bench exited with $LASTEXITCODE" }
-          Add-Content $env:GITHUB_STEP_SUMMARY ($table -join [Environment]::NewLine)
+          # One pass per variant: codecs, then the encoder settings (CMUX_OPENH264_TUNING and
+          # CMUX_MF_TUNING, read only by the bench). The first pass is the shipped settings.
+          $variants = @(
+            @('h264,h264-mf,h264-mf-sw', '', ''),
+            @('h264', 'frameskip=0', ''),
+            @('h264', 'complexity=2', ''),
+            @('h264-mf,h264-mf-sw', '', 'rc=ldvbr'),
+            @('h264-mf,h264-mf-sw', '', 'rc=pvbr,peak=200'),
+            @('h264-mf,h264-mf-sw', '', 'rc=quality,quality=70'),
+            @('h264-mf,h264-mf-sw', '', 'rc=quality,quality=85'),
+            @('h264-mf,h264-mf-sw', '', 'profile=high,cabac=1'),
+            @('h264-mf,h264-mf-sw', '', 'stillqp=20'),
+            @('h264-mf,h264-mf-sw', '', 'qvs=100,buffer_ms=1000'),
+            @('h264-mf,h264-mf-sw', '', 'rc=quality,quality=85,profile=high,cabac=1,stillqp=20')
+          )
+          $n = 0
+          foreach ($v in $variants) {
+            $n += 1
+            $env:CMUX_OPENH264_TUNING = $v[1]
+            $env:CMUX_MF_TUNING = $v[2]
+            $head = "### variant $n codecs=$($v[0]) openh264=[$($v[1])] mf=[$($v[2])]"
+            Write-Output $head
+            Add-Content $env:GITHUB_STEP_SUMMARY $head
+            $bench = @('--codecs', $v[0], '--scenes', 'page,scroll,drag,typing', '--loss', '0,2,2b', '--rtt-ms', '50', '--seconds', '10', '--json', "target\codec-bench-windows-$n.jsonl")
+            .\target\release\codec-bench.exe @bench | Tee-Object -Variable table
+            if ($LASTEXITCODE -ne 0) { throw "codec-bench exited with $LASTEXITCODE" }
+            Add-Content $env:GITHUB_STEP_SUMMARY ($table -join [Environment]::NewLine)
+          }
           Write-Output '--- rows (JSON lines) ---'
-          Get-Content target\codec-bench-windows.jsonl
+          Get-Content target\codec-bench-windows-*.jsonl
