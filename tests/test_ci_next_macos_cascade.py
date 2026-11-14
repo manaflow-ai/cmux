@@ -2481,27 +2481,65 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
     # A fork's pull request keeps its Blacksmith literal: it gets no repository variables and never runs on an owned Mac.
     FORK = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository"
             " && 'blacksmith-6vcpu-macos-26'")
-    BLACKSMITH_MACOS = re.compile(r"blacksmith-\d+vcpu-macos-")
+    # This switch is the macOS 26 cascade's off switch.  macOS 15 remains a
+    # separate, explicitly selected compatibility lane and is not changed by
+    # cmux#43103.
+    BLACKSMITH_MACOS = re.compile(r"blacksmith-\d+vcpu-macos-26(?:['\"]|$)")
     # Jobs no pull request runs, with why they still name Blacksmith macOS while the switch is off.
     NOT_A_PR_JOB = {
         "dev-landing-compile": "the DEV landing compile (dispatch only) takes dev_landing_place.py's own Blacksmith pick",
     }
+    # Credentialed or signing jobs intentionally stay on an ephemeral
+    # Blacksmith Mac. Moving them to a persistent mini requires the
+    # disposable per-job keychain/claim picker recorded in .github/runners.json.
+    BLACKSMITH_ONLY = frozenset({
+        "auto-resume-nightly-notarization.yml wait-and-staple: runs-on[0]",
+        "auto-resume-nightly-notarization.yml staple-outer: runs-on[0]",
+        "auto-resume-nightly-notarization.yml staple-stapled: runs-on[0]",
+        "auto-resume-nightly-notarization.yml verify-stapled: runs-on[0]",
+        "auto-resume-nightly-notarization.yml generate-deltas: runs-on[0]",
+        "cloud-rd-link-readback.yml readback: runs-on[0]",
+        "cloud-chat-proof.yml proof-staging: runs-on[0]",
+        "cloud-chat-proof.yml proof-prod: runs-on[0]",
+        "cmux-next-dev-daily.yml sign: runs-on[0]",
+        "cmux-next-dev-daily.yml sign-blacksmith: runs-on[0]",
+        "cmux-next-dev-daily.yml verify: runs-on[0]",
+        "ios-appstore-upload.yml upload: runs-on[0]",
+        "ios-e2e.yml mac-ios-e2e: runs-on[0]",
+        "ios-internal-nightly.yml archive: runs-on[0]",
+        "ios-internal-nightly.yml upload: runs-on[0]",
+        "ios-review-gate.yml reviewer-path: runs-on[0]",
+        "ios-review-gate.yml asc-validate: runs-on[0]",
+        "ios-streamed-validate.yml validate: runs-on[0]",
+        "ios-testflight.yml upload: runs-on[0]",
+        "machine-vault-e2e.yml e2e: runs-on[0]",
+        "release.yml build-sign-notarize: runs-on[0]",
+        "release.yml build-sign-notarize-blacksmith: runs-on[0]",
+        "repair-v0-64-25-helper-rpaths.yml verify-shipped: runs-on[0]",
+        "repair-v0-64-25-helper-rpaths.yml repair: runs-on[0]",
+        "repair-v0-64-25-helper-rpaths.yml repair-blacksmith: runs-on[0]",
+        "resume-nightly-notarization.yml resume: runs-on[0]",
+        "resume-nightly-notarization.yml verify-stapled: runs-on[0]",
+        "cmux-next-perf-budgets.yml blacksmith-mac: runs-on[0]",
+        "stable-next.yml sign: runs-on[0]",
+    })
 
     def blacksmith_labels(self, expression: str, switch: tuple[str, ...]) -> set[str]:
         from runs_on_labels import resolve_labels  # noqa: PLC0415 - the over-approximating label resolver
         # The repository sets the side lane variable (.github/single-host-fallbacks.json): the switch's owned route.
-        text = expression.replace(self.FORK, "false").replace("vars.CI_SIDE_LANE_RUNNER", f"'{SIDE}'")
+        text = re.sub(
+            r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
+            r"github\.repository.*?&& '(?:blacksmith-6|blacksmith-12)vcpu-macos-26'",
+            "false", expression,
+        ).replace("vars.CI_SIDE_LANE_RUNNER", f"'{SIDE}'")
         try:
             labels = resolve_labels(text, variables={"CI_BLACKSMITH_MACOS": switch})
             return {label for label in labels if isinstance(label, str) and self.BLACKSMITH_MACOS.match(label)}
         except ValueError:
             # A workflow expression can use syntax the test evaluator does not
             # model yet (for example a JSON array index). Keep the detector
-            # conservative: an unguarded Blacksmith literal is still an
-            # offender, while a route that names the off-switch is covered by
-            # the evaluator's normal path.
-            if switch or "vars.CI_BLACKSMITH_MACOS" in text:
-                return set()
+            # conservative: an unsupported expression with a Blacksmith
+            # literal is still an offender and must be allowlisted explicitly.
             return set(self.BLACKSMITH_MACOS.findall(text))
 
     def routes(self, path: Path = WORKFLOW) -> dict[str, str]:
@@ -2528,13 +2566,15 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
                 self.fail(f"could not inspect {path.name}: {error}")
         offenders = {where: sorted(found) for where, expression in routes.items()
                      if where.split(" ", 2)[1].rstrip(":") not in self.NOT_A_PR_JOB
-                     and (found := self.blacksmith_labels(expression, ()))}
+                     and where not in self.BLACKSMITH_ONLY
+                     and (found := self.blacksmith_labels(expression, ())) }
         self.assertEqual(offenders, {}, "with vars.CI_BLACKSMITH_MACOS unset these routes can still name a "
                          "Blacksmith macOS label: wrap the read as (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || "
                          "<read>) (docs/ci/cmux-next-workflow-notes.md#note-350)")
         # The switch resumes Blacksmith with no code change: `on` reaches it again where it did before.
-        for where in ("daemon-test: runs-on[0]", "swift-test: runs-on[0]", "fast-tier: runs-on[0]",
-                      "release-compile: runs-on[0]", "macos-placement: GUI_LAST_RESORT"):
+        for where in ("cmux-next.yml daemon-test: runs-on[0]", "cmux-next.yml swift-test: runs-on[0]",
+                      "cmux-next.yml fast-tier: runs-on[0]", "cmux-next.yml release-compile: runs-on[0]",
+                      "cmux-next.yml macos-placement: GUI_LAST_RESORT"):
             with self.subTest(where=where):
                 self.assertTrue(self.blacksmith_labels(routes[where], ("on",)), where)
 
