@@ -776,7 +776,7 @@ export function turnViewFrom(
       visible = at;
     } else dated[at] = false;
     for (const row of drawn) {
-      if (row.kind === NEXT_STEP && row.nextStep) nextSteps.push({ at: out.length, row });
+      if (row.kind === NEXT_STEP && row.nextStep) nextSteps.push({ at: out.length, row, turn: at });
       out.push(row);
     }
     ends.push({ count: out.length, row: out.at(-1), visible });
@@ -788,6 +788,7 @@ export function turnViewFrom(
   while (settleFrom > 0 && (!nextSteps[settleFrom - 1]!.spoke || nextSteps[settleFrom - 1]!.outOfOrder))
     settleFrom -= 1;
   reusedRows = Math.min(reusedRows, settleNextSteps(out, nextSteps, settleFrom));
+  markLaterTurns(nextSteps, rows, starts, ends);
   return {
     source: rows,
     expanded,
@@ -815,10 +816,46 @@ export function turnViewFrom(
   };
 }
 
-/// A next-step card in a turn view: its index in the drawn rows, the row as its turn shaped it,
-/// whether the person said anything after it before the next card, and whether the answer clicked
-/// on it came after a later card (`settleNextSteps`).
-type NextStepAt = { at: number; row: AcpmuxRow; spoke?: boolean; outOfOrder?: boolean };
+/// A next-step card in a turn view: its index in the drawn rows, the row as its turn shaped it, the
+/// turn it ends (its index in `starts`), whether the person said anything after it before the next
+/// card, whether the answer clicked on it came after a later card (`settleNextSteps`), and whether a
+/// prompt came after it (`markLaterTurns`).
+type NextStepAt = {
+  at: number;
+  row: AcpmuxRow;
+  turn: number;
+  spoke?: boolean;
+  outOfOrder?: boolean;
+  later?: boolean;
+};
+
+/// Marks each card a prompt came after, of any kind (the person's, another agent's, one received
+/// from elsewhere, one still sending or that failed): a later turn started and drew something (a
+/// bookkeeping turn that draws nothing leaves the card the chat's last word), or an unsent prompt
+/// went after the card in its own turn. Read from the turns themselves, never from the drawn rows,
+/// where a folded prompt (`foldsPrompt`) or a batch of other agents' messages (laneNoticeBatches.ts)
+/// leaves no prompt row behind: the composer hat and the pinned stack read this one answer, so a
+/// waiting card is in exactly one of them (#38964). A card in the last turn, or one whose later turns
+/// drew nothing, reads the rows from its turn on; any other card reads none.
+function markLaterTurns(
+  cards: NextStepAt[],
+  rows: readonly AcpmuxRow[],
+  starts: readonly number[],
+  ends: TurnView["ends"],
+): void {
+  const lastTurn = starts.length - 1;
+  const drawn = ends[lastTurn]?.count ?? 0;
+  for (let index = cards.length - 1; index >= 0; index -= 1) {
+    const card = cards[index]!;
+    let later = card.turn < lastTurn && drawn > (ends[card.turn]?.count ?? drawn);
+    if (!later)
+      for (let at = starts[card.turn]! + 1; at < rows.length && !later; at += 1) {
+        const row = rows[at]!;
+        later = row.kind === "user" && isUnsent(row) && row.at >= card.row.at;
+      }
+    if (Boolean(card.later) !== later) cards[index] = { ...card, later };
+  }
+}
 
 /// A card's version spans its shaped version and its settled state (none, answered, superseded,
 /// both), so its memo and height cache redraw when it settles.
@@ -893,6 +930,7 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
     cards[index] = {
       at,
       row,
+      turn: cards[index]!.turn,
       spoke: first !== undefined,
       ...(mine !== undefined && mine >= next && { outOfOrder: true }),
     };
@@ -919,8 +957,8 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
 }
 
 /// The cards still waiting on the person, oldest first: a question neither answered nor spoken after,
-/// with another turn after it, so it is no
-/// longer the chat's last word above the composer (PendingAsks.tsx pins these there). A prompt the
+/// with a prompt of any kind after it (`markLaterTurns`), so it is no longer the chat's last word,
+/// above the composer (PendingAsks.tsx pins these there). A prompt the
 /// person sent after a newer card answers that card, not an older one still waiting before it. Walks
 /// back from the newest card until one was taken over: every card before that one has the person's
 /// words after it too, so it costs the waiting cards, never the chat's length.
@@ -938,12 +976,27 @@ export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonl
     waiting.push(card);
   }
   if (!waiting.length) return NO_ASKS;
-  // The newest card counts only once a turn came after it: before that it is the chat's last row.
+  // The newest card counts only once a prompt came after it (`markLaterTurns`): before that it is
+  // the chat's last word, which the composer hat holds (`lastWordAsk`).
   const newest = nextSteps.at(-1)!;
-  if (waiting[0] === rows[newest.at] && !rows.slice(newest.at + 1).some((row) => row.kind === "user")) waiting.shift();
+  if (waiting[0] === rows[newest.at] && !newest.later) waiting.shift();
   return waiting.length ? waiting.reverse() : NO_ASKS;
 }
 const NO_ASKS: readonly AcpmuxRow[] = [];
+
+/// The tagged ask the chat's last turn ended on while it is still the chat's last word: the newest
+/// card, waiting, with answers to click, and no prompt after it (`markLaterTurns`). The composer hat
+/// holds this one (question/hatModel.ts); once a prompt came after it, `waitingAsks` pins it above
+/// the composer with its Dismiss instead. One place each: the two used to hold the same question
+/// one over the other, and Dismiss left the hat's copy in place (#38964).
+export function lastWordAsk(view: Pick<TurnView, "nextSteps" | "rows">): AcpmuxRow | undefined {
+  const newest = view.nextSteps.at(-1);
+  if (!newest || newest.later || newest.spoke) return undefined;
+  const card = view.rows[newest.at];
+  const step = card?.nextStep;
+  if (!card || !step || step.answer !== undefined || step.superseded) return undefined;
+  return step.ask.question && step.ask.options.length > 0 ? card : undefined;
+}
 
 /// A turn as drawn, kept while its rows (by identity) and what shapes them stay the same: a long
 /// chat's snapshot rebuilds only the turns that changed, and an unchanged turn's derived rows stay

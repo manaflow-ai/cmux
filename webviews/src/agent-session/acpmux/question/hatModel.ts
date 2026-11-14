@@ -10,7 +10,9 @@
 //   agent's turn, so they come first. The one the card under the hat shows stays the card's to
 //   answer (arrows, number keys, Other, Skip); the hat points to it and answers the rest in a click.
 // - the tagged ask the chat's last turn ended on (conversation/nextStepAsk.ts, `[physical] Can you
-//   ...?`): the transcript's next-step card, while no prompt of the person's followed it.
+//   ...?`): the transcript's next-step card, while it is the chat's last word (turns.ts
+//   `lastWordAsk`). Once any prompt followed it, a waiting ask is pinned above the composer instead
+//   (conversation/PendingAsks.tsx), never in both. In Messages nothing is pinned; the hat reads it.
 // - the questions of the chats this one started (needsYou/jumpPillModel.ts `pillAsks`): answered in the
 //   hat as their own card would answer them, a choice or a typed answer, which the host sends for
 //   the chat this pane does not show (homeInboxModel.ts `replyElsewhere`). Leo, 2026-11-10, of one
@@ -19,11 +21,12 @@
 // Relevance fade (Leo: "what happens if they respond to it in another way, right? ... the question
 // fade from relevance is a thing that needs to be accounted for"): a tagged ask leaves the hat once
 // the person says anything after it (the transcript's card stays answerable, Leo 2026-11-05), or once
-// a later turn ends; the chat's own question is declined when the person types a reply instead
+// any prompt follows it (turns.ts `markLaterTurns`: the pinned card holds it then, with its
+// Dismiss); the chat's own question is declined when the person types a reply instead
 // (App.tsx `withdrawForTypedReply`), and its transcript record then reads "Answered in chat"
 // (direct.ts `recordQuestion`); one the agent or a Stop withdrew leaves when acpmux says so.
 import { nextStepAsk, type NextStepAsk } from "../conversation/nextStepAsk";
-import { NEXT_STEP } from "../conversation/turns";
+import { NEXT_STEP, lastWordAsk, type TurnView } from "../conversation/turns";
 import { askKey } from "../conversation/waitingAskStore";
 import type { AcpmuxPermission, AcpmuxRow } from "../model";
 import { pillAsks } from "../needsYou/jumpPillModel";
@@ -126,21 +129,6 @@ function ownQuestion(permission: AcpmuxPermission | undefined, onCard = false): 
 /// a blank one or one that failed to send answers nothing, so the ask stays.
 const personSaid = (row: AcpmuxRow) =>
   row.kind === "user" && !row.incoming && !row.received && !row.failed && Boolean(row.text);
-
-/// The tagged ask the chat's last turn ended on, while nothing the person said came after it. Read
-/// from the end of the shaped rows and stopped at the first prompt of the person's or the first
-/// card, so it costs the rows since the person's last prompt, never the chat's length.
-export function liveNextStep(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined {
-  for (let at = rows.length - 1; at >= 0; at -= 1) {
-    const row = rows[at]!;
-    if (personSaid(row)) return undefined;
-    if (row.kind !== NEXT_STEP) continue;
-    const step = row.nextStep;
-    if (!step || step.answer !== undefined || step.superseded) return undefined;
-    return step.ask.question && step.ask.options.length > 0 ? row : undefined;
-  }
-  return undefined;
-}
 
 /// The same in the Messages presentation, whose rows are the source's, unshaped: the reply of a turn
 /// that completed, with nothing the person said after it, read as `turns.ts` reads it. Stopped at the
@@ -264,9 +252,12 @@ export type HatQuestionInput = {
   permission?: AcpmuxPermission;
   /// The chat's other asks, behind that card (snapshot `permissionsQueued`).
   queued?: readonly AcpmuxPermission[];
-  /// The shaped rows (App.tsx `turnRowsShown`), where a tagged ask's card is; in the Messages
-  /// presentation (`messages`), the source rows, which the hat reads the ask from itself.
-  rows: readonly AcpmuxRow[];
+  /// The chat's turn view (App.tsx `lastTurns`), whose cards say which ask is the chat's last word
+  /// (turns.ts `lastWordAsk`), the one the pinned stack leaves to the hat.
+  turns?: Pick<TurnView, "nextSteps" | "rows">;
+  /// In the Messages presentation (`messages`), the source rows, which the hat reads the ask from
+  /// itself: nothing is pinned there.
+  rows?: readonly AcpmuxRow[];
   messages?: boolean;
   /// The chat a tagged ask's answer would go to (App.tsx `restartOwner`); none, no tagged ask.
   nextStepOwner?: string;
@@ -299,7 +290,10 @@ export function hatQuestions(input: HatQuestionInput): HatQuestion[] {
   const next =
     out.length > 0 || !owner
       ? undefined
-      : nextStepQuestion(input.messages ? messagesNextStep(input.rows) : liveNextStep(input.rows), owner);
+      : nextStepQuestion(
+          input.messages ? messagesNextStep(input.rows ?? []) : input.turns && lastWordAsk(input.turns),
+          owner,
+        );
   if (next) out.push(next);
   if (input.sessionId) out.push(...childQuestions(input.sessionId, input.sessions, input.asks));
   return out;

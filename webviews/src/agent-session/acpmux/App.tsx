@@ -3177,8 +3177,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     shownSessionId,
     callRelease,
   ]);
-  // The questions the agent asked the person that still wait on them once another turn came after
-  // (turns.ts `waitingAsks`): pinned in the asks stack above the composer (PendingAsks.tsx) until
+  // The questions the agent asked the person that still wait on them once any prompt came after
+  // (turns.ts `waitingAsks`, `markLaterTurns`): pinned in the asks stack above the composer (PendingAsks.tsx) until
   // answered, said anything after, or dismissed. Leo, 2026-11-06, on a question another agent's
   // message pushed out of reach: "perhaps persistent at the bottom".
   const waitingAskRows = useMemo(
@@ -3947,12 +3947,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             ...(shownSessionId ? { sessionId: shownSessionId } : {}),
             ...(individualPermission ? { permission: individualPermission } : {}),
             ...(snapshot.permissionsQueued ? { queued: snapshot.permissionsQueued } : {}),
-            rows: chatPresentation === "messages" ? sourceRows : turnRowsShown,
-            messages: chatPresentation === "messages",
+            // The turn view turnRowsShown shaped (its ref): its cards say which ask is the chat's last
+            // word, the one the pinned stack leaves to the hat (turns.ts `lastWordAsk`). The drawn rows
+            // can fold away the prompt after a card, so the hat never reads them for that (#38964).
+            ...(chatPresentation === "messages"
+              ? { rows: sourceRows, messages: true }
+              : lastTurns.current
+                ? { turns: lastTurns.current.turns }
+                : {}),
             ...(restartChat ? { nextStepOwner: restartChat } : {}),
             sessions: snapshot.sessions,
             asks: snapshot.asks ?? [],
           }),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the turn view turnRowsShown shaped, read from its ref
     [
       childRows,
       quick,
