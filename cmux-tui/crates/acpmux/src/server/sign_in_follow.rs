@@ -103,7 +103,8 @@ impl Follow {
         self.state.lock_or_recover().current.as_deref() == Some(user)
     }
 
-    /// Waits for every change so far.
+    /// Waits for every change so far (tests).
+    #[cfg(test)]
     pub(crate) async fn settled(&self) {
         let last = self.state.lock_or_recover().last.clone();
         ended(last).await;
@@ -238,7 +239,7 @@ pub(super) async fn signed_in(
         text(key)
             .map(|value| {
                 crate::cli::cloud_join::safe_id(value)
-                    .ok_or_else(|| RpcError::invalid_params(&format!("{key} is malformed")))
+                    .ok_or_else(|| RpcError::invalid_params(format!("{key} is malformed")))
             })
             .transpose()
     };
