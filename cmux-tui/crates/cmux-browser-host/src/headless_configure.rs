@@ -112,6 +112,8 @@ struct ProxyStore {
 pub struct Configs {
     sessions: HashMap<u64, SessionConfig>,
     stores: HashMap<String, ProxyStore>,
+    /// Stores of a browser that crashed: their tabs and cookies are gone.
+    dead: std::collections::HashSet<String>,
     next_store: u64,
 }
 
@@ -133,13 +135,13 @@ impl HeadlessSource {
     /// The `tabs.list` dataStore of a tab in a proxy store (None: the
     /// profile's).
     pub(crate) fn data_store_of(&self, target: &str) -> Option<String> {
-        let context = self.driver.tab_context(target)?;
+        let context = self.driver().tab_context(&self.real_id(target))?;
         self.configs().stores.get(&context).map(|store| store.name.clone())
     }
 
     /// Whether a tab is in an incognito store.
     pub(crate) fn is_incognito(&self, target: &str) -> bool {
-        let Some(context) = self.driver.tab_context(target) else { return false };
+        let Some(context) = self.driver().tab_context(&self.real_id(target)) else { return false };
         self.configs().stores.get(&context).is_some_and(|store| store.incognito)
     }
 
@@ -153,9 +155,36 @@ impl HeadlessSource {
     /// private store, else None (the profile's).
     pub(crate) fn cookie_store_of(&self, session: u64) -> Result<Option<String>, DriverError> {
         if self.session_incognito(session) {
-            return self.incognito_store(session).map(Some);
+            return self.live_incognito_store(session).map(Some);
         }
-        Ok(self.configs().sessions.get(&session).and_then(|c| c.store.clone()))
+        let store = self.configs().sessions.get(&session).and_then(|c| c.store.clone());
+        self.live_store(store)
+    }
+
+    /// The session's incognito store; a crashed browser's is made again in
+    /// the running one (an incognito store starts empty either way).
+    fn live_incognito_store(&self, session: u64) -> Result<String, DriverError> {
+        let store = self.incognito_store(session)?;
+        {
+            let mut configs = self.configs();
+            if !configs.dead.contains(&store) {
+                return Ok(store);
+            }
+            if let Some(config) = configs.sessions.get_mut(&session) {
+                config.incognito_store = None;
+            }
+        }
+        self.incognito_store(session)
+    }
+
+    /// A store of a browser that crashed fails as the browser did.
+    fn live_store(&self, store: Option<String>) -> Result<Option<String>, DriverError> {
+        match store {
+            Some(store) if self.configs().dead.contains(&store) => {
+                Err(DriverError::closed(crate::headless_relaunch::CLOSED))
+            }
+            store => Ok(store),
+        }
     }
 
     /// The session's incognito store, made on first use.
@@ -178,7 +207,7 @@ impl HeadlessSource {
                 ));
             }
         }
-        let context = self.driver.create_incognito_context()?;
+        let context = self.driver().create_incognito_context()?;
         let mut configs = self.configs();
         configs.next_store += 1;
         let name = format!("{}/incognito-{}", self.profile, configs.next_store);
@@ -271,7 +300,7 @@ impl HeadlessSource {
                     proxy["server"].as_str().filter(|s| !s.is_empty()).ok_or_else(|| {
                         DriverError::invalid("session.configure: proxy: expected { server }")
                     })?;
-                Some(Some(self.driver.create_proxy_context(server, proxy["bypass"].as_str())?))
+                Some(Some(self.driver().create_proxy_context(server, proxy["bypass"].as_str())?))
             }
         };
         let (overrides, tabs, stores_changed) = {
@@ -313,7 +342,7 @@ impl HeadlessSource {
             (config.overrides(), touched.then(|| self.routes_tabs_of(session)), stores_changed)
         };
         for target in tabs.into_iter().flatten() {
-            let _ = self.driver.set_tab_overrides(&target, overrides.clone());
+            let _ = self.driver().set_tab_overrides(&self.real_id(&target), overrides.clone());
         }
         if stores_changed {
             self.grant_session_permissions(session)?;
@@ -341,7 +370,7 @@ impl HeadlessSource {
             Some(store) => store,
             None if permissions.is_empty() => return Ok(()),
             None => {
-                let context = self.driver.create_private_context()?;
+                let context = self.driver().create_private_context()?;
                 let mut configs = self.configs();
                 configs.next_store += 1;
                 let name = format!("{}/private-{}", self.profile, configs.next_store);
@@ -355,7 +384,7 @@ impl HeadlessSource {
                 context
             }
         };
-        self.driver.set_context_permissions(&store, &permissions)
+        self.driver().set_context_permissions(&store, &permissions)
     }
 
     /// `tabs.open` with the session's options.
@@ -391,10 +420,11 @@ impl HeadlessSource {
             fields.remove("incognito");
         }
         if asked.unwrap_or(incognito_session) {
-            let store = self.incognito_store(session)?;
-            return self.driver.open_tab(&params, Some(&store), overrides);
+            let store = self.live_incognito_store(session)?;
+            return self.driver().open_tab(&params, Some(&store), overrides);
         }
-        self.driver.open_tab(&params, context.as_deref(), overrides)
+        let context = self.live_store(context)?;
+        self.driver().open_tab(&params, context.as_deref(), overrides)
     }
 
     /// Makes the session's policy store, whose connections go through
@@ -413,9 +443,9 @@ impl HeadlessSource {
             config.incognito
         };
         let context = if incognito {
-            self.driver.create_incognito_proxy_context(server)?
+            self.driver().create_incognito_proxy_context(server)?
         } else {
-            self.driver.create_proxy_context(server, Some("<-loopback>"))?
+            self.driver().create_proxy_context(server, Some("<-loopback>"))?
         };
         {
             let mut configs = self.configs();
@@ -443,7 +473,7 @@ impl HeadlessSource {
     /// and the proxy store it is in (any tab, a popup too) stays open until
     /// the host exits.
     pub(crate) fn configure_kept(&self, session: u64, target: &str, created: bool) {
-        let context = self.driver.tab_context(target);
+        let context = self.driver().tab_context(&self.real_id(target));
         let had = {
             let mut configs = self.configs();
             if let Some(store) = context.and_then(|c| configs.stores.get_mut(&c)) {
@@ -452,13 +482,41 @@ impl HeadlessSource {
             created && configs.sessions.get(&session).is_some_and(|c| c.overrides().is_some())
         };
         if had {
-            let _ = self.driver.set_tab_overrides(target, None);
+            let _ = self.driver().set_tab_overrides(&self.real_id(target), None);
         }
+    }
+
+    /// Whether `context` is a store the host made (private, proxy,
+    /// incognito, policy), not the profile's own.
+    pub(crate) fn is_host_store(&self, context: &str) -> bool {
+        self.configs().stores.contains_key(context)
     }
 
     /// Whether a tab in `context` was kept (the store outlives its session).
     pub(crate) fn store_kept(&self, context: &str) -> bool {
         self.configs().stores.get(context).is_some_and(|store| store.kept)
+    }
+
+    /// A relaunch: the host's stores died with the browser; the options
+    /// of each session's tabs, by tab, for the reopened ones.
+    pub(crate) fn relaunch_configs(&self) -> HashMap<String, TabOverrides> {
+        let sessions: Vec<(u64, TabOverrides)> = {
+            let mut configs = self.configs();
+            let stores: Vec<String> = configs.stores.keys().cloned().collect();
+            configs.dead.extend(stores);
+            configs
+                .sessions
+                .iter()
+                .filter_map(|(session, config)| Some((*session, config.overrides()?)))
+                .collect()
+        };
+        let mut by_tab = HashMap::new();
+        for (session, overrides) in sessions {
+            for target in self.routes_tabs_of(session) {
+                by_tab.insert(target, overrides.clone());
+            }
+        }
+        by_tab
     }
 
     /// The session ended: its options leave its tabs, its proxy stores
@@ -475,16 +533,17 @@ impl HeadlessSource {
                 .collect();
             for context in &closing {
                 configs.stores.remove(context);
+                configs.dead.remove(context);
             }
             (config, closing)
         };
         if config.is_some_and(|c| c.overrides().is_some()) {
             for target in self.routes_tabs_of(session) {
-                let _ = self.driver.set_tab_overrides(&target, None);
+                let _ = self.driver().set_tab_overrides(&self.real_id(&target), None);
             }
         }
         for context in closing {
-            let _ = self.driver.dispose_context(&context);
+            let _ = self.driver().dispose_context(&context);
         }
     }
 }
