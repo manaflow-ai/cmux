@@ -51,6 +51,8 @@ mod mirror;
 #[cfg(unix)]
 mod open_tokens;
 #[cfg(unix)]
+mod openers;
+#[cfg(unix)]
 mod overlay;
 #[cfg(unix)]
 // The `render: web` page bridge (design step 5); the daemon's page-call

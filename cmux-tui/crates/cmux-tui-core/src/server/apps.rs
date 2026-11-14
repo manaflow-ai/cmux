@@ -121,6 +121,11 @@ enum Command {
         #[serde(default)]
         gesture: Option<String>,
     },
+    /// A clicked link (`cmux.opener/1`, apps/openers.rs): the matching
+    /// app's opener runs with `{url}`; `{handled: false}` sends the caller
+    /// to its usual open.
+    #[serde(rename = "apps-open-link")]
+    OpenLink { url: String },
     /// Open terminal connector links and their local sockets (for this
     /// daemon's clients; apps never get a socket path).
     #[serde(rename = "apps-terminal-links")]
@@ -487,6 +492,17 @@ pub(super) fn try_handle(
                         request: id.clone().unwrap_or(Value::Null),
                     }),
                 },
+                Box::new(move |result| {
+                    reply(&writer, id, result);
+                }),
+            );
+            return Some(true);
+        }
+        Command::OpenLink { url } => {
+            let writer = writer.clone();
+            supervisor.open_link(
+                url,
+                origin,
                 Box::new(move |result| {
                     reply(&writer, id, result);
                 }),
