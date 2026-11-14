@@ -29,6 +29,10 @@
     "agent_chat.changed": {
       "docs": "An agent chat was added, closed, renamed, read or changed state.",
       "reads": "agent_chat.list"
+    },
+    "chat.changed": {
+      "docs": "A listed field of an agent chat changed (state, title, unread, pin, step, pull requests); not fired for updated_ms alone.",
+      "reads": "chat.list"
     }
   }
 }
