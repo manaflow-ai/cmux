@@ -292,3 +292,26 @@ fn the_reader_finds_processes_listener_owners_and_timers_under_a_root() {
     fs::create_dir_all(r.join("proc/300/stat")).unwrap();
     assert!(read_snapshot(r, 5).is_none(), "an unreadable process: unknown");
 }
+
+/// The line of a process is read as bytes: the name of a program is not
+/// always UTF-8.
+#[cfg(unix)]
+#[test]
+fn the_reader_reads_the_line_of_a_process_for_each_program_name() {
+    use std::fs;
+    let root = tempfile::tempdir().unwrap();
+    let r = root.path();
+    fs::create_dir_all(r.join("proc/200")).unwrap();
+    fs::create_dir_all(r.join("proc/net")).unwrap();
+    // The system keeps 15 bytes of a name: here 7 characters of 2 bytes and
+    // the first byte of the next one.
+    let mut line = b"200 (".to_vec();
+    line.extend_from_slice("\u{e9}".repeat(7).as_bytes());
+    line.push(0xc3);
+    line.extend_from_slice(b") S 1 1 1 0 -1 4194560 0 0 0 0 5 5 0 0 20 0 1 0 77 0 0");
+    fs::write(r.join("proc/200/stat"), line).unwrap();
+    fs::write(r.join("proc/net/tcp"), "  sl  local_address rem_address   st\n").unwrap();
+    let read = read_snapshot(r, 5);
+    let read = read.map(|s| s.procs.iter().map(|p| (p.pid, p.start)).collect::<Vec<_>>());
+    assert_eq!(read, Some(vec![(200_u32, 77_u64)]));
+}

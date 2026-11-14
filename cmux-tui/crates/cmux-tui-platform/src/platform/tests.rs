@@ -22,6 +22,17 @@ fn private_socket_peer_uid_must_match_the_expected_user() {
     assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
 }
 
+/// The name of an ended process is read whatever bytes the name of its
+/// program has.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_executable_of_an_ended_process_is_read_for_each_program_name() {
+    let mut child = crate::CutNameChild::start("executable").expect("child");
+    child.end_unreaped().expect("the end of the child");
+    let name = process_executable(child.id());
+    assert!(name.is_some_and(|name| name.ends_with(char::REPLACEMENT_CHARACTER)));
+}
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn foreground_cwd_lookup_reads_a_live_child_directory_and_fails_closed() {

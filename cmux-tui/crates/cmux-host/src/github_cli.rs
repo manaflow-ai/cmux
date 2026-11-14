@@ -46,6 +46,8 @@ use crate::cloud::github::{TokenAsk, valid_repo};
 use crate::cloud::wire::AGENT_SOCKET;
 use crate::json::JsonField;
 
+mod parent;
+
 const USAGE: &str = "usage: cmux github credential get|store|erase | gh [--write] [--] ARGS... | gh --auto [--] ARGS... | setup [--unset]";
 const HOST_KEY: &str = "credential.https://github.com.helper";
 const PATH_KEY: &str = "credential.https://github.com.useHttpPath";
@@ -276,10 +278,7 @@ fn git_op() -> GitOp {
         if let Some(op) = git_op_of(&argv) {
             return op;
         }
-        // `pid (comm) state ppid ...`; comm may hold spaces and parens.
-        let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else { break };
-        let after = stat.rsplit_once(')').map_or("", |(_, rest)| rest);
-        let Some(Ok(ppid)) = after.split_whitespace().nth(1).map(str::parse::<u32>) else { break };
+        let Some(ppid) = parent::parent_in(format!("/proc/{pid}/stat")) else { break };
         if ppid <= 1 {
             break;
         }

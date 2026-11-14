@@ -77,3 +77,19 @@ fn supervised_link_linux_start_retains_raw_ticks_after_a_process_name_with_paren
     assert_eq!(linux_start("123 (short) 0"), None);
     assert_eq!(linux_start(&format!("123 (invalid) {tail} -1")), None);
 }
+
+/// The start is read whatever bytes the name of the program has.
+#[test]
+fn supervised_link_linux_start_is_read_for_each_program_name() {
+    let directory = cmux_unix_socket::short_test_dir("sls");
+    let path = directory.path().join("stat");
+    let tail = (3..=21).map(|_| "0").collect::<Vec<_>>().join(" ");
+    // The system keeps 15 bytes of a name: here 7 characters of 2 bytes and
+    // the first byte of the next one.
+    let mut line = b"123 (".to_vec();
+    line.extend_from_slice("\u{e9}".repeat(7).as_bytes());
+    line.push(0xc3);
+    line.extend_from_slice(format!(") {tail} 9007199254740993 0").as_bytes());
+    std::fs::write(&path, line).unwrap();
+    assert_eq!(linux_start_in(&path).ok(), Some(ProcessStart(9_007_199_254_740_993, 0)));
+}

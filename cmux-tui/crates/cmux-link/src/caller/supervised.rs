@@ -104,7 +104,13 @@ pub(super) struct ProcessStart(u64, u64);
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub(super) fn process_start(pid: u32) -> io::Result<ProcessStart> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat"))?;
+    linux_start_in(format!("/proc/{pid}/stat"))
+}
+
+/// The start that the stat line in the file `path` names.
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+fn linux_start_in(path: impl AsRef<std::path::Path>) -> io::Result<ProcessStart> {
+    let stat = std::fs::read_to_string(path)?;
     linux_start(&stat).ok_or_else(refused)
 }
 
