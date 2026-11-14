@@ -37,7 +37,8 @@ test("transient surfaces share the generated role aliases", () => {
   }
   expect(noticeCss).toContain("border-radius: var(--transient-surface-radius);");
   expect(css).toContain(".ui-transient-error");
-  expect(css).toContain("border-radius: var(--transient-surface-radius);");
+  expect(css).toContain("--glass-tint: var(--transient-surface-veil);");
+  expect(css).toContain("border-radius: var(--grid-cards-radius);");
   expect(css).toContain("background: var(--transient-action-fill);");
 });
 
