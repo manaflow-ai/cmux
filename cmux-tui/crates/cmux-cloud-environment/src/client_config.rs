@@ -368,7 +368,8 @@ fn atomic_cache(path: &Path, body: &[u8]) -> Result<(), String> {
     result
 }
 
-#[cfg(all(test, feature = "http"))]
+#[cfg(test)]
+#[cfg(feature = "http")]
 mod tests {
     use super::*;
     use std::io::{BufRead, BufReader};
