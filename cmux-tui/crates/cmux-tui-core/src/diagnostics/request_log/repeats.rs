@@ -9,15 +9,35 @@ use super::Label;
 
 /// The length of a run's window. Equal records inside it are counted; the count is due at its end.
 pub(super) const REPEAT_WINDOW_MS: u64 = 60_000;
-/// The runs followed at one time. One more key ends the oldest run.
+/// The runs followed at one time. One more key ends the oldest run. Each client that fails is a
+/// key of its own, so many clients that fail in turn fill the table sooner.
 pub(super) const RUNS: usize = 8;
 
 /// What makes two failed requests equal.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) struct Key {
-    pub(super) name: Option<Label>,
-    pub(super) error: Label,
-    pub(super) client_kind: Option<Label>,
+    name: Option<Label>,
+    error: Label,
+    client_kind: Option<Label>,
+    /// The connection's number. None for the kind `plugin`.
+    client: Option<u64>,
+}
+
+impl Key {
+    /// The key of a failed request of the connection with the number `client`.
+    ///
+    /// The log is read to find which client failed, so the failed requests of 2 clients are 2
+    /// runs. Not for the kind `plugin`: each pass of the session's journal plugin is a new
+    /// connection, and a key with its number would never repeat.
+    pub(super) fn new(
+        name: Option<Label>,
+        error: Label,
+        client_kind: Option<Label>,
+        client: u64,
+    ) -> Self {
+        let client = (client_kind != Label::plugin()).then_some(client);
+        Self { name, error, client_kind, client }
+    }
 }
 
 struct Run<T> {

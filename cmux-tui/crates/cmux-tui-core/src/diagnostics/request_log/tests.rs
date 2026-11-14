@@ -235,12 +235,9 @@ fn a_rotation_that_fails_does_not_let_the_file_pass_the_limit() {
 
 use repeats::{REPEAT_WINDOW_MS, RUNS};
 
+/// A key of the connection with the number 7.
 fn key(name: &str, error: &str, kind: &str) -> Key {
-    Key {
-        name: Label::token(name),
-        error: Label::token(error).expect("an error code"),
-        client_kind: Label::token(kind),
-    }
+    Key::new(Label::token(name), Label::token(error).expect("an error code"), Label::token(kind), 7)
 }
 
 /// What `offer` said: none for a counted record, else the count of the run that it ended and

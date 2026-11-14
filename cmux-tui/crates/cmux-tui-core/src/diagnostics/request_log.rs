@@ -20,13 +20,15 @@
 //!   `plugin_restart`: the restarts since the daemon's start, the failures in a row and the wait
 //!   before the next launch; no plugin id and no exit text).
 //!
-//! Repeats: equal failed requests (the same name, error code and client kind) are one run. The
-//! first record of a run is written at once. Each next one inside `repeats::REPEAT_WINDOW_MS` of
-//! the run's last line is counted and not written; at the end of that window the newest of them
-//! is written with `"repeats":N`, the number of records that line stands for. A line with no
-//! `repeats` stands for one record. The writer follows `repeats::RUNS` runs; one more key ends the
-//! oldest run and writes its count. A request with no error is never counted. The counts that
-//! wait when the daemon stops are not written.
+//! Repeats: equal failed requests (the same name, error code and client kind, and the same
+//! connection unless the kind is `plugin`) are one run, so the log still says which client
+//! failed. The plugin's run has no connection in its key: each pass of the plugin is a new
+//! connection. The first record of a run is written at once. Each next one inside
+//! `repeats::REPEAT_WINDOW_MS` of the run's last line is counted and not written; at the end of
+//! that window the newest of them is written with `"repeats":N`, the number of records that line
+//! stands for. A line with no `repeats` stands for one record. The writer follows `repeats::RUNS`
+//! runs; one more key ends the oldest run and writes its count. A request with no error is never
+//! counted. The counts that wait when the daemon stops are not written.
 //!
 //! Privacy: a record holds a command or operation name, numeric and public ids,
 //! durations, sizes and an error code. The allow-list is `fields::ID_KEYS` and the
@@ -668,7 +670,7 @@ impl Writer {
                 // line. The time is the record's own (its arrival): no clock is read here.
                 let offered = match data.error {
                     Some(error) => {
-                        let key = Key { name: data.name, error, client_kind: data.client_kind };
+                        let key = Key::new(data.name, error, data.client_kind, data.client);
                         self.repeats.offer(key, data.at_ms, data)
                     }
                     None => Offered::Write { ended: None, record: data, stands_for: 1 },
