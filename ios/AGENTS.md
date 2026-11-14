@@ -22,10 +22,13 @@ ios/scripts/reload.sh --review --tag <task-slug> [--workspace <pr-url>]
 
 It does, in order, and fails (non-zero) if any step fails:
 
-1. Builds the same-tag Mac app and the iOS app on the build fleet through hq's
-   `build-fleet/ios-reload.py` (found through `CMUX_HQ_ROOT`, then `cmux-ci hq-root`), installs
-   the Mac app at its Tag Opener path and publishes it to HQ. Without an hq checkout it builds
-   locally, which is only for contributors outside the team.
+1. Builds the same-tag Mac app and the iOS app on the build fleet through hq's iOS installer
+   (`build-fleet/ios-reload.py`), installs the Mac app at its Tag Opener path and publishes it to
+   HQ. It uses `CMUX_HQ_ROOT` if set, then hq's installed iOS workflow `cmux-ios-dev` (install or
+   refresh it with `python3 <cmuxterm-hq main>/scripts/install-ios-workflow.py`), then an hq
+   checkout `cmux-ci hq-root` names. On a machine with `cmux-ci` it never builds locally: with no
+   installer it stops and prints the install command. Only outside contributors (no `cmux-ci`)
+   build locally.
 2. Signs and installs the iOS app on **every connected iPhone**, not only the configured default,
    with the authenticated install: signed in with the `personal` profile,
    `scripts/verify-iphone-auth.sh` PASS. Never raw `devicectl`. One phone's failure does not stop

@@ -124,7 +124,7 @@ class FleetSimulatorTests(unittest.TestCase):
             verify = hq / 'scripts/verify-remote.sh'
             verify.write_text('#!/bin/sh\necho "$*" > "%s/args"\n' % temp + verify_body.replace('EVIDENCE', str(evidence)))
             verify.chmod(0o755)
-            script = (f'set -u\nTAG=review-test\nREVIEW_HQ_ROOT="{hq}"\nREVIEW_SIM_STATUS=""\n{func}\n'
+            script = (f'set -u\nTAG=review-test\nREVIEW_VERIFY_REMOTE="{verify}"\nREVIEW_SIM_STATUS=""\n{func}\n'
                       'review_fleet_simulator; rc=$?; echo "STATUS=$REVIEW_SIM_STATUS"; exit $rc')
             result = subprocess.run(['bash', '-c', script], capture_output=True, text=True, timeout=30)
             args = (Path(temp) / 'args').read_text() if (Path(temp) / 'args').exists() else ''
@@ -148,6 +148,74 @@ class FleetSimulatorTests(unittest.TestCase):
         self.assertIn('--device-only)', review.split('\n\n')[0] + review[:4000])
         self.assertNotIn('simctl boot', text[text.index('# --- --review'):text.index('# Keep the linked xcframework')])
         self.assertIn('RELOAD_SIMULATOR=0', text)
+
+class FleetToolDiscoveryTests(unittest.TestCase):
+    """Where --review finds the fleet installer and the simulator check, and that a team machine
+    never falls back to building on the person's Mac."""
+
+    def resolve(self, layout, explicit=False, ios_dev=False, cmux_ci=True):
+        text = RELOAD.read_text()
+        funcs = ''.join(re.search(r'\n(%s\(\) \{\n.*?\n\})\n' % n, text, re.S).group(1) + '\n'
+                        for n in ('review_cmux_ci', 'review_resolve_fleet_tools'))
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            home = root / 'home'
+            (home / '.local/bin').mkdir(parents=True)
+            checkout = root / 'hq-checkout'
+            release = root / 'hq-release'
+            (checkout / 'build-fleet').mkdir(parents=True)
+            (checkout / 'scripts').mkdir(parents=True)
+            (release / 'scripts').mkdir(parents=True)
+            if 'checkout' in layout:
+                (checkout / 'build-fleet/ios-reload.py').write_text('')
+                (checkout / 'scripts/verify-remote.sh').write_text('#!/bin/sh\n')
+                (checkout / 'scripts/verify-remote.sh').chmod(0o755)
+            (release / 'scripts/verify-remote.sh').write_text('#!/bin/sh\n')
+            (release / 'scripts/verify-remote.sh').chmod(0o755)
+            bin_dir = root / 'bin'
+            bin_dir.mkdir()
+            names = [str(checkout)] if 'checkout' in layout else []
+            names.append(str(release))
+            if cmux_ci:
+                rows = ''.join(f'printf "%s\\tkind\\twhy\\n" "{n}"\n' for n in names)
+                (home / '.local/bin/cmux-ci').write_text('#!/bin/sh\n[ "$1" = hq-root ] || exit 9\n' + rows)
+                (home / '.local/bin/cmux-ci').chmod(0o755)
+            if ios_dev:
+                (home / '.local/bin/cmux-ios-dev').write_text('#!/bin/sh\n')
+                (home / '.local/bin/cmux-ios-dev').chmod(0o755)
+            env = dict(HOME=str(home), PATH=f"{bin_dir}:/usr/bin:/bin")
+            if explicit:
+                env['CMUX_HQ_ROOT'] = str(checkout)
+            script = ('set -u\nREVIEW_IOS_RELOAD=()\nREVIEW_VERIFY_REMOTE=""\n' + funcs +
+                      'review_resolve_fleet_tools; rc=$?; echo "RELOAD=${REVIEW_IOS_RELOAD[*]:-}"; '
+                      'echo "VERIFY=$REVIEW_VERIFY_REMOTE"; exit $rc')
+            result = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True, timeout=30)
+            return result, checkout, release, home
+
+    def test_installed_ios_workflow_wins_over_an_hq_checkout(self):
+        result, checkout, release, home = self.resolve('checkout', ios_dev=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f'RELOAD={home}/.local/bin/cmux-ios-dev', result.stdout)
+        self.assertIn(f'VERIFY={checkout}/scripts/verify-remote.sh', result.stdout)
+
+    def test_explicit_hq_root_wins(self):
+        result, checkout, _, _ = self.resolve('checkout', explicit=True, ios_dev=True)
+        self.assertIn(f'RELOAD=/usr/bin/python3 {checkout}/build-fleet/ios-reload.py', result.stdout)
+
+    def test_release_only_gives_the_simulator_check_but_no_installer(self):
+        result, _, release, _ = self.resolve('release')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('RELOAD=\n', result.stdout)
+        self.assertIn(f'VERIFY={release}/scripts/verify-remote.sh', result.stdout)
+
+    def test_a_team_machine_without_an_installer_refuses_to_build_locally(self):
+        text = RELOAD.read_text()
+        block = text[text.index('if review_resolve_fleet_tools; then'):text.index('# Keep the linked xcframework')]
+        self.assertIn('agents never build on this Mac', block)
+        self.assertIn('install-ios-workflow.py', block)
+        refuse = block.index('if [[ -n "$(review_cmux_ci)" ]]')
+        self.assertLess(refuse, block.index('building locally'))
+
 
 if __name__ == '__main__':
     unittest.main()

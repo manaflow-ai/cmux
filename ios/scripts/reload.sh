@@ -565,25 +565,54 @@ fi
 # scripts/verify-iphone-auth.sh and publishes the Mac build to HQ. --review runs it
 # with --device-only: nothing boots or installs in a simulator on this Mac. The
 # simulator check runs on the fleet instead (review_fleet_simulator).
-review_hq_root() {
-  local cmux_ci="${CMUX_CI:-}" candidate
-  if [[ -z "$cmux_ci" ]]; then
-    cmux_ci="$(command -v cmux-ci 2>/dev/null || true)"
-    [[ -z "$cmux_ci" && -x "$HOME/.local/bin/cmux-ci" ]] && cmux_ci="$HOME/.local/bin/cmux-ci"
-  fi
-  local candidates=("${CMUX_HQ_ROOT:-}")
+review_cmux_ci() {
+  local cmux_ci="${CMUX_CI:-}"
+  [[ -n "$cmux_ci" ]] || cmux_ci="$(command -v cmux-ci 2>/dev/null || true)"
+  [[ -z "$cmux_ci" && -x "$HOME/.local/bin/cmux-ci" ]] && cmux_ci="$HOME/.local/bin/cmux-ci"
+  printf '%s' "$cmux_ci"
+}
+
+# The fleet iOS installer and the fleet simulator check, each from the first
+# place that has it:
+#  1. CMUX_HQ_ROOT, a cmuxterm-hq checkout the caller chose.
+#  2. cmux-ios-dev, hq's installed iOS workflow (scripts/install-ios-workflow.py):
+#     an immutable copy of ios-reload.py and every helper it runs, so it never
+#     depends on an old or pruned hq checkout.
+#  3. `cmux-ci hq-root`: the hq checkout or installed hq-tools release it names
+#     (the release ships verify-remote.sh but not ios-reload.py).
+# Sets REVIEW_IOS_RELOAD (the installer command) and REVIEW_VERIFY_REMOTE.
+REVIEW_IOS_RELOAD=()
+REVIEW_VERIFY_REMOTE=""
+review_resolve_fleet_tools() {
+  local cmux_ci candidate candidates=() ios_dev
+  cmux_ci="$(review_cmux_ci)"
+  [[ -n "${CMUX_HQ_ROOT:-}" ]] && candidates+=("$CMUX_HQ_ROOT")
   if [[ -n "$cmux_ci" ]]; then
     while IFS=$'\t' read -r candidate _; do
-      candidates+=("$candidate")
+      [[ -n "$candidate" ]] && candidates+=("$candidate")
     done < <("$cmux_ci" hq-root 2>/dev/null || true)
   fi
+  ios_dev="$(command -v cmux-ios-dev 2>/dev/null || true)"
+  [[ -z "$ios_dev" && -x "$HOME/.local/bin/cmux-ios-dev" ]] && ios_dev="$HOME/.local/bin/cmux-ios-dev"
+  if [[ -n "${CMUX_HQ_ROOT:-}" && -f "$CMUX_HQ_ROOT/build-fleet/ios-reload.py" ]]; then
+    REVIEW_IOS_RELOAD=(/usr/bin/python3 "$CMUX_HQ_ROOT/build-fleet/ios-reload.py")
+  elif [[ -n "$ios_dev" ]]; then
+    REVIEW_IOS_RELOAD=("$ios_dev")
+  else
+    for candidate in ${candidates[@]+"${candidates[@]}"}; do
+      if [[ -f "$candidate/build-fleet/ios-reload.py" ]]; then
+        REVIEW_IOS_RELOAD=(/usr/bin/python3 "$candidate/build-fleet/ios-reload.py")
+        break
+      fi
+    done
+  fi
   for candidate in ${candidates[@]+"${candidates[@]}"}; do
-    if [[ -n "$candidate" && -f "$candidate/build-fleet/ios-reload.py" ]]; then
-      printf '%s\n' "$candidate"
-      return 0
+    if [[ -x "$candidate/scripts/verify-remote.sh" ]]; then
+      REVIEW_VERIFY_REMOTE="$candidate/scripts/verify-remote.sh"
+      break
     fi
   done
-  return 1
+  [[ "${#REVIEW_IOS_RELOAD[@]}" -gt 0 ]]
 }
 
 REVIEW_SIM_STATUS=""
@@ -711,9 +740,9 @@ review_publish_mac() {
 # signs in with the shared agent account, records it, takes a screenshot, deletes
 # the simulator and prints the local evidence directory. Nothing opens on this Mac.
 review_fleet_simulator() {
-  local verify="$REVIEW_HQ_ROOT/scripts/verify-remote.sh" evidence
-  if [[ ! -x "$verify" ]]; then
-    REVIEW_SIM_STATUS="BLOCKED: $verify is missing; update the hq checkout"
+  local verify="$REVIEW_VERIFY_REMOTE" evidence
+  if [[ -z "$verify" ]]; then
+    REVIEW_SIM_STATUS="BLOCKED: no verify-remote.sh found (CMUX_HQ_ROOT, or the hq checkout or hq-tools release cmux-ci hq-root names)"
     return 1
   fi
   echo "==> --review: verifying the iOS build in a fleet simulator ($verify)"
@@ -726,10 +755,10 @@ review_fleet_simulator() {
 
 REVIEW_INSTALLED=()
 review_finish() {
-  if [[ -n "${REVIEW_HQ_ROOT:-}" ]]; then
+  if [[ "${#REVIEW_IOS_RELOAD[@]}" -gt 0 ]]; then
     review_fleet_simulator || REVIEW_FAILED=1
   else
-    REVIEW_SIM_STATUS="not run: the fleet simulator check needs an hq checkout (CMUX_HQ_ROOT or cmux-ci hq-root)"
+    REVIEW_SIM_STATUS="not run: no build fleet (cmux-ci is not installed)"
   fi
   review_report
   [[ "$REVIEW_FAILED" -eq 0 ]]
@@ -738,8 +767,8 @@ review_finish() {
 if [[ "$REVIEW" -eq 1 ]]; then
   review_resolve_phones || exit 1
   echo "==> --review: installing on ${#REVIEW_TARGETS[@]} connected iPhone(s)"
-  if REVIEW_HQ_ROOT="$(review_hq_root)"; then
-    echo "==> --review: building on the fleet through $REVIEW_HQ_ROOT/build-fleet/ios-reload.py"
+  if review_resolve_fleet_tools; then
+    echo "==> --review: building on the fleet through ${REVIEW_IOS_RELOAD[*]}"
     # The first phone's run waits for the fleet jobs; later runs reuse the
     # same saved jobs and the installed Mac app, and only sign and install.
     REVIEW_MAC_STATUS="not built; see the error above"
@@ -749,7 +778,7 @@ if [[ "$REVIEW" -eq 1 ]]; then
       fleet_args=(--tag "$TAG" --checkout "$(cd "$IOS_DIR/.." && pwd)" --device-id "$udid" --device-only)
       [[ -n "$REVIEW_WORKSPACE" ]] && fleet_args+=(--workspace "$REVIEW_WORKSPACE")
       fleet_rc=0
-      /usr/bin/python3 "$REVIEW_HQ_ROOT/build-fleet/ios-reload.py" "${fleet_args[@]}" || fleet_rc=$?
+      "${REVIEW_IOS_RELOAD[@]}" "${fleet_args[@]}" || fleet_rc=$?
       if [[ "$fleet_rc" -eq 0 ]]; then
         REVIEW_MAC_STATUS="fleet build, published to HQ"
         REVIEW_INSTALLED+=("$target")
@@ -768,7 +797,15 @@ if [[ "$REVIEW" -eq 1 ]]; then
     review_finish || exit 1
     exit 0
   fi
-  echo "==> --review: no hq checkout with build-fleet/ios-reload.py; building locally"
+  if [[ -n "$(review_cmux_ci)" ]]; then
+    # A team machine: builds run on the fleet only, never on this Mac.
+    echo "error: --review found no fleet iOS installer, and agents never build on this Mac." >&2
+    echo "error: install hq's iOS workflow from a current cmuxterm-hq main checkout:" >&2
+    echo "error:   python3 <cmuxterm-hq>/scripts/install-ios-workflow.py   (installs ~/.local/bin/cmux-ios-dev)" >&2
+    echo "error: or set CMUX_HQ_ROOT to a current cmuxterm-hq main checkout, then rerun." >&2
+    exit 2
+  fi
+  echo "==> --review: cmux-ci is not installed (no build fleet); building locally"
 fi
 
 # Keep the linked xcframework synchronized with the checked-out Ghostty
