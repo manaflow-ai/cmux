@@ -94,7 +94,7 @@ import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./co
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/olderScrollTarget";
-import { noteTranscriptMount, noteReplyUnpainted } from "./flickerLog";
+import { noteMounted, noteTranscriptMount, noteReplyUnpainted, noteUnmounted } from "./flickerLog";
 import { finalReplyId, REPLY_SETTLE_MS, replyUnpainted } from "./conversation/replyPainted";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { type Translate, useT } from "./i18n";
@@ -555,7 +555,12 @@ const RowFrame = React.memo(function RowFrame({
     // Mounts and same-commit remounts, counted only while measuring (loadDebug.ts `loadTick`).
     const id = row.id;
     acpmuxPerf.rowMounted(id);
-    return () => acpmuxPerf.rowUnmounted(id);
+    // Always on: a remount in place goes to the flicker detector's ring file (flickerLog.ts).
+    noteMounted(`row:${id}`, "row", row.kind);
+    return () => {
+      acpmuxPerf.rowUnmounted(id);
+      noteUnmounted(`row:${id}`);
+    };
     // The id the frame mounted with: a message run's line can take over its first row's frame
     // (model.ts `rowFrameKey`), so the count is closed under the id it opened with.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3670,16 +3675,18 @@ function TranscriptView({
   /// code put it, so the hold lets go, or its next pass puts the line back (#34780, as
   /// `releaseBottomStackFold` does for a close at the end). Only the offset moving off where the
   /// hold left it counts: a layout change moves the line, not the offset, and a closing body's clamp
-  /// lands at the end. A view still following the latest row moves its own offset to the end until
-  /// the hold's first pass lets go of it, so nothing counts until then.
+  /// lands at the end. A view still following the latest row moves its own offset down to the end
+  /// until the hold's first pass lets go of it, so then only a move up counts: following never moves
+  /// the offset up. A code scroll that lands before that first pass (the open's height reaches the
+  /// layout a frame late under load) was put back by the hold, `put 736 -> 1408` (hq#10958).
   const releaseFoldHold = (node: HTMLElement): boolean => {
     const left = holdTop.current;
     if (
       !foldAnchor.current ||
-      followingRef.current ||
       bottomStackFold.current ||
       left === undefined ||
       Math.abs(node.scrollTop - left) <= FOLLOW_BOTTOM_DEADBAND_PX ||
+      (followingRef.current && node.scrollTop > left) ||
       atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)
     )
       return false;
