@@ -4,8 +4,9 @@
 // digits made from the changed files, so no diff is made or crosses the bridge); the page takes one
 // per load and compares while it is visible. Coming back to the viewer refreshes it when nothing
 // would be lost; while the reader is in it, an inline notice offers Refresh, since a refresh starts
-// the diff from the top. A session host older than the read cannot say: the page then asks no more
-// and reloads the diff each time the reader comes back (FINGERPRINT_UNSUPPORTED).
+// the diff from the top. A session host older than the read cannot say: the page then wakes no
+// timer, and each time the reader comes back it asks one time more and reloads the diff
+// (FINGERPRINT_UNSUPPORTED).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSyncedRef } from "./useSyncedRef";
 import type { DiffSource } from "../diff/generated/protocol";
@@ -72,9 +73,13 @@ export function usePrecomputedFingerprint(): [
 /// with the same fingerprint (the tree came back to it) each get their first comparison.
 ///
 /// A session host older than the read (a machine that was not updated) answers
-/// `FINGERPRINT_UNSUPPORTED`. Nothing can be compared then, so this page asks no fingerprint again
-/// and wakes no timer; each return to the viewer runs `refresh` instead (when `canRefresh`), so the
-/// reader never looks at an old diff after coming back. Refresh in the toolbar works as before.
+/// `FINGERPRINT_UNSUPPORTED`. Nothing can be compared then, so this page wakes no timer, and while
+/// the reader stays in the viewer it gives no notice of a change. Each return to the viewer asks one
+/// time more (the host sends such a session host nothing) and runs `refresh` (when `canRefresh`),
+/// so the reader does not look at an old diff after coming back. One return is one `refresh`: the
+/// page was away before it (it lost the focus or was hidden, or the window has no focus yet). When
+/// the session host has the read at a return (it was replaced), that return runs `refresh` one time
+/// and the page compares again from there. Refresh in the toolbar works as before.
 export function useDiffFreshness(
   read: (() => Promise<string | undefined>) | undefined,
   generation: number,
@@ -100,9 +105,11 @@ export function useDiffFreshness(
   const latest = useSyncedRef({ canRefresh, refresh, onUnavailable, reconcile: precomputed?.reconcile });
   const precomputedFingerprint = precomputed?.fingerprint;
   const reconcileFailed = precomputed?.failedGeneration === generation;
-  // Set by the first FINGERPRINT_UNSUPPORTED answer, for the life of the page: a page shows one
-  // machine's repository, and the host answers that code for the whole session host.
+  // Set by a FINGERPRINT_UNSUPPORTED answer, until the session host answers with digits: a page
+  // shows one machine's repository, and the host answers that code for the whole session host.
   const unsupported = useRef(false);
+  // An older session host: the page was away since the last `refresh` that a return ran.
+  const away = useRef(true);
   useEffect(() => {
     let first = precomputedKey !== undefined && consumed.current !== precomputedKey;
     baseline.current = first || reconcileFailed ? precomputedFingerprint : undefined;
@@ -112,17 +119,32 @@ export function useDiffFreshness(
     let current = true;
     let busy = false;
     let timer: ReturnType<typeof setInterval> | undefined;
+    const schedule = (focused: boolean) => {
+      clearInterval(timer);
+      timer = undefined;
+      if (unsupported.current || document.visibilityState === "hidden") return;
+      timer = setInterval(() => void check(false), focused ? FRESHNESS_INTERVAL : UNFOCUSED_FRESHNESS_INTERVAL);
+    };
     const check = async (returning: boolean) => {
       if (busy || document.visibilityState === "hidden") return;
-      if (unsupported.current) {
-        if (returning && latest.current.canRefresh()) latest.current.refresh();
-        return;
-      }
+      // An older session host is asked again only when the reader comes back.
+      if (unsupported.current && !returning) return;
       busy = true;
       try {
         const now = await read();
         if (!current || now === undefined) return;
         latest.current.onUnavailable?.(undefined);
+        if (unsupported.current) {
+          // The session host has the read now. The shown diff has no digits of its own, so it is
+          // loaded one time more, and `now` is the baseline of the checks that start again.
+          unsupported.current = false;
+          if (first) consumed.current = precomputedKey;
+          first = false;
+          baseline.current = now;
+          schedule(document.hasFocus());
+          if (latest.current.canRefresh()) latest.current.refresh();
+          return;
+        }
         const reconcile = first ? latest.current.reconcile : undefined;
         if (first) consumed.current = precomputedKey;
         first = false;
@@ -137,11 +159,14 @@ export function useDiffFreshness(
       } catch (error) {
         if (!current || !isPageError(error)) return;
         if (error.code === FINGERPRINT_UNSUPPORTED) {
-          // Nothing was sent, and nothing will be: stop the timer and reload on this return.
+          // Nothing was sent: stop the timer, and reload when this is a return from time away.
           unsupported.current = true;
           clearInterval(timer);
           timer = undefined;
-          if (returning && latest.current.canRefresh()) latest.current.refresh();
+          if (returning && away.current && latest.current.canRefresh()) {
+            away.current = !document.hasFocus();
+            latest.current.refresh();
+          }
           return;
         }
         // Keep the patch and drafts while the machine is unavailable; a successful read clears
@@ -153,21 +178,19 @@ export function useDiffFreshness(
       }
     };
     void check(false);
-    const schedule = (focused: boolean) => {
-      clearInterval(timer);
-      timer = undefined;
-      if (unsupported.current || document.visibilityState === "hidden") return;
-      timer = setInterval(() => void check(false), focused ? FRESHNESS_INTERVAL : UNFOCUSED_FRESHNESS_INTERVAL);
-    };
     schedule(document.hasFocus());
     const back = () => {
       schedule(true);
       void check(true);
     };
-    const blur = () => schedule(false);
+    const blur = () => {
+      away.current = true;
+      schedule(false);
+    };
     const visible = () => {
       schedule(document.hasFocus());
       if (document.visibilityState === "visible") void check(true);
+      else away.current = true;
     };
     window.addEventListener("focus", back);
     window.addEventListener("blur", blur);
