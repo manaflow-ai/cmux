@@ -364,7 +364,12 @@ impl MessageWriter {
         value: &T,
         deadline: Option<Instant>,
     ) -> std::io::Result<()> {
-        self.send_rendered_control(deadline, |render| render.serialize_control(value))
+        self.send_rendered_control(deadline, |render| {
+            let lap = crate::measure_probe::now();
+            let text = render.serialize_control(value);
+            crate::measure_probe::since("reply.text", lap);
+            text
+        })
     }
 
     /// A `list-workspaces` reply written from its build's shared tree text:
@@ -376,9 +381,12 @@ impl MessageWriter {
         id: Option<&Value>,
     ) -> std::io::Result<()> {
         self.send_rendered_control(None, |render| {
-            render.write_control(tree.text.reply_bytes(), |out| {
+            let lap = crate::measure_probe::now();
+            let text = render.write_control(tree.text.reply_bytes(), |out| {
                 tree.text.write_reply(out, id, tree.lines_written_before_read)
-            })
+            });
+            crate::measure_probe::since("lw.copy", lap);
+            text
         })
     }
 
@@ -392,12 +400,18 @@ impl MessageWriter {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let result = render(&self.render_service).and_then(|text| {
-            let text = self.project_api_revision(self.project_conversation_tabs(text)?)?;
+            let text = self.project_conversation_tabs(text)?;
+            let lap = crate::measure_probe::now();
+            let text = self.project_api_revision(text)?;
+            crate::measure_probe::since("reply.api_revision", lap);
+            let lap = crate::measure_probe::now();
             let text = self.mark_reply(text);
-            match deadline {
+            let sent = match deadline {
                 Some(deadline) => self.sink.send_control_backpressured(text, deadline),
                 None => self.sink.send_control(text),
-            }
+            };
+            crate::measure_probe::since("reply.queue", lap);
+            sent
         });
         if result.is_err() {
             self.close();

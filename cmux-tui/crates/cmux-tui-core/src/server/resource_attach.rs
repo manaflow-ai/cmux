@@ -965,8 +965,11 @@ pub(super) fn send_resource_response(
     operation: ResourceOperation,
     result: Result<Value, ResourceError>,
 ) -> bool {
+    let lap = crate::measure_probe::now();
     let result = crate::resource_router::validate_operation_outcome(operation, result)
         .map_err(|error| with_internal_request_id(operation, error));
+    crate::measure_probe::since("ss.catalog_check", lap);
+    let lap = crate::measure_probe::now();
     let envelope = match result {
         Ok(result) => {
             crate::diagnostics::request_log::reply_follows(true, None);
@@ -977,5 +980,12 @@ pub(super) fn send_resource_response(
             ResourceResponseEnvelope::failure(id, error)
         }
     };
-    envelope.into_value().is_ok_and(|value| writer.send_control(&value).is_ok())
+    let value = envelope.into_value();
+    crate::measure_probe::since("ss.envelope", lap);
+    let Ok(value) = value else { return false };
+    let sent = writer.send_control(&value).is_ok();
+    let lap = crate::measure_probe::now();
+    drop(value);
+    crate::measure_probe::since("ss.drop_reply_value", lap);
+    sent
 }
