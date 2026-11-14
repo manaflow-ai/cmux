@@ -117,7 +117,9 @@ fn cumulative_frame_ack_measures_rtt_for_socket_carriers() {
 
 #[test]
 fn bdp_window_covers_a_fifty_ms_path_at_sixty_fps() {
-    assert_eq!(cmux_rd_engine::frames_in_flight_for(50_000, 60), 4);
+    // Four frame intervals cover the 50 ms RTT; the helper adds one frame
+    // that is being encoded while the earlier frames await acknowledgement.
+    assert_eq!(cmux_rd_engine::frames_in_flight_for(50_000, 60), 5);
     assert_eq!(cmux_rd_engine::frames_in_flight_for(50_000, 30), 3);
 }
 
