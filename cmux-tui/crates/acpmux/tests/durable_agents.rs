@@ -21,6 +21,8 @@ mod carried_restart;
 mod daemon_env;
 #[path = "durable_agents/grant_cleared.rs"]
 mod grant_cleared;
+#[path = "durable_agents/host_reboot.rs"]
+mod host_reboot;
 #[path = "durable_agents/idle_adopted.rs"]
 mod idle_adopted;
 #[path = "durable_agents/late_hello_adoption.rs"]

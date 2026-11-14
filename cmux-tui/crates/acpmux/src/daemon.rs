@@ -16,7 +16,7 @@ mod log_cap;
 #[cfg(unix)]
 mod open_file_limit;
 #[cfg(unix)]
-use lock::live_holder_pid;
+pub(crate) use lock::live_holder_pid;
 #[cfg(unix)]
 pub(crate) use lock::socket_held_by_other;
 use lock::{
