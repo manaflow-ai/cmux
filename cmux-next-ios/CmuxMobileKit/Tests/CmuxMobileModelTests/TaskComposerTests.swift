@@ -554,11 +554,31 @@ import Testing
         var failures: [String] = []
         creator.onFailure = { _, message in failures.append(message) }
         creator.taskDraft = TaskDraft(prompt: "Ship it", picks: [TaskAgentPick(harness: "claude")], launch: .chat)
+        // Saved (as leaving the composer does): its removal is what Start waits for.
+        creator.saveTaskDraft()
+        await store.flush()
         creator.startTask(creator.taskDraft)
         await creator.settle()
         #expect(backend.requests.isEmpty)
         #expect(failures.count == 1)
         #expect(creator.taskDraft.prompt == "Ship it")
+    }
+
+    /// A draft never saved isn't on disk: nothing to wait for, so it starts.
+    @Test func aDraftNeverSavedStartsWhateverTheDisk() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("drafts-\(UUID().uuidString)")
+        try Data("x".utf8).write(to: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = TaskDraftStore(directory: root)
+        await store.load()
+        let backend = ScriptedBackend()
+        backend.creatable = ["mac-studio"]
+        backend.options = WorkspaceCreationOptions(directories: true, agents: [""], browser: true)
+        let defaults = try #require(UserDefaults(suiteName: "cmuxMobile.tests.unsaved.\(UUID().uuidString)"))
+        let creator = WorkspaceCreator(store: AppStore.mock(tabMemory: .inMemory()), backend: backend, defaults: defaults, taskDrafts: store)
+        creator.startTask(TaskDraft(prompt: "Ship it", picks: [TaskAgentPick(harness: "claude")], launch: .chat))
+        await creator.settle()
+        #expect(backend.requests.count == 1)
     }
 
     /// Fourth review 2026-11-14: a photo whose file can't be written is never dropped: the
