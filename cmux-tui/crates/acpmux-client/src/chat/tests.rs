@@ -239,12 +239,91 @@ fn a_page_names_its_place_and_the_core_fills_the_rest() {
         has_before: false,
         has_after: true,
         refused: vec![],
+        turns: false,
     };
     let changes = chat_changes(feed(&mut client, &Frame::json(FrameKind::Page, &reply).unwrap()));
     assert_eq!(changes, vec![ChatChange::Page { page: reply.clone() }]);
     // A reply with no page out is skipped and counted.
     assert!(feed(&mut client, &Frame::json(FrameKind::Page, &reply).unwrap()).is_empty());
     assert_eq!(client.skip_counters().unheld_sid, 1);
+}
+
+#[test]
+fn a_page_of_turns_is_one_page_out_and_names_no_fold() {
+    let mut client = open_chat();
+    let turns = ChatPageRequest {
+        sid: "c".into(),
+        before: Some(u64::MAX),
+        turns: true,
+        max_bytes: Some(4096),
+        ..Default::default()
+    };
+    let with_fold = ChatPageRequest { fold: Some(4), ..turns.clone() };
+    assert!(matches!(client.chat_page(with_fold), Err(FrameError::Refused(_))));
+    client.chat_page(turns.clone()).unwrap();
+    // One page a sub at a time, a page of turns or any other.
+    assert!(matches!(client.chat_page(turns), Err(FrameError::RequestInFlight)));
+    let other = ChatPageRequest { sid: "c".into(), after: Some(3), ..Default::default() };
+    assert!(matches!(client.chat_page(other.clone()), Err(FrameError::RequestInFlight)));
+    let page = sent(&mut client).pop().unwrap();
+    assert_eq!(page["method"], "page");
+    assert_eq!(page["params"]["turns"], true);
+    assert_eq!(page["params"]["before"], u64::MAX);
+    assert_eq!(page["params"]["maxBytes"], 4096);
+    assert!(page["params"].get("fold").is_none());
+    let reply = ChatPageResult {
+        sid: "c".into(),
+        edition: 1,
+        rows: vec![row(1), row(5)],
+        has_before: true,
+        has_after: false,
+        refused: vec![],
+        turns: true,
+    };
+    let changes = chat_changes(feed(&mut client, &Frame::json(FrameKind::Page, &reply).unwrap()));
+    assert_eq!(changes, vec![ChatChange::Page { page: reply }]);
+    // The slot is free again, and a page that is not of turns says nothing of them.
+    client.chat_page(other).unwrap();
+    assert!(sent(&mut client).pop().unwrap()["params"].get("turns").is_none());
+}
+
+#[test]
+fn a_page_of_turns_answered_by_a_daemon_from_before_turns_is_turns_unsupported() {
+    let mut client = open_chat();
+    let turns = ChatPageRequest {
+        sid: "c".into(),
+        before: Some(u64::MAX),
+        turns: true,
+        ..Default::default()
+    };
+    client.chat_page(turns.clone()).unwrap();
+    sent(&mut client);
+    // An older daemon reads `turns` as an ordinary page and answers rows, without `turns`.
+    let old = br#"{"sid":"c","edition":1,"rows":[{"id":9}],"hasBefore":true,"hasAfter":false}"#;
+    let frame = Frame::new(FrameKind::Page, old.to_vec()).unwrap();
+    let changes = chat_changes(feed(&mut client, &frame));
+    assert_eq!(
+        changes,
+        vec![ChatChange::Error {
+            sid: Some("c".into()),
+            method: "page".into(),
+            id: None,
+            code: "turns_unsupported".into(),
+        }]
+    );
+    // The slot is free again; an ordinary page's reply without `turns` is a page.
+    let other = ChatPageRequest { sid: "c".into(), after: Some(3), ..Default::default() };
+    client.chat_page(other).unwrap();
+    sent(&mut client);
+    let changes = chat_changes(feed(&mut client, &frame));
+    assert!(matches!(changes.as_slice(), [ChatChange::Page { page }] if !page.turns));
+    // A turns page answered with `turns: true` is a page.
+    client.chat_page(turns).unwrap();
+    sent(&mut client);
+    let new = br#"{"sid":"c","edition":1,"rows":[{"id":9}],"hasBefore":true,"hasAfter":false,"turns":true}"#;
+    let changes =
+        chat_changes(feed(&mut client, &Frame::new(FrameKind::Page, new.to_vec()).unwrap()));
+    assert!(matches!(changes.as_slice(), [ChatChange::Page { page }] if page.turns));
 }
 
 #[test]
@@ -483,16 +562,80 @@ fn a_list_sub_and_a_chat_sub_share_one_handle() {
 }
 
 #[test]
-fn bounds_skip_and_count_and_never_panic() {
+fn a_window_over_the_bound_ends_the_sub_and_a_page_over_it_does_not() {
     let mut client = open_chat();
-    // A window over 400 rows.
-    let changes = chat_changes(feed(&mut client, &window("c", 900, 1, 0..401)));
+    client
+        .chat_page(ChatPageRequest { sid: "c".into(), before: Some(1), ..Default::default() })
+        .unwrap();
+    sent(&mut client);
+    let reply = ChatPageResult {
+        sid: "c".into(),
+        edition: 1,
+        rows: (0..401).map(row).collect(),
+        has_before: false,
+        has_after: true,
+        refused: vec![],
+        turns: false,
+    };
+    let page = Frame::json(FrameKind::Page, &reply).unwrap();
+    let changes = chat_changes(feed(&mut client, &page));
     assert!(matches!(
         changes.as_slice(),
-        [ChatChange::Error { code, .. }] if code == "over_bound"
+        [ChatChange::Error { method, code, .. }] if method == "page" && code == "over_bound"
     ));
-    assert_eq!(client.skip_counters().over_bound, 1);
-    assert_eq!(cursor(&client, "c"), 10);
+    assert!(client.chats.contains_key("c"));
+    assert!(sent(&mut client).iter().all(|request| request["method"] != "unsub"));
+
+    let changes = chat_changes(feed(&mut client, &window("c", 900, 2, 0..401)));
+    assert_eq!(
+        changes,
+        vec![ChatChange::Error {
+            sid: Some("c".into()),
+            method: "sub".into(),
+            id: None,
+            code: "over_bound".into(),
+        }]
+    );
+    assert_eq!(client.skip_counters().over_bound, 2);
+    assert!(!client.chats.contains_key("c"));
+    let requests = sent(&mut client);
+    assert!(requests.contains(&json!({"method":"unsub","params":{"sid":"c"}})), "{requests:?}");
+    // Its later frames are another sid's, and a reconnect subscribes nothing.
+    assert!(feed(&mut client, &delta("c", None, vec![settled(901, 1)])).is_empty());
+    client.disconnected();
+    sent(&mut client);
+    let hello = hello(Limits::default());
+    assert_eq!(client.received(&hello), hello.len());
+    assert!(sent(&mut client).iter().all(|request| request["method"] != "sub"));
+}
+
+#[test]
+fn a_change_waiting_across_a_reconnect_is_given_once() {
+    let mut client = open_chat();
+    let bytes = delta("c", None, vec![settled(11, 11)]).encode();
+    assert_eq!(client.received(&bytes), bytes.len());
+    client.disconnected();
+    client.connected();
+    let changes: Vec<Change<Value>> = std::iter::from_fn(|| client.next_change()).collect();
+    assert!(
+        matches!(
+            chat_changes(changes).as_slice(),
+            [ChatChange::Op { op: ChatOp::Row { seq: 11, .. }, .. }]
+        ),
+        "given once"
+    );
+    sent(&mut client);
+    let hello = hello(Limits::default());
+    assert_eq!(client.received(&hello), hello.len());
+    let requests = sent(&mut client);
+    let sub = requests.iter().find(|request| request["method"] == "sub").unwrap();
+    assert_eq!(sub["params"]["cursor"], 11);
+    assert!(client.next_change().is_none());
+}
+
+#[test]
+fn bounds_skip_and_count_and_never_panic() {
+    let mut client = open_chat();
     // An op the core does not know, one with no seq, and the known ones beside them.
     let frame = Frame::json(
         FrameKind::Delta,
@@ -662,4 +805,157 @@ fn v2_pr06_client_chat_change_gate() {
         "name":"v2.pr06.client_chat_change","small_p95":small,"god_p95":god,"unit":"ns"
     }));
     assert!(god as f64 <= small as f64 * 1.2, "god p95 {god} ns, small {small} ns");
+}
+
+/// A handle naming list and chat, its upgrade sent, and the id it went under.
+fn upgrading() -> (Client<Value>, Value) {
+    let mut client = Client::<Value>::new(["list", "chat"]);
+    client.connected();
+    let line = client.take_send().unwrap();
+    let request: Value = serde_json::from_slice(&line).unwrap();
+    (client, request["id"].clone())
+}
+
+/// Feeds the upgrade's reply and gives the changes it made.
+fn answer(client: &mut Client<Value>, reply: &Value) -> Vec<Change<Value>> {
+    let mut line = serde_json::to_vec(reply).unwrap();
+    line.push(b'\n');
+    assert_eq!(client.received(&line), line.len());
+    std::iter::from_fn(|| client.next_change()).collect()
+}
+
+fn surface_off(sid: &str) -> Change<Value> {
+    Change::Chat(ChatChange::Error {
+        sid: Some(sid.into()),
+        method: "sub".into(),
+        id: None,
+        code: "surface_off".into(),
+    })
+}
+
+/// Answers `hello` and gives the methods and sids sent after it.
+fn subs_after_hello(client: &mut Client<Value>) -> Vec<(String, String)> {
+    sent(client);
+    let hello = hello(Limits::default());
+    assert_eq!(client.received(&hello), hello.len());
+    sent(client)
+        .into_iter()
+        .map(|request| {
+            let sid = request["params"]["sid"].as_str().unwrap_or_default().to_owned();
+            (request["method"].as_str().unwrap().to_owned(), sid)
+        })
+        .collect()
+}
+
+#[test]
+fn a_chat_sub_on_a_surface_not_granted_ends_and_the_list_goes_on() {
+    let (mut client, id) = upgrading();
+    client.subscribe(Sub::new("l", "list")).unwrap();
+    subscribe(&mut client, "c");
+    let changes = answer(
+        &mut client,
+        &json!({"jsonrpc":"2.0","id":id,"result":{"protocol":2,"surfaces":["list"],"upgrade":true}}),
+    );
+    assert_eq!(changes, vec![surface_off("c")]);
+    assert!(!client.chats.contains_key("c"));
+    assert_eq!(subs_after_hello(&mut client), vec![("sub".to_owned(), "l".to_owned())]);
+    // A sub made after the upgrade gets the same change and sends nothing.
+    subscribe(&mut client, "c2");
+    assert_eq!(
+        std::iter::from_fn(|| client.next_change()).collect::<Vec<_>>(),
+        vec![surface_off("c2")]
+    );
+    assert!(client.take_send().is_none());
+    assert!(client.chats.is_empty());
+}
+
+#[test]
+fn a_reply_naming_no_surfaces_grants_all_the_handle_named() {
+    let (mut client, id) = upgrading();
+    client.subscribe(Sub::new("l", "list")).unwrap();
+    subscribe(&mut client, "c");
+    let changes = answer(&mut client, &json!({"jsonrpc":"2.0","id":id,"result":{"upgrade":true}}));
+    assert!(changes.is_empty(), "{changes:?}");
+    let mut subs = subs_after_hello(&mut client);
+    subs.sort();
+    assert_eq!(subs, vec![("sub".to_owned(), "c".to_owned()), ("sub".to_owned(), "l".to_owned())]);
+}
+
+#[test]
+fn a_fallback_ends_each_chat_sub_first_and_keeps_the_list() {
+    let (mut client, id) = upgrading();
+    subscribe(&mut client, "b");
+    client.subscribe(Sub::new("l", "list")).unwrap();
+    subscribe(&mut client, "a");
+    let changes = answer(
+        &mut client,
+        &json!({"jsonrpc":"2.0","id":id,"error":{"code":-32601,"message":"Method not found"}}),
+    );
+    // In order of sid, then the fallback.
+    assert_eq!(changes, vec![surface_off("a"), surface_off("b"), Change::Fallback(Vec::new())]);
+    assert!(client.is_fallback());
+    assert!(client.subscriptions.contains_key("l"));
+    assert!(client.chats.is_empty());
+
+    subscribe(&mut client, "c");
+    assert_eq!(
+        std::iter::from_fn(|| client.next_change()).collect::<Vec<_>>(),
+        vec![surface_off("c")]
+    );
+    assert!(client.take_send().is_none());
+    assert!(client.chats.is_empty());
+
+    client.disconnected();
+    client.connected();
+    let line = client.take_send().unwrap();
+    let request: Value = serde_json::from_slice(&line).unwrap();
+    let changes = answer(
+        &mut client,
+        &json!({"jsonrpc":"2.0","id":request["id"],"result":{"upgrade":true,"surfaces":["list","chat"]}}),
+    );
+    assert!(changes.is_empty(), "{changes:?}");
+    subs_after_hello(&mut client);
+    subscribe(&mut client, "c");
+    let requests = sent(&mut client);
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    assert_eq!(requests[0]["method"], "sub");
+    assert_eq!(requests[0]["params"]["sid"], "c");
+}
+
+#[test]
+fn a_blob_goes_out_under_the_id_named_or_one_made_past_those_held() {
+    let mut client = open_chat();
+    let ask = |id: Option<&str>| ChatBlobRequest {
+        sid: "c".into(),
+        id: id.map(str::to_owned),
+        row_id: Some(7),
+        len: 8,
+        ..Default::default()
+    };
+    assert_eq!(client.chat_blob(ask(Some("mine"))).unwrap(), "mine");
+    let request = sent(&mut client).pop().unwrap();
+    assert_eq!(request["params"]["id"], "mine");
+    assert!(matches!(
+        client.chat_blob(ask(Some("mine"))),
+        Err(FrameError::Refused("the blob id is held"))
+    ));
+    assert!(sent(&mut client).is_empty());
+    assert!(matches!(
+        client.chat_blob(ask(Some("x".repeat(1000).as_str()))),
+        Err(FrameError::InvalidLength(_))
+    ));
+
+    let next = format!("b{}", client.next_id);
+    assert_eq!(client.chat_blob(ask(Some(next.as_str()))).unwrap(), next);
+    let made = client.chat_blob(ask(None)).unwrap();
+    assert_eq!(made, format!("b{}", client.next_id - 1));
+    assert_ne!(made, next);
+    sent(&mut client);
+
+    // The first `mine` is still the one pending: its reply is a chatBlob naming it.
+    let reply = blob_frame(&blob_head("mine", 0, 2, 2), b"ab").unwrap();
+    let changes = chat_changes(feed(&mut client, &reply));
+    let [ChatChange::Blob { head, .. }] = changes.as_slice() else { panic!("{changes:?}") };
+    assert_eq!(head.id, "mine");
+    assert_eq!(client.blobs.len(), 2);
 }

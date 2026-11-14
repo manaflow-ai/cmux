@@ -7,6 +7,11 @@ public import CmuxNextSettings
 public import Foundation
 import os
 
+public enum DeviceHubCaptureCleanupPhase: String, Sendable {
+    case prepare
+    case cleanup
+}
+
 /// The device hub for this app (docs/device-hub/PROTOCOL.md): made when
 /// the cmux account is signed in, at the build's built-in hub address (DEV
 /// builds: the dev hub, unless `deviceHub.url` overrides it), started on
@@ -58,6 +63,18 @@ public final class DeviceHubService {
     private var watch: Task<Void, Never>?
     /// Follows the running hub's socket: another device removed this Mac.
     private var removalWatch: Task<Void, Never>?
+    private struct TrackedTask {
+        let task: Task<Void, Never>
+        let completion: Task<Void, Never>
+    }
+    /// Active identity loads only; completed tasks remove themselves.
+    private var loadingCompletions: [UUID: TrackedTask] = [:]
+    /// Active hub sign-out/reset tasks only; completed tasks remove themselves.
+    private var stopCompletions: [UUID: TrackedTask] = [:]
+    /// Active hub starts only; cleanup cancels and joins these before stopping.
+    private var hubStartCompletions: [UUID: TrackedTask] = [:]
+    /// Fences observation callbacks and reconciliation during lease cleanup.
+    private var captureCleanupActive = false
     /// Loads this Mac's identity off the main thread, then installs the hub.
     private var loading: Task<Void, Never>?
     /// What `loading` is making a hub for.
@@ -66,7 +83,7 @@ public final class DeviceHubService {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "device-hub")
     /// cmux Remote serves this Mac (docs/cmux-remote.md): the hub for an address and account,
     /// with the worker's device identity and push relay, or nil to use this app's own. The App sets it.
-    public var makeRemoteHub: (@MainActor (URL, String) async -> DeviceHub?)?
+    public var makeRemoteHub: (@MainActor (URL, String) async throws -> DeviceHub?)?
     /// The running hub, its account and address after every change (the App anchors cmux Remote).
     public var hubChanged: (@MainActor (DeviceHub?, String?, URL?) -> Void)?
 
@@ -83,6 +100,11 @@ public final class DeviceHubService {
         self.loginKeychain = loginKeychain
         self.bundleIdentifier = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
         settingsModel = MacScreenDevicesSettings(pages: pages)
+        pages.captureCleanup = { [weak self] phase, leaseID, bundleID in
+            guard let self else { return .failure(.hubNotQuiescent) }
+            return await self.captureCleanup(phase: phase, leaseID: leaseID,
+                                             requestedBundleIdentifier: bundleID)
+        }
         settingsModel.canSignIn = { [weak self] in self?.leftHub ?? false }
         settingsModel.signIn = { [weak self] in
             guard let self else { return }
@@ -128,6 +150,7 @@ public final class DeviceHubService {
     }
 
     private func reconcile() {
+        guard !captureCleanupActive else { return }
         guard let url, let user, !leftHub else {
             stopHub(endingSessions: true)
             return
@@ -155,7 +178,7 @@ public final class DeviceHubService {
             // wakeup-allow: every failed identity attempt suspends for Rust backoff (at least 0.8s); success/cancellation exits; no identity-ready event exists.
             while !Task.isCancelled, self?.loadingID == id {
                 do {
-                    let remote = await makeRemoteHub?(url, user)
+                    let remote = try await makeRemoteHub?(url, user)
                     guard !Task.isCancelled, self?.loadingID == id else { return }
                     let hub: DeviceHub
                     if let remote { hub = remote } else {
@@ -185,6 +208,7 @@ public final class DeviceHubService {
 
     /// Platform error codes only: diagnostics must never include tokens or key material.
     private static func startupError(_ error: any Error) -> String {
+        if case .configurationTimeout? = error as? CmuxRemoteError { return "device_hub_configuration_timeout" }
         switch error as? DeviceIdentity.Failure {
         case .secureEnclaveUnavailable: return "device_identity_secure_enclave_unavailable"
         case let .keychain(status): return "device_identity_keychain_\(status)"
@@ -198,7 +222,7 @@ public final class DeviceHubService {
         running = (url, user)
         pages.hub = hub
         // task-owner: one registration and socket start; stop() cancels the socket
-        Task { await hub.start() }
+        trackHubStart(Task { await hub.start() })
         // task-owner: DeviceHubService.removalWatch: lives with this hub; stopHub cancels it
         removalWatch = Task { [weak self] in
             for await removed in ObservationStream({ hub.connection == .removed }) where removed {
@@ -219,6 +243,43 @@ public final class DeviceHubService {
         stopHub(endingSessions: true)
     }
 
+    /// DEBUG capture namespace cleanup. This never participates in normal
+    /// sign-out or identity renewal: the caller must have signed out first,
+    /// and cleanup fails while the hub or an identity load is still present.
+    public func captureCleanup(phase: DeviceHubCaptureCleanupPhase, leaseID: String,
+                               requestedBundleIdentifier: String) async -> DeviceHubCaptureCleanupResult {
+        #if DEBUG
+        guard requestedBundleIdentifier == bundleIdentifier else { return .failure(.bundleMismatch) }
+        guard !captureCleanupActive else { return .failure(.hubNotQuiescent) }
+        captureCleanupActive = true
+        defer { captureCleanupActive = false }
+        loading?.cancel()
+        for completion in loadingCompletions.values.map(\.completion) { await completion.value }
+        loadingCompletions.removeAll()
+        for tracked in hubStartCompletions.values { tracked.task.cancel() }
+        for completion in hubStartCompletions.values.map(\.completion) { await completion.value }
+        hubStartCompletions.removeAll()
+        for completion in stopCompletions.values.map(\.completion) { await completion.value }
+        stopCompletions.removeAll()
+        loading = nil
+        loadingFor = nil
+        guard hub == nil, loading == nil else { return .failure(.hubNotQuiescent) }
+        let namespace = CaptureKeychainNamespace()
+        switch phase {
+        case .prepare:
+            return await Task.detached(priority: .utility) { [bundleIdentifier, loginKeychain] in
+                namespace.prepare(bundleIdentifier: bundleIdentifier, leaseID: leaseID, loginKeychain: loginKeychain)
+            }.value
+        case .cleanup:
+            return await Task.detached(priority: .utility) { [bundleIdentifier, loginKeychain] in
+                namespace.cleanup(bundleIdentifier: bundleIdentifier, leaseID: leaseID, loginKeychain: loginKeychain)
+            }.value
+        }
+        #else
+        return .failure(.unavailable)
+        #endif
+    }
+
     /// Signed out (or another account, address or a removal): this Mac's
     /// sessions end here at once, and the hub hears why in the background
     /// (one device sign-out, `signed_out`, while the hub session still
@@ -233,7 +294,15 @@ public final class DeviceHubService {
         pages.hubStartupError = nil
         removalWatch?.cancel()
         removalWatch = nil
-        guard let hub else { return }
+        for tracked in hubStartCompletions.values { tracked.task.cancel() }
+        let starts = Array(hubStartCompletions.values)
+        guard let hub else {
+            guard !starts.isEmpty else { return }
+            trackStop(Task {
+                for start in starts { await start.completion.value }
+            })
+            return
+        }
         self.hub = nil
         running = nil
         hubChanged?(nil, nil, nil)
@@ -241,12 +310,18 @@ public final class DeviceHubService {
         let ids = Set(hub.tickets.keys).union(pages.hubHost.session.map { [$0.id] } ?? [])
         pages.hub = nil
         guard endingSessions else {
-            hub.stop()
+            trackStop(Task {
+                await hub.freezeForCapture()
+                for start in starts { await start.completion.value }
+                await hub.stopAndWait()
+            })
             logger.info("device hub stopped")
             return
         }
         // task-owner: the sign-out call (an older hub: one /end per session), then the stop
-        Task {
+        let completion = Task {
+            await hub.freezeForCapture()
+            for start in starts { await start.completion.value }
             do { try await hub.signOutDevice() } catch {
                 await withTaskGroup(of: Void.self) { group in
                     for id in ids {
@@ -254,8 +329,36 @@ public final class DeviceHubService {
                     }
                 }
             }
-            hub.stop()
+            await hub.stopAndWait()
         }
+        trackStop(completion)
         logger.info("device hub signing out")
+    }
+
+    private func trackLoading(_ task: Task<Void, Never>) {
+        let id = UUID()
+        let completion = Task { [weak self] in
+            await task.value
+            self?.loadingCompletions.removeValue(forKey: id)
+        }
+        loadingCompletions[id] = TrackedTask(task: task, completion: completion)
+    }
+
+    private func trackHubStart(_ task: Task<Void, Never>) {
+        let id = UUID()
+        let completion = Task { [weak self] in
+            await task.value
+            self?.hubStartCompletions.removeValue(forKey: id)
+        }
+        hubStartCompletions[id] = TrackedTask(task: task, completion: completion)
+    }
+
+    private func trackStop(_ task: Task<Void, Never>) {
+        let id = UUID()
+        let completion = Task { [weak self] in
+            await task.value
+            self?.stopCompletions.removeValue(forKey: id)
+        }
+        stopCompletions[id] = TrackedTask(task: task, completion: completion)
     }
 }

@@ -268,6 +268,10 @@ public final class LiveCoordinator {
             if !summary.macID.isEmpty, owner?.link.target == nil { self.touch(summary.macID) }
             var scoped = summary
             scoped.accountID = self.userID
+            // A terminal tab's chat face names its acpmux session itself (Toggle Terminal and Chat).
+            if let owner, let session = summary.acpmuxSessionID {
+                return self.agentSource(owner, session: session, summary: scoped)
+            }
             let key = AgentSessionDirectory.key(id: summary.id, macID: summary.macID)
             // A tab of a workspace this phone is still creating (New Task, New Agent Chat): the Mac
             // is starting its chat, which opens under the Mac's own tab id once listed. It loads

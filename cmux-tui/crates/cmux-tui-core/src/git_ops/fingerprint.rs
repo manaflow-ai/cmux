@@ -2,11 +2,12 @@
 //! equal, for a view that asks every few seconds if its diff is still current.
 //!
 //! The answer is made from what the diff is made from, never from the diff:
-//! HEAD, the base (the branch scope), the diff settings, and each changed or
-//! untracked file's modes, blob ids and content hash. One `git status` run
-//! lists them; no run makes a patch. A file's content hash is kept by its stat
-//! entry (`content`), so a read of an unchanged work tree reads no file, and a
-//! file whose time stamp alone moved gives the same digits.
+//! the top folder's path, HEAD, the base (the branch scope), the diff settings,
+//! and each changed or untracked file's modes, blob ids and content hash. One
+//! `git status` run lists them; no run makes a patch. A file's content hash is
+//! kept by its stat entry (`content`), so a read of an unchanged work tree
+//! reads no file, and a file whose time stamp alone moved gives the same
+//! digits.
 //!
 //! The work tree is HEAD's tree plus the listed entries, so a file that
 //! `git status` does not list is covered by HEAD's id.

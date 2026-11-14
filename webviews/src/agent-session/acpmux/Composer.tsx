@@ -55,7 +55,7 @@ import { newSlotMemory, type SlotMemory } from "./composer/sendSlotGlyphModel";
 import { isActive, type Dictation } from "./dictation";
 import { DictationStrip } from "./DictationListening";
 import { FileSearch } from "./FileSearch";
-import { PromptFocus } from "./promptFocus";
+import { PromptFocusProvider } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { MentionMenu } from "./MentionMenu";
 import { markdownOffset, mentionQuery, mentionResults, useMentionSearch } from "./mentionMenuModel";
@@ -89,6 +89,7 @@ import {
   shownName,
   slashMatches,
   useSlashNames,
+  insertsText,
   pickedSkillsOf,
   withSkillDollars,
   withoutSkillDollars,
@@ -1461,7 +1462,7 @@ function ComposerFrame({
     setRecentCommandNames(rememberRecentCommand(command.name));
     notePicked(command);
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
-    if (field.current?.insertCommand(shownName(command))) {
+    if (field.current?.insertCommand(shownName(command), insertsText(command) ? command.insert : undefined)) {
       field.current.focus();
       return;
     }
@@ -3002,10 +3003,10 @@ function ComposerFrame({
           </>
         }
         chips={
-          <PromptFocus value={focusPrompt}>
+          <PromptFocusProvider focus={focusPrompt}>
             <Chips snapshot={snapshot} />
             <MachineLinkStatus link={machineLink} onReconnect={onReconnectMachine} />
-          </PromptFocus>
+          </PromptFocusProvider>
         }
         // The context ring sits left of the model chip (composerLocation.css; Lucas 2026-11-11).
         // A new chat has no ring: it shows from the first send (chatHasFirstSend, locationRow.ts),
@@ -3192,7 +3193,9 @@ function SlashMenu({
                   ? t("composer.slashSkill")
                   : match.command.source === "prompt"
                     ? t("composer.slashPrompt")
-                    : "cmux"}
+                    : match.command.source === "extension"
+                      ? (match.command.extension ?? "cmux")
+                      : "cmux"}
               </span>
             )}
             <span className="acpmux-slash-description">
