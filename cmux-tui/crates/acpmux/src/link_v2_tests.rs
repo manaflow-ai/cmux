@@ -842,7 +842,7 @@ async fn a_link_row_carries_what_v1_watch_gives_the_same_peer() {
     assert_eq!(new["chatId"], old["sessionId"]);
     assert_eq!(new["title"], old["title"], "titles: link {new} v1 {old}");
     assert_eq!(new["harness"], old["harness"]);
-    assert_eq!(new["state"], old.get("state").unwrap_or(&old["status"]));
+    assert_eq!(&new["state"], old.get("state").unwrap_or(&old["status"]));
     assert_eq!(new["lastActivity"], old["updatedAt"]);
     let extra = new["extra"].as_object().expect("the row carries extra");
     assert!(!extra.is_empty());

@@ -472,7 +472,7 @@ pub struct HubWriter {
     /// Runs in a turn after the index is published and before its op is in
     /// the histories: where a wake can reach a reader first.
     #[cfg(test)]
-    before_record: Mutex<Option<Box<dyn FnMut(u64) + Send>>>,
+    before_record: Mutex<Option<RecordHook>>,
     compaction: Option<compaction::Job>,
     retirement: Option<tokio::task::JoinHandle<()>>,
     maintenance: Option<compaction::Maintenance>,
@@ -1319,6 +1319,10 @@ impl Hub {
         HubError::page_error(error)
     }
 }
+
+/// What a test runs between a turn's publish and its history record.
+#[cfg(test)]
+type RecordHook = Box<dyn FnMut(u64) + Send>;
 
 static EXTRA_PARSES: AtomicU64 = AtomicU64::new(0);
 
