@@ -80,6 +80,12 @@ pub struct MachineCredential {
     /// (cmux-platform#1015), so it states it with its own credential (`self_capabilities.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
+    /// The box that found this record copied and gave itself a fresh node key (its
+    /// `host_fingerprint`). A `cloned` record on any other box is a copy of that copy, its node
+    /// key the settling box's: found and settled again. None on a record settled before it
+    /// existed: the next start on the box it runs on takes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloned_on: Option<String>,
 }
 
 /// The capability that says this machine's acpmux runs the vault's egress proxy: the hub then
@@ -115,12 +121,6 @@ impl Report {
     fn from_json(json_out: bool) -> Self {
         if json_out { Self::Json } else { Self::Text }
     }
-    /// The box that found this record copied and gave itself a fresh node key (its
-    /// `host_fingerprint`). A `cloned` record on any other box is a copy of that copy, its node
-    /// key the settling box's: found and settled again. None on a record settled before it
-    /// existed: the next start on the box it runs on takes it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cloned_on: Option<String>,
 }
 
 /// A hub-supplied id the store keeps: non-empty, one line, and no secret-shaped text.
