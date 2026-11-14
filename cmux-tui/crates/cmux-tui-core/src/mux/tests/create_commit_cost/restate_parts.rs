@@ -416,7 +416,9 @@ fn the_check_after_the_parts_sees_a_value_that_no_commit_stated() {
 /// the worker that is alive at the sleep makes each try fail: one thread does not take a lock
 /// two times. The assert has no clock in it. A try can fail for a moment when another thread
 /// of the mux holds the lock, so each lock is tried again, at most 10,000 times with a yield
-/// between; a guard of the worker itself fails each of them.
+/// between; a guard of the worker itself fails each of them. The worker pauses after each of
+/// its 2 parts; a step that stands back for a locker that waits is one more pause, so the count
+/// is at least 2.
 #[test]
 fn the_worker_holds_no_lock_while_it_stays_away() {
     let mux = without_crosscheck(|| session_in(test_mux(), 10));
@@ -444,7 +446,7 @@ fn the_worker_holds_no_lock_while_it_stays_away() {
     worker.join().unwrap();
 
     let seen = seen.lock().unwrap().clone();
-    assert_eq!(seen.len(), 2, "one pause after each of the 2 parts: {seen:?}");
+    assert!(seen.len() >= 2, "no pause after each of the 2 parts: {seen:?}");
     for (pause, registry, state) in &seen {
         assert!(!pause.is_zero(), "a pause of no length: {seen:?}");
         assert!(*registry, "the worker held the registry lock at its pause: {seen:?}");
