@@ -3321,6 +3321,119 @@ tail"#;
     }
 
     #[test]
+    fn mirror_parent_refresh_batches_only_its_held_children() {
+        for total in [20, 500] {
+            let mut client = Client::<Value>::connected_v2();
+            let hello = Frame::json(
+                FrameKind::Hello,
+                &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+            )
+            .unwrap()
+            .encode();
+            client.received(&hello);
+            while client.take_send().is_some() {}
+            let mut sub = Sub::new("m", "list");
+            sub.rows = Some("v1".into());
+            client.subscribe_mirror(sub, std::iter::empty(), false).unwrap();
+            let _ = client.take_send();
+
+            let mut parent = Summary::new("parent");
+            parent.state = "idle".into();
+            let mut rows = vec![serde_json::to_value(&parent).unwrap()];
+            for index in 0..total {
+                let mut row = Summary::new(format!("chat-{index}"));
+                row.state = "idle".into();
+                if index < 3 {
+                    row.parent = Some(parent.key());
+                }
+                rows.push(serde_json::to_value(row).unwrap());
+            }
+            let window = Frame::json(
+                FrameKind::Window,
+                &serde_json::json!({
+                    "sid":"m","cursor":1,"rows":rows,
+                    "hasBefore":false,"hasAfter":false,"edition":1
+                }),
+            )
+            .unwrap()
+            .encode();
+            client.received(&window);
+            assert!(matches!(client.next_change(), Some(Change::Window(_))));
+            let _ = client.take_send().expect("first walk page");
+            finish_empty_walk(&mut client);
+
+            let mut archived = parent.clone();
+            archived.archived = true;
+            let changes = receive_changes(
+                &mut client,
+                FrameKind::Delta,
+                serde_json::json!({
+                    "sid":"m","ops":[{"op":"summary","seq":2,"summary":archived}]
+                }),
+            );
+            assert!(matches!(changes.as_slice(), [Change::Summary { .. }]));
+            let reads = take_pages(&mut client);
+            assert_eq!(reads.len(), 1);
+            assert_eq!(
+                reads[0].pointer("/params/keys").and_then(Value::as_array).map(Vec::len),
+                Some(3)
+            );
+        }
+    }
+
+    #[test]
+    fn caller_wanted_keys_have_priority_over_internal_parents() {
+        let mut client = ready_mirror();
+        {
+            let mirror = client.subscriptions.get_mut("m").unwrap().mirror.as_mut().unwrap();
+            for index in 0..4096 {
+                let id = ("local".to_owned(), format!("parent-{index}"));
+                let key = ListKey {
+                    last_activity: index as u64,
+                    chat_id: id.1.clone(),
+                    origin: id.0.clone(),
+                };
+                mirror.wanted.insert(id.clone(), key);
+                mirror.internal_wanted.insert(id);
+            }
+        }
+        let caller_key =
+            ListKey { last_activity: 1, chat_id: "caller".into(), origin: "local".into() };
+        client.want("m", [caller_key.clone()]).unwrap();
+        let mirror = client.subscriptions["m"].mirror.as_ref().unwrap();
+        assert!(mirror.caller_wanted.contains(&Client::<Value>::row_identity(&caller_key)));
+        assert!(mirror.wanted.contains_key(&Client::<Value>::row_identity(&caller_key)));
+        assert_eq!(mirror.wanted.len(), 4096);
+
+        let mut all_caller = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        all_caller.received(&hello);
+        while all_caller.take_send().is_some() {}
+        all_caller.subscribe_mirror(Sub::new("m", "list"), std::iter::empty(), false).unwrap();
+        let _ = all_caller.take_send();
+        {
+            let mirror = all_caller.subscriptions.get_mut("m").unwrap().mirror.as_mut().unwrap();
+            for index in 0..4096 {
+                let id = ("local".to_owned(), format!("caller-{index}"));
+                let key = ListKey {
+                    last_activity: index as u64,
+                    chat_id: id.1.clone(),
+                    origin: id.0.clone(),
+                };
+                mirror.wanted.insert(id.clone(), key);
+                mirror.caller_wanted.insert(id);
+            }
+        }
+        let extra = ListKey { last_activity: 0, chat_id: "extra".into(), origin: "local".into() };
+        assert!(all_caller.want("m", [extra]).is_err());
+    }
+
+    #[test]
     fn wanted_page_rest_is_requested_until_answered() {
         let mut client = Client::<Value>::connected_v2();
         let hello = Frame::json(
