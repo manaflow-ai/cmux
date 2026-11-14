@@ -570,6 +570,8 @@ pub enum ResourceOperation {
     ConductorImportPlan,
     #[serde(rename = "conductor_import.record")]
     ConductorImportRecord,
+    #[serde(rename = "browser_import.read")]
+    BrowserImportRead,
     #[serde(rename = "cloud.vm.scp_endpoint")]
     CloudVmScpEndpoint,
     #[serde(rename = "cloud.vm.tunnel_enroll")]

@@ -40,6 +40,10 @@ impl std::fmt::Display for OpenError {
 
 impl std::error::Error for OpenError {}
 
+/// What [`Repository::open`] says of a work tree that it does not open
+/// because its top folder's name is not UTF-8.
+const TOP_FOLDER_NOT_UTF8: &str = "the work tree's top folder has a name that is not UTF-8";
+
 impl Repository {
     /// The repository `directory` is in.
     pub fn open(directory: &Path) -> Result<Self, OpenError> {
@@ -75,10 +79,19 @@ impl Repository {
             }
             Err(failure) => return Err(OpenError::Git(failure)),
         };
-        let root = String::from_utf8_lossy(&output.stdout).trim_end_matches('\n').to_string();
+        // git ends the line with one line break. The top folder's name can
+        // end with a line break too: no more is taken off.
+        let root = output.stdout.as_slice();
+        let root = root.strip_suffix(b"\n").unwrap_or(root);
         if root.is_empty() {
             return Err(OpenError::NotARepository);
         }
+        // The top folder is text for each user of it (a reply, a key). A
+        // name that is not UTF-8 has no such text, and a text with other
+        // characters in its place is the name of another folder: refused.
+        let Ok(root) = std::str::from_utf8(root) else {
+            return Err(OpenError::Git(GitFailure::Exit(TOP_FOLDER_NOT_UTF8.to_string())));
+        };
         Ok(Self { root: PathBuf::from(root), overrides: Vec::new(), deadline })
     }
 

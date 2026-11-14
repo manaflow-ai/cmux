@@ -127,6 +127,7 @@ mod launch_roots;
 mod launchers;
 pub mod lineage;
 pub(crate) mod list_guard;
+pub(crate) mod list_tee;
 mod live_ages;
 #[cfg(test)]
 mod live_ages_tests;
@@ -1555,9 +1556,9 @@ impl Hub {
             // one built outside Tokio keeps a unique Arc, so a test can set fields first.
             let weak = Arc::downgrade(&hub);
             let written: peer_snapshot::Written =
-                Arc::new(move |key, generation, link, records| {
+                Arc::new(move |key, generation, link, records, since| {
                     weak.upgrade().is_none_or(|hub| {
-                        hub.proof_written(&key.0, &key.1, (generation, link), &records)
+                        hub.proof_written(&key.0, &key.1, (generation, link), &records, since)
                     })
                 });
             *hub.peer_snapshots.written.lock().unwrap_or_else(|e| e.into_inner()) = Some(written);
@@ -1751,7 +1752,7 @@ impl Hub {
         // A session read from the store may be another row's parent: every closed row is built
         // again, and no cursor from before it is followed (`Events::changed`), which costs one
         // barrier, not a walk of every session per session read at start.
-        self.events.changed();
+        self.events.changed(Some(&session));
     }
 
     /// Wait until every chat log is read, or their load failed (immediate outside a deferred
@@ -2119,6 +2120,12 @@ impl Hub {
     /// Every session, in no order and with no metadata read.
     pub(crate) fn session_handles(&self) -> Vec<Arc<Session>> {
         self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect()
+    }
+
+    /// Connect the optional v2 list tee. The v1 event path remains unchanged when no tee is
+    /// installed, which is the default for an empty `acpmux.v2` setting.
+    pub(crate) fn install_v2_tee(&self, tee: Arc<list_tee::TeeHandle>) {
+        self.events.install_tee(tee);
     }
 
     pub(crate) fn session_count(&self) -> usize {

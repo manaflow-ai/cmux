@@ -52,9 +52,9 @@ on:
         required: false
         default: ""
       target:
-        description: "capture: the staging capture account. production: the production probe account. production-team: the production probe's shared-team account. journey-production: the production Cloud journey's account (both cloud-vm-production). journey-guest: the second staging account for two-account tests. platform-staging, platform-production: cmux-platform's deploy journeys"
+        description: "capture: the staging capture account. production: the production probe account. production-team: the production probe's shared-team account. journey: the staging Cloud journey's account (cmux-next-vm-image-dev and cmux-next-cloud-journey). journey-production: the production Cloud journey's account (both cloud-vm-production). journey-guest: the second staging account for two-account tests. platform-staging, platform-production: cmux-platform's deploy journeys"
         type: choice
-        options: [capture, production, production-team, journey-production, journey-guest, platform-staging, platform-production]
+        options: [capture, production, production-team, journey, journey-production, journey-guest, platform-staging, platform-production]
         default: capture
       team_only:
         description: "With target production-team: only make the existing account a member of the company team (no rotation, no bundle)"

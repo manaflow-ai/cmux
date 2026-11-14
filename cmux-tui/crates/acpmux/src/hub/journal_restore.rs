@@ -58,32 +58,35 @@ pub const MAX_RECORDS: usize = 4096;
 
 /// Tests only: the rules of an earlier head, which a review of #37284 found losing prompts or
 /// history, for the tests and the move simulation to replay (0: the rules of now). Each later
-/// head's fixes are missing from an earlier one too. 27f3761b's: the twenty-fourth review's F1.
-pub(crate) const AT_27F3: u8 = 1;
+/// head's fixes are missing from an earlier one too. 918d2403's: the twenty-fifth review's F1
+/// and F2.
+pub(crate) const AT_918D: u8 = 1;
+/// 27f3761b's (the twenty-fourth review's F1 is missing too).
+pub(crate) const AT_27F3: u8 = 2;
 /// b7496c3f's (the twenty-third review's F1 and F2 are missing too).
-pub(crate) const AT_B749: u8 = 2;
+pub(crate) const AT_B749: u8 = 3;
 /// fd33a65b's (the twenty-second review's F1 and F2 are missing too).
-pub(crate) const AT_FD33: u8 = 3;
+pub(crate) const AT_FD33: u8 = 4;
 /// 4bce04df's (the twenty-first review's F1 and F2 are missing too).
-pub(crate) const AT_4BCE: u8 = 4;
+pub(crate) const AT_4BCE: u8 = 5;
 /// c4a1c13b's (the twentieth review's F1 is missing too).
-pub(crate) const AT_C4A1: u8 = 5;
+pub(crate) const AT_C4A1: u8 = 6;
 /// 8b5f3063's (the nineteenth review's F1 to F3 are missing too).
-pub(crate) const AT_8B5F: u8 = 6;
+pub(crate) const AT_8B5F: u8 = 7;
 /// 77f91e5a's (the eighteenth review's F1 is missing too).
-pub(crate) const AT_77F9: u8 = 7;
+pub(crate) const AT_77F9: u8 = 8;
 /// a088585e's (the sixteenth review's F1 to F3 are missing too).
-pub(crate) const AT_A088: u8 = 8;
+pub(crate) const AT_A088: u8 = 9;
 /// 07f76930's (the fourteenth review's F1 and F2 are missing too).
-pub(crate) const AT_07F7: u8 = 9;
+pub(crate) const AT_07F7: u8 = 10;
 /// ff3da306's (the twelfth review's F1 and F2 are missing too).
-pub(crate) const AT_FF3D: u8 = 10;
+pub(crate) const AT_FF3D: u8 = 11;
 /// c4a6f4e7's (the eleventh review's F1 to F3 are missing too).
-pub(crate) const AT_C4A6: u8 = 11;
+pub(crate) const AT_C4A6: u8 = 12;
 /// 4dcbe192's (the tenth review's F1 to F6 are missing too).
-pub(crate) const AT_4DCB: u8 = 12;
+pub(crate) const AT_4DCB: u8 = 13;
 /// 91b1343d's (the ninth review's F1 to F5 are missing too).
-pub(crate) const AT_91B: u8 = 13;
+pub(crate) const AT_91B: u8 = 14;
 
 #[cfg(test)]
 thread_local! {
@@ -118,6 +121,11 @@ impl Hub {
     #[cfg(test)]
     pub(crate) fn replay_rules(&self, rules: u8) {
         self.old_rules.store(rules, Ordering::SeqCst);
+    }
+
+    /// Whether this hub replays the rules of 918d2403 (tests only; never in a build).
+    pub(crate) fn at_918d(&self) -> bool {
+        self.old_rules() >= AT_918D
     }
 
     /// Whether this hub replays the rules of 27f3761b (tests only; never in a build).
@@ -192,6 +200,11 @@ fn thread_rules() -> u8 {
 /// copies' store and the restore's merge, which tests drive on their own thread.
 pub(crate) fn rules_of_91b() -> bool {
     thread_rules() >= AT_91B
+}
+
+/// Whether this thread replays the rules of 918d2403 (tests only; never in a build).
+pub(crate) fn rules_of_918d() -> bool {
+    thread_rules() >= AT_918D
 }
 
 /// Whether this thread replays the rules of 27f3761b (tests only; never in a build).
@@ -1054,27 +1067,27 @@ fn refused(reason: &str, why: &str, session: &Session) -> RpcError {
         .with_data(json!({"reason": reason, "lastSeq": last}))
 }
 
-/// Debug builds only: the restore of chat `id` fails once, after its first record (a disk that
+/// Debug and test builds only: the restore of chat `id` fails once, after its first record (a disk that
 /// fills midway), so a test sees a partial restore answered as one and finished by a retry. Armed
 /// per chat, so tests that run at once do not take each other's failure (review of #37284 at
 /// dd52b1d3, F2).
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 static FAIL_ONCE: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 #[doc(hidden)]
 pub fn fail_once_after_first_record(id: &str) {
     FAIL_ONCE.lock().unwrap_or_else(|e| e.into_inner()).push(id.to_owned());
 }
 
 /// Whether the failure [`fail_once_after_first_record`] armed for chat `id` has not happened yet.
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 #[doc(hidden)]
 pub fn fail_once_armed(id: &str) -> bool {
     FAIL_ONCE.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|armed| armed == id)
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 fn test_fails_here(id: &str, past_first: bool) -> bool {
     if !past_first {
         return false;
@@ -1089,7 +1102,7 @@ fn test_fails_here(id: &str, past_first: bool) -> bool {
     }
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(all(not(debug_assertions), not(test)))]
 fn test_fails_here(_: &str, _: bool) -> bool {
     false
 }

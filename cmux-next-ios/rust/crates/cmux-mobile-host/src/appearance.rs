@@ -17,6 +17,11 @@
 //!
 //! The phone derives every chrome color from the theme itself (`ThemeTokens.derive`, the same
 //! code the Mac runs), so it computes the same palette offline from its cached copy.
+//!
+//! The terminal theme travels apart from the chrome's (`terminal`): the value of each key in
+//! [`TERMINAL_KEYS`] in the Mac's applied Ghostty config (`key = value` lines). The phone loads exactly these lines into every terminal of this Mac, after resetting
+//! each key, so its terminals show the Mac's terminal theme and nothing of their own. Lines with
+//! another key or an unexpected value are dropped here.
 
 use std::sync::OnceLock;
 
@@ -37,6 +42,35 @@ const WALLPAPER_CHUNK: usize = 64 * 1024;
 /// `appearance.accent` values (`CmuxTheme.ThemeAccent`); `art` is the Mac's Art Color, which
 /// it resolves to `accent_color` before sending.
 const ACCENTS: [&str; 9] = ["neutral", "theme", "red", "green", "yellow", "blue", "magenta", "cyan", "art"];
+
+/// The Ghostty keys of the terminal theme the phone takes from the Mac. The Mac sends these
+/// (`GhosttyRuntime.phoneTerminalThemeKeys`) and the phone resets and loads these
+/// (`CmuxMobileTerminalTheme.keys`); keep the three lists the same.
+pub const TERMINAL_KEYS: [&str; 19] = [
+    "background",
+    "foreground",
+    "palette",
+    "cursor-color",
+    "cursor-text",
+    "cursor-opacity",
+    "selection-background",
+    "selection-foreground",
+    "bold-color",
+    "minimum-contrast",
+    "faint-opacity",
+    "palette-generate",
+    "palette-harmonious",
+    "alpha-blending",
+    "window-colorspace",
+    "search-background",
+    "search-foreground",
+    "search-selected-background",
+    "search-selected-foreground",
+];
+/// The most terminal theme lines kept (256 palette entries plus the other keys).
+const MAX_TERMINAL_LINES: usize = 320;
+/// The longest value kept on one line.
+const MAX_TERMINAL_VALUE: usize = 64;
 
 /// The colors the Mac's chrome derives from (`ThemeInput`), as `#rrggbb`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -91,6 +125,9 @@ pub struct FromApp {
     pub theme: Theme,
     #[serde(default)]
     pub wallpaper: Option<WallpaperFile>,
+    /// The Mac's terminal theme as Ghostty config lines; absent from an app that predates it.
+    #[serde(default)]
+    pub terminal: Option<Vec<String>>,
 }
 
 /// What a phone is told about the wallpaper.
@@ -107,16 +144,48 @@ pub struct WallpaperInfo {
 pub struct Current {
     pub theme: Theme,
     pub wallpaper: Option<(WallpaperInfo, Bytes)>,
+    /// The terminal theme lines ([`sanitize_terminal`]), None from an app that sends none.
+    pub terminal: Option<Vec<String>>,
 }
 
 impl Current {
     /// The `appearance` message.
     pub fn message(&self) -> Value {
-        serde_json::json!({
+        let mut message = serde_json::json!({
             "theme": self.theme,
             "wallpaper": self.wallpaper.as_ref().map(|(info, _)| info),
-        })
+        });
+        if let Some(terminal) = &self.terminal {
+            message["terminal"] = serde_json::json!(terminal);
+        }
+        message
     }
+}
+
+/// One terminal theme line made safe to serve: `key = value` with a key of [`TERMINAL_KEYS`] and
+/// a value of letters, digits and `#=:.,_-` (a color, a number, a flag, an enum name, a palette
+/// entry `N=#rrggbb`), or empty (Ghostty's default). None for anything else.
+fn terminal_line(line: &str) -> Option<String> {
+    let (key, value) = line.split_once('=')?;
+    let key = key.trim();
+    let value = value.trim();
+    if !TERMINAL_KEYS.contains(&key) || value.len() > MAX_TERMINAL_VALUE {
+        return None;
+    }
+    let allowed = |b: u8| b.is_ascii_alphanumeric() || b"#=:.,_-".contains(&b);
+    if !value.bytes().all(allowed) {
+        return None;
+    }
+    Some(if value.is_empty() { format!("{key} =") } else { format!("{key} = {value}") })
+}
+
+/// The app's terminal theme lines made safe to serve: only well-formed lines of
+/// [`TERMINAL_KEYS`], at most [`MAX_TERMINAL_LINES`]. None when the lines name no background and
+/// foreground: the phone then keeps the Mac's chrome-derived colors.
+pub fn sanitize_terminal(lines: Vec<String>) -> Option<Vec<String>> {
+    let kept: Vec<String> = lines.iter().filter_map(|line| terminal_line(line)).take(MAX_TERMINAL_LINES).collect();
+    let has = |key: &str| kept.iter().any(|line| line.starts_with(&format!("{key} = ")));
+    (has("background") && has("foreground")).then_some(kept)
 }
 
 fn hex_color(value: &str) -> Option<String> {
@@ -201,10 +270,11 @@ pub async fn set(from_app: FromApp) {
         Some(file) => read_wallpaper(file).await,
         None => None,
     };
+    let terminal = from_app.terminal.and_then(sanitize_terminal);
     if LATEST.load(std::sync::atomic::Ordering::SeqCst) != turn {
         return;
     }
-    publish(Current { theme, wallpaper });
+    publish(Current { theme, wallpaper, terminal });
 }
 
 /// Publishes `current`; phones hear it only when it changed.
@@ -364,6 +434,7 @@ mod tests {
         let current = Current {
             theme: sanitize(theme()).unwrap(),
             wallpaper: Some((info, Bytes::from_static(b"\xFF\xD8\xFF"))),
+            terminal: None,
         };
         assert_eq!(wallpaper_bytes(Some(&current), "abc").unwrap().as_ref(), b"\xFF\xD8\xFF");
         assert_eq!(wallpaper_bytes(Some(&current), "old").unwrap_err().code, "stale");
@@ -378,7 +449,7 @@ mod tests {
     #[tokio::test]
     async fn phones_hear_an_appearance_only_when_it_changes() {
         let mut current = subscribe();
-        let first = Current { theme: sanitize(theme()).unwrap(), wallpaper: None };
+        let first = Current { theme: sanitize(theme()).unwrap(), wallpaper: None, terminal: None };
         publish(first.clone());
         assert!(current.has_changed().unwrap());
         current.mark_unchanged();
@@ -387,8 +458,74 @@ mod tests {
         // A bad theme from the app leaves the last good one in place.
         let mut bad = theme();
         bad.foreground = "#12".into();
-        set(FromApp { theme: bad, wallpaper: None }).await;
+        set(FromApp { theme: bad, wallpaper: None, terminal: None }).await;
         assert!(!current.has_changed().unwrap());
         assert_eq!(current.borrow().as_ref().unwrap().theme.background, "#1e1e2e");
+    }
+
+    #[test]
+    fn terminal_lines_keep_only_the_theme_keys_with_plain_values() {
+        let lines: Vec<String> = [
+            "background = #2B0B3F",
+            "foreground = #f9e79f",
+            "palette = 0=#3d1458",
+            "palette = 255=#eeeeee",
+            "cursor-color = cell-foreground",
+            "cursor-text =",
+            "bold-color = bright",
+            "minimum-contrast = 1.2",
+            "palette-generate = true",
+            "window-colorspace = display-p3",
+            // Not a theme key: a phone never runs the Mac's command or loads its files.
+            "command = /bin/sh -c 'curl x'",
+            "config-file = /etc/passwd",
+            "keybind = cmd+k=text:rm -rf ~",
+            // A theme key with a value Ghostty would read as something else.
+            "background = #000000\nkeybind = a=text:x",
+            "foreground = $(whoami)",
+            "no equals sign",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let kept = sanitize_terminal(lines).unwrap();
+        assert_eq!(
+            kept,
+            vec![
+                "background = #2B0B3F",
+                "foreground = #f9e79f",
+                "palette = 0=#3d1458",
+                "palette = 255=#eeeeee",
+                "cursor-color = cell-foreground",
+                "cursor-text =",
+                "bold-color = bright",
+                "minimum-contrast = 1.2",
+                "palette-generate = true",
+                "window-colorspace = display-p3",
+            ]
+        );
+    }
+
+    #[test]
+    fn terminal_lines_need_a_background_and_a_foreground_and_are_bounded() {
+        assert!(sanitize_terminal(vec!["palette = 0=#000000".into()]).is_none());
+        let mut many: Vec<String> = vec!["background = #000000".into(), "foreground = #ffffff".into()];
+        many.extend((0..1000).map(|n| format!("palette = {}=#000000", n % 256)));
+        assert_eq!(sanitize_terminal(many).unwrap().len(), MAX_TERMINAL_LINES);
+        let long = format!("background = #{}", "a".repeat(MAX_TERMINAL_VALUE + 1));
+        assert!(sanitize_terminal(vec![long, "foreground = #ffffff".into()]).is_none());
+    }
+
+    #[test]
+    fn the_terminal_theme_rides_the_appearance_message() {
+        let line = r##"{"theme":{"background":"#000000","foreground":"#ffffff","palette":["#000000","#111111","#222222","#333333","#444444","#555555","#666666","#777777"]},"terminal":["background = #2b0b3f","foreground = #f9e79f","command = x"]}"##;
+        let parsed: FromApp = serde_json::from_str(line).unwrap();
+        let terminal = parsed.terminal.and_then(sanitize_terminal);
+        let current = Current { theme: sanitize(parsed.theme).unwrap(), wallpaper: None, terminal };
+        let message = current.message();
+        assert_eq!(message["terminal"], serde_json::json!(["background = #2b0b3f", "foreground = #f9e79f"]));
+        // An app that sends no terminal theme: the message has no `terminal` key.
+        let older = Current { terminal: None, ..current };
+        assert!(older.message().get("terminal").is_none());
     }
 }

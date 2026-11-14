@@ -31,21 +31,30 @@
 # then prints and exits as the plain form does for them. The pool's results and logs
 # stay in DIR until the job ends. A command whose result never came (the pool died)
 # counts as failed.
+#
+# --deadline-at EPOCH (with --start or the plain form): a command still running at EPOCH stops
+# (scripts/ci/timeout.sh: TERM to its process group, KILL 10 s later), fails by name and says
+# "timed out at the pool deadline", so a job whose cap is near ends in a verdict, not a cancel
+# with no name. A command that starts after EPOCH gets 1 s. --wait gives up 60 s after it too,
+# and every minute it waits it prints which of its commands are still running and for how long
+# (CHECK_POOL_HEARTBEAT seconds, 60 by default).
 set -euo pipefail
 
 jobs=""
 mode=run
 dir=""
 name=""
+deadline_at=""
 usage() {
-  echo "usage: run-checks-concurrently.sh [--jobs N] < commands" >&2
-  echo "       run-checks-concurrently.sh --start DIR [--jobs N] < [name] lines and commands" >&2
+  echo "usage: run-checks-concurrently.sh [--jobs N] [--deadline-at EPOCH] < commands" >&2
+  echo "       run-checks-concurrently.sh --start DIR [--jobs N] [--deadline-at EPOCH] < [name] lines and commands" >&2
   echo "       run-checks-concurrently.sh --wait DIR NAME" >&2
   exit 2
 }
 while [ $# -gt 0 ]; do
   case "$1" in
     --jobs) jobs="${2:-}"; shift 2 ;;
+    --deadline-at) deadline_at="${2:-}"; shift 2 || usage ;;
     --start) mode=start; dir="${2:-}"; shift 2 ;;
     --wait) mode=wait; dir="${2:-}"; name="${3:-}"; shift 3 || usage ;;
     *) usage ;;
@@ -66,12 +75,30 @@ if [ "$mode" != wait ] && [[ "${CMUX_CI_CPU_BUDGET:-}" =~ ^[1-9][0-9]*$ ]] && [ 
   echo "CMUX_CI_CPU_BUDGET=$CMUX_CI_CPU_BUDGET caps the pool at $CMUX_CI_CPU_BUDGET (was $jobs)"
   jobs="$CMUX_CI_CPU_BUDGET"
 fi
+[ -z "$deadline_at" ] || [[ "$deadline_at" =~ ^[1-9][0-9]*$ ]] \
+  || { echo "error: --deadline-at is a Unix time in seconds" >&2; exit 2; }
+CHECK_POOL_TIMEOUT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/timeout.sh"
+export CHECK_POOL_TIMEOUT
 
 run_one() {
-  local work="$1" index="$2" start status
+  local work="$1" index="$2" start status deadline="" limit
   start="$(date +%s)"
+  echo "$start" > "$work/$index.started"
   status=0
-  bash -c "$(cat "$work/$index.cmd")" > "$work/$index.log" 2>&1 < /dev/null || status=$?
+  [ ! -s "$work/deadline" ] || read -r deadline < "$work/deadline"
+  if [ -n "$deadline" ]; then
+    limit=$(( deadline - start ))
+    [ "$limit" -ge 1 ] || limit=1
+    bash "$CHECK_POOL_TIMEOUT" --kill-after=10 "$limit" bash -c "$(cat "$work/$index.cmd")" \
+      > "$work/$index.log" 2>&1 < /dev/null || status=$?
+    # 124: the deadline's TERM ended it; 137: the KILL after it. A command's own 124 ends before the deadline.
+    if { [ "$status" = 124 ] || [ "$status" = 137 ]; } && [ "$(date +%s)" -ge "$deadline" ]; then
+      echo "check-pool: stopped at the pool deadline after ${limit}s: this command was still running" >> "$work/$index.log"
+      : > "$work/$index.timedout"
+    fi
+  else
+    bash -c "$(cat "$work/$index.cmd")" > "$work/$index.log" 2>&1 < /dev/null || status=$?
+  fi
   printf '%s %s\n' "$status" "$(( $(date +%s) - start ))" > "$work/$index.rc.tmp"
   mv "$work/$index.rc.tmp" "$work/$index.rc"
 }
@@ -86,6 +113,7 @@ report() {
     read -r status seconds < "$work/$index.rc" 2>/dev/null || { status=1; seconds=0; }
     verdict=ok
     [ "$status" = 0 ] || { verdict="failed (exit $status)"; failed+=("$index"); }
+    [ ! -e "$work/$index.timedout" ] || verdict="timed out at the pool deadline after ${seconds}s"
     echo "::group::$command: $verdict, ${seconds}s"
     cat "$work/$index.log" 2>/dev/null || echo "(no output: its result never came)"
     echo "::endgroup::"
@@ -109,9 +137,26 @@ if [ "$mode" = wait ]; then
   while IFS= read -r index; do indices+=("$index"); done < "$dir/names/$name"
   pool="$(cat "$dir/pool.pid")"
   waited="$(date +%s)"
-  # Stops when every result is in, or when the pool has exited (a missing result then counts as failed).
+  deadline=""
+  [ ! -s "$dir/deadline" ] || read -r deadline < "$dir/deadline"
+  heartbeat="${CHECK_POOL_HEARTBEAT:-60}"
+  told="$waited"
+  # Stops when every result is in, when the pool has exited (a missing result then counts as failed), or 60 s
+  # past the pool's deadline. Every $heartbeat s it names the commands still running.
   for index in "${indices[@]}"; do
     while [ ! -e "$dir/$index.rc" ] && [ ! -e "$dir/pool.done" ] && kill -0 "$pool" 2>/dev/null; do
+      now="$(date +%s)"
+      if [ -n "$deadline" ] && [ "$now" -gt $(( deadline + 60 )) ]; then
+        echo "$name: gave up waiting 60s past the pool deadline"
+        break 2
+      fi
+      if [ $(( now - told )) -ge "$heartbeat" ]; then
+        told="$now"
+        for other in "${indices[@]}"; do
+          [ ! -e "$dir/$other.rc" ] && [ -s "$dir/$other.started" ] || continue
+          echo "$name: still running after $(( now - $(cat "$dir/$other.started") ))s: $(cat "$dir/$other.cmd")"
+        done
+      fi
       sleep 0.2
     done
   done
@@ -147,6 +192,7 @@ while IFS= read -r line || [ -n "$line" ]; do
 done
 [ "$count" -gt 0 ] || { echo "error: no commands on stdin" >&2; exit 2; }
 
+[ -z "$deadline_at" ] || echo "$deadline_at" > "$work/deadline"
 if [ "$mode" = start ]; then
   echo "$jobs" > "$work/jobs"
   # Detached from this step: the job's later steps read the results; the runner ends the pool with the job.
@@ -158,7 +204,7 @@ if [ "$mode" = start ]; then
   for names in "$work/names"/*; do
     echo "${names##*/}: $(wc -l < "$names") commands"
   done
-  echo "$count commands started, $jobs at a time"
+  echo "$count commands started, $jobs at a time${deadline_at:+, deadline in $(( deadline_at - $(date +%s) ))s}"
   exit 0
 fi
 

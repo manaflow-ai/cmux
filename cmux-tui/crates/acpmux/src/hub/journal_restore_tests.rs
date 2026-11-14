@@ -1433,3 +1433,73 @@ async fn a_cut_a_crash_stopped_between_segments_skips_no_record() {
     assert!(whole, "a record of the copy is missing from the restored journal");
     assert!(queued, "the copy's queued prompt was skipped");
 }
+
+/// Whether `session`'s inbox holds message `prompt_id`, for its next turn to take.
+fn inbox_holds(session: &Session, prompt_id: &str) -> bool {
+    let inbox = session.inbox.lock().unwrap();
+    inbox.items.iter().any(|i| i.prompt_id == prompt_id)
+}
+
+/// A chat on disk whose inbox holds another agent's message m1; a restore that stops short;
+/// while it holds the chat, m1 is withdrawn (its sender hears so); then the daemon crashes, and
+/// starts again on what the disk held. Whether the inbox holds m1 after that ordinary start
+/// reads the chat's log, or after its inbox is rebuilt from nothing at `rules` (then its next
+/// turn takes it), with the journal's kinds and how many records stay kept after that start,
+/// for a failure to name.
+async fn withdrawn_during_a_hold_then_crashed(rules: u8) -> (bool, Vec<String>, usize) {
+    let (dir, crashed) = crash_dirs("inbox-hold-crash");
+    let hub = hub_on_disk(&dir, rules, None);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let session = hub.new_session(req).await.unwrap();
+    let message = json!({"promptId": "m1", "threadId": "th1", "from": "other agent",
+                         "text": "do the thing"});
+    hub.append(&session, "mux", "inbox", message);
+    hub.restore_inbox(&session);
+    assert!(inbox_holds(&session, "m1"));
+    let last = session.seq.load(Ordering::SeqCst);
+    let records = json!([chunk(last + 1, 1), chunk(last + 2, 2), chunk(last + 3, 3)]);
+    let params = restore_params(&session, records);
+    super::journal_restore::fail_once_after_first_record(&session.id);
+    let first = hub.journal_restore(&params).await;
+    let reason = first.unwrap_err().data.and_then(|d| d.get("reason").cloned());
+    assert_eq!(reason, Some(json!("append_failed")));
+    assert!(session.restoring.load(Ordering::SeqCst), "the restore holds the chat");
+    let unsent = hub.inbox_unsend(&session, "m1");
+    assert!(matches!(unsent, super::inbox::Unsend::Unsent));
+    assert!(!inbox_holds(&session, "m1"));
+    // The crash: what the disk holds now, the kept withdrawal in it.
+    assert!(hub.store.wait_durable(Duration::from_secs(20)).unwrap());
+    copy_tree(&dir, &crashed);
+    let (after, reopened) = restarted(&crashed, rules, &session.id, None);
+    // The start read the chat's log as the hub was made, at the rules of now: its rebuild of
+    // the inbox runs again from nothing at `rules`, the kept withdrawal still not stored.
+    let loaded = inbox_holds(&reopened, "m1");
+    {
+        let mut inbox = reopened.inbox.lock().unwrap();
+        inbox.items.clear();
+        inbox.removed.clear();
+    }
+    after.restore_inbox(&reopened);
+    let holds = loaded || inbox_holds(&reopened, "m1");
+    let events = after.events(&session.id, 0, 100).unwrap();
+    let kinds = events.iter().map(|e| e.kind.clone()).collect();
+    let kept = reopened.unparked.lock().unwrap().len();
+    drop((hub, after));
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&crashed);
+    (holds, kinds, kept)
+}
+
+/// Review of #37284 at 918d2403, F2: an inbox message withdrawn while a restore holds the chat
+/// is kept on disk; after a crash, an ordinary start takes the withdrawal back as kept, not
+/// stored yet, and rebuilds the inbox with it (`scan_for_rebuild`), so the withdrawn message is
+/// not in the inbox and no turn takes it. Under 918d2403's rules the inbox was rebuilt from the
+/// journal alone: the message came back, and the next turn delivered it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_inbox_message_withdrawn_during_a_hold_stays_withdrawn_through_a_crash() {
+    let at_918d = super::journal_restore::AT_918D;
+    let (old, kinds, kept) = withdrawn_during_a_hold_then_crashed(at_918d).await;
+    assert!(old, "918d2403 kept the withdrawal out of the rebuilt inbox: {kinds:?}, {kept} kept");
+    let (now, kinds, kept) = withdrawn_during_a_hold_then_crashed(0).await;
+    assert!(!now, "the withdrawn message is back in the inbox: {kinds:?}, {kept} kept");
+}

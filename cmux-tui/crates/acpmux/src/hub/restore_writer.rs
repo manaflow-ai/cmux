@@ -315,6 +315,24 @@ impl Hub {
         Ok(())
     }
 
+    /// [`Self::scan_kinds_and_kept`] for a rebuild of `session`'s state from its log (its inbox,
+    /// its queue's stops, its auto-resume, its subagents' retries, a steer put back): what a
+    /// restart took back from the kept list ([`Self::take_back_kept`]) is not in the journal
+    /// until the next append, and a rebuild that read the journal alone lost it (review of
+    /// #37284 at 918d2403, F2: an inbox withdrawal answered while a restore held the chat was
+    /// gone after a crash, and the withdrawn message was delivered). 918d2403 read the journal.
+    pub(super) fn scan_for_rebuild(
+        &self,
+        session: &Session,
+        kinds: &[&str],
+        f: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        if self.at_918d() {
+            return self.store.scan_kinds(&session.id, kinds, f);
+        }
+        self.scan_kinds_and_kept(session, kinds, f)
+    }
+
     /// The records of `kinds` kept for `session` that are not in its journal yet: those the
     /// store refused ([`Session::unparked`]), then those parked while a restore owns it, in
     /// order, numbered past the journal's end as they go in. A rebuild of the queue reads them

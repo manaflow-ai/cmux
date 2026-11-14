@@ -3,13 +3,59 @@
 //! Snapshot records have a trailing frame length, so a backward page needs no
 //! dense row-offset table. Sparse entries have a fixed width and are searched
 //! on disk; neither opening nor writing a snapshot materializes its directory.
-use super::{RowKey, SortKey, Summary, codec};
+use super::{OriginRecord, RowKey, SortKey, Summary, codec};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 use std::sync::Arc;
 
+#[derive(Debug)]
+pub struct CorruptSnapshotRow;
+
+impl std::fmt::Display for CorruptSnapshotRow {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("corrupt snapshot row")
+    }
+}
+
+impl std::error::Error for CorruptSnapshotRow {}
+
+pub fn is_corrupt_snapshot_row(error: &io::Error) -> bool {
+    error.get_ref().is_some_and(|source| source.is::<CorruptSnapshotRow>())
+}
+
+#[derive(Debug)]
+pub struct FatalSnapshotRead(String);
+
+impl std::fmt::Display for FatalSnapshotRead {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for FatalSnapshotRead {}
+
+pub fn is_fatal_snapshot_read(error: &io::Error) -> bool {
+    error.get_ref().is_some_and(|source| source.is::<FatalSnapshotRead>())
+}
+
+pub(super) fn fatal(message: &'static str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, FatalSnapshotRead(message.to_owned()))
+}
+
+pub(super) fn classify_read_error(error: io::Error) -> io::Error {
+    if is_fatal_snapshot_read(&error) {
+        error
+    } else if matches!(error.kind(), io::ErrorKind::InvalidData | io::ErrorKind::UnexpectedEof) {
+        io::Error::new(io::ErrorKind::InvalidData, FatalSnapshotRead(error.to_string()))
+    } else {
+        error
+    }
+}
+
+#[cfg(test)]
+mod damage_tests;
 mod read;
 #[cfg(test)]
 mod scale_tests;
@@ -38,6 +84,10 @@ pub(super) struct Head {
     count: u64,
     // A constant-size first-window accelerator, never a dense directory.
     first_lengths: Vec<u16>,
+    #[serde(default)]
+    pub origins_offset: u64,
+    #[serde(default)]
+    pub origins_bytes: u64,
 }
 
 #[derive(Debug)]
@@ -125,11 +175,15 @@ fn read_u32(bytes: &[u8]) -> io::Result<u32> {
 pub struct DiskSnapshot {
     file: File,
     pub(super) head: Head,
+    origins: Vec<OriginRecord>,
 }
 
 /// One bounded physical piece, including its progress when filtering yields no rows.
 pub struct SnapshotPiece {
     pub rows: Vec<Arc<Summary>>,
+    /// Number of complete physical frames consumed, including skipped rows.
+    pub physical_count: usize,
+    pub next_ordinal: u64,
     pub first_ordinal: u64,
     pub next_offset: u64,
     pub has_before: bool,
@@ -147,7 +201,9 @@ struct Position {
 
 struct BufferedRow {
     summary: Arc<Summary>,
+    start: u64,
     end: u64,
+    ordinal: u64,
 }
 pub struct SnapshotRows {
     snapshot: Arc<DiskSnapshot>,
@@ -155,38 +211,70 @@ pub struct SnapshotRows {
     ordinal: u64,
     rows: std::vec::IntoIter<Arc<Summary>>,
     failed: bool,
+    skipped: usize,
+    pending_errors: usize,
+    skipped_bytes: usize,
+}
+
+impl SnapshotRows {
+    /// Number of complete physical snapshot records skipped because their
+    /// contents were unreadable. A caller may account for these while the
+    /// iterator continues to serve the remaining records.
+    pub fn skipped(&self) -> usize {
+        self.skipped
+    }
 }
 
 impl Iterator for SnapshotRows {
     type Item = io::Result<Arc<Summary>>;
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(row) = self.rows.next() {
-            return Some(Ok(row));
-        }
-        if self.failed || self.offset >= self.snapshot.head.data_end {
-            return None;
-        }
-        // Hydration and compaction stream only a small decoded batch. Reading
-        // a full 256 KiB page of tiny records would retain thousands of heap
-        // allocations between writer batches, even when every row is cold.
-        match self.snapshot.rows_at(self.offset, self.ordinal, 64, 32 * 1024) {
-            Ok(piece) if piece.next_offset > self.offset => {
-                self.offset = piece.next_offset;
-                self.ordinal += piece.rows.len() as u64;
-                self.rows = piece.rows.into_iter();
-                self.rows.next().map(Ok)
+        loop {
+            if self.pending_errors != 0 {
+                self.pending_errors -= 1;
+                return Some(Err(io::Error::new(io::ErrorKind::InvalidData, CorruptSnapshotRow)));
             }
-            result => {
-                self.failed = true;
-                Some(Err(result
-                    .err()
-                    .unwrap_or_else(|| codec::invalid("snapshot made no progress"))))
+            if let Some(row) = self.rows.next() {
+                return Some(Ok(row));
+            }
+            if self.failed || self.offset >= self.snapshot.head.data_end {
+                return None;
+            }
+            // Hydration and compaction stream only a small decoded batch.
+            // Reading a full 256 KiB page of tiny records would retain
+            // thousands of heap allocations between writer batches, even
+            // when every row is cold.
+            match self.snapshot.rows_at_tolerant(self.offset, self.ordinal, 64, 32 * 1024) {
+                Ok((piece, skipped, leading, trailing)) if piece.next_offset > self.offset => {
+                    self.offset = piece.next_offset;
+                    self.ordinal += piece.physical_count as u64;
+                    self.skipped += skipped;
+                    self.pending_errors += skipped;
+                    let consecutive = self.skipped_bytes.saturating_add(leading);
+                    if consecutive > PAGE_BYTES {
+                        self.failed = true;
+                        self.pending_errors = 0;
+                        return Some(Err(fatal("snapshot corrupt run exceeds bounded read")));
+                    }
+                    self.skipped_bytes = if piece.rows.is_empty() { consecutive } else { trailing };
+                    self.rows = piece.rows.into_iter();
+                    // A piece may consist entirely of skipped rows; return
+                    // one bounded error per physical row before loading more.
+                }
+                result => {
+                    self.failed = true;
+                    return Some(Err(result
+                        .err()
+                        .unwrap_or_else(|| fatal("snapshot made no progress"))));
+                }
             }
         }
     }
 }
 
 impl DiskSnapshot {
+    pub fn origins(&self) -> impl Iterator<Item = &OriginRecord> {
+        self.origins.iter()
+    }
     pub fn rows(self: &Arc<Self>) -> SnapshotRows {
         SnapshotRows {
             snapshot: self.clone(),
@@ -194,11 +282,18 @@ impl DiskSnapshot {
             ordinal: 0,
             rows: Vec::new().into_iter(),
             failed: false,
+            skipped: 0,
+            pending_errors: 0,
+            skipped_bytes: 0,
         }
     }
 
     /// Reads only the fixed head, never the sparse table or the rows.
     pub fn open(path: impl AsRef<Path>) -> io::Result<Option<Arc<Self>>> {
+        Self::open_inner(path.as_ref()).map_err(classify_read_error)
+    }
+
+    fn open_inner(path: &Path) -> io::Result<Option<Arc<Self>>> {
         let file = match File::open(path) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -224,7 +319,11 @@ impl DiskSnapshot {
         )
         .map_err(|_| codec::invalid("snapshot head json"))?;
         if head.data_end < HEADER_BYTES as u64
-            || head.data_end.checked_add(head.directory_bytes as u64)
+            || (head.origins_bytes != 0 && head.origins_offset != head.data_end)
+            || head
+                .data_end
+                .checked_add(head.origins_bytes)
+                .and_then(|end| end.checked_add(head.directory_bytes as u64))
                 != Some(file.metadata()?.len())
             || !head.directory_bytes.is_multiple_of(CHECKPOINT_BYTES)
             || (head.count == 0) != (head.directory_bytes == 0)
@@ -239,7 +338,43 @@ impl DiskSnapshot {
         {
             return Err(codec::invalid("snapshot extent"));
         }
-        Ok(Some(Arc::new(Self { file, head })))
+        if head.origins_bytes > 256 * 1024 {
+            return Err(codec::invalid("snapshot origins too large"));
+        }
+        let origins = if head.origins_bytes == 0 {
+            Vec::new()
+        } else {
+            let size = usize::try_from(head.origins_bytes)
+                .map_err(|_| codec::invalid("snapshot origins too large"))?;
+            let mut bytes = vec![0; size];
+            read_at(&file, &mut bytes, head.origins_offset)?;
+            let mut input = io::Cursor::new(bytes.as_slice());
+            let mut origins = Vec::new();
+            let mut ids = std::collections::HashSet::new();
+            while (input.position() as usize) < bytes.len() {
+                let Some((record, _)) = codec::read_any(&mut input)? else {
+                    return Err(codec::invalid("snapshot origins"));
+                };
+                let codec::LogRecord::Origin(origin) = record else {
+                    return Err(codec::invalid("snapshot origins record"));
+                };
+                if !ids.insert(origin.id.clone()) {
+                    return Err(codec::invalid("duplicate snapshot origin"));
+                }
+                if origin.id == "local" || origin.seq > head.seq {
+                    return Err(codec::invalid("snapshot origin sequence"));
+                }
+                origins.push(origin);
+                if origins.len() > 256 {
+                    return Err(codec::invalid("snapshot origin limit"));
+                }
+            }
+            origins
+        };
+        if origins.len() > 256 {
+            return Err(codec::invalid("snapshot origin limit"));
+        }
+        Ok(Some(Arc::new(Self { file, head, origins })))
     }
 
     pub fn log_offset(&self) -> u64 {
@@ -258,14 +393,18 @@ impl DiskSnapshot {
         self.head.count == 0
     }
     pub fn bytes(&self) -> u64 {
-        self.head.data_end + self.head.directory_bytes as u64
+        self.head.data_end + self.head.origins_bytes + self.head.directory_bytes as u64
+    }
+
+    pub(super) fn directory_offset(&self) -> u64 {
+        self.head.data_end + self.head.origins_bytes
     }
 }
 
 #[cfg(unix)]
 fn read_at(file: &File, bytes: &mut [u8], offset: u64) -> io::Result<()> {
     use std::os::unix::fs::FileExt;
-    file.read_exact_at(bytes, offset)
+    file.read_exact_at(bytes, offset).map_err(classify_read_error)
 }
 
 #[cfg(windows)]
@@ -274,7 +413,7 @@ fn read_at(file: &File, mut bytes: &mut [u8], mut offset: u64) -> io::Result<()>
     while !bytes.is_empty() {
         let read = file.seek_read(bytes, offset)?;
         if read == 0 {
-            return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
+            return Err(fatal("short snapshot read"));
         }
         offset += read as u64;
         bytes = bytes.get_mut(read..).ok_or_else(|| codec::invalid("short read"))?;

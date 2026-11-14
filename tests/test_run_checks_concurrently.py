@@ -9,6 +9,7 @@ whole and in order, and any failure fails the step by name.
 
 import os
 import subprocess
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -97,6 +98,57 @@ class RunChecksConcurrently(unittest.TestCase):
             self.assertIn(f"bash scripts/cmux-next/tests/{script}", listed.split("[", 1)[0])
             source = (ROOT / "scripts/cmux-next/tests" / script).read_text(encoding="utf-8")
             self.assertIn('fake_clock_install "$TMP/clock"', source)
+
+class APoolDeadlineEndsInAVerdict(unittest.TestCase):
+    """cmux#42669's checks job (job 132210422131, cmuxs-mac-mini-6-glaeda-3) was cancelled at its 35 min cap inside
+    "Tier routing": that step waited 8 min for its 7 background commands, which had run since 22:38:10, and the cap
+    cancelled it at 23:05:55 with no line naming the command still running. A command past the pool's deadline
+    stops, fails by name and says why, so the job reaches its verdict step before the cap."""
+
+    def test_a_command_past_the_deadline_stops_and_fails_by_name(self):
+        start = time.monotonic()
+        result = run("sleep 40\necho fast\n", "--jobs", "2", "--deadline-at", str(int(time.time()) + 2))
+        self.assertLess(time.monotonic() - start, 20, "the deadline did not stop the slow command")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("::group::echo fast: ok", result.stdout)
+        self.assertIn("::error title=check failed::sleep 40", result.stdout)
+        self.assertRegex(result.stdout, r"sleep 40: timed out at the pool deadline after \d+s")
+
+    def test_a_background_wait_ends_at_the_deadline_and_names_what_ran(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pool = Path(tmp, "pool")
+            started = subprocess.run(
+                ["bash", str(RUNNER), "--start", str(pool), "--jobs", "2", "--deadline-at", str(int(time.time()) + 2)],
+                input="[slow]\nsleep 40\n[quick]\necho quick\n", capture_output=True, text=True, timeout=30, cwd=ROOT)
+            self.assertEqual(started.returncode, 0, started.stdout + started.stderr)
+            start = time.monotonic()
+            waited = subprocess.run(["bash", str(RUNNER), "--wait", str(pool), "slow"], capture_output=True, text=True,
+                                    timeout=60, cwd=ROOT, env={**os.environ, "CHECK_POOL_HEARTBEAT": "1"})
+            self.assertLess(time.monotonic() - start, 20, "the wait outlived the pool deadline")
+            self.assertEqual(waited.returncode, 1, waited.stdout + waited.stderr)
+            # While it waits, it names the command still running (a cap cancel then shows which one).
+            self.assertRegex(waited.stdout, r"slow: still running after \d+s: sleep 40")
+            self.assertRegex(waited.stdout, r"sleep 40: timed out at the pool deadline after \d+s")
+            quick = subprocess.run(["bash", str(RUNNER), "--wait", str(pool), "quick"], capture_output=True,
+                                   text=True, timeout=30, cwd=ROOT)
+            self.assertEqual(quick.returncode, 0, quick.stdout + quick.stderr)
+
+    def test_no_deadline_keeps_a_command_running(self):
+        result = run("sleep 2; echo late\n", "--jobs", "1")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("late", result.stdout)
+
+    def test_the_checks_job_sets_a_deadline_inside_its_cap(self):
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        job = document["jobs"]["checks"]
+        start = next(s for s in job["steps"] if "run-checks-concurrently.sh --start" in str(s.get("run", "")))
+        self.assertIn('--deadline-at "$deadline"', start["run"])
+        # The step reads the job's own cap, never a copy of it that can drift.
+        self.assertEqual(start["env"]["JOB_TIMEOUT_MINUTES"], job["timeout-minutes"])
+        # The job clock starts when the runner writes the event file (Set up job), before the runner hook's wait.
+        self.assertIn('"$GITHUB_EVENT_PATH"', start["run"])
+        self.assertIn("POOL_TAIL_SECONDS", start["run"])
+
 
 if __name__ == "__main__":
     unittest.main()

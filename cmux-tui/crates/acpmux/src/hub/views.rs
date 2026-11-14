@@ -85,7 +85,7 @@ fn activity_parent(m: &SessionMeta) -> Option<&str> {
 }
 
 /// [`activity_parent`], for the closed-row cache (`Hub::cached_closed_summary`).
-pub(super) fn activity_parent_id(m: &SessionMeta) -> Option<&str> {
+pub(crate) fn activity_parent_id(m: &SessionMeta) -> Option<&str> {
     activity_parent(m)
 }
 
@@ -1145,7 +1145,11 @@ impl Hub {
             "listReplies": crate::list_bytes::global().status(),
             // Startup phases, memory, list rebuilds and each connection's queued bytes
             // (`gauges.rs`, `server/queue_gauge.rs`): atomics and short locks no request holds.
-            "gauges": crate::gauges::daemon_status(),
+            "gauges": ({
+                let mut gauges = crate::gauges::daemon_status();
+                gauges["v2SnapshotDamagedFrames"] = json!(self.events.damaged_snapshot_frames());
+                gauges
+            }),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),

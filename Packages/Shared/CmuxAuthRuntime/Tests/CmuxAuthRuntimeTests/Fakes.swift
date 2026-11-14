@@ -272,11 +272,14 @@ actor TeardownOutcomeProbe {
 }
 
 extension AuthLaunchOptions {
-    static func plain(includesDevAuth: Bool = false) -> AuthLaunchOptions {
+    static func plain(
+        includesDevAuth: Bool = false,
+        environment: [String: String] = [:]
+    ) -> AuthLaunchOptions {
         AuthLaunchOptions(
             clearAuthRequested: false,
             mockDataEnabled: false,
-            environment: [:],
+            environment: environment,
             includesDevAuth: includesDevAuth
         )
     }

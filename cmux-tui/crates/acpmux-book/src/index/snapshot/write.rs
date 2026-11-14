@@ -2,7 +2,9 @@ use super::{
     CHECKPOINT_BYTES, Checkpoint, DiskSnapshot, FIRST_ROWS, HEADER_BYTES, Head, MAGIC, PAGE_BYTES,
     SEEK_BYTES, TRAILER_BYTES,
 };
-use crate::index::{IndexRecord, SortKey, Summary, SummaryIndex, codec};
+use crate::index::{
+    IndexRecord, OriginRecord, SortKey, Summary, SummaryIndex, codec, is_corrupt_snapshot_row,
+};
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Seek, SeekFrom, Write};
 use std::path::Path;
@@ -37,6 +39,7 @@ impl SortedSnapshot {
             log_offset,
             log_name,
             0,
+            index.origins().cloned().collect(),
             index.merged_rows(),
         )
     }
@@ -50,7 +53,7 @@ impl SortedSnapshot {
         log_name: Option<&str>,
         rows: impl IntoIterator<Item = io::Result<Arc<Summary>>>,
     ) -> io::Result<()> {
-        Self::write_stream_generation(path, seq, log_offset, log_name, 0, rows)
+        Self::write_stream_generation(path, seq, log_offset, log_name, 0, Vec::new(), rows)
     }
 
     pub fn write_stream_generation(
@@ -59,9 +62,27 @@ impl SortedSnapshot {
         log_offset: u64,
         log_name: Option<&str>,
         covered_generation: u64,
+        origins: Vec<OriginRecord>,
         rows: impl IntoIterator<Item = io::Result<Arc<Summary>>>,
     ) -> io::Result<()> {
         let path = path.as_ref();
+        if origins.len() > 256 {
+            return Err(codec::invalid("snapshot origin limit"));
+        }
+        let mut origin_ids = std::collections::HashSet::new();
+        for origin in &origins {
+            if origin.id == "local" || origin.seq > seq || !origin_ids.insert(origin.id.clone()) {
+                return Err(codec::invalid("snapshot origin record"));
+            }
+        }
+        let mut origin_bytes = Vec::new();
+        for origin in &origins {
+            let encoded = codec::encode_origin(origin.seq, origin)?;
+            if encoded.len() > 1024 || origin_bytes.len() + encoded.len() > 256 * 1024 {
+                return Err(codec::invalid("snapshot origins too large"));
+            }
+            origin_bytes.extend_from_slice(&encoded);
+        }
         let mut temp_name = path.as_os_str().to_os_string();
         temp_name.push(".new");
         let temp = std::path::PathBuf::from(temp_name);
@@ -79,7 +100,11 @@ impl SortedSnapshot {
         let mut previous = None;
         let mut first_lengths = Vec::new();
         for row in rows {
-            let row = row?;
+            let row = match row {
+                Ok(row) => row,
+                Err(error) if is_corrupt_snapshot_row(&error) => continue,
+                Err(error) => return Err(error),
+            };
             let key = SortKey::of(&row);
             if previous.as_ref().is_some_and(|previous| previous >= &key) {
                 return Err(codec::invalid("unsorted snapshot input"));
@@ -126,6 +151,10 @@ impl SortedSnapshot {
             directory.write_all(&terminal.encode()?)?;
             directory_bytes += CHECKPOINT_BYTES;
         }
+        let origins_offset = offset;
+        if !origin_bytes.is_empty() {
+            writer.write_all(&origin_bytes)?;
+        }
         directory.flush()?;
         drop(directory);
         let mut directory_file = File::open(&directory_path)?;
@@ -140,10 +169,12 @@ impl SortedSnapshot {
             log_offset,
             log_name: log_name.map(str::to_owned),
             covered_generation,
-            data_end: offset,
+            data_end: origins_offset,
             directory_bytes,
             count,
             first_lengths,
+            origins_offset,
+            origins_bytes: origin_bytes.len() as u64,
         };
         let json = serde_json::to_vec(&head).map_err(io::Error::other)?;
         if json.len() > HEADER_BYTES - 16 {
@@ -174,14 +205,17 @@ impl SortedSnapshot {
         };
         let mut index = SummaryIndex::new();
         index.seq = snapshot.seq();
+        for origin in snapshot.origins() {
+            index = index.apply_origin(origin.seq, origin.clone());
+        }
         let mut offset = HEADER_BYTES as u64;
         let mut ordinal = 0;
         while offset < snapshot.head.data_end {
             let piece = snapshot.piece(offset, ordinal, PAGE_BYTES)?;
-            if piece.rows.is_empty() {
+            if piece.physical_count == 0 || piece.next_offset <= offset {
                 return Err(codec::invalid("snapshot made no progress"));
             }
-            ordinal += piece.rows.len() as u64;
+            ordinal += piece.physical_count as u64;
             for row in piece.rows {
                 index = index.apply(snapshot.seq(), row.as_ref().clone());
             }
