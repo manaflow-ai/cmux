@@ -230,6 +230,20 @@ describe("a team-scoped mint answers within its budget whatever Stack does", { t
     expect(held.calls()).toBe(1)
   })
 
+  // Review F2: a sync queued behind the Stack pace answered "queued" first and "duplicate" on the retry (TeamDO keeps the
+  // window's delivery id), and the retry was refused as not a member while the sync still waited.
+  it("a sync queued behind the Stack pace stays retryable on every mint until it lands", async () => {
+    const s = await setup("Queued")
+    await runIn(teamStub(s.team), async (instance) => void (instance.stackPace = async () => false))
+    await runIn(userDO(s), async (instance) => void (instance.stackHeal = { stack: s.w.fake, pace: async () => true, now: () => Date.now() }))
+    const mint = await macInstall(s)
+    for (let i = 0; i < 2; i++) {
+      const r = await mint(s.team)
+      expect(r.status, JSON.stringify(r.json)).toBe(503)
+      expect(errorOf(r)).toMatchObject({ code: "owner.unreachable", retryable: true })
+    }
+  })
+
   it("a member TeamDO already knows mints without asking Stack", async () => {
     const s = await setup("Mirrored")
     await runIn(userDO(s), async (instance) => void (instance.stackHeal = { stack: s.w.fake, pace: async () => true, now: () => Date.now() }))

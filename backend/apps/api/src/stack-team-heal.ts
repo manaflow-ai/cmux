@@ -1,3 +1,4 @@
+import { waitUntil } from "cloudflare:workers"
 import { stackTeamIdFor } from "./domains/user.ts"
 import type { Env } from "./env.ts"
 import { stackReadPace, stackServer, type StackServer } from "./stack-server.ts"
@@ -38,6 +39,19 @@ export const IN_FLIGHT_STALE_MS = 30_000
 const HEALED_MAX = 10_000
 
 const logged = (msg: string, e: unknown) => console.error(JSON.stringify({ msg, error: String(e).slice(0, 200) }))
+
+/**
+ * Keeps work that outlived its caller's budget running after the response (the request's waitUntil): without it
+ * the Workers runtime may cancel a heal once a Worker request answers, and the retry finds nothing synced.
+ */
+export const keepAlive = (p: Promise<unknown>): void => {
+  const settled = p.catch((e) => logged("background stack work failed", e))
+  try {
+    waitUntil(settled)
+  } catch (e) {
+    logged("no request to keep stack work alive in", e)
+  }
+}
 
 /** `p`'s value when it settles within `ms`; `{ done: false }` past it (p keeps running). */
 export const within = <T>(p: Promise<T>, ms: number): Promise<{ readonly done: true; readonly value: T } | { readonly done: false }> => {
@@ -113,7 +127,7 @@ export type MemberCheck = { readonly role: string | null } | { readonly pending:
 export interface MemberCheckOptions {
   readonly readMs?: number
   readonly healMs?: number
-  /** Keeps a heal that outlived its budget running (a Durable Object's ctx.waitUntil); absent, it finishes on its own. */
+  /** Keeps a heal that outlived its budget running (a Durable Object's ctx.waitUntil); default: the request's waitUntil (keepAlive). */
   readonly background?: (p: Promise<unknown>) => void
 }
 
@@ -139,13 +153,14 @@ export const memberCheck = async (env: Env, team: string, user: string, stackUse
     step = "reading the team's membership after its Stack sync"
     const role = await stub.memberRole(team, user)
     if (role) return { role }
-    // Stack lists them, and the sync has not landed (queued behind the Stack pace, or failed): ask again later, not "not a member".
-    return outcome === undefined || outcome === "queued" ? { pending: "the team's sync from Stack is queued" } : { role: null }
+    // Stack lists them, and the sync has not landed: queued behind the Stack pace, failed, or this window's delivery
+    // already recorded and still queued (`duplicate`, review F2). Ask again later, never "not a member".
+    return outcome === undefined || outcome === "queued" || outcome === "duplicate" ? { pending: "the team's sync from Stack is queued" } : { role: null }
   })()
   const healed = await within(heal, opts.healMs ?? HEAL_BUDGET_MS)
   if (healed.done) return healed.value
   console.log(JSON.stringify({ msg: "stack team heal past its budget", team, step }))
-  const rest = heal.catch((e) => logged("stack team heal failed", e))
-  opts.background?.(rest)
+  const keep = opts.background ?? keepAlive
+  keep(heal.catch((e) => logged("stack team heal failed", e)))
   return { pending: step }
 }
