@@ -122,6 +122,10 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The daemon takes `replay_history_start` (it listed
     /// `attach-replay-history-window-v1`, and its lane did not refuse it).
     private var windowReplay = false
+    /// The lane refused `replay_history_start` (a Mac app older than its
+    /// daemon): this session fetches the newest rows in chunks from then on,
+    /// though `identify` still lists the window.
+    private var windowRefused = false
     /// The first history row of the window the mirror holds far above the
     /// Mac's screen (`replay_history_start`); nil: the newest rows
     /// (``historyAllowance``). A reattach keeps it, so a reader keeps their rows.
@@ -752,7 +756,8 @@ public final class DaemonTerminalSession: TerminalSession {
             leased = identify.map { Self.lists(Self.sizeLeaseCapability, $0) } ?? false
             sharedSizing = identify.map { Self.lists(Self.sharedSizingCapability, $0) } ?? false
             tailReplay = identify.map { Self.lists(Self.replayHistoryRowsCapability, $0) } ?? false
-            windowReplay = tailReplay && (identify.map { Self.lists(Self.replayHistoryWindowCapability, $0) } ?? false)
+            windowReplay = tailReplay && !windowRefused
+                && (identify.map { Self.lists(Self.replayHistoryWindowCapability, $0) } ?? false)
             if !windowReplay { historyWindowStart = nil }
             // `attach-surface` with this view's size (if any) and history
             // allowance. A lane that refuses the allowance (a Mac app older
@@ -785,8 +790,10 @@ public final class DaemonTerminalSession: TerminalSession {
                     let reply = try await send(historyRows: Self.historyWindowRows)
                     guard let error = Self.error(in: reply), error.contains("replay_history_start") else { return reply }
                     // A lane that refuses the window (a Mac app older than
-                    // its daemon): the newest rows, as before.
+                    // its daemon): the newest rows in chunks, as before, for
+                    // the rest of this session, so line 1 is still reached.
                     windowReplay = false
+                    windowRefused = true
                     historyWindowStart = nil
                     historyAllowance = Self.maxTailHistoryRows
                 }
