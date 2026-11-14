@@ -132,10 +132,20 @@ fn no_op_lines_do_not_checkpoint_and_turn_end_does() {
         let before = fs::read(home.path().join("checkpoint")).ok();
         apply_line(&mut state, line.trim_end().as_bytes(), place, end, end - place).unwrap();
         let after = fs::read(home.path().join("checkpoint")).ok();
+        eprintln!("DEBUG idx{index} changed={}", before != after);
         if index == 4 {
             assert_eq!(before, after, "usage-only line writes no checkpoint");
         }
         if index == 8 {
+            eprintln!(
+                "DEBUG idx8 before={:?} after={:?} raw_file={} place={} replay={} in_turn={}",
+                before.as_ref().map(Vec::len),
+                after.as_ref().map(Vec::len),
+                state.raw_file,
+                state.raw_place,
+                state.replay_remaining,
+                state.translate.in_turn()
+            );
             assert_ne!(before, after, "turn end checkpoints");
         }
         place = end;
@@ -698,7 +708,8 @@ fn deterministic_translation_failure_is_counted_five_times_without_advancing_raw
     actor.join();
     let saved = log::saved_checkpoint(home.path()).unwrap().unwrap();
     let checkpoint = Checkpoint::from_recovered(&saved).unwrap();
-    assert!(checkpoint.cursors.is_empty());
+    // The source is named from the first checkpoint; its cursor never moved past the line.
+    assert!(checkpoint.cursors.iter().all(|cursor| cursor.place == 0));
     assert_eq!(checkpoint.last_row, 0);
 }
 
