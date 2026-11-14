@@ -273,6 +273,33 @@ fn a_list_workspaces_reply_without_the_tab_capabilities_is_written_one_time() {
     session.end();
 }
 
+/// The projection of a tree changes the tree where it is. It reads the tree through a reply
+/// envelope, and that envelope is one map: `json!` of an expression serializes the expression,
+/// which is a copy of the whole tree.
+#[test]
+fn the_tab_projection_of_a_tree_makes_no_copy_of_it() {
+    let session = Session::of("list-counts-projection-copy", 6);
+    session.add_conversation_tab();
+    let mux = &session.mux;
+    let render = Arc::new(RenderService::new());
+    let plain = Connection::open(mux, &render, &[]);
+    let projection = plain.writer.tab_projection();
+    assert!(!projection.is_canonical(), "a connection with no capability has a projection");
+    let mut tree = list_workspaces_tree(mux).unwrap();
+    assert!(tree.to_string().contains("\"kind\":\"conversation\""), "the tree has the tab");
+    let (copy, copy_allocations) = allocations_of(|| tree.clone());
+    drop(copy);
+    let (changed, allocations) = allocations_of(|| projection.project_data(&mut tree));
+    assert!(changed, "the conversation tab reads as another kind");
+    assert!(!tree.to_string().contains("\"kind\":\"conversation\""), "the tab is projected");
+    assert!(
+        allocations <= 16,
+        "the tab projection of a tree made {allocations} allocations; one deep copy of that \
+         tree makes {copy_allocations}"
+    );
+    session.end();
+}
+
 #[test]
 fn a_session_snapshot_reply_without_the_tab_capabilities_is_written_one_time() {
     let session = Session::of("list-counts-snapshot-text", 6);
