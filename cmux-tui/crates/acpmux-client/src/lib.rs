@@ -3426,6 +3426,8 @@ tail"#;
                     .iter()
                     .map(|row| serde_json::to_value(row.as_ref()).unwrap())
                     .collect();
+                drop(page);
+                drop(index);
                 let frame = Frame::json(
                     FrameKind::Window,
                     &serde_json::json!({"sid":"m","cursor":1,"rows":rows,"hasBefore":false,"hasAfter":false,"edition":1}),
