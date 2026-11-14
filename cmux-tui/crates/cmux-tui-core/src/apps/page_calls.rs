@@ -8,7 +8,10 @@
 //! app's provider), as the app, with origin `script`. A page has no ambient
 //! access: what its app was not granted is `scope.missing`, an app that is
 //! not installed is a preview (nothing granted), and an app that is turned
-//! off or in safe mode has a revoked grant (nothing admitted).
+//! off or in safe mode has a revoked grant (nothing admitted). Taking access
+//! back (uninstall, disable, a grant change, safe mode) also ends the calls
+//! already admitted: each runs its op only while its app still holds the
+//! grant it was admitted under, and the waiting ones end with `app.revoked`.
 //!
 //! Ops that change what the person sees (`needs_gesture`) and `action.run`
 //! need a tap the supervisor minted; a page has no such token yet, so they
@@ -20,7 +23,7 @@
 //! with their connection; their count is bounded.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::PoisonError;
 use std::time::Instant;
 
 use serde_json::{Value, json};
@@ -42,19 +45,26 @@ struct PageSlot {
     inflight: usize,
 }
 
-/// Who waits for a page call that went to a provider (`provider.rs`).
+/// Who waits for a page call that went to a provider (`provider.rs`): its
+/// waiter in [`Pages`].
 pub(super) struct PageTarget {
-    pub client: u64,
-    pub page: String,
-    pub id: String,
     pub waiter: u64,
+}
+
+/// Who waits for one admitted page call, until its worker or provider
+/// answers or its app's access is taken back (`cancel_page_calls_locked`).
+struct PageWaiter {
+    app: String,
+    key: (u64, String),
+    id: String,
+    respond: Responder,
 }
 
 /// The supervisor's page state (`Inner::pages`).
 #[derive(Default)]
 pub(super) struct Pages {
     slots: HashMap<(u64, String), PageSlot>,
-    waiters: HashMap<u64, Responder>,
+    waiters: HashMap<u64, PageWaiter>,
     next_waiter: u64,
 }
 
@@ -181,30 +191,30 @@ impl Supervisor {
         let idempotency_key =
             (class == OpClass::Mutation).then(|| format!("app:{app}:{}", mint_key()));
         slot.inflight += 1;
+        inner.pages.next_waiter += 1;
+        let waiter = inner.pages.next_waiter;
+        inner.pages.waiters.insert(
+            waiter,
+            PageWaiter { app: app.to_string(), key: key.clone(), id: id.clone(), respond },
+        );
         let supervisor_op = op.starts_with("app.storage.") || op == "net.fetch";
         if !supervisor_op && !self.router.owns(&op) {
-            inner.pages.next_waiter += 1;
-            let waiter = inner.pages.next_waiter;
-            let target =
-                Target::Page(PageTarget { client, page: page.to_string(), id: id.clone(), waiter });
-            return match self.send_to_provider_locked(
-                inner,
-                app,
-                target,
-                &op,
-                params,
-                Origin::Script,
-                idempotency_key,
-            ) {
-                Ok(outs) => {
-                    inner.pages.waiters.insert(waiter, respond);
-                    outs
-                }
-                Err(body) => {
-                    Self::page_done_locked(inner, &key);
-                    vec![Out::Respond(respond, Ok(page_answer(&id, false, body)))]
-                }
-            };
+            if op == "integration.request" {
+                // The provider sees the method the grant check decided on.
+                super::provider::normalize_method(&mut params);
+            }
+            let target = Target::Page(PageTarget { waiter });
+            return self
+                .send_to_provider_locked(
+                    inner,
+                    app,
+                    target,
+                    &op,
+                    params,
+                    Origin::Script,
+                    idempotency_key,
+                )
+                .unwrap_or_else(|body| Self::page_end_locked(inner, waiter, false, body));
         }
         let work = Work {
             app: app.to_string(),
@@ -215,19 +225,19 @@ impl Supervisor {
             grant,
             generation: 0,
         };
-        // One owner of the answer: the worker, or this frame when no worker starts.
-        let answer_to = Arc::new(Mutex::new(Some(respond)));
-        let worker_answer = answer_to.clone();
         let me = self.me.clone();
-        let (call_id, slot_key) = (id.clone(), key.clone());
         let spawned =
             std::thread::Builder::new().name("cmux-app-page-call".into()).spawn(move || {
                 let Some(me) = me.upgrade() else { return };
-                let app = work.app.clone();
-                // A storage write runs only while the page's slot and its app's grant stand.
+                let (app, admitted) = (work.app.clone(), work.grant.clone());
+                // Right before the op: the call was not cancelled, its page is
+                // open, and its app still holds the grant it was admitted
+                // under (an uninstall makes it a preview, a disable or safe
+                // mode revokes it, a regrant replaces it).
                 let result = me.execute_with(work, |inner| {
-                    inner.pages.slots.contains_key(&slot_key)
-                        && !Self::page_grant_locked(inner, &app).revoked
+                    inner.pages.waiters.contains_key(&waiter)
+                        && inner.pages.slots.contains_key(&key)
+                        && Self::page_grant_locked(inner, &app) == admitted
                 });
                 let (ok, body) = match result {
                     Ok(body) => (true, body),
@@ -235,40 +245,31 @@ impl Supervisor {
                 };
                 let outs = {
                     let mut inner = me.inner.lock().unwrap_or_else(PoisonError::into_inner);
-                    Self::page_done_locked(&mut inner, &slot_key);
-                    worker_answer
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .take()
-                        .map(|respond| Out::Respond(respond, Ok(page_answer(&call_id, ok, body))))
-                        .into_iter()
-                        .collect()
+                    Self::page_end_locked(&mut inner, waiter, ok, body)
                 };
                 me.emit(outs);
             });
         match spawned {
             Ok(_) => vec![],
-            Err(e) => {
-                Self::page_done_locked(inner, &key);
-                let respond = answer_to.lock().unwrap_or_else(PoisonError::into_inner).take();
-                respond.map_or_else(Vec::new, |respond| {
-                    refused(
-                        respond,
-                        &id,
-                        "operation.failed",
-                        format!("no worker thread: {e}"),
-                        true,
-                    )
-                })
-            }
+            Err(e) => Self::page_end_locked(
+                inner,
+                waiter,
+                false,
+                json!({ "code": "operation.failed", "message": format!("no worker thread: {e}"), "retryable": true }),
+            ),
         }
     }
 
-    /// A call of the page `key` ended.
-    fn page_done_locked(inner: &mut Inner, key: &(u64, String)) {
-        if let Some(slot) = inner.pages.slots.get_mut(key) {
+    /// Page call `waiter` ended: its slot frees and its page gets the answer,
+    /// unless it was already cancelled (then both happened at the cancel).
+    fn page_end_locked(inner: &mut Inner, waiter: u64, ok: bool, body: Value) -> Vec<Out> {
+        let Some(PageWaiter { key, id, respond, .. }) = inner.pages.waiters.remove(&waiter) else {
+            return vec![];
+        };
+        if let Some(slot) = inner.pages.slots.get_mut(&key) {
             slot.inflight = slot.inflight.saturating_sub(1);
         }
+        vec![Out::Respond(respond, Ok(page_answer(&id, ok, body)))]
     }
 
     /// A provider answered (or failed) a page's call (`provider.rs`).
@@ -278,9 +279,53 @@ impl Supervisor {
         ok: bool,
         body: Value,
     ) -> Vec<Out> {
-        Self::page_done_locked(inner, &(target.client, target.page.clone()));
-        let Some(respond) = inner.pages.waiters.remove(&target.waiter) else { return vec![] };
-        vec![Out::Respond(respond, Ok(page_answer(&target.id, ok, body)))]
+        Self::page_end_locked(inner, target.waiter, ok, body)
+    }
+
+    /// `app`'s access was taken back (uninstall, disable, a grant change;
+    /// every app when `app` is `None`: safe mode): its pages' admitted
+    /// calls end now with `app.revoked` and free their slots, a worker that
+    /// has not run its op yet never runs it, and the provider is told to
+    /// drop the ones it holds, as a host's calls are
+    /// (`cancel_provider_calls_locked`).
+    pub(super) fn cancel_page_calls_locked(
+        &self,
+        inner: &mut Inner,
+        app: Option<&str>,
+        reason: &str,
+    ) -> Vec<Out> {
+        let doomed: Vec<u64> = inner
+            .pages
+            .waiters
+            .iter()
+            .filter(|(_, w)| app.is_none_or(|app| w.app == app))
+            .map(|(waiter, _)| *waiter)
+            .collect();
+        if doomed.is_empty() {
+            return vec![];
+        }
+        let queued: Vec<_> = inner
+            .provider_calls
+            .extract_if(|_, c| matches!(&c.target, Target::Page(t) if doomed.contains(&t.waiter)))
+            .collect();
+        let mut outs = Vec::new();
+        for (id, call) in queued {
+            self.timers.cancel(call.timer);
+            outs.push(Out::Client(
+                call.client,
+                json!({ "event": "apps-provider-cancel", "request_id": id, "reason": "revoked" }),
+            ));
+        }
+        let body = json!({
+            "code": "app.revoked",
+            "message": format!("the app's access was taken back ({reason})"),
+            "details": { "reason": reason },
+            "retryable": false,
+        });
+        for waiter in doomed {
+            outs.extend(Self::page_end_locked(inner, waiter, false, body.clone()));
+        }
+        outs
     }
 }
 

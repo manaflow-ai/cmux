@@ -158,29 +158,36 @@ impl Supervisor {
 
     fn execute(&self, key: &HostKey, work: Work) -> Result<Value, Value> {
         let generation = work.generation;
+        let admitted = work.grant.clone();
+        // The same process, still holding the grant the call was admitted
+        // under: an uninstall or disable revokes it, a regrant replaces it.
         self.execute_with(work, |inner| {
             !key.preview
-                && inner
-                    .hosts
-                    .get(key)
-                    .is_some_and(|h| h.generation == generation && !h.grant.revoked)
+                && inner.hosts.get(key).is_some_and(|h| {
+                    h.generation == generation && !h.grant.revoked && h.grant == admitted
+                })
         })
     }
 
     /// Runs `work`. `current` says, under the supervisor lock, whether the
-    /// caller (a host process, a web pane) still speaks for the app.
+    /// caller (a host process, a web pane) still speaks for the app with the
+    /// grant the call was admitted under; it is checked right before every
+    /// op, so an uninstall, a disable or a grant change that lands between
+    /// admission and execution stops the call (`app.revoked`).
     pub(super) fn execute_with(
         &self,
         work: Work,
         current: impl FnOnce(&Inner) -> bool,
     ) -> Result<Value, Value> {
         let Work { app, op, params, idempotency_key, origin, grant, .. } = work;
+        // Under the supervisor lock: an uninstall (which drops the storage
+        // table under the same lock) cannot interleave with a storage write.
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if !current(&inner) {
+            return Err(error("app.revoked", "the app's access was taken back"));
+        }
         if op.starts_with("app.storage.") {
-            // Under the supervisor lock: an uninstall (which drops the
-            // table under the same lock) cannot interleave with this write.
-            let inner = self.inner.lock().unwrap();
-            let installed = inner.mirror.apps.get(&app).is_some_and(|r| r.installed);
-            if !current(&inner) || !installed {
+            if !inner.mirror.apps.get(&app).is_some_and(|r| r.installed) {
                 return Err(error("scope.missing", "the app is not installed"));
             }
             let storage = self.storage();
@@ -192,6 +199,7 @@ impl Supervisor {
                 .map(|value| json!({ "value": value }))
                 .map_err(|e| error(e.code, e.message));
         }
+        drop(inner);
         if op == "net.fetch" {
             let request = egress::admit(&params, &grant.scopes, grant.sandboxed)
                 .map_err(|e| error(e.code, e.message))?;

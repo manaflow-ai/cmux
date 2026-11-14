@@ -88,7 +88,7 @@ pub(super) enum Target {
     /// answered on that server process's input.
     Relay { app: String, generation: u64, id: Value, session: bool },
     /// A web pane's call (`page_calls.rs`): its responder waits in
-    /// `Inner::page_waiters` under `waiter`.
+    /// `Inner::pages` under `waiter`.
     Page(super::page_calls::PageTarget),
 }
 
