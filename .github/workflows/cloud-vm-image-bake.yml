@@ -558,7 +558,8 @@ jobs:
           name: cmux-vm-image-${{ inputs.mode }}-${{ github.run_id }}
           path: ${{ github.workspace }}/cmux-vm-image-out
           if-no-files-found: warn
-          retention-days: 3
+          # cloud-vm-image-promote downloads this candidate by run id, including delayed manual promotions.
+          retention-days: 30
 
 
   # Time to first build on new machines of the dev channel's image, which has no dev tree:
