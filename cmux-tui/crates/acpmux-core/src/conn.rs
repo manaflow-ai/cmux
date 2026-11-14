@@ -21,6 +21,15 @@ pub enum Offer {
     UnknownSubscription,
 }
 
+/// The transport principal for a v2 connection.  A peer connection has a
+/// deliberately smaller request surface and never inherits local privileges
+/// from a hello frame.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Role {
+    Local,
+    Peer,
+}
+
 mod state;
 pub use state::{ConnectionMetrics, ConnectionState, FrameLease, SubscriptionControl};
 
@@ -167,10 +176,27 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
+    run_with_role(reader, writer, source, daemon_id, surfaces, Role::Local).await
+}
+
+/// Runs a v2 connection with an explicit transport role.
+pub async fn run_with_role<R, W>(
+    reader: R,
+    writer: W,
+    source: Arc<dyn Source>,
+    daemon_id: impl Into<String>,
+    surfaces: &[String],
+    role: Role,
+) -> Result<(), ConnError>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
     let state = Arc::new(std::sync::Mutex::new(ConnectionState::default()));
     let cleanup = Cleanup { state: state.clone(), source: source.clone() };
     let result =
-        run_connection(reader, writer, source.clone(), daemon_id.into(), surfaces, state).await;
+        run_connection(reader, writer, source.clone(), daemon_id.into(), surfaces, role, state)
+            .await;
     drop(cleanup);
     source.close().await;
     result
@@ -182,6 +208,7 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     source: Arc<dyn Source>,
     daemon_id: String,
     surfaces: &[String],
+    role: Role,
     state: Arc<std::sync::Mutex<ConnectionState>>,
 ) -> Result<(), ConnError> {
     let wake = state.lock().map_err(|_| poisoned())?.wake.clone();
@@ -245,7 +272,7 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                     }
                     continue;
                 }
-                let result = process_frame(&state, source.clone(), &frame, &mut hello_seen, surfaces, &daemon_id).await;
+                let result = process_frame(&state, source.clone(), &frame, &mut hello_seen, surfaces, &daemon_id, role).await;
                 if let Err(error) = result {
                     let reply = error_frame(&frame, &error)?;
                     state.lock().map_err(|_| poisoned())?.offer_reply(reply)?;
@@ -293,6 +320,7 @@ async fn process_frame(
     hello_seen: &mut bool,
     surfaces: &[String],
     daemon_id: &str,
+    role: Role,
 ) -> Result<(), ConnError> {
     if frame.kind != FrameKind::Request {
         return Err(ConnError::InvalidRequest("unknown request kind".into()));
@@ -300,6 +328,9 @@ async fn process_frame(
     let value: serde_json::Value = frame.decode_json()?;
     validate_identifiers(&value)?;
     let request: Request = frame.decode_json()?;
+    if role == Role::Peer {
+        validate_peer_request(&request)?;
+    }
     if !*hello_seen && !matches!(request, Request::Hello(_)) {
         return Err(ConnError::InvalidRequest("hello must be first".into()));
     }
@@ -368,6 +399,39 @@ async fn process_frame(
         }
     }
     Ok(())
+}
+
+/// The allowlist for the serve side of a peer v2 link.  Keep this in the core
+/// request path so every transport entry (socket, WebSocket and carrier)
+/// applies the same rule before handing a request to a source.
+pub fn validate_peer_request(request: &Request) -> Result<(), ConnError> {
+    match request {
+        Request::Hello(_) | Request::Credit(_) | Request::Unsub(_) => Ok(()),
+        Request::Sub(sub) => {
+            if sub.stream.as_str() != "list"
+                || sub.view != Some(crate::wire::ListView::Live)
+                || sub.filter.is_some()
+                || sub.anchor.is_some()
+            {
+                return Err(ConnError::InvalidRequest(
+                    "request is not allowed on a peer link".into(),
+                ));
+            }
+            Ok(())
+        }
+        Request::Page(page) => {
+            if page.stream.as_str() != "list"
+                || page.view != Some(crate::wire::ListView::Live)
+                || page.filter.is_some()
+                || page.keys.is_some()
+            {
+                return Err(ConnError::InvalidRequest(
+                    "request is not allowed on a peer link".into(),
+                ));
+            }
+            Ok(())
+        }
+    }
 }
 
 fn validate_identifiers(value: &serde_json::Value) -> Result<(), ConnError> {

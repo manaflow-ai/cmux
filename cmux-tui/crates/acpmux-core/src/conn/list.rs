@@ -2,6 +2,8 @@
 use super::{ConnError, ConnectionMetrics, Offer, OfferSink, Source};
 use crate::hub::{Hub, ListReceiver, RawRead};
 use crate::wire::{Cursor, Frame, FrameKind, Page, ReplayMark, Sub};
+use acpmux_book::index::ListFilter;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -35,14 +37,27 @@ impl Drop for Task {
 
 pub struct HubSource {
     hub: Arc<Hub>,
+    peer: bool,
     scope: cmux_scope::Scope,
     tasks: Mutex<HashMap<String, Task>>,
     metrics: Mutex<Option<Arc<ConnectionMetrics>>>,
 }
 impl HubSource {
     pub fn new(hub: Arc<Hub>) -> Self {
+        Self::with_role(hub, false)
+    }
+
+    /// Source used by a peer transport.  It keeps the same bounded hub and
+    /// history machinery as local list clients, but projects only this daemon's
+    /// local rows at the wire boundary.
+    pub fn for_peer(hub: Arc<Hub>) -> Self {
+        Self::with_role(hub, true)
+    }
+
+    fn with_role(hub: Arc<Hub>, peer: bool) -> Self {
         Self {
             hub,
+            peer,
             scope: cmux_scope::Scope::new("v2 list connection"),
             tasks: Mutex::new(HashMap::new()),
             metrics: Mutex::new(None),
@@ -88,7 +103,7 @@ impl Source for HubSource {
         _person: Option<&[u8]>,
         sink: Arc<dyn OfferSink>,
     ) -> Result<(), ConnError> {
-        let delivery = open(&self.hub, sub)?;
+        let delivery = open(&self.hub, sub, self.peer)?;
         if let Ok(mut metrics) = self.metrics.lock() {
             *metrics = Some(sink.metrics());
         }
@@ -115,6 +130,7 @@ impl Source for HubSource {
             delivery.mode,
             rx,
             held.clone(),
+            self.peer,
         ));
         tasks.insert(sub.sid.clone(), Task { view: sub.view, resume, join, held });
         Ok(())
@@ -127,7 +143,13 @@ impl Source for HubSource {
             .get(&page.sid)
             .map(|task| task.view)
             .ok_or_else(|| ConnError::UnknownSubscription(page.sid.clone()))?;
-        Ok(self.hub.page_for_view(page, held_view)?)
+        let mut request = page.clone();
+        if self.peer {
+            request.filter =
+                Some(ListFilter { origin: Some("local".into()), ..Default::default() });
+        }
+        let frame = self.hub.page_for_view(&request, held_view)?;
+        if self.peer { peer_frame(frame) } else { Ok(frame) }
     }
 
     fn resume(&self, sid: &str, cursor: Cursor) {
@@ -165,7 +187,15 @@ struct Delivery {
     mode: Mode,
 }
 
-fn open(hub: &Hub, sub: &Sub) -> Result<Delivery, ConnError> {
+fn open(hub: &Hub, sub: &Sub, peer: bool) -> Result<Delivery, ConnError> {
+    let sub = if peer {
+        let mut filtered = sub.clone();
+        filtered.filter = Some(ListFilter { origin: Some("local".into()), ..Default::default() });
+        filtered
+    } else {
+        sub.clone()
+    };
+    let sub = &sub;
     if sub.view != Some(crate::wire::ListView::Folders)
         && sub.edition.is_none_or(|edition| edition == 0 || edition == hub.snapshot().edition())
         && let Some(cursor) = sub.cursor
@@ -188,15 +218,17 @@ fn open(hub: &Hub, sub: &Sub) -> Result<Delivery, ConnError> {
             let mark = final_frame.then_some(ReplayMark::End).or(Some(ReplayMark::Replay));
             let frame = raw_frame(&sub.sid, mark, &span.bytes, span.last_seq)?
                 .map_err(ConnError::InvalidRequest)?;
-            return Ok(Delivery { receiver, first: frame, cursor: Cursor(span.last_seq), mode });
+            let first = if peer { peer_delta_frame(frame)? } else { frame };
+            return Ok(Delivery { receiver, first, cursor: Cursor(span.last_seq), mode });
         }
     }
     let subscription = hub.subscribe(sub)?;
     // The frame and cursor come from ONE snapshot. Never substitute a second read.
     subscription.receiver.reposition(subscription.cursor);
+    let first = if peer { peer_frame(subscription.window)? } else { subscription.window };
     Ok(Delivery {
         receiver: subscription.receiver,
-        first: subscription.window,
+        first,
         cursor: Cursor(subscription.cursor),
         mode: Mode::Live,
     })
@@ -258,13 +290,14 @@ async fn pump(
     mut mode: Mode,
     mut resume: watch::Receiver<Cursor>,
     held: Arc<Held>,
+    peer: bool,
 ) {
     loop {
         if resume.has_changed().unwrap_or(false) {
             held.paused.store(false, Ordering::Release);
             sub.cursor = Some(*resume.borrow_and_update());
             sub.edition = Some(0);
-            let Ok(delivery) = open(&hub, &sub) else {
+            let Ok(delivery) = open(&hub, &sub, peer) else {
                 sink.fail(&sub.sid);
                 return;
             };
@@ -289,7 +322,7 @@ async fn pump(
             held.paused.store(false, Ordering::Release);
             sub.cursor = Some(*resume.borrow());
             sub.edition = Some(0);
-            let Ok(delivery) = open(&hub, &sub) else {
+            let Ok(delivery) = open(&hub, &sub, peer) else {
                 sink.fail(&sub.sid);
                 return;
             };
@@ -332,7 +365,7 @@ async fn pump(
         let result = match read {
             RawRead::Lagged => {
                 sub.cursor = None;
-                match open(&hub, &sub) {
+                match open(&hub, &sub, peer) {
                     Ok(delivery) => {
                         receiver = delivery.receiver;
                         Ok((delivery.first, delivery.cursor, delivery.mode))
@@ -354,6 +387,7 @@ async fn pump(
                 let next = if final_frame { Mode::Live } else { mode };
                 raw_frame(&sub.sid, replay, &span.bytes, span.last_seq)
                     .and_then(|frame| frame.map_err(ConnError::InvalidRequest))
+                    .and_then(|frame| if peer { peer_delta_frame(frame) } else { Ok(frame) })
                     .map(|frame| (frame, Cursor(span.last_seq), next))
             }
         };
@@ -369,5 +403,54 @@ async fn pump(
             Offer::NotFed => mode = Mode::Paused,
             _ => return,
         }
+    }
+}
+
+fn peer_frame(frame: Frame) -> Result<Frame, ConnError> {
+    if !matches!(frame.kind, FrameKind::Window | FrameKind::Page) {
+        return Ok(frame);
+    }
+    let mut value: Value = frame.decode_json()?;
+    if let Some(rows) = value.get_mut("rows").and_then(Value::as_array_mut) {
+        rows.retain(|row| row.get("origin").and_then(Value::as_str) == Some("local"));
+        for row in rows {
+            project_peer_row(row);
+        }
+    }
+    if let Some(origins) = value.get_mut("origins").and_then(Value::as_array_mut) {
+        origins.clear();
+    }
+    Ok(Frame::json(frame.kind, &value)?)
+}
+
+fn peer_delta_frame(frame: Frame) -> Result<Frame, ConnError> {
+    if frame.kind != FrameKind::Delta {
+        return peer_frame(frame);
+    }
+    let mut value: Value = frame.decode_json()?;
+    let Some(ops) = value.get_mut("ops").and_then(Value::as_array_mut) else {
+        return Ok(frame);
+    };
+    ops.retain(|op| match op.get("op").and_then(Value::as_str) {
+        Some("summary") => {
+            op.get("summary").and_then(|row| row.get("origin")).and_then(Value::as_str)
+                == Some("local")
+        }
+        Some("gone") => op.get("origin").and_then(Value::as_str) == Some("local"),
+        _ => false,
+    });
+    for op in ops {
+        if let Some(row) = op.get_mut("summary") {
+            project_peer_row(row);
+        }
+    }
+    Ok(Frame::json(frame.kind, &value)?)
+}
+
+fn project_peer_row(row: &mut Value) {
+    let Some(object) = row.as_object_mut() else { return };
+    let Some(peer_form) = object.get("peerForm").cloned() else { return };
+    if peer_form.is_object() {
+        *row = peer_form;
     }
 }
