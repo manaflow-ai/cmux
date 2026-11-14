@@ -97,7 +97,7 @@ import { followTrace } from "./followTrace";
 import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
-import { noteOlderScrollTarget, olderScrollTargetTop } from "./conversation/olderScrollTarget";
+import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/olderScrollTarget";
 import { noteTranscriptMount, noteReplyUnpainted } from "./flickerLog";
 import { finalReplyId, REPLY_SETTLE_MS, replyUnpainted } from "./conversation/replyPainted";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
@@ -5503,6 +5503,11 @@ function TranscriptView({
       { explicit: true, paced: send },
     );
   };
+  // A scrollbar drag may cross the estimated room above the loaded rows while a page is in flight.
+  // Keep that native drag target and consume the room as pages land; without it, handleScroll
+  // clamps every pointer move to the same edge and a long chat appears to stop around its reserve.
+  // Declared before the scroll handlers that write it, so React Compiler reads it as a ref.
+  const olderScrollTarget = useRef<number | undefined>(undefined);
   /// The older-history check (below), which every scroll event runs too.
   const checkOlderNow = useRef<() => void>(() => {});
   /// The reader's speed up and how long pages take, which move the older-history ask further ahead.
@@ -6276,10 +6281,6 @@ function TranscriptView({
   // A read that drew no row above the first (records that draw nothing) moves historyFrom: ask again.
   const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}\u0000${historyFrom ?? ""}`;
   const olderLoadRequested = useRef<string | undefined>(undefined);
-  // A scrollbar drag may cross the estimated room above the loaded rows while a page is in flight.
-  // Keep that native drag target and consume the room as pages land; without it, handleScroll
-  // clamps every pointer move to the same edge and a long chat appears to stop around its reserve.
-  const olderScrollTarget = useRef<number | undefined>(undefined);
   /// An older page asked for has not settled yet; and the check that follows one that brought nothing.
   const olderAsking = useRef(false);
   const olderRecheck = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -6347,11 +6348,8 @@ function TranscriptView({
     const node = ref.current;
     const target = olderScrollTarget.current;
     if (!node || target === undefined) return;
-    const room = latestLayout.current.layout.origin ?? 0;
-    const next = olderScrollTargetTop(target, room);
-    if (next !== undefined && Math.abs(layoutScrollTop(node) - next) > 0.5)
-      node.scrollTop = physicalScrollTop(node, next);
-    if (room <= target + 0.5) olderScrollTarget.current = undefined;
+    if (holdOlderScrollTarget(node, target, latestLayout.current.layout.origin ?? 0))
+      olderScrollTarget.current = undefined;
   }, [height, layout.origin, olderLoadKey, renderScroll.top]);
   useEffect(() => {
     checkOlderNow.current();
