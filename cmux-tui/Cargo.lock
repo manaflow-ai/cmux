@@ -2588,6 +2588,7 @@ name = "cmux-wg"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "blake2",
  "boringtun",
  "bytes",
  "cmux-rd-core",
