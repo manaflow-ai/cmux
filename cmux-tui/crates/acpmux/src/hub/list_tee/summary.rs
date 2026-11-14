@@ -251,6 +251,13 @@ pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<S
     });
     summary.folder =
         row.get("cwd").and_then(Value::as_str).map(|path| path.trim_end_matches('/').to_owned());
+    // Keep the typed archive bit beside the row. The tag remains in `extra` for
+    // older readers, but callers must not parse opaque bytes on every parent fold.
+    let now = crate::store::now_ms();
+    summary.archived = meta
+        .tags
+        .get("archived")
+        .is_some_and(|tag| tag.expires_at.is_none_or(|expires_at| expires_at > now));
     // Apply typed field bounds once, while extra is empty. Subsequent fitting
     // never uses the index's empty-extra fallback.
     summary = summary.prepare()?;
@@ -308,6 +315,53 @@ pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<S
             )));
         }
     }
+}
+
+/// Converts one peer table row into the list index's typed summary. The row is
+/// supplied from `RemoteRows::live_of_peer`, so fields rewritten by the v1
+/// stale marker are not carried into the v2 row. Remote rows never transit to
+/// another peer, hence `peer_form` stays empty.
+pub(super) fn summary_from_remote(peer: &str, row: &super::super::PeerRow) -> io::Result<Summary> {
+    let value = row.value();
+    let chat_id =
+        row.session_id().ok_or_else(|| invalid("remote summary has no sessionId"))?.to_owned();
+    let mut summary = Summary::new(chat_id);
+    summary.origin = peer.to_owned();
+    summary.title = value
+        .get("title")
+        .or_else(|| value.get("name"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    cut_title(&mut summary.title);
+    summary.harness = row.harness().unwrap_or_default().to_owned();
+    summary.state = row
+        .status()
+        .or_else(|| value.get("state").and_then(Value::as_str))
+        .unwrap_or("closed")
+        .to_owned();
+    summary.last_activity = row.updated_ms();
+    let count = value.get("unreadTurns").and_then(Value::as_u64).unwrap_or(0);
+    let unread = value.get("unread").and_then(Value::as_bool).unwrap_or(false);
+    summary.unread = if count == 0 && unread { 1 } else { count.min(u32::MAX as u64) as u32 };
+    summary.workspace = value
+        .get("workspaceId")
+        .or_else(|| value.get("workspace"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    summary.folder =
+        value.get("cwd").and_then(Value::as_str).map(|path| path.trim_end_matches('/').to_owned());
+    summary.pinned = value.get("pinned").and_then(Value::as_bool).unwrap_or(false);
+    let mut opaque = value
+        .as_object()
+        .map(extra)
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    for key in ["stale", "lastSeen", "stuckReason", "stuckSince", "stuckError"] {
+        opaque.remove(key);
+    }
+    summary.extra = json(&Value::Object(opaque))?;
+    summary.prepare()
 }
 
 #[cfg(test)]
@@ -370,7 +424,38 @@ mod tests {
         assert!(!peer.title.contains("ghp_"));
         assert!(peer.title.contains("GitHub"));
         assert_eq!(peer.chat_id, row.chat_id);
+        assert_eq!(peer.archived, row.archived);
         assert!(peer.peer_form.is_none());
+    }
+
+    #[tokio::test]
+    async fn peer_form_keeps_stuck_details_but_masks_scanned_error_text() {
+        let (hub, session) = fixture(false).await;
+        hub.edit_test_meta(&session, |meta| {
+            meta.status = crate::store::SessionStatus::Running;
+            meta.last_prompt = None;
+            meta.preview = None;
+            let base = meta.harness_failures.through_seq;
+            for offset in 1..=3 {
+                let seq = base + offset;
+                meta.harness_failures.observe(
+                    &serde_json::json!({
+                        "status": "failed",
+                        "errorText": "HTTP 503 bearer ghp_aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234"
+                    }),
+                    seq,
+                    offset * 10,
+                );
+            }
+        });
+        let row = summary_from_session(&hub, &session).unwrap();
+        let local: Value = serde_json::from_str(row.extra.get()).unwrap();
+        assert_eq!(local["stuckSince"], 30);
+        assert_eq!(local["stuckError"], "HTTP 503 [redacted]");
+        let peer: Summary = serde_json::from_str(row.peer_form.as_ref().unwrap().get()).unwrap();
+        let peer_extra: Value = serde_json::from_str(peer.extra.get()).unwrap();
+        assert!(peer_extra.get("stuckSince").is_none());
+        assert!(peer_extra.get("stuckError").is_none());
     }
 
     #[tokio::test]
@@ -450,6 +535,7 @@ mod tests {
             });
             let child_row = summary_from_session(&hub, &child).unwrap();
             let parent_row = summary_from_session(&hub, &parent).unwrap();
+            assert_eq!(parent_row.archived, case == "archived");
             assert!(child_row.same_content(&original), "parent case {case} changed the child");
             assert_eq!(
                 Summary::listed_under(&child_row, Some(&parent_row)),
@@ -458,5 +544,20 @@ mod tests {
             );
         }
         assert!(!Summary::listed_under(&original, None));
+    }
+
+    #[tokio::test]
+    async fn expired_archived_tag_is_not_copied_to_the_typed_row() {
+        let (hub, parent) = fixture(false).await;
+        hub.edit_test_meta(&parent, |meta| {
+            meta.tags.insert(
+                "archived".into(),
+                crate::store::Tag {
+                    value: "true".into(),
+                    expires_at: Some(crate::store::now_ms().saturating_sub(1)),
+                },
+            );
+        });
+        assert!(!summary_from_session(&hub, &parent).unwrap().archived);
     }
 }

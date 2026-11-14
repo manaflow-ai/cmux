@@ -2,7 +2,8 @@
 //! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`),
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
 //! the group hover card's summary (`group_hover_summary`), the sidebar's
-//! launch order hold (`sidebar_launch_order`), the app sidebar
+//! launch order hold (`sidebar_launch_order`), a workspace row's own layout
+//! (`sidebar_row_layout`), the app sidebar
 //! bridge's decision rules (`sidebar_bridge`), the store's
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
 //! row or dock shows, what a hidden pane leaves, where a moved tab or
@@ -240,6 +241,21 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_launch_order::respond(&request))
                     .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_row_layout" => {
+                use cmux_layout_reducer::sidebar_row_layout;
+                let request: sidebar_row_layout::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_row_layout::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_section_customization" => {
+                let request: cmux_layout_reducer::sidebar_section_customization::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_layout_reducer::sidebar_section_customization::respond(
+                    &request,
+                ))
+                .map_err(|_| ERR_INVALID)?
             }
             b"group_hover_summary" => {
                 let request: cmux_layout_reducer::group_hover_summary::Request =

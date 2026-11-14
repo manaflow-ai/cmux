@@ -23,6 +23,12 @@ public final class TerminalModel {
 
     public internal(set) var title: String
     public internal(set) var programName: String
+    /// The Mac the session runs on (`Workspace.macID`): the terminal shows that Mac's terminal
+    /// theme (``CmuxMobileTerminalThemes``). Nil for a placeholder or mock session.
+    public var hostMacID: String?
+    /// The terminal theme the surface shows now (its card paints the same background); nil until
+    /// a Mac ever sent one.
+    public internal(set) var hostTheme: CmuxMobileTerminalTheme?
     /// Alternate screen: the program owns scrolling; the frame pins to the composer.
     public internal(set) var isTUI = false
     public internal(set) var keyboardVisible = false
@@ -469,7 +475,7 @@ public final class TerminalModel {
     #endif
 
     /// Grid sizes this page sent the Mac (`TerminalViewController.sendResize`),
-    /// for demos and UI tests: the soft keyboard must not add any.
+    /// for demos and UI tests.
     public internal(set) var ptyResizesSent = 0
     #if DEBUG
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).

@@ -15,6 +15,7 @@ const MIN_OP_BYTES: usize = 32;
 
 #[derive(Clone, Copy, Default)]
 struct Entry {
+    seq: u64,
     start: usize,
     len: usize,
     checksum: u64,
@@ -30,6 +31,24 @@ pub(super) struct History {
     used: usize,
     #[cfg(test)]
     encoded_ops: AtomicUsize,
+    #[cfg(test)]
+    raw_copies: AtomicUsize,
+}
+
+/// A sparse fixed-size ring for the local rows sent to peer links. Sequence
+/// numbers still advance for every index record, but remote-origin records do
+/// not allocate bytes here. The peer connection can therefore copy the raw
+/// peer projection without decoding or re-encoding the local operation ring.
+pub(super) struct PeerHistory {
+    bytes: Box<[u8]>,
+    entries: Box<[Entry]>,
+    head: usize,
+    len: usize,
+    first: u64,
+    floor: u64,
+    last: u64,
+    tail: usize,
+    used: usize,
 }
 
 /// A comma-separated span of the already encoded operations in the ring.
@@ -42,8 +61,14 @@ pub(crate) struct RawSpan {
 }
 
 impl RawSpan {
+    pub(super) fn folder(bytes: Vec<u8>, last_seq: u64) -> Self {
+        Self { bytes, last_seq, entries: Vec::new() }
+    }
+
     /// Check the copied bytes after releasing the ring lock. Entry offsets
-    /// address this span, so later ring writes cannot affect validation.
+    /// address this span, so later ring writes cannot affect validation. The
+    /// checksum catches a damaged read before decode; its append-time hashing
+    /// is part of the replay-append timing gate.
     pub(super) fn is_valid(&self) -> bool {
         self.entries.iter().all(|entry| {
             let Some(bytes) = self.bytes.get(entry.start..entry.start + entry.len) else {
@@ -94,6 +119,8 @@ impl History {
             used: 0,
             #[cfg(test)]
             encoded_ops: AtomicUsize::new(0),
+            #[cfg(test)]
+            raw_copies: AtomicUsize::new(0),
         }
     }
 
@@ -105,6 +132,16 @@ impl History {
     #[cfg(test)]
     pub(super) fn encoded_ops(&self) -> usize {
         self.encoded_ops.load(Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    pub(super) fn reset_raw_copies(&self) {
+        self.raw_copies.store(0, Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    pub(super) fn raw_copies(&self) -> usize {
+        self.raw_copies.load(Ordering::Acquire)
     }
 
     #[cfg(test)]
@@ -159,7 +196,7 @@ impl History {
                 since: origin.since,
                 extra: origin.extra.clone(),
             },
-            ListItem::Lagged { .. } => return Ok(()),
+            ListItem::Folders { .. } | ListItem::Lagged { .. } => return Ok(()),
         };
         let seq = match &op {
             Op::Summary { seq, .. } | Op::Gone { seq, .. } | Op::Origin { seq, .. } => *seq,
@@ -185,7 +222,7 @@ impl History {
             self.clear();
             return Err(serde_json::Error::io(invalid_entry()));
         };
-        *entry = Entry { start, len, checksum };
+        *entry = Entry { seq, start, len, checksum };
         if self.len == 0 {
             self.first = seq;
         }
@@ -262,6 +299,8 @@ impl History {
     }
 
     fn copy_entry_into(&self, entry: Entry, out: &mut Vec<u8>) -> bool {
+        #[cfg(test)]
+        self.raw_copies.fetch_add(1, Ordering::Release);
         let capacity = self.bytes.len();
         let first_len = entry.len.min(capacity.saturating_sub(entry.start));
         let Some(first) = self.bytes.get(entry.start..entry.start + first_len) else {
@@ -273,6 +312,177 @@ impl History {
         };
         out.extend_from_slice(second);
         true
+    }
+}
+
+impl PeerHistory {
+    pub(super) fn new(start: u64) -> Self {
+        Self::with_capacity(start, CREDIT_WINDOW_BYTES)
+    }
+
+    fn with_capacity(start: u64, capacity: usize) -> Self {
+        Self {
+            bytes: vec![0; capacity].into_boxed_slice(),
+            entries: vec![Entry::default(); (capacity / MIN_OP_BYTES).max(1)].into_boxed_slice(),
+            head: 0,
+            len: 0,
+            first: 0,
+            floor: start,
+            last: start,
+            tail: 0,
+            used: 0,
+        }
+    }
+
+    pub(super) fn last_seq(&self) -> u64 {
+        self.last
+    }
+
+    pub(super) fn can_resume(&self, cursor: u64) -> bool {
+        cursor >= self.floor
+    }
+
+    pub(super) fn append(&mut self, seq: u64, summary: Option<&Summary>) -> serde_json::Result<()> {
+        self.last = self.last.max(seq);
+        let Some(summary) = summary else { return Ok(()) };
+        if summary.origin != "local" {
+            return Ok(());
+        }
+        let mut op =
+            Vec::with_capacity(summary.peer_form.as_ref().map_or(256, |raw| raw.get().len()));
+        op.extend_from_slice(br#"{"op":"summary","seq":"#);
+        serde_json::to_writer(&mut op, &seq)?;
+        op.extend_from_slice(br#","summary":"#);
+        if let Some(peer) = summary.peer_form.as_ref() {
+            op.extend_from_slice(peer.get().as_bytes());
+        } else {
+            serde_json::to_writer(&mut op, summary)?;
+        }
+        op.push(b'}');
+        self.append_bytes(seq, &op).map_err(serde_json::Error::io)
+    }
+
+    pub(super) fn append_gone(
+        &mut self,
+        seq: u64,
+        origin: &str,
+        chat_id: &str,
+    ) -> serde_json::Result<()> {
+        self.last = self.last.max(seq);
+        if origin != "local" {
+            return Ok(());
+        }
+        let mut op = Vec::with_capacity(64 + origin.len() + chat_id.len());
+        op.extend_from_slice(br#"{"op":"gone","seq":"#);
+        serde_json::to_writer(&mut op, &seq)?;
+        op.extend_from_slice(br#","origin":"#);
+        serde_json::to_writer(&mut op, origin)?;
+        op.extend_from_slice(br#","chatId":"#);
+        serde_json::to_writer(&mut op, chat_id)?;
+        op.push(b'}');
+        self.append_bytes(seq, &op).map_err(serde_json::Error::io)
+    }
+
+    fn append_bytes(&mut self, seq: u64, bytes: &[u8]) -> io::Result<()> {
+        if bytes.len() > self.bytes.len() {
+            self.clear(self.last);
+            return Err(io::Error::other("peer list op exceeds history byte capacity"));
+        }
+        while self.used + bytes.len() > self.bytes.len() || self.len == self.entries.len() {
+            if self.len == 0 {
+                break;
+            }
+            let entry = *self.entries.get(self.head).ok_or_else(invalid_entry)?;
+            self.used = self.used.saturating_sub(entry.len);
+            self.head = (self.head + 1) % self.entries.len();
+            self.len -= 1;
+            self.floor = entry.seq;
+            self.first = self.entries.get(self.head).map_or(seq, |next| next.seq);
+        }
+        let start = self.tail;
+        let first_len = bytes.len().min(self.bytes.len() - self.tail);
+        self.bytes
+            .get_mut(self.tail..self.tail + first_len)
+            .ok_or_else(invalid_entry)?
+            .copy_from_slice(bytes.get(..first_len).ok_or_else(invalid_entry)?);
+        self.bytes
+            .get_mut(..bytes.len() - first_len)
+            .ok_or_else(invalid_entry)?
+            .copy_from_slice(bytes.get(first_len..).ok_or_else(invalid_entry)?);
+        let mut checksum = DefaultHasher::new();
+        checksum.write(bytes);
+        let slot = (self.head + self.len) % self.entries.len();
+        *self.entries.get_mut(slot).ok_or_else(invalid_entry)? =
+            Entry { seq, start, len: bytes.len(), checksum: checksum.finish() };
+        self.tail = (self.tail + bytes.len()) % self.bytes.len();
+        self.used += bytes.len();
+        if self.len == 0 {
+            self.first = seq;
+        }
+        self.len += 1;
+        Ok(())
+    }
+
+    pub(super) fn after_frame(
+        &self,
+        cursor: u64,
+        through: u64,
+        max_bytes: usize,
+    ) -> Option<RawSpan> {
+        if cursor >= through {
+            return Some(RawSpan { bytes: Vec::new(), last_seq: cursor, entries: Vec::new() });
+        }
+        if cursor < self.floor {
+            return None;
+        }
+        let mut out = Vec::new();
+        let mut entries = Vec::new();
+        let mut last_seq = through;
+        for index in 0..self.len {
+            let entry = *self.entries.get((self.head + index) % self.entries.len())?;
+            if entry.seq <= cursor || entry.seq > through {
+                continue;
+            }
+            let separator = usize::from(!out.is_empty());
+            if out.len().saturating_add(separator).saturating_add(entry.len) > max_bytes {
+                last_seq = entry.seq.saturating_sub(1);
+                break;
+            }
+            if separator != 0 {
+                out.push(b',');
+            }
+            let start = out.len();
+            if !self.copy_entry_into(entry, &mut out) {
+                return None;
+            }
+            entries.push(Entry { start, ..entry });
+            last_seq = entry.seq;
+        }
+        Some(RawSpan { bytes: out, last_seq, entries })
+    }
+
+    fn copy_entry_into(&self, entry: Entry, out: &mut Vec<u8>) -> bool {
+        let capacity = self.bytes.len();
+        let first_len = entry.len.min(capacity.saturating_sub(entry.start));
+        let Some(first) = self.bytes.get(entry.start..entry.start + first_len) else {
+            return false;
+        };
+        out.extend_from_slice(first);
+        let Some(second) = self.bytes.get(..entry.len.saturating_sub(first_len)) else {
+            return false;
+        };
+        out.extend_from_slice(second);
+        true
+    }
+
+    fn clear(&mut self, floor: u64) {
+        self.head = 0;
+        self.len = 0;
+        self.first = 0;
+        self.floor = floor;
+        self.last = floor;
+        self.tail = 0;
+        self.used = 0;
     }
 }
 
@@ -505,6 +715,67 @@ mod tests {
         assert_eq!(event.summary.extra.get(), r#"{"nested": [1, true, {"x": "y"}]}"#);
         assert!(history.after(17, 19).is_none());
         assert!(history.after(19, 19).unwrap().is_empty());
+    }
+
+    #[test]
+    fn peer_history_keeps_only_local_rows_and_writes_valid_raw_ops() {
+        let mut history = PeerHistory::new(0);
+        let mut local = Summary::new("local-chat");
+        local.origin = "local".into();
+        local.peer_form = Some(
+            serde_json::value::RawValue::from_string(
+                r#"{"chatId":"local-chat","title":"masked"}"#.into(),
+            )
+            .unwrap(),
+        );
+        let mut remote = Summary::new("remote-chat");
+        remote.origin = "other".into();
+        history.append(1, Some(&remote)).unwrap();
+        history.append(2, Some(&local)).unwrap();
+        history.append_gone(3, "other", "remote-chat").unwrap();
+        history.append_gone(4, "local", "local-chat").unwrap();
+
+        let span = history.after_frame(0, 4, usize::MAX).unwrap();
+        assert!(span.is_valid());
+        let values: Vec<serde_json::Value> = serde_json::from_slice(
+            format!("[{}]", String::from_utf8(span.bytes).unwrap()).as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0]["seq"], 2);
+        assert_eq!(values[0]["summary"]["title"], "masked");
+        assert_eq!(values[1]["seq"], 4);
+        assert_eq!(values[1]["origin"], "local");
+    }
+
+    #[test]
+    fn peer_history_floor_requires_a_window_before_creation() {
+        let mut history = PeerHistory::new(10);
+        assert!(!history.can_resume(5));
+        assert!(history.after_frame(5, 10, usize::MAX).is_none());
+        let end = history.after_frame(10, 10, usize::MAX).unwrap();
+        assert!(end.bytes.is_empty());
+        assert_eq!(end.last_seq, 10);
+
+        let remote = Summary::new("remote-only");
+        let mut remote = remote;
+        remote.origin = "remote".into();
+        history.append(11, Some(&remote)).unwrap();
+        history.append_gone(12, "remote", "remote-only").unwrap();
+        assert!(history.after_frame(5, 12, usize::MAX).is_none());
+        assert!(history.after_frame(10, 12, usize::MAX).unwrap().bytes.is_empty());
+    }
+
+    #[test]
+    fn peer_history_floor_advances_when_entries_are_evicted() {
+        let mut history = PeerHistory::with_capacity(0, 128);
+        for seq in 1..32 {
+            history.append_gone(seq, "local", &format!("chat-{seq}")).unwrap();
+        }
+        assert!(history.floor > 0);
+        let floor = history.floor;
+        assert!(history.after_frame(floor.saturating_sub(1), history.last, usize::MAX).is_none());
+        assert!(history.can_resume(floor));
     }
 
     #[test]
