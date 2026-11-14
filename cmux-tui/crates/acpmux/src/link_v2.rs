@@ -134,7 +134,7 @@ struct Method<'a> {
 pub fn parse(line: &str) -> Option<Incoming<'_>> {
     let line: Line<'_> = serde_json::from_str(line.trim_end()).ok()?;
     let payload = line.params.payload.get().as_bytes();
-    (payload.len() + HEADER_BYTES + 1 <= acpmux_core::wire::MAX_FRAME_BYTES)
+    (payload.len() + HEADER_BYTES < acpmux_core::wire::MAX_FRAME_BYTES)
         .then_some(Incoming { kind: line.params.kind, payload })
 }
 

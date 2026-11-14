@@ -106,6 +106,14 @@ async fn no_frame_is_lost_or_reordered_across_random_stalls_of_either_end() {
                     tokio::time::sleep(Duration::from_micros(rng.below(200))).await;
                 }
             }
+            // The stream ends after the last frame is read: a close drops an unread one.
+            tokio::time::timeout(WAIT, async {
+                while !adapter.inbound.lock().frame.is_empty() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("the last frame is read");
             adapter.close();
         });
         let mut read = Vec::new();
@@ -431,7 +439,8 @@ async fn a_frame_with_no_connection_is_dropped_and_counted() {
     let hub = memory_hub();
     let _writer = peers_on(&hub);
     let mut wire = link(&hub);
-    wire.send(Message::notification(method::MUX_V2, json!({"kind":9})).to_line()).await;
+    // Not a frame line's first bytes: its keys in another order.
+    wire.send(r#"{"method":"_acpmux/v2","jsonrpc":"2.0","params":{"kind":9}}"#.into()).await;
     wire.call(1, method::MUX_STATUS, json!({})).await;
     assert_eq!(hub.link_v2.counters.value_parses.load(Ordering::Relaxed), 1);
     assert_eq!(hub.link_v2.counters.dropped.load(Ordering::Relaxed), 1);
@@ -516,7 +525,6 @@ pub(super) struct Dialer {
     pub mirror: BTreeMap<String, Value>,
     pub cursor: u64,
     pub windows: usize,
-    pub ends: usize,
     pub frames: Vec<Value>,
     _tasks: Vec<tokio::task::JoinHandle<()>>,
 }
@@ -558,7 +566,6 @@ pub(super) fn dial(
         mirror: BTreeMap::new(),
         cursor: 0,
         windows: 0,
-        ends: 0,
         frames: Vec::new(),
         _tasks: vec![reading, writing, driving],
     };

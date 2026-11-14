@@ -150,21 +150,8 @@ impl Drop for Children {
 /// a client that stopped reading cannot hold daemon handoff beyond CLOSE_BUDGET. Once the
 /// connection ended (`stopped`), what it queued is written for [`LAST_FRAMES_WAIT`] at most, a
 /// frame already waiting on the client included, so a frozen client never holds the socket open. A large line
-/// goes compressed once the client asked for that (`frame_compress.rs`).
-pub(super) async fn write<S>(
-    sink: S,
-    outbound: mpsc::Receiver<String>,
-    stopped: oneshot::Receiver<()>,
-    shutdown: WsShutdown,
-    wire: std::sync::Arc<crate::frame_compress::Wire>,
-) where
-    S: Sink<Frame> + Unpin,
-{
-    write_link(sink, outbound, None, stopped, shutdown, wire).await;
-}
-
-/// [`write`] for a link that may carry the v2 list stream: v1's lines first, then the frame in
-/// `slot` (`link_v2::next_line`).
+/// goes compressed once the client asked for that (`frame_compress.rs`). A link that may carry
+/// the v2 list stream has a `slot`: v1's lines first, then the frame in it (`link_v2::next_line`).
 pub(super) async fn write_link<S>(
     mut sink: S,
     mut outbound: mpsc::Receiver<String>,
