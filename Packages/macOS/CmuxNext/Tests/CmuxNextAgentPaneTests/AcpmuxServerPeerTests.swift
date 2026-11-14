@@ -1,9 +1,29 @@
 import Darwin
 import Foundation
+import os
 import Testing
 @testable import CmuxNextAgentPane
 
 struct AcpmuxServerPeerTests {
+    /// Leo, 2026-11-14: "load faster/percievably load faster / whatever it takes". Every agent pane connect
+    /// reads every socket of every process of this user twice (cx-fcaq's listener and accepted-end checks),
+    /// one process after another, on the path from "connect" to the chat. The reads now run across cores:
+    /// the same sockets, in the same order, read in parallel.
+    @Test func thePeerScanReadsEveryProcessInParallelAndKeepsItsOrder() {
+        let pids: [pid_t] = Array(1...64)
+        let inFlight = OSAllocatedUnfairLock(initialState: (now: 0, most: 0))
+        let sockets = AcpmuxServerPeer.tcpSockets(of: pids) { pid in
+            inFlight.withLock { $0.now += 1; $0.most = max($0.most, $0.now) }
+            // Busy for 2 ms, as a process with many descriptors is (no sleep: the test thread stays on its core).
+            let end = ContinuousClock.now.advanced(by: .milliseconds(2))
+            while ContinuousClock.now < end {}
+            inFlight.withLock { $0.now -= 1 }
+            return [AcpmuxServerPeer.TCPSocket(pid: pid, localPort: Int(pid), remotePort: 0, listening: true, established: false)]
+        }
+        #expect(sockets.map(\.pid) == pids, "every process's sockets, in the processes' order")
+        #expect(inFlight.withLock { $0.most } > 1, "more than one process read at once")
+    }
+
     @Test func anotherUsersSocketPeerIsRefusedBeforeItsExecutableOrSignature() throws {
         try withSocketPair { descriptor in
             let peerUID = getuid()
