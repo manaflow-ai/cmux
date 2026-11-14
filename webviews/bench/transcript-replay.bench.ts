@@ -307,7 +307,21 @@ async function invalidations(cdp: CDPSession, run: () => Promise<void>, page: Pa
     }
     if (!event.name.endsWith("InvalidationTracking")) continue;
     const data = event.args?.data ?? {};
-    const what =
+    // A subtree invalidation names the classes and attributes its invalidation set matched: which one
+    // flipped on the node, so the whole thread restyled.
+    type InvalidationSet = { classes?: string[]; attributes?: string[]; ids?: string[]; subtree?: boolean };
+    const sets = [
+      ...((data.invalidationList as InvalidationSet[] | undefined) ?? []).flatMap((set) => [
+        ...(set.subtree ? ["subtree"] : []),
+        ...(set.classes ?? []).map((name) => `.${name}`),
+        ...(set.attributes ?? []).map((name) => `[${name}]`),
+        ...(set.ids ?? []).map((name) => `#${name}`),
+      ]),
+      ...((data.selectors as { selector?: string }[] | undefined) ?? []).map((each) => `{${each.selector ?? ""}}`),
+    ]
+      .slice(0, 4)
+      .join(" ");
+    const why =
       (data.reason as string | undefined) ??
       [
         data.changedAttribute && `attr ${String(data.changedAttribute)}`,
@@ -318,6 +332,7 @@ async function invalidations(cdp: CDPSession, run: () => Promise<void>, page: Pa
       ]
         .filter(Boolean)
         .join(",");
+    const what = [why, sets].filter(Boolean).join(" ");
     const node = String(data.nodeName ?? "").slice(0, 60);
     const key = `${event.name.replace("InvalidationTracking", "")}: ${what || "?"} @ ${node}`;
     reasons.set(key, (reasons.get(key) ?? 0) + 1);
@@ -335,7 +350,7 @@ async function invalidations(cdp: CDPSession, run: () => Promise<void>, page: Pa
   const per = (value: number) => Math.round((value / records) * 10) / 10;
   const top = [...reasons.entries()]
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 14)
+    .slice(0, Number(process.env.INVALIDATIONS_TOP) || 14)
     .map(([key, count]) => `\n      ${per(count)}/rec ${key}`)
     .join("");
   return `style recalcs ${per(recalcs)}/rec, ${per(styled)} elements/rec; renders ${rows}${top}`;

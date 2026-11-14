@@ -398,7 +398,7 @@ impl WorkspaceRegistry {
     /// that the journal cannot bring to its head (a gap, a read failure), starts again empty at
     /// the head: it then drops nothing, which is exact at any revision. Returns whether the fold
     /// held before the call is the one held after it.
-    fn catch_up_public_fold(&mut self) -> bool {
+    pub(crate) fn catch_up_public_fold(&mut self) -> bool {
         let held = self.public_fold.take().and_then(|fold| self.caught_up(fold));
         let kept = held.is_some();
         self.public_fold = held.or_else(|| {

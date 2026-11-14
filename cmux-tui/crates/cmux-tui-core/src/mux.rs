@@ -1203,4 +1203,4 @@ impl Drop for Mux {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
