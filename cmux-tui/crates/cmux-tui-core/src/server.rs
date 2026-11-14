@@ -3124,8 +3124,11 @@ fn list_workspaces_reply_text(
 }
 
 fn list_workspaces_tree(mux: &Mux) -> anyhow::Result<Value> {
-    let notifications = mux.tree_decorations();
-    let mut workspaces = mux.with_state(|state| tree_nodes(state, &notifications));
+    // One hold of the state lock, for a copy of the state. The nodes of the whole tree are
+    // built from the copy with no lock held: a request that needs the state does not wait for
+    // the build, which is the long part of this reply in a large session.
+    let (state, notifications) = mux.tree_state_and_decorations();
+    let mut workspaces = tree_nodes(&state, &notifications);
     let (registry_id, generation) = mux.registry_identity();
     workspaces.set("registry_id", json!(registry_id));
     workspaces.set("generation", json!(generation));
