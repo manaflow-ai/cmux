@@ -966,6 +966,8 @@ impl Hub {
         let family = super::subsession_guard::is_family_prompt(run.provenance.as_ref());
         if control == Control::Web || !family {
             session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+            *session.floor.turn_device.lock().unwrap_or_else(|e| e.into_inner()) =
+                run.full_access_device.clone().filter(|_| control == Control::Web);
         }
         session
             .floor

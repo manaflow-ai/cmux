@@ -327,6 +327,8 @@ impl Hub {
     /// not start, or in a mode only a machine's Full-access setting allows, does not go on.
     pub(super) fn recovered_floor(&self, session: &Session, control: Control) {
         session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+        // Which device sent it is not kept across a restart.
+        *session.floor.turn_device.lock().unwrap_or_else(|e| e.into_inner()) = None;
         if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {
             self.remote_floor_cancel(session, "remote.unsandboxed_agent");
         }

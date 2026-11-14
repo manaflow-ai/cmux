@@ -265,11 +265,19 @@ impl Hub {
             return Ok(());
         }
         let raised = session.turn.lock().unwrap_or_else(|e| e.into_inner()).as_mut().map(|t| {
+            let was_web = t.control == Control::Web;
             t.control = Control::Web;
-            t.turn_id.clone()
+            (t.turn_id.clone(), was_web)
         });
-        if let Some(turn_id) = raised {
+        if let Some((turn_id, was_web)) = raised {
             session.floor.last_turn_web.store(true, Ordering::SeqCst);
+            // The turn stays the one device's only while every Web steer into it is that device's
+            // (`FloorState::turn_device`).
+            let mut sender = session.floor.turn_device.lock().unwrap_or_else(|e| e.into_inner());
+            if !was_web || sender.as_deref() != device {
+                *sender = (!was_web).then(|| device.map(str::to_owned)).flatten();
+            }
+            drop(sender);
             // Read back when a host is adopted (`hosts.rs`).
             self.append(
                 session,
@@ -395,6 +403,12 @@ impl Hub {
         if let Some(e) = self.local_claude_refusal(meta, device) {
             return Err(e);
         }
+        // The rules below keep a remote device from steering a chat that acts without asking.
+        // The owner's own phone with Full access on is the person's opt-in to exactly that
+        // (`owner_phone_full_access`); only the sandbox rule still holds it.
+        if self.owner_phone_full_access(device) {
+            return unsandboxed_refusal(session, meta).map_or(Ok(()), Err);
+        }
         let mode = crate::web_modes::mode_of(meta);
         let shown = mode.as_deref().unwrap_or("(unknown)").to_owned();
         if session.web_control_ended.load(Ordering::SeqCst) {
@@ -488,6 +502,18 @@ impl Hub {
             return Err(e);
         }
         unsandboxed_refusal(session, &meta).map_or(Ok(()), Err)
+    }
+
+    /// Whether `device` is the owner's own phone (`Pairing::own_phone`) with its Full-access
+    /// setting on (`Pairing::full_access`; on by default for a phone, the person's own switch,
+    /// `crate::pairing` module docs): it drives a chat in the mode the chat has, as the Mac does,
+    /// one that does not ask included, so a Claude chat the Mac started in a mode that does not
+    /// ask takes its prompt (Leo, 2026-11-14: "chat writable in both directions"). Both are read
+    /// from the store on every call: removing the phone or turning the setting off puts every
+    /// rule of the Web back at its next request, and the floor holds its running turn
+    /// (`remote_floor_breach`).
+    pub(crate) fn owner_phone_full_access(&self, device: Option<&str>) -> bool {
+        device.is_some_and(|d| self.pairing.own_phone(d) && self.pairing.full_access(d))
     }
 
     /// D13: a Claude Code session the Mac started (not a remote chain) runs

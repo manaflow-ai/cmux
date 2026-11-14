@@ -326,3 +326,24 @@ async fn a_removed_phone_is_refused() {
     assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// The chat runs in the mode the Mac gave it, one that does not ask included (the stand-in Claude
+/// starts in `bypassPermissions`): the phone's own Full-access setting, on by default and the
+/// person's switch, is what lets it drive such a chat. Turned off, the phone is still not refused
+/// as a remote device (D13), but the Web's asking-mode rule holds it again at its next request.
+#[tokio::test]
+async fn the_phones_full_access_setting_off_puts_the_asking_rule_back() {
+    let d = dir("phone-off");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let s = local.new_session(&d, "fakeclaude").await;
+    assert!(local.prompt(&s, "hello").await.get("error").is_none());
+    let (id, token) = own_phone(&hub, "phone-iphone");
+    let mut phone = Client::device(&hub, &token, false);
+    let r = phone.prompt(&s, "on").await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
+    hub.pairing.set_full_access(&id, false).unwrap();
+    let r = phone.prompt(&s, "off").await;
+    assert_eq!(reason(&r), "remote.mode_not_asking", "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
