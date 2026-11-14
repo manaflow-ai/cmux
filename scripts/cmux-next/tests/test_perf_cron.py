@@ -571,6 +571,31 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.part_config("diff-viewer"), "9c9749c7fe76", "the diff-viewer rows are not rebased")
         self.assertNotEqual(cron.part_config("web-ui"), cron.part_config("diff-viewer"))
 
+    def test_the_memory_agents_part_owns_its_rows_and_reads_its_suites_report(self):
+        """CMUX-571: goals ram-baseline and memory-per-chat read these rows (memory-agents-cron.py)."""
+        self.assertIn("memory-agents", FLEET, "a Mac part on the measure host")
+        self.assertEqual(cron.part_for_row("memory.app_agents.empty.total_footprint_mb@cmux20-bench"), "memory-agents")
+        self.assertEqual(cron.part_for_row("memory.app_agents.ratio_vs_empty@cmux20-bench"), "memory-agents")
+        self.assertEqual(cron.part_for_row("idle.terminals.app_cpu_pct@cmux20-bench"), "home-idle")
+        spec2 = importlib.util.spec_from_file_location("memory_agents", os.path.join(HERE, "..", "memory-agents-cron.py"))
+        mem = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(mem)
+        bench = {"samples": [
+            {"label": "idle-launch", "workspaces": 1, "total_footprint_mb": 904.2, "pane_failures": 0},
+            {"label": "idle-10", "workspaces": 10, "total_footprint_mb": 1500.0, "pane_failures": 0},
+            {"label": "idle-20", "workspaces": 17, "total_footprint_mb": 1900.0, "pane_failures": 0}]}  # partial
+        report = {"rows": mem.rows_from(bench)}
+        part = cron.PART_BY_NAME["memory-agents"]
+        rows = cron.rows_of_part(part, report, budgets_mod, {})
+        self.assertEqual(rows["memory.app_agents.empty.total_footprint_mb"]["p95"], 904.2)
+        self.assertEqual(rows["memory.app_agents.10.total_footprint_mb"]["unit"], "MB")
+        self.assertNotIn("memory.app_agents.20.total_footprint_mb", rows, "a count whose chats did not all open")
+        self.assertEqual(rows["memory.app_agents.ratio_vs_empty"]["p95"], round(1500.0 / 904.2, 3),
+                         "the highest complete count over the empty app, from one run")
+        self.assertEqual(mem.rows_from({"samples": [{"label": "idle-10", "workspaces": 10, "total_footprint_mb": 1}]}), [],
+                         "no empty sample: no ratio either")
+        self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no empty-app sample"]}))
+
     def test_the_update_one_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-scale"))
         self.assertEqual(cron.part_for_row("webui.update_one.home.status.n3000@linux"), "web-ui-scale")
