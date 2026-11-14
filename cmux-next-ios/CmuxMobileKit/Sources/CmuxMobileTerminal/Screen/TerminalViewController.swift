@@ -771,7 +771,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             sample.noteShown = !hostGridNote.isHidden
             sample.nonBlankRows = surface.activeAreaText().map { TerminalHeldFrame.nonBlankRows(in: $0, limit: rows) } ?? 0
             if let held = freezeView {
-                let drawn = probe.onScreen(held, in: view)
+                // The still itself (in its cover, for an area still).
+                let still = held.superview === view ? held : (held.subviews.first ?? held)
+                let drawn = probe.onScreen(still, in: view)
+                sample.heldCoverTop = probe.onScreen(held, in: view).minY
                 sample.heldTop = drawn.minY
                 sample.heldBottom = drawn.maxY
                 sample.heldIsArea = held.superview !== view
