@@ -5,6 +5,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { installDom } from "./testDom";
 import { readExtensionSettings } from "./extensionSettings";
+import { readFileSync } from "node:fs";
+import { hasIcon } from "./icons";
 
 const restore = installDom();
 afterAll(() => restore());
@@ -126,9 +128,24 @@ test("a setting this page cannot draw is left out, and a localized title shows i
   ]);
 });
 
+// The layout source the exported schema comes from (the PR autofix regenerates settings-schema.json
+// from it on a Mac): Extensions is a category of its own that leads with the card, and its symbol
+// has an icon.
 test("the Extensions category draws the card", () => {
   expect(CATEGORY_CARDS).toContain("extensions");
-  expect(categories.find((category) => category.id === "extensions")?.lead).toEqual(["extensions"]);
+  const layout = JSON.parse(
+    readFileSync(new URL("../../../../schemas/settings/source/page-layout.json", import.meta.url), "utf8"),
+  ) as {
+    cards: Array<{ id: string }>;
+    sidebar_sections: Array<{ categories: Array<{ id: string; symbol: string; lead?: string[] }> }>;
+  };
+  expect(layout.cards.map((card) => card.id)).toContain("extensions");
+  const category = layout.sidebar_sections.flatMap((run) => run.categories).find((entry) => entry.id === "extensions");
+  expect(category?.lead).toEqual(["extensions"]);
+  expect(hasIcon(category!.symbol)).toBe(true);
+  // Once the export is regenerated, the page draws the same category.
+  const exported = categories.find((entry) => entry.id === "extensions");
+  if (exported) expect(exported.lead).toEqual(["extensions"]);
 });
 
 test("a DEV-only setting shows only in a DEV build", async () => {
