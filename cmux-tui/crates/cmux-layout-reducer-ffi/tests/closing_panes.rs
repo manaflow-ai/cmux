@@ -7,9 +7,10 @@ use cmux_layout_reducer_ffi::closing_panes::{
     CmuxClosingEdges, CmuxClosingFrame, CmuxClosingHandle, CmuxClosingIds, CmuxClosingPane,
     CmuxClosingPanes, CmuxClosingPlaced, CmuxClosingPlacedList, CmuxClosingRect, CmuxClosingRow,
     CmuxClosingTaken, cmux_closing_panes_begin, cmux_closing_panes_carry, cmux_closing_panes_drop,
-    cmux_closing_panes_free, cmux_closing_panes_has_awaiting, cmux_closing_panes_new,
-    cmux_closing_panes_rects, cmux_closing_panes_remove, cmux_closing_panes_settle,
-    cmux_closing_panes_settle_carried, cmux_closing_panes_shift_y, cmux_closing_panes_state_hash,
+    cmux_closing_panes_free, cmux_closing_panes_has_awaiting, cmux_closing_panes_landing_moves,
+    cmux_closing_panes_new, cmux_closing_panes_rects, cmux_closing_panes_remove,
+    cmux_closing_panes_settle, cmux_closing_panes_settle_carried, cmux_closing_panes_shift_y,
+    cmux_closing_panes_state_hash,
 };
 use cmux_layout_reducer_ffi::{ERR_INVALID, ERR_NULL, OK};
 use std::mem::{offset_of, size_of};
@@ -82,8 +83,16 @@ fn rect(r: CmuxClosingRect) -> String {
     [r.x, r.y, r.width, r.height].map(hex).join(",")
 }
 
+/// How often the land rule's question (`cmux_closing_panes_landing_moves`, asked before each `R` call with its frames)
+/// answered 1 and 0.
+#[derive(Default)]
+struct Landings {
+    held: usize,
+    free: usize,
+}
+
 /// One call of the corpus through the C ABI: its answer (the part of the line before the state hash).
-fn call(line: &str, closing: *mut CmuxClosingPanes) -> String {
+fn call(line: &str, closing: *mut CmuxClosingPanes, landings: &mut Landings) -> String {
     let mut f = Fields(line.split_whitespace());
     let answer = match f.word() {
         "B" => {
@@ -175,6 +184,27 @@ fn call(line: &str, closing: *mut CmuxClosingPanes) -> String {
         "R" => {
             let (frames, rows) = (f.frames(), f.rows());
             let (strip, rest_strip) = (f.float(), f.float());
+            // The land rule's question on the same frames first: it answers 1 or 0 and leaves the state as it was.
+            // SAFETY: a live handle; the array holds its count.
+            unsafe {
+                let before = cmux_closing_panes_state_hash(closing);
+                match cmux_closing_panes_landing_moves(
+                    closing,
+                    frames.as_ptr(),
+                    frames.len(),
+                    rest_strip,
+                    0.25,
+                ) {
+                    1 => landings.held += 1,
+                    0 => landings.free += 1,
+                    code => panic!("landing_moves {code}"),
+                }
+                assert_eq!(
+                    cmux_closing_panes_state_hash(closing),
+                    before,
+                    "landing_moves changed the state"
+                );
+            }
             let mut out = CmuxClosingPlacedList { placed: ptr::null(), count: 0 };
             // SAFETY: as above.
             let code = unsafe {
@@ -264,6 +294,7 @@ fn call(line: &str, closing: *mut CmuxClosingPanes) -> String {
 fn every_call_of_the_corpus_answers_through_the_c_abi_as_the_swift_rules_did() {
     let mut closing = cmux_closing_panes_new();
     let mut calls = 0;
+    let mut landings = Landings::default();
     for raw in CORPUS.lines().filter(|l| !l.is_empty() && !l.starts_with('#')) {
         if raw == "S" {
             // SAFETY: the handle came from cmux_closing_panes_new and is freed once.
@@ -273,7 +304,12 @@ fn every_call_of_the_corpus_answers_through_the_c_abi_as_the_swift_rules_did() {
         }
         let (inputs, expected) = raw.split_once(" => ").expect("bad line");
         let (answer, state) = expected.rsplit_once(' ').expect("answer and state");
-        assert_eq!(call(inputs, closing), answer, "{}", &inputs[..inputs.len().min(120)]);
+        assert_eq!(
+            call(inputs, closing, &mut landings),
+            answer,
+            "{}",
+            &inputs[..inputs.len().min(120)]
+        );
         // SAFETY: a live handle.
         assert_eq!(
             format!("{:x}", unsafe { cmux_closing_panes_state_hash(closing) }),
@@ -286,6 +322,13 @@ fn every_call_of_the_corpus_answers_through_the_c_abi_as_the_swift_rules_did() {
     // SAFETY: freed once.
     unsafe { cmux_closing_panes_free(closing) };
     assert!(calls >= 1000, "{calls} calls");
+    // The question is asked with closing panes that move and that rest: both answers occur.
+    assert!(
+        landings.held >= 50 && landings.free >= 50,
+        "held {} free {}",
+        landings.held,
+        landings.free
+    );
 }
 
 #[test]
@@ -499,6 +542,11 @@ fn a_null_pointer_or_an_unknown_kind_writes_nothing() {
         assert_eq!(cmux_closing_panes_settle_carried(ptr::null_mut(), 1.0), ERR_NULL);
         assert_eq!(cmux_closing_panes_shift_y(ptr::null_mut(), 1, 1.0), ERR_NULL);
         assert_eq!(cmux_closing_panes_drop(ptr::null_mut(), 1), ERR_NULL);
+        assert_eq!(
+            cmux_closing_panes_landing_moves(ptr::null_mut(), ptr::null(), 0, 0.0, 0.25),
+            ERR_NULL
+        );
+        assert_eq!(cmux_closing_panes_landing_moves(closing, ptr::null(), 1, 0.0, 0.25), ERR_NULL);
         cmux_closing_panes_free(closing);
         cmux_closing_panes_free(ptr::null_mut());
     }
