@@ -187,17 +187,45 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+      - name: Mint the private HQ preclaim store token
+        id: hq-preclaim-token
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: cmuxterm-hq
+          permission-issues: write
       - name: Staging preclaim login burst
         env:
           CMUX_STAGING_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_STAGING_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          HQ_GH_TOKEN: ${{ steps.hq-preclaim-token.outputs.token }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/cloud-preclaim"
+          private="$RUNNER_TEMP/cloud-preclaim-private.json"
+          export PRECLAIM_PRIVATE_ROWS="$private"
+          set +e
           bun scripts/cmux-next/cloud-journey.ts --backend staging --model real --cmux "${{ steps.build-cmux-tui.outputs.path }}" \
             --preclaim --claims '${{ inputs.claims }}' --out "$out"
+          journey_code=$?
+          set -e
+          if [ ! -s "$private" ]; then
+            echo "private preclaim rows were not produced" >&2
+            exit 1
+          fi
+          set +e
+          printf '%s\n' "$HQ_GH_TOKEN" | python3 -I scripts/cmux-next/cmux-api-prod-logs.py --private-json "$private" > "$out/private-pointer.json"
+          store_code=$?
+          set -e
+          cat "$out/private-pointer.json" >> "$out/summary.md"
+          rm -f -- "$private"
           cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          [ "$store_code" -eq 0 ] || exit "$store_code"
+          exit "$journey_code"
       - name: Upload staging preclaim evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

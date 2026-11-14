@@ -210,11 +210,21 @@ export function summaryMarkdown(backend: Backend, steps: Step[], meta: Record<st
   return [head, extra ? `\n${extra}` : "", "", "| result | step | ms | detail |", "|---|---|---:|---|", ...rows, ""].join("\n");
 }
 
+/** Preclaim artifacts are public: retain only the step outcome, never an API response or identifier. */
+export function preclaimPublicStep(step: Step): Step {
+  return { ...step, detail: step.status };
+}
+
+/** Preclaim artifacts carry no account, team, install, or run identifiers in their metadata. */
+export function preclaimPublicMeta(): Record<string, string> {
+  return { mode: "preclaim" };
+}
+
 class Journey {
   readonly steps: Step[] = [];
   readonly secrets: string[] = [];
   readonly firstText = new FirstTextTiming();
-  constructor(readonly backend: Backend, private readonly outDir: string | null, readonly meta: Record<string, string>) {}
+  constructor(readonly backend: Backend, private readonly outDir: string | null, readonly meta: Record<string, string>, private readonly publicSafe = false) {}
   async step<T>(name: string, fn: () => Promise<{ value: T; detail: string }>): Promise<T> {
     const t0 = Date.now();
     try {
@@ -232,15 +242,16 @@ class Journey {
   record(s: Step): void {
     const fields = this.firstText.fields();
     if (fields.create_marks_ms) s.fields = { ...fields, ...s.fields };
-    s.detail = scrub(s.detail, this.secrets);
+    s = this.publicSafe ? preclaimPublicStep(s) : { ...s, detail: scrub(s.detail, this.secrets) };
     this.steps.push(s);
     console.log(`${s.status.toUpperCase().padEnd(4)} ${s.step} ${s.ms} ms :: ${s.detail}`);
     this.flush();
   }
   flush(): void {
     if (!this.outDir) return;
-    writeFileSync(path.join(this.outDir, "journey.json"), `${JSON.stringify({ backend: this.backend, meta: this.meta, steps: this.steps }, null, 2)}\n`);
-    writeFileSync(path.join(this.outDir, "summary.md"), summaryMarkdown(this.backend, this.steps, this.meta));
+    const meta = this.publicSafe ? preclaimPublicMeta() : this.meta;
+    writeFileSync(path.join(this.outDir, "journey.json"), `${JSON.stringify({ backend: this.backend, meta, steps: this.steps }, null, 2)}\n`);
+    writeFileSync(path.join(this.outDir, "summary.md"), summaryMarkdown(this.backend, this.steps, meta));
   }
 }
 
@@ -338,13 +349,24 @@ export type PreclaimClaimSplit = {
   bound_ms: number | null;
 };
 
+export type PreclaimHealthSnapshot = {
+  http_status: number;
+  outcome: "ok" | "error";
+  commit: string | null;
+};
+
 export type PreclaimClaimRecord = {
   claim: number;
   machine: string | null;
   spare: string | null;
+  lease_id: string | null;
   lease_hit: boolean | null;
+  health_before: PreclaimHealthSnapshot;
+  health_after: PreclaimHealthSnapshot;
   claim_to_bound: PreclaimClaimSplit;
   post_bind_login: "receipt" | "missing" | "not_checked";
+  first_chat_ms: number | null;
+  first_reply_ms: number | null;
 };
 
 type WireEvent = { t?: string; event?: string; stream?: string; data?: Record<string, unknown>; spares_needing_login?: unknown };
@@ -392,8 +414,13 @@ export function preclaimClaimRecord(input: {
   spare?: unknown;
   answer?: unknown;
   brokerLog?: string;
+  leaseId?: unknown;
   leaseHit?: boolean | null;
+  healthBefore?: PreclaimHealthSnapshot;
+  healthAfter?: PreclaimHealthSnapshot;
   postBindLogin?: "receipt" | "missing" | "not_checked";
+  firstChatMs?: number | null;
+  firstReplyMs?: number | null;
 }): PreclaimClaimRecord {
   const answer = input.answer && typeof input.answer === "object" ? input.answer as Record<string, unknown> : {};
   const machine = typeof input.machine === "string" ? input.machine : typeof answer.machine_id === "string" ? answer.machine_id : null;
@@ -402,10 +429,38 @@ export function preclaimClaimRecord(input: {
     claim: input.claim,
     machine,
     spare,
+    lease_id: typeof input.leaseId === "string" ? input.leaseId : null,
     lease_hit: input.leaseHit !== undefined ? input.leaseHit : classifyLeaseHit(answer, input.brokerLog),
+    health_before: input.healthBefore ?? { http_status: 0, outcome: "error", commit: null },
+    health_after: input.healthAfter ?? { http_status: 0, outcome: "error", commit: null },
     claim_to_bound: claimToBoundSplit(answer.stages_ms ?? answer.claim_to_bound ?? answer.claimToBound),
     post_bind_login: input.postBindLogin ?? "not_checked",
+    first_chat_ms: input.firstChatMs ?? null,
+    first_reply_ms: input.firstReplyMs ?? null,
   };
+}
+
+/** Keep health evidence useful without copying response bodies or account identifiers into the run output. */
+export function preclaimHealthSnapshot(answer: Answer): PreclaimHealthSnapshot {
+  const body = answer.body && typeof answer.body === "object" ? answer.body as Record<string, unknown> : {};
+  const value = body.value && typeof body.value === "object" ? body.value as Record<string, unknown> : body;
+  const candidates = [value.commit, value.sha, value.revision, value.version];
+  const commit = candidates.find((v): v is string => typeof v === "string" && /^[0-9A-Za-z._-]{1,80}$/.test(v)) ?? null;
+  return { http_status: answer.status, outcome: answer.status >= 200 && answer.status < 300 ? "ok" : "error", commit };
+}
+
+/** Lease ids are correlation handles in the public summary, never bearer values or machine ids. */
+export function opaquePreclaimLeaseId(value: unknown): string | null {
+  if (typeof value !== "string" || value.length < 1) return null;
+  return `lease:${createHash("sha256").update(value).digest("hex").slice(0, 12)}`;
+}
+
+/** Public preclaim evidence is limited to timings, outcomes and opaque lease handles. */
+export function preclaimSummaryMarkdown(rows: PreclaimClaimRecord[]): string {
+  const values = rows.flatMap((row) => Object.values(row.claim_to_bound).filter((v): v is number => typeof v === "number"));
+  const p90 = values.length ? values.sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * 0.9) - 1)] : null;
+  const summary = { claims: rows.length, lease_hits: rows.filter((r) => r.lease_hit === true).length, lease_misses: rows.filter((r) => r.lease_hit === false).length, post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length, replies: rows.filter((r) => r.first_reply_ms !== null).length, claim_to_bound_p90_ms: p90 };
+  return ["## Staging preclaim login measurement", "", `- claims: ${summary.claims}`, `- lease hits: ${summary.lease_hits}`, `- lease misses: ${summary.lease_misses}`, `- post-bind login receipts: ${summary.post_bind_receipts}`, `- replies: ${summary.replies}`, `- claim-to-bound p90 (all named stages): ${summary.claim_to_bound_p90_ms ?? "-"} ms`, "", "| claim | lease id | lease hit | health before | health after | claim answer | join | guest bind | connect_info | bound | post-bind login | first chat | first reply |", "|---:|:---|:---:|:---:|:---:|---:|---:|---:|---:|---:|:---|---:---:|---:---:|", ...rows.map((r) => `| ${r.claim} | ${r.lease_id ?? "-"} | ${r.lease_hit === null ? "unknown" : r.lease_hit ? "yes" : "no"} | ${r.health_before.outcome} | ${r.health_after.outcome} | ${r.claim_to_bound.claim_answer_ms ?? "-"} | ${r.claim_to_bound.join_ms ?? "-"} | ${r.claim_to_bound.guest_bind_ms ?? "-"} | ${r.claim_to_bound.connect_info_ms ?? "-"} | ${r.claim_to_bound.bound_ms ?? "-"} | ${r.post_bind_login} | ${r.first_chat_ms ?? "-"} | ${r.first_reply_ms ?? "-"} |`)].join("\n") + "\n";
 }
 
 function normalizedWireValue(value: unknown): Record<string, unknown> {
@@ -475,6 +530,24 @@ async function runWarmSpare(cmux: string, api: Pick<Api, "origin" | "bearer" | "
   throw new Error("warm-spare returned no JSON answer");
 }
 
+async function runPreclaimChat(exec: Exec, session: string, prompt: string, budgetMs: number): Promise<{ chatMs: number; replyMs: number }> {
+  const started = Date.now();
+  const ensured = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m claude --json 2>&1; echo "@@exit $?"`, 120_000);
+  if (!/@@exit 0/.test(ensured.stdout)) throw new Error(`preclaim ${session}: agent start refused`);
+  const chatMs = Date.now() - started;
+  const sent = await exec(`${GUEST}printf '%s' ${shq(prompt)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`, 60_000);
+  if (!/@@exit 0/.test(sent.stdout)) throw new Error(`preclaim ${session}: chat send refused`);
+  const waitStarted = Date.now();
+  while (Date.now() - waitStarted < budgetMs) {
+    const reply = await exec(`${GUEST}"$c" acp wait ${shq(session)} --timeout 20 >/dev/null 2>&1; echo "@@wait $?"; "$c" acp last ${shq(session)} 2>&1`, 45_000);
+    const wait = /@@wait (\d+)/.exec(reply.stdout)?.[1];
+    const text = reply.stdout.replace(/@@wait \d+\n?/, "").trim();
+    if (wait === "0" && text) return { chatMs, replyMs: Date.now() - waitStarted };
+    if (wait && wait !== "3") throw new Error(`preclaim ${session}: reply wait exit ${wait}`);
+  }
+  throw new Error(`preclaim ${session}: no reply within ${budgetMs / 1000} s`);
+}
+
 async function runPreclaimBurst(args: {
   backend: Backend;
   api: Api;
@@ -486,6 +559,7 @@ async function runPreclaimBurst(args: {
   tag: string;
   journey: Journey;
   outDir: string | null;
+  privateRowsPath?: string;
   team?: string;
   user: any;
 }): Promise<number> {
@@ -500,23 +574,26 @@ async function runPreclaimBurst(args: {
   const programs = loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "claude", Boolean(args.team));
   const account = args.account;
   const writeOutput = () => {
-    if (!args.outDir) return;
-    mkdirSync(args.outDir, { recursive: true });
+    if (!args.outDir && !args.privateRowsPath) return;
+    if (args.outDir) mkdirSync(args.outDir, { recursive: true });
     const values = rows.flatMap((row) => Object.values(row.claim_to_bound).filter((v): v is number => typeof v === "number"));
     const p90 = values.length ? values.sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * 0.9) - 1)] : null;
-    const summary = { claims: rows.length, lease_hits: rows.filter((r) => r.lease_hit === true).length, lease_misses: rows.filter((r) => r.lease_hit === false).length, post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length, claim_to_bound_p90_ms: p90 };
-    writeFileSync(path.join(args.outDir, "preclaim.json"), `${JSON.stringify({ backend: args.backend.name, summary, claims: rows }, null, 2)}\n`);
-    writeFileSync(path.join(args.outDir, "summary.md"), ["## Staging preclaim login measurement", "", `- claims: ${summary.claims}`, `- lease hits: ${summary.lease_hits}`, `- lease misses: ${summary.lease_misses}`, `- post-bind login receipts: ${summary.post_bind_receipts}`, `- claim-to-bound p90 (all named stages): ${summary.claim_to_bound_p90_ms ?? "-"} ms`, "", "| claim | lease hit | spare | machine | claim answer | join | guest bind | connect_info | bound | receipt |", "|---:|:---:|---|---|---:|---:|---:|---:|---:|:---|", ...rows.map((r) => `| ${r.claim} | ${r.lease_hit === null ? "unknown" : r.lease_hit ? "yes" : "no"} | ${r.spare ?? "-"} | ${r.machine ?? "-"} | ${r.claim_to_bound.claim_answer_ms ?? "-"} | ${r.claim_to_bound.join_ms ?? "-"} | ${r.claim_to_bound.guest_bind_ms ?? "-"} | ${r.claim_to_bound.connect_info_ms ?? "-"} | ${r.claim_to_bound.bound_ms ?? "-"} | ${r.post_bind_login} |`)].join("\n") + "\n");
+    const summary = { claims: rows.length, lease_hits: rows.filter((r) => r.lease_hit === true).length, lease_misses: rows.filter((r) => r.lease_hit === false).length, post_bind_receipts: rows.filter((r) => r.post_bind_login === "receipt").length, replies: rows.filter((r) => r.first_reply_ms !== null).length, claim_to_bound_p90_ms: p90 };
+    if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend.name, summary }, rows }, null, 2)}\n`);
+    if (args.outDir) writeFileSync(path.join(args.outDir, "summary.md"), preclaimSummaryMarkdown(rows));
   };
   try {
     for (let index = 0; index < args.claims; index++) {
+      const healthBefore = preclaimHealthSnapshot(await args.api.raw("GET", "/v1/health", undefined, 30_000));
       const request = { platform: args.backend.api, account, scope, currentScope: scope };
       const warm = await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, request);
       const spare = typeof warm.machine === "string" ? warm.machine : null;
       let copy = warm.copy && typeof warm.copy === "object" ? warm.copy as Record<string, unknown> : {};
+      let leaseId = opaquePreclaimLeaseId(warm.lease_id ?? warm.leaseId ?? warm.reservation_id ?? warm.reservationId);
       if (spare) {
         await waitForCloudSpareReady({ ...args.api, team: wireTeam }, spare);
         const ready = await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, { ...request, ready: spare });
+        leaseId ??= opaquePreclaimLeaseId(ready.lease_id ?? ready.leaseId ?? ready.reservation_id ?? ready.reservationId);
         if (!Object.keys(copy).length && ready.copy && typeof ready.copy === "object") copy = ready.copy as Record<string, unknown>;
         const exec = directExec(args.api, spare, args.journey);
         await waitMachine(args.api, spare, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
@@ -545,7 +622,15 @@ async function runPreclaimBurst(args: {
       const receipt: Record<string, unknown> = copy.generation && typeof machine === "string"
         ? await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, { ...request, loginReceipt: { machine, provider: "claude" } }).catch(() => ({}))
         : {};
-      const record = preclaimClaimRecord({ claim: index, machine, spare, answer, leaseHit, postBindLogin: spare === null ? "not_checked" : receipt.installed === true ? "receipt" : "missing" });
+      let firstChatMs: number | null = null;
+      let firstReplyMs: number | null = null;
+      if (typeof machine === "string") {
+        const chat = await runPreclaimChat(directExec(args.api, machine, args.journey), `preclaim-${args.tag}-${index}`, `Reply with one short sentence for preclaim ${index}.`, 300_000);
+        firstChatMs = chat.chatMs;
+        firstReplyMs = chat.replyMs;
+      }
+      const healthAfter = preclaimHealthSnapshot(await args.api.raw("GET", "/v1/health", undefined, 30_000));
+      const record = preclaimClaimRecord({ claim: index, machine, spare, leaseId, answer, leaseHit, healthBefore, healthAfter, firstChatMs, firstReplyMs, postBindLogin: spare === null ? "not_checked" : receipt.installed === true ? "receipt" : "missing" });
       rows.push(record);
       if (typeof machine === "string") {
         await args.api.deleteMachine(machine, `${args.tag}-preclaim-delete-${index}`).catch(() => undefined);
@@ -2189,7 +2274,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
   // the sweep existed, and the sweep never matches it, so a kept machine is never deleted.
   const machineName = keep ? `cloud journey ${tag}` : `cloud journey auto ${tag}`;
-  const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session", model: modelStub ? "stub (on the machine)" : "real" });
+  const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session", model: modelStub ? "stub (on the machine)" : "real" }, preclaim);
   if (password) J.secrets.push(password);
   if (claudeLogin) J.secrets.push(claudeLogin);
   if (codexLogin) {
@@ -2360,6 +2445,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         tag,
         journey: J,
         outDir,
+        privateRowsPath: process.env.PRECLAIM_PRIVATE_ROWS,
         team,
         user,
       });

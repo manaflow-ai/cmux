@@ -273,6 +273,25 @@ class AccountIsolationTests(unittest.TestCase):
 
 
 class PrivateOutputTests(unittest.TestCase):
+    def test_private_json_mode_reuses_store_and_prints_only_pointer(self):
+        payload = {"header": {"kind": "preclaim", "run": "123"}, "rows": [{"machine": "vm_private", "reply_ms": 22}]}
+        output = io.StringIO()
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as f:
+            json.dump(payload, f)
+            f.flush()
+            pointer = "https://github.com/manaflow-ai/cmuxterm-hq/issues/456"
+            with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                    patch.object(logs.sys, "argv", ["logs", "--private-json", f.name]), \
+                    patch.object(logs.sys, "stdout", output), \
+                    patch.object(logs, "private_destination", return_value="fixture-hq-token"), \
+                    patch.object(logs, "private_upload", return_value=pointer) as upload, \
+                    patch.object(logs, "query") as query:
+                self.assertEqual(logs.main(), 0)
+        self.assertEqual(json.loads(output.getvalue()), {"row_count": 1, "pointer": pointer})
+        self.assertEqual(upload.call_args.args, ("fixture-hq-token", payload["header"], payload["rows"]))
+        query.assert_not_called()
+        self.assertNotIn("vm_private", output.getvalue())
+
     def test_everything_matching_still_prints_only_count_and_private_pointer(self):
         rows = [event({"msg": "team selection unreachable", "team": TEAM, "code": "forbidden"})]
         response = {"result": {"events": {"events": rows}}}
