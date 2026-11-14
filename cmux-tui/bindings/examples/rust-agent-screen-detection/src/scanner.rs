@@ -32,9 +32,9 @@ use crate::background_agent::{AgentJobTracker, PlatformProcesses, ProbeObservati
 use crate::detect::{AgentState, ScreenDetectTracker};
 use crate::manifest::{DetectionInput, ManifestSet};
 use crate::process as process_discovery;
+use crate::reconnect::{Pass, run_passes};
 pub use crate::wake_kinds::journal_wake_kinds;
 
-const RECONNECT_INTERVAL: Duration = Duration::from_secs(1);
 const PROCESS_GROUP_RECHECK_IDENTIFIED: Duration = Duration::from_secs(5);
 const PROCESS_GROUP_RECHECK_UNKNOWN: Duration = Duration::from_millis(500);
 const PROCESS_GROUP_RECHECK_ON_OUTPUT: Duration = Duration::from_secs(1);
@@ -133,27 +133,51 @@ pub fn run(socket: &str, session_name: &str, plugin_id: &str) -> Result<(), Stri
         std::env::var("CMUX_PLUGIN_GENERATION").ok().filter(|value| !value.is_empty());
     let session_selector = configured_session_selector(session_name)?;
     let mut state = ScannerState::new();
-    loop {
-        let config = Config::from_socket_path(socket);
-        match Client::connect(config) {
-            Ok(client) => {
-                let session = client.session(session_selector.clone());
-                if let Err(error) = register_manifest(&session, plugin_id) {
-                    eprintln!("cmux-agent-screen-detection: manifest registration failed: {error}");
-                    thread::sleep(RECONNECT_INTERVAL);
-                    continue;
-                }
-                match scan_connection(&session, plugin_id, plugin_generation.as_deref(), &mut state)
-                {
-                    Ok(()) => return Ok(()),
-                    Err(error) => eprintln!(
-                        "cmux-agent-screen-detection: {session_name} connection ended: {error}"
-                    ),
-                }
-            }
-            Err(error) => eprintln!("cmux-agent-screen-detection: connect failed: {error}"),
+    run_passes(
+        || {
+            connection_pass(
+                socket,
+                session_name,
+                &session_selector,
+                plugin_id,
+                plugin_generation.as_deref(),
+                &mut state,
+            )
+        },
+        thread::sleep,
+    );
+    Ok(())
+}
+
+/// One pass of the reconnect loop: connect, register the manifest, scan until
+/// the connection ends.
+fn connection_pass(
+    socket: &str,
+    session_name: &str,
+    session_selector: &Selector<SessionId>,
+    plugin_id: &str,
+    plugin_generation: Option<&str>,
+    state: &mut ScannerState,
+) -> Pass {
+    let client = match Client::connect(Config::from_socket_path(socket)) {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("cmux-agent-screen-detection: connect failed: {error}");
+            return Pass::NotScanned;
         }
-        thread::sleep(RECONNECT_INTERVAL);
+    };
+    let session = client.session(session_selector.clone());
+    if let Err(error) = register_manifest(&session, plugin_id) {
+        eprintln!("cmux-agent-screen-detection: manifest registration failed: {error}");
+        return Pass::NotScanned;
+    }
+    let mut scanned = false;
+    match scan_connection(&session, plugin_id, plugin_generation, state, &mut scanned) {
+        Ok(()) => Pass::Done,
+        Err(error) => {
+            eprintln!("cmux-agent-screen-detection: {session_name} connection ended: {error}");
+            if scanned { Pass::Scanned } else { Pass::NotScanned }
+        }
     }
 }
 
@@ -331,6 +355,7 @@ fn scan_connection(
     plugin_id: &str,
     plugin_generation: Option<&str>,
     state: &mut ScannerState,
+    scanned: &mut bool,
 ) -> Result<(), String> {
     let manifests = match ManifestSet::from_environment() {
         Ok(manifests) => manifests,
@@ -378,6 +403,8 @@ fn scan_connection(
         Ok(item.map(|item| terminal_wakes(&item.value)))
     })?;
     let snapshots = session.terminal_snapshots().map_err(|error| error.to_string())?;
+    // From here the pass has its wake streams and the terminals of the session.
+    *scanned = true;
     let live_ids = snapshots.iter().map(|item| item.id.to_string()).collect::<HashSet<_>>();
     retry_pending_appends_without_live_terminal(
         session,
