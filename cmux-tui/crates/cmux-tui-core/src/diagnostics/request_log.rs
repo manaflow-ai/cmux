@@ -65,6 +65,11 @@ pub(crate) use fields::Label;
 use fields::{Allowed, ID_KEYS, allowed_fields};
 use repeats::{Key, Offered, Repeats};
 
+/// The log's wall clock: the milliseconds since the Unix epoch. The daemon passes
+/// [`crate::startup_timings::unix_now_ms`]; a test passes its own, so no test of a window
+/// depends on how long its run takes.
+pub(crate) type Clock = fn() -> u64;
+
 /// A request slower than this, arrival to reply written, gets a record.
 pub(crate) const SLOW_REQUEST_THRESHOLD: Duration = Duration::from_millis(100);
 /// The newest records; the file before it is `<name>.1`.
@@ -156,7 +161,7 @@ impl Scope {
             data.error = Label::token("timed_out");
         }
         let elapsed = u64::try_from(data.total.as_millis()).unwrap_or(u64::MAX);
-        data.at_ms = crate::startup_timings::unix_now_ms().saturating_sub(elapsed);
+        data.at_ms = (self.log.clock)().saturating_sub(elapsed);
         self.log.submit(Entry::Request(data));
     }
 }
@@ -377,6 +382,7 @@ enum Entry {
 /// The session's slow request log (see the module documentation).
 pub(crate) struct RequestLog {
     sender: SyncSender<Entry>,
+    clock: Clock,
     /// Records dropped at a full queue and not yet reported in the file.
     dropped: Arc<AtomicU64>,
     dropped_total: AtomicU64,
@@ -387,8 +393,9 @@ pub(crate) struct RequestLog {
 }
 
 impl RequestLog {
-    /// The log of the session whose folder is `directory`; none when its writer cannot start.
-    pub(crate) fn open(directory: &Path) -> Option<Arc<Self>> {
+    /// The log of the session whose folder is `directory`, with `clock` as its wall clock;
+    /// none when its writer cannot start.
+    pub(crate) fn open(directory: &Path, clock: Clock) -> Option<Arc<Self>> {
         let (sender, receiver) = sync_channel(QUEUE_RECORDS);
         let dropped = Arc::new(AtomicU64::new(0));
         #[cfg(test)]
@@ -399,6 +406,7 @@ impl RequestLog {
             ring: Ring::new(directory),
             dropped: dropped.clone(),
             repeats: Repeats::default(),
+            clock,
             #[cfg(test)]
             written: written.clone(),
             #[cfg(test)]
@@ -410,6 +418,7 @@ impl RequestLog {
             .ok()?;
         Some(Arc::new(Self {
             sender,
+            clock,
             dropped,
             dropped_total: AtomicU64::new(0),
             #[cfg(test)]
@@ -507,7 +516,7 @@ impl RequestLog {
         });
         let held_ms = u64::try_from(held.as_millis()).unwrap_or(u64::MAX);
         self.submit(Entry::Lock {
-            at_ms: crate::startup_timings::unix_now_ms().saturating_sub(held_ms),
+            at_ms: (self.clock)().saturating_sub(held_ms),
             lock,
             site,
             thread: std::thread::current().name().and_then(Label::thread),
@@ -520,14 +529,14 @@ impl RequestLog {
 
     /// The line of the daemon's start.
     pub(crate) fn started(&self, info: StartInfo) {
-        self.submit(Entry::Start(crate::startup_timings::unix_now_ms(), info));
+        self.submit(Entry::Start((self.clock)(), info));
     }
 
     /// The line of a restart of the session's journal plugin that its supervisor scheduled:
     /// the `restarts` since the daemon's start, the `failures` in a row and the `delay` before
     /// the next launch. Numbers only.
     pub(crate) fn plugin_restart(&self, restarts: u64, failures: u32, delay: Duration) {
-        let at_ms = crate::startup_timings::unix_now_ms();
+        let at_ms = (self.clock)();
         self.submit(Entry::PluginRestart { at_ms, restarts, failures, delay });
     }
 }
@@ -594,6 +603,8 @@ struct Writer {
     dropped: Arc<AtomicU64>,
     /// The runs of equal failed requests. Only the writer's thread has it: no lock.
     repeats: Repeats<Box<Data>>,
+    /// Read only for the `dropped` line and while a count of repeats waits.
+    clock: Clock,
     #[cfg(test)]
     written: Arc<AtomicU64>,
     #[cfg(test)]
@@ -620,7 +631,7 @@ impl Writer {
             if !self.repeats.waits() {
                 return receiver.recv().ok();
             }
-            let now_ms = crate::startup_timings::unix_now_ms();
+            let now_ms = (self.clock)();
             let Some(wait) = self.due_wait(now_ms, line) else { continue };
             match receiver.recv_timeout(wait) {
                 Ok(entry) => return Some(entry),
@@ -646,7 +657,7 @@ impl Writer {
         let dropped = self.dropped.swap(0, Ordering::Relaxed);
         if dropped > 0 {
             line.clear();
-            open_line(line, "dropped", crate::startup_timings::unix_now_ms());
+            open_line(line, "dropped", (self.clock)());
             let _ = writeln!(line, ",\"queue_full\":{dropped}}}");
             self.write(line);
         }

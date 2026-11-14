@@ -16,9 +16,14 @@ struct Logged {
 
 impl Logged {
     fn new() -> Self {
+        Self::with_clock(crate::startup_timings::unix_now_ms)
+    }
+
+    /// A session whose slow request log has `clock` as its wall clock.
+    fn with_clock(clock: crate::diagnostics::request_log::Clock) -> Self {
         let mux = test_mux();
         let dir = cmux_unix_socket::short_test_dir("srl-server");
-        mux.open_slow_request_log(dir.path(), None);
+        mux.open_slow_request_log(dir.path(), None, clock);
         let (writer, outbound) = captured_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let scheduler =
@@ -176,7 +181,10 @@ fn a_refused_request_of_the_plugin_connection_has_the_kind_word_plugin() {
 #[test]
 fn equal_refused_requests_of_one_connection_write_one_line() {
     const REQUESTS: usize = 50;
-    let logged = Logged::new();
+    // The log's clock says 0 for the whole test. A record's time is the clock less the request's
+    // own length, never below 0: each record has the time 0, the window of the run never ends,
+    // and the count does not depend on how long the test takes.
+    let logged = Logged::with_clock(|| 0);
     let refused =
         json!({"id": 1, "cmd": "set-divider-visible", "split": 999_999, "visible": false})
             .to_string();
@@ -186,7 +194,7 @@ fn equal_refused_requests_of_one_connection_write_one_line() {
     }
 
     // The writer's thread counts the 49 that follow the first one; their count is due at the
-    // end of the run's window, which this test does not wait for.
+    // end of the run's window, which the clock of this test never reaches.
     let (text, records) = logged.records();
     assert_eq!(records.len(), 1, "{REQUESTS} equal refused requests: {text}");
     assert_eq!(records[0]["error"], "layout-ratio-target-missing", "{text}");

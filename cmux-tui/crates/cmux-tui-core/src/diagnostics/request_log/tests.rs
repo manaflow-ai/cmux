@@ -7,7 +7,8 @@ use serde_json::Value;
 
 fn open_log() -> (cmux_unix_socket::TestDir, Arc<RequestLog>) {
     let dir = cmux_unix_socket::short_test_dir("srl");
-    let log = RequestLog::open(dir.path()).expect("the log's writer starts");
+    let log = RequestLog::open(dir.path(), crate::startup_timings::unix_now_ms)
+        .expect("the log's writer starts");
     (dir, log)
 }
 
@@ -343,11 +344,13 @@ fn a_ninth_key_ends_the_oldest_run_and_gives_its_count() {
     assert_eq!(said(repeats.offer(run(1), 1_302, 11)), Some((None, 1)), "key 1 lost its run");
 }
 
+/// A writer with no thread. Its clock says 0: a test that needs the writer's clock sets it.
 fn test_writer(dir: &cmux_unix_socket::TestDir) -> Writer {
     Writer {
         ring: Ring::new(dir.path()),
         dropped: Arc::default(),
         repeats: Repeats::default(),
+        clock: || 0,
         written: Arc::default(),
         gate: Arc::default(),
     }
@@ -501,6 +504,66 @@ fn at_rest_the_writer_waits_with_no_time_out() {
     assert!(!writer.repeats.waits(), "a first failed record and a slow record leave no count");
     assert_eq!(writer.due_wait(500_000, &mut line), None, "so the wait has no time-out");
     assert_eq!(records(&dir).len(), 2);
+}
+
+/// The writer's own wait, with the log's clock at the end of the run's window: the count is
+/// written before the next entry is taken. The entry is in the queue before the call, so the
+/// test waits for nothing.
+#[test]
+fn the_writer_writes_a_due_count_before_it_takes_the_next_entry() {
+    const FIRST_MS: u64 = 1_000;
+    let dir = cmux_unix_socket::short_test_dir("srl");
+    let mut writer = test_writer(&dir);
+    writer.clock = || FIRST_MS + REPEAT_WINDOW_MS;
+    let mut line = String::new();
+    for number in 0..3 {
+        writer.take(ended(REFUSED.0, Some(REFUSED.1), REFUSED.2, FIRST_MS + number), &mut line);
+    }
+    assert_eq!(records(&dir).len(), 1, "the first record; a count of 2 waits");
+
+    let (sender, receiver) = sync_channel(1);
+    sender.send(ended("list-workspaces", None, "frontend", 70_000)).expect("the queue is open");
+    let next = writer.next_entry(&receiver, &mut line);
+    assert!(matches!(next, Some(Entry::Request(_))), "the entry of the queue is the next one");
+    let text = file_text(&dir);
+    let records = records(&dir);
+    assert_eq!(records.len(), 2, "the count is written, the next entry is not yet: {text}");
+    assert_eq!(records[1]["repeats"], 2, "{text}");
+    assert_eq!(records[1]["at_ms"], FIRST_MS + 2, "the newest equal record: {text}");
+    assert!(!writer.repeats.waits(), "no count waits after it");
+
+    drop(sender);
+    assert!(
+        writer.next_entry(&receiver, &mut line).is_none(),
+        "a log that is gone ends the writer"
+    );
+}
+
+/// Inside the window the writer takes the next entry and writes no count; and a log that is
+/// gone ends the writer also while a count waits.
+#[test]
+fn inside_the_window_the_writer_takes_the_next_entry_and_writes_no_count() {
+    const FIRST_MS: u64 = 1_000;
+    let dir = cmux_unix_socket::short_test_dir("srl");
+    let mut writer = test_writer(&dir);
+    writer.clock = || FIRST_MS + 10;
+    let mut line = String::new();
+    for number in 0..3 {
+        writer.take(ended(REFUSED.0, Some(REFUSED.1), REFUSED.2, FIRST_MS + number), &mut line);
+    }
+
+    let (sender, receiver) = sync_channel(1);
+    sender.send(ended("list-workspaces", None, "frontend", 1_005)).expect("the queue is open");
+    let next = writer.next_entry(&receiver, &mut line);
+    assert!(matches!(next, Some(Entry::Request(_))), "the entry of the queue is the next one");
+    assert_eq!(records(&dir).len(), 1, "the window did not end: no count is written");
+    assert!(writer.repeats.waits(), "the count of 2 waits");
+
+    drop(sender);
+    assert!(
+        writer.next_entry(&receiver, &mut line).is_none(),
+        "a log that is gone ends the writer"
+    );
 }
 
 #[test]
