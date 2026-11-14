@@ -1023,123 +1023,103 @@ async fn predeclared_process_stream_never_silently_loses_immediate_large_output(
 /// A reserved process stream is its owner's own output: a reader slower than
 /// the child must get every byte (the child waits), never a replay gap. Before
 /// the stream held its output, ~1 MiB of small writes outran the 512-event
-/// history and the reader got a gap after about a thousand lines.
+/// history and a slow reader got a replay gap after about a thousand lines
+/// (`cmux remote exec -- <10000 echo lines> | wc -l` printed 1232).
 #[cfg(unix)]
-#[tokio::test(flavor = "current_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reserved_process_stream_delivers_every_byte_to_a_slow_reader() {
-    tokio::task::LocalSet::new()
-        .run_until(async {
-            const LINES: usize = 20_000;
-            const PAD: &str = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+    const LINES: usize = 20_000;
+    const PAD: &str = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
 
-            let directory = tempdir().unwrap();
-            let workspace = WorkspaceService::new();
-            let services = DaemonServices::new(workspace, None);
-            let (client_endpoint, daemon_endpoint) = endpoint_pair();
-            let client_multiplexer = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
-            let daemon_multiplexer = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
-            let server = tokio::task::spawn_local({
-                let services = services.clone();
-                let daemon_multiplexer = daemon_multiplexer.clone();
-                async move {
-                    let scope = ClientScope::new(
-                        "slow-reader-test",
-                        cmux_remote_protocol::SessionId([11; 16]),
-                    );
-                    let request_slots = RequestAdmission::new();
-                    while let Some(incoming) = daemon_multiplexer.accept().await.unwrap() {
-                        let services = services.clone();
-                        let scope = scope.clone();
-                        let request_slots = request_slots.clone();
-                        tokio::task::spawn_local(async move {
-                            let _ =
-                                services.serve_stream(scope, request_slots, None, incoming).await;
-                        });
-                    }
-                }
-            });
-            let client = WorkspaceClient::connect(client_multiplexer.clone()).await.unwrap();
-            let opened = client
-                .request(WorkspaceRequest::OpenWorkspace {
+    let directory = tempdir().unwrap();
+    let workspace = WorkspaceService::new();
+    let scope = ClientScope::new("slow-reader", cmux_remote_protocol::SessionId([16; 16]));
+    let opened = workspace
+        .handle_rpc_for(
+            scope.clone(),
+            RpcRequest {
+                id: cmux_remote_protocol::RequestId::from_u128(0x4000_0000_0000_0002),
+                timeout_ms: None,
+                request: WorkspaceRequest::OpenWorkspace {
                     root: directory.path().to_string_lossy().into_owned(),
-                })
-                .await
-                .unwrap();
-            let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
-                panic!("open-workspace returned the wrong response")
-            };
+                },
+            },
+        )
+        .await
+        .result
+        .unwrap();
+    let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
+        panic!("open-workspace returned the wrong response")
+    };
+    let process = ProcessId::from_u128(0x8000_0000_0040_0001);
+    let mut subscription =
+        workspace.subscribe_or_reserve_process(&scope, process, 0, true).await.unwrap();
+    let spawn = WorkspaceRequest::SpawnProcessWithHandle {
+        process,
+        workspace: workspace_id,
+        // One small write per line (a shell builtin), ~1 MiB in all: the
+        // daemon reads it as thousands of small events.
+        argv: vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            format!(
+                "i=0; while [ $i -lt {LINES} ]; do printf 'line%06d {PAD}\\n' $i; i=$((i+1)); done"
+            ),
+        ],
+        cwd: None,
+        env: BTreeMap::new(),
+        io: ProcessIo::Pipes { stdin: false },
+        lifetime: ProcessLifetime::Workspace,
+        operation: None,
+        timeout_ms: None,
+        retained_output_bytes: None,
+        environment: ProcessEnvironment::Inherit,
+        output_drain_idle_timeout_ms: None,
+        output_drain_total_timeout_ms: None,
+    };
+    workspace
+        .handle_rpc_for(
+            scope.clone(),
+            RpcRequest {
+                id: cmux_remote_protocol::RequestId::from_u128(0x4000_0000_0000_0001),
+                timeout_ms: None,
+                request: spawn,
+            },
+        )
+        .await
+        .result
+        .unwrap();
 
-            let process = client.allocate_process_handle();
-            let spawned = client
-                .spawn_process_with_events(
-                    process,
-                    WorkspaceRequest::SpawnProcess {
-                        workspace: workspace_id,
-                        // One small write per line (a shell builtin), ~1 MiB in all:
-                        // the daemon reads it as thousands of small events.
-                        argv: vec![
-                            "/bin/sh".into(),
-                            "-c".into(),
-                            format!(
-                                "i=0; while [ $i -lt {LINES} ]; do printf 'line%06d {PAD}\\n' $i; i=$((i+1)); done"
-                            ),
-                        ],
-                        cwd: None,
-                        env: BTreeMap::new(),
-                        io: ProcessIo::Pipes { stdin: false },
-                        lifetime: ProcessLifetime::Workspace,
-                        operation: None,
-                        timeout_ms: None,
-                        retained_output_bytes: None,
-                        environment: ProcessEnvironment::Inherit,
-                    },
-                )
-                .await
-                .unwrap();
-
-            let mut output = Vec::new();
-            let mut events = 0usize;
-            let exit = loop {
-                let event = tokio::time::timeout(
-                    std::time::Duration::from_secs(60),
-                    spawned.events.receive(),
-                )
-                .await
-                .expect("slow-reader process stream stalled")
-                .expect("slow-reader process stream failed")
-                .expect("slow-reader process stream closed without a terminal event");
-                // Read slower than the child writes for the first events.
-                events += 1;
-                if events < 1_500 {
-                    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
-                }
-                match event.event {
-                    ProcessEvent::Stdout { data, .. } => output.extend(data.decode().unwrap()),
-                    ProcessEvent::Stderr { data, .. } => {
-                        panic!("unexpected stderr: {:?}", String::from_utf8_lossy(&data.decode().unwrap()))
-                    }
-                    ProcessEvent::OutputTruncated { reason, .. } => {
-                        panic!("output truncated after {} bytes: {reason:?}", output.len())
-                    }
-                    ProcessEvent::ReplayGap { requested_after, range, .. } => panic!(
-                        "replay gap after {} bytes ({requested_after}, {range:?})",
-                        output.len()
-                    ),
-                    ProcessEvent::Exit { code, .. } => break code,
-                }
-            };
-            let expected: String = (0..LINES).map(|i| format!("line{i:06} {PAD}\n")).collect();
-            assert_eq!(output.len(), expected.len(), "received bytes");
-            assert!(output == expected.as_bytes(), "output differs from what the child wrote");
-            assert_eq!(exit, Some(0));
-
-            drop(client);
-            client_multiplexer.shutdown().await;
-            daemon_multiplexer.shutdown().await;
-            server.abort();
-            let _ = server.await;
-        })
-        .await;
+    let mut output = Vec::new();
+    let mut events = 0usize;
+    let exit = loop {
+        let event = tokio::time::timeout(std::time::Duration::from_secs(60), subscription.recv())
+            .await
+            .expect("slow-reader process stream stalled")
+            .unwrap_or_else(|error| panic!("after {} bytes: {error}", output.len()));
+        // Read slower than the child writes for the first events.
+        events += 1;
+        if events < 1_500 {
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        }
+        match event.event {
+            ProcessEvent::Stdout { data, .. } => output.extend(data.decode().unwrap()),
+            ProcessEvent::Stderr { data, .. } => {
+                panic!("unexpected stderr: {:?}", String::from_utf8_lossy(&data.decode().unwrap()))
+            }
+            ProcessEvent::OutputTruncated { reason, .. } => {
+                panic!("output truncated after {} bytes: {reason:?}", output.len())
+            }
+            ProcessEvent::ReplayGap { requested_after, range, .. } => {
+                panic!("replay gap after {} bytes ({requested_after}, {range:?})", output.len())
+            }
+            ProcessEvent::Exit { code, .. } => break code,
+        }
+    };
+    let expected: String = (0..LINES).map(|i| format!("line{i:06} {PAD}\n")).collect();
+    assert_eq!(output.len(), expected.len(), "received bytes");
+    assert!(output == expected.as_bytes(), "output differs from what the child wrote");
+    assert_eq!(exit, Some(0));
 }
 
 #[cfg(unix)]
