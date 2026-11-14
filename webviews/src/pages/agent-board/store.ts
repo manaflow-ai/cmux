@@ -135,7 +135,9 @@ export class AgentBoardStore {
 /** The words to show for a failed call: the host's own sentence for the board's errors, else none
  * (the page says it failed in its own words). */
 export function failureMessage(error: unknown): string | undefined {
-  return isPageError(error) && error.code.startsWith("cmux.agentBoard.")
+  // The host words its refusals in the person's language: the board's own errors and the app's
+  // person-only refusal ("only you can do this, with a click or key in the page").
+  return isPageError(error) && (error.code.startsWith("cmux.agentBoard.") || error.code === "cmux.app.user_only")
     ? userMessage(error, { [error.code]: OWNER_SENTENCE })
     : undefined;
 }

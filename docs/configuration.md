@@ -988,8 +988,7 @@ Board** in the command palette; while the setting is off the page explains the c
 ```
 
 acpmux reads the key at each spawn. Only the value `true` turns it on; a settings file that
-cannot be read keeps it off. Ledgers are written to `~/.cmux/agent-board/` (or
-`CMUX_AGENT_BOARD_DIR`).
+cannot be read keeps it off. Ledgers are written to `~/.cmux/agent-board/`.
 
 ## `agents.memory.*`
 

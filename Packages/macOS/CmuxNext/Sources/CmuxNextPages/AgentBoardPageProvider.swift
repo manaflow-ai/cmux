@@ -10,7 +10,7 @@ public extension PageDescriptor {
 }
 
 /// The Agent Board's owner side. The ledgers are JSONL files agents append to in the ledger folder
-/// (`CMUX_AGENT_BOARD_DIR`, else `~/.cmux/agent-board`); the page folds them (`ledger.ts`).
+/// (`~/.cmux/agent-board`); the page folds them (`ledger.ts`).
 ///
 /// - `cmux.agentBoard.state` -> `{enabled, folder, ledgers: [{file, modifiedMs, text, truncated}]}`:
 ///   the newest ``ledgerLimit`` ledgers, each up to ``ledgerByteLimit`` bytes, read off the main actor.
@@ -92,12 +92,11 @@ public final class AgentBoardPageProvider: PageProvider {
         (root["agents.board.enabled"] ?? root.value(at: AgentGuidanceSettings.boardEnabledPath))?.boolValue == true
     }
 
-    /// The ledger folder agents write to: the skill's `CMUX_AGENT_BOARD_DIR`, else `~/.cmux/agent-board`.
-    public nonisolated static func defaultFolder(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-        if let dir = environment["CMUX_AGENT_BOARD_DIR"], !dir.isEmpty {
-            return URL(fileURLWithPath: (dir as NSString).expandingTildeInPath, isDirectory: true)
-        }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cmux/agent-board", isDirectory: true)
+    /// The ledger folder agents write to (`skills/work-tracking/SKILL.md`): `~/.cmux/agent-board`. No
+    /// environment override: the app strips inherited `CMUX_*` variables at launch (LaunchIdentity), so
+    /// one could point agents and the board at different folders.
+    public nonisolated static func defaultFolder() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cmux/agent-board", isDirectory: true)
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {

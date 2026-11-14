@@ -20,7 +20,7 @@ One JSON object per line, appended to one file per task. Each tool call runs in 
 shell, so every append computes the path itself; never keep it in a variable across calls:
 
 ```bash
-d="${CMUX_AGENT_BOARD_DIR:-$HOME/.cmux/agent-board}"; mkdir -p "$d"
+d="$HOME/.cmux/agent-board"; mkdir -p "$d"
 cat >> "$d/${CMUX_AGENT_SESSION:-$(basename "$PWD")}.jsonl" <<'EOF'
 {"kind":"capability","id":"cap-onboarding","title":"Agent Board onboarding","summary":"Off-by-default card that explains the token cost and turns the board on.","area":"Settings","status":"done","files":["webviews/src/pages/agent-board/AgentBoardPage.tsx"]}
 EOF
@@ -29,8 +29,8 @@ EOF
 cmux sets `CMUX_AGENT_SESSION` for every agent it starts. The quoted heredoc keeps the
 shell away from the JSON. Batch the lines of one step into one append; never rewrite or
 delete earlier lines. A later line with the same `kind` and `id` replaces that record
-(status changes, added evidence) and keeps its place in the list. If your sandbox refuses
-writes outside the workspace, set `CMUX_AGENT_BOARD_DIR` to a folder inside it.
+(status changes, added evidence) and keeps its place in the list. The board reads only this
+folder. If your sandbox refuses the write, say so once in your final message and carry on.
 
 Every line has `kind` and `id` (lower kebab case, unique per kind within the ledger).
 The board orders records by when they first appear. Field types are checked: a line with an
