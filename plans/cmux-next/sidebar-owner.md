@@ -1,5 +1,18 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-14 (CMUX-383): Leo asked for “Sidebar customization (look at BB and Herder)”.
+  The first customization slices keep the document as placement owner while allowing
+  bounded cmux-next.json section/workspace hide, order and same-section grouping.
+  Rust validates the projection and the native sidebar reapplies it on every settings
+  watcher update; gallery variants cover default, hidden/reordered sections and a moved
+  workspace. The native view remains in the existing sidebar surface and density tokens.
+
+- 2026-11-14 (a590): a pinned group's pin draws on Home's line. Its header placed the pin on the icon column's middle,
+  1 pt right of the line Home's house and the pinned workspace rows' pins share (the glyph square is 1 to 2 pt under
+  the column). It now uses `SidebarStyle.rowGlyphOptics` from the column's edge, at the rows' ink size. Base reds
+  `PinnedRowsShareHomeColumnTests` (square = column, stale) and `HomePinnedRowAlignmentTests` (half-point tolerance on
+  a 1x screen) were red before fce106a2 too; they now ask the square to fit in the column and allow one device pixel.
+  Regression: `PinnedRowsShareHomeColumnTests.aPinnedGroupsPinCentersUnderHomes`.
 - 2026-11-13 (a590): no line under Home. Lawrence (msg 31467), verbatim: "get rid of line under "home"". Minimal Mode
   draws the Lines look, whose pinned block joined under Home's block took a leading separator; a band drew a line (or,
   under `appearance.borders` none, a tonal step) after Home's section, and the band hairline under a band ending in
