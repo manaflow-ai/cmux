@@ -309,7 +309,6 @@ fn shared_host(host: &Path, dir: &Path, page: u16, hits: &Hits, n: usize, tag: &
 }
 
 #[test]
-#[ignore = "bench: a fleet Mac run of a side commit without this line (module doc)"]
 fn remote_tabs_per_tab_hosts_against_one_shared_host() {
     let dir = std::env::temp_dir().join(format!("rb-bench-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
