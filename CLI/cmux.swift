@@ -13939,7 +13939,10 @@ struct CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool
     ) throws {
-        let invocation = try RemoteTmuxInvocation.parse(commandArgs)
+        let invocation = try RemoteTmuxInvocation.parse(
+            commandArgs,
+            localizationBundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+        )
         if case .list = invocation.action {
             try runRemoteTmuxList(invocation: invocation, client: client, jsonOutput: jsonOutput)
             return
@@ -13966,6 +13969,7 @@ struct CMUXCLI {
         if let transportPort { params["transport_port"] = transportPort }
         if let transportHelperPath { params["transport_helper_path"] = transportHelperPath }
         if let broker { params["transport_broker"] = broker }
+        if let socketName = invocation.socketName { params["socket_name"] = socketName }
         params["activate"] = focus ?? Self.defaultFocusForUserOpen()
         if case let .attach(session) = invocation.action {
             params["session"] = session
@@ -14048,6 +14052,7 @@ struct CMUXCLI {
         if let transportPort = invocation.transportPort { params["transport_port"] = transportPort }
         if let helperPath = invocation.transportHelperPath { params["transport_helper_path"] = helperPath }
         if let broker = invocation.broker { params["transport_broker"] = broker }
+        if let socketName = invocation.socketName { params["socket_name"] = socketName }
 
         if !jsonOutput {
             print(localizedFormat(
@@ -22379,7 +22384,15 @@ struct CMUXCLI {
                 localized: "cli.help.ssh-tmux.helperPath",
                 defaultValue: "--transport-helper-path <path>  Absolute path to etterminal on the remote host (direct ET only). Omit to use ET's PATH lookup; a broker supplies its own helper path."
             )
-            return "\(help)\n\n\(newWindowHelp)\n\n\(helperPathHelp)\n\n\(Self.openFocusFlagsHelp)"
+            let socketNameHelp = String(
+                localized: "cli.help.ssh-tmux.socketName",
+                defaultValue: """
+                --socket-name <name>  Mirror the tmux server started with tmux -L <name> instead of the default server. Each socket name is its own connection, so two windows can mirror two servers on one host. Names are 1-64 ASCII letters, digits, '.', '_' or '-', and cannot start with '-'.
+                  cmux ssh-tmux dev@my-host --socket-name alpha
+                """,
+                bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+            )
+            return "\(help)\n\n\(newWindowHelp)\n\n\(helperPathHelp)\n\n\(socketNameHelp)\n\n\(Self.openFocusFlagsHelp)"
         case "local-tmux", "tmux":
             return LocalTmuxInvocation.usage
         case "local-zellij":

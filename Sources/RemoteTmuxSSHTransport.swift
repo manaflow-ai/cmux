@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Runs commands against a remote host's tmux server over a shared SSH
@@ -166,7 +167,7 @@ actor RemoteTmuxSSHTransport {
         try host.ensureControlSocketDirectory()
         let remoteCommand: String
         if remoteArgs.first == "tmux" {
-            remoteCommand = RemoteTmuxHost.tmuxRemoteCommand(arguments: Array(remoteArgs.dropFirst()))
+            remoteCommand = host.tmuxRemoteCommand(arguments: Array(remoteArgs.dropFirst()))
         } else {
             remoteCommand = remoteArgs
                 .map { RemoteTmuxHost.shellSingleQuoted($0) }
@@ -331,11 +332,21 @@ actor RemoteTmuxSSHTransport {
     // MARK: - Heuristics
 
     /// Whether stderr indicates the remote tmux server simply isn't running.
+    ///
+    /// An overlong socket path (``indicatesSocketPathTooLong(_:)``) is excluded: that server can
+    /// never be contacted, so reading it as idle would turn the failure into an empty session
+    /// list.
     static func indicatesNoServer(_ stderr: String) -> Bool {
-        let lowered = stderr.lowercased()
-        return lowered.contains("no server running")
-            || lowered.contains("no sessions")
-            || (lowered.contains("error connecting to /") && lowered.contains("/tmux-"))
+        RemoteTmuxFailureClassifier(stderr: stderr).indicatesNoServer
+    }
+
+    /// Whether stderr is tmux refusing its own socket path as too long.
+    ///
+    /// tmux prints `error connecting to <socket> (File name too long)` when the socket path
+    /// (`$TMUX_TMPDIR/tmux-<uid>/<name>`) exceeds the AF_UNIX limit, which a long `-L <name>`
+    /// under a long `TMUX_TMPDIR` can reach.
+    static func indicatesSocketPathTooLong(_ stderr: String) -> Bool {
+        RemoteTmuxFailureClassifier(stderr: stderr).indicatesSocketPathTooLong
     }
 
     static func indicatesRefreshClientSubscriptionUnsupported(_ stderr: String) -> Bool {

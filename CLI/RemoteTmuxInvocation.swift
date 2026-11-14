@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Parsed arguments for the remote-tmux CLI surface.
@@ -19,12 +20,21 @@ struct RemoteTmuxInvocation: Equatable {
     let transportPort: Int?
     let transportHelperPath: String?
     let broker: String?
+    /// tmux server to mirror (`tmux -L <name>`); nil is the default server.
+    let socketName: String?
 
     /// Parses `cmux ssh-tmux` arguments, including the list/attach subcommands.
     ///
     /// The destination remains the first positional argument for compatibility with the
     /// existing command. The default action is the historical bulk mirror.
-    static func parse(_ commandArgs: [String]) throws -> RemoteTmuxInvocation {
+    ///
+    /// `localizationBundle` is where the `--socket-name` errors look up their text. The CLI
+    /// executable has no string catalog of its own, so the command passes the enclosing app
+    /// bundle; this file also compiles into a test target that has no app bundle to find.
+    static func parse(
+        _ commandArgs: [String],
+        localizationBundle: Bundle = .main
+    ) throws -> RemoteTmuxInvocation {
         var destination: String?
         var action: Action?
         var requestedSession: String?
@@ -37,6 +47,7 @@ struct RemoteTmuxInvocation: Equatable {
         var transportPort: Int?
         var transportHelperPath: String?
         var broker: String?
+        var socketName: String?
 
         var index = 0
         while index < commandArgs.count {
@@ -122,6 +133,28 @@ struct RemoteTmuxInvocation: Equatable {
                 }
                 broker = name
                 index += 2
+            case "--socket-name":
+                // Interpolated into a remote shell command, so the spelling is strict rather
+                // than quoted: letters, digits, '.', '_' and '-' only, not starting with '-' (#15022).
+                guard index + 1 < commandArgs.count,
+                      !commandArgs[index + 1].isEmpty,
+                      !commandArgs[index + 1].hasPrefix("-") else {
+                    throw CLIError(message: String(
+                        localized: "cli.sshTmux.error.socketNameRequired",
+                        defaultValue: "ssh-tmux: --socket-name requires a tmux server name",
+                        bundle: localizationBundle
+                    ))
+                }
+                let name = commandArgs[index + 1]
+                guard RemoteTmuxSocketName.isValid(name) else {
+                    throw CLIError(message: String(
+                        localized: "cli.sshTmux.error.socketNameInvalid",
+                        defaultValue: "ssh-tmux: --socket-name must be 1-64 ASCII letters, digits, '.', '_' or '-', and cannot start with '-'",
+                        bundle: localizationBundle
+                    ))
+                }
+                socketName = name
+                index += 2
             case _ where arg == "--no-focus" || arg == "--focus" || arg.hasPrefix("--focus="):
                 let flag = try Self.openFocusFlag(in: commandArgs, at: index)
                 focus = flag?.focus
@@ -185,7 +218,7 @@ struct RemoteTmuxInvocation: Equatable {
                     action: resolvedAction, destination: destination, port: port,
                     identityFile: identityFile, workspaceName: workspaceName, focus: focus,
                     newWindow: newWindow, transport: transport, transportPort: transportPort,
-                    transportHelperPath: transportHelperPath, broker: broker)
+                    transportHelperPath: transportHelperPath, broker: broker, socketName: socketName)
             }
             resolvedAction = .mirror
         }
@@ -197,7 +230,7 @@ struct RemoteTmuxInvocation: Equatable {
             action: resolvedAction, destination: destination, port: port,
             identityFile: identityFile, workspaceName: workspaceName, focus: focus,
             newWindow: newWindow, transport: transport, transportPort: transportPort,
-            transportHelperPath: transportHelperPath, broker: broker)
+            transportHelperPath: transportHelperPath, broker: broker, socketName: socketName)
     }
 
     private static func openFocusFlag(
