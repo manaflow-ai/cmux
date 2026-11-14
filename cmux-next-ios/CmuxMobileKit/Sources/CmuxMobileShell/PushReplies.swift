@@ -17,7 +17,7 @@ extension LiveCoordinator {
     /// headless one a notification reply builds on a cold background launch.
     @MainActor
     static func forAccount(auth: CmuxMobileAuthModel, user: CmuxMobileAuthModel.User, base: URL, store: AppStore,
-                           transport: CmuxMobileModel.TransportKind) -> LiveCoordinator {
+                           transport: CmuxMobileModel.TransportKind, watchesConnectivity: Bool = true) -> LiveCoordinator {
         let api = LiveAPI(baseURL: base) { [auth] in try await auth.serviceAccessToken(forceRefresh: $0) }
         return LiveCoordinator(
             store: store,
@@ -32,7 +32,8 @@ extension LiveCoordinator {
             cloudDialer: LiveCoordinator.standardCloudDialer(userID: user.id, deviceName: UIDevice.current.name, api: api,
                                                              signedOut: CmuxMobileAuthModel.isSignedOutError),
             keys: PhoneKeys(userID: user.id),
-            push: PushKeys.current()
+            push: PushKeys.current(),
+            watchesConnectivity: watchesConnectivity
         )
     }
 }
@@ -374,7 +375,8 @@ public final class PushReplies {
         _ = await ObservationWait({ auth.isResolved }, budget: .seconds(3)).value
         guard auth.isSignedIn, let user = auth.user, let base = auth.apiBaseURL else { return nil }
         let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [])
-        let coordinator = LiveCoordinator.forAccount(auth: auth, user: user, base: base, store: store, transport: SettingsStore().transport)
+        let coordinator = LiveCoordinator.forAccount(auth: auth, user: user, base: base, store: store, transport: SettingsStore().transport,
+                                                     watchesConnectivity: false)
         await auth.loadTeams()
         coordinator.applyAccountTeams(auth.teams, selectedID: auth.selectedTeamID)
         return coordinator

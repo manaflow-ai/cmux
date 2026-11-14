@@ -263,16 +263,38 @@ public final class AppStore {
         cloudMachines.contains { $0.id == id }
     }
 
-    /// The tab a workspace opens to: the last one used on this device, else
-    /// the tab on screen on the Mac, else its first tab.
+    /// The tab a workspace opens to: a tab an open asked for (`requestOpen`: a
+    /// notification, a needs-you row, a search result, the relaunch restore), else
+    /// the active tab of the leftmost, topmost pane of the Mac's layout (user
+    /// 2026-11-11; `WorkspaceLayout.topLeftTabID`), else the tab on screen on the
+    /// Mac, else its first tab. The last tab used here no longer picks it: the
+    /// workspace opens where its layout starts.
     public func openingTab(for workspace: Workspace) -> WorkspaceTab? {
-        if let id = lastTabByWorkspace[workspace.id], let tab = workspace.tabs.first(where: { $0.id == id }) {
-            return tab
-        }
-        if let id = workspace.activeTabID, let tab = workspace.tabs.first(where: { $0.id == id }) {
-            return tab
+        let candidates = [requestedTabByWorkspace[workspace.id], workspace.layout?.topLeftTabID, workspace.activeTabID]
+        for case let id? in candidates {
+            if let tab = workspace.tabs.first(where: { $0.id == id }) { return tab }
         }
         return workspace.tabs.first
+    }
+
+    /// Tabs an open asked for, per workspace, until the workspace's screen appears
+    /// (`takeRequestedTab`). Never saved.
+    public private(set) var requestedTabByWorkspace: [String: String] = [:]
+
+    /// Opens `workspaceID` on `tabID` the next time its screen appears, instead of
+    /// its layout's top-left tab; also remembers it as the tab on screen.
+    public func requestOpen(tabID: String, in workspaceID: String) {
+        let workspaceID = resolvedWorkspaceID(workspaceID)
+        if requestedTabByWorkspace[workspaceID] != tabID { requestedTabByWorkspace[workspaceID] = tabID }
+        noteOpened(tabID: tabID, in: workspaceID)
+    }
+
+    /// Consumes the request when the workspace's screen appears. Writes only when
+    /// there is one: an observed write that changes nothing still notifies.
+    public func takeRequestedTab(_ workspaceID: String) {
+        let workspaceID = resolvedWorkspaceID(workspaceID)
+        guard requestedTabByWorkspace[workspaceID] != nil else { return }
+        requestedTabByWorkspace[workspaceID] = nil
     }
 
     /// When this device last opened each workspace (this session): "Done"
@@ -370,6 +392,7 @@ public final class AppStore {
         pendingWorkspaceIDs.remove(placeholderID)
         workspaces.removeAll { $0.id == placeholderID }
         if lastTabByWorkspace.removeValue(forKey: placeholderID) != nil { tabMemory.save(lastTabByWorkspace) }
+        if requestedTabByWorkspace[placeholderID] != nil { requestedTabByWorkspace[placeholderID] = nil }
     }
 
     /// Renames a workspace in place. Returns the previous title (for a

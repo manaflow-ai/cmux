@@ -706,10 +706,11 @@ def _wait_cleanup_process(
                 with contextlib.suppress(ProcessLookupError):
                     os.killpg(proc.pid, signal.SIGTERM)
                 waiter.join(CLEANUP_TERM_GRACE_SECONDS)
-                if waiter.is_alive():
-                    with contextlib.suppress(ProcessLookupError):
-                        os.killpg(proc.pid, signal.SIGKILL)
-                    waiter.join()
+                # The group, whether or not its leader exited in the grace: a child that ignores SIGTERM outlives
+                # it (cmux#41767 review F1). The group keeps the leader's pid as its id while any member lives.
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(proc.pid, signal.SIGKILL)
+                waiter.join()
                 if waiter_error:
                     raise waiter_error[0]
                 return True

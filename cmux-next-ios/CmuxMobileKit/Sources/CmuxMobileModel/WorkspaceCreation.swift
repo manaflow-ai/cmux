@@ -766,7 +766,7 @@ public final class WorkspaceCreator {
                 if request.start == .browser, let first = Self.openingTab(of: placeholder, for: request.start), first.id != tab.id {
                     onTabResolved?(first.id, tab.id)
                 }
-                store.noteOpened(tabID: tab.id, in: real.id)
+                store.requestOpen(tabID: tab.id, in: real.id)
             }
             phases[placeholder.id] = .created(real.id)
             if let placement = request.placement { await place(real, placement) }

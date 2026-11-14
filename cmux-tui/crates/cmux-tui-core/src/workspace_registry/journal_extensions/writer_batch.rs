@@ -113,6 +113,15 @@ impl RegistryConnection {
                 self.journal_hooks.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             (hooks.before_commit.take(), hooks.after_commit_admission.take())
         };
+        #[cfg(test)]
+        let (statement_until_deadline, failing_statement_after_hold) = {
+            let mut hooks =
+                self.journal_hooks.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            (
+                std::mem::take(&mut hooks.statement_until_deadline),
+                std::mem::take(&mut hooks.failing_statement_after_hold),
+            )
+        };
         let tx = connection.unchecked_transaction()?;
         // This guard disables the progress callback before `tx` rolls back on
         // every early return. An expired callback must interrupt forward work,
@@ -553,6 +562,18 @@ impl RegistryConnection {
         if let Some((entered, release)) = before_commit {
             entered.send(()).context("report journal before-commit test hook")?;
             release.recv().context("release journal before-commit test hook")?;
+            if failing_statement_after_hold {
+                tx.execute_batch("SELECT * FROM cmux_no_such_table_for_test")?;
+            }
+        }
+        #[cfg(test)]
+        if statement_until_deadline {
+            // Counts without end; only the deadline's interrupt stops it.
+            tx.query_row(
+                "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?;
         }
         ensure_journal_deadline(deadline)?;
         if let Some(deadline) = deadline {
@@ -593,6 +614,22 @@ impl RegistryConnection {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .before_commit = Some((entered, release));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_journal_failing_statement_after_hold_for_test(&self) {
+        self.journal_hooks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .failing_statement_after_hold = true;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_journal_statement_until_deadline_for_test(&self) {
+        self.journal_hooks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .statement_until_deadline = true;
     }
 
     #[cfg(test)]

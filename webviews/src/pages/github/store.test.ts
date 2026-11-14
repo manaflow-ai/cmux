@@ -6,6 +6,10 @@ import { pageError, type PageClient, type PageHandler } from "../shared/pageClie
 import { mockChecks, mockChecksPassed, mockDetails, mockPullRequest, MOCK_URL } from "./mockProvider";
 import { CHECKS_MS, GitHubStore, REFRESH_MS, WAIT_MS } from "./store";
 import { GitHubOps, routedPullRequest, type PullRequestReply } from "./types";
+import { userMessage } from "../shared/userMessage";
+
+/** What a failure without its own sentence says. */
+const GENERIC = userMessage(undefined);
 
 const route = (url: string) => `#/pull?url=${encodeURIComponent(url)}`;
 
@@ -228,7 +232,8 @@ test("a merge GitHub refuses says why; a click the host did not count asks for a
   expect(store.getSnapshot().merge).toEqual({ phase: "confirm" });
   error = pageError("cmux.github.merge_refused", "Pull request is not mergeable");
   await store.merge();
-  expect(store.getSnapshot().merge).toEqual({ phase: "failed", message: "Pull request is not mergeable" });
+  // GitHub's own words stay in the error: the page says it plainly (github.merge.notReady).
+  expect(store.getSnapshot().merge).toEqual({ phase: "failed", message: GENERIC, refused: true });
 });
 
 test("no merge without the details' head commit", async () => {

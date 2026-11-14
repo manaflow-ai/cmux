@@ -66,8 +66,10 @@ public final class HistoryCookieBackupsPageProvider: PageProvider {
             if op == "cmux.history.entries.list", let history {
                 let read = try await history.list(params)
                 shown = Dictionary(read.entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-                // The daemon's row shape (webviews/src/pages/history/types.ts).
-                return ["entries": .array(read.entries.map(\.pageJSON)), "revision": .number(0)]
+                // The daemon's row shape (webviews/src/pages/history/types.ts), and its `pending_kinds` when the list is not complete.
+                var reply: [String: CmuxNextSettings.JSONValue] = ["entries": .array(read.entries.map(\.pageJSON)), "revision": .number(0)]
+                if !read.pending.isEmpty { reply["pending_kinds"] = .array(read.pending.map(\.rawValue).sorted().map(CmuxNextSettings.JSONValue.string)) }
+                return .object(reply)
             }
             guard Self.gestureOperations.contains(op) else { return try await relay.call(op, params: params, context: context) }
             try spendGesture(context)

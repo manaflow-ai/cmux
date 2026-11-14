@@ -336,8 +336,8 @@ public struct WorkspacesList: View {
         open(workspace)
     }
 
-    /// Opens a workspace: a needs-you one on its waiting tab, else the
-    /// last tab used here (`AppStore.openingTab`). Clears its "Done".
+    /// Opens a workspace: a needs-you one on its waiting tab, else the active
+    /// tab of its layout's top-left pane (`AppStore.openingTab`). Clears its "Done".
     func openWorkspace(_ ws: Workspace, status: WorkspaceStatus, tab: WorkspaceTab? = nil) {
         if status == .offline {
             theme.haptics.warning()
@@ -345,7 +345,7 @@ public struct WorkspacesList: View {
             return
         }
         if let tab = tab ?? (status == .needsYou ? ws.agentTab(for: .needsYou) : nil) {
-            store.noteOpened(tabID: tab.id, in: ws.id)
+            store.requestOpen(tabID: tab.id, in: ws.id)
         }
         store.markSeen(ws.id)
         // Its tabs come from its Mac: opening a workspace links that Mac.

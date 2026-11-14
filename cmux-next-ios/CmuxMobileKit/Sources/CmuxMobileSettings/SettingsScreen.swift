@@ -37,6 +37,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     private let callKeys = OpenAIKeyModel.shared
     private let callPreferences = VoiceCallPreferences.shared
     private let accentTheme = CmuxMobileAccentTheme.shared
+    @Bindable private var macTheme = CmuxMobileMacTheme.shared
     @State private var confirmsSignOut = false
     @State private var editingTeam: Team?
     /// One device list for the "Devices" count here and the Devices page.
@@ -136,8 +137,14 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 Section {
                     AppearanceTiles(selection: $settings.appearance)
                         .listRowInsets(EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16))
+                    // ask-87d30da8e5: the accent (until one is picked) and the terminals take the Mac's theme;
+                    // the app's own backgrounds stay the stock ones.
+                    Toggle(isOn: $macTheme.matchesMac) {
+                        SettingsLabel("Match Mac theme", symbol: "macbook.and.iphone")
+                    }
+                    .accessibilityIdentifier("settings.matchMacTheme")
                     NavigationLink(value: SettingsRoute.accentColor) {
-                        SettingsLabel("Accent color", symbol: "paintpalette", value: accentTheme.accent.title)
+                        SettingsLabel("Accent color", symbol: "paintpalette", value: AccentColorPage.title(accentTheme))
                     }
                     .accessibilityIdentifier("settings.accentColor")
                     Toggle(isOn: $settings.hapticsEnabled) {

@@ -17,6 +17,7 @@
 // for older history, and the turns keep coming, in order, back to the first.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -29,7 +30,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
@@ -226,17 +228,20 @@ test("a restored chat whose current turn outgrows a page shows the turn before i
 });
 
 test("a current turn longer than one ask reads is read on by the next ask, from where it stopped", async () => {
-  // Each tool output passes an older page's 256 KiB cap, so every record is a page of its own, and
-  // the turn is longer than one ask reads (direct.ts OLDER_PAGES_PER_ASK, 128 pages).
+  // Each tool output passes an older page's 1 MiB cap (direct.ts OLDER_PAGE_BYTES), so every record is
+  // a page of its own, and the turn is longer than one ask reads (OLDER_PAGES_PER_ASK, 128 pages).
   const TOOLS = 80;
-  const { client, stats, state, prompts, tools } = await open(chat(chatId(2), TOOLS, 300 * 1024));
+  const { client, stats, state, prompts, tools } = await open(chat(chatId(2), TOOLS, 1100 * 1024));
   try {
     expect(prompts()).toEqual(["The current turn"]);
     stats.historyReads = 0;
     await client.loadOlder();
     // Capped: nothing above the prompt yet, but the read moved where the history starts
     // (`historyFrom`), which is what makes the transcript ask again.
-    expect(stats.historyReads).toBe(128);
+    // 128 pages for the ask (OLDER_PAGES_PER_ASK), then the next ask's pages read ahead as it lands
+    // (OLDER_AHEAD_PAGES, 4), which that ask takes from memory.
+    expect(stats.historyReads).toBeGreaterThanOrEqual(128);
+    expect(stats.historyReads).toBeLessThanOrEqual(128 + 4);
     expect(prompts()).toEqual(["The current turn"]);
     expect(state.snapshot?.canLoadOlder).toBe(true);
     // The next ask goes on from there and reaches the turns before it.

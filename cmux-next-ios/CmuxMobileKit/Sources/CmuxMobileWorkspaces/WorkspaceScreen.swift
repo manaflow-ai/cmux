@@ -43,6 +43,7 @@ public struct WorkspaceScreen: View {
     @State private var renameID: String?
     @State private var renamePlaceholder = "Name"
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     #if DEBUG
     private let director = WorkspaceDemoDirector.shared
     #endif
@@ -102,6 +103,9 @@ public struct WorkspaceScreen: View {
                 if CommandLine.arguments.contains("-cmux-mobile-toast-demo") { source.showDemoToast() }
                 #endif
             }
+            // The grid's view stays "visible" in the background: its refresh stops here.
+            // Inactive (Control Center, the app switcher's first moment) still shows it.
+            .onChange(of: scenePhase) { _, phase in source.sceneActiveChanged(phase != .background) }
             #if DEBUG
             .onChange(of: director.serial) { run(director.command) }
             #endif

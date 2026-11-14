@@ -13,6 +13,8 @@ use std::sync::Arc;
 use std::sync::Weak;
 
 mod committed_snapshot;
+#[cfg(test)]
+pub(crate) use committed_snapshot::undecorated_snapshot_values_for_test;
 mod machines;
 pub(crate) mod scoped_get;
 mod terminal_extra;
@@ -1062,9 +1064,7 @@ pub(crate) fn public_workspaces(mux: &Mux) -> Result<Vec<Value>, ResourceError> 
             "resource projection changed while listing workspaces"
         );
         let mut workspaces = public_workspace_values(&registry_snapshot, &frame)?;
-        for workspace in &mut workspaces {
-            crate::state::values::decorate_value(connection, "workspace", workspace)?;
-        }
+        crate::state::values::decorate_workspaces(connection, &mut workspaces)?;
         Ok(workspaces)
     })
     .map_err(operation_failed)

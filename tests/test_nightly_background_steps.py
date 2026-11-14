@@ -24,6 +24,7 @@ from pathlib import Path
 import os
 import re
 import shutil
+import sys
 import subprocess
 import tempfile
 import unittest
@@ -32,6 +33,13 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location("git_fixture_env", ROOT / "tests/git_fixture_env.py")
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 WORKFLOW = ROOT / ".github/workflows/nightly.yml"
 CHECKER = ROOT / "scripts/ci/check-browser-data-import-absent.sh"
 APP = "build-universal/Build/Products/Release/cmux.app"
@@ -203,7 +211,7 @@ class BackgroundStepTests(unittest.TestCase):
 
 
     def test_nightly_next_uploads_to_sentry_off_the_build_path(self):
-        doc = yaml.safe_load(WORKFLOW.read_text())
+        doc = workflow_jobs.document(WORKFLOW)
         jobs = doc["jobs"]
         off_track = "needs.decide.outputs.track != 'nightly-next'"
         for name in (SENTRY_START, SENTRY_FINISH):
@@ -237,7 +245,7 @@ class BackgroundStepTests(unittest.TestCase):
         self.assertIn("dsyms-find-attempt.sh", producer["run"])
         self.assertEqual(download["with"]["artifact-ids"], "${{ steps.producer.outputs.artifacts }}")
         self.assertEqual(download["with"]["run-id"], "${{ steps.producer.outputs.run }}")
-        self.assertEqual(sentry["env"]["BUILD_SHA"], "${{ needs.published-build.outputs.publish_build_sha }}")
+        self.assertEqual(workflow_jobs.effective_env(doc, sentry)["BUILD_SHA"], "${{ needs.published-build.outputs.publish_build_sha }}")
         build_sha = "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}"
         kept = step(APP_JOB, "Keep the nightly-next dSYMs for publication")["with"]["name"]
         rust = step(APP_JOB, "Keep the cmux-tui client dSYMs for Sentry")
@@ -265,8 +273,8 @@ class BackgroundStepTests(unittest.TestCase):
             gh.write_text('#!/bin/bash\ncase "$*" in\n  *attempts/1*) echo 2026-11-08T00:00:00Z ;;\n'
                           f'{cases}  *) echo ;;\nesac\n')
             gh.chmod(0o755)
-            env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "BUILD": "4200101", "BUILD_SHA": sha,
-                   "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_OUTPUT": str(output)}
+            env = git_fixture_env.fixture_env({"PATH": f"{bin_dir}:/usr/bin:/bin", "BUILD": "4200101", "BUILD_SHA": sha,
+                                               "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_OUTPUT": str(output)})
             if names is not None:
                 env["DSYMS_NAMES"] = names
             result = subprocess.run(["/bin/bash", str(ROOT / "scripts/ci/nightly-steps/dsyms-find-attempt.sh")],
@@ -286,6 +294,97 @@ class BackgroundStepTests(unittest.TestCase):
         # keep-published-dsyms sets no names: the app's alone, as before.
         result, out = self.find_dsyms(None, {"nightly-next-dsyms": 11, "nightly-next-cmux-tui-dsyms": 12})
         self.assertEqual((result.returncode, out), (0, "run=42001\nartifact=11\nartifacts=11\n"))
+
+
+ONE_JOB = "nightly-next-one"
+NOTICES_START = "Start the third-party notices (they need no build output)"
+NOTICES_FINISH = "Finish the third-party notices"
+NOTICES_STEP = "Generate third-party notices (cmux-next)"
+
+
+class OneJobNoticesInBackgroundTests(unittest.TestCase):
+    """nightly-next-one generates the notices beside the build, not after it.
+
+    "Generate third-party notices (cmux-next)" took 95-134 s serially after the Release build in nightly-next-one
+    (runs 43390156751 and 43395323737: git fetches of the pinned crates' sources plus cargo tree), and it reads no
+    build output. The one job starts it right after "Install compilation dependencies" (cargo) and joins it before
+    that step, which then takes the result as a hand-off (nightly_inputs.py install-notices) and bundles it. The
+    background run writes outside the checkout: the Release build copies the committed THIRD_PARTY_LICENSES.md,
+    which bundle-notices requires. A failed background run leaves no hand-off, and the step generates as before.
+    """
+
+    def test_it_starts_after_cargo_and_joins_before_the_notices_step(self):
+        start, finish = index(ONE_JOB, NOTICES_START), index(ONE_JOB, NOTICES_FINISH)
+        self.assertLess(index(ONE_JOB, "Install compilation dependencies"), start)
+        self.assertLess(start, index(ONE_JOB, "Build nightly app (Release)"))
+        self.assertLess(finish, index(ONE_JOB, NOTICES_STEP))
+        self.assertLess(index(ONE_JOB, "Build nightly app (Release)"), finish)
+        self.assertIs(step(ONE_JOB, NOTICES_FINISH).get("continue-on-error"), True)
+        self.assertEqual(step(ONE_JOB, NOTICES_START)["env"].get("CMUX_NOTICES_ALLOW_CARGO"), "1")
+        self.assertIn("app-third-party-notices.sh start", step(ONE_JOB, NOTICES_START)["run"])
+        self.assertIn("background_build.py join", step(ONE_JOB, NOTICES_FINISH)["run"])
+        # A job that fails before the join leaves nothing running.
+        self.assertIn("Stop the helper builds still running", [s.get("name") for s in steps(ONE_JOB)])
+
+    def test_the_split_build_job_is_unchanged(self):
+        names = [s.get("name") for s in steps(APP_JOB)]
+        self.assertNotIn(NOTICES_START, names)
+        self.assertNotIn(NOTICES_FINISH, names)
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.ws = self.tmp / "ws"
+        for rel in ("scripts/ci/background_build.py", "scripts/ci/nightly_inputs.py",
+                    "scripts/ci/nightly-steps/app-third-party-notices.sh", "scripts/cmux-next/safe_log.py"):
+            (self.ws / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(ROOT / rel, self.ws / rel)
+        (self.ws / "THIRD_PARTY_LICENSES.md").write_text("committed\n")
+        self.app = self.ws / "build-universal/Build/Products/Release/cmux.app/Contents/Resources"
+        self.app.mkdir(parents=True)
+        (self.app / "THIRD_PARTY_LICENSES.md").write_text("committed\n")
+        git_fixture_env.init_repo(self.ws)
+        git = ["git", "-C", str(self.ws), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        env = git_fixture_env.fixture_env()
+        subprocess.run([*git, "add", "THIRD_PARTY_LICENSES.md"], check=True, env=env)
+        subprocess.run([*git, "commit", "-q", "-m", "x"], check=True, env=env)
+        self.runner_temp = self.tmp / "runner-temp"
+        self.runner_temp.mkdir()
+
+    def generator(self, body: str) -> None:
+        gen = self.ws / "scripts/cmux-next/generate-third-party-notices.sh"
+        gen.parent.mkdir(parents=True, exist_ok=True)
+        gen.write_text("#!/bin/bash\nset -e\n" + body)
+        gen.chmod(0o755)
+
+    def run_step(self, name: str, job: str = ONE_JOB) -> subprocess.CompletedProcess:
+        env = git_fixture_env.fixture_env({**os.environ, "RUNNER_TEMP": str(self.runner_temp),
+                                           **(step(job, name).get("env") or {})})
+        return subprocess.run(["bash", "-e", "-c", step(job, name)["run"]], cwd=self.ws, env=env,
+                              text=True, capture_output=True, timeout=60)
+
+    def test_the_background_notices_are_bundled_and_the_checkout_keeps_the_committed_file(self):
+        self.generator('out="${CMUX_NOTICES_OUT:-THIRD_PARTY_LICENSES.md}"\necho "tree notices" > "$out"\n'
+                       'echo "$CMUX_NOTICES_CACHE" > "$RUNNER_TEMP/cache-seen"\n')
+        started = self.run_step(NOTICES_START)
+        self.assertEqual(started.returncode, 0, started.stdout + started.stderr)
+        finished = self.run_step(NOTICES_FINISH)
+        self.assertEqual(finished.returncode, 0, finished.stdout + finished.stderr)
+        # The Release build copies the committed file: the background run never wrote over it.
+        self.assertEqual((self.ws / "THIRD_PARTY_LICENSES.md").read_text(), "committed\n")
+        bundled = self.run_step(NOTICES_STEP, APP_JOB)
+        self.assertEqual(bundled.returncode, 0, bundled.stdout + bundled.stderr)
+        self.assertNotIn("generating them here", bundled.stdout + bundled.stderr)
+        self.assertEqual((self.app / "THIRD_PARTY_LICENSES.md").read_text(), "tree notices\n")
+
+    def test_a_failed_background_run_falls_back_to_the_serial_generation(self):
+        self.generator('if [ -n "${CMUX_NOTICES_OUT:-}" ]; then echo half > "$CMUX_NOTICES_OUT"; exit 1; fi\n'
+                       'echo "serial notices" > THIRD_PARTY_LICENSES.md\n')
+        self.assertEqual(self.run_step(NOTICES_START).returncode, 0)
+        self.assertNotEqual(self.run_step(NOTICES_FINISH).returncode, 0)
+        bundled = self.run_step(NOTICES_STEP, APP_JOB)
+        self.assertEqual(bundled.returncode, 0, bundled.stdout + bundled.stderr)
+        self.assertEqual((self.app / "THIRD_PARTY_LICENSES.md").read_text(), "serial notices\n")
 
 
 if __name__ == "__main__":

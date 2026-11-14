@@ -25,7 +25,8 @@ import SwiftUI
 /// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots;
 /// - `cloudworkspaces`: the Workspaces list with a Mac and Cloud machines in every state
 ///   (`CloudWorkspacesGallery`), and the + menu's New Workspace on… and New Cloud Workspace;
-/// - `cloudmachineworkspaces`: the Cloud Machines page whose machine pages list their workspaces.
+/// - `cloudmachineworkspaces`: the Cloud Machines page whose machine pages list their workspaces;
+/// - `theme-mocha`, `theme-solarized`, `theme-wallpaper`: the chrome under a Mac's theme (`MacThemeGallery`).
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
@@ -47,7 +48,7 @@ public struct RecoveryGalleryRoot: View {
         Group {
             switch scene {
             case "terminal":
-                TerminalConnectingView(state: .offline(mac: "Aziz's Mac Studio"), topInset: 60) {}
+                TerminalConnectingView(topInset: 60)
                     .background(Color.black)
             case "card":
                 cards
@@ -65,6 +66,8 @@ public struct RecoveryGalleryRoot: View {
                 cloudGallery.list
             case "cloudmachineworkspaces":
                 CloudWorkspacesGallery.MachinesPage(gallery: cloudGallery)
+            case "theme-mocha", "theme-solarized", "theme-wallpaper":
+                MacThemeGallery(variant: scene)
             default:
                 states
             }

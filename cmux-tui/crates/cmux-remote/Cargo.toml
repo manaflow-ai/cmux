@@ -32,6 +32,7 @@ cmux-pty = { workspace = true, optional = true }
 cmux-link.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-tui-core = { workspace = true, optional = true }
+cmux-unix-socket.workspace = true
 cmux-wg = { workspace = true, optional = true }
 diffy = { workspace = true, optional = true }
 flate2.workspace = true

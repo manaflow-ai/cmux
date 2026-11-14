@@ -14,7 +14,15 @@ import CCmuxMotionFFI
 @MainActor
 public final class TimedProgress: MotionAnimating {
     /// The curve: `Motion.fadeCurve`'s ease-out, CSS `cubic-bezier(0, 0, 0.58, 1)`.
-    static let curve = (x1: 0.0, y1: 0.0, x2: 0.58, y2: 1.0)
+    public static let curve = (x1: 0.0, y1: 0.0, x2: 0.58, y2: 1.0)
+    /// The drawer curve, CSS `cubic-bezier(0.32, 0.72, 0, 1)`: the iOS sheet's, most of the travel in the first third
+    /// and a long soft landing, the timed stand-in for a critically damped spring that starts with the gesture's speed.
+    /// For a panel that slides in from an edge (the floating sidebar, Lawrence 2026-11-11: "we need better spring
+    /// animation and shorter duration, think how apple would design this").
+    public static let drawerCurve = (x1: 0.32, y1: 0.72, x2: 0.0, y2: 1.0)
+
+    /// The curve the next ``run(duration:in:trace:completion:)`` uses (``curve`` unless the owner picks another).
+    public var activeCurve: (x1: Double, y1: Double, x2: Double, y2: Double) = TimedProgress.curve
 
     private let apply: @MainActor (Double) -> Void
     private var elapsed: Double = 0
@@ -54,10 +62,10 @@ public final class TimedProgress: MotionAnimating {
         clock?.stop(self)
     }
 
-    /// The curve's progress at `fraction` (0...1) of the duration.
-    public static func progress(at fraction: Double) -> Double {
-        let t = min(max(fraction, 0), 1)
-        return t >= 1 ? 1 : cmux_motion_cubic_bezier(curve.x1, curve.y1, curve.x2, curve.y2, t)
+    /// ``activeCurve``'s progress at `fraction` (0...1) of the duration.
+    public func progress(at fraction: Double) -> Double {
+        let t = min(max(fraction, 0), 1), c = activeCurve
+        return t >= 1 ? 1 : cmux_motion_cubic_bezier(c.x1, c.y1, c.x2, c.y2, t)
     }
 
     public func motionStep(_ dt: Double) -> Bool { // perf-hot: 4ms motion-frame
@@ -65,7 +73,7 @@ public final class TimedProgress: MotionAnimating {
         guard !landed else { return finish() }
         elapsed += dt
         let fraction = elapsed / duration
-        apply(Self.progress(at: fraction))
+        apply(progress(at: fraction))
         // The end shows in this frame's commit; the completion waits for the next frame.
         if fraction >= 1 { landed = true }
         return true
