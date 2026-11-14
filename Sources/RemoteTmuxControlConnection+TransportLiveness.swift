@@ -9,8 +9,11 @@ struct RemoteTmuxTransportLivenessState {
     var watch: Task<Void, Never>?
     /// The clock stdout is stamped with. Tests replace it to move time by hand.
     var now: () -> ContinuousClock.Instant = { .now }
-    /// How long a reconnect attempt may run without reaching control mode before it is replaced.
+    /// How long a reconnect attempt may run without reaching control mode before it is replaced. Long
+    /// enough for a broker that waits on a security-key tap, which can take about a minute.
     var reconnectAttemptDeadline: Duration = .seconds(120)
+    /// The task waiting out the current reconnect attempt's deadline.
+    var reconnectAttemptWatch: Task<Void, Never>?
 
     var probeSentAt: ContinuousClock.Instant? { policy.probeSentAt }
 }
@@ -37,6 +40,31 @@ extension RemoteTmuxControlConnection {
                 self.checkTransportLiveness(now: self.transportLiveness.now())
             }
             self?.transportLiveness.watch = nil
+        }
+    }
+
+    /// Gives the reconnect attempt just spawned until ``RemoteTmuxTransportLivenessState/reconnectAttemptDeadline``
+    /// to reach control mode. The stall check watches only a connected stream, and a reconnect attempt
+    /// is otherwise retried only when its stream ends. A transport that stays alive without reaching
+    /// tmux, like a broker retrying a refused host, would hold the mirror frozen with no further try.
+    /// At the deadline the attempt is ended and the normal backoff schedules the next one.
+    func armReconnectAttemptDeadline() {
+        let generation = processGeneration
+        let deadline = ContinuousClock.now + transportLiveness.reconnectAttemptDeadline
+        transportLiveness.reconnectAttemptWatch?.cancel()
+        transportLiveness.reconnectAttemptWatch = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(until: deadline)
+            } catch {
+                return
+            }
+            guard let self, self.connectionState == .reconnecting, !self.awaitingInteractiveAuth,
+                  self.processGeneration == generation else { return }
+            let seconds = Int(self.transportLiveness.reconnectAttemptDeadline.components.seconds)
+            self.record("reconnect-attempt-timeout after=\(seconds)s")
+            cmuxDebugLog("remote.reconnect.timeout host=\(self.host.destination) after=\(seconds)s")
+            self.teardownProcessHandles()
+            self.scheduleReconnectAttempt()
         }
     }
 
