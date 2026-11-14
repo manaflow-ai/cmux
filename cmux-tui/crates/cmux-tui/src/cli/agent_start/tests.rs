@@ -34,6 +34,11 @@ const TRUST: &str = "\
 
  Enter to confirm · Esc to cancel";
 
+/// The agent's own idle report (its SessionStart hook).
+static SESSION_STARTED: std::sync::LazyLock<Value> = std::sync::LazyLock::new(
+    || json!([{"terminal_id": NEW, "state": "idle", "source": "hook", "updated_at_ms": "2000"}]),
+);
+
 const COMPOSER: &str = "\
  ✻ Welcome to Claude Code!
 
@@ -526,7 +531,8 @@ fn w3h_start_in_a_session_with_no_pane_opens_a_workspace_for_the_agent() {
         ),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
-        "agent.list" => json!([]),
+        // Claude Code is ready on its SessionStart hook, not its input box.
+        "agent.list" => SESSION_STARTED.clone(),
         _ => json!({}),
     });
     let env = Env { caller_terminal: None, ..env() };
@@ -589,7 +595,7 @@ fn w3h_start_in_an_empty_session_uses_the_workspace_it_created_not_the_focused_o
             "pane.run" => created(PANE_B, "tab_e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0", NEW),
             "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
             "terminal.screen.read" => json!({"text": COMPOSER}),
-            "agent.list" => json!([]),
+            "agent.list" => SESSION_STARTED.clone(),
             _ => json!({}),
         });
         let env = Env { caller_terminal: None, ..env() };
@@ -669,6 +675,149 @@ fn w3h_the_wait_times_out_while_the_agent_still_starts() {
     assert_eq!(super::apply_outcome(&mut report, &outcome, "alpha"), 124);
     assert_eq!(report["state"], "timeout");
     assert_eq!(report["waited_ms"], "5000");
+}
+
+/// A daemon whose first reads find it too busy to answer in time (the
+/// `session.no_answer` read timeout under load), then answers.
+struct Slow {
+    busy_reads: Cell<usize>,
+    rejected: bool,
+}
+
+impl Daemon for Slow {
+    fn request(&self, _session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure> {
+        let request = request_value(&plan).expect("a valid request");
+        if self.busy_reads.get() > 0 {
+            self.busy_reads.set(self.busy_reads.get() - 1);
+            if self.rejected {
+                return Err(CallFailure::local(
+                    FailureKind::Rejected,
+                    "terminal.not_found",
+                    "no such terminal",
+                ));
+            }
+            return Err(CallFailure::local(
+                FailureKind::NotRun,
+                "transport.failed",
+                crate::localization::catalog().cli_connection.no_answer(),
+            ));
+        }
+        Ok(match request["operation"].as_str() {
+            Some("terminal.get") => json!({"id": NEW, "lifecycle": "running"}),
+            Some("terminal.screen.read") => json!({"text": COMPOSER}),
+            _ => json!([]),
+        })
+    }
+}
+
+fn new_reads() -> Reads {
+    Reads {
+        show: super::plan(&["terminal", NEW, "show"]).unwrap(),
+        agents: super::plan(&["agent", "list", "--terminal", NEW]).unwrap(),
+        screen: super::plan(&["terminal", NEW, "screen", "read"]).unwrap(),
+    }
+}
+
+#[test]
+fn w5t_a_started_agent_is_ready_after_reads_the_busy_session_did_not_answer() {
+    // agent start under load: the tab is made, then two reads time out. The
+    // agent is still there, so the wait keeps looking and finds it ready,
+    // and never reports a failure for an agent that started.
+    let daemon = Slow { busy_reads: Cell::new(2), rejected: false };
+    let options = WaitOptions::new(Duration::from_secs(30), 0);
+    let outcome = run_with_clock(|clock| {
+        readiness::wait(&daemon, &new_reads(), options, clock.now, clock.sleep)
+    })
+    .expect("a read the session did not answer is no failure of the start");
+    assert_eq!(outcome.readiness, Some(Readiness::Ready));
+
+    // Only no-answer reads all the way: the wait ends as a timeout (the
+    // report keeps the terminal id), not as an error.
+    let daemon = Slow { busy_reads: Cell::new(usize::MAX), rejected: false };
+    let options = WaitOptions::new(Duration::from_secs(5), 0);
+    let outcome = run_with_clock(|clock| {
+        readiness::wait(&daemon, &new_reads(), options, clock.now, clock.sleep)
+    })
+    .expect("a timeout, not an error");
+    assert_eq!(outcome.readiness, None);
+    assert_eq!(outcome.waited, Duration::from_secs(5));
+
+    // A refusal is still an error at once.
+    let daemon = Slow { busy_reads: Cell::new(1), rejected: true };
+    let failure = run_with_clock(|clock| {
+        readiness::wait(&daemon, &new_reads(), options, clock.now, clock.sleep)
+    })
+    .expect_err("refused");
+    assert_eq!(failure.error["code"], "terminal.not_found");
+}
+
+/// The agent records `agent.list` gives after `hook_at` reads: a screen
+/// (`plugin`) idle record before it, the agent's own hook idle record from it.
+fn screen_then_hook(count: usize, hook_at: usize) -> Value {
+    if count >= hook_at {
+        json!([{"terminal_id": NEW, "state": "idle", "source": "hook", "updated_at_ms": "2000"}])
+    } else {
+        json!([{"terminal_id": NEW, "state": "idle", "source": "plugin", "updated_at_ms": "1500"}])
+    }
+}
+
+fn start_on_composer(cmd: &str, hook_at: usize) -> (Value, i32, usize) {
+    let snapshot = snapshot();
+    let daemon = Fake::new(|operation, _params, count| match operation {
+        "session.snapshot" => snapshot.clone(),
+        "pane.split" => created(
+            "pane_33333333333333333333333333333333",
+            "tab_50505050505050505050505050505050",
+            "term_5e115e115e115e115e115e115e115e11",
+        ),
+        "pane.run" => created(
+            "pane_33333333333333333333333333333333",
+            "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
+            NEW,
+        ),
+        "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
+        "terminal.screen.read" => json!({"text": COMPOSER}),
+        "agent.list" => screen_then_hook(count, hook_at),
+        _ => json!({}),
+    });
+    let options = Options {
+        cmd: Some(cmd.into()),
+        focus: false,
+        timeout: Duration::from_secs(20),
+        ..Options::default()
+    };
+    let (report, exit) =
+        run_with_clock(|clock| start(&daemon, &env(), clock, "beta", &options)).expect("start");
+    (report, exit, daemon.sent("agent.list").len())
+}
+
+/// Real-build check: `agent start` said ready on Claude Code's input box and
+/// a screen (plugin) idle record about 9 s before its SessionStart hook, and
+/// the prompt sent then was lost. A harness whose hooks report a session
+/// start is ready only on its own idle report; one with no such hook stays
+/// ready on its input box.
+#[test]
+fn w5t_start_of_a_harness_that_reports_its_session_start_waits_for_that_report() {
+    // The hook comes on the 12th look: ready then, never on the screen before.
+    let (report, exit, looks) = start_on_composer("sr2 claude", 12);
+    assert_eq!(exit, 0, "{report}");
+    assert_eq!(report["state"], "ready");
+    assert!(looks > 12, "ready before the SessionStart hook came: {looks} looks");
+
+    // No hook within the timeout: a timeout that names the missing report.
+    let (report, exit, _) = start_on_composer("sr2 claude", usize::MAX);
+    assert_eq!(exit, 124, "{report}");
+    assert_eq!(report["state"], "timeout");
+    assert!(
+        report["reason"].as_str().is_some_and(|reason| reason.contains("SessionStart")),
+        "{report}"
+    );
+
+    // amp has no cmux hooks: its input box is enough.
+    let (report, exit, looks) = start_on_composer("amp", usize::MAX);
+    assert_eq!(exit, 0, "{report}");
+    assert_eq!(report["state"], "ready");
+    assert!(looks < 12, "{looks}");
 }
 
 /// Claude's folder-trust dialog with the cursor on "No, exit".
@@ -770,7 +919,8 @@ fn w5q_a_ready_start_has_no_dialog_options() {
         ),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
-        "agent.list" => json!([]),
+        // Claude Code is ready on its SessionStart hook, not its input box.
+        "agent.list" => SESSION_STARTED.clone(),
         _ => json!({}),
     });
     let options = Options { cmd: Some("sr2 claude".into()), ..Options::default() };
@@ -852,7 +1002,7 @@ fn w5q_start_split_keeps_the_persons_column_width() {
                 "second": {"kind": "leaf", "pane_id": BETA_PANE, "tab_ids": []}}}}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
-        "agent.list" => json!([]),
+        "agent.list" => SESSION_STARTED.clone(),
         _ => json!({}),
     });
     let options = Options { cmd: Some("sr2 claude".into()), ..Options::default() };
@@ -914,7 +1064,7 @@ fn w5q_start_split_keeps_a_person_pane_with_an_agent_name() {
         "terminal.process.get" => json!({"pid": 77, "argv": ["/bin/zsh", "-l"]}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
-        "agent.list" => json!([]),
+        "agent.list" => SESSION_STARTED.clone(),
         _ => json!({}),
     });
     let options = Options { cmd: Some("sr2 claude".into()), ..Options::default() };
@@ -991,7 +1141,7 @@ fn three_agent_row_widths(alpha: &str, agent_state: Option<&str>) -> [f64; 4] {
                     "second": {"kind": "leaf", "pane_id": GAMMA_PANE, "tab_ids": []}}}}}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
-        "agent.list" => json!([]),
+        "agent.list" => SESSION_STARTED.clone(),
         _ => json!({}),
     });
     let options = Options {
@@ -1105,7 +1255,7 @@ fn w5q_start_split_gives_each_pane_of_its_row_the_same_width() {
         "screen.layout.export" => halved_layout(),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
-        "agent.list" => json!([]),
+        "agent.list" => SESSION_STARTED.clone(),
         _ => json!({}),
     });
     let options = Options {
@@ -1143,7 +1293,7 @@ fn w5q_start_split_in_a_column_screen_changes_no_ratio() {
                 {"column_id": "column_2", "width": 100.0, "root": {"kind": "leaf", "pane_id": BETA_PANE}}]}}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
-        "agent.list" => json!([]),
+        "agent.list" => SESSION_STARTED.clone(),
         _ => json!({}),
     });
     let options = Options { cmd: Some("sr2 claude".into()), ..Options::default() };

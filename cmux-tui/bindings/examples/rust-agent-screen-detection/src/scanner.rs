@@ -26,7 +26,7 @@ use cmux::{
     Selector, Session, SessionEvent, SessionId, SessionJournalOptions, StreamCancellation,
     Terminal, TerminalId,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::background_agent::{AgentJobTracker, PlatformProcesses, ProbeObservation};
 use crate::detect::{AgentState, ScreenDetectTracker};
@@ -979,6 +979,30 @@ fn scan_terminal(
     Ok(())
 }
 
+/// The `native` part of one emission's journal payload: what the screen
+/// showed and why the plugin concluded its state. `cmux agent explain` reads
+/// it back from the journal record (the record is `sensitive`, so remote
+/// clients never get the screen text).
+pub fn native_payload(emission: &crate::detect::ScreenDetectEmission) -> Value {
+    let mut native = json!({
+        "engine":"herdr-manifest-v3",
+        "matched_rule":emission.matched_rule,
+        "basis":emission.basis.as_str(),
+        "visible":{
+            "idle":emission.visible_idle,
+            "blocker":emission.visible_blocker,
+            "working":emission.visible_working
+        }
+    });
+    if let Some(source) = emission.manifest_source {
+        native["manifest"] = json!({"version":emission.manifest_version, "source":source});
+    }
+    if let Some(evidence) = &emission.evidence {
+        native["evidence"] = json!(evidence);
+    }
+    native
+}
+
 fn prepare_emission(
     terminal: &Terminal,
     plugin_id: &str,
@@ -1025,15 +1049,7 @@ fn prepare_emission(
             "adapter":{"id":emission.agent,"version":1},
             "event":event_name,
             "normalized":normalized,
-            "native":{
-                "engine":"herdr-manifest-v3",
-                "matched_rule":emission.matched_rule,
-                "visible":{
-                    "idle":emission.visible_idle,
-                    "blocker":emission.visible_blocker,
-                    "working":emission.visible_working
-                }
-            },
+            "native":native_payload(emission),
         }),
         causation_id: None,
         correlation_id: None,

@@ -31,6 +31,7 @@ use std::time::Instant;
 use super::command::CommandPlan;
 use super::{GlobalArgs, OutputMode, Surface, UsageError};
 
+mod agents_wait;
 mod status_wait;
 mod terminal_wait;
 pub(super) use terminal_wait::duration;
@@ -38,6 +39,11 @@ pub(super) use terminal_wait::duration;
 #[cfg(test)]
 pub(super) fn terminal_wait_flags_parse(words: &[String]) -> bool {
     terminal_wait::parse(words).is_ok()
+}
+/// The `terminal wait --any|--all` flag parser, for the same recipe check.
+#[cfg(test)]
+pub(super) fn agents_wait_flags_parse(words: &[String]) -> bool {
+    agents_wait::parse(words).is_ok()
 }
 
 const DEFAULT_BADGE_TTL: &str = "8s";
@@ -92,6 +98,7 @@ fn run(global: &GlobalArgs, command: &[String]) -> Option<i32> {
     let (first, rest) = command.split_first()?;
     if super::canonical_scope(first) == "terminal" {
         return super::terminal_talk::run(global, rest)
+            .or_else(|| agents_wait::run(global, rest))
             .or_else(|| terminal_wait::run(global, rest));
     }
     if super::canonical_scope(first) == "workspace" {

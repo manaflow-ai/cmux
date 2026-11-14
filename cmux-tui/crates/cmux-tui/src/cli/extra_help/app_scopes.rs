@@ -57,6 +57,14 @@ fn text(args: &[String]) -> Option<String> {
         ["notify", ..] => return Some(super::super::scope_help::NOTIFY_HELP.to_owned()),
         ["space", ..] => return Some(super::super::scope_help::SPACE_HELP.to_owned()),
         ["status", ..] => return Some(super::super::scope_help::STATUS_HELP.to_owned()),
+        // cli/agent_explain.rs and cli/status/agents_wait.rs (and the
+        // one-terminal `terminal <t> wait`, whose usage the same text keeps).
+        ["agent", "explain", ..] | ["agent", _, "explain"] => {
+            return Some(crate::localization::catalog().agent_state.explain_help.to_owned());
+        }
+        ["terminal", "wait", ..] | ["terminal", _, "wait", ..] => {
+            return Some(crate::localization::catalog().agent_state.wait_help.to_owned());
+        }
         ["agent", "open"] => return Some(messages.agent_open_usage.to_owned()),
         ["agent", "open-tab"] => return Some(messages.agent_open_tab_usage.to_owned()),
         ["cloud", verb] => {

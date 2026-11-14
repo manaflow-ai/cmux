@@ -17,6 +17,8 @@ use super::*;
 
 #[path = "agent_chat_notices.rs"]
 mod agent_chat_notices;
+#[path = "agent_explain_wait.rs"]
+mod agent_explain_wait;
 #[path = "agent_focus_cli.rs"]
 mod agent_focus_cli;
 #[path = "agent_home_reopen.rs"]

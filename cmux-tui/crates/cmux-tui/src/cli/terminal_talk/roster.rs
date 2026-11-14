@@ -181,6 +181,18 @@ pub(in crate::cli) fn harness_hooks_report(harness: &str, kind: fn(&str, &str) -
         .is_some_and(|events| events.iter().any(|event| kind(&harness, event)))
 }
 
+/// Whether a screen guess of `idle` must wait for the agent's own report:
+/// `harness`'s hooks report a session start, and none has come for this
+/// terminal yet (`session_id`, the harness session id its hooks leave on the
+/// terminal, `extra.agent_session_id`). Claude Code draws its input box
+/// seconds before its `SessionStart`, and a prompt typed then is lost
+/// (W5-T real-build check). `agent start`, `terminal wait --until ready`
+/// and `terminal wait --any|--all` share this rule.
+pub(in crate::cli) fn session_report_pending(harness: &str, session_id: Option<&str>) -> bool {
+    session_id.is_none_or(str::is_empty)
+        && harness_hooks_report(harness, cmux_tui_core::agent_hook_event_starts_session)
+}
+
 /// The agent of one terminal record, from the daemon's agent records of
 /// that terminal (newest first wins) or its OSC 7501 program status.
 /// `unseen` is whether the terminal carries an unread notification.

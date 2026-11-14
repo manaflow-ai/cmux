@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use crate::manifest::{Detection, ScreenState};
+use crate::manifest::{Detection, DetectionBasis, ScreenState};
 
 /// States emitted by the detector. They are serialized as the generic cmux
 /// agent state strings at the journal boundary.
@@ -238,6 +238,14 @@ pub struct ScreenDetectEmission {
     pub visible_idle: bool,
     pub visible_blocker: bool,
     pub visible_working: bool,
+    /// What the state rests on.
+    pub basis: DetectionBasis,
+    /// The screen text the matched rule read.
+    pub evidence: Option<String>,
+    /// The manifest's version, when the report came from a manifest.
+    pub manifest_version: Option<String>,
+    /// Where that manifest came from; `None` for a report no manifest made.
+    pub manifest_source: Option<&'static str>,
 }
 
 #[derive(Debug, Default)]
@@ -430,6 +438,7 @@ impl ScreenDetectTracker {
             return;
         }
         detection.state = ScreenState::Working;
+        detection.basis = DetectionBasis::OutputActivity;
         entry.evaluated_with_activity = true;
         entry.activity_on_visible_idle = detection.visible_idle;
     }
@@ -661,6 +670,10 @@ impl ScreenDetectTracker {
             visible_idle: false,
             visible_blocker: false,
             visible_working: false,
+            basis: DetectionBasis::ProcessIdentity,
+            evidence: None,
+            manifest_version: None,
+            manifest_source: None,
         };
         entry.identity_presence_needed = false;
         PendingEmission::arm(entry, before, emission.clone());
@@ -748,6 +761,10 @@ impl ScreenDetectTracker {
                 visible_idle: false,
                 visible_blocker: false,
                 visible_working: false,
+                basis: DetectionBasis::ProcessExit,
+                evidence: None,
+                manifest_version: None,
+                manifest_source: None,
             };
             PendingEmission::arm(entry, before, emission.clone());
             return Some(emission);
@@ -813,6 +830,15 @@ impl ScreenDetectTracker {
             visible_idle,
             visible_blocker,
             visible_working,
+            // A screen that asserted nothing leaves the process as the evidence.
+            basis: if asserted.is_some() {
+                detection.basis
+            } else {
+                DetectionBasis::ProcessIdentity
+            },
+            evidence: asserted.and(detection.evidence),
+            manifest_version: detection.manifest_version,
+            manifest_source: Some(detection.manifest_source),
         };
         PendingEmission::arm(entry, before, emission.clone());
         Some(emission)

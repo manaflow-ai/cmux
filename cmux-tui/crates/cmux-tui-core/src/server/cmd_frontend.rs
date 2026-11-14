@@ -150,10 +150,15 @@ pub(super) fn list_agents(
         Some(state) => Some(parse_agent_state(&state)?),
         None => None,
     };
+    // Why the roster holds each state (`cmux agent explain`), read once.
+    let reasons = mux.agent_state_reasons();
     let agents = mux
         .list_agents(surface, state)
         .iter()
-        .map(|record| agent_json(record, mux.agent_status(record)))
+        .map(|record| {
+            let reason = reasons.get(record.terminal_id.as_str());
+            agent_json(record, mux.agent_status(record), reason)
+        })
         .collect::<Vec<_>>();
     Ok(json!({ "agents": agents }))
 }
@@ -216,9 +221,14 @@ pub(super) fn list_notifications(mux: &Arc<Mux>, limit: Option<usize>) -> anyhow
 /// ended session); `status` is what the person sees (`working`, `blocked`,
 /// `done` for a finished turn not yet seen, `idle`, `unknown`), `null` for an
 /// ended session.
-fn agent_json(record: &AgentRecord, status: Option<crate::AgentStatus>) -> Value {
+fn agent_json(
+    record: &AgentRecord,
+    status: Option<crate::AgentStatus>,
+    state_reason: Option<&Value>,
+) -> Value {
     json!({
         "surface": record.surface,
+        "terminal_id": record.terminal_id.as_str(),
         "state": record.state.as_str(),
         "status": status.map(crate::AgentStatus::as_str),
         "source": record.source.as_str(),
@@ -228,6 +238,7 @@ fn agent_json(record: &AgentRecord, status: Option<crate::AgentStatus>) -> Value
         "updated_at_ms": record.updated_at_ms,
         "since_ms": record.since_ms,
         "last_prompt": record.last_prompt.as_deref(),
+        "state_reason": state_reason,
     })
 }
 
