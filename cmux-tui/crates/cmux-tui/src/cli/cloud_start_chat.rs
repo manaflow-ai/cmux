@@ -219,7 +219,7 @@ pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
             2,
         );
     }
-    let mut runner = SelfRunner { globals: forwarded_globals(global), global: global.clone() };
+    let mut runner = SelfRunner::new(global);
     let outcome = run(&mut runner, request);
     report(&outcome, global.output)
 }
@@ -250,7 +250,7 @@ pub(super) fn send_existing(
         until: None,
         allow_large: false,
     };
-    let mut runner = SelfRunner { globals: forwarded_globals(global), global: global.clone() };
+    let mut runner = SelfRunner::new(global);
     report(&send_to(&mut runner, &request, machine_id, session), global.output)
 }
 
@@ -311,7 +311,7 @@ pub(super) fn app_signed_in(global: &GlobalArgs) -> bool {
 
 /// The app's `cloud list-machines` answer, or its error.
 pub(super) fn app_machines(global: &GlobalArgs) -> Result<Value, Value> {
-    let mut runner = SelfRunner { globals: forwarded_globals(global), global: global.clone() };
+    let mut runner = SelfRunner::new(global);
     step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))
 }
 
@@ -323,7 +323,7 @@ pub(super) fn app_step(global: &GlobalArgs, args: &[String]) -> Result<Value, Va
     if let Some(key) = &global.idempotency_key {
         globals.extend(["--idempotency-key".to_owned(), key.clone()]);
     }
-    let mut runner = SelfRunner { globals, global: global.clone() };
+    let mut runner = SelfRunner { globals, ..SelfRunner::new(global) };
     let mut args = args.to_vec();
     args.push("--json".to_owned());
     step_result(&runner.cmux(&args))
@@ -567,6 +567,13 @@ pub(super) trait Runner {
     ) -> Option<Result<Value, Value>> {
         None
     }
+    /// The deadline every step of this runner ends by, when it has one ([`SelfRunner::until`]): a step past it is
+    /// not started, a child still running at it is killed, and a `cloud exec` gives the machine what is left of it
+    /// as the remote command's own limit ([`exec`]). `None` (every runner but the carrier fault drill's): no bound
+    /// beyond each step's own.
+    fn until(&mut self) -> Option<Instant> {
+        None
+    }
     /// One wait on a chat tab's records over the machine's link stream `socket` ([`link_wait::observe`]).
     fn observe(
         &mut self,
@@ -579,19 +586,42 @@ pub(super) trait Runner {
     }
 }
 
-struct SelfRunner {
+pub(super) struct SelfRunner {
     globals: Vec<String>,
     global: GlobalArgs,
+    /// The program each step runs: this binary (a test: a stand-in).
+    exe: Option<std::path::PathBuf>,
+    /// [`Runner::until`]: `None` for every caller but the carrier fault drill, which runs each step as before.
+    until: Option<Instant>,
+}
+
+impl SelfRunner {
+    pub(super) fn new(global: &GlobalArgs) -> Self {
+        Self { globals: forwarded_globals(global), global: global.clone(), exe: None, until: None }
+    }
+
+    /// The same runner, each of whose steps ends by `until` ([`Runner::until`]).
+    pub(super) fn until(mut self, until: Instant) -> Self {
+        self.until = Some(until);
+        self
+    }
+
+    /// Runs `exe` instead of this binary (a test's stand-in `cmux`).
+    #[cfg(test)]
+    pub(super) fn running(mut self, exe: std::path::PathBuf) -> Self {
+        self.exe = Some(exe);
+        self
+    }
 }
 
 /// This binary as the runner of another command's steps (`cmux chat cd`, chat_cd.rs), reaching the same app.
 pub(super) fn self_runner(global: &GlobalArgs) -> impl Runner {
-    SelfRunner { globals: forwarded_globals(global), global: global.clone() }
+    SelfRunner::new(global)
 }
 
 impl Runner for SelfRunner {
     fn cmux(&mut self, args: &[String]) -> Ran {
-        let exe = match std::env::current_exe() {
+        let exe = match self.exe.clone().map_or_else(std::env::current_exe, Ok) {
             Ok(exe) => exe,
             Err(error) => {
                 return Ran { code: 127, stdout: String::new(), stderr: error.to_string() };
@@ -600,13 +630,16 @@ impl Runner for SelfRunner {
         // A step reads the app's own words (vm_words.rs), whatever the command prints.
         let mut command = cmux_process::Command::new(exe);
         command.env(super::vm_words::STEP_ENV, "1").args(&self.globals).args(args);
-        match command.output() {
-            Ok(output) => Ran {
-                code: output.status.code().unwrap_or(1),
-                stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-                stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        match self.until {
+            None => match command.output() {
+                Ok(output) => Ran {
+                    code: output.status.code().unwrap_or(1),
+                    stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+                    stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+                },
+                Err(error) => Ran { code: 127, stdout: String::new(), stderr: error.to_string() },
             },
-            Err(error) => Ran { code: 127, stdout: String::new(), stderr: error.to_string() },
+            Some(until) => internal::bounded::output_by(command, until),
         }
     }
 
@@ -616,6 +649,10 @@ impl Runner for SelfRunner {
 
     fn now(&mut self) -> Instant {
         Instant::now()
+    }
+
+    fn until(&mut self) -> Option<Instant> {
+        self.until
     }
 
     fn fresh_name(&mut self) -> String {
@@ -629,8 +666,13 @@ impl Runner for SelfRunner {
         params: Value,
         timeout: Duration,
     ) -> Option<Result<Value, Value>> {
+        // A runner with a deadline asks nothing past it, and its request stops there however long the app keeps
+        // answering its liveness ping (`request_by`).
+        if self.until.is_some_and(|until| Instant::now() >= until) {
+            return Some(Err(internal::bounded::past_deadline()));
+        }
         let mut stream = super::app::connect_command(&self.global).ok()?;
-        super::app::request(&mut stream, method, params, timeout).ok()
+        super::app::request_by(&mut stream, method, params, timeout, self.until).ok()
     }
 }
 
@@ -1181,6 +1223,10 @@ impl Runner for Timed<'_> {
 
     fn fresh_name(&mut self) -> String {
         self.inner.fresh_name()
+    }
+
+    fn until(&mut self) -> Option<Instant> {
+        self.inner.until()
     }
 
     fn observe(
@@ -2321,6 +2367,22 @@ fn remove_prompt_file(runner: &mut dyn Runner, machine: &str, file: &str, deadli
 }
 
 pub(super) fn exec(runner: &mut dyn Runner, machine: &str, script: &str) -> Result<String, Value> {
+    // A runner with a deadline gives the machine what is left of it as the command's own limit: the remote script
+    // is killed there, whatever happens to this side's wait.
+    let bounded;
+    let script = match runner.until() {
+        None => script,
+        Some(until) => {
+            let left = until.saturating_duration_since(runner.now());
+            match internal::bounded::remote_script(script, left) {
+                Some(wrapped) => {
+                    bounded = wrapped;
+                    bounded.as_str()
+                }
+                None => return Err(internal::bounded::past_deadline()),
+            }
+        }
+    };
     let args = vec![
         "cloud".to_owned(),
         "exec".to_owned(),

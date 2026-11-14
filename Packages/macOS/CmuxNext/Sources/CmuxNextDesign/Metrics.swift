@@ -72,8 +72,9 @@ public struct Metrics {
     /// Spacious): above the tab pills, between them and the omnibar, and under the omnibar. Nil for a density without one,
     /// which keeps its strip token, or when `layout.panePadding` is set (the person's padding sizes the gaps).
     public static var browserRowGap: CGFloat? {
-        guard DesignSettings.shared.paneChrome.padding == nil, let gap = tokens.tokens["browserRowGap"] else { return nil }
-        return scale(CGFloat(gap))
+        guard DesignSettings.shared.paneChrome.padding == nil,
+              let gap = BrowserChromeTuning.override(.rowGap) ?? tokens.tokens["browserRowGap"].map({ CGFloat($0) }) else { return nil }
+        return scale(gap)
     }
 
     /// Space reserved at the leading edge of the titlebar for traffic lights.
@@ -99,9 +100,9 @@ public struct Metrics {
         let sections = DesignSettings.shared.sidebarSections
         // A density's own browser row (Helium's 28 pt at Default; Lawrence 2026-11-13, density thread), grown by the sidebar's
         // density and text size as a row is, without the sidebar list's Codex fill.
-        if let row = tokens.tokens["browserRowHeight"], MetricTunables.sidebarRowHeight.tunable.override == nil,
+        if let row = BrowserChromeTuning.override(.rowHeight) ?? tokens.tokens["browserRowHeight"].map({ CGFloat($0) }), MetricTunables.sidebarRowHeight.tunable.override == nil,
            DesignSettings.shared.overrides[.sidebarRowHeight] == nil {
-            return scale(CGFloat(row)) + SidebarRowTokens.extraHeight(density: sections.density, textSize: sections.textSize, space2: space2)
+            return scale(row) + SidebarRowTokens.extraHeight(density: sections.density, textSize: sections.textSize, space2: space2)
         }
         // The row as drawn: at Default the list row's fill takes the gap under it (``SidebarRowTokens/listRowHeight``).
         return sidebarRowHeight + SidebarRowTokens.extraHeight(density: sections.density, textSize: sections.textSize, space2: space2)
