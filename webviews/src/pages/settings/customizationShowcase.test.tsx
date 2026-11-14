@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import showcase from "../../../../skills/cmux-customization/showcase.json";
 import { installDom } from "./testDom";
-import { templateInstallCommand } from "./components/CustomizeExamplesCard";
+import { SHOWCASE_REF, templateInstallCommand } from "./components/CustomizeExamplesCard";
 
 const restore = installDom();
 afterAll(() => restore());
@@ -26,13 +26,15 @@ afterEach(() => {
 });
 
 const template = showcase.samples[0]!;
+const repoRoot = join(import.meta.dir, "../../../..");
+const rawBase = `https://raw.githubusercontent.com/manaflow-ai/cmux/${SHOWCASE_REF}/`;
 
 function writeExecutable(path: string, source: string): void {
   writeFileSync(path, source);
   chmodSync(path, 0o755);
 }
 
-function shellFixture(failSecondDownload = false) {
+function shellFixture(failSecondDownload = false, tamperManifest = false) {
   const root = mkdtempSync(join(tmpdir(), "cmux-customization-test-"));
   const bin = join(root, "bin");
   mkdirSync(bin);
@@ -65,10 +67,10 @@ for arg in "$@"; do
 done
 [ -n "$out" ]
 case "$url" in
-  *main.js) printf '%s' 'source file' > "$out" ;;
-  *cmux-app.json|*cmux-app.v2.json) printf '%s' '{"manifestVersion":2}' > "$out" ;;
+  "$RAW_BASE"*) cat "$REPO_ROOT/\${url#"$RAW_BASE"}" > "$out" ;;
   *) exit 23 ;;
 esac
+if [ "$TAMPER_MANIFEST" = 1 ]; then case "$out" in *cmux-app.json) printf ' ' >> "$out" ;; esac; fi
 `,
   );
   writeExecutable(
@@ -84,6 +86,9 @@ printf '%s|%s\\n' "$PWD" "$*" >> "$CMUX_LOG"
     CURL_COUNT: curlCount,
     CMUX_LOG: cmuxLog,
     HOME: home,
+    RAW_BASE: rawBase,
+    REPO_ROOT: repoRoot,
+    TAMPER_MANIFEST: tamperManifest ? "1" : "0",
   };
   return { root, env, curlLog, cmuxLog, customize };
 }
@@ -110,21 +115,21 @@ test("template install command writes both files in an exclusive folder and runs
     expect(folders).toHaveLength(2);
     for (const folder of folders) {
       const exampleDir = join(fixture.root, folder);
-      expect(readFileSync(join(exampleDir, "main.js"), "utf8")).toBe("source file");
-      expect(readFileSync(join(exampleDir, "cmux-app.json"), "utf8")).toBe('{"manifestVersion":2}');
+      expect(readFileSync(join(exampleDir, "main.js"), "utf8")).toBe(
+        readFileSync(join(repoRoot, template.file), "utf8"),
+      );
+      expect(readFileSync(join(exampleDir, "cmux-app.json"), "utf8")).toBe(
+        readFileSync(join(repoRoot, template.manifest), "utf8"),
+      );
     }
     const cmuxCalls = readFileSync(fixture.cmuxLog, "utf8").trim().split("\n");
     const orderedFolders = cmuxCalls.map((call) => basename(call.split("|", 1)[0]!));
     expect(new Set(orderedFolders)).toEqual(new Set(folders));
     const curlCalls = readFileSync(fixture.curlLog, "utf8").trim().split("\n");
     expect(curlCalls).toHaveLength(4);
-    expect(curlCalls[0]).toContain(
-      `https://raw.githubusercontent.com/manaflow-ai/cmux/9c066b3251ac60991d8cf442f352c990635a59a7/${template.file}`,
-    );
+    expect(curlCalls[0]).toContain(`${rawBase}${template.file}`);
     expect(curlCalls[0]).toContain(`-o ./${orderedFolders[0]}/main.js`);
-    expect(curlCalls[1]).toContain(
-      `https://raw.githubusercontent.com/manaflow-ai/cmux/9c066b3251ac60991d8cf442f352c990635a59a7/${template.manifest}`,
-    );
+    expect(curlCalls[1]).toContain(`${rawBase}${template.manifest}`);
     expect(curlCalls[1]).toContain(`-o ./${orderedFolders[0]}/cmux-app.json`);
     expect(curlCalls[2]).toContain(`-o ./${orderedFolders[1]}/main.js`);
     expect(curlCalls[3]).toContain(`-o ./${orderedFolders[1]}/cmux-app.json`);
@@ -147,6 +152,28 @@ test("template install command does not start cmux when the manifest download fa
     expect(existsSync(fixture.cmuxLog)).toBe(false);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("template install command refuses a download that does not match the catalog's sha256", () => {
+  const fixture = shellFixture(false, true);
+  try {
+    const result = runCommand(templateInstallCommand(template), fixture);
+    expect(result.exitCode).not.toBe(0);
+    expect(existsSync(fixture.cmuxLog)).toBe(false);
+    expect(readFileSync(join(fixture.customize, "cmux-app.json"), "utf8")).toBe("keep customize manifest");
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("the catalog pins a full commit and every example's sha256 matches the reviewed file", () => {
+  expect(SHOWCASE_REF).toMatch(/^[0-9a-f]{40}$/);
+  for (const sample of showcase.samples) {
+    for (const part of ["file", "manifest"] as const) {
+      const digest = new Bun.CryptoHasher("sha256").update(readFileSync(join(repoRoot, sample[part]))).digest("hex");
+      expect(sample.sha256[part]).toBe(digest);
+    }
   }
 });
 

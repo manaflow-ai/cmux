@@ -24,8 +24,9 @@ No SDK package, token in a file, app rebuild, or restart is needed.
 ## Install, change, remove
 
 **Copy install command** creates a new `cmux-example-<name>.XXXXXX` folder in your current
-directory and downloads the two files linked above. It never writes over your customize folder.
-The command runs `cmux ext dev` in that folder. When the preview prints its install hint, run
+directory and downloads the two files linked above from one pinned, reviewed commit. It checks
+each file against the SHA-256 in the catalog and stops before running anything if either differs.
+It never writes over your customize folder. The command then runs `cmux ext dev` in that folder. When the preview prints its install hint, run
 `cmux action run app.install --app <id>` and accept the card. Keep that terminal running while you edit;
 Ctrl-C stops watching, and the installed example stays available. Resume with
 `cmux ext dev <folder>`. To edit an installed example, reuse that folder: installing its fixed

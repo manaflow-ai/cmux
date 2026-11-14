@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Keep the Settings showcase catalog tied to real copy-paste/installable files."""
 
+import hashlib
 import json
+import re
+import subprocess
 from pathlib import Path
 
 
@@ -34,8 +37,23 @@ def main() -> None:
         assert "cmuxConfig." not in script, sample["id"]
     app_ids = [json.loads((ROOT / sample["manifest"]).read_text())["id"] for sample in samples]
     assert len(app_ids) == len(set(app_ids)), app_ids
+    # The Settings install command downloads from the pinned ref and refuses a file
+    # whose sha256 differs from the catalog, so the catalog must match this tree and,
+    # when the ref is in this clone, the ref must serve the same bytes.
+    ref = catalog["ref"]
+    assert re.fullmatch(r"[0-9a-f]{40}", ref), ref
+    have_ref = subprocess.run(["git", "-C", str(ROOT), "cat-file", "-e", f"{ref}^{{commit}}"], capture_output=True).returncode == 0
+    for sample in samples:
+        for key in ("file", "manifest"):
+            digest = sample["sha256"][key]
+            assert re.fullmatch(r"[0-9a-f]{64}", digest), (sample["id"], key)
+            assert hashlib.sha256((ROOT / sample[key]).read_bytes()).hexdigest() == digest, (sample["id"], key, "update sha256 and ref")
+            if have_ref:
+                pinned = subprocess.run(["git", "-C", str(ROOT), "show", f"{ref}:{sample[key]}"], capture_output=True, check=True).stdout
+                assert hashlib.sha256(pinned).hexdigest() == digest, (sample["id"], key, f"{ref} serves other bytes")
     assert len(catalog["apiGaps"]) >= 4
-    print(f"customization showcase: {len(samples)} samples, {len(catalog['apiGaps'])} API gaps")
+    pin = "checked against the pinned ref" if have_ref else "pinned ref not in this clone"
+    print(f"customization showcase: {len(samples)} samples, {len(catalog['apiGaps'])} API gaps, sha256 {pin}")
 
 
 if __name__ == "__main__":

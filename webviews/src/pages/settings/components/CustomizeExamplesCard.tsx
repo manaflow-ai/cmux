@@ -4,14 +4,16 @@ import { ActionRow } from "./ActionRow";
 import { Button } from "../../../ui/Button";
 import { t } from "../strings";
 
-type Example = { id: string; file: string; manifest: string };
-// Pin installs and source links to the reviewed tree. A moving branch would let
-// the Settings card silently install code that was never reviewed with the app.
-const SHOWCASE_REF = "69da562de66ba80604f7f2c8559ae7abe8d98446";
+type Example = { id: string; file: string; manifest: string; sha256: { file: string; manifest: string } };
+// Installs and source links read the reviewed tree the catalog pins (`ref`), and the
+// install command checks each download against the catalog's sha256 before it starts
+// `cmux ext dev`, so a moved ref or a changed file is refused instead of run.
+export const SHOWCASE_REF: string = showcase.ref;
 const RAW_BASE = `https://raw.githubusercontent.com/manaflow-ai/cmux/${SHOWCASE_REF}/`;
 const SOURCE_BASE = `https://github.com/manaflow-ai/cmux/blob/${SHOWCASE_REF}/`;
 const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 const HELP_LIMIT = 60;
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 // Settings keeps helper lines compact in every locale. The catalog may contain a
 // fuller translation, but the card must never turn a short example into a tall
@@ -20,7 +22,7 @@ function compactHelp(value: string): string {
   return value
     .split("\n")
     .map((line) => {
-      const characters = [...line];
+      const characters = Array.from(graphemes.segment(line), (part) => part.segment);
       return characters.length > HELP_LIMIT ? `${characters.slice(0, HELP_LIMIT - 1).join("")}…` : line;
     })
     .join("\n");
@@ -33,6 +35,7 @@ export function templateInstallCommand(example: Example): string {
     `  curl -fsSL --connect-timeout 10 --max-time 60 ${shellQuote(RAW_BASE + example.file)} -o "$example_dir/main.js" &&`,
     `  curl -fsSL --connect-timeout 10 --max-time 60 ${shellQuote(RAW_BASE + example.manifest)} -o "$example_dir/cmux-app.json" &&`,
     '  cd "$example_dir" &&',
+    `  printf '%s  %s\\n' ${example.sha256.file} main.js ${example.sha256.manifest} cmux-app.json | { command -v sha256sum >/dev/null && sha256sum -c - || shasum -a 256 -c -; } &&`,
     "  cmux ext dev",
     ")",
   ].join("\n");
