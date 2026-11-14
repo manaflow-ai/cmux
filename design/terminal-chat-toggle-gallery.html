@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Toggle Terminal and Chat: the pane control</title>
+<style>
+/* Mirrors the Swift chrome's tokens at Compact density: TitlebarBandButton.side 22 pt (TopRowSpacing.buttonSide =
+   sidebarHeaderHeight), glyph 12 pt (toolbarSymbolPointSize), the buttons' corner a tab's (6 pt), the bar's gap
+   space1 / 2 (2 pt); Palette.textSecondary, litGlyph, hoverFill as the default theme's light and dark values. */
+:root { color-scheme: dark; --bg: #141416; --fg: #ececf0; --muted: #9a9aa2; --line: #2a2a2e; }
+body { margin: 0; padding: 24px; background: var(--bg); color: var(--fg); font: 13px/1.45 -apple-system, BlinkMacSystemFont, sans-serif; }
+h1 { font-size: 18px; margin: 0 0 4px; }
+p.lead { color: var(--muted); margin: 0 0 20px; max-width: 900px; }
+.card { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: #1b1b1e; margin-bottom: 18px; }
+.card.rec { border-color: #5e8bff; box-shadow: 0 0 0 1px #5e8bff55; }
+.card h2 { font-size: 14px; margin: 0 0 2px; display: flex; gap: 8px; align-items: center; }
+.badge { font-size: 11px; background: #5e8bff; color: #fff; border-radius: 999px; padding: 1px 8px; }
+.badge.alt { background: #3a3a40; }
+.what { color: var(--muted); margin: 0 0 10px; max-width: 900px; }
+code { font: 11px ui-monospace, Menlo, monospace; color: #c9c9d1; }
+.pane code { color: inherit; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.label { font-size: 11px; color: var(--muted); margin: 0 0 4px; }
+
+/* A pane: its tab row (strip + trailing toolbar) over the window's glass, then its content. */
+.pane { position: relative; border-radius: 10px; overflow: hidden; height: 168px; }
+.pane.dark { --ink: rgba(255,255,255,0.92); --sec: rgba(235,235,245,0.55); --fill: rgba(255,255,255,0.10); --hover: rgba(255,255,255,0.07);
+  --tab: rgba(255,255,255,0.08); --tabsel: rgba(255,255,255,0.14); --glass: rgba(30,30,34,0.62); --content: rgba(20,20,22,0.55); --rim: rgba(255,255,255,0.08); }
+.pane.light { --ink: rgba(0,0,0,0.85); --sec: rgba(60,60,67,0.6); --fill: rgba(0,0,0,0.07); --hover: rgba(0,0,0,0.05);
+  --tab: rgba(0,0,0,0.04); --tabsel: rgba(255,255,255,0.75); --glass: rgba(246,246,248,0.62); --content: rgba(255,255,255,0.55); --rim: rgba(0,0,0,0.08); }
+.pane.dark { background: radial-gradient(120% 140% at 15% 0%, #e3a75b 0%, #b5533c 32%, #3d2a4f 64%, #121827 100%); }
+.pane.light { background: radial-gradient(120% 140% at 15% 0%, #ffe2b8 0%, #f2a98f 35%, #b9a7d6 70%, #e9eef7 100%); }
+.pane::before { content: ""; position: absolute; inset: 0; background: var(--glass); backdrop-filter: blur(18px); }
+.pane > * { position: relative; }
+.row { display: flex; align-items: center; height: 30px; padding: 0 0 0 6px; gap: 4px; }
+.strip { flex: 1; display: flex; gap: 4px; align-items: center; min-width: 0; }
+.tab { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px; border-radius: 6px; background: var(--tab); color: var(--sec); font-size: 11px; white-space: nowrap; }
+.tab.sel { background: var(--tabsel); color: var(--ink); }
+.tab svg { width: 12px; height: 12px; }
+.bar { display: flex; align-items: center; gap: 2px; padding-right: 5px; } /* trailingGap: the last slot's center on the pane's control column */
+.btn { width: 22px; height: 22px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--sec); }
+.btn svg { width: 12px; height: 12px; }
+.btn.lit { background: var(--fill); color: var(--ink); }
+.btn.hover { background: var(--hover); }
+.btn.ghost { visibility: hidden; } /* "…"'s kept slot: hidden at rest on a terminal, empty beside a chat */
+.btn.rest { opacity: 0; }        /* the bar's other tools hide at rest (tabs.restingControlOpacity 0) */
+.btn.web { color: var(--sec); }
+.seg { display: inline-flex; gap: 2px; }
+.words { display: inline-flex; gap: 2px; }
+.word { height: 22px; padding: 0 8px; border-radius: 6px; display: inline-flex; align-items: center; font-size: 11px; color: var(--sec); }
+.word.lit { background: var(--fill); color: var(--ink); }
+.chiptab { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 3px 0 10px; border-radius: 6px; background: var(--tabsel); color: var(--ink); font-size: 11px; }
+.chiptab .mini { display: inline-flex; gap: 1px; background: var(--hover); border-radius: 5px; padding: 1px; }
+.chiptab .mini span { width: 18px; height: 16px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; color: var(--sec); }
+.chiptab .mini span.lit { background: var(--fill); color: var(--ink); }
+.chiptab .mini svg { width: 10px; height: 10px; }
+.body { margin: 0 6px 6px; height: 126px; border-radius: 8px; background: var(--content); box-shadow: inset 0 0 0 1px var(--rim); padding: 8px 10px; font-size: 11px; color: var(--ink); overflow: hidden; }
+.term { font: 11px/1.5 ui-monospace, Menlo, monospace; }
+.term .dim { color: var(--sec); }
+.chat .msg { margin: 0 0 6px; max-width: 80%; }
+.chat .me { margin-left: auto; background: var(--fill); border-radius: 8px; padding: 4px 8px; width: fit-content; }
+.chat .watch { font-size: 10px; color: var(--sec); }
+.states { color: var(--muted); font-size: 11px; margin: 6px 0 0; }
+</style>
+</head>
+<body>
+<h1>Toggle Terminal and Chat: the pane control</h1>
+<p class="lead">Leo, 2026-11-12: "we can toggle it, like from the terminal into the GUI, or vice versa, back and forth, right? Like
+that's the whole joy of the thing." One live session, two faces in one pane: its terminal and a View Only chat. Each variant
+shows the terminal face and the chat face, dark and light, over a wallpaper through the window's glass. The control is native
+window chrome, clear on glass, at rest. Spec: <code>design/terminal-chat-toggle.md</code>. HTML mirror of the Swift tokens
+(<code>TitlebarBandButton</code>, <code>Palette</code>); the shipped control is <code>CmuxNextTabs/PaneTerminalChatToggleView</code>.</p>
+
+<template id="icons">
+  <svg data-i="term" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2.5" width="13" height="11" rx="2.2"/><path d="M4.5 6.2 6.8 8 4.5 9.8M8.3 10.2h3"/></svg>
+  <svg data-i="chat" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M3.5 2.8h9a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H7.2l-3.2 2.4v-2.4h-.5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2Z"/></svg>
+  <svg data-i="more" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="3.5" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="8" cy="12.5" r="1.3"/></svg>
+  <svg data-i="swap" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 5.5h10M10 3l2.5 2.5L10 8M13.5 10.5h-10M6 8l-2.5 2.5L6 13"/></svg>
+  <svg data-i="diff" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 2.5v6M5 5.5h6M5 12.5h6"/></svg>
+  <svg data-i="globe" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.8"/><path d="M2.2 8h11.6M8 2.2c2 2 2 9.6 0 11.6M8 2.2c-2 2-2 9.6 0 11.6"/></svg>
+</template>
+
+<div id="cards"></div>
+
+<script>
+const icon = n => document.getElementById('icons').content.querySelector(`[data-i="${n}"]`).outerHTML;
+const btn = (n, cls = '') => `<span class="btn ${cls}">${icon(n)}</span>`;
+const term = `<div class="body term"><div><span class="dim">~/api $</span> claude --resume 0d8f6c1e</div><div>&gt; Fix the flaky retry test</div>
+  <div class="dim">● Reading tests/retry.test.ts</div><div class="dim">● Edit src/retry.ts (+4 −2)</div><div>The retry now waits for the last attempt's timer.</div><div>&gt; <span style="opacity:.6">▌</span></div></div>`;
+const chat = `<div class="body chat"><div class="watch">View Only · the terminal runs this session</div><div class="msg me">Fix the flaky retry test</div>
+  <div class="msg">Read <code>tests/retry.test.ts</code>, edited <code>src/retry.ts</code> (+4 −2).</div><div class="msg">The retry now waits for the last attempt's timer.</div></div>`;
+// The chat's own header tools (web, in the tab row): Changes, Terminal, Browser, its "…"; they sit left of the pane's bar.
+const webTools = btn('diff', 'web') + btn('term', 'web') + btn('globe', 'web') + btn('more', 'web');
+const tabs = (face, kind) => kind === 'chip'
+  ? `<span class="chiptab">claude · api <span class="mini"><span class="${face === 'terminal' ? 'lit' : ''}">${icon('term')}</span><span class="${face === 'chat' ? 'lit' : ''}">${icon('chat')}</span></span></span><span class="tab">${icon('term')}zsh</span>`
+  : `<span class="tab ${face === 'terminal' ? 'sel' : ''}">${icon('term')}claude · api</span><span class="tab ${face === 'chat' ? 'sel' : ''}">${icon('chat')}claude · api</span><span class="tab">${icon('term')}zsh</span>`;
+
+const variants = [
+  { id: 'v1', n: 1, title: 'Toolbar segments, icons', badge: 'Shipped', rec: true,
+    what: 'Two square segments, <code>&gt;_</code> and the chat bubble, in the pane toolbar\'s trailing slot, left of "…"\'s slot. The selected tab\'s face sits on the toggled tool\'s rounded fill in the lit glyph. Beside a chat the bar keeps "…"\'s slot empty, so the control is at one x on both faces, and the chat\'s own tools move left by the bar. About 46 pt.',
+    bar: face => `<span class="seg">${btn('term', face === 'terminal' ? 'lit' : '')}${btn('chat', face === 'chat' ? 'lit' : '')}</span>` + (face === 'terminal' ? btn('more', 'rest') : btn('more', 'ghost')) },
+  { id: 'v2', n: 2, title: 'Toolbar segments, words', badge: 'Gallery only',
+    what: '"Terminal | Chat" text segments (as ChatGPT\'s Chat | Work). Clearest on first sight, but about 110 pt in a narrow pane, where it would fold back to icons.',
+    bar: face => `<span class="words"><span class="word ${face === 'terminal' ? 'lit' : ''}">Terminal</span><span class="word ${face === 'chat' ? 'lit' : ''}">Chat</span></span>` + (face === 'terminal' ? btn('more', 'rest') : btn('more', 'ghost')) },
+  { id: 'v3', n: 3, title: 'One tab chip with two faces', badge: 'Gallery only',
+    what: 'The pair shows as one strip tab whose chip carries the switch. The strip stays short and the view reads as one session (Zed\'s terminal threads), but it changes how a tab looks in the strip: Leo\'s call.',
+    tabs: 'chip', bar: face => face === 'terminal' ? btn('more', 'rest') : '' },
+  { id: 'v4', n: 4, title: 'A single swap button', badge: 'Gallery only',
+    what: 'One <code>⇄</code> button (the catalog\'s symbol), lit while on the chat. The smallest change, but it does not say which face you are on: a weaker "two live views" story.',
+    bar: face => btn('swap', face === 'chat' ? 'lit' : '') + (face === 'terminal' ? btn('more', 'rest') : btn('more', 'ghost')) },
+];
+
+const pane = (v, face, theme) => `<div><p class="label">${face === 'terminal' ? 'Terminal face' : 'Chat face'}, ${theme}</p>
+  <div class="pane ${theme}"><div class="row"><div class="strip">${tabs(face, v.tabs)}</div>${face === 'chat' && v.tabs !== 'chip' ? `<div class="bar">${webTools}</div>` : (face === 'chat' ? `<div class="bar">${webTools}</div>` : '')}<div class="bar">${v.bar(face)}</div></div>${face === 'terminal' ? term : chat}</div></div>`;
+
+const only = new URLSearchParams(location.search).get('v');
+document.getElementById('cards').innerHTML = variants.filter(v => !only || v.id === only).map(v => `
+<div class="card ${v.rec ? 'rec' : ''}" id="${v.id}"><h2>${v.n}. ${v.title} <span class="badge ${v.rec ? '' : 'alt'}">${v.badge}</span></h2>
+  <p class="what">${v.what}</p>
+  <div class="grid">${pane(v, 'terminal', 'dark')}${pane(v, 'chat', 'dark')}${pane(v, 'terminal', 'light')}${pane(v, 'chat', 'light')}</div>
+</div>`).join('');
+if (only) document.querySelector('p.lead').remove();
+</script>
+</body>
+</html>
