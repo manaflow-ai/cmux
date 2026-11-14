@@ -194,7 +194,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
 
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: try Data(contentsOf: configURL), options: []) as? [String: Any])
         XCTAssertNil(json["plugins"])
-        XCTAssertEqual(try XCTUnwrap(json["plugin"] as? [String]), ["other-plugin", "./plugins/cmux"])
+        XCTAssertEqual(try XCTUnwrap(json["plugin"] as? [String]), ["other-plugin"])
     }
 
     // Regression for https://github.com/manaflow-ai/cmux/issues/7140: opencode resolves
@@ -229,7 +229,136 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertFalse(rawConfig.contains("\\/"), rawConfig)
         XCTAssertTrue(rawConfig.contains("{file:./AGENTS.md}"), rawConfig)
         XCTAssertTrue(rawConfig.contains("https://opencode.ai/config.json"), rawConfig)
-        XCTAssertTrue(rawConfig.contains("./plugins/cmux"), rawConfig)
+        XCTAssertFalse(rawConfig.contains("./plugins/cmux"), rawConfig)
+    }
+
+    func testOpenCodeInstallDoesNotCreateConfigFile() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-opencode-no-config-\(UUID().uuidString)", isDirectory: true)
+        let configDir = root.appendingPathComponent("opencode", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
+        chmod(fakeOpenCodeURL.path, 0o755)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["OPENCODE_CONFIG_DIR"] = configDir.path
+        environment["PATH"] = "\(binDir.path):\(environment["PATH"] ?? "/usr/bin")"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(executablePath: cliPath, arguments: ["hooks", "opencode", "install", "--yes"], environment: environment, timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: configDir.appendingPathComponent("opencode.json").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: configDir.appendingPathComponent("opencode.jsonc").path))
+    }
+
+    func testOpenCodeInstallRemovesRegistrationFromExistingJSONC() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-opencode-jsonc-\(UUID().uuidString)", isDirectory: true)
+        let configDir = root.appendingPathComponent("opencode", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = configDir.appendingPathComponent("opencode.jsonc", isDirectory: false)
+        try #"""
+        {
+          // keep this comment
+          "plugins": [
+            "other-plugin", // keep this array comment
+            "./plugins/cmux"
+          ],
+          "model": "provider/model"
+        }
+        """#.write(to: configURL, atomically: true, encoding: .utf8)
+        let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
+        chmod(fakeOpenCodeURL.path, 0o755)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["OPENCODE_CONFIG_DIR"] = configDir.path
+        environment["PATH"] = "\(binDir.path):\(environment["PATH"] ?? "/usr/bin")"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(executablePath: cliPath, arguments: ["hooks", "opencode", "install", "--yes"], environment: environment, timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: configDir.appendingPathComponent("opencode.json").path))
+        let raw = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertTrue(raw.contains("// keep this comment"))
+        XCTAssertTrue(raw.contains("// keep this array comment"))
+        XCTAssertTrue(raw.contains("other-plugin"))
+        XCTAssertTrue(raw.contains("provider/model"))
+        XCTAssertFalse(raw.contains("./plugins/cmux"))
+    }
+
+    func testOpenCodeInstallRemovesRegistrationFromJSONWithComments() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-opencode-json-\(UUID().uuidString)", isDirectory: true)
+        let configDir = root.appendingPathComponent("opencode", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
+        try #"""
+        {
+          // keep this comment
+          "plugin": ["other-plugin", "./plugins/cmux-session.js", "./plugins/cmux"],
+          "model": "provider/model"
+        }
+        """#.write(to: configURL, atomically: true, encoding: .utf8)
+        let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
+        chmod(fakeOpenCodeURL.path, 0o755)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["OPENCODE_CONFIG_DIR"] = configDir.path
+        environment["PATH"] = "\(binDir.path):\(environment["PATH"] ?? "/usr/bin")"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(executablePath: cliPath, arguments: ["hooks", "opencode", "install", "--yes"], environment: environment, timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let raw = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertTrue(raw.contains("// keep this comment"))
+        XCTAssertTrue(raw.contains("other-plugin"))
+        XCTAssertTrue(raw.contains("provider/model"))
+        XCTAssertFalse(raw.contains("cmux-session.js"))
+        XCTAssertFalse(raw.contains("./plugins/cmux\""))
+    }
+
+    func testOpenCodeInstallLeavesBroadPluginsEntryAlone() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-opencode-broad-plugin-\(UUID().uuidString)", isDirectory: true)
+        let configDir = root.appendingPathComponent("opencode", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
+        try #"{"plugin":["./plugins"]}"#.write(to: configURL, atomically: true, encoding: .utf8)
+        let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
+        chmod(fakeOpenCodeURL.path, 0o755)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["OPENCODE_CONFIG_DIR"] = configDir.path
+        environment["PATH"] = "\(binDir.path):\(environment["PATH"] ?? "/usr/bin")"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(executablePath: cliPath, arguments: ["hooks", "opencode", "install", "--yes"], environment: environment, timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let raw = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertTrue(raw.contains("\"./plugins\""))
     }
 
     func testLegacyHookAliasesAreHiddenFromHelp() throws {

@@ -3,6 +3,15 @@ import Foundation
 // MARK: - Property removal (comment-preserving)
 
 extension JSONCObjectEditor {
+    /// Removes a top-level property from a JSONC object source, preserving all
+    /// comments and formatting outside the removed entry.
+    static func removeRootProperty(key: String, in source: String) -> String? {
+        guard let root = rootObject(in: source), let child = root.property(named: key) else {
+            return nil
+        }
+        return removing(child: child, from: root, in: source)
+    }
+
     /// Removes `parentKey.childKey` from a JSONC object source, preserving all
     /// comments and formatting outside the removed entry. Returns nil when the
     /// property does not exist, the document shape is unexpected, or removal
@@ -76,12 +85,10 @@ extension JSONCObjectEditor {
             }
         }
         // Consume one line terminator so no blank line is left behind.
+        // Swift treats CRLF as one Character; advancing by two would consume
+        // the next character after the line break.
         if removeEnd < source.endIndex, JSONCParser.isLineTerminator(source[removeEnd]) {
-            if source[removeEnd...].hasPrefix("\r\n") {
-                removeEnd = source.index(removeEnd, offsetBy: 2)
-            } else {
-                removeEnd = source.index(after: removeEnd)
-            }
+            removeEnd = source.index(after: removeEnd)
         }
 
         if !hadTrailingComma {

@@ -102,21 +102,21 @@ def main() -> int:
         except Exception as exc:
             print(f"FAIL: invalid opencode.json after install: {exc}")
             return 1
-        plugins = config.get("plugin")
+        if config.get("plugin") is not None:
+            print(f"FAIL: expected no legacy plugin key after cleanup, got {config.get('plugin')!r}")
+            return 1
+        plugins = config.get("plugins")
         if not isinstance(plugins, list):
-            print(f"FAIL: expected plugin list in opencode.json, got {plugins!r}")
+            print(f"FAIL: expected existing plugins list in opencode.json, got {plugins!r}")
             return 1
         stale = [
             entry
             for entry in plugins
             if (entry if isinstance(entry, str) else entry[0] if isinstance(entry, list) and entry else "")
-            == "cmux-session"
+            in {"cmux-session", "./plugins/cmux", "./plugins/cmux-session.js"}
         ]
         if stale:
             print(f"FAIL: expected stale cmux plugin registrations removed, got {plugins!r}")
-            return 1
-        if "./plugins/cmux" not in plugins:
-            print(f"FAIL: expected local cmux session plugin registration, got {plugins!r}")
             return 1
         if "oh-my-opencode" not in plugins or ["existing-plugin", {"enabled": True}] not in plugins:
             print(f"FAIL: installer did not preserve existing plugin entries: {plugins!r}")
@@ -570,6 +570,14 @@ await v1Hooks.event({ event: { type: "session.deleted", properties: { info: { id
         foreign_session = foreign_root / "plugins" / "cmux-session.js"
         foreign_tui = foreign_root / "plugins" / "cmux"
         foreign_session.write_text("// user-owned plugin\n", encoding="utf-8")
+        foreign_config_path = foreign_root / "opencode.json"
+        foreign_config_path.write_text(
+            json.dumps({
+                "plugin": ["./plugins/cmux", "other-plugin"],
+                "plugins": ["other-plugin-2", "./plugins/cmux-session.js"],
+            }),
+            encoding="utf-8",
+        )
         foreign_uninstall = subprocess.run(
             [cli_path, "hooks", "opencode", "uninstall", "--yes"],
             capture_output=True,
@@ -578,12 +586,17 @@ await v1Hooks.event({ event: { type: "session.deleted", properties: { info: { id
             env=foreign_env,
             timeout=20,
         )
-        foreign_config = json.loads((foreign_root / "opencode.json").read_text(encoding="utf-8"))
+        foreign_config = json.loads(foreign_config_path.read_text(encoding="utf-8"))
+        foreign_plugin = foreign_config.get("plugin", [])
+        foreign_plugins = foreign_config.get("plugins", [])
         if (
             foreign_uninstall.returncode != 0
             or foreign_session.read_text(encoding="utf-8") != "// user-owned plugin\n"
             or foreign_tui.exists()
-            or "./plugins/cmux" in foreign_config.get("plugin", [])
+            or "./plugins/cmux" in foreign_plugin
+            or "./plugins/cmux-session.js" in foreign_plugins
+            or "other-plugin" not in foreign_plugin
+            or "other-plugin-2" not in foreign_plugins
         ):
             print("FAIL: uninstall removed or retained the wrong files for an unmarked legacy plugin")
             return 1
