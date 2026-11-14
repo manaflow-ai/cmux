@@ -4,14 +4,16 @@
 //! of the save. The loop is `run_watch`'s: the folder watch, the debounce
 //! (`dev::settle`), the fingerprint check and one `Session::reload`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
 
 use super::daemon::{Daemon, Wake};
 use super::dev::{self, Phase};
-use super::tests::{FakeDaemon, global, words};
-use super::{Request, parse, scaffold};
+use serde_json::{Value, json};
+
+use super::tests::{FakeDaemon, dev_options, global, words};
+use super::{Request, exit, parse, scaffold};
 
 /// The longest a save may take to be on screen.
 const BUDGET: Duration = Duration::from_secs(1);
@@ -143,4 +145,113 @@ fn a_kind_whose_interface_has_not_landed_names_what_it_needs() {
         let error = parse(&words(&format!("new x --kind {kind}"))).unwrap_err();
         assert!(error.contains(needs) && error.contains("meanwhile"), "{kind}: {error}");
     }
+}
+
+/// Every kind `ext new` makes is a project on the public SDK as this cmux
+/// ships it (no registry, the same `API_VERSION`), and `ext dev --once
+/// --json` loads it as written, with no bun: exit 0.
+#[test]
+fn every_kind_is_made_on_the_shipped_sdk_and_passes_ext_dev_once() {
+    let api_version = cmux_app_manifest::capabilities::Capabilities::get().api_version.clone();
+    for (kind, _) in KINDS {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join(format!("hi-{kind}"));
+        let new = format!("new hi-{kind} --kind {kind} --dir {}", dir.display());
+        let Ok(Request::New { name, kind: parsed, dir: Some(target) }) = parse(&words(&new)) else {
+            panic!("ext {new} does not parse")
+        };
+        scaffold::scaffold(&target, &name, &parsed).unwrap_or_else(|e| panic!("{kind}: {e}"));
+
+        // The code imports the SDK, and the SDK is the copy in the folder.
+        let read = |file: &str| std::fs::read_to_string(dir.join(file)).unwrap();
+        let source = read("src/main.ts");
+        assert!(source.contains("from \"cmux-extension-sdk\""), "{kind}: {source}");
+        let tsconfig: Value = serde_json::from_str(&read("tsconfig.json")).unwrap();
+        let sdk = tsconfig["compilerOptions"]["paths"]["cmux-extension-sdk"][0].as_str().unwrap();
+        let index = read(sdk);
+        assert!(index.contains("export function section("), "{kind}: the SDK's own source");
+        assert!(!index.contains("../../../cmux-app-host/"), "{kind}: no path into the repository");
+        // Every export the manifest or catalog names is in the source and the first build.
+        let dist = read("dist/main.js");
+        let manifest: Value = serde_json::from_str(&read("cmux-app.json")).unwrap();
+        let catalog: Value = std::fs::read_to_string(dir.join("catalog.json"))
+            .map_or(Value::Null, |text| serde_json::from_str(&text).unwrap());
+        let exports: Vec<String> = manifest["implements"]
+            .as_object()
+            .into_iter()
+            .flat_map(|slots| slots.values())
+            .chain(catalog["operations"].as_array().into_iter().flatten())
+            .filter_map(|entry| entry["export"].as_str().map(str::to_owned))
+            .collect();
+        assert!(!exports.is_empty(), "{kind}: names no export");
+        for export in exports {
+            assert!(source.contains(&format!("export const {export} =")), "{kind}: {export}");
+            assert!(dist.contains(&format!("{export}: () => {export}")), "{kind}: {export}");
+        }
+        let scopes: Value = serde_json::from_str(&read("sdk/tables/scopes.json")).unwrap();
+        assert_eq!(scopes["apiVersion"], json!(api_version), "{kind}: SDK API_VERSION");
+        let package: Value = serde_json::from_str(&read("package.json")).unwrap();
+        assert_eq!(package["dependencies"]["cmux-extension-sdk"], "file:./sdk", "{kind}");
+
+        // `ext dev --once --json` against a daemon, with no bun: exit 0, ok.
+        let fake = FakeDaemon::start(
+            &root.path().join("state/apps/local"),
+            &format!("local/hi-{kind}"),
+            false,
+        );
+        let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+        assert_eq!(outcome.exit_code(), exit::OK, "{kind}: {:?}", outcome.errors);
+        assert_eq!(outcome.to_json(&dir)["ok"], true, "{kind}");
+        let files = dev::package_files(&dev::load_package(&dir).unwrap()).unwrap();
+        assert!(files.contains(&PathBuf::from("dist/main.js")), "{kind}: {files:?}");
+        assert!(!files.iter().any(|f| f.starts_with("sdk")), "{kind}: the SDK copy stays home");
+    }
+}
+
+#[test]
+fn a_command_extension_needs_a_name_cmux_does_not_use() {
+    let root = tempfile::tempdir().unwrap();
+    let error = scaffold::scaffold(&root.path().join("apps"), "apps", "command").unwrap_err();
+    assert!(error.contains("is a cmux command"), "{error}");
+    assert!(scaffold::scaffold(&root.path().join("apps"), "apps", "sidebar").is_ok());
+    for bad in ["ab-", "a--b"] {
+        assert!(scaffold::scaffold(&root.path().join(bad), bad, "command").is_err(), "{bad}");
+    }
+}
+
+/// Every kind's first `dist/main.js` is the packer's build of its
+/// `src/main.ts`, what the first save writes. On a difference this prints
+/// the build, placeholders back in, to put in `templates/KIND/dist/main.js`.
+#[test]
+fn every_kind_ships_the_packers_build_of_its_source() {
+    let Some(bun) = dev::find_bun() else {
+        eprintln!("SKIPPED: bun is not on PATH");
+        return;
+    };
+    let name = "x-name-x";
+    let unfill = |text: &str| {
+        text.replace(&cmux_app_manifest::app_namespace(&format!("local/{name}")), "{{NS}}")
+            .replace("X name x", "{{TITLE}}")
+            .replace(name, "{{NAME}}")
+    };
+    let body = |text: &str| {
+        text.lines().skip_while(|line| line.starts_with("//")).collect::<Vec<_>>().join("\n")
+    };
+    let mut stale = Vec::new();
+    for (kind, _) in KINDS {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join(name);
+        scaffold::scaffold(&dir, name, kind).unwrap();
+        let shipped = std::fs::read_to_string(dir.join("dist/main.js")).unwrap();
+        let pkg = dev::load_package(&dir).unwrap();
+        dev::build(&pkg, &dev::BuildPlan::Pack(bun.clone()), dev::BUILD_TIMEOUT)
+            .unwrap_or_else(|problems| panic!("{kind}: {problems:?}"));
+        let built = std::fs::read_to_string(dir.join("dist/main.js")).unwrap();
+        if body(&shipped) != body(&built) {
+            let text = format!("{}{}", scaffold::FIRST_BUILD_HEADER, unfill(body(&built).trim()));
+            eprintln!("=== BEGIN {kind} ===\n{text}\n=== END {kind} ===");
+            stale.push(kind);
+        }
+    }
+    assert!(stale.is_empty(), "stale first builds: {stale:?} (the builds are printed above)");
 }

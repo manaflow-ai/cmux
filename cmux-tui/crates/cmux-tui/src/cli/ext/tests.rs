@@ -19,7 +19,7 @@ pub(super) fn words(text: &str) -> Vec<String> {
     text.split_whitespace().map(str::to_string).collect()
 }
 
-fn dev_options(dir: &Path) -> DevOptions {
+pub(super) fn dev_options(dir: &Path) -> DevOptions {
     DevOptions {
         dir: dir.to_path_buf(),
         once: true,
@@ -74,7 +74,6 @@ fn parses_new_dev_list_remove_and_help() {
         "new Bad_Name",
         "new customize",
         "new a b",
-        "new a --kind pane",
         "new a --kind widget",
         "dev a b",
         "dev --bogus",
@@ -151,7 +150,7 @@ fn the_scaffold_is_a_valid_package_with_its_export_built() {
     let export = pkg.manifest["implements"]["cmux.section/1"]["export"].as_str().unwrap();
     let main = std::fs::read_to_string(dir.join("dist/main.js")).unwrap();
     let source = std::fs::read_to_string(dir.join("src/main.ts")).unwrap();
-    assert!(source.contains(&format!("export function {export}(")), "{export} in src/main.ts");
+    assert!(source.contains(&format!("export const {export} = ")), "{export} in src/main.ts");
     assert!(main.contains(&format!("{export}: () => {export}")), "{export} is packed");
     assert!(main.contains("globalThis.__cmuxAppExports"), "dist/main.js hands its exports over");
     assert!(dir.join("cmux-app.d.ts").is_file() && dir.join("README.md").is_file());
@@ -386,7 +385,7 @@ pub(super) struct FakeDaemon {
 }
 
 impl FakeDaemon {
-    fn start(local_dir: &Path, app: &str, installed: bool) -> Self {
+    pub(super) fn start(local_dir: &Path, app: &str, installed: bool) -> Self {
         Self::start_with(local_dir, app, installed, false)
     }
 
