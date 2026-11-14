@@ -17,9 +17,15 @@ actor RemoteCaptureLease {
         self.empty = empty; self.remove = remove
     }
 
-    func prepare(_ binding: CaptureLeaseBinding, children: RemoteChildLifetime, workerAbsent: Bool) -> CaptureLeaseResult {
+    func prepare(_ binding: CaptureLeaseBinding, children: RemoteChildLifetime, workerAbsent: Bool,
+                 timeout: Duration = .seconds(15)) async -> CaptureLeaseResult {
         guard binding.owns(stateDirectory: stateDirectory, home: home), workerAbsent else {
             return CaptureLeaseResult(code: "remote_not_pristine")
+        }
+        // The startup permission probe is a tracked child, not an identity writer.
+        // Let it reap before the atomic claim; a competing late spawn still fails closed.
+        guard await children.waitUntilEmpty(timeout: timeout) else {
+            return CaptureLeaseResult(code: "remote_prepare_timeout")
         }
         var claimed = false
         do {

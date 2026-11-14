@@ -139,7 +139,8 @@ impl Admission {
                     && lease.binding.private_root.is_absolute()
                     && state.starts_with(&lease.binding.private_root)
                     && state != lease.binding.private_root
-                    && (lease.phase == Phase::Preparing || lease.host.is_some()) =>
+                    && (matches!(lease.phase, Phase::Preparing | Phase::Cleaning)
+                        || lease.host.is_some()) =>
             {
                 Self::Held(lease)
             }

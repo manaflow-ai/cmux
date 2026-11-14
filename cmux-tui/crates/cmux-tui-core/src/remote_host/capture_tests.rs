@@ -451,15 +451,25 @@ fn capture_bad_host_proof_and_failed_exit_never_release_cleanup_fence() {
 
 #[test]
 fn capture_failed_ensure_leaves_a_recoverable_durable_fence() {
-    for (method, expected) in
-        [("capture.prepare", Phase::Preparing), ("capture.cleanup", Phase::Cleaning)]
-    {
+    for (method, initial, expected) in [
+        ("capture.prepare", None, Phase::Preparing),
+        ("capture.cleanup", Some(Phase::Active), Phase::Cleaning),
+        ("capture.cleanup", Some(Phase::Preparing), Phase::Cleaning),
+    ] {
         let fixture = Fixture::new();
-        let supervisor = if method == "capture.prepare" {
-            fixture.supervisor()
-        } else {
-            fixture.hold(Phase::Active)
-        };
+        if let Some(phase) = initial {
+            persist(
+                &fixture.paths.state,
+                &Lease {
+                    binding: fixture.binding.clone(),
+                    owner: fixture.owner,
+                    phase,
+                    host: if phase == Phase::Preparing { None } else { Some(mock_record()) },
+                },
+            )
+            .unwrap();
+        }
+        let supervisor = fixture.supervisor();
         let ensured = Cell::new(0);
         let ensure = |config: &RemoteConfig| {
             ensured.set(ensured.get() + 1);
@@ -485,6 +495,21 @@ fn capture_failed_ensure_leaves_a_recoverable_durable_fence() {
         let restored = fixture.supervisor();
         assert_eq!(phase(&restored), expected);
         assert_fenced(&restored, &fixture);
+        // A restarted daemon must retain same-lease retry ownership even when neither
+        // prepare nor cleanup has obtained a host. It must not become Unreadable.
+        let retry = {
+            let _starting = lock(&restored.inner.starting);
+            restored.capture_locked(
+                method,
+                fixture.binding.clone(),
+                fixture.owner,
+                &fixture.paths,
+                Transport { ensure: &ensure, drain: &drain },
+            )
+        };
+        assert_eq!(retry.unwrap_err(), "test_host_start_failed");
+        assert_eq!(ensured.get(), 2);
+        assert_fenced(&fixture.supervisor(), &fixture);
     }
 }
 

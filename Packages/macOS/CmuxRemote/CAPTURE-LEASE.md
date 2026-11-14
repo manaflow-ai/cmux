@@ -69,3 +69,11 @@ Daemon causal tests live in `remote_host/capture_tests.rs`; dispatcher tests in
 `server/remote_host_capture_tests.rs` reject unproved, page, agent, and remote
 callers. They detect the class where a valid native cleanup RPC is unreachable
 when signed out or a separate lifecycle owner restarts writers during cleanup.
+
+Prepare waits up to 15 seconds for the startup permission probe to reap before
+claiming idle child admission. A stalled probe returns `remote_prepare_timeout`
+without claiming the namespace; a later competing spawn still fails closed.
+`RemoteCaptureLeaseTests` covers both probe completion and timeout/retry.
+The daemon retains a recoverable Cleaning fence even when host startup failed
+before a host record existed. `capture_failed_ensure_leaves_a_recoverable_durable_fence`
+restarts and retries that sequence; Prepared and Active still require host proof.

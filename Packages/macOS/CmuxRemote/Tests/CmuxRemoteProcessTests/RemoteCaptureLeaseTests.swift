@@ -83,6 +83,43 @@ import os
         #expect(resumed.workerStarted && !resumed.cleaning)
     }
 
+    @Test(.timeLimit(.minutes(1))) func prepareWaitsForStartupProbeReaping() async throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let children = RemoteChildLifetime()
+        let probe = try children.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
+        defer { close(probe.stdout) }
+        ChildProcess.watch(probe.pid, name: "capture-prepare-probe") { status in
+            if status >= 0 { children.reaped(probe) }
+        }
+        let release = Task {
+            try? await ContinuousClock().sleep(for: .milliseconds(100))
+            close(probe.stdin)
+        }
+        let result = await fixture.producer().prepare(try fixture.binding, children: children, workerAbsent: true)
+        await release.value
+        #expect(result.code == "no_remote_started" && result.quiescent)
+        #expect(!children.accepting)
+        #expect(try CaptureLeaseMarker.read(stateDirectory: fixture.state)?.workerStarted == false)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func stalledProbePrepareHasDeadlineAndCanRetryAfterReaping() async throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let children = RemoteChildLifetime()
+        let probe = try children.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
+        defer { close(probe.stdout) }
+        let lease = fixture.producer()
+        let result = await lease.prepare(try fixture.binding, children: children, workerAbsent: true, timeout: .zero)
+        #expect(result.code == "remote_prepare_timeout" && !result.leaseBound)
+        #expect(children.accepting)
+        #expect(try CaptureLeaseMarker.read(stateDirectory: fixture.state) == nil)
+        ChildProcess.watch(probe.pid, name: "capture-prepare-stalled-probe") { status in
+            if status >= 0 { children.reaped(probe) }
+        }
+        close(probe.stdin)
+        let retry = await lease.prepare(try fixture.binding, children: children, workerAbsent: true)
+        #expect(retry.code == "no_remote_started" && retry.quiescent)
+    }
+
     @Test func wrongPrepareLeaseDoesNotFreezeAdmissionOrChangeMarker() async throws {
         let fixture = try Fixture(); defer { fixture.remove() }
         let lease = fixture.producer()
