@@ -165,6 +165,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `docs.anthropic.com` | opens | setup docs for an agent, opened from onboarding |
 | `apple.com` | opens | a site the address bar suggests before it is in your history |
 | `developer.apple.com` | opens | a site the address bar suggests before it is in your history |
+| `apps.apple.com` | opens | Apple's App Store subscription management page, opened from the iPhone app's Delete Account warning when StoreKit can't show its own sheet |
 | `www.baidu.com` | opens | a search engine, when you search with it |
 | `bbc.com` | opens | a site the address bar suggests before it is in your history |
 | `bing.com` | opens | a site the address bar suggests before it is in your history |
