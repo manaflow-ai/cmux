@@ -149,9 +149,9 @@ impl Supervisor {
                 properties(package)?;
                 Some(json!({
                     "app": package.id,
-                    "name": text(&package.manifest["name"]),
+                    "name": package.manifest.get("name").map(text).unwrap_or_default(),
                     "enabled": record.enabled,
-                    "schema": package.manifest["settings"],
+                    "schema": package.manifest.get("settings").cloned().unwrap_or(Value::Null),
                     "values": effective(package, Some(record)),
                 }))
             })
