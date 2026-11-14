@@ -1,0 +1,29 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/showcase-workspace-tabs",
+  "name": "This workspace",
+  "version": "1.0.0",
+  "description": "Read the tabs in your current workspace.",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "main.js"
+  },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderTabs",
+      "title": "This workspace",
+      "symbol": "rectangle.stack",
+      "options": {
+        "defaultRegion": "bottom",
+        "maxRows": 12
+      }
+    }
+  },
+  "scopes": {
+    "workspace:read": "Read the current workspace and its tabs.",
+    "workspace:write": "Focus the tab you click."
+  }
+}

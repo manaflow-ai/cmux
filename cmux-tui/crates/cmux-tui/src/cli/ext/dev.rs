@@ -1036,7 +1036,7 @@ impl Session {
         outcome.placed = placements(&pkg.manifest, installed && enabled && !hidden);
         if !installed {
             outcome.next = Some(format!(
-                "cmux apps install {}   (shows a card in cmux; until then it loads as a preview)",
+                "cmux action run app.install --app {}   (shows a card in cmux; until then it loads as a preview)",
                 pkg.id
             ));
         } else if !enabled {
@@ -1450,7 +1450,7 @@ pub(super) fn run_watch(
 }
 
 /// Asks the person to install `app` with the existing consent flow
-/// (`cmux apps install`, a card in cmux), in a child that may wait for them;
+/// (`cmux action run app.install --app <id>`, a card in cmux), in a child that may wait for them;
 /// its end wakes the loop.
 fn ask_install(app: &str, mut argv: Vec<String>, sender: Sender<Wake>) {
     let Ok(exe) = std::env::current_exe() else { return };

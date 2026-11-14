@@ -503,7 +503,13 @@ fn once_loads_a_new_extension_then_reports_a_load_error_with_its_position() {
     assert!(outcome.changed);
     assert!(outcome.reload_ms.is_some());
     assert_eq!(outcome.installed, Some(false));
-    assert!(outcome.next.as_deref().unwrap_or("").contains("cmux apps install local/hello"));
+    assert!(
+        outcome
+            .next
+            .as_deref()
+            .unwrap_or("")
+            .contains("cmux action run app.install --app local/hello")
+    );
     assert_eq!(outcome.probe.as_deref(), Some("cmux.section/1"));
     assert_eq!(outcome.placed[0]["where"], "sidebar, bottom region");
     assert!(outcome.logs.iter().any(|l| l["message"] == "rendered"), "{:?}", outcome.logs);
@@ -775,7 +781,7 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     let (text, code) = shot::report(&outcome, &dir, None, false);
     assert_eq!(code, exit::SHOT_FAILED);
     assert!(text.contains("rendered cmux.section/1:\n  VStack\n    Text"), "{text}");
-    assert!(text.contains("no picture: cmux apps install local/pic"), "{text}");
+    assert!(text.contains("no picture: cmux action run app.install --app local/pic"), "{text}");
     let (json_text, _) = shot::report(&outcome, &dir, None, true);
     let json: Value = serde_json::from_str(&json_text).unwrap();
     assert_eq!((json["ok"].clone(), json["phase"].clone()), (json!(false), json!("shot")));

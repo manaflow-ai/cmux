@@ -216,7 +216,9 @@ pub(super) fn print_installed(installed: bool) {
     if installed {
         println!("installed: it shows where cmux places it (the sidebar for a section)");
     } else {
-        println!("not installed: it keeps loading as a preview (`cmux apps install` to try again)");
+        println!(
+            "not installed: it keeps loading as a preview (`cmux action run app.install --app <id>` to try again)"
+        );
     }
 }
 

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/showcase-agent-status",
+  "name": "Working agents",
+  "version": "1.0.0",
+  "description": "See your working and blocked terminal agents together. Click an agent to focus its terminal.",
+  "icon": {"symbol": "sparkles"},
+  "engines": {"cmux": "^2.0"},
+  "runtime": {"main": "main.js"},
+  "implements": {
+    "cmux.section/1": {"export": "renderStatus", "title": "Working agents", "symbol": "sparkles", "options": {"defaultRegion": "top", "maxRows": 12}}
+  },
+  "scopes": {
+    "agent:read": "Read agent state.",
+    "terminal:read": "Find an agent's terminal.",
+    "workspace:write": "Focus an agent's tab when you click it."
+  },
+  "files": ["main.js"]
+}

@@ -1,0 +1,84 @@
+{
+  "caption": "Browse small customization examples in Settings and copy an install command to make one your own.",
+  "frameInterval": 0.25,
+  "steps": [
+    {
+      "title": "Open Customize",
+      "rpc": {
+        "method": "settings.open",
+        "params": {
+          "section": "customize"
+        }
+      },
+      "wait": 0.5
+    },
+    {
+      "title": "Wait for the examples card",
+      "rpc": {
+        "method": "debug.page",
+        "params": {
+          "page": "cmux.settings",
+          "action": "wait",
+          "selector": "[data-card=\"customization-examples\"]",
+          "timeout_ms": 20000
+        }
+      },
+      "wait": 0.2
+    },
+    {
+      "title": "Reveal the examples card",
+      "rpc": {
+        "method": "debug.page",
+        "params": {
+          "page": "cmux.settings",
+          "action": "scroll",
+          "selector": "[data-card=\"customization-examples\"]",
+          "block": "start"
+        }
+      },
+      "wait": 0.5
+    },
+    {
+      "title": "Browse examples",
+      "wait": 1.2,
+      "clip": true
+    },
+    {
+      "title": "Browse more examples",
+      "rpc": {
+        "method": "debug.page",
+        "params": {
+          "page": "cmux.settings",
+          "action": "scroll",
+          "selector": "[data-card=\"customization-examples\"] .rows > [data-action-row]:last-child",
+          "block": "end"
+        }
+      },
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "Copy one install command",
+      "rpc": {
+        "method": "debug.page",
+        "params": {
+          "page": "cmux.settings",
+          "action": "click",
+          "selector": "[data-card=\"customization-examples\"] .rows > [data-action-row]:last-child button"
+        }
+      },
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "End",
+      "wait": 0.3
+    }
+  ],
+  "crop": [
+    0.18,
+    0.08,
+    0.8,
+    0.84
+  ]
+}
