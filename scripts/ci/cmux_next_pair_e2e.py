@@ -116,15 +116,24 @@ def dev_credential():
     under those same names); the source holds no credential."""
     keys = ("CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD")
     found = {k: os.environ.get(k, "") for k in keys}
-    profile = os.path.expanduser("~/.secrets/cmuxterm-dev.env")
-    if not all(found.values()) and os.path.isfile(profile):
+    # A fleet step's HOME is its own empty job folder, so it reads the agent sign-in profile the
+    # fleet keeps beside the host lock (`<host dir>/secrets/ios-agent-stack.env`, the file the
+    # worker's `--sign-in agent` reads; cmuxterm-hq build-fleet/README.md, "Sign-in").
+    profiles = [os.path.expanduser("~/.secrets/cmuxterm-dev.env")]
+    if os.environ.get("CMUX_CI_HOST_LOCK"):
+        profiles.append(os.path.join(os.path.dirname(os.environ["CMUX_CI_HOST_LOCK"]),
+                                     "secrets", "ios-agent-stack.env"))
+    for profile in profiles:
+        if all(found.values()) or not os.path.isfile(profile):
+            continue
         for line in open(profile):
             k, sep, v = line.rstrip("\n").partition("=")
             if sep and k in keys and not found[k]:
-                found[k] = v
+                found[k] = v.strip().strip('"').strip("'")
     if not all(found.values()):
         raise SystemExit("DEBUG dev credential: set CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD "
-                         "(or provide ~/.secrets/cmuxterm-dev.env)")
+                         "(or provide ~/.secrets/cmuxterm-dev.env, or on a fleet worker "
+                         "<host dir>/secrets/ios-agent-stack.env)")
     return found[keys[0]], found[keys[1]]
 
 
