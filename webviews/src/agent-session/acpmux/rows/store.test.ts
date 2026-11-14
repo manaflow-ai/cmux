@@ -2,23 +2,41 @@
 // client core gives (acpmux-client chat.rs `ChatChange`, its shape tests in chat/tests.rs) through
 // the host client, as the host's event carries them.
 import { describe, expect, test } from "bun:test";
-import { ChatRowsHost, CHAT_ROWS_OFF } from "./host";
+import { ChatRowsHost, CHAT_ROWS_OFF, chatRowsNamer } from "./host";
 import { STORE_MAX_BYTES, STORE_MAX_ROWS, type ChatFall, ChatRowStore, type ChatRowsSnapshot } from "./store";
 import type { ChatRow } from "./wire";
 
 type Call = { method: string; params: Record<string, unknown> };
 
-function harness(answer: (call: Call) => unknown = () => ({})) {
+/// The host as decision 228 has it: `open` and `blob` answer with the name the page gave.
+const echo = (call: Call): unknown =>
+  call.method === "chat.rows.open"
+    ? { sid: call.params.sid }
+    : call.method === "chat.rows.blob"
+      ? { id: call.params.id }
+      : {};
+
+/// Names in a test: the first sid is "c", then n1, n2, ... for the blob reads.
+function testNamer(): () => string {
+  let next = 0;
+  return () => (next++ === 0 ? "c" : `n${next - 1}`);
+}
+
+function harness(answer: (call: Call) => unknown = echo) {
   const calls: Call[] = [];
   const falls: ChatFall[] = [];
   const store = new ChatRowStore({ onFall: (fall) => falls.push(fall) });
-  const host = new ChatRowsHost(async (method, params) => {
-    const call = { method, params };
-    calls.push(call);
-    const value = answer(call);
-    if (value instanceof Error) throw value;
-    return value;
-  }, store);
+  const host = new ChatRowsHost(
+    async (method, params) => {
+      const call = { method, params };
+      calls.push(call);
+      const value = await answer(call);
+      if (value instanceof Error) throw value;
+      return value;
+    },
+    store,
+    testNamer(),
+  );
   let batch = 0;
   const send = (...changes: unknown[]) =>
     host.receive({
@@ -63,12 +81,63 @@ const ids = (snapshot: ChatRowsSnapshot | undefined) => snapshot?.rows.map((entr
 const range = (n: number, from = 1) => Array.from({ length: n }, (_, index) => row(from + index));
 
 async function opened(answer?: (call: Call) => unknown) {
-  const h = harness(answer ?? ((call) => (call.method === "chat.rows.open" ? { sid: "c" } : {})));
+  const h = harness(answer);
   expect(await h.host.open("chat-1")).toEqual({ sid: "c" });
   const drawn: ChatRowsSnapshot[] = [];
   h.store.subscribe("c", (snapshot) => drawn.push(snapshot));
   return { ...h, drawn };
 }
+
+describe("open", () => {
+  test("the page names the sid, and a window that comes before the answer is kept", async () => {
+    let answer: (() => void) | undefined;
+    const { host, store, send, calls } = harness((call) =>
+      call.method === "chat.rows.open"
+        ? new Promise((resolve) => (answer = () => resolve({ sid: call.params.sid })))
+        : {},
+    );
+    const opening = host.open("chat-1", { rowId: 40, side: "around" }, 100);
+    expect(calls[0]).toEqual({
+      method: "chat.rows.open",
+      params: { sid: "c", chat: "chat-1", anchor: { rowId: 40, side: "around" }, window: 100 },
+    });
+    // The answer is still out.
+    send(window(range(3, 39)));
+    expect(ids(store.snapshot("c"))).toEqual([39, 40, 41]);
+    answer!();
+    expect(await opening).toEqual({ sid: "c" });
+    expect(ids(store.snapshot("c"))).toEqual([39, 40, 41]);
+  });
+
+  test("a refused open lets go of the sid, so a window that came first is dropped", async () => {
+    let refuse: (() => void) | undefined;
+    const { host, store, send, falls } = harness((call) =>
+      call.method === "chat.rows.open"
+        ? new Promise(
+            (_, reject) => (refuse = () => reject(Object.assign(new Error("x"), { code: "chat.rows.limit" }))),
+          )
+        : {},
+    );
+    const opening = host.open("chat-1");
+    send(window(range(2)));
+    refuse!();
+    expect(await opening).toEqual({ fallen: "chat.rows.limit" });
+    expect(store.has("c")).toBe(false);
+    // The open's own refusal is the caller's to act on; the store tells no one.
+    expect(falls).toEqual([]);
+  });
+
+  test("names are a per-document random prefix and a counter, in the host's character set", async () => {
+    const first = chatRowsNamer();
+    const second = chatRowsNamer();
+    const a = first();
+    const b = first();
+    expect(a).toMatch(/^[0-9a-f]{16}\.1$/);
+    expect(b).toBe(`${a.slice(0, 16)}.2`);
+    expect(second().slice(0, 16)).not.toBe(a.slice(0, 16));
+    expect(a.length).toBeLessThanOrEqual(64);
+  });
+});
 
 describe("chatWindow", () => {
   test("a window that replaces swaps the rows in one step, never empty between", async () => {
@@ -295,10 +364,7 @@ describe("chatBlob", () => {
   const bytes = (text: string) => new TextEncoder().encode(text).length;
 
   test("three ranges join in order; a cut inside a multi-byte character starts the next at nextStart", async () => {
-    let next = 0;
-    const { send, store, host } = await opened((call) =>
-      call.method === "chat.rows.open" ? { sid: "c" } : call.method === "chat.rows.blob" ? { id: `b${++next}` } : {},
-    );
+    const { send, store, host, calls } = await opened();
     send(window([row(4, { kind: "tool", blob: { bytes: 40, preview: "…" } })]));
     const body = JSON.stringify({ output: "naïve ✓ done" });
     const total = bytes(body);
@@ -307,42 +373,59 @@ describe("chatBlob", () => {
     const first = body.slice(0, 11);
     const second = body.slice(11, body.indexOf("✓"));
     const secondEnd = bytes(body.slice(0, body.indexOf("✓")));
-    await host.blob("c", { rowId: 4 }, 11);
-    send(blob("b1", 0, total, bytes(first), first));
+    expect(await host.blob("c", { rowId: 4 }, 11)).toBe("n1");
+    // The page names the id in the request (decision 228).
+    expect(calls.at(-1)).toEqual({ method: "chat.rows.blob", params: { sid: "c", id: "n1", len: 11, rowId: 4 } });
+    send(blob("n1", 0, total, bytes(first), first));
     await host.blob("c", { rowId: 4 }, secondEnd - bytes(first) + 1, { start: bytes(first) });
-    send(blob("b2", bytes(first), total, secondEnd, second));
+    send(blob("n2", bytes(first), total, secondEnd, second));
     expect(store.snapshot("c")!.bodies.size).toBe(0);
     await host.blob("c", { rowId: 4 }, 64, { start: secondEnd });
-    send(blob("b3", secondEnd, total, total, body.slice(body.indexOf("✓"))));
+    send(blob("n3", secondEnd, total, total, body.slice(body.indexOf("✓"))));
     expect(store.snapshot("c")!.bodies.get("row:4")).toEqual({ output: "naïve ✓ done" });
   });
 
-  test("a prompt's text is kept as text, and a reply before the host's answer is kept for it", async () => {
-    const { send, store } = await opened();
+  test("a reply that comes before the blob's answer is applied; a prompt's text is kept as text", async () => {
+    let answer: (() => void) | undefined;
+    const { send, store, host } = await opened((call) =>
+      call.method === "chat.rows.blob"
+        ? new Promise((resolve) => (answer = () => resolve({ id: call.params.id })))
+        : echo(call),
+    );
     send(window([row(1)]));
-    send(blob("p1", 0, 5, 5, "hello"));
-    expect(store.snapshot("c")!.bodies.size).toBe(0);
-    store.blobAsked("c", "p1", { prompt: "q1" });
+    const asked = host.blob("c", { prompt: "q1" }, 64);
+    // The answer is still out.
+    send(blob("n1", 0, 5, 5, "hello"));
     expect(store.snapshot("c")!.bodies.get("prompt:q1")).toBe("hello");
+    answer!();
+    expect(await asked).toBe("n1");
+  });
+
+  test("a reply for an id the page did not name, or a read the host refused, is dropped", async () => {
+    const { send, store, host } = await opened((call) =>
+      call.method === "chat.rows.blob" ? Object.assign(new Error("busy"), { code: "chat.rows.busy" }) : echo(call),
+    );
+    send(window([row(1)]));
+    send(blob("someone-else.1", 0, 5, 5, "hello"));
+    expect(await host.blob("c", { prompt: "q1" }, 64)).toBeNull();
+    send(blob("n1", 0, 5, 5, "hello"));
+    expect(store.snapshot("c")!.bodies.size).toBe(0);
   });
 
   test("an open row's gen changed between two ranges: the joined part goes and it starts over", async () => {
-    let next = 0;
-    const { send, store, host } = await opened((call) =>
-      call.method === "chat.rows.open" ? { sid: "c" } : call.method === "chat.rows.blob" ? { id: `g${++next}` } : {},
-    );
+    const { send, store, host } = await opened();
     send(window([], { open: [{ row: row(2, { open: true, body: {} }), bodyLen: 20 }] }));
     await host.blob("c", { rowId: 2 }, 8);
-    send(blob("g1", 0, 20, 8, '{"text":', { open: true, gen: "a" }));
+    send(blob("n1", 0, 20, 8, '{"text":', { open: true, gen: "a" }));
     // The body was set again: the second range is of another body, so neither is kept.
     await host.blob("c", { rowId: 2 }, 12, { start: 8 });
-    send(blob("g2", 8, 16, 16, '"fresh"}', { open: true, gen: "b" }));
+    send(blob("n2", 8, 16, 16, '"fresh"}', { open: true, gen: "b" }));
     expect(store.snapshot("c")!.bodies.size).toBe(0);
     // Started over from 0 in the new gen, the two ranges join.
     await host.blob("c", { rowId: 2 }, 8);
-    send(blob("g3", 0, 16, 8, '{"text":', { open: true, gen: "b" }));
+    send(blob("n3", 0, 16, 8, '{"text":', { open: true, gen: "b" }));
     await host.blob("c", { rowId: 2 }, 8, { start: 8 });
-    send(blob("g4", 8, 16, 16, '"fresh"}', { open: true, gen: "b" }));
+    send(blob("n4", 8, 16, 16, '"fresh"}', { open: true, gen: "b" }));
     expect(store.snapshot("c")!.bodies.get("row:2")).toEqual({ text: "fresh" });
   });
 });
@@ -362,10 +445,17 @@ describe("the fall to v1", () => {
     ],
   ] as const)
     test(`an open refused (${name}) falls with its code and holds no sid`, async () => {
-      const { host, store } = harness(() => error);
+      const { host, store } = harness((call) => (call.method === "chat.rows.open" ? error : {}));
       expect(await host.open("chat-1")).toEqual({ fallen: code });
       expect(store.has("c")).toBe(false);
     });
+
+  test("an open answered with another sid is a host without the operation", async () => {
+    const { host, store } = harness((call) => (call.method === "chat.rows.open" ? { sid: "theirs" } : {}));
+    expect(await host.open("chat-1")).toEqual({ fallen: CHAT_ROWS_OFF });
+    expect(store.has("c")).toBe(false);
+    expect(store.has("theirs")).toBe(false);
+  });
 
   test("a sub error other than not_ready ends the sub: the sid is forgotten and the chat falls", async () => {
     const { send, store, falls } = await opened();

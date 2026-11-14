@@ -1,8 +1,13 @@
 // The page's side of the host contract for a chat's rows (decision 224): five operations under
-// `cmux.agent.chat.rows.*` and one event, `{batch, changes}`. Each change string is one change as
-// the client core gave it; this decodes them, hands the batch to the store and answers `taken`
-// at once, so the host sends the next. It holds at most the batch it is applying, and queues
-// nothing behind a render: a page that stalls costs the daemon's credit, not this page memory.
+// `cmux.agent.chat.rows.*` and one event, `{batch, changes}`, which the host passes to a receiver
+// the page installs (decision 227). Each change string is one change as the client core gave it;
+// this decodes them, hands the batch to the store and answers `taken` at once, so the host sends
+// the next. It holds at most the batch it is applying, and queues nothing behind a render: a page
+// that stalls costs the daemon's credit, not this page memory.
+//
+// No order is promised between an operation's answer and the event (decision 228), so the page
+// names each sid and blob id itself and the store holds it before the operation is posted: a
+// change that comes before the answer is applied, never dropped.
 import { ChatRowStore, type BlobTarget, type ChatAnchor } from "./store";
 import { parseChange, type ChatChange } from "./wire";
 
@@ -11,8 +16,20 @@ export type ChatRowsPost = (method: string, params: Record<string, unknown>) => 
 
 export type ChatRowsBatch = { batch: number; changes: readonly string[] };
 
-/// What `open` gives: the sid the host made, or the code the chat falls to v1 with.
+/// What `open` gives: the sid the page named, or the code the chat falls to v1 with.
 export type ChatRowsOpen = { sid: string } | { fallen: string };
+
+/// Names for sids and blob ids (decision 228): a prefix made once per document from 64 random
+/// bits, then a counter, `<prefix>.<n>`. Hex and digits only, so always in `A-Za-z0-9._-` and far
+/// under 64 bytes. A reloaded page gets a new prefix, so a frame on its way for the old document's
+/// sub matches nothing.
+export function chatRowsNamer(): () => string {
+  const bits = new Uint32Array(2);
+  crypto.getRandomValues(bits);
+  const prefix = Array.from(bits, (word) => word.toString(16).padStart(8, "0")).join("");
+  let next = 0;
+  return () => `${prefix}.${++next}`;
+}
 
 /// A host with no such operation (the browser dev slot, the mock) is `off`, as a host that has it
 /// and says so.
@@ -28,27 +45,34 @@ function refusalCode(error: unknown): string {
 export class ChatRowsHost {
   readonly store: ChatRowStore;
   private post: ChatRowsPost;
+  private name: () => string;
 
-  constructor(post: ChatRowsPost, store: ChatRowStore = new ChatRowStore()) {
+  constructor(post: ChatRowsPost, store: ChatRowStore = new ChatRowStore(), name: () => string = chatRowsNamer()) {
     this.post = post;
     this.store = store;
+    this.name = name;
   }
 
-  /// Opens a chat's rows. The sid is the host's name for the sub; the page reads nothing into it.
+  /// Opens a chat's rows under a sid the page names. The store holds the sid before the post, so a
+  /// window that comes before the answer is kept; a refusal lets it go and the chat falls to v1.
   async open(chat: string, anchor: ChatAnchor = "end", window?: number): Promise<ChatRowsOpen> {
-    const params: Record<string, unknown> = { chat };
-    if (anchor !== "end") params.anchor = { rowId: anchor.rowId, side: anchor.side };
-    else params.anchor = "end";
+    const sid = this.name();
+    const params: Record<string, unknown> = { sid, chat };
+    params.anchor = anchor === "end" ? "end" : { rowId: anchor.rowId, side: anchor.side };
     if (window !== undefined) params.window = window;
+    this.store.open(sid, anchor);
     let reply: unknown;
     try {
       reply = await this.post("chat.rows.open", params);
     } catch (error) {
+      this.store.close(sid);
       return { fallen: refusalCode(error) };
     }
-    const sid = (reply as { sid?: unknown } | null)?.sid;
-    if (typeof sid !== "string" || !sid) return { fallen: CHAT_ROWS_OFF };
-    this.store.open(sid, anchor);
+    // The answer names the same sid; any other answer is a host that does not have the operation.
+    if ((reply as { sid?: unknown } | null)?.sid !== sid) {
+      this.store.close(sid);
+      return { fallen: CHAT_ROWS_OFF };
+    }
     return { sid };
   }
 
@@ -73,26 +97,26 @@ export class ChatRowsHost {
     return true;
   }
 
-  /// Reads a range of a row's body or a waiting prompt's text; the bytes come as `chatBlob`.
+  /// Reads a range of a row's body or a waiting prompt's text under an id the page names; the
+  /// bytes come as `chatBlob`, which may come before the answer. Null when the host refused it.
   async blob(
     sid: string,
     target: BlobTarget,
     len: number,
     range: { start?: number; from?: string } = {},
-  ): Promise<boolean> {
-    const params: Record<string, unknown> = { sid, len, ...target };
+  ): Promise<string | null> {
+    const id = this.name();
+    const params: Record<string, unknown> = { sid, id, len, ...target };
     if (range.start !== undefined) params.start = range.start;
     if (range.from !== undefined) params.from = range.from;
-    let reply: unknown;
-    try {
-      reply = await this.post("chat.rows.blob", params);
-    } catch {
-      return false;
-    }
-    const id = (reply as { id?: unknown } | null)?.id;
-    if (typeof id !== "string") return false;
     this.store.blobAsked(sid, id, target);
-    return true;
+    try {
+      await this.post("chat.rows.blob", params);
+    } catch {
+      this.store.blobFailed(sid, id);
+      return null;
+    }
+    return id;
   }
 
   /// The host's event: applies the batch, then answers `taken`. A string that is not a change is

@@ -50,11 +50,15 @@ type Side = { name: "god" | "small"; host: ChatRowsHost; next: number; batch: nu
 
 async function openSide(name: Side["name"], chatRows: number): Promise<Side> {
   let taken = 0;
-  const host = new ChatRowsHost(async (method) => {
-    if (method === "chat.rows.open") return { sid: name };
-    if (method === "chat.rows.taken") taken += 1;
-    return {};
-  });
+  const host = new ChatRowsHost(
+    async (method, params) => {
+      if (method === "chat.rows.open") return { sid: params.sid };
+      if (method === "chat.rows.taken") taken += 1;
+      return {};
+    },
+    undefined,
+    () => name,
+  );
   const opened = await host.open(`chat-${name}`);
   if (!("sid" in opened)) throw new Error(`${name}: open fell to v1`);
   const first = Math.max(1, chatRows - 99);
@@ -113,11 +117,15 @@ const applyRatio = godP95 / Math.max(smallP95, Number.EPSILON);
 
 async function pageThrough(name: string, chatRows: number) {
   let taken = 0;
-  const host = new ChatRowsHost(async (method) => {
-    if (method === "chat.rows.open") return { sid: name };
-    if (method === "chat.rows.taken") taken += 1;
-    return {};
-  });
+  const host = new ChatRowsHost(
+    async (method, params) => {
+      if (method === "chat.rows.open") return { sid: params.sid };
+      if (method === "chat.rows.taken") taken += 1;
+      return {};
+    },
+    undefined,
+    () => name,
+  );
   await host.open(`chat-${name}`);
   const first = Math.max(1, chatRows - 99);
   const window = {

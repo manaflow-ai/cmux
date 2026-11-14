@@ -77,9 +77,6 @@ const NO_FOLDS: readonly number[] = Object.freeze([]);
 const NO_BODIES: ReadonlyMap<string, unknown> = new Map();
 // The core keeps at most 64 queue entries in a head (wire.rs QueueHead).
 const QUEUE_HEAD_MAX = 64;
-// Blob replies whose `chat.rows.blob` answer has not come back yet: kept until it does, bounded
-// like the core's own pending blobs (chat.rs MAX_PENDING_BLOBS).
-const MAX_EARLY_BLOBS = 64;
 
 const rowBytes = (row: ChatRow): number => JSON.stringify(row).length;
 const entryBytes = (entry: ChatRowEntry): number => (entry.row ? rowBytes(entry.row) : 16);
@@ -131,7 +128,6 @@ class SidRows {
   private bodies = new Map<string, { value: unknown; bytes: number }>();
   private bodyBytes = 0;
   private blobAsks = new Map<string, BlobAsk>();
-  private early = new Map<string, Extract<ChatChange, { kind: "chatBlob" }>>();
   private snapshot: ChatRowsSnapshot;
   private rowsChanged = false;
   private bodiesChanged = false;
@@ -161,16 +157,12 @@ class SidRows {
     return this.page !== null;
   }
 
-  blobAsked(id: string, target: BlobTarget): Extract<ChatChange, { kind: "chatBlob" }> | undefined {
+  blobAsked(id: string, target: BlobTarget): void {
     this.blobAsks.set(id, { key: blobKey(target), rowId: "rowId" in target ? target.rowId : undefined });
-    const early = this.early.get(id);
-    this.early.delete(id);
-    return early;
   }
 
   blobFailed(id: string): void {
     this.blobAsks.delete(id);
-    this.early.delete(id);
   }
 
   apply(change: ChatChange): void {
@@ -348,16 +340,13 @@ class SidRows {
 
   private blob(change: Extract<ChatChange, { kind: "chatBlob" }>): void {
     const ask = this.blobAsks.get(change.head.id);
-    if (!ask) {
-      // The reply came before `chat.rows.blob` answered with its id.
-      if (this.early.size < MAX_EARLY_BLOBS) this.early.set(change.head.id, change);
-      return;
-    }
+    // An id the store does not hold is dropped, as a change for a sid it does not hold is.
+    if (!ask) return;
     this.blobAsks.delete(change.head.id);
     this.range(ask, change.head, change.nextStart, change.text);
   }
 
-  /// Applies a blob reply whose id the host's answer named.
+  /// Applies one range of a blob read the page asked for.
   private range(ask: BlobAsk, head: ChatBlobHead, nextStart: number, text: string): void {
     let assembly = this.assemblies.get(ask.key);
     // An open row's body changed between two ranges: what was joined is of another body.
@@ -507,14 +496,15 @@ export class ChatRowStore {
     this.sids.get(sid)?.pageAsked({ side, rowId, fold });
   }
 
-  /// The host named the id of a blob read: a reply that came first is applied now.
+  /// A blob read the page named, recorded before it is posted: its reply may come before the
+  /// operation's answer (decision 228).
   blobAsked(sid: string, id: string, target: BlobTarget): void {
-    const rows = this.sids.get(sid);
-    const early = rows?.blobAsked(id, target);
-    if (rows && early) {
-      rows.apply(early);
-      this.notify(rows);
-    }
+    this.sids.get(sid)?.blobAsked(id, target);
+  }
+
+  /// A blob read the host refused: its id is not held.
+  blobFailed(sid: string, id: string): void {
+    this.sids.get(sid)?.blobFailed(id);
   }
 
   held(sid: string): { rows: number; bytes: number; blobBytes: number } | undefined {
