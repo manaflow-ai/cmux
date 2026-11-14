@@ -387,8 +387,8 @@ jobs:
           matrix.family == 'ipad' && env.UDID != ''
           && (github.event_name == 'push' || github.event_name == 'pull_request' || inputs.agent_pass)
         # A check, not advice: a pass that judged nothing fails this step and
-        # the report (app_review_agent_pass.py). It used to be
-        # continue-on-error, and with axe never installed it ended in two
+        # the report (app_review_agent_pass.py). It used to be allowed to
+        # fail, and with axe never installed it ended in two
         # seconds as a pass on every run (job 132387096997).
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
