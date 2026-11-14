@@ -190,12 +190,50 @@ mod tests {
                 .unwrap();
         let declared = table["events"].as_object().unwrap();
         assert_eq!(streams(&MuxEvent::TreeChanged), TREE_STREAMS);
-        for stream in TREE_STREAMS.iter().chain(AGENT_STREAMS).chain(CHAT_STREAMS) {
+        for stream in TREE_STREAMS
+            .iter()
+            .chain(AGENT_STREAMS)
+            .chain(CHAT_STREAMS)
+            .chain(SETTINGS_STREAMS)
+            .chain(SETTINGS_AND_THEME_STREAMS)
+        {
             assert!(
                 declared.contains_key(*stream),
                 "{stream} is published to apps but not declared in schema/v2/events.json"
             );
         }
+    }
+
+    fn settings_changed(keys: &[&str]) -> MuxEvent {
+        MuxEvent::SettingsChanged(cmux_config::store::Change {
+            revision: 1,
+            keys: keys.iter().map(|key| (*key).to_string()).collect(),
+            origin: cmux_config::store::Origin::User,
+        })
+    }
+
+    /// Every settings change invalidates `settings.changed`; one that touches a key the theme is
+    /// made from also invalidates `theme.changed`. Both are declared with `settings.get`, so an app
+    /// hears them with `settings:read`.
+    #[test]
+    fn settings_changes_publish_settings_changed_and_theme_keys_also_theme_changed() {
+        assert_eq!(streams(&settings_changed(&["terminal.fontSize"])), ["settings.changed"]);
+        for key in ["appearance.theme", "appearance.themeFile", "appearance.accent"] {
+            assert_eq!(
+                streams(&settings_changed(&["terminal.fontSize", key])),
+                ["settings.changed", "theme.changed"],
+                "{key}"
+            );
+        }
+        assert_eq!(
+            streams(&settings_changed(&["appearance.themeEdits.dark.background"])),
+            ["settings.changed", "theme.changed"]
+        );
+        assert_eq!(streams(&settings_changed(&["appearance.themeful"])), ["settings.changed"]);
+        for stream in ["settings.changed", "theme.changed"] {
+            assert_eq!(super::super::subscriptions::declared_reads(stream), Some("settings.get"));
+        }
+        assert_eq!(super::super::subscriptions::declared_reads("made.changed"), None);
     }
 
     #[test]
