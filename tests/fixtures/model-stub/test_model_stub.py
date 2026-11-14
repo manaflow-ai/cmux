@@ -9,7 +9,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 import urllib.request
 
@@ -220,15 +219,19 @@ class ScriptAndCliTest(unittest.TestCase):
             finally:
                 os.unlink(f.name)
 
-    def test_a_step_with_a_pause_answers_after_it(self) -> None:
+    def test_a_step_with_a_pause_waits_that_long_before_it_answers(self) -> None:
+        # The stub's own sleep is recorded, not the wall clock: the answer comes after a wait of the step's pause.
+        waits: list[float] = []
+        real_sleep = model_stub.time.sleep
+        model_stub.time.sleep = waits.append
         server, _ = model_stub.serve({"version": 1, "steps": [{"tool": {"name": "Read", "input": {"file_path": "/x"}}, "pause": 0.4}]}, "N")
         try:
             body = {"model": "claude-x", "messages": [{"role": "user", "content": "go"}], "tools": [{"name": "Read", "input_schema": {}}]}
-            started = time.monotonic()
             _, text = post(f"http://127.0.0.1:{server.server_address[1]}/v1/messages", body)
-            self.assertGreaterEqual(time.monotonic() - started, 0.4)
+            self.assertEqual(waits, [0.4])
             self.assertEqual(json.loads(text)["content"][0]["name"], "Read")
         finally:
+            model_stub.time.sleep = real_sleep
             server.shutdown()
             server.server_close()
 
