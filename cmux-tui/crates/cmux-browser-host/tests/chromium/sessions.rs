@@ -665,8 +665,17 @@ fn a_crashed_shared_browser_comes_back_with_its_tabs() {
     assert_eq!(after.as_array().map(Vec::len), Some(2), "{after}");
     for (id, text) in ids.iter().zip(["one", "two"]) {
         assert_eq!(url_of(&after, id), url_of(&before, id));
-        let info = s.call("tab.info", &json!({"targetId": id})).expect("tab.info");
-        assert_eq!(info["title"], text, "{info}");
+        // The reopened tab answers at commit (as tabs.open does); its page
+        // loads after.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let info = s.call("tab.info", &json!({"targetId": id})).expect("tab.info");
+            if info["title"] == text {
+                break;
+            }
+            assert!(Instant::now() < deadline, "the reopened tab never loaded: {info}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
         let read = s
             .call(
                 "frame.evaluate",

@@ -203,7 +203,9 @@ impl HeadlessSource {
             let Some(old) = tab["targetId"].as_str() else { continue };
             let stable = self.ids().stable(old).to_owned();
             let url = tab["url"].as_str().filter(|u| !u.is_empty()).unwrap_or("about:blank");
-            let reopened = if dead.tab_context(old).is_some() {
+            // Chromium names the profile's store too: only the host's own
+            // stores stay behind.
+            let reopened = if dead.tab_context(old).is_some_and(|c| self.is_host_store(&c)) {
                 None
             } else {
                 live.call("tabs.open", &json!({"url": url, "background": true}))

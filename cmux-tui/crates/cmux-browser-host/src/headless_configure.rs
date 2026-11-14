@@ -456,6 +456,12 @@ impl HeadlessSource {
         }
     }
 
+    /// Whether `context` is a store the host made (private, proxy,
+    /// incognito, policy), not the profile's own.
+    pub(crate) fn is_host_store(&self, context: &str) -> bool {
+        self.configs().stores.contains_key(context)
+    }
+
     /// Whether a tab in `context` was kept (the store outlives its session).
     pub(crate) fn store_kept(&self, context: &str) -> bool {
         self.configs().stores.get(context).is_some_and(|store| store.kept)
