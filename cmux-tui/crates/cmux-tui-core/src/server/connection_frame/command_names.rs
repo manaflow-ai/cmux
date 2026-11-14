@@ -63,7 +63,7 @@ impl Command {
             Self::ReloadConfig => "reload-config",
             Self::SetWindowTitle { .. } => "set-window-title",
             Self::ClearWindowTitle => "clear-window-title",
-            Self::ListWorkspaces => "list-workspaces",
+            Self::ListWorkspaces { .. } => "list-workspaces",
             Self::GetFrontendProjection { .. } => "get-frontend-projection",
             Self::PutFrontendProjection { .. } => "put-frontend-projection",
             Self::JournalFrontendEvent { .. } => "journal-frontend-event",
