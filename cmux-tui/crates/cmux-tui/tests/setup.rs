@@ -331,6 +331,10 @@ f="${{CLAUDE_CONFIG_DIR:-$HOME}}/.claude.json"
 [ "$1" = mcp ] || exit 2
 echo "claude $*" >>'{log}'
 op=$2; shift 2
+env=""
+while [ "$1" = --env ]; do
+  env="$env${{env:+,}}\"${{2%%=*}}\":\"${{2#*=}}\""; shift 2
+done
 [ "$1" = --scope ] && [ "$2" = user ] || {{ echo "not user scope" >&2; exit 3; }}
 shift 2
 case $op in
@@ -338,7 +342,7 @@ add)
   name=$1; shift; [ "$1" = -- ] || exit 3; shift
   cmd=$1; shift; args=""
   for a in "$@"; do args="$args${{args:+,}}\"$a\""; done
-  printf '{{"mcpServers":{{"%s":{{"type":"stdio","command":"%s","args":[%s],"env":{{}}}}}}}}' "$name" "$cmd" "$args" >"$f" ;;
+  printf '{{"mcpServers":{{"%s":{{"type":"stdio","command":"%s","args":[%s],"env":{{%s}}}}}}}}' "$name" "$cmd" "$args" "$env" >"$f" ;;
 remove) printf '{{"mcpServers":{{}}}}' >"$f" ;;
 *) exit 2 ;;
 esac
@@ -353,10 +357,14 @@ mkdir -p "$(dirname "$f")"
 echo "codex $*" >>'{log}'
 case $2 in
 add)
-  shift 2; name=$1; shift; [ "$1" = -- ] || exit 3; shift
+  shift 2; env=""
+  while [ "$1" = --env ]; do
+    env="$env${{env:+, }}${{2%%=*}} = \"${{2#*=}}\""; shift 2
+  done
+  name=$1; shift; [ "$1" = -- ] || exit 3; shift
   cmd=$1; shift; args=""
   for a in "$@"; do args="$args${{args:+, }}\"$a\""; done
-  printf '[mcp_servers.%s]\ncommand = "%s"\nargs = [%s]\n' "$name" "$cmd" "$args" >"$f" ;;
+  printf '[mcp_servers.%s]\ncommand = "%s"\nargs = [%s]\nenv = {{ %s }}\n' "$name" "$cmd" "$args" "$env" >"$f" ;;
 remove) : >"$f" ;;
 *) exit 2 ;;
 esac
@@ -1192,7 +1200,7 @@ fn cmux_setup_mcp_an_agent_gives_claude_code_and_codex_the_cmux_server_and_undoe
     assert_eq!(changed["state"], "changed", "{changed}");
     assert_eq!(
         changed["server"],
-        json!({"name": "cmux", "command": cmux, "args": ["mcp", "serve"]})
+        json!({"name": "cmux", "command": cmux, "args": ["mcp", "serve"], "env": {}})
     );
     assert_eq!(
         world.take_mcp_calls(),
@@ -1686,4 +1694,69 @@ fn cmux_setup_mcp_writes_nothing_until_the_person_answers() {
             "{check}"
         );
     }
+}
+
+/// A cmux launched on its own settings file (`CMUX_NEXT_CONFIG_FILE`, a
+/// tagged build's) writes that file into the entry's `env`, so the server
+/// reads the person's answer from it in any terminal; before, the entry had
+/// no `env` and the server read the shared cmux-next.json, found
+/// `agents.cmuxMcp` off there and refused (tag cu-fresh, 2026-11-13). A run
+/// on the shared file replaces that entry with one without `env`.
+#[test]
+fn cmux_setup_mcp_names_its_own_settings_file_in_the_entry() {
+    let world = World::new("mcpcfg").with_fake_mcp_clients();
+    let cmux = env!("CARGO_BIN_EXE_cmux-tui");
+    let claude_json = world.home.join(".claude.json");
+    let codex_toml = world.home.join(".codex").join("config.toml");
+    // The shared file says no; the tagged build's own file says yes.
+    world.settings(&json!({"agents": {"cmuxMcp": "off"}}));
+    let own = world.home.join(".config/cmux/cmux-next-tagged.json");
+    std::fs::write(&own, json!({"agents": {"cmuxMcp": "on"}}).to_string()).unwrap();
+    let own_path = own.to_str().unwrap();
+    let run = |args: &[&str]| -> Value {
+        let output = world.command(args).env("CMUX_NEXT_CONFIG_FILE", &own).output().unwrap();
+        serde_json::from_slice(&output.stdout)
+            .unwrap_or_else(|error| panic!("{error}: {}", String::from_utf8_lossy(&output.stderr)))
+    };
+
+    let changed = run(&["setup", "mcp"]);
+    assert_eq!(changed["state"], "changed", "{changed}");
+    assert_eq!(changed["server"]["env"], json!({"CMUX_NEXT_CONFIG_FILE": own_path}), "{changed}");
+    assert_eq!(
+        world.take_mcp_calls(),
+        [
+            format!(
+                "claude mcp add --env CMUX_NEXT_CONFIG_FILE={own_path} --scope user cmux -- {cmux} mcp serve"
+            ),
+            format!(
+                "codex mcp add --env CMUX_NEXT_CONFIG_FILE={own_path} cmux -- {cmux} mcp serve"
+            ),
+        ]
+    );
+    let claude: Value =
+        serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
+    assert_eq!(claude["mcpServers"]["cmux"]["env"]["CMUX_NEXT_CONFIG_FILE"], own_path, "{claude}");
+    let codex: toml::Table = std::fs::read_to_string(&codex_toml).unwrap().parse().unwrap();
+    assert_eq!(
+        codex["mcp_servers"]["cmux"]["env"]["CMUX_NEXT_CONFIG_FILE"].as_str(),
+        Some(own_path),
+        "{codex}"
+    );
+    // Again on the same file: nothing to do.
+    let again = run(&["setup", "mcp"]);
+    assert_eq!(again["state"], "ok", "{again}");
+    assert_eq!(again["clients"][0]["entry"]["settings_file"], own_path, "{again}");
+    assert!(world.take_mcp_calls().is_empty(), "a second run ran a CLI");
+
+    // A cmux on the shared file (yes there now) replaces it with an entry without `env`.
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
+    let shared = world.json(&["setup", "mcp"]);
+    assert_eq!(shared["state"], "changed", "{shared}");
+    assert_eq!(shared["clients"][0]["entry"]["settings_file"], own_path, "{shared}");
+    let claude: Value =
+        serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
+    assert_eq!(claude["mcpServers"]["cmux"]["env"], json!({}), "{claude}");
+    // Its undo puts the tagged entry back, `env` and all.
+    let undo = shared["undo"].as_str().unwrap();
+    assert!(undo.contains(&format!("--env CMUX_NEXT_CONFIG_FILE={own_path}")), "{undo}");
 }
