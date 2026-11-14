@@ -19,7 +19,12 @@ for sha in "${shas[@]}"; do
   full="$(git -C "$root" rev-parse "$sha^{commit}")"
   tree="$scratch/${full:0:12}"
   mkdir -p "$tree"
-  git -C "$root" archive "$full" webviews | tar -x -C "$tree"
+  # webviews/ and what its source imports from outside it (the schemas, icons and question fixtures).
+  paths=()
+  for p in webviews schemas design/icons Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures; do
+    git -C "$root" cat-file -e "$full:$p" 2>/dev/null && paths+=("$p")
+  done
+  git -C "$root" archive "$full" "${paths[@]}" | tar -x -C "$tree"
   for helper in "$root"/webviews/bench/*.ts; do
     [ -e "$tree/webviews/bench/$(basename "$helper")" ] || cp "$helper" "$tree/webviews/bench/"
   done
