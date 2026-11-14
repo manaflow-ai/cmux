@@ -11,7 +11,7 @@ test("the host's files become Files with their names, types and bytes", async ()
   expect(file?.type).toBe("image/png");
   const bytes = new Uint8Array(await file!.arrayBuffer());
   expect(bytes.length).toBe(atob(PNG).length);
-  expect([...bytes.slice(1, 4)].map((byte) => String.fromCharCode(byte)).join("")).toBe("PNG");
+  expect(String.fromCharCode(...bytes.slice(1, 4))).toBe("PNG");
 });
 
 test("an entry without a name or base64 data is left out, and an older host's answer is none", () => {
