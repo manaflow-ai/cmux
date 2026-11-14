@@ -249,3 +249,4 @@ mod tests {
         assert_eq!(map.get_str("s"), Some("x"));
     }
 }
+// lto-measure: A timed rebuild (comment only)
