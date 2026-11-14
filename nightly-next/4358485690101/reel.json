@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4358485690101",
+  "notes": "notes/4358485690101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 42951,
+      "title": "ci(web): a red one base replay passes is replayed there again before it is the change's (succeeds #41414)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42828,
+      "title": "Route screen sharing by authenticated machine identity",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42843,
+      "title": "cmux-next-ios: no busted states before App Review (Cancel on every confirmation, readable errors, Cloud Chief Try Again, Dynamic Type)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42953,
+      "title": "security: keep diagnostic rows out of public workflow output",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42878,
+      "title": "v2 gates: repair red 05b compaction and 05c replay append",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42947,
+      "title": "l10n: key agentPane.error.gitPushUnavailable as nb and add km",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42930,
+      "title": "test(next): check catalog handler coverage before app launch",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
