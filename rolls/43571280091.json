@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43571280091",
+  "recorded_at": "2026-11-14T07:40:15Z",
+  "reason": "cmux-tui 11a73137cde6 changes the image's cmux-tui (pinned 1cebc7dde294)",
+  "dry_run": false,
+  "cmux_tui": "11a73137cde6caa055a3ee60b93b65a871de8eeb",
+  "fixes": [
+    {
+      "sha": "11a73137cde6caa055a3ee60b93b65a871de8eeb",
+      "mergedAt": "2026-11-13T23:09:31-08:00",
+      "subject": "feat(acpmux): complete agent-service v2 row 3a3 actor recovery (#42906)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-14T07:40:15Z",
+    "snapshot_id": "sh-5abffb627ea54585a67e5f23188091b8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43571280091): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "562d880fab8528b20206b829f0abff1b1e07d3ea",
+    "image": "cloud-native-auto-11a73137-43571280091-1",
+    "revision": "ci-43571280091-1",
+    "at": "2026-11-14T07:40:15Z"
+  },
+  "rolled_back": false
+}
