@@ -759,7 +759,8 @@ async fn an_already_stale_origin_does_not_append_a_second_record() {
     drain_marks(&memory_hub(), &v2, &state, &mut expiries);
     v2.hub.close();
     v2.take_writer().unwrap().run().await.unwrap();
-    let origin = v2.hub.snapshot().origin("peer").unwrap();
+    let snapshot = v2.hub.snapshot();
+    let origin = snapshot.origin("peer").unwrap();
     assert_eq!(origin.state, OriginState::Stale);
     assert_eq!(origin.since, 7);
     assert_eq!(v2.hub.snapshot().seq(), 1);
