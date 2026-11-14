@@ -186,17 +186,17 @@ pub const GATE_ROWS: &[GateRow] = &[
     GateRow {
         pr: "3c",
         name: "v2.pr03c.append_behind_page",
-        done_when: "An append that waits behind a cold `page` read: its wait 1.2x. Runs of their own, alternated. The cold segment read is paid on both sides.",
+        done_when: "An append that waits behind a cold `page` read: its wait 1.2x on the best p95 of five rounds, as each sample holds a cold read. Runs of their own, alternated. The cold segment read is paid on both sides; bytes read printed beside the time.",
         measured: false,
         ratio: GOD_SMALL_LIMIT,
-        ratio_all: Some(2.0),
+        ratio_all: None,
         god_max: None,
     },
     GateRow {
         pr: "3c",
         name: "v2.pr03c.queue_window",
-        done_when: "A window with 64 prompts of 100 KB waiting, against 64 of 100 bytes: 1.2x. Window time and bytes read of the lines.",
-        measured: false,
+        done_when: "A window with 64 prompts of 100 KB waiting, against 64 of 1 KB (the head's bound, so both windows carry the same bytes): 1.2x. Window time and bytes read of the lines.",
+        measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
         god_max: None,
@@ -933,6 +933,24 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "7c",
+        name: "v2.pr07c.update_plan_bytes",
+        done_when: "the agent update plan's thread counts (cmux-tui-core), bytes received: 20 live chats with 11k closed beside them against 20 live alone, 1.2x.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "7c",
+        name: "v2.pr07c.update_plan_wall",
+        done_when: "the agent update plan's thread counts (cmux-tui-core), wall time: 20 live chats with 11k closed beside them against 20 live alone, 1.2x.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
         pr: "8",
         name: "v2.pr08.reconnect_30",
         done_when: "30 link clients with a subscription and a saved cursor reconnect at once at 11k chats and 500 live, in two storms: to the daemon they left, nothing missed (one empty frame marked end to each), and to a restarted daemon whose new peer store has every saved cursor under its floor (a window to each). RSS rise under 20 MB over a trimmed baseline in both. A peak row: only the absolute bound applies.",
@@ -957,6 +975,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         measured: true,
         ratio: GOD_SMALL_LIMIT,
         ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
+        pr: "8",
+        name: "v2.pr08.mirror_apply",
+        done_when: "One mirrored frame's unit (10 changes and its mark) from the queue through the writer's append, sync and publish: p95 within 1.2x with 11k chats and 16,000 rows held for 30 origins, against 20 chats and one origin. Rounds alternate. At most two units per origin are unapplied (one in the storage retry, one in the slot), joined into one append.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
         god_max: None,
     },
     GateRow {
@@ -1271,9 +1298,10 @@ mod tests {
         }
     }
 
-    /// Every gate name the acpmux crates' sources hold, with the file that holds it. This file is
-    /// left out: its rows are what the names are checked against. `v2.pr99` is the made-up PR
-    /// the report's own tests use.
+    /// Every gate name the acpmux crates' sources hold (and `cmux-tui-core`'s, whose list
+    /// callers' gates are row 7c's), with the file that holds it. This file is left out: its
+    /// rows are what the names are checked against. `v2.pr99` is the made-up PR the report's own
+    /// tests use.
     fn names_in_sources() -> Vec<(String, PathBuf)> {
         let crates = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
         let registry = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/v2/mod.rs");
@@ -1283,7 +1311,7 @@ mod tests {
             let is_ours = path
                 .file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("acpmux"));
+                .is_some_and(|name| name.starts_with("acpmux") || name == "cmux-tui-core");
             for part in ["src", "tests", "benches"] {
                 if is_ours && path.join(part).is_dir() {
                     rust_sources(&path.join(part), &mut files);

@@ -376,7 +376,7 @@ is idempotent and reports `not_running` as success for an absent socket. JSON
 errors use stable lifecycle codes and do not include raw transport, server, or
 filesystem error text.
 
-Authenticated network operations use `remote connect|ssh|forward|rpc`,
+Authenticated network operations use `remote connect|ssh|exec|cp|forward|rpc`,
 `remote enroll`, and `remote known-daemons`; they cannot accept local server
 targeting. `remote connect --carrier` dials a `ws`/`wss` route with carrier
 authentication and no enrollment; only a daemon started with
