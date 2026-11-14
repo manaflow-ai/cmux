@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 use crate::hub::{Hub, HubWriter};
+use crate::registry::Registry;
 use cmux_scope::Scope;
 use std::collections::{HashSet, VecDeque};
 use std::future::Future;
@@ -20,6 +21,9 @@ pub struct V2 {
     pub hub: Arc<Hub>,
     pub writer: Mutex<Option<HubWriter>>,
     surfaces: Arc<HashSet<String>>,
+    /// The chat registry: made only when the daemon writes books (`books` in the set, a store on
+    /// disk).
+    registry: Option<Registry>,
 }
 
 impl V2 {
@@ -28,7 +32,22 @@ impl V2 {
     }
 
     pub fn with_surfaces(hub: Hub, writer: HubWriter, surfaces: HashSet<String>) -> Self {
-        Self { hub: Arc::new(hub), writer: Mutex::new(Some(writer)), surfaces: Arc::new(surfaces) }
+        Self {
+            hub: Arc::new(hub),
+            writer: Mutex::new(Some(writer)),
+            surfaces: Arc::new(surfaces),
+            registry: None,
+        }
+    }
+
+    /// The handle with a chat registry: the daemon's when it writes books.
+    pub fn with_registry(mut self, registry: Registry) -> Self {
+        self.registry = Some(registry);
+        self
+    }
+
+    pub fn registry(&self) -> Option<&Registry> {
+        self.registry.as_ref()
     }
 
     pub fn hub(&self) -> Arc<Hub> {
