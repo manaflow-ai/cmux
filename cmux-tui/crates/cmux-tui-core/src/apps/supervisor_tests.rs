@@ -51,7 +51,21 @@ fn scripted_app_host() {
                     error: "SyntaxError: expecting ';' at main.js:2:12".into(),
                 });
             }
-            ToHost::Init { .. } => send(FromHost::Ready { runtime: "scripted".into() }),
+            ToHost::Init { main, .. } => {
+                send(FromHost::Ready { runtime: "scripted".into() });
+                // Top-level code that subscribes, as `cmux.events.on(...)` does.
+                if let Some(stream) = main
+                    .split("SUBSCRIBE_AT_INIT ")
+                    .nth(1)
+                    .and_then(|rest| rest.split_whitespace().next())
+                {
+                    send(FromHost::Subscribe { sub: 1, stream: stream.into(), filter: json!({}) });
+                    send(FromHost::Log { level: "info".into(), message: "subscribed".into() });
+                }
+                if main.contains("EXIT_AFTER_READY") {
+                    std::process::exit(70);
+                }
+            }
             ToHost::Mount { mount, export, ctx } => {
                 // `timeout`: the render runs past its entry deadline, every time.
                 if ctx["timeout"] == true {
@@ -1034,3 +1048,6 @@ mod rollback_tolerance;
 
 #[path = "supervisor_budget_tests.rs"]
 mod budget;
+
+#[path = "supervisor_activation_tests.rs"]
+mod activation;
