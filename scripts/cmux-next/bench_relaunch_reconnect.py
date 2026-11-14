@@ -368,6 +368,10 @@ def main(argv: list[str] | None = None):
     parser.add_argument("--turns", type=int, default=40, help="--shown idle: the shown chat's answered turns")
     parser.add_argument("--browser", action="store_true",
                         help="the shown workspace also has a terminal and a browser pane beside the chat ((a) and (b))")
+    parser.add_argument("--retheme", default="",
+                        help="two themes of one appearance, A,B: the app starts on A and each new-version relaunch "
+                             "switches to the other, as an update that adds or tunes a theme token changes the "
+                             "theme's key (the saved chat copy was refused on that key, chatSnapshot/shared.ts)")
     parser.add_argument("--config", default="{}")
     parser.add_argument("--out")
     parser.add_argument("--md")
@@ -382,6 +386,11 @@ def main(argv: list[str] | None = None):
     acpmux_home = os.path.join(root, "acpmux")
     env = {"ACPMUX_HOME": acpmux_home}
     config = json.loads(args.config)
+    themes = [name.strip() for name in args.retheme.split(",") if name.strip()]
+    if themes and len(themes) != 2:
+        raise SystemExit("bench-relaunch: --retheme takes two themes, A,B")
+    if themes:
+        config.setdefault("appearance", {})["theme"] = themes[0]
     rounds, scratch, load_info, generation = [], None, {}, 0
     total = len(modes) * args.rounds
     stream_s = 600 + total * 120  # the reply streams through every round
@@ -421,6 +430,8 @@ def main(argv: list[str] | None = None):
                 elif mode == "new-version":
                     generation += 1
                     replace_bundle(args.app, generation)
+                    if themes:
+                        config.setdefault("appearance", {})["theme"] = themes[generation % 2]
                 running = sorted(daemon_pids(args.app))
                 started = time.time() * 1000
                 pid, sock, scratch = bm.launch(args.app, config, env, scratch=scratch)
@@ -447,7 +458,8 @@ def main(argv: list[str] | None = None):
     sha = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True).stdout.strip()
     model = subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip()
     harness = (f"bench_relaunch_reconnect.py @{sha or '?'} {model}, {args.chats} chats, {args.rounds} rounds, shown {args.shown}"
-               + (f" ({args.turns} turns)" if args.shown == "idle" else "") + (", browser" if args.browser else ""))
+               + (f" ({args.turns} turns)" if args.shown == "idle" else "") + (", browser" if args.browser else "")
+               + (f", retheme {args.retheme}" if themes else ""))
     table = median_table(rounds, modes)
     print("PERF-RELAUNCH-TABLE-BEGIN")
     print(f"harness: {harness}")
