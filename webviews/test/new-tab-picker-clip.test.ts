@@ -68,6 +68,7 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
           ".acpmux-cols-body .acpmux-cols-lists > .acpmux-cols-list, .acpmux-cols-body .acpmux-cols-tune-scroll",
         ),
       ];
+      const frameNode = document.querySelector<HTMLElement>(".acpmux-cols-frame")!;
       const screenNode = document.querySelector<HTMLElement>(".nt-screen")!;
       const screen = screenNode.getBoundingClientRect();
       return {
@@ -75,6 +76,8 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
         menuBottom: menu.bottom,
         menuHeight: menu.height,
         frameHeight: frame.height,
+        // The default height the menu measured: six effort levels and Fast (#41212).
+        fitHeight: Number(frameNode.dataset.fitHeight),
         columns: lists.map((list) => ({
           overflow: getComputedStyle(list).overflowY,
           height: list.getBoundingClientRect().height,
@@ -89,7 +92,10 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
     const { menuTop, menuBottom, menuHeight, screenTop, screenBottom, scrollable } = geometry;
     // Never collapsed: it lists its rows.
     expect(menuHeight).toBeGreaterThan(60);
-    expect(geometry.frameHeight, "the columns stay within their height cap").toBeLessThanOrEqual(259);
+    expect(Number.isFinite(geometry.fitHeight), "the menu measured its default height").toBe(true);
+    expect(geometry.frameHeight, "the columns stay within their default height").toBeLessThanOrEqual(
+      geometry.fitHeight + 0.5,
+    );
     expect(geometry.columns).toHaveLength(3);
     for (const column of geometry.columns) {
       // `scroll` on the Model and options columns: their lane is always kept (cmuxterm-hq#7707).

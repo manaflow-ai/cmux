@@ -16,7 +16,26 @@ use crate::peer_last_good::{read_json, write_json};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, Weak};
+
+/// A runtime-only writer identity. A replacement gets a fresh identity even
+/// when its name, URL and currently kept tokens are all unchanged.
+pub(crate) struct Generation {
+    active: Arc<AtomicU64>,
+    id: u64,
+}
+
+impl Generation {
+    /// Called in peer registration order. No file I/O or shared writer lock.
+    pub(crate) fn activate(&self) {
+        self.active.store(self.id, Ordering::Release);
+    }
+
+    fn is_current(&self) -> bool {
+        self.active.load(Ordering::Acquire) == self.id
+    }
+}
 
 /// The file name in the acpmux home.
 pub const FILE_NAME: &str = "peer-tokens.json";
@@ -46,6 +65,8 @@ struct File {
 pub struct KeptTokens {
     path: Option<PathBuf>,
     peers: Mutex<BTreeMap<String, Entry>>,
+    // Binding takes this lock only to find the shared generation gate.
+    owners: Mutex<BTreeMap<String, (String, Weak<AtomicU64>)>>,
 }
 
 impl std::fmt::Debug for KeptTokens {
@@ -70,7 +91,35 @@ impl KeptTokens {
             .filter(|file| file.version == VERSION)
             .map(|file| file.peers)
             .unwrap_or_default();
-        Self { path, peers: Mutex::new(peers) }
+        Self { path, peers: Mutex::new(peers), owners: Mutex::default() }
+    }
+
+    pub(crate) fn bind(&self, name: &str, url: &str) -> (Generation, Option<Tokens>) {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let active = {
+            let mut owners = self.owners.lock().unwrap_or_else(|e| e.into_inner());
+            let active = owners
+                .get(name)
+                .and_then(|(_, owner)| owner.upgrade())
+                .unwrap_or_else(|| Arc::new(AtomicU64::new(0)));
+            owners.insert(name.to_owned(), (url.to_owned(), Arc::downgrade(&active)));
+            active
+        };
+        let generation = Generation { active, id: NEXT.fetch_add(1, Ordering::Relaxed) };
+        (generation, self.get(name, url))
+    }
+
+    pub(crate) fn release(&self, name: &str, generation: Generation) {
+        let mut owners = self.owners.lock().unwrap_or_else(|e| e.into_inner());
+        let same = owners
+            .get(name)
+            .is_some_and(|(_, owner)| owner.ptr_eq(&Arc::downgrade(&generation.active)));
+        // Drop while serialized with bind and other releases: two simultaneous
+        // final drops must not both observe another owner and leave a dead slot.
+        drop(generation);
+        if same && owners.get(name).is_some_and(|(_, owner)| owner.strong_count() == 0) {
+            owners.remove(name);
+        }
     }
 
     /// The tokens `name` read over `url`; none when it read them over another URL.
@@ -82,12 +131,18 @@ impl KeptTokens {
 
     /// Keep what `name` read over `url`; only a read with a peer token is kept
     /// (`peer_tokens.rs`). Written only when it changed.
-    pub fn keep(&self, name: &str, url: &str, tokens: &Tokens) {
+    pub(crate) fn keep_current(
+        &self,
+        name: &str,
+        url: &str,
+        generation: &Generation,
+        tokens: &Tokens,
+    ) {
         let Some(peer_token) = &tokens.1 else { return };
         let entry =
             Entry { url: url.to_owned(), token: tokens.0.clone(), peer_token: peer_token.clone() };
         let mut peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-        if peers.get(name) == Some(&entry) {
+        if !generation.is_current() || peers.get(name) == Some(&entry) {
             return;
         }
         peers.insert(name.to_owned(), entry);
@@ -97,9 +152,9 @@ impl KeptTokens {
 
     /// Forget what `name` read over `url`: the remote no longer takes it, or it restarts. An
     /// entry another URL wrote (a replacement of the peer pointed elsewhere) stays.
-    pub fn forget(&self, name: &str, url: &str) {
+    pub(crate) fn forget_current(&self, name: &str, url: &str, generation: &Generation) {
         let mut peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-        if peers.get(name).is_some_and(|entry| entry.url == url) {
+        if generation.is_current() && peers.get(name).is_some_and(|entry| entry.url == url) {
             peers.remove(name);
             self.save(name, &peers);
         }
@@ -110,12 +165,36 @@ impl KeptTokens {
     /// outlive it past the next start.
     pub fn retain<'a>(&self, configured: impl IntoIterator<Item = (&'a str, &'a str)>) {
         let configured: std::collections::BTreeSet<_> = configured.into_iter().collect();
+        let mut owners = self.owners.lock().unwrap_or_else(|e| e.into_inner());
+        owners.retain(|name, (url, owner)| {
+            let keep = configured.contains(&(name.as_str(), url.as_str()));
+            if !keep && let Some(active) = owner.upgrade() {
+                active.store(0, Ordering::Release);
+            }
+            keep
+        });
         let mut peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
         let before = peers.len();
         peers.retain(|name, entry| configured.contains(&(name.as_str(), entry.url.as_str())));
         if peers.len() != before {
             self.save("(removed peers)", &peers);
         }
+    }
+
+    #[cfg(test)]
+    fn keep(&self, name: &str, url: &str, tokens: &Tokens) {
+        let (generation, _) = self.bind(name, url);
+        generation.activate();
+        self.keep_current(name, url, &generation, tokens);
+        self.release(name, generation);
+    }
+
+    #[cfg(test)]
+    fn forget(&self, name: &str, url: &str) {
+        let (generation, _) = self.bind(name, url);
+        generation.activate();
+        self.forget_current(name, url, &generation);
+        self.release(name, generation);
     }
 
     fn save(&self, name: &str, peers: &BTreeMap<String, Entry>) {
@@ -133,6 +212,19 @@ mod tests {
 
     fn tokens(token: &str, peer: &str) -> Tokens {
         (token.into(), Some(peer.into()))
+    }
+
+    #[test]
+    fn retiring_writers_releases_the_gate_without_revoking_the_replacement() {
+        let kept = KeptTokens::open(None);
+        let (old, _) = kept.bind("box", "ssh://box");
+        let (current, _) = kept.bind("box", "ssh://box");
+        current.activate();
+        kept.release("box", old);
+        kept.keep_current("box", "ssh://box", &current, &tokens("new", "peer"));
+        assert_eq!(kept.get("box", "ssh://box"), Some(tokens("new", "peer")));
+        kept.release("box", current);
+        assert!(kept.owners.lock().unwrap().is_empty());
     }
 
     #[test]

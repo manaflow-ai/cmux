@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1397,
-    "shortcuts": 190
+    "entries": 1402,
+    "shortcuts": 191
   },
   "sections": [
     {
@@ -6148,6 +6148,12 @@
           "command": "cmux notification preview-sound"
         },
         {
+          "id": "toasts.showHidden",
+          "title": "Show Hidden Toasts Again",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "showNotifications",
           "title": "Show Notifications",
           "shortcut": null,
@@ -6886,6 +6892,12 @@
           "command": "cmux agent toggle-side-tabs"
         },
         {
+          "id": "palette.toggleTerminalChat",
+          "title": "Toggle Terminal and Chat",
+          "shortcut": "⌥⌘`",
+          "command": null
+        },
+        {
           "id": "agentPane.toggleDisplaySettings",
           "title": "Toggle Text & Width",
           "shortcut": null,
@@ -7340,6 +7352,12 @@
           "title": "Start Agent Session on Cloud Machine…",
           "shortcut": null,
           "command": "cmux cloud start-session"
+        },
+        {
+          "id": "cloudSetupDesktop",
+          "title": "Start Desktop…",
+          "shortcut": null,
+          "command": "cmux cloud setup-desktop"
         },
         {
           "id": "openTeamPicker",
@@ -8182,6 +8200,12 @@
           "command": "cmux settings toggle-sidebar-animations"
         },
         {
+          "id": "debug.sidebarRowTuner",
+          "title": "Sidebar Row Tuner",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "debug.sidebarStatesPlayground",
           "title": "Sidebar States Playground",
           "shortcut": null,
@@ -8276,6 +8300,12 @@
           "title": "Thick Pane Borders",
           "shortcut": null,
           "command": "cmux settings toggle-thick-pane-borders"
+        },
+        {
+          "id": "debug.toastTuning",
+          "title": "Toast Tuning",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "debug.actionLatencyHUD",

@@ -183,6 +183,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
         // Observation applies the first snapshot synchronously, including the empty-state view.
         observe()
+        for pane in panes.values {
+            if case .agent(let view)? = pane.currentContent, view.model.newTab != nil, view.pageDrawsOverCovers { view.placeMovedChromiumPage(requiringFrame: true) }
+        }
         // A Home with no pane yet is still being made (its dock, then the Chief conversation, over
         // several daemon replies): it stays clear until its conversation is in, never in pieces.
         if workspace.kind == "home", layoutModel.screens.allSatisfy({ $0.layout.panes.isEmpty }) {

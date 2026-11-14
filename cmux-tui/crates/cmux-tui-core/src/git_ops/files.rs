@@ -3,18 +3,22 @@
 //!
 //! Candidates are the files git knows in the folder: tracked files that are
 //! still in the working tree, and untracked files that no ignore rule hides.
+//! git gives the names. The daemon itself looks if a name is there, through
+//! real folders of the work tree only: a path that it cannot reach so is no
+//! candidate (a path below a link, below a folder that cannot be opened, or
+//! with too many folders above it).
 //! The query matches as a case-insensitive subsequence of the path; the score
 //! prefers matches in the file name, at word starts and in runs, and shorter
 //! paths. `root` is the repository's top level, as in every git op; result
 //! paths are relative to `search_root`, the folder searched, so an agent
 //! working in that folder can use them as they are.
 
-use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
 use super::run::run_git;
+use super::work_tree_entry::{Kind, Tree};
 use super::{MAX_SMALL_OUTPUT_BYTES, Repository, git_failed, parse};
 use crate::resource::ResourceError;
 use cmux_json::JsonSet as _;
@@ -48,10 +52,10 @@ pub(super) fn search(
         .and_then(Value::as_u64)
         .map_or(DEFAULT_LIMIT, |limit| usize::try_from(limit).unwrap_or(MAX_LIMIT))
         .clamp(1, MAX_LIMIT);
-    let search_root = folder(repository, directory, OPERATION)?;
+    let below = folder(repository, directory, OPERATION)?;
     let mut reply = json!({
         "root": repository.root.to_string_lossy(),
-        "search_root": search_root,
+        "search_root": spelled(repository, &below),
         "results": [],
         "truncated": false,
         "total_matches": 0,
@@ -59,7 +63,7 @@ pub(super) fn search(
     if query.is_empty() {
         return Ok(reply);
     }
-    let (candidates, mut cut) = candidates(repository, directory, OPERATION)?;
+    let (candidates, mut cut) = candidates(repository, directory, &below, OPERATION)?;
     let mut scorer = Scorer::new(&query, MAX_SCORED_CELLS);
     let mut ranked = Vec::new();
     for path in &candidates {
@@ -82,10 +86,13 @@ pub(super) fn search(
             .then_with(|| left.path.cmp(right.path))
     });
     // A submodule is listed as one path, but it is a folder: never a result.
-    let search_folder = Path::new(&search_root);
+    // Each candidate was reached through real folders. This second look asks
+    // the same: a path below a folder that became a link after the look at
+    // the candidates, or that cannot be reached now, is never a result.
+    let mut folders = Folders::of(repository, &below);
     let results: Vec<Value> = ranked
         .iter()
-        .filter(|entry| !search_folder.join(entry.path).is_dir())
+        .filter(|entry| folders.file(entry.path))
         .take(limit)
         .map(|entry| {
             json!({"path": entry.path, "matches": utf16_offsets(entry.path, &entry.matches)})
@@ -104,13 +111,15 @@ struct Ranked<'a> {
     matches: Vec<usize>,
 }
 
-/// The searched folder in the repository's own spelling: the top level joined
-/// with git's prefix for `directory`, so a symlinked path reads as git sees it.
+/// The searched folder, as a path from the work tree's top folder: git's
+/// prefix for `directory`, so a symlinked path reads as git sees it. The top
+/// folder itself is the empty path. The path has git's own bytes: a name
+/// that is not UTF-8 stays the name that is on the disk.
 pub(super) fn folder(
     repository: &Repository,
     directory: &Path,
     operation: &'static str,
-) -> Result<String, ResourceError> {
+) -> Result<PathBuf, ResourceError> {
     let output = run_git(
         directory,
         &repository.overrides,
@@ -118,41 +127,105 @@ pub(super) fn folder(
         MAX_SMALL_OUTPUT_BYTES,
     )
     .map_err(|failure| git_failed(operation, &failure))?;
-    let prefix = String::from_utf8_lossy(&output.stdout).trim_end_matches(['\n', '/']).to_string();
-    let folder =
-        if prefix.is_empty() { repository.root.clone() } else { repository.root.join(prefix) };
-    Ok(folder.to_string_lossy().into_owned())
+    // git ends the prefix with one `/` and its line with one line break. A
+    // folder's name can end with a line break too: no more is taken off.
+    let prefix = output.stdout.as_slice();
+    let prefix = prefix.strip_suffix(b"\n").unwrap_or(prefix);
+    let prefix = prefix.strip_suffix(b"/").unwrap_or(prefix);
+    Ok(path_of(prefix))
+}
+
+#[cfg(unix)]
+fn path_of(bytes: &[u8]) -> PathBuf {
+    use std::os::unix::ffi::OsStrExt as _;
+    PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+}
+
+/// A system that is not Unix has no path of bytes, and git gives UTF-8
+/// there. Other bytes give a name that is not on the disk, and a path below
+/// a name that is not there is no candidate.
+#[cfg(not(unix))]
+fn path_of(bytes: &[u8]) -> PathBuf {
+    PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
+}
+
+/// `below`, the result of [`folder`], in the repository's own spelling, for
+/// a reply.
+pub(super) fn spelled(repository: &Repository, below: &Path) -> String {
+    let folder = if below.as_os_str().is_empty() {
+        repository.root.clone()
+    } else {
+        repository.root.join(below)
+    };
+    folder.to_string_lossy().into_owned()
+}
+
+/// Looks at the paths that git lists under a folder of the work tree. Each
+/// look goes through real folders only: each folder above a path is opened
+/// through its parent, from the work tree's top folder, and a link is never
+/// followed ([`super::work_tree_entry`]). The listed folder is one of these
+/// folders, and so is each folder between it and the top folder.
+pub(super) struct Folders {
+    /// `None` when the work tree's top folder did not open: no look.
+    tree: Option<Tree>,
+    /// The listed folder, from the work tree's top folder.
+    below: PathBuf,
+}
+
+impl Folders {
+    /// For the paths that git lists under `below`, the result of [`folder`].
+    pub(super) fn of(repository: &Repository, below: &Path) -> Self {
+        Self { tree: Tree::open(&repository.root), below: below.to_path_buf() }
+    }
+
+    /// What `path`, relative to the listed folder, is in the work tree.
+    /// `None` when nothing has its name, and when the daemon cannot reach
+    /// the name through real folders: a folder above it is a link, is not
+    /// there or cannot be opened, the path has too many folders, or there
+    /// is no look at all. A path with no kind is no candidate and no result.
+    pub(super) fn kind(&mut self, path: &str) -> Option<Kind> {
+        self.tree.as_mut()?.entry(&self.below.join(path)).ok()?.kind()
+    }
+
+    /// True when `path`, relative to the listed folder, can be a search
+    /// result: the daemon reaches it, and it is no real folder.
+    fn file(&mut self, path: &str) -> bool {
+        self.kind(path).is_some_and(|kind| kind != Kind::Folder)
+    }
 }
 
 /// The files under `directory`, relative to it and sorted, and whether the
-/// listing was cut.
+/// listing was cut. `below` is the result of [`folder`] for `directory`.
+///
+/// git gives the names: the paths of its index and the untracked names. It
+/// is not asked if a tracked path is still there, because git looks at a
+/// path by its name and so through a link. The daemon looks itself
+/// ([`Folders::kind`]): a candidate is a listed path that it reaches through
+/// real folders and that has a name on the disk.
 pub(super) fn candidates(
     repository: &Repository,
     directory: &Path,
+    below: &Path,
     operation: &'static str,
 ) -> Result<(Vec<String>, bool), ResourceError> {
     // Run in the folder itself, so paths are relative to it and only files
     // under it are listed.
     let listing = ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."];
-    let run = |arguments: &[&str]| {
-        run_git(directory, &repository.overrides, arguments, MAX_LISTING_BYTES)
-            .map_err(|failure| git_failed(operation, &failure))
-    };
-    let listed = run(&listing)?;
+    let listed = run_git(directory, &repository.overrides, &listing, MAX_LISTING_BYTES)
+        .map_err(|failure| git_failed(operation, &failure))?;
     let mut bytes = listed.stdout;
     if listed.truncated {
         // The last path may be cut mid-name.
         let end = bytes.iter().rposition(|byte| *byte == 0).map_or(0, |end| end + 1);
         bytes.truncate(end);
     }
-    let deleted = run(&["ls-files", "-z", "--deleted", "--", "."])?;
-    let deleted: HashSet<String> = parse::file_list(&deleted.stdout).into_iter().collect();
-    let mut files: Vec<String> = parse::file_list(&bytes)
-        .into_iter()
-        .filter(|path| !deleted.contains(path) && !path.contains('\u{FFFD}'))
-        .collect();
+    let mut files = parse::file_list(&bytes);
+    // Sorted, the paths of one folder follow each other: the look opens each
+    // folder one time.
     files.sort_unstable();
     files.dedup();
+    let mut folders = Folders::of(repository, below);
+    files.retain(|path| !path.contains('\u{FFFD}') && folders.kind(path).is_some());
     Ok((files, listed.truncated))
 }
 
@@ -322,4 +395,56 @@ fn utf16_offsets(path: &str, matches: &[usize]) -> Vec<usize> {
         offset += character.len_utf16();
     }
     offsets
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::fs;
+
+    use super::*;
+
+    /// A work tree with the file `below.txt` in the folder `real`, and the
+    /// link `dir` to that folder.
+    fn tree_with_a_link() -> PathBuf {
+        let mut bytes = [0_u8; 6];
+        getrandom::fill(&mut bytes).unwrap();
+        let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+        let root = std::env::temp_dir().join(format!("cmux-files-second-look-{hex}"));
+        fs::create_dir_all(root.join("real")).unwrap();
+        fs::write(root.join("real/below.txt"), "below").unwrap();
+        std::os::unix::fs::symlink("real", root.join("dir")).unwrap();
+        root
+    }
+
+    /// The second look of a search, with no candidate filter before it: the
+    /// state of a folder that became a link after the look at the candidates.
+    #[test]
+    fn the_second_look_of_a_search_gives_no_path_below_a_link() {
+        let root = tree_with_a_link();
+        let mut folders = Folders { tree: Tree::open(&root), below: PathBuf::new() };
+        assert!(folders.tree.is_some(), "the work tree opens");
+        assert!(folders.file("real/below.txt"), "a file below a real folder");
+        assert!(!folders.file("dir/below.txt"), "a path below a link");
+        assert!(folders.file("dir"), "the link itself is a leaf");
+        assert!(!folders.file("real"), "a real folder is no file");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The second look gives no path that it cannot look at: a folder above
+    /// the path is not there, nothing has the path's name, or the work tree
+    /// did not open.
+    #[test]
+    fn the_second_look_of_a_search_gives_no_path_that_it_cannot_reach() {
+        let root = tree_with_a_link();
+        let mut folders = Folders { tree: Tree::open(&root), below: PathBuf::new() };
+        assert!(folders.tree.is_some(), "the work tree opens");
+        let below_nothing = folders.file("none/below.txt");
+        let no_name = folders.file("real/none.txt");
+        let mut no_tree = Folders { tree: None, below: PathBuf::new() };
+        let no_work_tree = no_tree.file("real/below.txt");
+        fs::remove_dir_all(root).unwrap();
+        assert!(!below_nothing, "a path below a folder that is not there");
+        assert!(!no_name, "a name that is not there");
+        assert!(!no_work_tree, "a work tree that did not open");
+    }
 }

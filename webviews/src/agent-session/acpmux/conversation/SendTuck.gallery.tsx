@@ -7,10 +7,15 @@
 // `arc` is the product's; `funnel`, `drop` and `none` (the composer just clears, the before) are for
 // comparison, through `data-send-tuck`. `rides` shows the open question: by default a scrolled-up
 // send still glides the view to the latest row (sendScrollSetting.ts), and the prompt tucks then too.
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { SCREEN_RECORDING_POSTER_JPEG } from "../../../gallery/fixtures/videoPoster";
 import { tuckContent, tuckSent, type SendTuckStyle } from "./sendTuck";
+
+// The scale's send step is 0 (Leo 2026-11-11: "that slow settle animation is just so bad. Like, just
+// do it."), so the product's send is instant. This gallery compares the send's styles on their old
+// 180 ms clock, set on its shell (the send code reads the token from the rows' ancestors).
+const COMPARE_SEND_CLOCK = { "--agent-motion-send": "180ms", "--agent-motion-send-fade": "180ms" } as CSSProperties;
 
 const IMAGE = `data:image/jpeg;base64,${SCREEN_RECORDING_POSTER_JPEG}`;
 const PROMPT = "can you check why this flickers on resize";
@@ -56,7 +61,12 @@ function SendTuckGallery({ variant, rides = false }: { variant: SendTuckStyle; r
     setSent((count) => count + 1);
   };
   return (
-    <div className="acpmux-shell" data-send-tuck={variant} data-send-tuck-gallery style={{ height: "100%" }}>
+    <div
+      className="acpmux-shell"
+      data-send-tuck={variant}
+      data-send-tuck-gallery
+      style={{ ...COMPARE_SEND_CLOCK, height: "100%" }}
+    >
       <div className="acpmux-main" data-dock="float" style={{ position: "relative", height: "100%" }}>
         <div className="acpmux-stage" style={{ height: "100%" }}>
           <div ref={scroll} className="acpmux-scroll" style={{ height: "100%", overflow: "auto" }}>

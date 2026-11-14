@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -81,19 +81,40 @@ struct DemoDriver {
             shell.tab = .home
         case "retry-terminal":
             shell.terminalTabs.mockDataEnabled = false
-            shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+            shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
             shell.tab = .workspaces
             if let workspace = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [workspace] }
         case "editor": await editor()
         case "rubber": await rubber()
         case "workspaces": await workspaces()
         case "workspaces-reopen": await workspacesReopen()
+        case "workspace-open-top-left": await workspaceOpenTopLeft()
         case "chief": await chief()
         case "chief-parity": await chiefParity()
         case "chief-settings": await chiefSettings()
         case "call-scope": await callScope()
         case "call-scope-home":
             ChiefSources.shared.showDemoCloudChief(named: "Atlas")
+            shell.tab = .home
+        case "new-message-forward":
+            // A11: Forward from a Chief's select mode opens Home's New Message with the draft
+            // (the conversation's own select and Forward paths, driven by its lab verbs).
+            ChiefSources.shared.showDemoCloudChief(named: "Atlas", brains: true)
+            ChiefSources.shared.mac.macName = "Mac Studio"
+            MacHomeFeed.shared.seedNewMessageRows(macID: "mac-studio", macChief: ChiefSources.shared.mac.conversationID)
+            shell.tab = .home
+            shell.homePath.append(ChiefRoute(place: .cloud))
+            await pause(2.5)
+            _ = ChiefDemoHook.shared.lab("select theirs")
+            await pause(0.8)
+            _ = ChiefDemoHook.shared.lab("forward")
+        case "new-message", "new-message-mac-only":
+            // Home's New Message (verify/new-message): a Cloud Chief (unless Mac-only), the Mac's Chiefs and
+            // conversations, and the demo team; real touches open the sheet from the compose button.
+            if name == "new-message" { ChiefSources.shared.showDemoCloudChief(named: "Atlas", brains: true) }
+            ChiefSources.shared.mac.macName = "Mac Studio"
+            // The Mac Chief's row is its session's conversation, as on a real Mac's list.
+            MacHomeFeed.shared.seedNewMessageRows(macID: "mac-studio", macChief: ChiefSources.shared.mac.conversationID)
             shell.tab = .home
         case "chief-open":
             // Opens Chief and leaves it to real touches (verify/imsg-parity.sh).
@@ -102,7 +123,7 @@ struct DemoDriver {
         case "ws-terminal": await workspaceTerminal()
         case "ws-terminal-idle":
             // The zsh tab of a workspace, as the app shows it (TabsKit chrome), and nothing scripted after.
-            shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+            shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
             shell.tab = .workspaces
             await pause(1.0)
             if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
@@ -112,7 +133,7 @@ struct DemoDriver {
             // long (nine lines: the field at its maximum, scrolled to the
             // caret), or attachments (three lines with two photos and a
             // file in the tray, the default).
-            shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+            shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
             shell.tab = .workspaces
             await pause(0.6)
             guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
@@ -131,7 +152,7 @@ struct DemoDriver {
         case "ws-terminal-armed":
             // The zsh tab with a draft in the composer and Control armed: the
             // Send button and an armed key, for screenshots of the key row.
-            shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+            shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
             shell.tab = .workspaces
             await pause(0.6)
             guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
@@ -148,6 +169,7 @@ struct DemoDriver {
         case "tour-c": await tourSettingsAndSidebar()
         case "onboarding": break  // driven by CmuxMobileOnboarding's script until the shell appears
         case "live": await live()
+        case "live-terminal": await liveTerminal()
         case "approve": await approve()
         case "workspace-new": await workspaceNew()
         case "connect-mac": await connectMac()
@@ -200,7 +222,7 @@ struct DemoDriver {
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
         case "kbd-tab":
-            shell.store.noteOpened(tabID: "t-claude", in: "ws-cmux")
+            shell.store.requestOpen(tabID: "t-claude", in: "ws-cmux")
             shell.tab = .workspaces
             await pause(1.0)
             if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
@@ -240,7 +262,7 @@ struct DemoDriver {
                let t = shell.store.workspaces[w].tabs.firstIndex(where: { $0.id == "t-zsh" }) {
                 shell.store.workspaces[w].tabs[t].harness = "codex"
             }
-            shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+            shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
             shell.tab = .workspaces
             await pause(1.0)
             guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
@@ -257,7 +279,7 @@ struct DemoDriver {
     /// keyboard-pin probe counts any frame where the composer jumps instead of
     /// riding the keyboard; `demo=done` marks the end.
     private func workspaceTerminalKeyboardToggles() async {
-        shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+        shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
         shell.tab = .workspaces
         await pause(1.0)
         guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
@@ -435,7 +457,7 @@ struct DemoDriver {
     private func workspaces() async {
         let store = shell.store
         let tabs = WorkspaceDemoDirector.shared
-        store.noteOpened(tabID: "t-claude", in: "ws-cmux")
+        store.requestOpen(tabID: "t-claude", in: "ws-cmux")
         shell.tab = .workspaces
         await pause(1.6)
         guard let ws = store.workspace(id: "ws-cmux") else { return }
@@ -457,7 +479,7 @@ struct DemoDriver {
         await pause(1.8)
         tabs.post(.exit)
         await pause(1.8)
-        // Reopen: starts on the browser tab used last.
+        // Reopen: starts on its opening tab again (the layout's top-left pane's), not the browser tab used last.
         shell.workspacesPath = [ws]
         await pause(2.6)
         tabs.post(.exit)
@@ -649,6 +671,35 @@ struct DemoDriver {
         step("plan done")
     }
 
+    /// Live end to end (real Mac): the paired Mac's first terminal, with its colors printed in it,
+    /// so a capture shows the terminal in that Mac's terminal theme (`cmux_next_pair_e2e.py --theme`).
+    private func liveTerminal() async {
+        step("live-terminal start")
+        shell.tab = .workspaces
+        guard await until(120, { shell.live?.link.phase.isConnected == true }) else { return step("live-terminal no link") }
+        guard await until(60, { shell.store.workspaces.contains { $0.tabs.contains { $0.kind == .terminal } } }),
+              let ws = shell.store.workspaces.first(where: { $0.tabs.contains { $0.kind == .terminal } }),
+              let tab = ws.tabs.first(where: { $0.kind == .terminal }) else { return step("live-terminal no terminal") }
+        shell.store.requestOpen(tabID: tab.id, in: ws.id)
+        shell.workspacesPath = [ws]
+        await pause(2)
+        // A workspace opens on its layout's top-left pane: show the terminal tab itself.
+        WorkspaceDemoDirector.shared.post(.activate(tab.id))
+        guard await until(30, { shell.terminalTabs.model(forTabID: tab.id) != nil }),
+              let model = shell.terminalTabs.model(forTabID: tab.id) else { return step("live-terminal no model") }
+        await until(30) { model.connectionState.isAttached }
+        await until(20) { model.debugState != "-" && !model.debugState.contains("draws=0 ") }
+        await pause(1.5)
+        model.composerText = #"clear; for i in 0 1 2 3 4 5 6 7; do printf "\e[4${i}m   "; done; printf "\e[0m\n"; "#
+            + #"for i in 0 1 2 3 4 5 6 7; do printf "\e[10${i}m   "; done; printf "\e[0m\n"; "#
+            + #"printf "\e[31mred \e[32mgreen \e[33myellow \e[34mblue \e[35mmagenta \e[36mcyan \e[1;37mbold\e[0m \e[2mfaint\e[0m\n""#
+        model.send()
+        await pause(2.5)
+        let known = CmuxMobileTerminalThemes.shared.theme(for: ws.macID)?.background ?? "none"
+        step("live-terminal theme \(model.hostTheme?.background ?? "none"), known for its Mac \(known), state \(model.debugState)")
+        step("live-terminal shown")
+    }
+
     /// Live end to end (real Mac): Mac online and connected, the daemon's
     /// workspaces, an agent tab streaming acpmux, Feed answers sent back,
     /// then a WebRTC ↔ WireGuard switch.
@@ -667,7 +718,7 @@ struct DemoDriver {
         // Open the workspace that has an agent tab, on that tab.
         guard let ws = shell.store.workspaces.first(where: { $0.tabs.contains { $0.kind == .agent } }),
               let agent = ws.tabs.first(where: { $0.kind == .agent }) else { return }
-        shell.store.noteOpened(tabID: agent.id, in: ws.id)
+        shell.store.requestOpen(tabID: agent.id, in: ws.id)
         step("open workspace \(ws.title) on \(agent.title)")
         shell.workspacesPath = [ws]
         await pause(4)
@@ -722,6 +773,35 @@ struct DemoDriver {
 
     private func step(_ name: String) {
         demoLog.info("demo step: \(name, privacy: .public)")
+    }
+
+    /// A workspace opens on its layout's top-left pane's active tab (user 2026-11-11): ws-cmux
+    /// laid out as zsh | (Claude, docs) with the right pane focused on the Mac and docs the last
+    /// tab used on this phone. Open (zsh), switch to docs, leave, open again (zsh again).
+    private func workspaceOpenTopLeft() async {
+        let store = shell.store
+        let tabs = WorkspaceDemoDirector.shared
+        guard var ws = store.workspace(id: "ws-cmux") else { return }
+        ws.activeTabID = "t-claude"
+        ws.layout = WorkspaceLayout(screens: [WorkspaceLayout.Screen(id: 1, isActive: true, panes: [
+            WorkspaceLayout.Pane(id: 2, tabIDs: ["t-claude", "t-docs"], activeTabID: "t-claude", isFocused: true),
+            WorkspaceLayout.Pane(id: 1, tabIDs: ["t-zsh"], activeTabID: "t-zsh"),
+        ], root: .split(id: 9, axis: .horizontal, ratio: 0.5, first: .pane(1), second: .pane(2)))])
+        store.workspaces = store.workspaces.map { $0.id == ws.id ? ws : $0 }
+        store.noteOpened(tabID: "t-docs", in: ws.id)
+        shell.tab = .workspaces
+        await pause(1.6)
+        step("open")
+        shell.workspacesPath = [ws]
+        await pause(6.0)
+        step("switch to docs")
+        tabs.post(.activate("t-docs"))
+        await pause(4.0)
+        tabs.post(.exit)
+        await pause(3.0)
+        step("reopen")
+        shell.workspacesPath = [ws]
+        await pause(6.0)
     }
 
     /// After a relaunch: the workspace opens on the tab used last before it.
@@ -876,7 +956,7 @@ struct DemoDriver {
     private func workspaceTerminal() async {
         let store = shell.store
         let tabs = WorkspaceDemoDirector.shared
-        store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+        store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
         shell.tab = .workspaces
         await pause(1.2)
         guard let ws = store.workspace(id: "ws-cmux") else { return }
@@ -954,7 +1034,7 @@ struct DemoDriver {
     private func workspaceTerminalCard() async {
         let store = shell.store
         let tabs = WorkspaceDemoDirector.shared
-        store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+        store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
         shell.tab = .workspaces
         await pause(1.2)
         guard let ws = store.workspace(id: "ws-cmux") else { return }
@@ -977,7 +1057,7 @@ struct DemoDriver {
     private func tourHomeAndWorkspaces() async {
         let store = shell.store
         let tabs = WorkspaceDemoDirector.shared
-        store.noteOpened(tabID: "t-claude", in: "ws-cmux")
+        store.requestOpen(tabID: "t-claude", in: "ws-cmux")
         mark("home")
         shell.tab = .home
         await pause(2.4)

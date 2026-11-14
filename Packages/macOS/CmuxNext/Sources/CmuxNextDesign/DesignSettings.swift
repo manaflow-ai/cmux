@@ -71,7 +71,7 @@ public final class DesignSettings {
         return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.pageScale)');"
             + "document.documentElement.style.setProperty('--cmux-density-scale', '\(Typography.pageDensityScale)');"
             + "document.documentElement.style.setProperty('--cmux-density-text-scale', '\(Typography.pageDensityTextScale)');"
-            + "document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)');"
+            + "if (window.__cmuxSyncPageZoom) { window.__cmuxSyncPageZoom(); } else { document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)'); }"
             + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
     /// `agentPane.zoom`, the focused agent chat's own display scale.
@@ -368,7 +368,7 @@ public final class DesignSettings {
 
     /// Clamps the app-wide interface scale to the supported range.
     public static func clampedUIScale(_ value: CGFloat) -> CGFloat {
-        min(max(value, 0.85), 1.5)
+        min(max(value, 0.25), 5)
     }
 
     public static func clampedInterfaceScale(_ value: CGFloat) -> CGFloat {

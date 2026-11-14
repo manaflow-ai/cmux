@@ -49,7 +49,7 @@ final class ServerUpdatePresenter {
             }
         })
         observers.append(Task { [weak self] in
-            for await _ in ObservationStream({ servers.notices }) { self?.sync() }
+            for await _ in ObservationStream({ servers.holdsOffers ? [] : servers.notices }) { self?.sync() }
         })
     }
 
@@ -74,7 +74,7 @@ final class ServerUpdatePresenter {
         confirmRestart()
     }
 
-    /// Shows a toast for each notice not shown yet; ends toasts whose notice went away.
+    /// Shows a toast for each notice not shown yet, once the connection held; ends those whose notice went.
     func sync() {
         let notices = servers.notices
         let ids = Set(notices.map(\.id))
@@ -82,7 +82,7 @@ final class ServerUpdatePresenter {
             shown[id] = nil
             handle.dismiss()
         }
-        guard let window = activeWindow() else { return }
+        guard !servers.holdsOffers, let window = activeWindow() else { return }
         for notice in notices where shown[notice.id] == nil && !busy.contains(notice.id) {
             show(notice, in: window)
         }
@@ -124,14 +124,19 @@ final class ServerUpdatePresenter {
                 self.sync()
                 return
             }
-            Task { @MainActor in
-                let outcome = await self.servers.restart(notice)
-                self.busy.remove(notice.id)
-                let result = CmuxToast(id: "server-update.result.\(notice.kind.rawValue)",
-                                       message: outcome.message(serverLabel: notice.serverLabel))
-                if let window = self.activeWindow() { CmuxToastCenter.shared.show(result, in: window) }
-                self.sync()
-            }
+            self.restart(notice)
+        }
+    }
+
+    /// Runs the confirmed restart and says how it went; a failure's Try Again runs it again.
+    private func restart(_ notice: ServerUpdateNotice) {
+        busy.insert(notice.id)
+        Task { @MainActor in
+            let outcome = await self.servers.restart(notice)
+            self.busy.remove(notice.id)
+            let result = outcome.toast(id: "server-update.result.\(notice.kind.rawValue)", serverLabel: notice.serverLabel)
+            if let window = self.activeWindow() { CmuxToastCenter.shared.show(result, in: window).onAction = { [weak self] in self?.restart(notice) } }
+            self.sync()
         }
     }
 }

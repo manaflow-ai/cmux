@@ -19,6 +19,48 @@ fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
+/// Actions this crate has and the pinned app FFI does not yet (step A of an app FFI change,
+/// docs/ci/app-ffi-release.md). The exports are written from the pinned catalog, so they gain
+/// these rows with the re-pin, which takes them off this list (#38644, #41954).
+const AWAITING_REPIN: &[&str] = &["agentBoard.show"];
+
+/// Each id on [`AWAITING_REPIN`] is a catalog action that `export` (one of the exports' action
+/// lists) does not have yet: once the export has it, it comes off the list.
+fn check_awaiting_repin(export: &[Value], file: &str) {
+    for id in AWAITING_REPIN {
+        assert!(
+            cmux_action_catalog::find(id).is_some(),
+            "{id} is awaiting the re-pin but not an action"
+        );
+        assert!(
+            !export.iter().any(|row| row["id"] == *id),
+            "{file} has {id}: the re-pin landed, so take it off AWAITING_REPIN"
+        );
+    }
+}
+
+/// Actions whose default shortcut this crate has and the pinned app FFI does not yet (step A of
+/// an app FFI change, docs/ci/app-ffi-release.md). The exports are written from the pinned
+/// catalog, so until the re-pin they show no shortcut for these rows. An export may show
+/// either no shortcut or this crate's; any other value still fails. Take an id off once both
+/// exports carry its shortcut.
+const SHORTCUT_AWAITING_REPIN: &[&str] = &["palette.toggleTerminalChat"];
+
+/// Whether `id`'s exported shortcut may be `null` while the crate has one (see
+/// [`SHORTCUT_AWAITING_REPIN`]).
+fn shortcut_awaits_repin(id: &str, exported: &Value) -> bool {
+    if !SHORTCUT_AWAITING_REPIN.contains(&id) {
+        return false;
+    }
+    let action = cmux_action_catalog::find(id)
+        .unwrap_or_else(|| panic!("{id} is awaiting a shortcut re-pin but not an action"));
+    assert!(
+        action.default_shortcut.is_some(),
+        "{id} is awaiting a shortcut re-pin but has no default shortcut"
+    );
+    exported.is_null()
+}
+
 fn read_json(path: &Path) -> Value {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
@@ -127,7 +169,22 @@ fn english_catalog_equals_the_swift_dump() {
     object.remove("locale");
     // The dump is a Debug build's, which has every Debug-only entry; the list of them is new.
     object.remove("debug_build_only");
+    check_awaiting_repin(
+        swift["actions"].as_array().map_or(&[], Vec::as_slice),
+        "action-catalog.json",
+    );
+    if let Some(actions) = object.get_mut("actions").and_then(Value::as_array_mut) {
+        actions
+            .retain(|action| !action["id"].as_str().is_some_and(|id| AWAITING_REPIN.contains(&id)));
+    }
     awaiting_family_repin(&mut rust, &swift);
+    for action in rust["actions"].as_array_mut().into_iter().flatten() {
+        let Some(id) = action["id"].as_str().map(str::to_owned) else { continue };
+        let dumped = swift["actions"].as_array().into_iter().flatten().find(|a| a["id"] == *id);
+        if dumped.is_some_and(|d| shortcut_awaits_repin(&id, &d["defaultShortcut"])) {
+            action["defaultShortcut"] = Value::Null;
+        }
+    }
     if let Some(difference) = first_difference("$", &rust, &swift) {
         panic!("the Rust catalog differs from the Swift dump: {difference}");
     }
@@ -136,10 +193,7 @@ fn english_catalog_equals_the_swift_dump() {
 /// Palette family members the crate has and the pinned app's dump does not yet: the app reads
 /// the crate through the pinned FFI, so its dump gains them only with the next re-pin. Each
 /// leaves the Rust side here until then, and fails once the dump has it.
-const FAMILY_AWAITING_REPIN: &[(&str, &[&str])] = &[(
-    "browserProfile",
-    &["browserProfile.move", "browserProfile.setProxy", "browserProfile.clearProxy"],
-)];
+const FAMILY_AWAITING_REPIN: &[(&str, &[&str])] = &[];
 
 fn awaiting_family_repin(rust: &mut Value, swift: &Value) {
     let members = |catalog: &Value, family: &str| {
@@ -184,7 +238,9 @@ fn awaiting_family_repin(rust: &mut Value, swift: &Value) {
 fn action_list_export_matches() {
     let export = read_json(&repo().join("plans/cmux-next/action-surfaces.json"));
     let rows = export["actions"].as_array().expect("actions");
-    let rust: Vec<_> = cmux_action_catalog::actions().collect();
+    check_awaiting_repin(rows, "action-surfaces.json");
+    let rust: Vec<_> =
+        cmux_action_catalog::actions().filter(|a| !AWAITING_REPIN.contains(&a.id)).collect();
     assert_eq!(rows.len(), rust.len(), "action count");
     for (row, action) in rows.iter().zip(&rust) {
         let id = action.id;
@@ -215,7 +271,9 @@ fn action_list_export_matches() {
         if action.shortcut_family == Some("digits") && !shortcut.is_null() {
             shortcut["family"] = serde_json::json!("digits");
         }
-        assert_eq!(row["default_shortcut"], shortcut, "{id}");
+        if !shortcut_awaits_repin(id, &row["default_shortcut"]) {
+            assert_eq!(row["default_shortcut"], shortcut, "{id}");
+        }
         let chord = action.default_chord.map_or(Value::Null, |c| {
             serde_json::json!([
                 cmux_action_catalog::json::shortcut(&c.first),
