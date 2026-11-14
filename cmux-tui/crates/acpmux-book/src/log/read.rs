@@ -165,6 +165,38 @@ impl Log {
         requested.min(cap)
     }
 
+    /// Returns a metadata-only upper bound for the record bytes after `cursor`.
+    ///
+    /// `seq.idx` records an offset every [`SEQ_STRIDE`] records. When the cursor
+    /// is between two entries the bound starts at the preceding entry, so it may
+    /// include at most one sparse block. The actor uses this conservative answer
+    /// to choose a fresh window; [`Log::since`] remains the exact bounded reader.
+    pub fn missed_bytes(&mut self, cursor: u64) -> Result<u64, Error> {
+        if self.broken {
+            return Err(Error::Stopped);
+        }
+        if cursor >= self.last_seq {
+            return Ok(0);
+        }
+        let first = cursor.saturating_add(1);
+        let slot = first / SEQ_STRIDE;
+        let (seg, offset) =
+            self.seqs.get(slot)?.ok_or(Error::Corrupt("seq.idx has no entry for missed bytes"))?;
+        let mut total = 0u64;
+        let mut current = seg;
+        while current <= self.tail.seg {
+            let end = if current == self.tail.seg {
+                self.tail.len
+            } else {
+                std::fs::metadata(super::segment_path(&self.rows_dir, current))?.len()
+            };
+            let start = if current == seg { u64::from(offset) } else { super::SEGMENT_HEADER_LEN };
+            total = total.saturating_add(end.saturating_sub(start));
+            current = current.saturating_add(1);
+        }
+        Ok(total)
+    }
+
     fn fold_entry_mut(&mut self, row_id: u64) -> Result<Option<crate::folds::Entry>, Error> {
         if self.fold_reader.is_none() {
             self.fold_reader = crate::folds::Reader::open(&self.folds_path)?;
