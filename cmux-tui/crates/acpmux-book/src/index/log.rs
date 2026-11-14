@@ -325,12 +325,10 @@ fn complete_frame_at(file: &File, offset: u64) -> io::Result<bool> {
     if remaining < frame_end {
         return Ok(false);
     }
-    // A complete, undecodable frame at EOF is the existing torn-tail case.
-    // It becomes structural damage only when a later frame decodes, proving
-    // that the bad bytes sit inside the log rather than at its tail.
-    let mut next = BufReader::new(file.try_clone()?);
-    next.seek(SeekFrom::Start(offset.saturating_add(frame_end)))?;
-    Ok(matches!(codec::read_any(&mut next), Ok(Some(_))))
+    // A complete framed log record that does not decode has an unknown next
+    // boundary, including when it is the final record. Only a short frame at
+    // EOF is the existing torn-tail case.
+    Ok(true)
 }
 
 pub fn replay_log(path: impl AsRef<Path>, index: SummaryIndex) -> io::Result<SummaryIndex> {
