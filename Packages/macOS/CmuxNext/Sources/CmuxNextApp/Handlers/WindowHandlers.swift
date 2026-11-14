@@ -22,7 +22,7 @@ enum WindowHandlers {
         })
         // DEV and NIGHTLY only: the descriptor is `isDebugOnly` (`DevTools`).
         registry.bind("openDebugSettings", run: { invocation in try context.services.debugSettings.show(focus: invocation.allowsViewChange) })
-        ToastActions(openTuning: { try context.services.debugSettings.show(selection: .section(CmuxToastTunables.section.id), focus: $0) }, window: { context.services.windows.active?.window }).bind(into: registry)
+        ToastActions(openTuning: { try context.services.debugSettings.show(selection: .section(CmuxToastTunables.section.id), focus: $0) }, window: { context.services.windows.active?.window }, themeColors: { context.services.themes.catalog.colors }).bind(into: registry)
         DebugTunableSwitchActions(show: "hostPressure.showWarning", hide: "hostPressure.hideWarning", tunable: HostPressureTunables.enabled).bind(into: registry)
         // DEV and NIGHTLY (`isDebugOnly`): the per-action budget's HUD; it never takes the keys.
         registry.bindEffect("debug.actionLatencyHUD", effect: { _ in
