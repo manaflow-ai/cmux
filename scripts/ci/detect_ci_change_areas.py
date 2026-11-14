@@ -174,7 +174,10 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
 # Areas only gate ci.yml and the reusable workflows it calls. A helper no job in
 # that tree can execute cannot change what a pull request's lanes do.
 _LOCAL_WORKFLOW_CALL_RE = re.compile(r"""uses:\s*["']?\./(\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml)""")
-_DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt")
+# Text nothing executes: prose, and captured CI logs (#41545's base_red_excuse
+# fixtures quote a run that printed tests/test_cmux_next_route.py, which made
+# every helper that test names route to every area).
+_DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt", ".log")
 # Files where `#` starts a comment. Outside scripts/, actions and tests/, one
 # that names a helper only in a comment does not run it (a Cargo.toml's note on
 # the release strip routed that strip script to every lane, #42338).
