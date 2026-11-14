@@ -60,12 +60,13 @@ silicon) IDLEW read 0 in every case, streaming included: it reports package idle
 (`ri_pkg_idle_wkups`), which stay 0 for the simulator's app there. And POWER repeated CPU %. Interrupt
 wakeups and `ri_energy_nj` are the counters that move.
 
-### The probe
+### Why not xctrace's Activity Monitor
 
-The head's first rep of each case runs `energy_probe` after its window: one 10 to 12 s window
-read by `ps`, `proc_pid_rusage`, `top` and an `xctrace record --template 'Activity Monitor'`
-(attached, else all processes), with the xctrace process table rows for the app. It prints to
-the step log and keeps `energy/probe-RUN/`, so the methods can be compared on the same window.
+The first run with `proc_pid_rusage` (cmux#42818) also read one window per case with
+`xctrace record --template 'Activity Monitor'`. `--attach PID` refuses a simulator app ("Cannot
+find process for provided pid"), and `--all-processes` hung saving its trace and gave no tables,
+at about 2 minutes per case, so the bench no longer runs it. rusage's CPU % agreed with top's
+within 0.1 on every run.
 
 ## Limits
 
