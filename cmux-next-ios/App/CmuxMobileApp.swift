@@ -28,9 +28,12 @@ struct CmuxMobileApp: App {
         // or Demo install left in this container, before anything reads them.
         DeveloperOptions.removeStoredValues()
         #endif
+        // The build's dev tag (Info.plist CmuxMobileDevTag, Debug configuration only): its cloud
+        // requests carry `X-Cmux-Build-Space: dev:<slug>` so dev builds never share cloud data.
         let auth = CmuxMobileAuthModel.live(
             environment: ProcessInfo.processInfo.environment,
-            bundleIdentifier: Bundle.main.bundleIdentifier
+            bundleIdentifier: Bundle.main.bundleIdentifier,
+            devTag: Bundle.main.object(forInfoDictionaryKey: "CmuxMobileDevTag") as? String
         )
         _auth = State(initialValue: auth)
         // A notification reply on a cold background launch signs in with it (no scene runs then).
@@ -106,5 +109,5 @@ private struct ChiefCallCover: ViewModifier {
 import CmuxMobileTransport
 
 /// Keeps the Rust link linked into debug builds so FFI breakage shows at build time.
-private let linkDialerProbe: any MacLinkDialer = FFIMacLinkDialer()
+private let linkDialerProbe: any MacLinkDialer = FFIMacLinkDialer(buildSpace: nil)
 #endif

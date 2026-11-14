@@ -4,7 +4,19 @@ import Foundation
 
 /// Dials Macs through the Rust cmux-mobile-link core (WebRTC or WireGuard).
 public struct FFIMacLinkDialer: MacLinkDialer {
-    public init() {}
+    /// A dev build's `X-Cmux-Build-Space` value (`dev:<slug>`), or nil to send none. The Rust core
+    /// puts it on every cmux-mobile-api request and the signaling upgrade it makes.
+    let buildSpace: String?
+
+    public init(buildSpace: String?) {
+        self.buildSpace = buildSpace
+    }
+
+    /// The build space is process state in the Rust core, set before each call that reaches the
+    /// service, like the keepalive setting.
+    private func applyBuildSpaceToCore() {
+        setBuildSpace(value: buildSpace)
+    }
 
     /// Settings → Transport → Ultra mode (`CmuxMobilePreferences.Key.ultra`, the same
     /// `UserDefaults` key; this module does not link CmuxMobileDesign): "off", "auto" or
@@ -17,6 +29,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
         let observer = StateObserver()
         // Settings → Transport → Align Keepalives, read at each dial like Ultra mode.
         KeepaliveBeat.applySettingToCore()
+        applyBuildSpaceToCore()
         do {
             let handle = try await connectWithOptions(
                 baseUrl: endpoint.baseURL.absoluteString,
@@ -39,6 +52,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
     public func prewarm(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
         // The signaling socket opened here reads the setting at its ticks.
         KeepaliveBeat.applySettingToCore()
+        applyBuildSpaceToCore()
         return await CmuxMobileLinkFFI.prewarm(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
             .map { ($0.name, $0.millis) }
     }
@@ -48,7 +62,8 @@ public struct FFIMacLinkDialer: MacLinkDialer {
     }
 
     public func networkChanged(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
-        await CmuxMobileLinkFFI.networkChanged(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
+        applyBuildSpaceToCore()
+        return await CmuxMobileLinkFFI.networkChanged(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
             .map { ($0.name, $0.millis) }
     }
 }

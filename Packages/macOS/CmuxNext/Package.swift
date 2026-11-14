@@ -406,7 +406,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWindowRules",
                 "CmuxNextWorkspaceNaming",
                 "CmuxNextWorkspaceRepair",
-                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
                 .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor"),
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),

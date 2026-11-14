@@ -80,6 +80,7 @@ extension IPhoneHostService {
             executable: executable,
             baseURL: base,
             stackProjectID: auth.configuration.stackProjectID,
+            buildSpace: auth.configuration.buildSpace,
             stateDirectory: state,
             accessToken: { force in
                 if force { return try await auth.coordinator.forceRefreshAccessToken() }

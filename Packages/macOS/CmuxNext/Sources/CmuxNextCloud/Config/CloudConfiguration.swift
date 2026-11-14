@@ -1,3 +1,5 @@
+public import CMUXAuthCore
+import CmuxNextCompat
 public import Foundation
 
 /// The build's Cloud, made by Rust from the bundled CLI's runtime selection (cmux-tui
@@ -68,6 +70,11 @@ public struct CloudConfiguration: Sendable, Equatable {
     public var namespacedLegacyStore: LegacyStore?
     /// A signed NEXT DEV production launch adopts the running NIGHTLY's session in memory.
     public var adoptsNightlySession = false
+    /// A tagged dev build's cloud data space (`X-Cmux-Build-Space: dev:<slug>`), made with the configuration from the
+    /// bundle's identity (``BuildIdentity/devTag``: its bundle id and shipped `CMUX_TAG`); nil for nightly, stable and
+    /// every untagged build, which send no header. Every client of this configuration's origins adds it to each request
+    /// and WebSocket upgrade.
+    public var buildSpace: CMUXBuildSpace?
 
     /// The Stack token Keychain service.
     public var keychainService: String { storage.keychainService }
@@ -131,13 +138,16 @@ public struct CloudConfiguration: Sendable, Equatable {
         case ("localOnly", let url?): .localOnly(url)
         default: .production
         }
-        return CloudConfiguration(
+        var configuration = CloudConfiguration(
             backend: backend, apiBaseURL: made.apiBaseUrl, authWebOrigin: made.authWebOrigin,
             stackBaseURL: made.stackBaseUrl, stackProjectID: made.stackProjectId,
             stackPublishableClientKey: made.stackPublishableClientKey, isProductionAuth: made.isProductionAuth,
             callbackScheme: made.callbackScheme, bundleID: made.bundleId, isDebugBuild: made.isDebugBuild,
             runtimeSelection: selection, storage: made.storage, namespacedLegacyStore: made.namespacedLegacyStore,
             adoptsNightlySession: made.adoptsNightlySession)
+        // A tagged dev build asks every cloud backend for its own data space; nightly and stable send nothing.
+        configuration.buildSpace = CMUXBuildSpace(devTag: BuildIdentity(bundleID: bundleID, bundledTag: bundled["CMUX_TAG"]).devTag)
+        return configuration
     }
 
     /// This build's configuration for another selection, everything Rust makes of it made again (the callback
@@ -145,6 +155,7 @@ public struct CloudConfiguration: Sendable, Equatable {
     public func selecting(_ selection: CloudRuntimeSelection) -> CloudConfiguration {
         var made = Self.from(selection: selection, bundleID: bundleID, bundled: [:], process: [:], isDebugBuild: isDebugBuild)
         made.callbackScheme = callbackScheme
+        made.buildSpace = buildSpace
         return made
     }
 

@@ -1,3 +1,4 @@
+public import CMUXAuthCore
 import CMUXMobileCore
 public import CmuxInstallAuthCore
 public import Foundation
@@ -14,17 +15,24 @@ public actor InstallIdentity {
     private let records: InstallRecordStore
     private let deviceName: String
     private let clientVersion: String?
+    /// A dev build's cloud data space (`X-Cmux-Build-Space` on every request); nil sends none.
+    private let buildSpace: CMUXBuildSpace?
     private var clients: [String: InstallAuthClient] = [:]
     public private(set) var current: String?
     /// Set while the owner refuses this app as too old; nil otherwise.
     public private(set) var updateRequired: ClientUpdateRequired?
     private var onUpdateRequired: (@Sendable (ClientUpdateRequired?) async -> Void)?
 
-    /// - Parameter clientVersion: sent as `x-cmux-client-version`; defaults
-    ///   to the app's `CFBundleShortVersionString`.
+    /// - Parameters:
+    ///   - clientVersion: sent as `x-cmux-client-version`; defaults
+    ///     to the app's `CFBundleShortVersionString`.
+    ///   - buildSpace: a dev build's cloud data space (`X-Cmux-Build-Space`); nil for
+    ///     release and TestFlight builds, which send no header.
     public init(baseURL: URL, bundleID: String, deviceName: String,
-                clientVersion: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) {
+                clientVersion: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+                buildSpace: CMUXBuildSpace? = nil) {
         self.baseURL = baseURL
+        self.buildSpace = buildSpace
         let host = baseURL.host ?? "unknown"
         signer = SecureEnclaveInstallSigner(bundleID: bundleID, environment: host)
         records = InstallRecordStore(service: "\(bundleID).install-record.\(host)")
@@ -105,7 +113,7 @@ public actor InstallIdentity {
 
     /// POSTs `json` to the API Worker with `bearer` (and the client version).
     public func post(_ path: String, json: Data, bearer: String) async throws -> (status: Int, body: Data) {
-        try await CredentialedTransport(baseURL: baseURL).post(path, json: json, bearer: bearer,
+        try await CredentialedTransport(baseURL: baseURL, buildSpace: buildSpace).post(path, json: json, bearer: bearer,
                                                               headers: InstallAuthClient.headers(clientVersion: clientVersion))
     }
 
@@ -144,7 +152,7 @@ public actor InstallIdentity {
 
     private func makeClient(_ user: String, session: InstallAuthClient.SessionToken?) -> InstallAuthClient {
         let records = self.records
-        return InstallAuthClient(transport: CredentialedTransport(baseURL: baseURL), signer: signer,
+        return InstallAuthClient(transport: CredentialedTransport(baseURL: baseURL, buildSpace: buildSpace), signer: signer,
                                  sessionToken: session, stackUser: user,
                                  deviceName: deviceName, clientVersion: clientVersion, record: records.record(for: user),
                                  onRecord: { records.setRecord($0, for: user) })
@@ -202,16 +210,25 @@ struct InstallRecordStore: Sendable {
 /// POSTs over the redirect-refusing credentialed session.
 struct CredentialedTransport: InstallAuthTransport {
     let baseURL: URL
+    /// A dev build's cloud data space; nil sends no `X-Cmux-Build-Space` header.
+    let buildSpace: CMUXBuildSpace?
     private let session = CmxCredentialedHTTPSession()
 
-    func post(_ path: String, json: Data, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {
+    /// The POST of `path` with its headers, the bearer and the build space, if any.
+    func makeRequest(_ path: String, json: Data, bearer: String?, headers: [String: String]) -> URLRequest {
         var request = URLRequest(url: baseURL.appendingPathComponent(String(path.drop(while: { $0 == "/" }))))
         request.httpMethod = "POST"
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let bearer { request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization") }
+        buildSpace?.apply(to: &request)
         request.httpBody = json
         request.timeoutInterval = 15
+        return request
+    }
+
+    func post(_ path: String, json: Data, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {
+        let request = makeRequest(path, json: json, bearer: bearer, headers: headers)
         let (data, response) = try await session.data(for: request)
         return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
     }

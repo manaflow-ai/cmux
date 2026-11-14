@@ -1,3 +1,4 @@
+public import CMUXAuthCore
 public import CmuxInstallAuthCore
 import CryptoKit
 public import Foundation
@@ -26,6 +27,7 @@ public actor MacInstallIdentity {
     private let transport: any InstallAuthTransport
     private let deviceName: String
     private let clientVersion: String?
+    private let buildSpace: CMUXBuildSpace?
     private var client: InstallAuthClient?
     private var user: String?
     private var generation: UInt64 = 0
@@ -34,11 +36,14 @@ public actor MacInstallIdentity {
     private var signingOut = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.install")
 
-    public init(store: MacInstallStore, transport: any InstallAuthTransport, deviceName: String, clientVersion: String?) {
+    /// `buildSpace`: a tagged dev build's cloud data space (``CloudConfiguration/buildSpace``), in ``requestHeaders``.
+    public init(store: MacInstallStore, transport: any InstallAuthTransport, deviceName: String, clientVersion: String?,
+                buildSpace: CMUXBuildSpace? = nil) {
         self.store = store
         self.transport = transport
         self.deviceName = deviceName
         self.clientVersion = clientVersion
+        self.buildSpace = buildSpace
     }
 
     /// The user signed in: binds them and registers (or reuses) the install
@@ -50,8 +55,11 @@ public actor MacInstallIdentity {
     }
 
     /// The headers every install-token request carries (the client
-    /// version, so the owner can refuse a too-old app).
-    public nonisolated var requestHeaders: [String: String] { InstallAuthClient.headers(clientVersion: clientVersion) }
+    /// version, so the owner can refuse a too-old app, and a tagged dev
+    /// build's `X-Cmux-Build-Space`).
+    public nonisolated var requestHeaders: [String: String] {
+        InstallAuthClient.headers(clientVersion: clientVersion).merging(buildSpace?.headers ?? [:]) { $1 }
+    }
 
     /// The `team` claim of an install token (the owner's own token over
     /// TLS; read for consistency, never trusted as a credential). Nil when

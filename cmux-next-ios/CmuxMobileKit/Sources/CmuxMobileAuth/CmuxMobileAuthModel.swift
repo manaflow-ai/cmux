@@ -52,6 +52,11 @@ public final class CmuxMobileAuthModel {
     @ObservationIgnored let stack: StackClientApp?
     /// The `cmux-mobile-api` base URL (`CMUX_MOBILE_API_BASE`), when configured.
     @ObservationIgnored let apiBase: URL?
+    /// This build's cloud data space: a Debug build's dev tag (Info.plist `CmuxMobileDevTag`) as
+    /// `X-Cmux-Build-Space: dev:<slug>` on every request to cmux-mobile-api and cloud-api. Nil
+    /// (nightly-paired Demo, Production, TestFlight, App Store, mock) sends no header. Decided once
+    /// in ``live(environment:bundleIdentifier:devTag:)``; every client of this account takes it from here.
+    public let buildSpace: CMUXBuildSpace?
     /// Where Create Team goes (``TeamCreationRoute``): the cmux team API for production accounts.
     @ObservationIgnored let teamCreationRoute: TeamCreationRoute
     /// Mock mode (DEBUG `CMUX_MOBILE_MOCK_AUTH=1`): signed in as a local user, no network.
@@ -67,8 +72,10 @@ public final class CmuxMobileAuthModel {
     public var errorMessage: String?
 
     init(coordinator: AuthCoordinator?, stack: StackClientApp? = nil, apiBase: URL? = nil,
-         teamCreationRoute: TeamCreationRoute? = nil, isMock: Bool, stackProjectID: String? = nil) {
+         teamCreationRoute: TeamCreationRoute? = nil, isMock: Bool, stackProjectID: String? = nil,
+         buildSpace: CMUXBuildSpace? = nil) {
         self.stackProjectID = stackProjectID
+        self.buildSpace = buildSpace
         self.coordinator = coordinator
         self.stack = stack
         self.apiBase = apiBase
@@ -85,7 +92,9 @@ public final class CmuxMobileAuthModel {
     /// `CMUX_MOBILE_MOCK_AUTH=1` (or Settings → Developer → Mock) signs in a
     /// local mock user, and
     /// `CMUX_MOBILE_STACK_EMAIL` / `CMUX_MOBILE_STACK_PASSWORD` auto-login a Stack test account.
-    public static func live(environment: [String: String], bundleIdentifier: String?) -> CmuxMobileAuthModel {
+    /// `devTag` is the build's Info.plist `CmuxMobileDevTag` (set only by the Debug configuration,
+    /// project.yml); a usable one makes ``buildSpace``.
+    public static func live(environment: [String: String], bundleIdentifier: String?, devTag: String?) -> CmuxMobileAuthModel {
         #if DEBUG
         let isDebug = true
         if environment["CMUX_MOBILE_MOCK_AUTH"] == "1" || DeveloperOptions.mockData {
@@ -171,7 +180,8 @@ public final class CmuxMobileAuthModel {
             mobileServiceBase: apiBase
         )
         return CmuxMobileAuthModel(coordinator: coordinator, stack: stack, apiBase: apiBase,
-                                   teamCreationRoute: teamCreationRoute, isMock: false, stackProjectID: config.stack.projectId)
+                                   teamCreationRoute: teamCreationRoute, isMock: false, stackProjectID: config.stack.projectId,
+                                   buildSpace: CMUXBuildSpace(devTag: devTag))
     }
 
     /// The `cmux-mobile-api` base URL: the `CMUX_MOBILE_API_BASE` launch override (DEBUG
@@ -391,7 +401,7 @@ public final class CmuxMobileAuthModel {
             }
             team = AppStore.AccountTeam(id: created.id, name: created.displayName)
         case .mobileService(let apiBase):
-            let creation = ServiceTeamCreation(apiBase: apiBase)
+            let creation = ServiceTeamCreation(apiBase: apiBase, buildSpace: buildSpace)
             let tokens = try await coordinator.currentTokens()
             let (data, response) = try await URLSession.shared.data(for: creation.request(accessToken: tokens.accessToken, name: name))
             team = try creation.team(from: data, status: (response as? HTTPURLResponse)?.statusCode ?? 0)
@@ -423,13 +433,20 @@ public final class CmuxMobileAuthModel {
         case requestFailed
     }
 
+    /// `POST <apiBase>/v1/teams/:teamId/invites`, the request ``inviteLink(teamID:)`` sends.
+    static func inviteRequest(apiBase: URL, teamID: String, accessToken: String, buildSpace: CMUXBuildSpace?) -> URLRequest {
+        var request = URLRequest(url: apiBase.appending(path: "v1/teams/\(teamID)/invites"))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        buildSpace?.apply(to: &request)
+        return request
+    }
+
     /// A Stack invitation URL for `teamID` from `POST /v1/teams/:teamId/invites`.
     public func inviteLink(teamID: String) async throws -> URL {
         guard let apiBase, let coordinator else { throw InviteError.serviceUnavailable }
         let tokens = try await coordinator.currentTokens()
-        var request = URLRequest(url: apiBase.appending(path: "v1/teams/\(teamID)/invites"))
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
+        let request = Self.inviteRequest(apiBase: apiBase, teamID: teamID, accessToken: tokens.accessToken, buildSpace: buildSpace)
         let (data, response) = try await URLSession.shared.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200,
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],

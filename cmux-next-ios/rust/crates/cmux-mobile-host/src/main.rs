@@ -6,6 +6,7 @@ const HELP: &str = "cmux-mobile-host: serve this Mac to cmux-next-ios phones.
 Configuration is read from the environment; see cmux-next-ios/rust/README.md.
 Required: CMUX_MOBILE_BASE_URL, CMUX_MOBILE_TEAM_ID, and CMUX_MOBILE_REFRESH_TOKEN(_FILE) or
 CMUX_MOBILE_ACCESS_TOKEN(_FILE).
+A dev build also sets CMUX_MOBILE_BUILD_SPACE=dev:<slug> (sent as X-Cmux-Build-Space).
 
   --print-device-id   print this Mac's device id and exit
 

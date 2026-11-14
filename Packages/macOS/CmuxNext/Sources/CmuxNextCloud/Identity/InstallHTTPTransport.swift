@@ -1,3 +1,4 @@
+public import CMUXAuthCore
 public import CmuxInstallAuthCore
 public import Foundation
 
@@ -7,9 +8,12 @@ public import Foundation
 public struct InstallHTTPTransport: InstallAuthTransport {
     private let baseURL: URL
     private let session: URLSession
+    /// A tagged dev build's cloud data space (``CloudConfiguration/buildSpace``); nil sends no header.
+    private let buildSpace: CMUXBuildSpace?
 
-    public init(baseURL: URL) {
+    public init(baseURL: URL, buildSpace: CMUXBuildSpace?) {
         self.baseURL = baseURL
+        self.buildSpace = buildSpace
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         configuration.httpShouldSetCookies = false
@@ -18,17 +22,27 @@ public struct InstallHTTPTransport: InstallAuthTransport {
     }
 
     public func post(_ path: String, json: Data, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {
-        var request = URLRequest(url: baseURL.appendingPathComponent(path))
-        request.httpMethod = "POST"
-        request.httpBody = json
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
-        if let bearer { request.setValue("Bearer \(bearer)", forHTTPHeaderField: "authorization") }
-        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: postRequest(path, json: json, bearer: bearer, headers: headers))
         return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
     }
 
     public func get(_ path: String, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {
+        let (data, response) = try await session.data(for: getRequest(path, bearer: bearer, headers: headers))
+        return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
+    }
+
+    /// The request ``post(_:json:bearer:headers:)`` sends.
+    func postRequest(_ path: String, json: Data, bearer: String?, headers: [String: String]) -> URLRequest {
+        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        request.httpMethod = "POST"
+        request.httpBody = json
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        authorize(&request, bearer: bearer, headers: headers)
+        return request
+    }
+
+    /// The request ``get(_:bearer:headers:)`` sends.
+    func getRequest(_ path: String, bearer: String?, headers: [String: String]) throws -> URLRequest {
         // The path joins the base as `post` does; a query after "?" is kept as given.
         let parts = path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
         guard var components = URLComponents(url: baseURL.appendingPathComponent(String(parts[0])), resolvingAgainstBaseURL: false)
@@ -38,10 +52,14 @@ public struct InstallHTTPTransport: InstallAuthTransport {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "accept")
+        authorize(&request, bearer: bearer, headers: headers)
+        return request
+    }
+
+    private func authorize(_ request: inout URLRequest, bearer: String?, headers: [String: String]) {
         if let bearer { request.setValue("Bearer \(bearer)", forHTTPHeaderField: "authorization") }
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
-        let (data, response) = try await session.data(for: request)
-        return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
+        buildSpace?.apply(to: &request)
     }
 }
 

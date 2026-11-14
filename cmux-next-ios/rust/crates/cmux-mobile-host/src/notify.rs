@@ -448,6 +448,8 @@ pub fn enabled() -> bool {
 #[derive(Clone)]
 pub struct Reporter {
     base_url: String,
+    /// A dev build's `x-cmux-build-space` (`HostConfig::build_space`).
+    build_space: Option<cmux_mobile_link::BuildSpace>,
     device_id: String,
     tokens: Arc<Tokens>,
     wants: Arc<Mutex<Wants>>,
@@ -461,7 +463,21 @@ pub struct Reporter {
 
 impl Reporter {
     pub fn new(base_url: String, device_id: String, tokens: Arc<Tokens>) -> Self {
-        Self { base_url, device_id, tokens, wants: Arc::default(), sealer: None, session_exposure: None }
+        Self {
+            base_url,
+            build_space: None,
+            device_id,
+            tokens,
+            wants: Arc::default(),
+            sealer: None,
+            session_exposure: None,
+        }
+    }
+
+    /// Sending a dev build's `x-cmux-build-space` on every notify.
+    pub fn with_build_space(mut self, build_space: Option<cmux_mobile_link::BuildSpace>) -> Self {
+        self.build_space = build_space;
+        self
     }
 
     /// With the sealer of a supervised hostd.
@@ -508,7 +524,8 @@ impl Reporter {
             {
                 return tracing::debug!(kind = event.kind, "push skipped: chat is not exposed");
             }
-            match ApiClient::new(&this.base_url, &token).notify_body(&this.device_id, &body).await {
+            let api = ApiClient::new(&this.base_url, &token).with_build_space(this.build_space.clone());
+            match api.notify_body(&this.device_id, &body).await {
                 Ok(result) => {
                     this.wants
                         .lock()
@@ -546,8 +563,10 @@ fn exposure_allows(state: &crate::control::SessionExposure, event: &NotifyEvent)
 }
 
 /// Runs until the process stops: watch acpmux and the daemon's notifications, report events, reconnect.
+#[allow(clippy::too_many_arguments)] // the service, this Mac and its token, and the three sources it watches
 pub async fn run(
     base_url: String,
+    build_space: Option<cmux_mobile_link::BuildSpace>,
     device_id: String,
     tokens: Arc<Tokens>,
     acpmux: AcpmuxTarget,
@@ -556,6 +575,7 @@ pub async fn run(
     session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
 ) {
     let reporter = Reporter::new(base_url, device_id, tokens)
+        .with_build_space(build_space)
         .with_sealer(sealer)
         .with_session_exposure(session_exposure.clone());
     let places = Arc::new(Places::default());

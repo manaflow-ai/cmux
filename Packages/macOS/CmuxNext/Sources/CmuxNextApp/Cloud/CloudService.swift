@@ -178,7 +178,7 @@ final class CloudService {
                 store: .forApp(directory: paths.root.appendingPathComponent(folder, isDirectory: true),
                                service: "\(configuration.bundleID ?? "cmux").install-key\(configuration.runtimeSelection?.storageNamespace.map { "." + $0 } ?? "").\(api.host ?? "unknown")",
                                team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild, loginKeychain: loginKeychain),
-                transport: InstallHTTPTransport(baseURL: api), deviceName: deviceName, clientVersion: clientVersion)
+                transport: InstallHTTPTransport(baseURL: api, buildSpace: configuration.buildSpace), deviceName: deviceName, clientVersion: clientVersion, buildSpace: configuration.buildSpace)
         }
         let identity = install(configuration.ownerAPIBaseURL(), "install")
         installIdentity = identity
@@ -189,7 +189,7 @@ final class CloudService {
         let machineIO = CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work)
         machineAPI = CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
                                                    teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
-                                                   machineIO: machineIO, installToken: { try await identity.installToken() })
+                                                   machineIO: machineIO, installToken: { try await identity.installToken() }, buildSpace: configuration.buildSpace)
         let build = LaunchIdentity.current().build
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         let environment = ProcessInfo.processInfo.environment
@@ -220,9 +220,9 @@ final class CloudService {
         hands = HandsService(
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
             presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)), cli: .cli(resources: Bundle.main.resourceURL, work: work))
-        let capability = CloudPreApproval(platform: configuration.relayAPIBaseURL(), headers: identity.requestHeaders)
+        let capability = CloudPreApproval(platform: configuration.relayAPIBaseURL(), headers: identity.requestHeaders, buildSpace: configuration.buildSpace)
         self.capability = capability
-        let relay = CloudCredentialRelay.live(identity: identity, baseURL: configuration.ownerAPIBaseURL(), capability: capability,
+        let relay = CloudCredentialRelay.live(identity: identity, baseURL: configuration.ownerAPIBaseURL(), buildSpace: configuration.buildSpace, capability: capability,
             signedIn: { [auth] in await MainActor.run { auth.isSignedIn } }, allowedOps: { await CloudCredentialRelay.bundledServedOps() },
             carrierSocket: { @MainActor [weak machines] id in let s = machines?.session(id); return await CloudLinkSession.carrierAnswer(s?.appLink, machine: id, paused: s?.machine.shownStatus.isPaused == true) })
         credentialProvider = CloudCredentialProvider(relay: relay)

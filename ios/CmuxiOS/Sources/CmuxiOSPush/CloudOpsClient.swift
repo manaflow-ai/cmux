@@ -1,3 +1,4 @@
+public import CMUXAuthCore
 import CMUXMobileCore
 public import CmuxFeedPushCore
 public import Foundation
@@ -43,11 +44,14 @@ extension CloudOpsSending {
 public struct CloudOpsClient: CloudOpsSending {
     public let baseURL: URL
     public let tokens: any InstallTokenProviding
+    /// A dev build's cloud data space (`X-Cmux-Build-Space`); nil sends no header.
+    public let buildSpace: CMUXBuildSpace?
     private let session = CmxCredentialedHTTPSession()
 
-    public init(baseURL: URL, tokens: any InstallTokenProviding) {
+    public init(baseURL: URL, tokens: any InstallTokenProviding, buildSpace: CMUXBuildSpace? = nil) {
         self.baseURL = baseURL
         self.tokens = tokens
+        self.buildSpace = buildSpace
     }
 
     public func send(_ op: CloudOp, as user: String?) async throws {
@@ -65,12 +69,7 @@ public struct CloudOpsClient: CloudOpsSending {
         do { token = try await tokens.installToken(for: user) } catch let error as CloudOpsError { throw error } catch {
             throw CloudOpsError.installTokenUnavailable
         }
-        var request = URLRequest(url: baseURL.appendingPathComponent("v1/ops"))
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try op.body()
-        request.timeoutInterval = 15
+        let request = try opRequest(op, token: token)
         let body: Data
         let response: URLResponse
         do { (body, response) = try await session.data(for: request) } catch {
@@ -82,6 +81,18 @@ public struct CloudOpsClient: CloudOpsSending {
         if case .rejected(let code, let retryable) = CloudOpReply(body: body) {
             throw CloudOpsError.rejected(code: code, retryable: retryable)
         }
+    }
+
+    /// `POST /v1/ops` for `op` with the install `token` and the build space, if any.
+    func opRequest(_ op: CloudOp, token: String) throws -> URLRequest {
+        var request = URLRequest(url: baseURL.appendingPathComponent("v1/ops"))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        buildSpace?.apply(to: &request)
+        request.httpBody = try op.body()
+        request.timeoutInterval = 15
+        return request
     }
 }
 

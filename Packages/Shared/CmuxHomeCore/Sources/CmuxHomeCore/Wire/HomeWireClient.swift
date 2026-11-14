@@ -1,3 +1,4 @@
+import CMUXAuthCore
 import Foundation
 
 /// The HTTP half of `cmux.wire/1` for ``WireHomeSource``: `POST /v1/ops`,
@@ -18,6 +19,9 @@ struct HomeWireClient: Sendable {
     let baseURL: URL
     let auth: HomeWireAuth
     let http: any HomeWireHTTP
+    /// A dev build's cloud data space (`X-Cmux-Build-Space`), sent on every request and socket
+    /// upgrade to this server; nil (nightly, stable, a self-hosted server) sends no header.
+    var buildSpace: CMUXBuildSpace? = nil
 
     // MARK: Requests
 
@@ -28,11 +32,12 @@ struct HomeWireClient: Sendable {
         return URL(string: text + path) ?? baseURL
     }
 
-    /// A request with this server's auth. `.tailscale` sends no
+    /// A request with this server's auth and the build space, if any. `.tailscale` sends no
     /// `Authorization` header at all: the server knows the caller by its
     /// tailnet address.
     func authorized(_ request: URLRequest, forceRefresh: Bool) async throws -> URLRequest {
         var request = request
+        buildSpace?.apply(to: &request)
         switch auth {
         case .stack(let tokens):
             let token: String

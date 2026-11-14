@@ -1,3 +1,4 @@
+public import CMUXAuthCore
 import Foundation
 
 /// Create Team through the cmux service (`POST /v1/teams`, PROTOCOL.md).
@@ -15,9 +16,12 @@ public struct ServiceTeamCreation: Sendable {
     }
 
     public let apiBase: URL
+    /// A dev build's cloud data space (`X-Cmux-Build-Space`); nil sends no header.
+    public let buildSpace: CMUXBuildSpace?
 
-    public init(apiBase: URL) {
+    public init(apiBase: URL, buildSpace: CMUXBuildSpace?) {
         self.apiBase = apiBase
+        self.buildSpace = buildSpace
     }
 
     /// `POST /v1/teams {name}`.
@@ -27,6 +31,7 @@ public struct ServiceTeamCreation: Sendable {
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["name": name])
+        buildSpace?.apply(to: &request)
         return request
     }
 

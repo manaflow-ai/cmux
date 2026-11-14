@@ -1,4 +1,5 @@
 public import AppKit
+import CMUXAuthCore
 public import CmuxNextAgentPane
 public import CmuxNextCompat
 public import CmuxNextDesign
@@ -44,6 +45,8 @@ public final class IPhoneHostService {
         /// The mobile service.
         var baseURL: URL
         var stackProjectID: String
+        /// A tagged dev build's cloud data space (``CloudConfiguration/buildSpace``); nil for nightly and stable.
+        var buildSpace: CMUXBuildSpace?
         /// Per-bundle state (device id, hostd log).
         var stateDirectory: URL
         var accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
@@ -106,6 +109,7 @@ public final class IPhoneHostService {
         launch.simulatorSurfaces = dependencies.surfaceHosts?.streamsSimulators ?? false
         launch.chiefSession = chief?.session
         launch.chiefSocket = chief?.socket
+        launch.buildSpace = dependencies.buildSpace
         return launch
     }
 
@@ -310,7 +314,7 @@ public final class IPhoneHostService {
             phonesError = nil
             return pushListedPhones()
         }
-        let directory = MobileHostDeviceDirectory(baseURL: dependencies.baseURL)
+        let directory = MobileHostDeviceDirectory(baseURL: dependencies.baseURL, buildSpace: dependencies.buildSpace)
         // task-owner: stored in `listing`; a newer read cancels it
         listing = Task { [weak self] in
             do {
@@ -338,7 +342,7 @@ public final class IPhoneHostService {
         }
         guard let dependencies, let phone = knownPhones.first(where: { $0.id == id || $0.owns(id) }) else { return }
         do {
-            try await MobileHostDeviceDirectory(baseURL: dependencies.baseURL).remove(phone, token: dependencies.accessToken(false))
+            try await MobileHostDeviceDirectory(baseURL: dependencies.baseURL, buildSpace: dependencies.buildSpace).remove(phone, token: dependencies.accessToken(false))
             await supervisor.drop(phoneDeviceIDs: phone.deviceIDs)
             // Its pairing goes too: its links and Face ID approvals stop at once.
             for deviceID in phone.deviceIDs { revokePhone(id: deviceID) }

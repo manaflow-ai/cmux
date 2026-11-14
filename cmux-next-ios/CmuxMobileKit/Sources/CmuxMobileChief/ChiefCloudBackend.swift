@@ -476,10 +476,7 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             }
             // Closed while the token came: open nothing.
             guard !closed, !Task.isCancelled else { return .ended(welcomed: false, unauthorized: false, reason: "closed") }
-            var request = URLRequest(url: url)
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
-            request.setValue("cmux.wire.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
-            let task = http.session.webSocketTask(with: request)
+            let task = http.session.webSocketTask(with: http.socketRequest(url, token: token))
             socket = task
             awaitingSnapshot = false
             subscribeOutstanding = false

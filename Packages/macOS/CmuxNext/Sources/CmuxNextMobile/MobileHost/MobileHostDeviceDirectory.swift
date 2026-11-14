@@ -1,3 +1,4 @@
+public import CMUXAuthCore
 public import Foundation
 
 /// The account's registered devices on the mobile service (`GET /v1/me/devices`,
@@ -14,10 +15,13 @@ public struct MobileHostDeviceDirectory: Sendable {
     }
 
     public let baseURL: URL
+    /// A tagged dev build's cloud data space, on every request; nil sends none.
+    public let buildSpace: CMUXBuildSpace?
     private let send: Send
 
-    public init(baseURL: URL, send: @escaping Send = MobileHostDeviceDirectory.urlSession) {
+    public init(baseURL: URL, buildSpace: CMUXBuildSpace?, send: @escaping Send = MobileHostDeviceDirectory.urlSession) {
         self.baseURL = baseURL
+        self.buildSpace = buildSpace
         self.send = send
     }
 
@@ -31,6 +35,7 @@ public struct MobileHostDeviceDirectory: Sendable {
     public func phones(token: String) async throws -> [MobileHostKnownPhone] {
         var request = URLRequest(url: baseURL.appendingPathComponent("v1/me/devices"))
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        buildSpace?.apply(to: &request)
         let (data, status) = try await send(request)
         guard status == 200 else { throw Failure.status(status) }
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -44,6 +49,7 @@ public struct MobileHostDeviceDirectory: Sendable {
             var request = URLRequest(url: baseURL.appendingPathComponent("v1/devices/\(id)"))
             request.httpMethod = "DELETE"
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            buildSpace?.apply(to: &request)
             let (_, status) = try await send(request)
             guard status == 200 || status == 404 else { throw Failure.status(status) }
         }

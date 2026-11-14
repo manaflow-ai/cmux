@@ -239,7 +239,8 @@ public final class LiveCoordinator {
             deviceID: identity.link, deviceName: deviceName, feedStore: feedStore)
         // The default Chief is the account's Cloud Chief (same sign-in);
         // the Mac Chief below stays reachable beside it.
-        ChiefSources.shared.start(userID: userID) { try await apiForLink.accessToken($0) }
+        // In the same build space as the mobile service (a dev build's own cloud data).
+        ChiefSources.shared.start(userID: userID, config: .current(buildSpace: api.buildSpace)) { try await apiForLink.accessToken($0) }
         // The Feed as this phone last saw it; the Mac's history merges in on connect.
         let archive = FeedArchive.forAccount(userID)
         feedStore.useReadMarks(readMarks ?? .forAccount(userID))

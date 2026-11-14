@@ -59,8 +59,10 @@ extension CloudOwnerAPIClient {
               let access = try? await accessToken() else { return .unknown }
         var request = URLRequest(url: url, timeoutInterval: 15)
         request.httpMethod = "GET"
-        // Only Authorization (the Worker's invocation log masks it): the team in the query is no secret.
+        // Only Authorization (the Worker's invocation log masks it) and the build space (the build's public tag):
+        // the team in the query is no secret.
         request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
+        buildSpace?.apply(to: &request)
         let session = session, prepared = request
         guard let answer = try? await withDeadline(.seconds(15), label: "GET \(path)", { try await session.data(for: prepared) }),
               let http = answer.1 as? HTTPURLResponse else { return .unknown }
