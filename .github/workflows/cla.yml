@@ -87,9 +87,12 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-contents: read
           permission-pull-requests: read
+          # Read-only and left to expire on this one-job VM: a revoke would
+          # spend the App's shared budget (tests/test_glaeda_route_app_budget.py).
+          skip-token-revoke: true
       - name: "CLA Assistant"
         id: cla
-        uses: manaflow-ai/cla-github-action@ab4fe750ea5c714cf7e04c8ff649042729094ae5
+        uses: manaflow-ai/cla-github-action@eefc5c477a88b5a7d294d5bcf7696e9938096247
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CLA_READ_TOKEN: ${{ steps.glaeda-token.outputs.token }}
