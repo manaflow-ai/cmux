@@ -542,28 +542,20 @@ public final class AgentChatStore {
     public func enableFullAccess() {
         guard canEnableFullAccess, !enablingFullAccess else { return }
         enablingFullAccess = true
-        let pendingPromptID = resendable?.promptID
+        clientError = nil
         let source = source
         Task { @MainActor [weak self] in
             do {
                 try await source.enableFullAccess()
                 guard let self else { return }
                 self.enablingFullAccess = false
-                // returnedDraft is a delivery event consumed by ChatComposer. The
-                // retained resend owns the prompt until it is sent or acknowledged.
-                // A send or acknowledgement during authorization ends this retry.
-                if let draft = self.resendable, draft.promptID == pendingPromptID {
-                    if self.returnedDraft?.promptID == draft.promptID { self.returnedDraft = nil }
+                if let draft = self.returnedDraft {
                     self.send(prompt: draft.text, attachments: draft.attachments)
-                    self.withdrawnDraft = ReturnedDraft(text: draft.text, attachments: draft.attachments,
-                                                        promptID: draft.promptID)
                 }
             } catch {
                 guard let self else { return }
                 self.enablingFullAccess = false
-                // Keep the same refusal and approval action after a cancellation,
-                // lost reply or rejected signature; the person can try in place.
-                self.clientError = Self.fullAccessOffPromptNotice
+                self.clientError = "Full access could not be turned on. Try again."
             }
         }
     }
