@@ -190,7 +190,7 @@ pub(super) struct View {
 /// the request starts.
 pub(super) enum Job<B, C> {
     Stop,
-    Bind(Box<B>, u64),
+    Bind(Box<B>, u64, bool),
     Resume(u64),
     Wanted(u64),
     Refresh(u64),
@@ -278,12 +278,27 @@ impl<B, C> Core<B, C> {
         self.waiting_resume = None;
     }
 
-    /// The machine is bound (again): the bind's generation starts now, not
-    /// when the fetch thread takes it.
+    /// The machine is bound (again) with no ticket of its own (the seeded
+    /// sweep's binds): [`Core::bind_with`].
+    #[cfg(test)]
     pub(super) fn bind(&mut self, next: B) {
+        self.bind_with(next, None);
+    }
+
+    /// The machine is bound (again): the bind's generation starts now, not
+    /// when the fetch thread takes it. A bind that already holds its first
+    /// ticket (the bind answer's) keeps it as the generation's kept ticket in
+    /// this same transition, so an ask right after it takes it with no
+    /// request.
+    pub(super) fn bind_with(&mut self, next: B, warm: Option<Warm>) {
         self.new_generation();
         self.bound_at = self.generation;
         self.next = Some(next);
+        self.warm = warm;
+        // A new bind supersedes a resume that was noted before it. A resume
+        // noted after this transition remains set and invalidates a seeded
+        // ticket when the pending bind is picked.
+        self.resumed = false;
     }
 
     /// The machine resumed: the kept ticket and anything on its way from
@@ -370,11 +385,15 @@ impl<B, C> Core<B, C> {
             return Job::Done(Box::new(done), Back { current, same_binding, resume }, generation);
         }
         if let Some(next) = self.next.take() {
-            // The bind's own request supersedes a resume noted before it.
+            // A resume noted after this bind was handed over invalidated its
+            // seed. Tell the fetcher to prefetch instead of treating that seed
+            // as usable; a resume noted before a later bind was cleared by
+            // bind_with and therefore leaves this true.
+            let seed_valid = !self.resumed;
             self.resumed = false;
             self.bound = true;
             self.fetching = true;
-            return Job::Bind(Box::new(next), generation);
+            return Job::Bind(Box::new(next), generation, seed_valid);
         }
         if self.resumed {
             self.resumed = false;
