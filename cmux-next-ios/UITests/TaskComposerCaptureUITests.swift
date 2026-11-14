@@ -33,23 +33,6 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         return nil
     }
 
-    /// Drags the sheet a little at a time until `element` sits below the bar and above the bottom
-    /// (its frame from the accessibility tree), so a capture shows it whole.
-    @MainActor
-    private static func scrollUntilBelowBar(_ app: XCUIApplication, _ element: XCUIElement) -> String? {
-        guard element.waitForExistence(timeout: 10) else { return "no element to bring into view" }
-        let screen = app.frame
-        for _ in 0..<12 {
-            let f = element.frame
-            if f.minY > screen.height * 0.16, f.maxY < screen.height * 0.85 { return nil }
-            let up = f.minY > screen.height * 0.85
-            let from = CGVector(dx: 0.5, dy: up ? 0.6 : 0.3), to = CGVector(dx: 0.5, dy: up ? 0.45 : 0.42)
-            app.coordinate(withNormalizedOffset: from).press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: to))
-            pause(0.5)
-        }
-        return "could not bring it below the bar"
-    }
-
     /// A step that checks where the scene got to: nil when `ok`, else why (so a capture that
     /// missed its state is reported as missed, not attached as if it showed it).
     @MainActor
@@ -57,29 +40,6 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         let end = Date().addingTimeInterval(timeout)
         while Date() < end { if ok() { return nil }; pause(0.3) }
         return ok() ? nil : why
-    }
-
-    /// Picks `mac` in the Mac picker (twice at most: a menu tap can land while it opens).
-    @MainActor
-    private static func switchMac(_ app: XCUIApplication, to mac: String) -> String? {
-        for _ in 0..<2 {
-            if let miss = tap(any(app, "taskComposer.mac"), "Mac picker") { return miss }
-            pause(0.8)
-            let item = app.buttons[mac].firstMatch
-            if item.waitForExistence(timeout: 3) { item.tap() }
-            pause(1.0)
-            if app.buttons["taskComposer.start"].firstMatch.label == "Start" { return nil }
-        }
-        return "the Mac did not switch to \(mac)"
-    }
-
-    /// A short drag up inside the sheet (a fraction of a screen), to bring the next rows in.
-    @MainActor
-    private static func nudgeUp(_ app: XCUIApplication, by fraction: Double = 0.3) {
-        // From above the keyboard (its top is near 0.55): a drag there scrolls the form and puts the keyboard away.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
-            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: max(0.08, 0.45 - fraction))))
-        pause(0.6)
     }
 
     @MainActor
@@ -91,12 +51,47 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         return nil
     }
 
+    /// Opens the Agents list from its pill.
+    @MainActor
+    private static func openAgents(_ app: XCUIApplication) -> String? {
+        steps([
+            { tap(any(app, "taskComposer.agents"), "Agents pill") },
+            { any(app, "taskComposer.agents.done").waitForExistence(timeout: 6) ? nil : "the Agents list did not open" },
+        ])
+    }
+
+    @MainActor
+    private static func closeSheet(_ app: XCUIApplication, _ id: String) -> String? {
+        steps([{ tap(any(app, id), id) }, { pause(0.8); return nil }])
+    }
+
+    @MainActor
+    private static func openOptions(_ app: XCUIApplication) -> String? {
+        steps([
+            { tap(any(app, "taskComposer.options"), "Task Options") },
+            { any(app, "taskComposer.options.done").waitForExistence(timeout: 6) ? nil : "Task Options did not open" },
+        ])
+    }
+
     @MainActor
     private static func composeTwoAgents(_ app: XCUIApplication) -> String? {
         steps([
             { openComposer(app) },
             { type(app, "Fix the flaky upload test and open a PR") },
+            { openAgents(app) },
             { tap(any(app, "taskComposer.agent.claude-cr"), "Claude Code Router row") },
+            { closeSheet(app, "taskComposer.agents.done") },
+            { check(app.buttons["taskComposer.start"].firstMatch.label == "Start 2", "two agents not picked") },
+        ])
+    }
+
+    /// Back, then Save Draft in the dialog that asks.
+    @MainActor
+    private static func leaveSavingDraft(_ app: XCUIApplication) -> String? {
+        steps([
+            { tap(any(app, "taskComposer.cancel"), "Back") },
+            { tap(app.buttons["Save Draft"].firstMatch, "Save Draft") },
+            { any(app, "taskComposer.prompt").waitForNonExistence(timeout: 5) ? nil : "New Task did not close" },
         ])
     }
 
@@ -130,165 +125,211 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
     @MainActor
     func testNewTaskStates() {
         let g = Self.group
+        let large = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL", "-cmux-mobile-open-new-task"]
         capture([
+            // Entry (A1).
             Scene(group: g, id: "new-workspace-menu", args: Self.list) { app in
                 C.longPress(C.any(app, "workspaces.new"), "New Workspace button")
             },
-            Scene(group: g, id: "composer-empty", args: Self.list) { app in Self.openComposer(app) },
+            Scene(group: g, id: "new-workspace-menu-rest", args: Self.list) { app in
+                C.steps([{ C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
+                         { app.swipeUp(); C.pause(0.8); return nil }])
+            },
+            Scene(group: g, id: "entry-hidden-no-agents", args: Self.list + ["-cmux-mobile-no-agents"]) { app in
+                C.steps([{ C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
+                         { Self.check(!C.any(app, "workspaces.newTask").exists, "New Task is offered") }])
+            },
+            Scene(group: g, id: "plain-tap-terminal", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
+                C.tap(C.any(app, "workspaces.new"), "New Workspace button")
+            },
+            // The canvas and the row above the keyboard (A2).
+            Scene(group: g, id: "composer-empty", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) },
+                         { Self.check(!app.buttons["taskComposer.start"].firstMatch.isEnabled, "Start is on with no prompt") }])
+            },
             Scene(group: g, id: "composer-typed", args: Self.list) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test and open a PR") }])
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test and open a PR") },
+                         { Self.check(app.buttons["taskComposer.start"].firstMatch.isEnabled, "Start is off with a prompt") }])
+            },
+            Scene(group: g, id: "composer-multiline", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) },
+                         { Self.type(app, "Profile the list scroll\nand fix any hitch over 8 ms.\nAttach a trace to the PR.") }])
+            },
+            Scene(group: g, id: "composer-keyboard-down", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Update the docs") },
+                         { app.swipeDown(); C.pause(0.8); return nil }])
+            },
+            // Agents and models (A3).
+            Scene(group: g, id: "agents-list", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openAgents(app) }])
             },
             Scene(group: g, id: "composer-two-agents", args: Self.list) { app in
-                C.steps([{ Self.composeTwoAgents(app) }, { app.swipeUp(); return nil }])
+                Self.composeTwoAgents(app)
+            },
+            Scene(group: g, id: "agents-list-two", args: Self.list) { app in
+                C.steps([{ Self.composeTwoAgents(app) }, { Self.openAgents(app) }])
             },
             Scene(group: g, id: "composer-model-menu", args: Self.list) { app in
-                C.steps([{ Self.composeTwoAgents(app) }, { C.tap(C.any(app, "taskComposer.model.claude-cr"), "model menu") }])
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
+                         { C.tap(C.any(app, "taskComposer.modelPill"), "model pill") }])
             },
-            Scene(group: g, id: "composer-folder-menu", args: Self.list) { app in
-                C.steps([
-                    { Self.openComposer(app) },
-                    { Self.type(app, "Update the docs") },
-                    { app.swipeUp(); return nil },
-                    { C.tap(C.any(app, "taskComposer.folder"), "folder picker") },
-                ])
+            Scene(group: g, id: "agent-row-model-menu", args: Self.list) { app in
+                C.steps([{ Self.composeTwoAgents(app) }, { Self.openAgents(app) },
+                         { C.tap(C.any(app, "taskComposer.model.claude-cr"), "Router's model menu") }])
             },
-            Scene(group: g, id: "composer-named-scrolled", args: Self.list) { app in
-                C.steps([
-                    { Self.openComposer(app) },
-                    { Self.type(app, "Profile the list scroll\nand fix any hitch over 8 ms") },
-                    // The keyboard covers the name field: drag the form to put it away first.
-                    { app.swipeUp(); C.pause(0.6); return nil },
-                    { C.tap(C.any(app, "taskComposer.name"), "name field") },
-                    { C.any(app, "taskComposer.name").typeText("scroll perf"); return nil },
-                ])
+            Scene(group: g, id: "agents-at-limit", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") }, { Self.openAgents(app) },
+                         { C.tap(C.any(app, "taskComposer.agent.claude-cr"), "Router") },
+                         { C.tap(C.any(app, "taskComposer.agent.claude-work"), "work") },
+                         { C.tap(C.any(app, "taskComposer.agent.claude-review"), "review") },
+                         { C.tap(C.any(app, "taskComposer.agent.claude-docs"), "docs, the fifth") },
+                         { Self.check(!C.any(app, "taskComposer.agent.claude-docs").isSelected, "a fifth agent was picked") }])
+            },
+            Scene(group: g, id: "composer-four-agents", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") }, { Self.openAgents(app) },
+                         { C.tap(C.any(app, "taskComposer.agent.claude-cr"), "Router") },
+                         { C.tap(C.any(app, "taskComposer.agent.claude-work"), "work") },
+                         { C.tap(C.any(app, "taskComposer.agent.claude-review"), "review") },
+                         { Self.closeSheet(app, "taskComposer.agents.done") },
+                         { Self.check(app.buttons["taskComposer.start"].firstMatch.label == "Start 4", "not four agents") }])
+            },
+            Scene(group: g, id: "model-unavailable", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") },
+                         { C.tap(C.any(app, "taskComposer.modelPill"), "model pill") }])
+            },
+            Scene(group: g, id: "model-unavailable-tapped", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") },
+                         { C.tap(C.any(app, "taskComposer.modelPill"), "model pill") },
+                         { C.tap(C.label(app, contains: "Opus Max"), "Opus Max") },
+                         { C.pause(1); return nil },
+                         { Self.check(!C.any(app, "taskComposer.modelPill").label.contains("Opus Max"), "Opus Max was chosen") }])
+            },
+            Scene(group: g, id: "agents-loading", args: Self.list + ["-cmux-mobile-task-catalog", "slow"]) { app in
+                C.steps([{ Self.openComposer(app) },
+                         { Self.check((C.any(app, "taskComposer.agents").value as? String) == "Loading", "agents not loading") }])
+            },
+            Scene(group: g, id: "agents-failed", args: Self.list + ["-cmux-mobile-task-catalog", "failed"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Anything") }])
+            },
+            Scene(group: g, id: "agents-failed-list", args: Self.list + ["-cmux-mobile-task-catalog", "failed"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.openAgents(app) },
+                         { Self.check(C.any(app, "taskComposer.agents.retry").exists, "no Try Again") }])
+            },
+            Scene(group: g, id: "agents-empty", args: Self.list + ["-cmux-mobile-task-catalog", "empty"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Anything") },
+                         { Self.check(!app.buttons["taskComposer.start"].firstMatch.isEnabled, "Start is on with no agent") }])
+            },
+            Scene(group: g, id: "agents-empty-list", args: Self.list + ["-cmux-mobile-task-catalog", "empty"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.openAgents(app) }])
+            },
+            // Task Options: name, Mac, folder (A4).
+            Scene(group: g, id: "options", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Update the docs") }, { Self.openOptions(app) }])
+            },
+            Scene(group: g, id: "options-named", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Update the docs") }, { Self.openOptions(app) },
+                         { C.tap(C.any(app, "taskComposer.name"), "name field") },
+                         { C.any(app, "taskComposer.name").typeText("docs pass"); return nil }])
+            },
+            Scene(group: g, id: "options-folder-menu", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Update the docs") }, { Self.openOptions(app) },
+                         { C.tap(C.any(app, "taskComposer.folder"), "folder picker") }])
+            },
+            Scene(group: g, id: "options-two-agents", args: Self.list) { app in
+                C.steps([{ Self.composeTwoAgents(app) }, { Self.openOptions(app) },
+                         { Self.check(C.any(app, "taskComposer.titles").exists, "no workspace titles") }])
+            },
+            Scene(group: g, id: "options-mac-picker", args: Self.list + ["-cmux-mobile-mock-second-mac"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Update the docs") }, { Self.openOptions(app) },
+                         { C.tap(C.any(app, "taskComposer.mac"), "Mac picker") }])
+            },
+            Scene(group: g, id: "mac-switched-clears-agents", args: Self.list + ["-cmux-mobile-mock-second-mac"]) { app in
+                C.steps([{ Self.composeTwoAgents(app) }, { Self.openOptions(app) },
+                         { C.tap(C.any(app, "taskComposer.mac"), "Mac picker") },
+                         { C.tap(app.buttons["MacBook Pro"].firstMatch, "MacBook Pro") }, { C.pause(1); return nil },
+                         { Self.closeSheet(app, "taskComposer.options.done") },
+                         { Self.check(app.buttons["taskComposer.start"].firstMatch.label == "Start", "the agents stayed") }])
+            },
+            // Photos (A5).
+            Scene(group: g, id: "attach-menu", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Match this design") },
+                         { C.tap(C.any(app, "taskComposer.attach"), "attach") }])
             },
             Scene(group: g, id: "composer-photos", args: Self.list, env: ["CMUX_MOBILE_TASK_DRAFT_IMAGES": "3"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Match this design") }])
             },
             Scene(group: g, id: "composer-photo-limit", args: Self.list, env: ["CMUX_MOBILE_TASK_DRAFT_IMAGES": "6"]) { app in
-                C.steps([{ Self.openComposer(app) }, { app.swipeUp(); return nil }])
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Match this design") },
+                         { Self.check(C.any(app, "taskComposer.photosFull").exists, "no limit note") }])
             },
             Scene(group: g, id: "composer-system-photo-picker", args: Self.list) { app in
-                C.steps([{ Self.openComposer(app) }, { app.swipeUp(); return nil },
-                         { C.tap(C.any(app, "taskComposer.addPhotos"), "Add Photos") }, { C.pause(2); return nil }])
+                C.steps([{ Self.openComposer(app) }, { C.tap(C.any(app, "taskComposer.attach"), "attach") },
+                         { C.tap(C.any(app, "taskComposer.addPhotos"), "Photos") }, { C.pause(2); return nil }])
             },
-            Scene(group: g, id: "agents-loading", args: Self.list + ["-cmux-mobile-task-catalog", "slow"]) { app in
-                Self.openComposer(app)
-            },
-            Scene(group: g, id: "agents-failed", args: Self.list + ["-cmux-mobile-task-catalog", "failed"]) { app in
-                C.steps([{ Self.openComposer(app) }, { app.swipeUp(); return nil }])
-            },
-            Scene(group: g, id: "agents-empty", args: Self.list + ["-cmux-mobile-task-catalog", "empty"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Anything") }, { app.swipeUp(); return nil }])
-            },
-            // At Accessibility sizes the bar's hold is not reachable from XCUITest reliably (it lands
-            // as a tap): the DEBUG launch argument opens the same sheet.
-            Scene(group: g, id: "composer-large-type",
-                  args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL", "-cmux-mobile-open-new-task"]) { app in
-                C.steps([{ C.any(app, "taskComposer.prompt").waitForExistence(timeout: 15) ? nil : "composer did not open" },
-                         { Self.type(app, "Fix the flaky upload test") }])
-            },
-            Scene(group: g, id: "composer-large-type-agents",
-                  args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL", "-cmux-mobile-open-new-task"]) { app in
-                C.steps([{ C.any(app, "taskComposer.prompt").waitForExistence(timeout: 15) ? nil : "composer did not open" },
-                         { app.swipeUp(); C.pause(0.6); return nil }])
-            },
-            // The Mac still making it: the chat says Starting <agent>….
+            // After Start (A6, A7).
             Scene(group: g, id: "started-one-starting", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
                          { C.tap(C.any(app, "taskComposer.start"), "Start") }])
             },
-            // A1: with no Mac starting agents from the phone, New Task is not offered.
-            Scene(group: g, id: "entry-hidden-no-agents", args: Self.list + ["-cmux-mobile-no-agents"]) { app in
-                C.longPress(C.any(app, "workspaces.new"), "New Workspace button")
+            Scene(group: g, id: "started-one-opens", args: Self.list + ["-cmux-mobile-mock-create-delay", "1"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
+                         { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(5); return nil }])
             },
-            // A1: a plain tap still makes a terminal workspace at once.
-            Scene(group: g, id: "plain-tap-terminal", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
-                C.tap(C.any(app, "workspaces.new"), "New Workspace button")
+            Scene(group: g, id: "started-two-rows", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
+                C.steps([{ Self.composeTwoAgents(app) }, { C.tap(C.any(app, "taskComposer.start"), "Start 2") }])
             },
-            // The rest of the hold menu, unchanged below New Task.
-            Scene(group: g, id: "new-workspace-menu-rest", args: Self.list) { app in
-                C.steps([{ C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
-                         { app.swipeUp(); C.pause(0.8); return nil }])
+            // Drafts (A8).
+            Scene(group: g, id: "leave-asks-to-save", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Half-written idea") },
+                         { C.tap(C.any(app, "taskComposer.cancel"), "Back") },
+                         { Self.check(app.buttons["Save Draft"].exists, "no Save Draft") }])
             },
-            // A3: four agents chosen; a fifth stays unchosen and the footer says why.
-            Scene(group: g, id: "agents-at-limit", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") },
-                         { Self.nudgeUp(app, by: 0.35); return nil },
-                         { C.tap(C.any(app, "taskComposer.agent.claude-cr"), "Router") },
-                         { C.tap(C.any(app, "taskComposer.agent.claude-work"), "work") },
-                         { C.tap(C.any(app, "taskComposer.agent.claude-review"), "review") },
-                         { C.tap(C.any(app, "taskComposer.agent.claude-docs"), "docs, the fifth") },
-                         { Self.check(app.buttons["taskComposer.start"].firstMatch.label == "Start 4", "not four agents") },
-                         { Self.nudgeUp(app, by: 0.2); return nil }])
+            Scene(group: g, id: "drafts-empty", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { C.tap(C.any(app, "taskComposer.drafts"), "Drafts") },
+                         { Self.check(C.any(app, "taskComposer.drafts.empty").exists, "no empty Drafts") }])
             },
-            // A3: a model the account can't use is listed with why and can't be chosen.
-            Scene(group: g, id: "model-unavailable", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") },
-                         { Self.nudgeUp(app, by: 0.3); return nil },
-                         { C.tap(C.any(app, "taskComposer.model.claude"), "Claude Code's model menu") }])
+            Scene(group: g, id: "drafts-list", args: Self.list, env: ["CMUX_MOBILE_TASK_DRAFT_IMAGES": "2"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Match this design") }, { Self.leaveSavingDraft(app) },
+                         { Self.openComposer(app) }, { Self.type(app, "Update the docs") }, { Self.leaveSavingDraft(app) },
+                         { Self.openComposer(app) }, { C.tap(C.any(app, "taskComposer.drafts"), "Drafts") },
+                         { Self.check(app.buttons.matching(identifier: "taskComposer.draftRow").count == 2, "not two drafts") }])
             },
-            // A3: a tap on a model the account can't use leaves the model as it was.
-            Scene(group: g, id: "model-unavailable-tapped", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") },
-                         { Self.nudgeUp(app, by: 0.3); return nil },
-                         { C.tap(C.any(app, "taskComposer.model.claude"), "Claude Code's model menu") },
-                         { C.tap(C.label(app, contains: "Opus Max"), "Opus Max") },
-                         { C.pause(1); return nil },
-                         { Self.check(!C.any(app, "taskComposer.model.claude").label.contains("Opus Max"), "Opus Max was chosen") }])
+            Scene(group: g, id: "draft-resumed", args: Self.list, env: ["CMUX_MOBILE_TASK_DRAFT_IMAGES": "2"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Match this design") },
+                         { Self.openAgents(app) }, { C.tap(C.any(app, "taskComposer.agent.claude-cr"), "Router") },
+                         { Self.closeSheet(app, "taskComposer.agents.done") },
+                         { Self.leaveSavingDraft(app) },
+                         { Self.openComposer(app) },
+                         { Self.check(((C.any(app, "taskComposer.prompt").value as? String) ?? "").isEmpty, "the next task did not start empty") },
+                         { C.tap(C.any(app, "taskComposer.drafts"), "Drafts") },
+                         { C.tap(app.buttons["taskComposer.draftRow"].firstMatch, "the draft") }, { C.pause(1); return nil },
+                         { Self.check((C.any(app, "taskComposer.prompt").value as? String) == "Match this design", "the prompt did not come back") },
+                         { Self.check(app.buttons["taskComposer.start"].firstMatch.label == "Start 2", "the agents did not come back") },
+                         { Self.check(C.any(app, "taskComposer.photo").exists, "the photos did not come back") }])
             },
-            // A8: a folder picked, then Cancel: reopened, the folder is still the one picked.
             Scene(group: g, id: "draft-folder-kept", args: Self.list) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Update the docs") },
-                         { app.swipeUp(); C.pause(0.6); return nil },
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Update the docs") }, { Self.openOptions(app) },
                          { C.tap(C.any(app, "taskComposer.folder"), "folder picker") },
-                         { C.tap(app.buttons["web"].firstMatch, "web") },
-                         { C.pause(0.8); return nil },
-                         { C.tap(C.any(app, "taskComposer.cancel"), "Cancel") },
-                         { C.pause(1); return Self.openComposer(app) },
-                         { app.swipeUp(); C.pause(0.6); return nil },
+                         { C.tap(app.buttons["web"].firstMatch, "web") }, { C.pause(0.8); return nil },
+                         { Self.closeSheet(app, "taskComposer.options.done") },
+                         { Self.leaveSavingDraft(app) },
+                         { Self.openComposer(app) },
+                         { C.tap(C.any(app, "taskComposer.drafts"), "Drafts") },
+                         { C.tap(app.buttons["taskComposer.draftRow"].firstMatch, "the draft") }, { C.pause(1); return nil },
+                         { Self.openOptions(app) },
                          { Self.check(C.label(app, contains: "Development/web").exists, "the folder did not stay web") }])
             },
-            // A4: two Macs online: the Mac picker.
-            Scene(group: g, id: "mac-picker", args: Self.list + ["-cmux-mobile-mock-second-mac"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Update the docs") },
-                         { app.swipeUp(); C.pause(0.6); return nil },
-                         { C.tap(C.any(app, "taskComposer.mac"), "Mac picker") }])
+            // A refusal (A9) and a task that doesn't reach its agent (A10).
+            Scene(group: g, id: "refused-toast", args: Self.list + ["-cmux-mobile-refuse-next-create"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
+                         { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(1.2); return nil }])
             },
-            // A4: another Mac: the two agents chosen go (Start 2 becomes Start).
-            Scene(group: g, id: "mac-switched-clears-agents", args: Self.list + ["-cmux-mobile-mock-second-mac"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Update the docs") },
-                         { Self.nudgeUp(app, by: 0.1); return nil },
-                         { C.tap(C.any(app, "taskComposer.agent.claude-cr"), "Router") },
-                         { app.swipeUp(); C.pause(0.6); return nil },
-                         { Self.check(app.buttons["taskComposer.start"].firstMatch.label == "Start 2", "two agents not picked") },
-                         { Self.switchMac(app, to: "MacBook Pro") }])
+            Scene(group: g, id: "refused-draft-restored", args: Self.list + ["-cmux-mobile-refuse-next-create"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
+                         { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(3); return nil },
+                         { Self.backToList(app) }, { Self.openComposer(app) },
+                         { Self.check(C.any(app, "taskComposer.refusal").exists, "no refusal banner") }])
             },
-            // A8: Cancel keeps all of it: prompt, photos, agents (Start 2), then folder and name.
-            Scene(group: g, id: "draft-full-kept-top", args: Self.list, env: ["CMUX_MOBILE_TASK_DRAFT_IMAGES": "2"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Match this design") },
-                         { Self.nudgeUp(app, by: 0.1); return nil },
-                         { C.tap(C.any(app, "taskComposer.agent.claude-cr"), "Router") },
-                         { app.swipeUp(); C.pause(0.6); return nil },
-                         { C.tap(C.any(app, "taskComposer.name"), "name field") },
-                         { C.any(app, "taskComposer.name").typeText("design pass"); return nil },
-                         { C.tap(C.any(app, "taskComposer.cancel"), "Cancel") },
-                         { C.pause(1); return Self.openComposer(app) },
-                         { Self.check(app.buttons["taskComposer.start"].firstMatch.label == "Start 2", "the two agents did not come back") }])
-            },
-            Scene(group: g, id: "draft-full-kept-bottom", args: Self.list, env: ["CMUX_MOBILE_TASK_DRAFT_IMAGES": "2"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Match this design") },
-                         { Self.nudgeUp(app, by: 0.1); return nil },
-                         { C.tap(C.any(app, "taskComposer.agent.claude-cr"), "Router") },
-                         { app.swipeUp(); C.pause(0.6); return nil },
-                         { C.tap(C.any(app, "taskComposer.name"), "name field") },
-                         { C.any(app, "taskComposer.name").typeText("design pass"); return nil },
-                         { C.tap(C.any(app, "taskComposer.cancel"), "Cancel") },
-                         { C.pause(1); return Self.openComposer(app) },
-                         { app.swipeUp(); C.pause(0.6); return nil },
-                         { Self.check((C.any(app, "taskComposer.name").value as? String) == "design pass", "the name did not come back") }])
-            },
-            // A10: the workspace is made but its task doesn't reach the agent, three ways.
             Scene(group: g, id: "delivery-not-sent", args: Self.list + ["-cmux-mobile-mock-create-delay", "1", "-cmux-mobile-task-delivery", "not-sent"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
                          { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(2.2); return nil },
@@ -302,43 +343,28 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
                          { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(2.2); return nil }])
             },
-            // A11 at Accessibility Large: the agent row with its model menu, and each list state.
-            // The checked agent and its model menu, below the bar: scrolled until the menu is in view.
-            Scene(group: g, id: "large-agent-row", args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL", "-cmux-mobile-open-new-task"]) { app in
-                C.steps([{ Self.openedAtLaunch(app) }, { Self.type(app, "Fix it") },
-                         { Self.nudgeUp(app, by: 0.1); return nil },
-                         { Self.scrollUntilBelowBar(app, C.any(app, "taskComposer.model.claude")) }])
+            // Accessibility Large (A11).
+            Scene(group: g, id: "large-composer", args: Self.list + large) { app in
+                C.steps([{ Self.openedAtLaunch(app) }, { Self.type(app, "Fix the flaky upload test") }])
             },
-            Scene(group: g, id: "large-agents-loading", args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL", "-cmux-mobile-open-new-task"] + ["-cmux-mobile-task-catalog", "slow"]) { app in
-                C.steps([{ Self.openedAtLaunch(app) }, { Self.nudgeUp(app, by: 0.45); return nil }])
+            Scene(group: g, id: "large-agents-list", args: Self.list + large) { app in
+                C.steps([{ Self.openedAtLaunch(app) }, { Self.openAgents(app) }])
             },
-            Scene(group: g, id: "large-agents-failed", args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL", "-cmux-mobile-open-new-task"] + ["-cmux-mobile-task-catalog", "failed"]) { app in
-                C.steps([{ Self.openedAtLaunch(app) }, { Self.nudgeUp(app, by: 0.45); return nil }])
+            Scene(group: g, id: "large-options", args: Self.list + large) { app in
+                C.steps([{ Self.openedAtLaunch(app) }, { Self.openOptions(app) }])
             },
-            Scene(group: g, id: "large-agents-empty", args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL", "-cmux-mobile-open-new-task"] + ["-cmux-mobile-task-catalog", "empty"]) { app in
-                C.steps([{ Self.openedAtLaunch(app) }, { Self.nudgeUp(app, by: 0.45); return nil }])
+            Scene(group: g, id: "large-agents-loading", args: Self.list + large + ["-cmux-mobile-task-catalog", "slow"]) { app in
+                Self.openedAtLaunch(app)
             },
-            // Made: a new chat whose first message is the task, the agent answering.
-            Scene(group: g, id: "started-one-opens", args: Self.list + ["-cmux-mobile-mock-create-delay", "1"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
-                         { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(5); return nil }])
+            Scene(group: g, id: "large-agents-failed", args: Self.list + large + ["-cmux-mobile-task-catalog", "failed"]) { app in
+                C.steps([{ Self.openedAtLaunch(app) }, { Self.openAgents(app) }])
             },
-            Scene(group: g, id: "started-two-rows", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
-                C.steps([{ Self.composeTwoAgents(app) }, { C.tap(C.any(app, "taskComposer.start"), "Start 2") }])
+            Scene(group: g, id: "large-agents-empty", args: Self.list + large + ["-cmux-mobile-task-catalog", "empty"]) { app in
+                C.steps([{ Self.openedAtLaunch(app) }, { Self.openAgents(app) }])
             },
-            Scene(group: g, id: "refused-toast", args: Self.list + ["-cmux-mobile-refuse-next-create"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
-                         { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(1.2); return nil }])
-            },
-            Scene(group: g, id: "refused-draft-restored", args: Self.list + ["-cmux-mobile-refuse-next-create"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
-                         { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(3); return nil },
-                         { Self.backToList(app) }, { Self.openComposer(app) },
-                         { Self.check(C.any(app, "taskComposer.refusal").exists, "no refusal banner") }])
-            },
-            Scene(group: g, id: "draft-kept-after-cancel", args: Self.list) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Half-written idea") },
-                         { C.tap(C.any(app, "taskComposer.cancel"), "Cancel") }, { C.pause(1); return Self.openComposer(app) }])
+            Scene(group: g, id: "large-drafts", args: Self.list + large) { app in
+                C.steps([{ Self.openedAtLaunch(app) }, { Self.type(app, "Update the docs") }, { Self.leaveSavingDraft(app) },
+                         { Self.openComposer(app) }, { C.tap(C.any(app, "taskComposer.drafts"), "Drafts") }])
             },
         ])
     }
@@ -361,7 +387,7 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         XCTAssertNil(Self.backToList(app))
         XCTAssertNil(Self.openComposer(app))
         let left = C.any(app, "taskComposer.prompt").value as? String ?? ""
-        XCTAssertTrue(left.isEmpty || left == "Describe the task…", "the prompt is cleared, got \(left)")
+        XCTAssertTrue(left.isEmpty, "the prompt is cleared, got \(left)")
     }
 
     /// Start with two agents: two rows, one per agent, and the list stays on screen.
@@ -375,6 +401,25 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         XCTAssertTrue(C.label(app, contains: "Claude Code Router · Fix the flaky").waitForExistence(timeout: 5), "a row for Claude Code Router")
         XCTAssertTrue(C.label(app, contains: "Claude Code · Fix the flaky").exists, "a row for Claude Code")
         XCTAssertTrue(C.any(app, "workspaces.new").exists, "the list stays on screen")
+    }
+
+    /// Drafts: leaving with a task asks, Save Draft keeps it, the next task starts empty, and the
+    /// drafts list opens it again as it was.
+    @MainActor
+    func testSaveADraftAndResumeIt() {
+        let app = launch(Self.list)
+        XCTAssertNil(Self.openComposer(app))
+        XCTAssertNil(Self.type(app, "Saved for later"))
+        XCTAssertNil(Self.leaveSavingDraft(app))
+        XCTAssertNil(Self.openComposer(app))
+        XCTAssertEqual(C.any(app, "taskComposer.prompt").value as? String ?? "", "", "the next task starts empty")
+        XCTAssertNil(C.tap(C.any(app, "taskComposer.drafts"), "Drafts"))
+        let row = app.buttons["taskComposer.draftRow"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "the saved draft is listed")
+        XCTAssertTrue(row.label.contains("Saved for later"))
+        row.tap()
+        XCTAssertTrue(C.any(app, "taskComposer.prompt").waitForExistence(timeout: 5))
+        XCTAssertEqual(C.any(app, "taskComposer.prompt").value as? String, "Saved for later")
     }
 
     @MainActor
