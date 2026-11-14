@@ -174,3 +174,31 @@ test("a link drop keeps the list on screen, says one line only once it lasts, an
     jest.useRealTimers();
   }
 });
+
+test("a machine event that proves the link is back takes the drop's words with it", async () => {
+  jest.useFakeTimers();
+  const provider = new MockCloudProvider();
+  const store = new CloudStore(provider);
+  const page = await render(store);
+  try {
+    await act(settle);
+    provider.offline = true;
+    await act(async () => {
+      await store.select(sampleMachines()[0].id);
+      await settle();
+    });
+    expect(store.getSnapshot().connection).toBe("disconnected");
+    provider.offline = false;
+    // The owner's next event arrives before the page's own re-read.
+    await act(async () => {
+      provider.emitUpsert({ ...sampleMachines()[0], name: "api-dev-renamed" });
+      await settle();
+    });
+    expect(store.getSnapshot().connection).toBe("connected");
+    expect(store.getSnapshot().error).toBeUndefined();
+    expect(page.rootElement.querySelector(".cloud-error")).toBeNull();
+  } finally {
+    await page.unmount();
+    jest.useRealTimers();
+  }
+});

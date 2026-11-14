@@ -3,7 +3,7 @@
 // no timers) plus one ordered log of pending intents (OWNERSHIP-PRINCIPLES "Clients are
 // projections"). Money, destructive and view-changing ops go to the host as native actions (ops.ts
 // NATIVE_ACTIONS). React reads it through `useSyncExternalStore`; tests drive it directly.
-import { isPageError, type PageClient } from "../shared/pageClient";
+import { isPageError, pageError, type PageClient } from "../shared/pageClient";
 import { userMessage } from "../shared/userMessage";
 import { AccountReader } from "./account";
 import { connectionFailure } from "./connectionFailure";
@@ -944,7 +944,13 @@ export class CloudStore {
   private onEvent(event: MachineEvent): void {
     // An event proves the owner is reachable again.
     const patch: Partial<CloudState> = this.state.connection === "disconnected" ? { connection: "connected" } : {};
-    if (patch.connection && this.started) this.restartAttempts = 0;
+    if (patch.connection) {
+      if (this.started) this.restartAttempts = 0;
+      // The drop's own words go with it: a link that is back never leaves "not connected" on screen.
+      const code = this.state.errorCode;
+      if (code && connectionFailure(pageError(code, "")) === "disconnected")
+        Object.assign(patch, { error: undefined, errorCode: undefined });
+    }
     // Events of one projection change share its revision, so only an older revision is stale.
     // An event of the mirror's own revision is applied again; it describes the same state.
     if (event.revision < this.state.revision) {
