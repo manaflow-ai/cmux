@@ -138,9 +138,63 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
     else record("mux", step.mux, step.msg ?? {}, at);
   };
   const base = 1_791_000_000_000;
-  for (let turn = 0; turn < TURNS; turn++)
-    for (const step of loadTurn(turn, { diffLines: 60, logLines: 80 }))
-      recordStep(step, turn, base + turn * 60_000, `m-${turn}-${(step as { update?: unknown }).update ? "a" : "x"}`);
+  /// A shell the agent left running in the background (Claude's `run_in_background` Bash), as a
+  /// long-lived chat holds a few dozen of (Leo's, 2026-11-11: "glaeda-gh wait +24 more").
+  const backgroundShell = (id: string, command: string, at: number) => {
+    record(
+      "in",
+      "tool_call",
+      update({
+        sessionUpdate: "tool_call",
+        toolCallId: id,
+        title: command,
+        kind: "execute",
+        status: "in_progress",
+        rawInput: { command, run_in_background: true },
+        _meta: { claude: { tool: "Bash" } },
+      }),
+      at,
+    );
+    record(
+      "in",
+      "tool_call_update",
+      update({
+        sessionUpdate: "tool_call_update",
+        toolCallId: id,
+        status: "completed",
+        content: [{ type: "content", content: { type: "text", text: `Command running in background with ID: ${id}` } }],
+      }),
+      at,
+    );
+    record(
+      "in",
+      "background_task_update",
+      update({
+        sessionUpdate: "background_task_update",
+        taskId: `task-${id}`,
+        toolCallId: id,
+        command,
+        state: "running",
+      }),
+      at,
+    );
+  };
+  const BACKGROUND = 25;
+  for (let turn = 0; turn < TURNS; turn++) {
+    const at = base + turn * 60_000;
+    const steps = loadTurn(turn, { diffLines: 60, logLines: 80 });
+    steps.forEach((step, index) => {
+      // Every few turns, after the turn's read, a shell goes on in the background: the last ones
+      // fall in the newest page, the rest in the history before it.
+      if (
+        index === 4 &&
+        turn % Math.floor(TURNS / BACKGROUND) === 0 &&
+        turn / Math.floor(TURNS / BACKGROUND) < BACKGROUND
+      )
+        backgroundShell(`bg-${turn}`, `glaeda-gh wait run ${turn} --timeout 3600`, at);
+      recordStep(step, turn, at, `m-${turn}-${(step as { update?: unknown }).update ? "a" : "x"}`);
+    });
+  }
   const LIVE_TURN = TURNS;
   record("mux", "user_message", { text: `Turn ${LIVE_TURN}: now fix the last retry loop`, promptId: `p-${LIVE_TURN}` });
   record("mux", "turn_started", { turnId: `t-${LIVE_TURN}`, promptId: `p-${LIVE_TURN}` });
@@ -196,6 +250,30 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
     return null;
   };
   let status = "running";
+  /// The settled cold open (cmuxterm-hq#9655 stage 1): whether this daemon serves `settled-attach-v1`,
+  /// whether it serves forks, and whether it is still reading the chat's log after its restart. While
+  /// it reads, an attach answers the newest page from disk with the summary it had before the log was
+  /// read: no queue (requests.rs MUX_ATTACH, `waitLogs: false`); the queue comes later as a
+  /// session change. A settled view, written at the last turn end, carries the queue with the frame.
+  let settledServed = false;
+  let forkServed = false;
+  let restoring = false;
+  const RESTORED_QUEUE = [
+    { promptId: "q-1", prompt: "After this, run the retry suite again" },
+    { promptId: "q-2", prompt: "Then write up what changed" },
+    { promptId: "q-3", prompt: "And open the pull request" },
+  ];
+  /// A turn still streaming when the chat opens cold: records it streams once the attach read its
+  /// page and before it answers, sent live on that socket first (acpmux subscribes the attach, then
+  /// replies), for the next attach only.
+  let liveOnAttach: (() => Event[]) | undefined;
+  /// Older history pages go unanswered (a turn opener's read still answers): what the open draws is
+  /// what its attach laid in, with no later page filling a hole it left.
+  let holdOlder = false;
+  /// The daemon fails an attach that asks for its settled view (a view it cannot read), naming it.
+  let failSettled = false;
+  /// The attach requests the pane made, as asked (their `settled` flag and page bounds).
+  const attachesAsked: Record<string, any>[] = [];
   /// Initialize requests: one per connection the pane made.
   let connections = 0;
   /// Older pages the pane asked for (`_acpmux/events` with `beforeSeq`).
@@ -204,17 +282,51 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
   function answer(method: string, params: Record<string, any>): unknown {
     switch (method) {
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+        return {
+          protocolVersion: 1,
+          _meta: {
+            acpmux: {
+              origin: "local",
+              extensions: [],
+              operations: forkServed ? ["acp.session.fork"] : [],
+              capabilities: settledServed ? ["settled-attach-v1"] : [],
+            },
+          },
+        };
       case "_acpmux/watch":
         return { sessions: [summary(status)] };
       case "_acpmux/attach": {
+        attachesAsked.push(params);
         const p = page(params, true);
+        const session = restoring ? summary(status) : { ...summary(status), queue: RESTORED_QUEUE, queued: 3 };
+        // The view written at the chat's last turn end: its records are the page's, up to that end.
+        const viewEnd = [...events].reverse().find((event) => event.kind === "turn_result")?.seq ?? events.length;
+        const settled =
+          settledServed && params.settled === true
+            ? {
+                schema: 1,
+                lastSeq: viewEnd,
+                writtenAt: Date.now(),
+                hasMore: p.hasMore,
+                pageThrough: events.length,
+                queue: RESTORED_QUEUE,
+                queued: RESTORED_QUEUE.length,
+                pending: [],
+                forkSeqs: p.events.filter((event) => event.kind === "turn_result").map((event) => event.seq),
+                status: "idle",
+                logLoaded: !restoring,
+              }
+            : null;
         return {
-          session: summary(status),
+          session:
+            settled && restoring
+              ? { ...session, queue: RESTORED_QUEUE, queued: RESTORED_QUEUE.length, queueFrom: "settled" }
+              : session,
           ...p,
           lastSeq: events.length,
           pageThrough: events.length,
           turnOpener: turnOpener(p.events[0], p.hasMore),
+          ...(settledServed ? { settled } : {}),
         };
       }
       case "_acpmux/events": {
@@ -279,10 +391,37 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
             prompted?.({ id: message.id!, promptId });
             return;
           }
-          if (message.id !== undefined)
+          if (message.id === undefined) return;
+          if (
+            holdOlder &&
+            message.method === "_acpmux/events" &&
+            message.params?.beforeSeq !== undefined &&
+            JSON.stringify(message.params?.kinds) !== JSON.stringify(["user_message"])
+          )
+            return;
+          if (message.method === "_acpmux/attach" && failSettled && message.params?.settled === true) {
+            attachesAsked.push(message.params);
             ws.send(
-              JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params ?? {}) }),
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: message.id,
+                error: { code: -32603, message: "settled view unreadable" },
+              }),
             );
+            return;
+          }
+          const result = answer(message.method, message.params ?? {});
+          const reply = JSON.stringify({ jsonrpc: "2.0", id: message.id, result });
+          if (message.method === "_acpmux/attach" && liveOnAttach) {
+            const live = liveOnAttach();
+            liveOnAttach = undefined;
+            for (const event of live)
+              ws.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
+            // The settled read takes a moment: the live records are on the page before the reply.
+            setTimeout(() => ws.send(reply), 400);
+            return;
+          }
+          ws.send(reply);
         },
       },
     });
@@ -315,8 +454,29 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  /// Installs the per-frame row recorder before any pane script runs.
-  const installRecorder = (page: Page) =>
+  /// The turn fold's own reflow is not a load flip: under the shipped "answer" arm (#41213) a turn
+  /// that ends folds its earlier replies under "Worked for", the transcript gets shorter and the
+  /// prompt above scrolls back into view by design. This harness measures loading (open, reconnects,
+  /// paging, a cold restart), so every page it records pins the arm that keeps every reply, as #41213
+  /// pinned old arms in other suites; turn-fold-keeps-replies.test.ts covers the fold itself.
+  /// The follow arm is pinned to `blocks` for the same reason. On the slim `send` arm, a turn that
+  /// ends while its reply still reveals brings the rows above down with its fold, and the reply's
+  /// last lines take them back up: a turn-end motion, not a load flip. That is tracked in
+  /// manaflow-ai/cmuxterm-hq#10502, whose detector is this test with the arm set to `send`.
+  const pinFoldArm = (page: Page) =>
+    page.addInitScript(() => {
+      (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
+        "turn-fold-replies": "replies",
+        "follow-motion": "blocks",
+      };
+    });
+
+  /// Installs the fold pin and the per-frame row recorder before any pane script runs.
+  const installRecorder = async (page: Page) => {
+    await pinFoldArm(page);
+    await recordRows(page);
+  };
+  const recordRows = (page: Page) =>
     page.addInitScript(() => {
       type Seen = { el: number; visible: boolean; kind: "text" | "tool" };
       const ids = new WeakMap<Element, number>();
@@ -343,7 +503,30 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
         lost: { text: [] as string[], tool: [] as string[] },
         rowsSeen: { text: new Set<string>(), tool: new Set<string>() },
         marks: [] as [string, number][],
+        // The restart detectors: the visible row set by frame (changes once rows show), frames that
+        // show the New Tab page, each row's fold state by frame, and the pending (background) count.
+        visibleSet: "",
+        setChanges: [] as number[],
+        newTab: [] as number[],
+        folds: new Map<string, [number, string][]>(),
+        pending: [] as [number, string][],
+        overlaps: [] as string[],
+        atBottom: false,
+        leftBottom: [] as string[],
+        // The settled cold open's detectors, from the first frame on (armed or not): each distinct
+        // state the pane showed in order (blank, newtab, rows), the queued prompts the composer
+        // shows by frame, and the fork controls on screen in the first frame that showed rows.
+        states: [] as string[],
+        queued: [] as [number, number][],
+        forkFirstRows: undefined as number | undefined,
+        // By painted frame, not by time: the queued count in the first frame that showed rows, and
+        // the queued count changes in the frames after it.
+        queuedFirstRows: undefined as number | undefined,
+        queuedChangesAfterRows: 0,
+        forks: [] as [number, number][],
+        settledPainted: [] as number[],
       };
+      if ((window as unknown as { __settledArmed?: boolean }).__settledArmed) state.on = true;
       (window as unknown as { __settled: typeof state }).__settled = state;
       const read = (now: number) => {
         state.frames += 1;
@@ -425,6 +608,70 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
             entry.visible = false;
             if (state.on) entry.hiddenAfterShown = true;
           }
+        // The rows a reader sees, in order: a change once rows showed is the view reshaping.
+        const visibleIds = [...state.rows].filter(([, row]) => row.visible).map(([id]) => id);
+        const set = visibleIds.join(",");
+        if (set !== state.visibleSet) {
+          if (state.on && state.visibleSet !== "") state.setChanges.push(Math.round(now));
+          state.visibleSet = set;
+        }
+        // A pane with a chat that shows the New Tab page, for any frame.
+        if (state.on && state.firstRow !== undefined && document.querySelector(".nt-screen")) {
+          state.newTab.push(Math.round(now));
+          changed = true;
+        }
+        // Each visible row's folds (their open state), recorded when it changes.
+        for (const id of visibleIds) {
+          const el = scroller!.querySelector(`.acpmux-row[data-row-id="${CSS.escape(id)}"]`);
+          if (!el) continue;
+          const sig = [...el.querySelectorAll("[aria-expanded]")].map((b) => b.getAttribute("aria-expanded")).join("");
+          const seen = state.folds.get(id) ?? [];
+          if (seen.at(-1)?.[1] !== sig) {
+            seen.push([Math.round(now), sig]);
+            state.folds.set(id, seen);
+            if (seen.length > 1) changed = true;
+          }
+        }
+        // The background tasks the composer counts (its tray's head, or its pull tab).
+        const tray = document.querySelector(".acpmux-running-tray__title, .acpmux-tray-pull__tab");
+        const count = tray?.textContent?.match(/\d+/)?.[0] ?? "";
+        if (count && state.pending.at(-1)?.[1] !== count) {
+          state.pending.push([Math.round(now), count]);
+          changed = true;
+        }
+        // No two drawn rows overlap (a stale measured height or place draws one over another).
+        if (state.on && !paneHidden) {
+          const boxes = [...scroller!.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")]
+            .filter((el) => !LIVE_LINES.has(el.getAttribute("data-row-id")!))
+            .map((el) => [el.getAttribute("data-row-id")!, el.getBoundingClientRect()] as const)
+            .filter(([, r]) => r.height > 0 && r.bottom > box!.top && r.top < box!.bottom)
+            .sort((x, y) => x[1].top - y[1].top);
+          for (let i = 1; i < boxes.length; i++)
+            if (boxes[i]![1].top < boxes[i - 1]![1].bottom - 2) {
+              state.overlaps.push(`${boxes[i - 1]![0]}/${boxes[i]![0]}@${Math.round(now)}`);
+              break;
+            }
+        }
+        // While the reader stays at the bottom, the newest row stays in view: the view never leaves it.
+        if (state.on && state.atBottom && scroller && !paneHidden) {
+          const gap = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+          if (gap > 48) state.leftBottom.push(`${Math.round(gap)}px@${Math.round(now)}`);
+        }
+        {
+          const frameState = document.querySelector(".nt-screen") ? "newtab" : visibleIds.length > 0 ? "rows" : "blank";
+          if (state.states.at(-1) !== frameState) state.states.push(frameState);
+          const fold = document.querySelector(".acpmux-queue-fold")?.textContent?.match(/\d+/)?.[0];
+          const queued = fold ? Number(fold) : document.querySelectorAll(".acpmux-queued").length;
+          if (state.queued.at(-1)?.[1] !== queued) {
+            if (state.queuedFirstRows !== undefined) state.queuedChangesAfterRows += 1;
+            state.queued.push([Math.round(now), queued]);
+            if (state.queued.length > 1) changed = true;
+          }
+          if (frameState === "rows" && state.queuedFirstRows === undefined) state.queuedFirstRows = queued;
+          const forks = scroller?.querySelectorAll(".cv-fork-button").length ?? 0;
+          if (frameState === "rows" && state.forkFirstRows === undefined) state.forkFirstRows = forks;
+          if (state.forks.at(-1)?.[1] !== forks) state.forks.push([Math.round(now), forks]);
+        }
         if (changed) state.lastChange = now;
       };
       // installPaintedFrames' init script ran first, so its frame reader is here already.
@@ -442,7 +689,15 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
     remounts: { text: string[]; tool: string[] };
     lost: { text: string[]; tool: string[] };
     rowsSeen: { text: number; tool: number };
+    overlaps: string[];
+    leftBottom: string[];
+    pending: [number, string][];
   };
+  /// Whether the reader is at the bottom, for the stay-at-bottom detector.
+  const atBottom = (page: Page, on: boolean) =>
+    page.evaluate((value) => {
+      (window as unknown as { __settled: { atBottom: boolean } }).__settled.atBottom = value;
+    }, on);
   const snapshot = (page: Page) =>
     page.evaluate(() => {
       const s = (window as unknown as { __settled: any }).__settled;
@@ -454,6 +709,9 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
         remounts: s.remounts,
         lost: s.lost,
         rowsSeen: { text: s.rowsSeen.text.size, tool: s.rowsSeen.tool.size },
+        overlaps: s.overlaps,
+        leftBottom: s.leftBottom,
+        pending: s.pending,
       } as Settled;
     });
   /// Counting on from now: a row visible now that hides and comes back is a flip.
@@ -522,16 +780,6 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
       try {
         await installPaintedFrames(page);
         await installRecorder(page);
-        // The turn fold's own reflow is not a load flip: under the shipped "answer" arm (#41213) a turn
-        // that ends folds its earlier replies under "Worked for", the transcript gets shorter and the
-        // prompt above scrolls back into view by design. This harness measures loading (open,
-        // reconnects, paging), so it pins the arm that keeps every reply, as #41213 pinned old arms in
-        // other suites; turn-fold-keeps-replies.test.ts covers the fold itself.
-        await page.addInitScript(() => {
-          (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
-            "turn-fold-replies": "replies",
-          };
-        });
         await page.goto(url());
         await page.mouse.move(0, 0);
         await arm(page, true);
@@ -542,6 +790,9 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
         status = "idle";
         const openSettled = await settle(page);
         const open = await snapshot(page);
+        // The reader is at the newest message from here until they scroll up: it must stay in view
+        // through the prompt, the stream and the reconnect, as every new row comes in.
+        await atBottom(page, true);
 
         // The reader asks something; the reply streams; the connection resets mid-reply, the reply
         // goes on while the pane is away, and on after it is back.
@@ -584,6 +835,7 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
 
         // The reader goes up the chat (input: not counted) past what one attach page holds, which
         // pages older records in; reading there, the connection resets again.
+        await atBottom(page, false);
         await arm(page, false);
         const olderAsked = () => pagesAsked;
         const pagesBefore = olderAsked();
@@ -614,10 +866,14 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
           flips: { text: all.flips.text.length, tool: all.flips.tool.length },
           remounts: { text: all.remounts.text.length, tool: all.remounts.tool.length },
           lost: { text: all.lost.text.length, tool: all.lost.tool.length },
+          overlap_frames: all.overlaps.length,
+          left_bottom_frames: all.leftBottom.length,
           examples: {
             flips: [...all.flips.text.slice(0, 6), ...all.flips.tool.slice(0, 3)],
             remounts: [...all.remounts.text.slice(0, 6), ...all.remounts.tool.slice(0, 3)],
             lost: [...all.lost.text.slice(0, 6), ...all.lost.tool.slice(0, 3)],
+            overlaps: all.overlaps.slice(0, 4),
+            left_bottom: all.leftBottom.slice(0, 4),
           },
         };
         console.log(`settled-load: ${JSON.stringify(report)}`);
@@ -629,8 +885,415 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
         expect(report.flips).toEqual({ text: 0, tool: 0 });
         expect(report.remounts).toEqual({ text: 0, tool: 0 });
         expect(report.lost).toEqual({ text: 0, tool: 0 });
+        // overlap_frames is reported, not yet gated: base draws the same few frames (a reply's last
+        // growth placing the turn footer under it a frame late), a separate root fix.
+        expect(report.left_bottom_frames).toBe(0);
       } finally {
         prompted = undefined;
+        await page.close();
+      }
+    },
+  );
+
+  // Leo, 2026-11-11 (a recording of his chat right after an app restart): "this is so wack idk wtf
+  // happened after restarting the loading is so wack". The first page reads the chat and leaves
+  // what the app host keeps of it (its tail, its reading place), as the app does on quit; a second
+  // page then opens it cold, as after the restart, from that and the daemon. From its first frame
+  // the rows a reader sees, their folds and the background count must be the settled ones, and no
+  // frame may show the New Tab page: later data only adds.
+  // `settled`: acpmux serves its settled view (cmuxterm-hq#9655), which the page lays on the kept tail
+  // it drew as live records, with no replay.
+  for (const mode of ["old", "settled"] as const)
+    test.each(engines.map(([name]) => name))(
+      `%s: a long chat opened cold after a restart draws its settled rows, folds and count from the first frame (${mode})`,
+      async (name) => {
+        events.length = fixtureEnd;
+        liveAt = fixtureLiveAt;
+        record("mux", "turn_result", { status: "completed" });
+        status = "idle";
+        settledServed = mode === "settled";
+        const kept = { tails: {}, anchors: {} };
+        const before = await browsers.get(name)!.newPage({ viewport: { width: 1200, height: 860 } });
+        try {
+          await before.addInitScript((value) => {
+            (globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept = value;
+          }, kept);
+          await installPaintedFrames(before);
+          await installRecorder(before);
+          await before.goto(url());
+          await before.locator(".acpmux-row").first().waitFor({ timeout: 60_000 });
+          await settle(before);
+          // Quit: the page hands the host what it keeps (pagehide), as the app's quit does.
+          await before.evaluate(() => dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false })));
+          Object.assign(
+            kept,
+            await before.evaluate(() =>
+              JSON.parse(JSON.stringify((globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept)),
+            ),
+          );
+        } finally {
+          await before.close();
+        }
+        // SETTLED_LOAD_VIDEO=DIR records the cold open (the PR's before/after video).
+        const videoDir = process.env.SETTLED_LOAD_VIDEO;
+        const page = await browsers.get(name)!.newPage({
+          viewport: { width: 1200, height: 860 },
+          ...(videoDir ? { recordVideo: { dir: path.join(videoDir, name), size: { width: 1200, height: 860 } } } : {}),
+        });
+        try {
+          await page.addInitScript((value) => {
+            (globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept = value;
+            (window as unknown as { __settledArmed?: boolean }).__settledArmed = true;
+          }, kept);
+          await installPaintedFrames(page);
+          await installRecorder(page);
+          const navigated = Date.now();
+          await page.goto(url());
+          await page.locator(".acpmux-row").first().waitFor({ timeout: 60_000 });
+          // The daemon restarted with the app and is still restoring its chats: the pane's connection
+          // drops and comes back a few times while the chat opens, and the background tasks restore.
+          for (let round = 0; round < 3; round++) {
+            const before = connections;
+            drop();
+            const deadline = Date.now() + 30_000;
+            while ((connections === before || attached.size === 0) && Date.now() < deadline)
+              await page.evaluate(() => window.cmuxPaintFrame());
+          }
+          const settledAt = await settle(page);
+          const result = await page.evaluate(() => {
+            const s = (window as unknown as { __settled: any }).__settled;
+            const folds: string[] = [];
+            for (const [id, seen] of s.folds as Map<string, [number, string][]>)
+              if (seen.length > 1)
+                folds.push(`${id}:${seen.map(([at, sig]: [number, string]) => `${sig || "-"}@${at}`).join(">")}`);
+            return {
+              frames: s.frames,
+              firstRow: s.firstRow,
+              setChanges: s.setChanges,
+              newTab: s.newTab,
+              folds,
+              pending: s.pending,
+              overlaps: s.overlaps,
+              flips: s.flips,
+              remounts: s.remounts,
+              rowsSeen: { text: s.rowsSeen.text.size, tool: s.rowsSeen.tool.size },
+            };
+          });
+          const report = {
+            engine: name,
+            case: `cold-restart-${mode}`,
+            kept_tail_records:
+              Object.values(kept.tails as Record<string, { events?: unknown[] }>)[0]?.events?.length ?? 0,
+            frames: result.frames,
+            first_row_ms: Math.round(result.firstRow ?? Number.NaN),
+            settled_ms: Math.round(settledAt),
+            wall_ms: Date.now() - navigated,
+            rows_seen: result.rowsSeen,
+            row_set_changes: result.setChanges.length,
+            fold_changes: result.folds.length,
+            new_tab_frames: result.newTab.length,
+            pending_changes: Math.max(0, result.pending.length - 1),
+            overlap_frames: result.overlaps.length,
+            flips: { text: result.flips.text.length, tool: result.flips.tool.length },
+            remounts: { text: result.remounts.text.length, tool: result.remounts.tool.length },
+            examples: {
+              row_set_changes: result.setChanges.slice(0, 8),
+              folds: result.folds.slice(0, 4),
+              pending: result.pending.slice(0, 8),
+              flips: [...result.flips.text.slice(0, 4), ...result.flips.tool.slice(0, 2)],
+              remounts: [...result.remounts.text.slice(0, 4), ...result.remounts.tool.slice(0, 2)],
+            },
+          };
+          console.log(`settled-load: ${JSON.stringify(report)}`);
+          expect(report.kept_tail_records).toBeGreaterThan(0);
+          expect(Number.isFinite(settledAt)).toBe(true);
+          expect(report.rows_seen.text).toBeGreaterThan(2);
+          expect({
+            row_set_changes: report.row_set_changes,
+            new_tab_frames: report.new_tab_frames,
+            pending_changes: report.pending_changes,
+            flips: report.flips,
+            remounts: report.remounts,
+          }).toEqual({
+            // fold_changes and overlap_frames are reported, not yet gated: base shows the same (the last
+            // turn footer's Timeline toggle goes while the connection is down), a separate root fix.
+            row_set_changes: 0,
+            new_tab_frames: 0,
+            pending_changes: 0,
+            flips: { text: 0, tool: 0 },
+            remounts: { text: 0, tool: 0 },
+          });
+        } finally {
+          settledServed = false;
+          await page.close();
+        }
+      },
+    );
+
+  // cmuxterm-hq#9655 stage 1 (Leo, 2026-11-12: "where is the better architecture the chat ...
+  // only works 1% of the time now if you consider the appearance"): a chat opened cold after a
+  // restart, with nothing kept on the Mac (the host's tail is in memory only), while acpmux is still
+  // reading the chat's log. `old`: this acpmux serves no settled view, so its attach answers the newest
+  // page with no queue and the queue comes later; `settled`: it serves `settled-attach-v1`, and the
+  // attach answers the view written at the last turn end, queue and fork points with it. Reported per
+  // mode; gated in `settled` only: the pane shows blank, then the settled chat, and nothing else
+  // (no New Tab, no row set change, no queue change, the fork control in its first frame).
+  for (const mode of ["old", "settled"] as const)
+    test.each(engines.map(([name]) => name))(
+      `%s: a chat opened cold while acpmux restores draws blank then its settled frame only (${mode})`,
+      async (name) => {
+        events.length = fixtureEnd;
+        liveAt = fixtureLiveAt;
+        record("mux", "turn_result", { status: "completed" });
+        status = "idle";
+        settledServed = mode === "settled";
+        forkServed = true;
+        restoring = true;
+        attachesAsked.length = 0;
+        const page = await browsers.get(name)!.newPage({ viewport: { width: 1200, height: 860 } });
+        try {
+          await page.addInitScript(() => {
+            (window as unknown as { __settledArmed?: boolean }).__settledArmed = true;
+          });
+          await installPaintedFrames(page);
+          await installRecorder(page);
+          await page.goto(url());
+          await page.locator(".acpmux-row").first().waitFor({ timeout: 60_000 });
+          // acpmux finishes reading the log: the real queue arrives as a session change.
+          await frames(page, 20);
+          restoring = false;
+          const restored = { ...summary(status), queue: RESTORED_QUEUE, queued: RESTORED_QUEUE.length };
+          for (const ws of attached)
+            ws.send(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                method: "_acpmux/session_changed",
+                params: { sessionId: SESSION, session: restored, kind: "queue", seq: events.length },
+              }),
+            );
+          const settledAt = await settle(page);
+          const result = await page.evaluate(() => {
+            const s = (window as unknown as { __settled: any }).__settled;
+            return {
+              states: s.states as string[],
+              setChanges: s.setChanges as number[],
+              newTab: s.newTab as number[],
+              queued: s.queued as [number, number][],
+              forkFirstRows: s.forkFirstRows as number | undefined,
+              queuedFirstRows: s.queuedFirstRows as number | undefined,
+              queuedChangesAfterRows: s.queuedChangesAfterRows as number,
+              forks: s.forks as [number, number][],
+              flips: s.flips,
+              remounts: s.remounts,
+              firstRow: s.firstRow as number | undefined,
+              settledDrawn: document.documentElement.dataset.acpmuxSettledDrawn ?? "",
+            };
+          });
+          const queuedSeq = result.queued.map(([, n]) => n);
+          const report = {
+            engine: name,
+            case: `cold-restoring-${mode}`,
+            settled_asked: attachesAsked.filter((p) => p.settled === true).length,
+            attaches: attachesAsked.length,
+            first_row_ms: Math.round(result.firstRow ?? Number.NaN),
+            settled_ms: Math.round(settledAt),
+            states: result.states.join(">"),
+            state_flips: Math.max(0, result.states.length - 2) + (result.states[0] === "blank" ? 0 : 1),
+            row_set_changes: result.setChanges.length,
+            new_tab_frames: result.newTab.length,
+            queued: queuedSeq.join(">"),
+            queued_monotonic: queuedSeq.every((n, i) => i === 0 || n >= queuedSeq[i - 1]!),
+            queued_in_first_rows_frame: result.queuedFirstRows ?? 0,
+            queue_changes_after_rows: result.queuedChangesAfterRows,
+            fork_in_first_rows_frame: result.forkFirstRows ?? 0,
+            fork_changes: Math.max(0, result.forks.length - 1),
+            flips: { text: result.flips.text.length, tool: result.flips.tool.length },
+            remounts: { text: result.remounts.text.length, tool: result.remounts.tool.length },
+            settled_drawn_marker: result.settledDrawn,
+          };
+          console.log(`settled-load: ${JSON.stringify(report)}`);
+          expect(Number.isFinite(settledAt)).toBe(true);
+          if (mode === "settled") {
+            // The page asked for the view, with the page bounds the view is keyed on, every time.
+            expect(report.settled_asked).toBe(report.attaches);
+            for (const asked of attachesAsked)
+              expect({ limit: asked.limit, maxBytes: asked.maxBytes, kinds: asked.kinds }).toEqual({
+                limit: attachesAsked[0]!.limit,
+                maxBytes: attachesAsked[0]!.maxBytes,
+                kinds: attachesAsked[0]!.kinds,
+              });
+            expect({
+              states: report.states,
+              row_set_changes: report.row_set_changes,
+              new_tab_frames: report.new_tab_frames,
+              queued_monotonic: report.queued_monotonic,
+              queued_in_first_rows_frame: report.queued_in_first_rows_frame,
+              queue_changes_after_rows: report.queue_changes_after_rows,
+              fork_in_first_rows_frame: report.fork_in_first_rows_frame > 0,
+              flips: report.flips,
+              remounts: report.remounts,
+              settled_drawn_marker: report.settled_drawn_marker,
+            }).toEqual({
+              states: "blank>rows",
+              row_set_changes: 0,
+              new_tab_frames: 0,
+              queued_monotonic: true,
+              queued_in_first_rows_frame: RESTORED_QUEUE.length,
+              queue_changes_after_rows: 0,
+              fork_in_first_rows_frame: true,
+              flips: { text: 0, tool: 0 },
+              remounts: { text: 0, tool: 0 },
+              settled_drawn_marker: "true",
+            });
+          } else expect(report.settled_asked).toBe(0);
+        } finally {
+          settledServed = false;
+          forkServed = false;
+          restoring = false;
+          await page.close();
+        }
+      },
+    );
+  // A cold open after a restart of a chat whose turn is still streaming (#41760 review): live
+  // records of that turn land while the settled attach is out, past the rows drawn before it (a kept
+  // tail) or with nothing drawn. The settled page must still fill everything between those rows and
+  // the live turn: the turn that ended while the pane was closed, and the live turn's prompt.
+  const BETWEEN_PROMPT = "Between turn: check the retry backoff once more";
+  const BETWEEN_REPLY = "The backoff doubles up to the cap, as the spec asks.";
+  const LIVE_PROMPT = "Live turn: now run the whole suite";
+  const LIVE_CHUNK = "Running the suite now, the first file passes.";
+  /// The chat went on while the pane was closed: a turn ended, then one started that still streams.
+  const goOnWhileClosed = () => {
+    record("mux", "user_message", { text: BETWEEN_PROMPT, promptId: "p-between" });
+    record("mux", "turn_started", { turnId: "t-between", promptId: "p-between" });
+    record(
+      "in",
+      "agent_message_chunk",
+      update({
+        sessionUpdate: "agent_message_chunk",
+        messageId: "m-between",
+        content: { type: "text", text: BETWEEN_REPLY },
+      }),
+    );
+    record("mux", "turn_result", { status: "completed" });
+    record("mux", "user_message", { text: LIVE_PROMPT, promptId: "p-live2" });
+    record("mux", "turn_started", { turnId: "t-live2", promptId: "p-live2" });
+    status = "running";
+  };
+  const streamsDuringAttach = () => [
+    record(
+      "in",
+      "agent_message_chunk",
+      update({
+        sessionUpdate: "agent_message_chunk",
+        messageId: "m-live2",
+        content: { type: "text", text: LIVE_CHUNK },
+      }),
+    ),
+  ];
+  const shownText = (page: Page) =>
+    page.evaluate(() => [...document.querySelectorAll(".acpmux-row")].map((row) => row.textContent ?? "").join("\n"));
+  for (const kept of [true, false] as const)
+    test.each(engines.map(([name]) => name))(
+      `%s: a streaming chat opened cold draws the settled page under live records that came first (${kept ? "kept tail" : "nothing kept"})`,
+      async (name) => {
+        events.length = fixtureEnd;
+        liveAt = fixtureLiveAt;
+        record("mux", "turn_result", { status: "completed" });
+        status = "idle";
+        settledServed = true;
+        attachesAsked.length = 0;
+        const keptTail = { tails: {}, anchors: {} };
+        try {
+          if (kept) {
+            const before = await browsers.get(name)!.newPage({ viewport: { width: 1200, height: 860 } });
+            try {
+              await before.addInitScript((value) => {
+                (globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept = value;
+              }, keptTail);
+              await installPaintedFrames(before);
+              await installRecorder(before);
+              await before.goto(url());
+              await before.locator(".acpmux-row").first().waitFor({ timeout: 60_000 });
+              await settle(before);
+              await before.evaluate(() => dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false })));
+              Object.assign(
+                keptTail,
+                await before.evaluate(() =>
+                  JSON.parse(JSON.stringify((globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept)),
+                ),
+              );
+            } finally {
+              await before.close();
+            }
+            expect(Object.keys(keptTail.tails).length).toBeGreaterThan(0);
+          }
+          goOnWhileClosed();
+          liveOnAttach = streamsDuringAttach;
+          holdOlder = true;
+          attachesAsked.length = 0;
+          const page = await browsers.get(name)!.newPage({ viewport: { width: 1200, height: 860 } });
+          try {
+            await page.addInitScript(
+              ([value, withTail]) => {
+                if (withTail) (globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept = value;
+                (window as unknown as { __settledArmed?: boolean }).__settledArmed = true;
+              },
+              [keptTail, kept] as const,
+            );
+            await installPaintedFrames(page);
+            await installRecorder(page);
+            await page.goto(url());
+            await page.locator(".acpmux-row").first().waitFor({ timeout: 60_000 });
+            await page.getByText(LIVE_CHUNK).first().waitFor({ timeout: 30_000 });
+            await settle(page);
+            const text = await shownText(page);
+            expect(liveOnAttach).toBeUndefined();
+            expect(attachesAsked.some((asked) => asked.settled === true)).toBe(true);
+            expect({
+              between_prompt: text.includes(BETWEEN_PROMPT),
+              between_reply: text.includes(BETWEEN_REPLY),
+              live_prompt: text.includes(LIVE_PROMPT),
+              live_chunk: text.includes(LIVE_CHUNK),
+            }).toEqual({ between_prompt: true, between_reply: true, live_prompt: true, live_chunk: true });
+          } finally {
+            await page.close();
+          }
+        } finally {
+          liveOnAttach = undefined;
+          holdOlder = false;
+          settledServed = false;
+        }
+      },
+    );
+
+  // The daemon fails the settled read (#41760 review): the page asks once more without `settled`
+  // and the chat opens from the plain page.
+  test.each(engines.map(([name]) => name))(
+    "%s: a chat whose settled read fails opens from a plain attach",
+    async (name) => {
+      events.length = fixtureEnd;
+      liveAt = fixtureLiveAt;
+      record("mux", "turn_result", { status: "completed" });
+      goOnWhileClosed();
+      settledServed = true;
+      failSettled = true;
+      attachesAsked.length = 0;
+      const page = await browsers.get(name)!.newPage({ viewport: { width: 1200, height: 860 } });
+      try {
+        await page.addInitScript(() => {
+          (window as unknown as { __settledArmed?: boolean }).__settledArmed = true;
+        });
+        await installRecorder(page);
+        await page.goto(url());
+        await page.getByText(LIVE_PROMPT).first().waitFor({ timeout: 60_000 });
+        const text = await shownText(page);
+        expect(text.includes(BETWEEN_REPLY)).toBe(true);
+        expect(attachesAsked.findIndex((asked) => asked.settled === true)).toBe(0);
+        expect(attachesAsked.slice(1).some((asked) => asked.settled !== true)).toBe(true);
+      } finally {
+        failSettled = false;
+        settledServed = false;
         await page.close();
       }
     },

@@ -330,13 +330,13 @@ def main():
             try:
                 report["teardown"] = end_terminals(os.path.join(bundle, "Contents/Resources/bin/cmux-tui"), tag)
             except Exception as error:  # noqa: BLE001 - teardown is best effort; report it
-                print(f"bench-tab-switch: daemon teardown: {error}", file=sys.stderr)
+                safe_print(f"bench-tab-switch: daemon teardown: {error}", file=sys.stderr)
     out_dir = args.out or os.path.join(args.repo_root, "artifacts/cmux-next-bench")
     os.makedirs(out_dir, exist_ok=True)
     out = os.path.join(out_dir, f"{args.sha}-tabswitch-{args.label}.json")
     with open(out, "w") as handle:
         json.dump(report, handle, indent=2)
-    print(f"bench-tab-switch: wrote {out}")
+    safe_print(f"bench-tab-switch: wrote {out}")
 
 
 if __name__ == "__main__":

@@ -86,6 +86,25 @@ PROJECT_PACKAGE_PATH_RE = re.compile(r"^\s{4}path:\s*(\.\./Packages/\S+|CmuxMobi
 # The NEXT app's App Store review package (metadata, screenshots, reviewer
 # notes) and the rejection history live beside the app.
 REVIEW_DIR = "cmux-next-ios/AppStoreReview"
+# Every bundle Apple scans needs a privacy manifest that declares the
+# required-reason APIs linked into it (ITMS-91053 refuses the upload otherwise).
+# The app's manifest covers every source the lint reads; each extension's covers
+# its own folder.
+PRIVACY_MANIFESTS = {
+    "cmux-next-ios/App/PrivacyInfo.xcprivacy": None,
+    "cmux-next-ios/NotificationContent/PrivacyInfo.xcprivacy": "cmux-next-ios/NotificationContent",
+    "cmux-next-ios/NotificationService/PrivacyInfo.xcprivacy": "cmux-next-ios/NotificationService",
+}
+# https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api
+REQUIRED_REASON_APIS = {
+    "NSPrivacyAccessedAPICategoryUserDefaults": r"\bUserDefaults\b|@AppStorage\b|NSUserDefaults",
+    "NSPrivacyAccessedAPICategoryFileTimestamp":
+        r"\b(creationDate|modificationDate|contentModificationDate|fileModificationDate)(Key)?\b|\b(f|l)?stat\(|getattrlist",
+    "NSPrivacyAccessedAPICategorySystemBootTime": r"\bsystemUptime\b|mach_absolute_time\(",
+    "NSPrivacyAccessedAPICategoryDiskSpace":
+        r"volume(Available|Total)Capacity|systemFreeSize|systemSize\b|\bstatv?fs\(",
+    "NSPrivacyAccessedAPICategoryActiveKeyboards": r"activeInputModes",
+}
 METADATA_DIR = "cmux-next-ios/AppStoreReview/metadata"
 SCREENSHOTS_DIR = "cmux-next-ios/AppStoreReview/screenshots/en-US"
 HISTORY_FILE = "cmux-next-ios/AppStoreReview/rejection-history.json"
@@ -513,6 +532,38 @@ class Lint:
         if plist.get("UIRequiredDeviceCapabilities") and "ipad" not in json.dumps(plist).lower():
             pass
 
+    def check_privacy_manifests(self) -> None:
+        """Each bundle's manifest declares every required-reason API its sources use."""
+        self.ran("privacy-manifest")
+        texts = self.texts()
+        for rel, scope in PRIVACY_MANIFESTS.items():
+            path = self.root / rel
+            if not path.is_file():
+                self.add("privacy.manifest", "5.1.2", "blocker", "no privacy manifest for this bundle", rel)
+                continue
+            try:
+                manifest = plistlib.loads(path.read_bytes())
+            except (OSError, plistlib.InvalidFileException) as exc:
+                self.add("privacy.manifest", "5.1.2", "blocker", f"the privacy manifest does not parse: {exc}", rel)
+                continue
+            declared = {entry.get("NSPrivacyAccessedAPIType"): entry.get("NSPrivacyAccessedAPITypeReasons") or []
+                        for entry in manifest.get("NSPrivacyAccessedAPITypes") or []}
+            for category, reasons in declared.items():
+                if not reasons:
+                    self.add("privacy.manifest-reason", "5.1.2", "blocker", f"{category} has no reason code", rel)
+            sources = {p: t for p, t in texts.items() if scope is None or self.rel(p).startswith(scope + "/")}
+            for category, pattern in REQUIRED_REASON_APIS.items():
+                if category in declared:
+                    continue
+                for source, text in sources.items():
+                    match = re.search(pattern, text)
+                    if match:
+                        lineno = text.count("\n", 0, match.start()) + 1
+                        self.add("privacy.required-reason", "5.1.2", "blocker",
+                                 f"{match.group(0)} is a required-reason API ({category}) the manifest does not declare "
+                                 "(ITMS-91053)", f"{self.rel(source)}:{lineno} -> {rel}")
+                        break
+
     def check_entitlements(self, ents: dict, where: str) -> None:
         self.ran("entitlements")
         if self.lane == "appstore":
@@ -557,6 +608,9 @@ class Lint:
             self.add("privacy.manifest", "5.1.2", "blocker", "no PrivacyInfo.xcprivacy in the bundle (required-reason APIs)", app.name)
         self.check_entitlements(self.entitlements(app), f"{app.name} (signed entitlements)")
         for appex in sorted((app / "PlugIns").glob("*.appex")) if (app / "PlugIns").is_dir() else []:
+            if not (appex / "PrivacyInfo.xcprivacy").is_file():
+                self.add("privacy.manifest", "5.1.2", "blocker",
+                         "the extension has no PrivacyInfo.xcprivacy (it links required-reason APIs)", appex.name)
             try:
                 ext = plistlib.loads((appex / "Info.plist").read_bytes())
             except (OSError, plistlib.InvalidFileException):
@@ -835,6 +889,7 @@ def cmd_lint(args: argparse.Namespace) -> int:
             lint.check_appstore_config()
         urls += lint.check_sources()
         lint.check_info_plist(lint.project_info(), PROJECT_YML)
+        lint.check_privacy_manifests()
         lint.check_store_rules()
         for rel in APPSTORE_ENTITLEMENTS:
             if args.lane == "appstore" and (root / rel).is_file():

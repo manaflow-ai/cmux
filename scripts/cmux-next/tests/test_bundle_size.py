@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import json
 import os
+import plistlib
+import struct
 import subprocess
 import sys
 import tempfile
+import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -145,6 +148,136 @@ def test_summary_under_budget_without_a_previous_nightly(tmp: Path) -> None:
     assert r.returncode == 0, r.stderr
     assert "under its 1.0 MiB cap (arm64); no previous nightly to compare." in r.stdout, r.stdout
     assert "Over budget" not in r.stdout, r.stdout
+
+
+def macho(text: int, unwind: int, symbols: int, strsize: int) -> bytes:
+    """A minimal arm64 Mach-O: __TEXT with __text and __eh_frame, and a symbol table."""
+    import struct
+    sect = lambda name, size: (name.ljust(16, b"\0") + b"__TEXT".ljust(16, b"\0")
+                               + struct.pack("<QQIIIIIIII", 0, size, 0, 0, 0, 0, 0, 0, 0, 0))
+    seg = struct.pack("<II", 0x19, 72 + 2 * 80) + b"__TEXT".ljust(16, b"\0") + struct.pack(
+        "<QQQQiiII", 0, 0, 0, text + unwind, 5, 5, 2, 0) + sect(b"__text", text) + sect(b"__eh_frame", unwind)
+    symtab = struct.pack("<IIIIII", 0x2, 24, 0, symbols, 0, strsize)
+    header = struct.pack("<IiiIIIII", 0xFEEDFACF, 0x0100000C, 0, 2, 2, len(seg) + len(symtab), 0, 0)
+    body = header + seg + symtab
+    return body + b"\0" * (text + unwind + symbols * 16 + strsize)
+
+
+def test_tree_splits_binaries_kinds_and_duplicates(tmp: Path) -> None:
+    app = make_app(tmp)
+    (app / "Contents/Resources/bin/cmux").write_bytes(macho(text=4000, unwind=1000, symbols=10, strsize=40))
+    for page in ("a", "b"):
+        write(app, f"Contents/Resources/pages/{page}/vendor.js", 2048)
+    write(app, "Contents/Resources/fr.lproj/Localizable.strings", 300)
+    write(app, "Contents/Resources/fonts/x.woff2", 50)
+    out = tmp / "t.json"
+    r = run("tree", str(app), "--json", str(out), "--jobs", "2")
+    assert r.returncode == 0, r.stderr
+    data = json.loads(out.read_text())
+    cmux = next(b for b in data["binaries"] if b["path"] == "Contents/Resources/bin/cmux")
+    assert cmux["parts"]["code and data"] == 4000 and cmux["parts"]["unwind tables"] == 1000, cmux
+    assert cmux["parts"]["symbols"] == 10 * 16 + 40, cmux
+    assert sum(cmux["parts"].values()) == cmux["bytes"], cmux
+    kinds = {k["kind"]: k["bytes"] for k in data["kinds"]}
+    assert kinds["JS"] == 4096 and kinds["localizations"] == 300 and kinds["fonts"] == 50, kinds
+    dup = data["duplicates"]
+    assert dup["extra_bytes"] == 2048, dup  # the second vendor.js
+    assert any(g["paths"] == ["Contents/Resources/pages/a/vendor.js", "Contents/Resources/pages/b/vendor.js"]
+               for g in dup["groups"]), dup
+    assert data["app_bytes"] == sum(c["bytes"] for c in data["components"])
+    assert 0 < data["dmg_estimate_bytes"] < data["app_bytes"], data["dmg_estimate_bytes"]
+    assert "| `Contents/Resources/bin/cmux` |" in r.stdout, r.stdout
+
+
+def fat(slices: list[bytes], wide: bool) -> bytes:
+    """A fat Mach-O (FAT_MAGIC, or FAT_MAGIC_64 when wide) with each slice at a 4 KiB boundary."""
+    import struct
+    entry = 32 if wide else 20
+    off = 4096
+    archs, body = b"", b""
+    for sl in slices:
+        if wide:
+            archs += struct.pack(">IIQQII", 0x0100000C, 0, off, len(sl), 12, 0)
+        else:
+            archs += struct.pack(">IIIII", 0x0100000C, 0, off, len(sl), 12)
+        pad = -len(sl) % 4096
+        body += sl + b"\0" * pad
+        off += len(sl) + pad
+    head = struct.pack(">II", 0xCAFEBABF if wide else 0xCAFEBABE, len(slices)) + archs
+    assert len(head) == 8 + entry * len(slices)
+    return head + b"\0" * (4096 - len(head)) + body
+
+
+def test_tree_counts_fat_headers_and_padding(tmp: Path) -> None:
+    app = make_app(tmp)
+    sl = macho(text=1000, unwind=200, symbols=2, strsize=8)
+    for name, wide in (("fat32", False), ("fat64", True)):
+        (app / f"Contents/MacOS/{name}").write_bytes(fat([sl, sl], wide))
+    # A Java class file starts 0xCAFEBABE too; its version (52) is no fat slice count.
+    (app / "Contents/Resources/Thing.class").write_bytes(bytes.fromhex("cafebabe00000034") + b"\0" * 56)
+    out = tmp / "t.json"
+    r = run("tree", str(app), "--json", str(out), "--jobs", "1")
+    assert r.returncode == 0, r.stderr
+    data = json.loads(out.read_text())
+    for name in ("fat32", "fat64"):
+        b = next(x for x in data["binaries"] if x["path"] == f"Contents/MacOS/{name}")
+        assert b["parts"]["code and data"] == 2000 and b["parts"]["unwind tables"] == 400, b
+        assert sum(b["parts"].values()) == b["bytes"], b  # the fat header and padding are counted
+    assert not any(x["path"].endswith("Thing.class") for x in data["binaries"]), data["binaries"]
+
+
+def symbol_map(functions: list[tuple[str, int]]) -> bytes:
+    """A cmux-symbols.bin (write-app-symbol-map.py's format) of (name, size) functions, in order."""
+    def leb(n: int) -> bytes:
+        out = bytearray()
+        while True:
+            byte, n = n & 0x7F, n >> 7
+            out.append(byte | (0x80 if n else 0))
+            if not n:
+                return bytes(out)
+    names = [name for name, _ in functions] + [""]
+    deltas, previous, at = [], 0, 0x1000
+    for _, size in functions + [("", 0)]:
+        deltas.append(leb(at - previous))
+        previous, at = at, at + size
+    payload = struct.pack("<I", len(names)) + b"".join(deltas) + b"\0".join(n.encode() for n in names)
+    raw = zlib.compressobj(9, zlib.DEFLATED, -15)
+    body = raw.compress(payload) + raw.flush()
+    return b"CMXSYM1\0" + struct.pack("<I", 1) + b"\x11" * 16 + struct.pack("<I", len(body)) + body
+
+
+def test_tree_splits_the_app_code_by_language(tmp: Path) -> None:
+    app = make_app(tmp)
+    (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleExecutable": "cmux"}))
+    # Names as write-app-symbol-map.py stores them: Mach-O's leading underscore dropped, so
+    # `__ZN...` (C++ and legacy Rust) and `__RN...` (Rust v0) read `_ZN...` and `_RN...`, and
+    # `_$s...` (Swift) reads `$s...`. These are the forms in nightly 4328833946401's map.
+    (app / "Contents/Resources/cmux-symbols.bin").write_bytes(symbol_map([
+        ("$s10CmuxNextApp4mainyyF", 700),
+        ("_ZN4core3fmt5write17h0123456789abcdefE", 200),
+        ("_RNvCsfLfy6EI15iL_7___rustc12___rust_alloc", 50),
+        ("cmux_layout_reducer_apply", 30),
+        ("ghostty_surface_new", 40),
+        ("_ZN11spirv_cross8Compiler4compileEv", 25),
+        ("sqlite3_prepare_v2", 15),
+        ("objectdestroyTm", 10),
+    ]))
+    out = tmp / "t.json"
+    r = run("tree", str(app), "--json", str(out), "--jobs", "1")
+    assert r.returncode == 0, r.stderr
+    lang = json.loads(out.read_text())["code_by_language"]
+    assert lang["binary"] == "Contents/MacOS/cmux", lang
+    assert lang["bytes"] == {"Swift": 710, "Rust": 280, "Zig": 40, "C++": 25, "C and other": 15}, lang["bytes"]
+    assert "| Swift | 0.0 | 66.4% |" in r.stdout, r.stdout
+
+
+def test_tree_without_a_symbol_map_has_no_language_split(tmp: Path) -> None:
+    app = make_app(tmp)
+    (app / "Contents/Resources/cmux-symbols.bin").write_bytes(b"CMXSYM1\0garbage")
+    out = tmp / "t.json"
+    r = run("tree", str(app), "--json", str(out), "--jobs", "1")
+    assert r.returncode == 0, r.stderr
+    assert "code_by_language" not in json.loads(out.read_text())
 
 
 def main() -> int:
