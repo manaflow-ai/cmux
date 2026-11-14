@@ -47,7 +47,7 @@ import Testing
         tabs.seriallyScoped = { _, turn in turn({}); return true }
         tabs.openInMainPaneScoped = { _, _, _, _, _ in nil }
         let creates = Creates()
-        tabs.create = { _, _, _, _, _, split in
+        tabs.create = { _, _, _, _, _, split, _ in
             creates.splits.append(split)
             creates.hear.yield()
             throw CancellationError()

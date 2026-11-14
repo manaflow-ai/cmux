@@ -471,6 +471,7 @@ pub(super) fn advertised_capabilities(
         crate::remote_host::REMOTE_HOST_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
+        crate::mux::tab_strip::tab_slot::TAB_INSERT_AFTER_CAPABILITY,
         clipboard_read::CAPABILITY,
         chief_inspect::CAPABILITY,
     ];

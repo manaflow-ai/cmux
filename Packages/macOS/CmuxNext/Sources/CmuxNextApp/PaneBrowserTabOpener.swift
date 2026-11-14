@@ -34,10 +34,12 @@ struct PaneBrowserTabOpener {
     /// page unless the caller waits for the tab, and media Chromium cannot play opens in WebKit.
     /// `split` (LinkOpener's split right or below): the tab opens straight in a new split of this
     /// pane (``PaneBrowserTabSplit``) and `finished` runs with its surface, or nil when it was
-    /// refused or closed first; `then` is not called. Only when ``opensInSplit`` holds.
+    /// refused or closed first; `then` is not called. Only when ``opensInSplit`` holds. `inserting`: a person's new tab made
+    /// in its slot (``NewTabInsertion``): sent once the pane's creation before it is answered, naming the tab it goes after.
     func open(url: URL?, engine requested: String?, inherited: String?, adopting child: (any BrowserTab)?, // perf-hot: 10ms new-tab (the key's turn of every new browser tab)
               background: Bool, profile: String?, notice: String?, opener: SurfaceID?,
-              placementOwner: Bool = false, split: BrowserTabSplitRequest? = nil, then: (@MainActor (SurfaceID) -> Void)?) -> Bool {
+              placementOwner: Bool = false, inserting: NewTabInsertion? = nil, split: BrowserTabSplitRequest? = nil,
+              then: (@MainActor (SurfaceID) -> Void)?) -> Bool {
         let services = controller.services
         var target = url
         // chrome://history and chrome://bookmarks open cmux's pages; chrome://settings opens Settings
@@ -120,20 +122,22 @@ struct PaneBrowserTabOpener {
             if !beside, standInApplies(child: child, opener: opener, background: background,
                                         placementOwner: placementOwner) {
                 openStandIn(choice, address: url?.absoluteString ?? newTabAddress, focusesAddressBar: url == nil,
-                            profile: profile, notice: notice, then: then)
+                            profile: profile, notice: notice, inserting: inserting, then: then)
                 return true
             }
             let linkOpener = services.linkOpener
             let intent = background || beside ? nil : controller.workspace?.beginFocusIntent()
             services.registry.track(Task {
+                defer { inserting?.answered() } // the pane's next new tab is sent now: it may name this one
                 do {
                     // A new tab the user asked for opens the New Tab page; an
                     // adopted page (popup, extension tab) keeps its own.
                     let address = url?.absoluteString ?? (child == nil ? newTabAddress : BrowserNewTabPage.blankURL)
+                    let inserted = opener == nil ? await inserting?.after() : nil // after the pane's creation before it is answered; a page's tab goes by its opener
                     let surface = try await pageRequests.openers.open(opener, foreground: !background, in: model,
                                                                       browserTabs: browserTabs) { after in
                         try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice,
-                                                   activate: !background && !beside, after: after)
+                                                   activate: !background && !beside, after: after ?? inserted)
                     }
                     if let child { pageRequests.adopt(child, surface: surface) }
                     if beside {
@@ -253,20 +257,22 @@ extension PaneBrowserTabOpener {
     /// (New Browser Tab, the New Tab page's browser, a link in a new tab, New WebKit Tab). On the
     /// reply the stand-in's page and chrome move to the daemon's tab (`TabContentCache.moveBrowser`),
     /// which keeps its cell, selection and view. Keys typed meanwhile wait for the daemon's tab.
+    /// `inserting`: the request waits for the pane's creation before it to be answered and names the tab to go after.
     private func openStandIn(_ choice: BrowserEngineChoice, address: String, focusesAddressBar: Bool, profile: String?, notice: String?, // perf-hot: 10ms new-tab (the stand-in shows in the key's turn)
-                             then: (@MainActor (SurfaceID) -> Void)?) {
+                             inserting: NewTabInsertion?, then: (@MainActor (SurfaceID) -> Void)?) {
         let controller = controller, services = controller.services, cache = services.cache, model = controller.pane
         let command = NewBrowserTabCommand(pane: model.handle, url: address, engine: choice.engine.rawValue,
                                            profile: cache.browserTabs.resolveProfile(model, profile))
         let intent = controller.workspace?.beginFocusIntent(), window = controller.view.window
         let pending = BenchSpans.measure("browserTab.intend") {
-            command.intendNow(on: controller.daemon) { try await cache.browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice) }
+            command.intendNow(on: controller.daemon) { try await cache.browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice, after: inserting?.after()) }
         }
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, tab: pending.tab)
         controller.selectWhenReported(surface: pending.surface)
         services.registry.track(Task {
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+            defer { inserting?.answered() } // after the reply was applied (`send`): the pane's next new tab may name this one
             do {
                 let surface = try await pending.send { surface in
                     if let tab = controller.daemon.store.tab(surface: surface) { _ = cache.moveBrowser(pending.tab, to: tab) }

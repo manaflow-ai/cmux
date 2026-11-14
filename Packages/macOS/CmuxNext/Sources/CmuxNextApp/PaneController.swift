@@ -41,7 +41,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var pendingDock = PendingDockChats() // chats bound for a new chat dock, never in this strip (NewChatPlacement)
     /// A tab this app just created or reopened here, selected once the daemon reports it (`selectWhenReported*`).
     var pendingSelect = PendingTabSelect()
-    let placements = WorkLine<ActionWorkFailure?>() // this pane's new tabs' moves into their slots, in press order: each reads its slot after the last (NewTabSlot)
+    let placements = WorkLine<ActionWorkFailure?>(), creations = WorkLine<ActionWorkFailure?>() // this pane's new tabs' moves into their slots (NewTabSlot) and their sends (NewTabInsertion), each in press order
     private var observation: Task<Void, Never>?
     lazy var hoverLoad = HoverWakeGate(owner: "PaneHoverLoad") { [weak self] in if case let .tab(key) = $0 { self?.loadOnHover(key) } } // a rest on a strip tab (PaneController+Neighbors)
     /// One observation per daemon tab's strip item and focus kind (`focusPane` reads it; I1, I2).
@@ -357,7 +357,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let selectNew = pendingSelect.take(shown: snapshot.tabs, record: pane.tabs) // once listed (OutboundTab)
         if let selectNew { state?.selection.selectMade(selectNew, in: paneKey, inPlaceOf: stripModel.successors[StripTabID(selectNew)]?.rawValue, tabs: snapshot.items.map(\.id.rawValue)) }
         // Members of a collapsed group are hidden (`hiddenTabs`): a closed selected tab's successor skips them while a shown tab survives (close-focus.md).
-        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex, hidden: stripModel.hiddenTabs, groups: stripModel.tabGroups, replaced: stripModel.successors, closing: { daemon.store.closingTabIDs })
+        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex, hidden: stripModel.hiddenTabs, groups: stripModel.tabGroups, replaced: stripModel.successors, closing: { daemon.store.closingTabIDs }, became: { [pane, daemon] in daemon.store.creations.replacement(ofStandIn: $0, in: pane)?.id })
         setStripSelection(selected.map { StripTabID($0) })
         let selectedID = stripModel.selectedID
         sendTopologyIfChanged() // focus learns the selection before the show: the keyboard leaves the old tab first (showSelected)

@@ -43,13 +43,13 @@ extension DaemonConnection {
 
     var supportsPlacementEnv: Bool { identity?.supports(DaemonCapability.terminalPlacementEnv.rawValue) == true }
 
-    /// `options` for one daemon: `keep` only where `terminal-reap-v1` is
-    /// served, and a caller `terminalID` only with `terminal-placement-env-v1`.
+    /// `options` for one daemon: `keep` only where `terminal-reap-v1` is served, a caller `terminalID` only with
+    /// `terminal-placement-env-v1`, and a new tab's `after` only with `tab-insert-after-v1`.
     func served(_ options: SpawnOptions) -> SpawnOptions {
         var options = options
         if identity?.supports(DaemonCapability.terminalReap.rawValue) != true { options.keep = nil }
         options.drop(callerTerminal: !supportsPlacementEnv, clientKeys: identity?.supports(DaemonCapability.splitClientKeys.rawValue) != true,
-                     clientSplitID: identity?.supports(DaemonCapability.splitClientSplitID.rawValue) != true)
+                     clientSplitID: identity?.supports(DaemonCapability.splitClientSplitID.rawValue) != true, insertAfter: identity?.supports(DaemonCapability.tabInsertAfter.rawValue) != true)
         return options
     }
 

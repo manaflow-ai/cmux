@@ -28060,6 +28060,11 @@ Result<NewBrowserTabRequest> Codec<NewBrowserTabRequest>::decode(const Json& val
 Result<Json> Codec<NewConversationTabRequest>::encode(const NewConversationTabRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.after.is_absent()) {
+        auto encoded = encode_value(value.after);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("after", std::move(encoded).value());
+    }
     if (!value.agent_session.is_absent()) {
         auto encoded = encode_value(value.agent_session);
         if (!encoded) return std::move(encoded).error();
@@ -28132,6 +28137,16 @@ Result<NewConversationTabRequest> Codec<NewConversationTabRequest>::decode(const
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     NewConversationTabRequest result{};
+    const Json* field_after = value.find("after");
+    if (field_after) {
+        if (field_after->is_null()) {
+            result.after = Field<Id>::null();
+        } else {
+            auto decoded = decode_value<Id>(*field_after);
+            if (!decoded) return std::move(decoded).error();
+            result.after = Field<Id>(std::move(decoded).value());
+        }
+    }
     const Json* field_agent_session = value.find("agent_session");
     if (field_agent_session) {
         if (field_agent_session->is_null()) {
@@ -29453,6 +29468,11 @@ Result<NewScreenRequest> Codec<NewScreenRequest>::decode(const Json& value) {
 Result<Json> Codec<NewTabRequest>::encode(const NewTabRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.after.is_absent()) {
+        auto encoded = encode_value(value.after);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("after", std::move(encoded).value());
+    }
     if (!value.cols.is_absent()) {
         auto encoded = encode_value(value.cols);
         if (!encoded) return std::move(encoded).error();
@@ -29500,6 +29520,16 @@ Result<NewTabRequest> Codec<NewTabRequest>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     NewTabRequest result{};
+    const Json* field_after = value.find("after");
+    if (field_after) {
+        if (field_after->is_null()) {
+            result.after = Field<Id>::null();
+        } else {
+            auto decoded = decode_value<Id>(*field_after);
+            if (!decoded) return std::move(decoded).error();
+            result.after = Field<Id>(std::move(decoded).value());
+        }
+    }
     const Json* field_cols = value.find("cols");
     if (field_cols) {
         if (field_cols->is_null()) {
@@ -45962,7 +45992,8 @@ constexpr std::array<CommandFieldRequirement, 5> kCommand166FieldRequirements{{
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand170FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 6> kCommand170FieldRequirements{{
+    {"after", 0U, "tab-insert-after-v1"},
     {"agent_session", 0U, "agent-session-tabs-v1"},
     {"page", 0U, "page-tabs-v1"},
     {"route", 0U, "page-tab-route-v1"},
@@ -46003,7 +46034,8 @@ constexpr std::array<CommandFieldRequirement, 3> kCommand176FieldRequirements{{
     {"shell_args", 12U, "screen-terminal-env-v1"},
     {"terminal_id", 12U, "screen-terminal-env-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 4> kCommand177FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand177FieldRequirements{{
+    {"after", 12U, "tab-insert-after-v1"},
     {"env", 12U, "terminal-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
     {"shell_args", 12U, "terminal-shell-args-v1"},

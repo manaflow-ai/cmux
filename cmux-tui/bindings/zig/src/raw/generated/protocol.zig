@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde";
+pub const ir_sha256 = "130c00ece3c105cc2739557174733e5ad47f3bdb1518bda57009db7e82b1816f";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -7683,6 +7683,8 @@ pub fn newBrowserTab(client: anytype, request: NewBrowserTabRequest) !wire.Decod
 }
 
 pub const NewConversationTabRequest = struct {
+    /// A tab of the pane: the new tab goes right after it in the creating commit, as new-frontend-browser-tab's after, else at the end. Refused with split; a workspace target ignores it.
+    after: wire.Field(Id) = .absent,
     agent_session: wire.Field(AgentSessionSource) = .absent,
     cols: wire.Field(u16) = .absent,
     conversation: wire.Field([]const u8) = .absent,
@@ -7723,6 +7725,7 @@ pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !
             .since = 12,
             .capability = "conversation-tabs-v1",
             .fields = &.{
+                .{ .name = "after", .since = null, .capability = "tab-insert-after-v1" },
                 .{ .name = "agent_session", .since = null, .capability = "agent-session-tabs-v1" },
                 .{ .name = "page", .since = null, .capability = "page-tabs-v1" },
                 .{ .name = "route", .since = null, .capability = "page-tab-route-v1" },
@@ -7963,6 +7966,8 @@ pub fn newScreen(client: anytype, request: NewScreenRequest) !wire.Decoded(NewSc
 }
 
 pub const NewTabRequest = struct {
+    /// A tab of the target pane: the new tab goes right after it in the creating commit, else (unknown, closed, another pane's) at the end. A slot inside a tab group's run moves to the end of that run, and the tab then joins the group in its slot.
+    after: wire.Field(Id) = .absent,
     cols: wire.Field(u16) = .absent,
     cwd: wire.Field([]const u8) = .absent,
     env: wire.Field(wire.Map([]const u8)) = .absent,
@@ -7988,6 +7993,7 @@ pub fn newTab(client: anytype, request: NewTabRequest) !wire.Decoded(NewTabResul
             .since = 5,
             .capability = null,
             .fields = &.{
+                .{ .name = "after", .since = 12, .capability = "tab-insert-after-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },

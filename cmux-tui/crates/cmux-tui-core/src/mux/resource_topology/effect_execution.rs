@@ -441,7 +441,7 @@ impl Mux {
                     optional_owned_string(fields, "name")?,
                     effect_cell_size(fields)?,
                     effect_on_exit(fields)?,
-                    None,
+                    TerminalTabSlot::default(),
                 )
                 .map(|created| created.path)
             }
@@ -456,7 +456,10 @@ impl Mux {
                         optional_owned_string(fields, "name")?,
                         effect_cell_size(fields)?,
                         None,
-                        tab_strip::tab_slot::effect_index(fields),
+                        TerminalTabSlot {
+                            index: tab_strip::tab_slot::effect_index(fields),
+                            after: tab_strip::tab_slot::effect_after(fields),
+                        },
                     ),
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
                         intent,
@@ -779,7 +782,7 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
         on_exit: Option<TerminalOnExit>,
-        index: Option<usize>,
+        slot: TerminalTabSlot,
     ) -> anyhow::Result<CreatedTerminalEffect> {
         // `pinned-dock-v1`: a pinned column that takes no tabs refuses
         // before anything spawns, and again when the tab attaches.
@@ -806,17 +809,33 @@ impl Mux {
         let active_at = self.next_active_at();
         let notifications = self.tree_decorations_placing(&surface);
         let mut refused = None;
+        let mut joins = None;
         let attached = {
             let mut state = self.state.lock().unwrap();
             if let Err(error) = ensure_pane_takes_tabs(operation, &state, target) {
                 refused = Some(error);
             }
+            // Read from the strip in this critical section, so no change
+            // between the request and the insert shifts the slot.
+            let after_index = match slot.index {
+                Some(_) => None,
+                None => {
+                    let presentation = &notifications.presentation;
+                    joins =
+                        tab_strip::tab_slot::after_group(&state, presentation, target, slot.after);
+                    tab_strip::tab_slot::after_index(&state, presentation, target, slot.after)
+                }
+            };
             let pane = if refused.is_some() { None } else { state.panes.get_mut(&target) };
             let delta = match pane {
                 Some(pane) => {
-                    // At its end, or at the strip index the creation names
-                    // (`tab_slot`: Reopen Closed puts a tab back in place).
-                    let index = tab_strip::tab_slot::slot(index, pane.tabs.len());
+                    // At its end, at the strip index the creation names
+                    // (`tab_slot`: Reopen Closed puts a tab back in place),
+                    // or right after the tab it names (`tab-insert-after-v1`).
+                    let index = match slot.index {
+                        Some(index) => tab_strip::tab_slot::slot(Some(index), pane.tabs.len()),
+                        None => after_index.unwrap_or(pane.tabs.len()),
+                    };
                     pane.tabs.insert(index, surface.id);
                     pane.active_tab = index;
                     pane.active_at = active_at;
@@ -872,6 +891,9 @@ impl Mux {
             anyhow::bail!("pane disappeared while creating tab");
         };
         self.emit_tree_delta(delta, true);
+        if let Some(joins) = joins {
+            self.join_after_group(surface.id, joins);
+        }
         self.reap_if_dead(&surface);
         Ok(created)
     }

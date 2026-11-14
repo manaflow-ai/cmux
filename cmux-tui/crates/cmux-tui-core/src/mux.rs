@@ -177,8 +177,9 @@ mod test_hooks;
 mod topology_edit;
 mod topology_ops;
 pub(crate) use browser_tab_create::{
-    FRONTEND_BROWSER_ACTIVATE_CAPABILITY, FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
-    FrontendTabPlacement, TRANSACTION_FIELD as FRONTEND_BROWSER_TRANSACTION_FIELD,
+    AFTER_FIELD as FRONTEND_BROWSER_AFTER_FIELD, FRONTEND_BROWSER_ACTIVATE_CAPABILITY,
+    FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY, FrontendTabPlacement,
+    TRANSACTION_FIELD as FRONTEND_BROWSER_TRANSACTION_FIELD,
     effect_transaction as frontend_browser_transaction, frontend_fields as frontend_browser_fields,
 };
 pub(crate) use spawn_options::{

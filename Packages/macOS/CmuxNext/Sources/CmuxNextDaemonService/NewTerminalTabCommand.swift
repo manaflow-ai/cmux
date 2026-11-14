@@ -11,7 +11,7 @@ public import CmuxNextDaemon
 public struct NewTerminalTabCommand: Sendable {
     /// The pane the tab goes in.
     public let pane: PaneID
-    /// How to start its terminal; `terminalID` is set by ``intendNow(on:cwd:)``.
+    /// How to start its terminal; `terminalID` is set by ``intendNow(on:cwd:inserting:)``.
     public let options: SpawnOptions
 
     /// - Parameters:
@@ -30,7 +30,7 @@ public struct NewTerminalTabCommand: Sendable {
 
     /// The provisional tab, and the work that sends `new-tab`.
     public struct Pending {
-        /// The provisional tab's id (`TabModel.id`), shown in the pane when ``NewTerminalTabCommand/intendNow(on:cwd:)`` returns.
+        /// The provisional tab's id (`TabModel.id`), shown in the pane when ``NewTerminalTabCommand/intendNow(on:cwd:inserting:)`` returns.
         public let tab: String
         /// Its surface.
         public let surface: SurfaceID
@@ -47,8 +47,11 @@ public struct NewTerminalTabCommand: Sendable {
     ///   - daemon: the pane's daemon.
     ///   - cwd: the start directory when it is only known later (an agent tab's working
     ///     directory, read while the stand-in shows); nil, or a nil result, keeps `options.cwd`.
+    ///   - inserting: a person's new tab made in its slot (``NewTabInsertion``): the request waits for the pane's
+    ///     creation before it to be answered and names the tab to go after (`after`, `tab-insert-after-v1`); the send
+    ///     releases the pane's line once its answer is applied or it failed. Nil appends.
     @MainActor
-    public func intendNow(on daemon: DaemonService, cwd: Task<String?, Never>? = nil) -> Pending {
+    public func intendNow(on daemon: DaemonService, cwd: Task<String?, Never>? = nil, inserting: NewTabInsertion? = nil) -> Pending {
         let provisional = ProvisionalTab()
         let terminal = TerminalID.generate()
         var options = options
@@ -63,9 +66,13 @@ public struct NewTerminalTabCommand: Sendable {
         let send = daemon.intendNowReporting("new-tab", intent, transaction: transaction) { connection in
             var sent = sent
             if let cwd, let start = await cwd.value { sent.cwd = start }
+            // Before the target: the pane's creation before this one is answered first, so its tab can be named here.
+            if let inserting { sent.after = await inserting.after() }
             return try await connection.newTab(in: try await target(), options: sent)
         }
         return Pending(tab: provisional.id, surface: provisional.surface) {
+            // The pane's next new tab is sent once this answer is applied (its stand-in's tab known) or it failed.
+            defer { inserting?.answered() }
             // A failure is the real one (the stand-in is gone then): the daemon's own answer, a lost connection, a pane
             // still opening (``PaneNotReady``) or a stand-in whose create failed (``PendingPaneNotCreated``). FC-1: a
             // fixed "the daemon refused the new tab" for all of them hid why the first new tab after launch failed.

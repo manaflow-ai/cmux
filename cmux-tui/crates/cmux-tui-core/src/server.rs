@@ -1330,6 +1330,11 @@ enum Command {
         /// `SHELL` in `env`, else the daemon's default shell).
         #[serde(default)]
         shell_args: Option<Vec<String>>,
+        /// `tab-insert-after-v1`: the tab goes right after this tab of the
+        /// pane, in the creating commit; else (unknown, closed, another
+        /// pane's) at the end.
+        #[serde(default)]
+        after: Option<SurfaceId>,
     },
     NewConversationTab(conversation_tabs_wire::NewConversationTabParams),
     BindConversationTabSession(conversation_tabs_wire::BindSessionParams),

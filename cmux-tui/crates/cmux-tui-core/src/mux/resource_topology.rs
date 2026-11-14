@@ -194,6 +194,16 @@ struct TerminalEffectOptions {
     on_exit: Option<TerminalOnExit>,
 }
 
+/// Where a terminal tab created in an existing pane lands: at `index`
+/// ([`tab_strip::tab_slot::INDEX_FIELD`]) when the creation names one, else
+/// right after `after` ([`tab_strip::tab_slot::AFTER_FIELD`]) when that is a
+/// tab of the pane, else at the end.
+#[derive(Clone, Copy, Default)]
+struct TerminalTabSlot {
+    index: Option<usize>,
+    after: Option<SurfaceId>,
+}
+
 struct CreatedTerminalEffect {
     path: Value,
 }

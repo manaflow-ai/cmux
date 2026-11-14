@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextOnboarding
 import CmuxNextPalette
 import CmuxNextSettings
@@ -224,9 +225,9 @@ extension PaneController {
     /// places a new tab, with the selected tab's kind selected and folder inherited
     /// (``NewTabPage/open(in:seed:reusingShown:then:)``).
     /// `then` gets the new tab's id once the store made it.
-    /// `reusingShown`: see ``NewTabPage/open(in:seed:reusingShown:then:)``.
-    func newTabPage(seed: AgentPaneSeedSource? = nil, reusingShown: Bool = false, then: (@MainActor (String) -> Void)? = nil) {
-        NewTabPage.open(in: self, seed: seed, reusingShown: reusingShown, then: then)
+    /// `reusingShown`: see ``NewTabPage/open(in:seed:reusingShown:inserting:then:)``.
+    func newTabPage(seed: AgentPaneSeedSource? = nil, reusingShown: Bool = false, inserting: NewTabInsertion? = nil, then: (@MainActor (String) -> Void)? = nil) {
+        NewTabPage.open(in: self, seed: seed, reusingShown: reusingShown, inserting: inserting, then: then)
     }
 
     /// Focus Location Bar: a browser tab's address bar; on a New Tab page its own (React) field; in

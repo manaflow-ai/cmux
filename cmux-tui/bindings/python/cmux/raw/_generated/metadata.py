@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde'
+IR_SHA256 = '130c00ece3c105cc2739557174733e5ad47f3bdb1518bda57009db7e82b1816f'
 
 
 @dataclass(frozen=True)
@@ -2277,6 +2277,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'after': CommandFieldMetadata(None, 'tab-insert-after-v1'),
             'agent_session': CommandFieldMetadata(None, 'agent-session-tabs-v1'),
             'cols': CommandFieldMetadata(None, None),
             'conversation': CommandFieldMetadata(None, None),
@@ -2430,6 +2431,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'after': CommandFieldMetadata(12, 'tab-insert-after-v1'),
             'cols': CommandFieldMetadata(None, None),
             'cwd': CommandFieldMetadata(None, None),
             'env': CommandFieldMetadata(12, 'terminal-env-v1'),

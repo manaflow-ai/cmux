@@ -488,11 +488,11 @@ extension AgentTabStore {
         tabs.tabsNamedScoped = { [weak services] id in
             services?.machines.daemons.filter { $0.store.tab(id: id).map { $0.id == id && $0.agentSession != nil } == true }.map { AgentTabKey(machine: $0.machineID, key: id) } ?? []
         }
-        tabs.create = { pane, daemon, record, key, transaction, split in
+        tabs.create = { pane, daemon, record, key, transaction, split, after in
             guard let connection = daemon.connection else { throw DaemonError.notConnected }
             var request = NewConversationTabRequest(agentSession: record, pane: pane, origin: createOrigin, mutationID: key,
                                                     transaction: transaction)
-            request.split = split
+            request.split = split; request.after = daemon.supports(DaemonCapability.tabInsertAfter.rawValue) ? after : nil // an older daemon appends
             let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command, until: DaemonCommandScope.current.map { _ in ContinuousClock.now + AgentSessionWorkspace.firstTabBudget }) { try await connection.request(request) } // keyed: a late reply is asked again; a scripted open waits out a busy daemon, a person's tab (no scope) the 10 s budget
             let created = AgentTabCreated(key: response.tabKey, surface: response.surface)
             // Every event the daemon sent before the reply: the provisional tab settles there.

@@ -12,6 +12,8 @@ import java.util.Objects;
 
 /** Immutable new-tab request. Protocol v5; authority: control. */
 public final class NewTabRequest implements WireValue {
+    /** A tab of the target pane: the new tab goes right after it in the creating commit, else (unknown, closed, another pane's) at the end. A slot inside a tab group's run moves to the end of that run, and the tab then joins the group in its slot. */
+    private final Field<UInt64> after;
     private final Field<Integer> cols;
     private final Field<String> cwd;
     private final Field<Map<String, String>> env;
@@ -22,6 +24,7 @@ public final class NewTabRequest implements WireValue {
     private final Field<String> terminalId;
 
     private NewTabRequest(Builder builder) {
+        this.after = builder.after;
         this.cols = builder.cols;
         this.cwd = builder.cwd;
         this.env = builder.env.map(value -> Collections.unmodifiableMap(new LinkedHashMap<>(value)));
@@ -34,6 +37,7 @@ public final class NewTabRequest implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<UInt64> after() { return after; }
     public Field<Integer> cols() { return cols; }
     public Field<String> cwd() { return cwd; }
     public Field<Map<String, String>> env() { return env; }
@@ -46,6 +50,10 @@ public final class NewTabRequest implements WireValue {
     public static NewTabRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "NewTabRequest");
         Builder builder = builder();
+        Object rawAfter = Wire.optional(object, "after");
+        if (!Wire.isMissing(rawAfter)) {
+            builder.after(rawAfter == null ? null : Wire.uint64(rawAfter, "NewTabRequest.after"));
+        }
         Object rawCols = Wire.optional(object, "cols");
         if (!Wire.isMissing(rawCols)) {
             builder.cols(rawCols == null ? null : Wire.uint16(rawCols, "NewTabRequest.cols"));
@@ -84,6 +92,7 @@ public final class NewTabRequest implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "after", after);
         Wire.put(object, "cols", cols);
         Wire.put(object, "cwd", cwd);
         Wire.put(object, "env", env);
@@ -98,16 +107,17 @@ public final class NewTabRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewTabRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(env, that.env) && Objects.equals(keep, that.keep) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(terminalId, that.terminalId);
+        return Objects.equals(after, that.after) && Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(env, that.env) && Objects.equals(keep, that.keep) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(terminalId, that.terminalId);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, cwd, env, keep, pane, rows, shellArgs, terminalId); }
+    public int hashCode() { return Objects.hash(after, cols, cwd, env, keep, pane, rows, shellArgs, terminalId); }
 
     @Override
     public String toString() { return "NewTabRequest" + toWire(); }
 
     public static final class Builder {
+        private Field<UInt64> after = Field.omitted();
         private Field<Integer> cols = Field.omitted();
         private Field<String> cwd = Field.omitted();
         private Field<Map<String, String>> env = Field.omitted();
@@ -117,6 +127,10 @@ public final class NewTabRequest implements WireValue {
         private Field<List<String>> shellArgs = Field.omitted();
         private Field<String> terminalId = Field.omitted();
 
+        public Builder after(UInt64 value) {
+            this.after = Field.ofNullable(value);
+            return this;
+        }
         public Builder cols(Integer value) {
             this.cols = Field.ofNullable(value);
             return this;

@@ -366,12 +366,13 @@ fn dispatch_command(
         Command::TerminalResumeCommand { surface, terminal_id, command } => {
             cmd_terminals::terminal_resume_command(mux, surface, terminal_id, command)
         }
-        Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
+        Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args, after } => {
             cmd_tabs::new_tab(
                 mux,
                 client,
                 actor,
                 pane,
+                after,
                 cwd,
                 env,
                 cols,

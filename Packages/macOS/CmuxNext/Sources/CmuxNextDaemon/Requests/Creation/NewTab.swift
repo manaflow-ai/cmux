@@ -42,6 +42,10 @@ public struct SpawnOptions: Sendable, Hashable {
     /// The split the new pane wraps whole (`split-around-v1`, Insert New at a divider); only `split` sends it,
     /// and only to a daemon that serves it (the caller checks).
     public var around: SplitID?
+    /// The tab of the target pane the new tab goes right after, in the creating commit (`tab-insert-after-v1`); one that
+    /// names no tab of that pane appends, as without it. Only `new-tab` sends it (a person's new tab in its slot,
+    /// `NewTabInsertion`). Dropped by `DaemonConnection` for a daemon without the capability.
+    public var after: SurfaceID?
 
     public init(cwd: String? = nil, size: CellSize? = nil, argv: [String]? = nil, command: String? = nil, name: String? = nil,
                 env: [String: String]? = nil, workspace: WorkspaceKey? = nil, keep: Bool? = nil) {
@@ -57,20 +61,22 @@ public struct SpawnOptions: Sendable, Hashable {
 
     /// Drops what a daemon does not serve: the caller-chosen terminal id
     /// (`terminal-placement-env-v1`), the client-minted pane and tab ids
-    /// (`split-client-keys-v1`) and split id (`split-client-split-id-v1`).
-    mutating func drop(callerTerminal: Bool, clientKeys: Bool, clientSplitID: Bool) {
+    /// (`split-client-keys-v1`), split id (`split-client-split-id-v1`) and the tab a new tab goes after
+    /// (`tab-insert-after-v1`: an older daemon refuses or ignores the field, and the app moves the tab into its slot).
+    mutating func drop(callerTerminal: Bool, clientKeys: Bool, clientSplitID: Bool, insertAfter: Bool = false) {
         if callerTerminal { terminalID = nil }
         if clientKeys {
             paneID = nil
             tabID = nil
         }
         if clientSplitID { splitID = nil }
+        if insertAfter { after = nil }
     }
 
     enum CodingKeys: String, CodingKey {
         case cwd, cols, rows, argv, command, name, env, keep, terminalID
         case shellArgs = "shell_args"
-        case paneID, tabID, splitID, around
+        case paneID, tabID, splitID, around, after
     }
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -88,6 +94,7 @@ public struct SpawnOptions: Sendable, Hashable {
         try c.encodeIfPresent(splitID, forKey: .splitID)
         try c.encodeIfPresent(tabID, forKey: .tabID)
         try c.encodeIfPresent(around, forKey: .around)
+        try c.encodeIfPresent(after, forKey: .after)
     }
 }
 

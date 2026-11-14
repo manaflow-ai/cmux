@@ -112,10 +112,10 @@ extension PaneController {
     /// selection in the destination. `daemonResolvesCwd` (a
     /// terminal opened from the docked agent chat) sends only an explicit
     /// `cwd` and lets the daemon's resolver pick the rest
-    /// (NEW-TERMINAL-INHERITS-CWD).
+    /// (NEW-TERMINAL-INHERITS-CWD). `inserting`: a person's tab made in its slot (``NewTabInsertion``, optimistic path only).
     func newTerminalTab(cwd: String? = nil, typing text: String? = nil, typingAhead page: String? = nil, keep: Bool? = nil,
                         fromSelectedTab: Bool = false, daemonResolvesCwd: Bool = false,
-                        placementOwner: Bool = false,
+                        placementOwner: Bool = false, inserting insertion: NewTabInsertion? = nil,
                         then: (@MainActor (SurfaceID) -> Void)? = nil) {
         // Placement owns selection in Home: selecting its provisional or real tab here releases
         // the outbound hold and flashes Home's strip before the move callback runs.
@@ -152,7 +152,7 @@ extension PaneController {
         let command = NewTerminalTabCommand(pane: handle, options: SpawnOptions(cwd: cwd, size: size, workspace: workspace, keep: keep))
         if text == nil, page == nil, command.isOptimistic(on: daemon) {
             return newTerminalTabNow(command, agent: agent, intent: intent, window: window,
-                                     selectHere: selectHere, homePlacement: homePlacement, then: then)
+                                     selectHere: selectHere, homePlacement: homePlacement, insertion: insertion, then: then)
         }
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, machine: daemon.machineID, newTerminal: true)
         services.registry.track(Task { [services, daemon] in
@@ -187,7 +187,7 @@ extension PaneController {
     /// daemon's tab takes its place (``NewTerminalTabCommand``). The keys typed meanwhile wait for
     /// the daemon's terminal and go only into it: the stand-in's tab is their lane (`NewTerminalKeys`).
     private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?, // perf-hot: 10ms new-tab (the terminal stand-in shows in the key's turn)
-                                   window: NSWindow?, selectHere: Bool,
+                                   window: NSWindow?, selectHere: Bool, insertion: NewTabInsertion?,
                                    homePlacement: Bool, then: (@MainActor (SurfaceID) -> Void)?) {
         // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
         let agentCwd = agent.map { agent in
@@ -196,7 +196,7 @@ extension PaneController {
                 return cwd
             }
         }
-        let pending = BenchSpans.measure("newTerminal.intend") { command.intendNow(on: daemon, cwd: agentCwd) }
+        let pending = BenchSpans.measure("newTerminal.intend") { command.intendNow(on: daemon, cwd: agentCwd, inserting: insertion) } // sent after the pane's creation before it is answered
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, tab: pending.tab, machine: daemon.machineID, newTerminal: true, standInSends: daemon.queuesCreatingInput)
         if selectHere { selectWhenReported(surface: pending.surface) }
         // After the workspace's create before it (a Ctrl-` on a split still in flight names that split's pane once the
@@ -229,14 +229,14 @@ extension PaneController {
     }
 
     /// New browser tab in this pane (`PaneBrowserTabOpener`), selected and
-    /// focused when it lands unless `background`. False when refused.
+    /// focused when it lands unless `background`. False when refused. `inserting`: made in its slot (``NewTabInsertion``).
     @discardableResult
     func newBrowserTab(url: URL? = nil, engine requested: String? = nil, inherited: String? = nil,
                        adopting child: (any BrowserTab)? = nil, background: Bool = false, profile: String? = nil,
-                       notice: String? = nil, opener: SurfaceID? = nil, placementOwner: Bool = false,
+                       notice: String? = nil, opener: SurfaceID? = nil, placementOwner: Bool = false, inserting: NewTabInsertion? = nil,
                        split: BrowserTabSplitRequest? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
         PaneBrowserTabOpener(controller: self).open(url: url, engine: requested, inherited: inherited, adopting: child, background: background,
-                                                    profile: profile, notice: notice, opener: opener, placementOwner: placementOwner,
+                                                    profile: profile, notice: notice, opener: opener, placementOwner: placementOwner, inserting: inserting,
                                                     split: split, then: then)
     }
 

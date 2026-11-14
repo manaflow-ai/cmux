@@ -52,7 +52,7 @@ import Testing
         tabs.rightColumnScoped = { _ in right }
         tabs.seriallyScoped = { _, turn in turn({}); return true }
         tabs.openInMainPaneScoped = { _, _, _, _, _ in nil }
-        tabs.create = { _, _, _, _, _, _ in try await Task.sleep(for: .seconds(60)); throw CancellationError() }
+        tabs.create = { _, _, _, _, _, _, _ in try await Task.sleep(for: .seconds(60)); throw CancellationError() }
         let shown = Shown()
         tabs.selectInPaneScoped = { key in shown.selected.append(key.key) }
         tabs.showSplitScoped = { _, key, focus in

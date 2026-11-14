@@ -13504,6 +13504,18 @@
       "default": null,
       "since": 12,
       "capability": "terminal-shell-args-v1"
+     },
+     "after": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "tab-insert-after-v1",
+      "description": "A tab of the target pane: the new tab goes right after it in the creating commit, else (unknown, closed, another pane's) at the end. A slot inside a tab group's run moves to the end of that run, and the tab then joins the group in its slot."
      }
     },
     "additional_properties": false,
@@ -19522,6 +19534,17 @@
       "default": null,
       "capability": "conversation-tab-split-v1",
       "description": "With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab and carries transaction."
+     },
+     "after": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "tab-insert-after-v1",
+      "description": "A tab of the pane: the new tab goes right after it in the creating commit, as new-frontend-browser-tab's after, else at the end. Refused with split; a workspace target ignores it."
      }
     },
     "additional_properties": false

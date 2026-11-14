@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde.
+// cmux-tui mux protocol 12, IR 130c00ece3c105cc2739557174733e5ad47f3bdb1518bda57009db7e82b1816f.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2500,6 +2500,9 @@ pub type NewBrowserTabResult = T::SurfaceResult;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct NewConversationTabRequest {
+    /// A tab of the pane: the new tab goes right after it in the creating commit, as new-frontend-browser-tab's after, else at the end. Refused with split; a workspace target ignores it.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub agent_session: Optional<T::AgentSessionSource>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2724,6 +2727,9 @@ pub type NewScreenResult = T::SurfaceResult;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct NewTabRequest {
+    /// A tab of the target pane: the new tab goes right after it in the creating commit, else (unknown, closed, another pane's) at the end. A slot inside a tab group's run moves to the end of that run, and the tab then joins the group in its slot.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -5191,6 +5197,9 @@ impl CmuxClient {
     }
 
     pub fn new_conversation_tab(&mut self, request: NewConversationTabRequest) -> Result<NewConversationTabResult> {
+        if !request.after.is_missing() {
+            self.require_capability_field("new-conversation-tab", "tab-insert-after-v1")?;
+        }
         if !request.agent_session.is_missing() {
             self.require_capability_field("new-conversation-tab", "agent-session-tabs-v1")?;
         }
@@ -5326,6 +5335,10 @@ impl CmuxClient {
     }
 
     pub fn new_tab(&mut self, request: NewTabRequest) -> Result<NewTabResult> {
+        if !request.after.is_missing() {
+            self.require_protocol_field("new-tab", 12)?;
+            self.require_capability_field("new-tab", "tab-insert-after-v1")?;
+        }
         if !request.env.is_missing() {
             self.require_protocol_field("new-tab", 12)?;
             self.require_capability_field("new-tab", "terminal-env-v1")?;

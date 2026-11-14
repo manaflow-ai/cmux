@@ -6,6 +6,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserTabs
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextSettings
 import CmuxNextWakeups
 import CmuxNextWindowRules
@@ -68,7 +69,7 @@ enum TabLifecycle {
             let placed = target.flatMap { HomeDockOpens.placing($0.pane, services: ctx.services, focus: true,
                                                                 then: NewTabSlot.placing(target === controller ? slot : nil, services: ctx.services, then: nil)) }
             target?.newTerminalTab(cwd: target === controller ? tabCwd : chatStart, keep: keep, fromSelectedTab: true, daemonResolvesCwd: target !== controller,
-                                   placementOwner: homePlacement, then: placed)
+                                   placementOwner: homePlacement, inserting: NewTabSlot.insertion(target === controller && !homePlacement ? slot : nil, services: ctx.services), then: placed)
             return
         }
         let handle = pane.handle, options = SpawnOptions(cwd: tabCwd ?? pane.tabs.first?.cwd, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
@@ -162,8 +163,8 @@ enum TabLifecycle {
                 if strip !== controller { return strip.newTabPage() }
             }
             let docks = !asTab && kind == .agent && controller.map { NewChatPlacement.resolve(from: $0) != .here } ?? false // bound for the chat dock: not moved
-            let placed = NewTabSlot.placing(docks ? nil : slot, services: ctx.services, then: nil as (@MainActor (String) -> Void)?)
-            _ = kind == .page ? controller?.newTabPage(then: placed) : controller?.newAgentTab(placed: !asTab, then: placed)
+            let placed = NewTabSlot.placing(docks ? nil : slot, services: ctx.services, then: nil as (@MainActor (String) -> Void)?), inserting = NewTabSlot.insertion(docks ? nil : slot, services: ctx.services)
+            _ = kind == .page ? controller?.newTabPage(inserting: inserting, then: placed) : controller?.newAgentTab(placed: !asTab, inserting: inserting, then: placed)
         }
     }
 
@@ -305,8 +306,7 @@ enum TabLifecycle {
         // `layout.newPanePlacement: split` with `layout.tileBrowsers`: a person's browser opens
         // as a tab in the pane Auto Layout picks, then moves into its own pane (PanePlacementRouting).
         // Only a person's browser tiles, so `agentTab` is nil on that path.
-        var opener = pane
-        var then: (@MainActor (SurfaceID) -> Void)?
+        var opener = pane, then: (@MainActor (SurfaceID) -> Void)?, inserting: NewTabInsertion? // inserting: made in its slot (NewTabSlot)
         if case .split(let target, let direction) = PanePlacementRouting.route(
             ctx, invocation, from: pane, tiles: PanePlacementRouting.browsersTile(ctx)
         ) {
@@ -318,12 +318,12 @@ enum TabLifecycle {
             return
         }
         // In its slot at once (NewTabSuccession), only once it opens in this pane (one routed elsewhere lands there as reported).
-        if then == nil { then = NewTabSlot.placing(pane === invoked ? slot : nil, services: ctx.services, then: agentTab) }
+        if then == nil { then = NewTabSlot.placing(pane === invoked ? slot : nil, services: ctx.services, then: agentTab); inserting = NewTabSlot.insertion(pane === invoked ? slot : nil, services: ctx.services) }
         if let controller = ctx.services.paneController(for: opener) {
             // No URL given: a blank tab on the New Tab page, never an address the selected tab
             // shows (#37384: a terminal's or a chat's localhost link looked like the last closed tab
             // coming back). Only Reopen Closed Tab brings a closed tab's address back.
-            controller.newBrowserTab(url: url, engine: engine, background: background, placementOwner: homePlacement, then: then)
+            controller.newBrowserTab(url: url, engine: engine, background: background, placementOwner: homePlacement, inserting: inserting, then: then)
             return
         }
         openOffscreen(ctx, pane: pane, url: url, engine: engine, profile: nil, then: agentTab)
@@ -478,7 +478,7 @@ extension TabLifecycle {
         return ChatColumnPlacement.openTool(from: chat, services: ctx.services, kind: .terminal) { target, placed in
             guard target.daemon.connection != nil else { return false }
             let then = placed ?? NewTabSlot.placing(after: target.selectedTab, services: ctx.services, then: nil)
-            target.newTerminalTab(cwd: start, keep: keep, daemonResolvesCwd: true, placementOwner: placed != nil, then: then)
+            target.newTerminalTab(cwd: start, keep: keep, daemonResolvesCwd: true, placementOwner: placed != nil, inserting: placed == nil ? NewTabSlot.insertion(target.selectedTab.map { .after($0) }, services: ctx.services) : nil, then: then)
             return true
         }
     }
@@ -492,19 +492,19 @@ extension TabLifecycle {
               let chat = ctx.services.paneController(for: pane) else { return false }
         return ChatColumnPlacement.openTool(from: chat, services: ctx.services, background: invocation.opensInBackground, kind: .browser) { target, placed in
             let then = placed ?? NewTabSlot.placing(after: target.selectedTab, services: ctx.services, then: nil)
-            let background = placed != nil || invocation.opensInBackground
+            let background = placed != nil || invocation.opensInBackground, inserting = placed == nil ? NewTabSlot.insertion(target.selectedTab.map { .after($0) }, services: ctx.services) : nil
             switch profile {
             case .cascade:
                 // No URL given: a blank tab, as from any other pane (#37384).
-                return target.newBrowserTab(url: url, engine: engine, background: background, placementOwner: placed != nil, then: then)
+                return target.newBrowserTab(url: url, engine: engine, background: background, placementOwner: placed != nil, inserting: inserting, then: then)
             case .explicit(let id):
-                return target.newBrowserTab(url: url, engine: engine, background: background, profile: id, placementOwner: placed != nil, then: then)
+                return target.newBrowserTab(url: url, engine: engine, background: background, profile: id, placementOwner: placed != nil, inserting: inserting, then: then)
             case .agent:
                 let profiles = ctx.services.browserProfiles
                 ctx.registry.track(Task { @MainActor in
                     do {
                         let id = try await AgentBrowserProfile.ensure(profiles)
-                        target.newBrowserTab(url: url, engine: engine, background: background, profile: id, placementOwner: placed != nil, then: then)
+                        target.newBrowserTab(url: url, engine: engine, background: background, profile: id, placementOwner: placed != nil, inserting: inserting, then: then)
                         return nil
                     } catch {
                         return "agent-browser-profile: \(error)"

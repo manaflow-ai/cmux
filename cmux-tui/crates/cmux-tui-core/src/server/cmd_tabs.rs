@@ -44,6 +44,7 @@ pub(super) fn new_tab(
     client: u64,
     actor: Actor,
     pane: Option<PaneId>,
+    after: Option<SurfaceId>,
     cwd: Option<String>,
     env: Option<BTreeMap<String, String>>,
     cols: Option<u16>,
@@ -59,8 +60,8 @@ pub(super) fn new_tab(
         shell_args,
         frontend_shell(mux, client),
     )?;
-    let surface =
-        mux.new_tab_with_options_as(&actor, pane, spawn, optional_surface_size(cols, rows))?;
+    let size = optional_surface_size(cols, rows);
+    let surface = mux.new_tab_after_as(&actor, pane, after, spawn, size)?;
     placed_terminal_result(mux, &surface, keep)
 }
 
@@ -561,3 +562,7 @@ pub(super) fn surface_placement(
         (workspace, pane)
     })
 }
+
+#[cfg(test)]
+#[path = "tab_insert_after_tests.rs"]
+mod tab_insert_after_tests;

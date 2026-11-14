@@ -199,6 +199,7 @@ fn home_and_conversation_results_live_daemon() {
         .expect("the home workspace is in the raw tree");
     let tab = client
         .new_conversation_tab(NewConversationTabRequest {
+            after: Optional::Missing,
             agent_session: Optional::Missing,
             cols: Optional::Missing,
             conversation: Optional::Value(id.clone()),

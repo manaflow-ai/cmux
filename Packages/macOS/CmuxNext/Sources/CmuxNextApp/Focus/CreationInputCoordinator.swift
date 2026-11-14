@@ -212,11 +212,10 @@ final class CreationInputCoordinator {
     }
 
     /// Whether `event`'s binding in `controller`'s focus is a close action (Close Tab, Cmd-W).
-    private static func closes(_ event: NSEvent, in window: NSWindow, controller: WindowController, router: KeyRouter) -> Bool {
-        guard KeyRouter.isChord(event.modifierFlags) else { return false }
+    private static func command(_ event: NSEvent, in window: NSWindow, controller: WindowController, router: KeyRouter) -> ActionID? {
+        guard KeyRouter.isChord(event.modifierFlags) else { return nil }
         let context = router.keyContext(for: controller.focus.currentState(), facts: router.facts(in: window, controller: controller))
-        guard let binding = router.resolve(event, context: context) else { return false }
-        return WindowKeyTable.isClose(binding.command)
+        return router.resolve(event, context: context)?.command
     }
 
     /// Takes `event` while a creation in its window is pending.
@@ -241,7 +240,7 @@ final class CreationInputCoordinator {
         let forNewWorkspace = claimHolds(in: shell) || controller.map { buffer.newestGeneration == $0.focus.state.generation } ?? false
         if kind == .content, let controller, buffer.passesOn(focusedTab: controller.focus.state.typingTab), Self.responderTakesKeys(controller, window: shell) { return false } // moved on
         // A close key (Cmd-W) acts now on what it closes; held, it ran later with the other keys.
-        let closes = controller.map { Self.closes(event, in: shell, controller: $0, router: router) } ?? false
+        let command = controller.flatMap { Self.command(event, in: shell, controller: $0, router: router) }, closes = command.map(WindowKeyTable.isClose) ?? false
         // A close of a pending creation of this hold (the focus it asked for is still on its way):
         // the keys typed for it go with it, the others keep waiting in order, and the close runs now
         // (TabLifecycle cancels the creation). Nothing is run into whatever has the focus first.
@@ -251,8 +250,8 @@ final class CreationInputCoordinator {
             return false
         }
         // A close key while a close of the focused terminal (or a hidden close) still reads: it acts now, and the held keys
-        // keep waiting (flushed, they ran into the closing terminal or the neighbour, #29409).
-        if closes, buffer.isClosing(tab: controller?.focus.state.terminalTab) { return false }
+        // keep waiting (flushed, they ran into the closing terminal or the neighbour, #29409). A new-tab key on a stand-in too.
+        if closes ? buffer.isClosing(tab: controller?.focus.state.terminalTab) : (kind == .content && buffer.opensTabNow(command?.rawValue, onStandIn: controller?.focus.state.typingTab.flatMap { ProvisionalTab.isProvisional($0) ? $0 : nil })) { return false }
         // Focus left the content (a sidebar or bar field) or the hold lets this key go: the held
         // keys go on first, then this one (into a hold a replayed key opened, if it keeps it). A surface hold keeps a chord no app shortcut takes (Ctrl-C).
         // A page hold keeps every key but a close (Cmd-L needs the page), until its bound.

@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserTabs
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextMacScreen
 import CmuxNextPalette
 import CmuxNextSettings
@@ -32,9 +33,9 @@ extension NewTabPage {
     /// and the turn's one commit puts the tab and the page on screen in the same frame.
     /// `reusingShown` (Focus Location Bar, an empty submit): a New Tab page the pane already
     /// shows takes the keyboard instead. Otherwise (Cmd-T) a new tab opens, also from a New Tab
-    /// page (Leo 2026-10-10).
+    /// page (Leo 2026-10-10). `inserting`: the page's tab made in its slot (``NewTabInsertion``; the native page appends).
     static func open(in pane: PaneController, seed: AgentPaneSeedSource?, reusingShown: Bool = false,
-                     then: (@MainActor (String) -> Void)? = nil) {
+                     inserting: NewTabInsertion? = nil, then: (@MainActor (String) -> Void)? = nil) {
         let start = ContinuousClock.now
         let services = pane.services
         // `tabs.nativeNewTabPage` on: the native page instead (an alternative; the web page stays the default).
@@ -79,7 +80,7 @@ extension NewTabPage {
             ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: NewTabSparePool.newTabContentSize(in: pane), still: { [weak strip = pane.view.stripView] in strip?.whenStill($0) }) })
             : nil
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
-        guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view, then: then) }) else {
+        guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view, inserting: inserting, then: then) }) else {
             openingPanes.remove(openingKey)
             services.keyRouter.newTabInputCoordinator.cancel(in: pane.view.window)
             return

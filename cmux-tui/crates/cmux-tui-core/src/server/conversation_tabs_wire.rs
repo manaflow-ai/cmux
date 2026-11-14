@@ -77,6 +77,11 @@ pub(super) struct NewConversationTabParams {
     /// (`conversation-tab-split-v1`).
     #[serde(default)]
     split: Option<ConversationTabSplitParams>,
+    /// `tab-insert-after-v1`: the tab goes right after this tab of its pane,
+    /// in the creating commit; else (unknown, closed, another pane's) at the
+    /// end. Refused with `split`.
+    #[serde(default)]
+    after: Option<SurfaceId>,
 }
 
 impl NewConversationTabParams {
@@ -361,8 +366,13 @@ pub(super) fn create(
         rows,
         transaction,
         split,
+        after,
     } = params;
     super::validate_client_transaction(transaction.as_deref())?;
+    anyhow::ensure!(
+        split.is_none() || after.is_none(),
+        "bad request: after does not apply with split (the new pane holds only the tab)"
+    );
     let target = match (pane, workspace, split) {
         (_, None, Some(split)) => ConversationTabTarget::Split(split.tab_split(pane)?),
         (_, None, None) => ConversationTabTarget::Pane(pane),
@@ -380,13 +390,14 @@ pub(super) fn create(
     let record = record_of(mux, conversation, owner, agent_session, page, route)?;
     // The creation's own `tab-added` carries `transaction`: one delta per
     // tab. A replay emits nothing and echoes it in the result only.
-    let outcome = mux.new_conversation_tab_as(
+    let outcome = mux.new_conversation_tab_after_as(
         &actor,
         target,
         record.clone(),
         mutation.as_ref(),
         size,
         transaction.as_deref(),
+        after,
     )?;
     let identity = outcome.surface.resource_identity();
     // A replay returns the tab's current record (a bound session included).

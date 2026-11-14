@@ -63,6 +63,14 @@ import Foundation
         return pane.tabs.first { $0.surface == surface }
     }
 
+    /// The daemon surface stand-in tab `id` became, once a confirmed reply or echo named it, whether or not a pane lists that
+    /// tab yet: the tab the next new tab of a burst names as its `after` (`NewTabInsertion`; the daemon knows its own tab
+    /// before this app's records show it). Nil for any other id, and for a stand-in still under way, closed or refused.
+    public func replacementSurface(ofStandIn id: String) -> SurfaceID? {
+        guard ProvisionalTab.isProvisional(id) else { return nil }
+        return store.intentLog.replacement(ofStandIn: id)
+    }
+
     /// Whether stand-in tab `id` stands for a creation still under way: neither closed by the person (cancelled) nor answered
     /// (a confirmed reply or echo named its tab). A new tab placed right after it keeps it as its anchor while it is out of the
     /// records (`NewTabSuccession`). Any creation's stand-in: a new tab's, a new workspace's first tab, a conversation split's

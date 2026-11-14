@@ -40,7 +40,7 @@ import Testing
         tabs.holdsTabs = { _ in true }
         tabs.reachable = { _ in true }
         // The store takes the creation, then refuses it (or the creation is cancelled) after the split started.
-        tabs.create = { _, _, _, _, _, _ in
+        tabs.create = { _, _, _, _, _, _, _ in
             await Task.yield()
             if cancelled { throw CancellationError() }
             throw Refused()

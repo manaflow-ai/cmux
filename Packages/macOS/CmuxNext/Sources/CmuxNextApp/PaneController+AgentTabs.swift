@@ -1,12 +1,13 @@
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import enum CmuxNextLayout.NewChatPlacement
 
 extension PaneController {
     /// New Agent Chat: a new agent tab in this pane, selected. It inherits
-    /// the selected tab's context (`agentSeedFromSelectedTab`, #16620). `placed` false: never a chat dock.
-    func newAgentTab(placed: Bool = true, then: (@MainActor (String) -> Void)? = nil) {
-        openAgentTab(seed: agentSeedFromSelectedTab(), placed: placed, then: then)
+    /// the selected tab's context (`agentSeedFromSelectedTab`, #16620). `placed` false: never a chat dock. `inserting`: made in its slot.
+    func newAgentTab(placed: Bool = true, inserting: NewTabInsertion? = nil, then: (@MainActor (String) -> Void)? = nil) {
+        openAgentTab(seed: agentSeedFromSelectedTab(), placed: placed, inserting: inserting, then: then)
     }
 
     /// A `cmux://session/<id>` link no tab shows: a new agent tab in this
@@ -26,14 +27,14 @@ extension PaneController {
 
     /// An agent chat tab in this pane on the workspace store, shown and selected at once
     /// (``AgentTabStore/openTab(in:session:seed:newTab:spare:linked:select:then:)``). False when
-    /// the pane cannot hold one (refused with the reason). New chats open in the chat dock (NewChatPlacement) unless `placed` is false.
+    /// the pane cannot hold one (refused with the reason). New chats open in the chat dock (NewChatPlacement) unless `placed` is false. `inserting` (``NewTabInsertion``) applies only to a tab in this pane's strip.
     @discardableResult
     func openAgentTab(session: String? = nil, seed: AgentPaneSeedSource? = nil,
                       newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
-                      linked: Bool = false, placed: Bool = true, select: Bool = true, then: (@MainActor (String) -> Void)? = nil) -> Bool {
+                      linked: Bool = false, placed: Bool = true, select: Bool = true, inserting: NewTabInsertion? = nil, then: (@MainActor (String) -> Void)? = nil) -> Bool {
         let open = NewChatPlacement.opening(from: self, placed: placed && newTab == nil, select: select, then: then)
         return services.agentTabs.openTab(in: open.target, session: session, seed: seed, newTab: newTab, spare: spare,
                                           linked: linked, select: open.select, hidden: open.hidden, split: open.split,
-                                          then: open.then)
+                                          inserting: open.target === self && open.split == nil && !open.hidden ? inserting : nil, then: open.then)
     }
 }

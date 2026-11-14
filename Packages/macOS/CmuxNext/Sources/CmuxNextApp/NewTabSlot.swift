@@ -16,21 +16,7 @@ enum NewTabSlot {
     /// How long the move waits for the pane to list the new tab.
     static let listLimit: Duration = .seconds(10)
 
-    /// A slot other than the end (the end is nil: the daemon appends).
-    enum Target: Equatable {
-        /// Right after this tab, after its tab group; `joins`: in its group (a duplicate, as Chrome's).
-        case after(TabModel, joins: Bool = false)
-        /// First after the pinned tabs of the pane this tab is in.
-        case start(TabModel)
-
-        var joins: TabModel? { if case .after(let tab, true) = self { tab } else { nil } } // whose group the new tab joins
-        /// The tab that names the pane.
-        var anchor: TabModel { switch self { case .after(let tab, _), .start(let tab): tab } }
-
-        static func == (lhs: Target, rhs: Target) -> Bool {
-            switch (lhs, rhs) { case (.after(let a, let x), .after(let b, let y)): return a === b && x == y; case (.start(let a), .start(let b)): return a === b; default: return false }
-        }
-    }
+    typealias Target = NewTabTarget
 
     /// Where a new tab goes, nil for the end. `explicit` (the position actions, New Tab to the Right) wins for anyone;
     /// otherwise a person's Cmd-T or + follows `setting` (unset is ``NewTabPosition/fallback``) and a script's `tab new`
@@ -87,6 +73,12 @@ enum NewTabSlot {
                 slot(for: target, in: $0, pane: pane, open: open, services: services)
             }
         }
+    }
+
+    /// The creating commit's slot for a person's new tab right after `target`'s anchor (``NewTabInsertion``), nil when the tab is made at the end and moves.
+    static func insertion(_ target: Target?, services: AppServices) -> NewTabInsertion? {
+        guard case .after(let anchor, false)? = target, let pane = home(of: anchor, services), let controller = services.paneController(for: pane) else { return nil }
+        return NewTabInsertion(after: anchor, in: pane, daemon: services.daemon(for: pane), line: controller.creations)
     }
 
     @discardableResult

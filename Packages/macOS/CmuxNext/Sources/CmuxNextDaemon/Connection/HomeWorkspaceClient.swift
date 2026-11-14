@@ -61,6 +61,9 @@ public struct NewConversationTabRequest: DaemonRequest {
     /// With `pane`: the tab opens in a new pane split from it, in one daemon commit and one
     /// `pane-added` delta (`conversation-tab-split-v1`); `pane` never lists it.
     public var split: ConversationTabSplit?
+    /// With `pane`: the tab of that pane the new tab goes right after, in the creating commit (`tab-insert-after-v1`); one
+    /// that names no tab of the pane appends, as without it. A person's new tab in its slot (`NewTabInsertion`).
+    public var after: SurfaceID?
 
     public init(conversation: String, owner: String = "local", pane: PaneID? = nil, workspace: WorkspaceHandle? = nil,
                 origin: String? = nil, mutationID: String? = nil) {
@@ -110,7 +113,7 @@ public struct NewConversationTabRequest: DaemonRequest {
     }
 
     enum CodingKeys: String, CodingKey {
-        case conversation, owner, page, route, pane, workspace, origin, transaction, split
+        case conversation, owner, page, route, pane, workspace, origin, transaction, split, after
         case agentSession = "agent_session"
         case mutationID = "mutation_id"
     }

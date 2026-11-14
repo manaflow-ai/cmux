@@ -12,6 +12,8 @@ import java.util.Objects;
 
 /** Immutable new-conversation-tab request. Protocol v12; authority: control. */
 public final class NewConversationTabRequest implements WireValue {
+    /** A tab of the pane: the new tab goes right after it in the creating commit, as new-frontend-browser-tab's after, else at the end. Refused with split; a workspace target ignores it. */
+    private final Field<UInt64> after;
     private final Field<AgentSessionSource> agentSession;
     private final Field<Integer> cols;
     private final Field<String> conversation;
@@ -29,6 +31,7 @@ public final class NewConversationTabRequest implements WireValue {
     private final Field<UInt64> workspace;
 
     private NewConversationTabRequest(Builder builder) {
+        this.after = builder.after;
         this.agentSession = builder.agentSession;
         this.cols = builder.cols;
         this.conversation = builder.conversation;
@@ -46,6 +49,7 @@ public final class NewConversationTabRequest implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<UInt64> after() { return after; }
     public Field<AgentSessionSource> agentSession() { return agentSession; }
     public Field<Integer> cols() { return cols; }
     public Field<String> conversation() { return conversation; }
@@ -63,6 +67,10 @@ public final class NewConversationTabRequest implements WireValue {
     public static NewConversationTabRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "NewConversationTabRequest");
         Builder builder = builder();
+        Object rawAfter = Wire.optional(object, "after");
+        if (!Wire.isMissing(rawAfter)) {
+            builder.after(rawAfter == null ? null : Wire.uint64(rawAfter, "NewConversationTabRequest.after"));
+        }
         Object rawAgentSession = Wire.optional(object, "agent_session");
         if (!Wire.isMissing(rawAgentSession)) {
             builder.agentSession(rawAgentSession == null ? null : AgentSessionSource.fromWire(rawAgentSession));
@@ -121,6 +129,7 @@ public final class NewConversationTabRequest implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "after", after);
         Wire.put(object, "agent_session", agentSession);
         Wire.put(object, "cols", cols);
         Wire.put(object, "conversation", conversation);
@@ -140,16 +149,17 @@ public final class NewConversationTabRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewConversationTabRequest that)) return false;
-        return Objects.equals(agentSession, that.agentSession) && Objects.equals(cols, that.cols) && Objects.equals(conversation, that.conversation) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(owner, that.owner) && Objects.equals(page, that.page) && Objects.equals(pane, that.pane) && Objects.equals(route, that.route) && Objects.equals(rows, that.rows) && Objects.equals(split, that.split) && Objects.equals(transaction, that.transaction) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(after, that.after) && Objects.equals(agentSession, that.agentSession) && Objects.equals(cols, that.cols) && Objects.equals(conversation, that.conversation) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(owner, that.owner) && Objects.equals(page, that.page) && Objects.equals(pane, that.pane) && Objects.equals(route, that.route) && Objects.equals(rows, that.rows) && Objects.equals(split, that.split) && Objects.equals(transaction, that.transaction) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(agentSession, cols, conversation, mutationId, origin, owner, page, pane, route, rows, split, transaction, workspace); }
+    public int hashCode() { return Objects.hash(after, agentSession, cols, conversation, mutationId, origin, owner, page, pane, route, rows, split, transaction, workspace); }
 
     @Override
     public String toString() { return "NewConversationTabRequest" + toWire(); }
 
     public static final class Builder {
+        private Field<UInt64> after = Field.omitted();
         private Field<AgentSessionSource> agentSession = Field.omitted();
         private Field<Integer> cols = Field.omitted();
         private Field<String> conversation = Field.omitted();
@@ -164,6 +174,10 @@ public final class NewConversationTabRequest implements WireValue {
         private Field<String> transaction = Field.omitted();
         private Field<UInt64> workspace = Field.omitted();
 
+        public Builder after(UInt64 value) {
+            this.after = Field.ofNullable(value);
+            return this;
+        }
         public Builder agentSession(AgentSessionSource value) {
             this.agentSession = Field.ofNullable(value);
             return this;

@@ -10445,6 +10445,10 @@
       }
     },
     "request:new-conversation-tab": {
+      "/after": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/agent_session": {
         "ty": "object",
         "nullable": true
@@ -10867,6 +10871,10 @@
       }
     },
     "request:new-tab": {
+      "/after": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/cols": {
         "ty": "uint16",
         "nullable": true

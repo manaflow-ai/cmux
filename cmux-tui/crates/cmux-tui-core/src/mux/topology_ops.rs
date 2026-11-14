@@ -324,6 +324,20 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_tab_after_as(actor, pane, None, spawn, size)
+    }
+
+    /// `new_tab_with_options_as` whose tab goes right after `after` when it
+    /// is a tab of the target pane, else at the end (`tab-insert-after-v1`).
+    /// The slot is read when the tab is inserted ([`tab_strip::tab_slot::after_index`]).
+    pub(crate) fn new_tab_after_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        pane: Option<PaneId>,
+        after: Option<SurfaceId>,
+        spawn: TerminalSpawnOptions,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = {
             let state = self.state.lock().unwrap();
@@ -353,6 +367,9 @@ impl Mux {
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
         tab_strip::tab_slot::insert_field(&mut fields, pane);
+        if let Some(after) = after {
+            fields.insert(tab_strip::tab_slot::AFTER_FIELD.to_string(), Value::from(after));
+        }
         tab_strip::reopen_identity::insert_field(&mut fields);
         let commit = self.commit_ordinary_topology_operation_by(
             actor,

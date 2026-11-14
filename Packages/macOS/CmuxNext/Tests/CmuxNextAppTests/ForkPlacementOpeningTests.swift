@@ -50,7 +50,7 @@ import Testing
             seen.held.append(pane)
             return nil
         }
-        tabs.create = { _, _, _, _, _, split in
+        tabs.create = { _, _, _, _, _, split, _ in
             seen.creates.append(split)
             seen.hear.yield()
             guard answering else { throw CancellationError() }

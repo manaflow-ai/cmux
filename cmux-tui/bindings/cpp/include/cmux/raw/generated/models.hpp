@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde";
+inline constexpr std::string_view kProtocolIrSha256 = "130c00ece3c105cc2739557174733e5ad47f3bdb1518bda57009db7e82b1816f";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -4109,6 +4109,7 @@ struct NewBrowserTabRequest {
 };
 
 struct NewConversationTabRequest {
+    Field<Id> after{};
     Field<AgentSessionSource> agent_session{};
     Field<std::uint16_t> cols{};
     Field<std::string> conversation{};
@@ -4249,6 +4250,7 @@ struct NewScreenRequest {
 };
 
 struct NewTabRequest {
+    Field<Id> after{};
     Field<std::uint16_t> cols{};
     Field<std::string> cwd{};
     Field<std::map<std::string, std::string, std::less<>>> env{};

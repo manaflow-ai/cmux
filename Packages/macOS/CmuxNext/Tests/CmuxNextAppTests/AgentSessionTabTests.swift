@@ -38,7 +38,7 @@ struct AgentSessionTabTests {
         tabs.localHost = AgentSessionRef.host(installID: "session-tab-test")
         tabs.holdsTabs = { _ in true }
         tabs.reachable = { _ in true }
-        tabs.create = { pane, _, record, _, _, _ in
+        tabs.create = { pane, _, record, _, _, _, _ in
             made.tabs.append((pane, record))
             return (AgentTabCreated(key: "tab-\(record.session ?? "")", surface: SurfaceID(rawValue: 9)), nil)
         }

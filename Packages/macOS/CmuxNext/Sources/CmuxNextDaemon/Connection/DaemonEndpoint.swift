@@ -200,8 +200,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case remoteHost = "remote-host-v1"
     /// `activate` on `new-frontend-browser-tab`: a background tab keeps the pane's active tab.
     case frontendBrowserActivate = "frontend-browser-activate-v1"
-    /// `after` on `new-frontend-browser-tab`: a link's tab lands next to its opener.
-    case frontendBrowserInsertAfter = "frontend-browser-insert-after-v1"
+    /// `after` on `new-frontend-browser-tab`: a link's tab lands next to its opener; `tabInsertAfter`: on `new-tab` and `new-conversation-tab` too (a person's new tab is made in its slot, `NewTabInsertion`).
+    case frontendBrowserInsertAfter = "frontend-browser-insert-after-v1", tabInsertAfter = "tab-insert-after-v1"
     /// Browser tabs reach the machine's loopback services over a dedicated
     /// connection (`LoopbackForwardClient`, plans/cmux-next/remote-localhost.md).
     case loopbackForward = "loopback-forward-v1"
@@ -603,7 +603,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .splitClientKeys, .splitClientSplitID, .splitAround, .splitDividerVisibility, .splitBefore, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit, .workspaceFirstTab, .frontendBrowserTabWorkspace,
              .terminalInputWhileCreating, .creatingInputCancel, .terminalReap, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
-             .browserHostProvider, .remoteHost, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
+             .browserHostProvider, .remoteHost, .frontendBrowserActivate, .frontendBrowserInsertAfter, .tabInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,

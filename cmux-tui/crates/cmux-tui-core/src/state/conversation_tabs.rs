@@ -65,6 +65,25 @@ impl Mux {
         size: Option<(u16, u16)>,
         transaction: Option<&str>,
     ) -> anyhow::Result<ConversationTabOutcome> {
+        self.new_conversation_tab_after_as(actor, target, record, mutation, size, transaction, None)
+    }
+
+    /// `new_conversation_tab_as` whose tab, in a pane, goes right after
+    /// `after` when that is a tab of the pane, else at the end
+    /// (`tab-insert-after-v1`, the frontend browser's `after` rule: the
+    /// slot is read when the tab is inserted). A split or a workspace
+    /// target ignores it.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_conversation_tab_after_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        target: ConversationTabTarget,
+        record: ConversationTabRecord,
+        mutation: Option<&WorkspaceMutation>,
+        size: Option<(u16, u16)>,
+        transaction: Option<&str>,
+        after: Option<SurfaceId>,
+    ) -> anyhow::Result<ConversationTabOutcome> {
         record.validate()?;
         // A new chat tab a person (or `cmux agent open`) waits on: its
         // registry locks go next after the current holder, not behind every
@@ -141,6 +160,9 @@ impl Mux {
                 FRONTEND_BROWSER_TRANSACTION_FIELD.to_string(),
                 Value::String(transaction.to_string()),
             );
+        }
+        if let (Some(after), ConversationTabTarget::Pane(_)) = (after, &target) {
+            fields.insert(FRONTEND_BROWSER_AFTER_FIELD.to_string(), Value::from(after));
         }
         let created = match target {
             ConversationTabTarget::Pane(pane) => self.new_browser_tab_with_fields_as(

@@ -112,15 +112,17 @@ public final class TabSelectionMemory {
     /// close-selection rule; a member of a collapsed group in `hidden` is
     /// skipped while a shown tab survives). `closing`: the tabs a pending close hides
     /// (`DaemonStore.closingTabIDs`); asked only when a tab with an opener relation is no longer listed.
+    /// `became`: the tab a creation's stand-in became, as the store knows it; asked only for such a tab.
     public func resolve(pane: String, tabs: [String], defaultIndex: Int, hidden: Set<String> = [], groups: [String: String] = [:],
-                        replaced: [StripTabID: StripTabID] = [:], closing: () -> Set<String> = { [] }) -> String? {
+                        replaced: [StripTabID: StripTabID] = [:], closing: () -> Set<String> = { [] },
+                        became: (String) -> String? = { _ in nil }) -> String? {
         let earlierGroups = lastGroups[pane] ?? [:]
         lastGroups[pane] = groups.isEmpty ? nil : groups
         closeRule.adopt(replaced)
         // Before the pick: a tab whose pending close was committed since the last call leaves the rule's state.
-        if !closeRule.isEmpty { closeRule.settle(pane, lists: tabs, before: lastOrder[pane] ?? [], closing: closing) }
+        if !closeRule.isEmpty { closeRule.settle(pane, lists: tabs, before: lastOrder[pane] ?? [], closing: closing, became: became) }
         // After the pick: a tab the pane no longer lists (closed, or moved away) leaves it; one a pending close hides stays.
-        defer { lastOrder[pane] = tabs; closeRule.settle(pane, lists: tabs, closing: closing) }
+        defer { lastOrder[pane] = tabs; closeRule.settle(pane, lists: tabs, closing: closing, became: became) }
         guard !tabs.isEmpty else {
             set(nil, in: pane)
             return nil

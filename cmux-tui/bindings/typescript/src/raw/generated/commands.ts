@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde. */
+/* cmux-tui mux protocol 12, IR 130c00ece3c105cc2739557174733e5ad47f3bdb1518bda57009db7e82b1816f. */
 
 
 import type * as T from "./types.js";
@@ -1750,6 +1750,8 @@ export type NewBrowserTabResult = T.SurfaceResult;
 /** Protocol v12; authority: control. */
 export interface NewConversationTabRequest extends CmuxRequestBase {
   cmd: "new-conversation-tab";
+  /** A tab of the pane: the new tab goes right after it in the creating commit, as new-frontend-browser-tab's after, else at the end. Refused with split; a workspace target ignores it. */
+  "after"?: (T.Id) | null;
   "agent_session"?: (T.AgentSessionSource) | null;
   "cols"?: (number) | null;
   "conversation"?: (string) | null;
@@ -1886,6 +1888,8 @@ export type NewScreenResult = T.SurfaceResult;
 /** Protocol v5; authority: control. */
 export interface NewTabRequest extends CmuxRequestBase {
   cmd: "new-tab";
+  /** A tab of the target pane: the new tab goes right after it in the creating commit, else (unknown, closed, another pane's) at the end. A slot inside a tab group's run moves to the end of that run, and the tab then joins the group in its slot. */
+  "after"?: (T.Id) | null;
   "cols"?: (number) | null;
   "cwd"?: (string) | null;
   "env"?: (Record<string, string>) | null;

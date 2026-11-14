@@ -166,12 +166,24 @@ public final class TabCloseSelection {
     /// order before this change, so that a tab whose close was committed since the last call leaves first
     /// (the tabs it opened take its opener) while the tabs that leave in this change still count.
     /// `closing` is asked only when a tab of the state is not listed.
-    func settle(_ pane: String, lists tabs: [String], before old: [String] = [], closing: () -> Set<String> = { [] }) {
-        if !expected.isEmpty, let made = expected[pane], !tabs.contains(made.opener) { expected[pane] = nil }
+    /// `became`: the tab that took an unlisted tab's place, as the store knows it (a creation's stand-in and the
+    /// daemon's tab it became). A burst of new tabs swaps several stand-ins in one change, and the strip pairs only
+    /// one of them (``adopt(_:)``): asked for each tab of the state that is not listed, so every one of them keeps
+    /// its relations under its new id instead of leaving (the closes after a held new-tab key then went by position).
+    func settle(_ pane: String, lists tabs: [String], before old: [String] = [], closing: () -> Set<String> = { [] },
+                became: (String) -> String? = { _ in nil }) {
+        if !expected.isEmpty, let made = expected[pane], !tabs.contains(made.opener) {
+            // The opener a new tab is expected from was a stand-in: the expectation follows it to its tab.
+            if let now = became(made.opener), tabs.contains(now) { expected[pane]?.opener = now } else { expected[pane] = nil }
+        }
         guard !home.isEmpty else { return }
         let held = home.filter { $0.value == pane }.map(\.key)
         guard !held.isEmpty else { return }
         let live = Set(tabs).union(old)
+        for item in held {
+            let shown = shownAs[item] ?? item
+            if !live.contains(shown), let now = became(shown), tabs.contains(now) { adopt(now, inPlaceOf: shown) }
+        }
         let gone = held.filter { !live.contains(shownAs[$0] ?? $0) }
         if !gone.isEmpty {
             let pending = closing()

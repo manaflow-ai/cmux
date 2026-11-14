@@ -3,6 +3,7 @@ import CmuxNextTabs
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 
 /// Opening agent chat tabs on the workspace store with zero wait, and letting their view state
@@ -26,12 +27,12 @@ extension AgentTabStore {
     ///   - adopt: The outside chat it resumes (`harness:agentSessionId`).
     ///   - idempotencyKey: The creation's key; a retry with it returns the same tab. Fresh by default.
     ///   - split: The tab opens in a new pane on that side of `pane` (`conversation-tab-split-v1`): one daemon
-    ///     commit, shown at once in a provisional pane, never in `pane`'s strip.
+    ///     commit, shown at once in a provisional pane, never in `pane`'s strip. `inserting`: made in its slot (``NewTabInsertion``).
     /// - Throws: ``AgentTabRefusal`` when the pane cannot hold one (nothing is shown).
     func open(in pane: PaneID, of daemon: DaemonService, session: String? = nil, seed: AgentPaneSeedSource? = nil,
               newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
               linked: Bool = false, adopt: AgentPaneAdopt? = nil, host: String? = nil,
-              idempotencyKey: String = UUID().uuidString.lowercased(), split: SplitDirection? = nil, around: CmuxNextDaemon.SplitID? = nil) throws -> AgentTabPending {
+              idempotencyKey: String = UUID().uuidString.lowercased(), split: SplitDirection? = nil, around: CmuxNextDaemon.SplitID? = nil, inserting: NewTabInsertion? = nil) throws -> AgentTabPending {
         guard let localHost, holdsTabs(daemon), reachable(daemon) else {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
             let reason = !reachable(daemon) ? RefusalStrings.agentTabsDisconnected
@@ -92,10 +93,8 @@ extension AgentTabStore {
             self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface), machine: machine)
         }
         let transaction = ClientTransactionID.generate()
-        store.intend(splitPane.map { Intent.splitPane(pane: pane, direction: $0.0, ratio: 0.5, provisional: $0.1) } ?? .createTab(pane: pane, provisional: snapshot),
-                     transaction: transaction)
-        if let session { sessions[scoped] = session }
-        newTabPages[scoped] = newTab
+        store.intend(splitPane.map { Intent.splitPane(pane: pane, direction: $0.0, ratio: 0.5, provisional: $0.1) } ?? .createTab(pane: pane, provisional: snapshot), transaction: transaction)
+        if let session { sessions[scoped] = session }; newTabPages[scoped] = newTab
         if session == nil { seeds[scoped] = seed }
         if linked { linkedSessions.insert(scoped) }
         if let adopt { adoptions["\(adopt.harness):\(adopt.agentSessionId)"] = scoped.relaunchKeyCandidates[0] } // the tab and its machine
@@ -104,11 +103,12 @@ extension AgentTabStore {
         let pending = AgentTabPending(key: key, surface: snapshot.surface)
         if remote { remoteCreations[scoped] = pending }
         pending.result = Task { [weak self, pending] () throws -> AgentTabCreated in
+            defer { inserting?.answered() } // answered (its tab known to the store) or failed: the pane's next new tab is sent
             do {
                 guard let self else { throw CancellationError() }
                 let (created, sequence) = try await create(pane, daemon, record, idempotencyKey, transaction,
                                                            splitPane.map { ConversationTabSplit(direction: $0.0, paneID: $0.1.paneID,
-                                                                                          splitID: sendsSplitID ? $0.1.splitID : nil, around: around) })
+                                                                                          splitID: sendsSplitID ? $0.1.splitID : nil, around: around) }, inserting?.after())
                 // Closed first (CancelledCreation): nothing moves to the store's tab, which the store
                 // hides and closes; the page's view state goes.
                 if !store.creations.wasCancelled(transaction) { tabCreated(key, as: created, machine: daemon.machineID) }
@@ -151,13 +151,13 @@ extension AgentTabStore {
     @discardableResult
     func openTab(in pane: PaneController, session: String? = nil, host: String? = nil, seed: AgentPaneSeedSource? = nil,
                  newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
-                 linked: Bool = false, select: Bool = true, hidden: Bool = false, split: SplitDirection? = nil, around: CmuxNextDaemon.SplitID? = nil, focuses: Bool = true,
+                 linked: Bool = false, select: Bool = true, hidden: Bool = false, split: SplitDirection? = nil, around: CmuxNextDaemon.SplitID? = nil, focuses: Bool = true, inserting: NewTabInsertion? = nil,
                  then: (@MainActor (String) -> Void)? = nil, failed: (@MainActor () -> Void)? = nil) -> Bool {
         let daemon = pane.daemon
         let pending: AgentTabPending
         do {
             pending = try open(in: pane.pane.handle, of: daemon, session: session, seed: seed, newTab: newTab,
-                               spare: spare, linked: linked, host: host, split: split, around: around)
+                               spare: spare, linked: linked, host: host, split: split, around: around, inserting: inserting)
         } catch {
             pane.services.registry.refuse((error as? AgentTabRefusal)?.message ?? RefusalStrings.agentTabCreateFailed)
             return false
