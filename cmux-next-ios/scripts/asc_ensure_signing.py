@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Make the App Store Connect signing setup of cmux-next-ios exist, then hand
-out its App Store profiles: the "ensure" step of .github/workflows/ios-app-store.yml.
+out its App Store profiles: the "ensure" step of the App Store lane for com.cmux.app,
+which is not wired yet (.github/workflows/ios-app-store.yml still builds the classic app).
 
 For the app's bundle id and its two notification extensions
 (<bundle id>.notification-content, <bundle id>.notification-service), through the

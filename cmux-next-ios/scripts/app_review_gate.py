@@ -9,7 +9,9 @@ Two subcommands:
           tree, and (when given) the exact .app or .ipa to be submitted:
           Info.plist purpose strings (from project.yml, which xcodegen turns
           into the plist), entitlements, extensions, binary symbols, external
-          purchase links, account deletion, Sign in with Apple in the shipping
+          purchase links, the subscription rules (Restore Purchases, the 3.1.2
+          renewal terms and Terms link, review notes that say where the plans
+          are), account deletion, Sign in with Apple in the shipping
           configuration, App Store Connect processing rules
           (scripts/cmux-next/check-app-store-rules.py), URLs (with
           --check-urls), and the rejection-history coverage check (every past
@@ -19,9 +21,14 @@ Two subcommands:
           one ranked Markdown list (blocking first). Exit 1 when anything
           blocks. This is the list nothing is submitted past.
 
-The NEXT app sells nothing (no StoreKit), so there are no plan, subscription or
-restore rules; an outside purchase link is still a 3.1.1 rejection, so that one
-stays.
+The NEXT app sells cmux Go, Pro and Max as auto-renewable App Store
+subscriptions (Packages/iOS/CmuxMobileBilling: Settings > Plan opens the plans
+screen). When the judged sources use StoreKit, the subscription rules apply:
+Restore Purchases (3.1.1), the renewal terms with Terms of Use and Privacy
+Policy links on the plans screen and a Terms link in the store listing (3.1.2),
+and review notes that say where the plans are and how to restore (2.1(b), the
+2026-11-07 "could not locate the in-app purchases"). An outside purchase link is
+a 3.1.1 rejection whether or not the app sells anything.
 
 Standard library only; runs on Linux (metadata, source, URLs, plist and
 Mach-O string scans) and macOS (adds codesign/otool when present).
@@ -72,6 +79,8 @@ IOS_SOURCE_DIRS = (
     "cmux-next-ios/NotificationContent",
     "cmux-next-ios/NotificationService",
     "Packages/iOS/CmuxConversation/Sources",
+    # Settings > Plan and the plans screen: the App Store subscriptions.
+    "Packages/iOS/CmuxMobileBilling/Sources",
 )
 LOCALIZABLE_GLOB = "cmux-next-ios/CmuxMobileKit/Sources/*/Resources/Localizable.xcstrings"
 # The NEXT app's App Store review package (metadata, screenshots, reviewer
@@ -99,6 +108,8 @@ REQUIRED_REASON_APIS = {
 METADATA_DIR = "cmux-next-ios/AppStoreReview/metadata"
 SCREENSHOTS_DIR = "cmux-next-ios/AppStoreReview/screenshots/en-US"
 HISTORY_FILE = "cmux-next-ios/AppStoreReview/rejection-history.json"
+# The App Review notes App Store Connect gets (asc_review_package.py sync-notes).
+REVIEW_NOTES = "cmux-next-ios/AppStoreReview/review-notes-asc.txt"
 # The public App Store build: project.yml's AppStore configuration, bundle
 # com.cmux.app (the record the classic app used; NEXT replaces it as an update).
 APPSTORE_CONFIG = "AppStore"
@@ -112,6 +123,9 @@ LANE_BUNDLE_ID = {"appstore": APPSTORE_BUNDLE_ID, "internal": "dev.cmux.app.inte
 APPSTORE_ENTITLEMENTS = (
     "cmux-next-ios/App/CmuxMobileApp-TestFlight.entitlements",
     "cmux-next-ios/App/CmuxMobileApp-TestFlight-Group.entitlements",
+    # The same sets with the universal links (CMUX_MOBILE_ASSOCIATED_DOMAINS=YES).
+    "cmux-next-ios/App/CmuxMobileApp-TestFlight-Links.entitlements",
+    "cmux-next-ios/App/CmuxMobileApp-TestFlight-Links-Group.entitlements",
 )
 UITEST_DIR = "cmux-next-ios/UITests"
 STORE_RULES = "scripts/cmux-next/check-app-store-rules.py"
@@ -302,6 +316,9 @@ class Lint:
                              f"external purchase or billing route in an iOS source: {external.search(line).group(0)}",
                              f"{self.rel(path)}:{lineno}")
 
+        # 3.1.1 / 3.1.2 / 2.1(b): what an app that sells subscriptions owes the reviewer.
+        self.check_subscriptions(texts)
+
         # 2.5.2: no downloaded or interpreted executable code.
         exec_patterns = {
             r"\bdlopen\(": "dlopen",
@@ -367,6 +384,54 @@ class Lint:
         return host.endswith((".ts.net", ".internal", ".local", "apple.com", "icloud.com", "googleapis.com",
                               ".workers.dev", ".vercel.app", "sentry.io"))
 
+    def check_subscriptions(self, texts: dict[Path, str]) -> None:
+        """An app that sells through StoreKit must let a user restore (3.1.1),
+        show the renewal terms with Terms of Use and Privacy Policy links where
+        it sells (3.1.2), link its Terms in the store listing (3.1.2), and tell
+        the reviewer where the plans are (2.1(b): on 2026-11-07 App Review
+        could not locate the in-app purchases). Nothing applies to an app
+        without StoreKit."""
+        storekit = [path for path, text in texts.items()
+                    if re.search(r"^\s*import StoreKit\b", text, re.M)]
+        if not storekit:
+            return
+        self.ran("subscriptions")
+        joined = "\n".join(texts.values())
+        where = self.rel(storekit[0])
+        if not re.search(r"\"Restore Purchases\"", joined) or not re.search(r"\bAppStore\.sync\(\)|restorePurchases\(", joined):
+            self.add("iap.restore", "3.1.1", "blocker",
+                     "the app sells through StoreKit but has no \"Restore Purchases\" control that runs AppStore.sync()", where)
+        missing = [label for label, pattern in (
+            ("the auto-renewal terms", r"renew automatically|auto-renew"),
+            ("a Terms of Use link", r"cmux\.com/terms-of-service"),
+            ("a Privacy Policy link", r"cmux\.com/privacy-policy"),
+        ) if not re.search(pattern, joined)]
+        if missing:
+            self.add("iap.disclosure", "3.1.2", "blocker",
+                     f"the app sells subscriptions but its sources lack {', '.join(missing)}", where)
+        if not re.search(r"manageSubscriptionsSheet|showManageSubscriptions", joined):
+            self.add("iap.manage", "3.1.2", "warning",
+                     "no in-app way to manage the subscription (manageSubscriptionsSheet)", where)
+        descriptions = [body.get("description", "") for body in self.metadata().values() if isinstance(body, dict)]
+        if descriptions and not any(re.search(r"terms-of-service|/terms\b|EULA", d, re.I) for d in descriptions):
+            self.add("metadata.subscription-terms", "3.1.2", "blocker",
+                     "the app sells subscriptions but no store description links its Terms of Use (EULA)", METADATA_DIR)
+        notes_path = self.root / REVIEW_NOTES
+        notes = notes_path.read_text(errors="ignore") if notes_path.is_file() else ""
+        notes = "\n".join(line for line in notes.splitlines() if not line.startswith("##"))
+        problems = []
+        if re.search(r"sells? (no|nothing)|no (digital goods|in-app purchases?)|no StoreKit", notes, re.I):
+            problems.append("says the app sells nothing")
+        for label in ('"Plan"', '"Restore Purchases"', '"Manage Subscription"'):
+            if label not in notes:
+                problems.append(f"never names {label}")
+        if not re.search(r"Sandbox", notes):
+            problems.append("does not say purchases are made in the Sandbox")
+        if problems:
+            self.add("iap.review-notes", "2.1(b)", "blocker",
+                     f"the review notes ({REVIEW_NOTES}) {'; '.join(problems)}: the reviewer must find the subscriptions "
+                     "(Settings > \"Plan\") and Restore Purchases", REVIEW_NOTES)
+
     def check_apple_sign_in_ships(self) -> None:
         """Debug builds hide the Apple button (CMUX_MOBILE_APPLE_SIGN_IN = NO);
         this lane's shipping configuration (AppStore, or TestFlight for the
@@ -384,8 +449,9 @@ class Lint:
             self.add("signin.apple-shipping", "4.8", "blocker",
                      f"the {name} configuration does not set CMUX_MOBILE_APPLE_SIGN_IN to YES, so the shipped app "
                      "hides Sign in with Apple", PROJECT_YML)
-        ents = [m.group(1) for b in blocks
-                for m in re.finditer(r"^\s*CMUX_MOBILE_ENTITLEMENTS_(?:NO|YES):\s*\"?([\w./-]+)", b, re.M)]
+        ents = [rel for b in blocks
+                for m in re.finditer(r"^\s*CMUX_MOBILE_ENTITLEMENTS_(?:NO|YES):\s*\"?([^\s\"]+)", b, re.M)
+                for rel in entitlement_files(text, m.group(1))]
         if not ents:
             self.add("signin.apple-entitlement", "4.8", "blocker",
                      f"the {name} configuration names no entitlements file, so nothing shows it carries Sign in with Apple",
@@ -778,6 +844,19 @@ def fetch(url: str) -> dict:
         "looks_like_error": bool(re.search(r"\b(404|not found|page not found|500|error)\b", title, re.I)),
         "has_contact": bool(re.search(r"[\w.+-]+@[\w-]+\.[\w.]+", text) or "<form" in body.lower() or "mailto:" in body.lower()),
     }
+
+
+def entitlement_files(text: str, value: str) -> list[str]:
+    """The entitlements files a CMUX_MOBILE_ENTITLEMENTS_* value can sign with:
+    the path itself, or for a switch such as
+    `$(CMUX_MOBILE_DISTRIBUTION_ENTITLEMENTS_$(CMUX_MOBILE_ASSOCIATED_DOMAINS))`
+    every `<prefix>_NO` / `<prefix>_YES` path project.yml sets, since the build
+    may pick either. A reference that resolves to nothing yields nothing."""
+    switch = re.fullmatch(r"\$\((\w+)_\$\(\w+\)\)", value)
+    if not switch:
+        return [value] if re.fullmatch(r"[\w./-]+", value) else []
+    prefix = re.escape(switch.group(1))
+    return [m.group(1) for m in re.finditer(rf"^\s*{prefix}_(?:NO|YES):\s*\"?([\w./-]+)", text, re.M)]
 
 
 def config_block(text: str, name: str) -> str | None:

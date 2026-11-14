@@ -183,12 +183,78 @@ class AppReviewGateTests(unittest.TestCase):
               plistlib.dumps({"aps-environment": "production"}).decode())
         self.assertIn("signin.apple-entitlement", self.rules(self.run_lint()))
 
-    def test_no_billing_rules_remain(self) -> None:
-        # The NEXT app sells nothing: StoreKit alone must not ask for plans,
-        # Restore Purchases or subscription links.
-        write(self.root, "cmux-next-ios/App/Store.swift", "import StoreKit\n")
-        rules = {f.rule for f in self.run_lint().findings}
-        self.assertFalse({r for r in rules if r.startswith(("iap.restore", "iap.disclosure", "metadata.subscription"))}, rules)
+    def write_billing(self, notes: str | None = None, plans: str | None = None) -> None:
+        """A selling app: StoreKit, the plans screen and review notes as the real tree has them."""
+        write(self.root, "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBilling/LiveStoreKitClient.swift",
+              "import StoreKit\nfunc restore() async throws { try await AppStore.sync() }\n")
+        write(self.root, "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBillingUI/MobilePlansView.swift", plans if plans is not None else (
+            'import StoreKit\nButton("Restore Purchases") { restorePurchases() }\n'
+            'let v = x.manageSubscriptionsSheet(isPresented: $m)\n'
+            'let terms = URL(string: "https://cmux.com/terms-of-service")!\n'
+            'let privacy = URL(string: "https://cmux.com/privacy-policy")!\n'
+            'let d = "Subscriptions renew automatically at the end of each month."\n'))
+        write(self.root, "cmux-next-ios/AppStoreReview/review-notes-asc.txt", notes if notes is not None else (
+            '## comment\nSettings > "Plan" opens "Plans". "Subscribe" buys in the Sandbox.\n'
+            '"Restore Purchases" is there; "Manage Subscription" opens Apple\'s settings.\n'))
+        write(self.root, "cmux-next-ios/AppStoreReview/metadata/version/1.0.0/en-US.json",
+              json.dumps({"description": "cmux for iPhone. Terms of Use: https://cmux.com/terms-of-service",
+                          "supportUrl": "https://cmux.com/support"}))
+
+    def iap_rules(self) -> set[str]:
+        return {f.rule for f in self.run_lint().findings if f.rule.startswith(("iap.", "metadata.subscription"))}
+
+    def test_an_app_without_storekit_has_no_subscription_rules(self) -> None:
+        self.assertEqual(self.iap_rules(), set())
+
+    def test_a_selling_app_with_restore_terms_and_notes_passes(self) -> None:
+        self.write_billing()
+        self.assertEqual(self.iap_rules(), set())
+        self.assertIn("subscriptions", self.run_lint().checked)
+
+    def test_storekit_without_restore_or_renewal_terms_blocks(self) -> None:
+        self.write_billing(plans="import StoreKit\nText(\"Plans\")\n")
+        write(self.root, "Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBilling/LiveStoreKitClient.swift", "import StoreKit\n")
+        rules = self.iap_rules()
+        self.assertTrue({"iap.restore", "iap.disclosure"} <= rules, rules)
+        self.assertIn("iap.manage", {f.rule for f in self.run_lint().findings if f.severity == "warning"})
+
+    def test_review_notes_that_say_the_app_sells_nothing_block(self) -> None:
+        self.write_billing(notes="Payments: the app sells no digital goods and has no purchase links.\n")
+        self.assertIn("iap.review-notes", self.rules(self.run_lint()))
+
+    def test_review_notes_must_name_the_plan_row_and_restore(self) -> None:
+        self.write_billing(notes='Settings > "Plan" opens the plans. Buy in the Sandbox.\n')
+        messages = [f.message for f in self.run_lint().findings if f.rule == "iap.review-notes"]
+        self.assertEqual(len(messages), 1)
+        self.assertIn('"Restore Purchases"', messages[0])
+
+    def test_a_listing_without_a_terms_link_blocks_a_selling_app(self) -> None:
+        self.write_billing()
+        write(self.root, "cmux-next-ios/AppStoreReview/metadata/version/1.0.0/en-US.json",
+              json.dumps({"description": "cmux for iPhone", "supportUrl": "https://cmux.com/support"}))
+        self.assertIn("metadata.subscription-terms", self.rules(self.run_lint()))
+
+    def test_a_switched_entitlements_setting_judges_every_file_it_can_pick(self) -> None:
+        # project.yml's AppStore configuration picks its entitlements by
+        # CMUX_MOBILE_ASSOCIATED_DOMAINS; both files must carry Sign in with Apple.
+        project = (self.root / "cmux-next-ios/project.yml").read_text()
+        project = project.replace(
+            "    settings:\n      base:\n        CMUX_MOBILE_APPLE_SIGN_IN: \"NO\"\n",
+            "    settings:\n      base:\n        CMUX_MOBILE_APPLE_SIGN_IN: \"NO\"\n"
+            "        CMUX_MOBILE_DISTRIBUTION_ENTITLEMENTS_NO: App/CmuxMobileApp-TestFlight.entitlements\n"
+            "        CMUX_MOBILE_DISTRIBUTION_ENTITLEMENTS_YES: App/CmuxMobileApp-TestFlight-Links.entitlements\n", 1)
+        project = project.replace(
+            "        AppStore:\n          CMUX_MOBILE_ENTITLEMENTS_NO: App/CmuxMobileApp-TestFlight.entitlements\n",
+            "        AppStore:\n          CMUX_MOBILE_ENTITLEMENTS_NO: "
+            "$(CMUX_MOBILE_DISTRIBUTION_ENTITLEMENTS_$(CMUX_MOBILE_ASSOCIATED_DOMAINS))\n", 1)
+        write(self.root, "cmux-next-ios/project.yml", project)
+        lint = self.run_lint()
+        self.assertIn("signin.apple-entitlement", self.rules(lint))
+        self.assertTrue(any("TestFlight-Links.entitlements" in f.where for f in lint.findings))
+        write(self.root, "cmux-next-ios/App/CmuxMobileApp-TestFlight-Links.entitlements",
+              plistlib.dumps({"aps-environment": "production", "com.apple.developer.applesignin": ["Default"],
+                              "com.apple.developer.associated-domains": ["applinks:cmux.com"]}).decode())
+        self.assertEqual(self.rules(self.run_lint()), set())
 
     def test_history_detector_that_vanished_blocks(self) -> None:
         write(self.root, "cmux-next-ios/AppStoreReview/rejection-history.json",
@@ -428,7 +494,6 @@ class RealTreeTests(unittest.TestCase):
                              ("-only-testing:CmuxMobileAppUITests/AppReviewGateUITests", workflow),
                              ("-scheme CmuxMobileApp ", workflow)):
             self.assertTrue(needle in text, needle)
-        self.assertFalse("Billing" in tests or "StoreKit" in tests)
 
 
 if __name__ == "__main__":
