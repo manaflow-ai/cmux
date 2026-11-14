@@ -63,7 +63,7 @@ fn jitter(state: &mut u64) -> u64 {
 
 #[test]
 fn stationary_jitter_independent_seeds_do_not_collapse_over_a_minute() {
-    for seed in [1, 7, 31, 0x1234_5678, 20_261_114, 20_261_415_00, 20_261_416_00, u64::MAX] {
+    for seed in [1, 7, 31, 0x1234_5678, 20_261_114, 2_026_141_500, 2_026_141_600, u64::MAX] {
         for fps in [30, 60] {
             let mut cc = controller();
             let initial = cc.target_bps();
@@ -132,4 +132,48 @@ fn queue_growth_survives_transport_and_arrival_clock_wrap() {
     let delays = [(25_000, 25_000), (35_000, 25_000), (45_000, 25_000), (55_000, 25_000)];
     trace(&mut cc, u64::from(u32::MAX) - 30_000, 100_000, u16::MAX - 1, &delays);
     assert!(cc.target_bps() < initial);
+}
+
+#[test]
+fn a_path_change_discards_pending_delay_qualification() {
+    let mut cc = controller();
+    let initial = cc.target_bps();
+    trace(&mut cc, 0, 100_000, 0, &[(25_000, 25_000), (35_000, 25_000), (45_000, 25_000)]);
+    assert_eq!(cc.target_bps(), initial);
+    cc.on_path_changed(PathKind::DirectLan);
+    trace(&mut cc, 400_000, 100_000, 3, &[(50_000, 25_000), (60_000, 25_000), (70_000, 25_000)]);
+    assert_eq!(cc.target_bps(), initial, "old-path evidence must not qualify the new path");
+    cc.on_path_changed(PathKind::DoRelay);
+    assert!(cc.target_bps() <= CcConfig::default().relay_max_bps);
+}
+
+#[test]
+fn old_fragments_repairs_and_empty_feedback_do_not_qualify_overuse() {
+    let mut cc = controller();
+    let initial = cc.target_bps();
+    trace(&mut cc, 0, 100_000, 0, &[(25_000, 25_000), (35_000, 25_000)]);
+    // Install every shard at its send time, then deliver the third burst's head.
+    cc.on_sent(2, 200_000);
+    cc.on_sent(900, 200_000);
+    cc.on_sent(901, 200_000);
+    cc.on_feedback(&[Arrival { transport_seq: 2, arrival_us: 245_000 }], 0.0, 270_000);
+    assert_eq!(cc.target_bps(), initial);
+    cc.on_retransmitted(901);
+    cc.on_feedback(&[Arrival { transport_seq: 900, arrival_us: 250_000 }], 0.0, 280_000);
+    cc.on_feedback(&[Arrival { transport_seq: 901, arrival_us: 280_000 }], 0.0, 310_000);
+    cc.on_feedback(&[], 0.0, 320_000);
+    assert_eq!(cc.target_bps(), initial);
+    trace(&mut cc, 400_000, 100_000, 3, &[(55_000, 25_000)]);
+    assert!(cc.target_bps() < initial, "the next real burst still completes qualification");
+}
+
+#[test]
+fn delay_qualification_uses_send_time_instead_of_feedback_spacing() {
+    let mut cc = controller();
+    let initial = cc.target_bps();
+    let delays =
+        [(25_000, 25_000), (35_000, 25_000), (45_000, 25_000), (55_000, 25_000), (65_000, 25_000)];
+    let targets = trace(&mut cc, 0, 4_000, 0, &delays);
+    assert_eq!(targets[3].1, initial, "three bursts span only 8 ms despite spaced feedback");
+    assert!(targets[4].1 < initial, "the next burst establishes a longer growth interval");
 }
