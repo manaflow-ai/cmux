@@ -38,6 +38,10 @@ cr login --device-auth
 cr login --code [code-or-url]
 cr logout`}</CodeBlock>
 
+      <DocsHeading level={3} id="browser-sign-in">{t("browserSignInTitle")}</DocsHeading>
+      <p>{t("browserSignInDesc")}</p>
+      <p>{t("browserSignInCode")}</p>
+
       <DocsHeading level={2} id="cr">{t("crTitle")}</DocsHeading>
       <p>{t("crDesc")}</p>
       <CodeBlock lang="bash">{`cr                             # account and usage summary
@@ -57,7 +61,18 @@ cr login [--api-key <key>] [--device-auth] [--code [code-or-url]]
 cr logout
 cr doctor
 cr upgrade`}</CodeBlock>
+      <DocsHeading level={3} id="add-multiple-accounts">{t("multipleAccountsTitle")}</DocsHeading>
+      <p>{t("multipleAccountsTeam")}</p>
+      <CodeBlock lang="bash">{`cr org current
+cr org list
+cr org switch <name-or-id>`}</CodeBlock>
+      <p>{t("multipleAccountsAdd")}</p>
+      <CodeBlock lang="bash">{`cr add codex
+cr add claude --label <name>`}</CodeBlock>
+      <p>{t("multipleAccountsIdentity")}</p>
       <p>{t("crAddCodex")}</p>
+      <p>{t("multipleAccountsVerify")}</p>
+      <CodeBlock lang="bash">{`cr accounts`}</CodeBlock>
 
       <DocsHeading level={2} id="cmux-coderouter">{t("cmuxTitle")}</DocsHeading>
       <p>{t("cmuxDesc")}</p>
