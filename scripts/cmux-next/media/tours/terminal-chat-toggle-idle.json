@@ -44,6 +44,18 @@
       "shot": false
     },
     {
+      "title": "Arm the chat open trace",
+      "rpc": {
+        "method": "debug.chat_open_trace",
+        "params": {
+          "action": "arm"
+        }
+      },
+      "wait": 0.1,
+      "shot": false,
+      "optional": "debug.chat_open_trace"
+    },
+    {
       "title": "Toggle Terminal and Chat: the reported session opens as its View Only chat",
       "cmux": [
         "action",
@@ -51,8 +63,24 @@
         "palette.toggleTerminalChat",
         "--focus"
       ],
-      "wait": 4.0,
+      "wait": 0.2,
       "shot": false
+    },
+    {
+      "title": "The chat open trace (until the chat shows, then 1 s of frames)",
+      "rpc": {
+        "method": "debug.chat_open_trace",
+        "params": {
+          "action": "wait",
+          "timeout_ms": 15000,
+          "settle_ms": 1000,
+          "page_timing": true
+        }
+      },
+      "record": "file",
+      "wait": 2.0,
+      "shot": false,
+      "optional": "debug.chat_open_trace"
     },
     {
       "title": "Before: the chat painted its newest turn",
@@ -447,386 +475,6 @@
     },
     {
       "title": "Run 10 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 11 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 11 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 12 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 12 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 13 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 13 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 14 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 14 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 15 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 15 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 16 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 16 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 17 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 17 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 18 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 18 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 19 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 19 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 20 (a) idle: Opt-Cmd-` chat to terminal, frames around it",
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "frame_strip",
-          "key": "`",
-          "modifiers": [
-            "option",
-            "command"
-          ],
-          "above": true,
-          "duration_ms": 600
-        }
-      },
-      "record": "file",
-      "wait": 0.3,
-      "shot": false
-    },
-    {
-      "title": "Run 20 (b) idle: Opt-Cmd-` terminal to chat, frames around it",
       "rpc": {
         "method": "debug.new_tab",
         "params": {
