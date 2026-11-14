@@ -562,6 +562,15 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "5f",
+        name: "v2.pr05f.tail_replay",
+        done_when: "A live folders sid reads 100 retained steps within 1.2x at 2,000 folders against 5, with pooled samples within 2x.",
+        measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
         pr: "5d",
         name: "v2.pr05d.origin_state_ops",
         done_when: "A peer down, stale and connected transition writes three origin records and no row operations; god 500 rows stays within 1.2x of 20.",
