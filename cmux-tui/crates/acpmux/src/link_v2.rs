@@ -344,9 +344,11 @@ impl AsyncWrite for Writer {
             let want = if this.frame.len() < HEADER_BYTES {
                 HEADER_BYTES - this.frame.len()
             } else {
-                let mut header = [0_u8; HEADER_BYTES];
-                header.copy_from_slice(&this.frame[..HEADER_BYTES]);
-                let body = u32::from_be_bytes(header) as usize;
+                // Past the header's length here; a zero length is refused below.
+                let body = this
+                    .frame
+                    .first_chunk::<HEADER_BYTES>()
+                    .map_or(0, |header| u32::from_be_bytes(*header) as usize);
                 if body == 0 || body + HEADER_BYTES > acpmux_core::wire::MAX_FRAME_BYTES {
                     return Poll::Ready(Err(io::Error::new(
                         io::ErrorKind::InvalidData,
@@ -356,11 +358,19 @@ impl AsyncWrite for Writer {
                 HEADER_BYTES + body - this.frame.len()
             };
             let n = want.min(data.len() - taken);
-            this.frame.extend_from_slice(&data[taken..taken + n]);
+            this.frame.extend_from_slice(data.get(taken..taken + n).unwrap_or_default());
             taken += n;
             if this.frame.len() > HEADER_BYTES && n == want {
                 let frame = std::mem::take(&mut this.frame);
-                let line = frame_line(frame[HEADER_BYTES], &frame[HEADER_BYTES + 1..])?;
+                let (Some(&kind), Some(payload)) =
+                    (frame.get(HEADER_BYTES), frame.get(HEADER_BYTES + 1..))
+                else {
+                    return Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "a frame without its kind",
+                    )));
+                };
+                let line = frame_line(kind, payload)?;
                 this.slot.put(this.generation, line)?;
                 // The slot is full now: the next frame's bytes wait for its room.
                 break;
@@ -431,7 +441,7 @@ impl AsyncRead for Reader {
         if state.offset < state.frame.len() {
             let n = buf.remaining().min(state.frame.len() - state.offset);
             let start = state.offset;
-            buf.put_slice(&state.frame[start..start + n]);
+            buf.put_slice(state.frame.get(start..start + n).unwrap_or_default());
             state.offset += n;
             if let Some(shared) = &inbound.counters {
                 shared.counters.held_bytes.fetch_sub(n as u64, Ordering::Relaxed);
