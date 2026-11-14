@@ -13,6 +13,8 @@ use cmux_encode::I420;
 
 pub const CELL_W: usize = 9;
 pub const CELL_H: usize = 18;
+/// Frames between two pages of the page scene (about 7 a second at 30 fps).
+pub const PAGE_FRAMES: u64 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SceneKind {
@@ -21,11 +23,20 @@ pub enum SceneKind {
     Drag,
     Video,
     Noise,
+    /// A full screen of new text every `PAGE_FRAMES` frames (paging through a pager,
+    /// a burst of output): the large change that sets off scene-change keyframes.
+    Page,
 }
 
 impl SceneKind {
-    pub const ALL: [SceneKind; 5] =
-        [SceneKind::Scroll, SceneKind::Drag, SceneKind::Video, SceneKind::Typing, SceneKind::Noise];
+    pub const ALL: [SceneKind; 6] = [
+        SceneKind::Scroll,
+        SceneKind::Drag,
+        SceneKind::Video,
+        SceneKind::Typing,
+        SceneKind::Noise,
+        SceneKind::Page,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -34,6 +45,7 @@ impl SceneKind {
             SceneKind::Drag => "drag",
             SceneKind::Video => "video",
             SceneKind::Noise => "noise",
+            SceneKind::Page => "page",
         }
     }
 
@@ -43,7 +55,7 @@ impl SceneKind {
 
     /// Scenes whose luma PSNR says how legible text stays.
     pub fn is_text(self) -> bool {
-        matches!(self, SceneKind::Scroll | SceneKind::Typing | SceneKind::Drag)
+        matches!(self, SceneKind::Scroll | SceneKind::Typing | SceneKind::Drag | SceneKind::Page)
     }
 }
 
@@ -251,6 +263,11 @@ impl Scene {
                 }
                 self.cursor = (self.grid[row].len(), row);
             }
+            SceneKind::Page if self.frame % PAGE_FRAMES == 0 => {
+                for line in &mut self.grid {
+                    *line = text_line(&mut self.rng, cols);
+                }
+            }
             _ => {}
         }
         self.render();
@@ -304,7 +321,7 @@ impl Scene {
     fn render(&mut self) {
         let mut pic = std::mem::replace(&mut self.pic, I420::new(0, 0));
         match self.kind {
-            SceneKind::Scroll | SceneKind::Typing => {
+            SceneKind::Scroll | SceneKind::Typing | SceneKind::Page => {
                 self.draw_terminal(&mut pic);
                 if self.kind == SceneKind::Typing {
                     let (cx, cy) = self.cursor;
