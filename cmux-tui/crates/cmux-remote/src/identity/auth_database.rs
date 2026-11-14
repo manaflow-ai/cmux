@@ -983,13 +983,13 @@ impl AuthState {
     }
 }
 
-struct InvitationRecord {
+pub(super) struct InvitationRecord {
     secret: [u8; 32],
-    expires_at_unix: u64,
+    pub(super) expires_at_unix: u64,
     route_hints: Vec<String>,
-    claimed_by: Option<String>,
+    pub(super) claimed_by: Option<String>,
     /// Only this device may claim the invitation; it enrolls with no approval.
-    bound_device: Option<BoundDevice>,
+    pub(super) bound_device: Option<BoundDevice>,
 }
 
 struct PendingDecision {
